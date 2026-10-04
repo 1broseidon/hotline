@@ -823,16 +823,16 @@ async fn a_peer_session_that_has_gone_quiet_is_stopped_and_a_deleted_teammate_ta
     assert_eq!(lock(&room.peers.sessions).len(), 1);
 
     let now = now_ms();
-    room.sweep_peers(now);
+    room.sweep_threads(now);
     assert_eq!(
         lock(&room.peers.sessions).len(),
         1,
         "a session used a moment ago is not idle"
     );
     for live in lock(&room.peers.sessions).values() {
-        *lock(&live.last_used) = now - IDLE_MS - 1;
+        *lock(&live.last_used) = now - crate::thread::QUIET_MS - 1;
     }
-    room.sweep_peers(now);
+    room.sweep_threads(now);
     assert!(lock(&room.peers.sessions).is_empty());
 
     room.deliver("ada", "bob", "and now?").await.unwrap();
@@ -1616,5 +1616,93 @@ async fn collaboration_consent_covers_separate_operator_turns_and_both_intents()
                 .count(),
             1
         );
+    }
+}
+
+/// A card raised in a peer turn is the person's to answer: it is counted for
+/// the teammate answering, answered through `peers.answer_permission` while
+/// the turn is behind it, and the turn goes on.
+#[tokio::test]
+async fn a_card_raised_in_a_peer_turn_is_answerable_while_the_turn_waits() {
+    let gate = Arc::new(tokio::sync::Semaphore::new(1));
+    let mut script = vec![Update::Permission {
+        request_id: "r1".to_string(),
+        title: "Run ls".to_string(),
+        options: vec![crate::contract::PermissionOption {
+            option_id: "once".to_string(),
+            name: "Allow once".to_string(),
+            kind: None,
+        }],
+    }];
+    script.extend(answers("a1", "aye"));
+    let agents = Fake::new(Scripted::new(script).gated(gate.clone()));
+    agents.awaiting("r1");
+    let room = room("peer-permission-answer", agents);
+
+    let asking = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "Bob", "may I look?").await })
+    };
+    for _ in 0..500 {
+        if thread_of(&room, "ada~bob")
+            .iter()
+            .any(|event| kind_of(event) == "permission")
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert!(room.threads_waiting("bob"), "the roster row says Bob waits");
+    assert!(!room.threads_waiting("ada"));
+
+    assert!(
+        room.answer_peer_permission("ada~bob", "nope", "once")
+            .await
+            .is_err()
+    );
+    room.answer_peer_permission("ada~bob", "r1", "once")
+        .await
+        .unwrap();
+    let card = thread_of(&room, "ada~bob")
+        .into_iter()
+        .find(|event| kind_of(event) == "permission")
+        .unwrap();
+    assert_eq!(card["decision"], "once", "{card}");
+    assert_eq!(card["decidedOptionName"], "Allow once");
+    assert!(
+        room.answer_peer_permission("ada~bob", "r1", "once")
+            .await
+            .is_err(),
+        "a card is answered once"
+    );
+    assert!(!room.threads_waiting("bob"));
+
+    gate.add_permits(10);
+    let result = asking.await.unwrap().unwrap();
+    assert_eq!(result.reply, "aye");
+}
+
+/// What two teammates said to each other is found by either of them, and the
+/// hit names the thread; a rebuild keeps it.
+#[tokio::test]
+async fn a_pair_thread_is_searchable_by_both_teammates_and_survives_a_rebuild() {
+    let room = room(
+        "peer-search",
+        Fake::new(Scripted::new(answers("a1", "the winch is jammed"))),
+    );
+    room.deliver("ada", "Bob", "what about the capstan?")
+        .await
+        .unwrap();
+    for (who, word) in [("ada", "capstan"), ("bob", "capstan"), ("ada", "winch")] {
+        let found =
+            crate::store::search::search_teammate(room.log.root(), who, word, None).unwrap();
+        let text = found.to_string();
+        assert!(text.contains("pair:ada~bob"), "{who} {word}: {text}");
+    }
+    for who in ["ada", "bob"] {
+        lock(&room.indexer).as_mut().unwrap().reindex(who).unwrap();
+        let found =
+            crate::store::search::search_teammate(room.log.root(), who, "capstan", None).unwrap();
+        assert!(found.to_string().contains("pair:ada~bob"), "{who}: {found}");
     }
 }

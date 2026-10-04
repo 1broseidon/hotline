@@ -413,7 +413,7 @@ mod tests {
 
     fn quick() -> Arc<Leases> {
         Leases::with(Timing {
-            idle: Duration::from_millis(150),
+            idle: Duration::from_millis(400),
             wait: Duration::from_millis(100),
         })
     }
@@ -464,13 +464,13 @@ mod tests {
     async fn a_thread_that_stops_using_it_lets_go_but_a_call_in_flight_is_never_taken() {
         let leases = quick();
         let call = leases.take("ada", &holder("main")).await.unwrap();
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
         assert!(
             leases.take("ada", &holder("side")).await.is_err(),
             "a call that has not finished keeps it however long it takes"
         );
         drop(call);
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(600)).await;
         assert!(leases.take("ada", &holder("side")).await.is_ok());
     }
 
@@ -537,7 +537,11 @@ mod tests {
     #[tokio::test]
     async fn the_gate_forwards_with_the_computers_own_bearer_and_serializes_calls() {
         let (computer, seen) = upstream().await;
-        let leases = quick();
+        // Idle far beyond the test, so a slow machine cannot expire the hold.
+        let leases = Leases::with(Timing {
+            idle: Duration::from_secs(30),
+            wait: Duration::from_millis(100),
+        });
         let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let gate = |key: &'static str| {
             let leases = leases.clone();

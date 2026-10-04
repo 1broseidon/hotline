@@ -9,9 +9,11 @@
 //! roster's `waiting`; one that nobody may answer is expired on the spot and
 //! handed back, so the agent behind it is refused instead of left waiting.
 //!
-//! Sides, runs and calls are written here. The DM's tape keeps its own door
-//! ([`Room::write_value`]) until it is ported: chapters index it, and the turn
-//! loop pushes its cards. Pairs are not written through here yet.
+//! Sides, runs, calls and pairs are written here. A pair's `persona_id` is the
+//! teammate who answers in it: that teammate is the one its cards are pushed
+//! and counted for, and its words are indexed under both participants. The
+//! DM's tape keeps its own door ([`Room::write_value`]) until it is ported:
+//! chapters index it, and the turn loop pushes its cards.
 //!
 //! Unread is not kept here: a client counts it against each thread's newest
 //! line, so a write's part is only to land one and to wake the roster row.
@@ -19,6 +21,7 @@
 use super::{Room, now_ms};
 use crate::contract::PermissionOption;
 use crate::driver::Driver;
+use crate::paths::thread_participants;
 use crate::thread::{Answer, Policy, ThreadId, ThreadKind};
 use serde::Serialize;
 use serde_json::Value;
@@ -125,11 +128,7 @@ impl Threads<'_> {
                 self.room.write_value(persona_id, &event);
                 return Written::default();
             }
-            ThreadKind::Side | ThreadKind::Run | ThreadKind::Call => {}
-            ThreadKind::Pair => {
-                eprintln!("the {thread} is not written through the shared path yet");
-                return Written::default();
-            }
+            ThreadKind::Side | ThreadKind::Run | ThreadKind::Call | ThreadKind::Pair => {}
         }
         let Some(stream) = thread.stream() else {
             return Written::default();
@@ -140,7 +139,15 @@ impl Threads<'_> {
         }
         let policy = Policy::of(thread.kind);
         if policy.surface.index {
-            self.index(persona_id, thread, &event);
+            // A pair's words belong to both of its teammates: either finds
+            // them. Every other thread is one teammate's.
+            match (thread.kind, thread_participants(&thread.key)) {
+                (ThreadKind::Pair, Some((a, b))) => {
+                    self.index(a, thread, &event);
+                    self.index(b, thread, &event);
+                }
+                _ => self.index(persona_id, thread, &event),
+            }
         }
         let mut written = Written::default();
         if !is_card(&event) {
@@ -209,7 +216,7 @@ impl Room {
     /// Whether one of the teammate's threads other than its DM has a card
     /// waiting on the person, for the roster row.
     pub fn threads_waiting(&self, persona_id: &str) -> bool {
-        self.side_cards_waiting(persona_id)
+        self.side_cards_waiting(persona_id) || self.peer_cards_waiting(persona_id)
     }
 }
 

@@ -472,6 +472,17 @@ impl RoomHandle for Desk {
             .await
     }
 
+    async fn peers_answer_permission(
+        &self,
+        key: &str,
+        request_id: &str,
+        option_id: &str,
+    ) -> Result<(), String> {
+        self.room
+            .answer_peer_permission(key, request_id, option_id)
+            .await
+    }
+
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta> {
         self.room.subscribe_deltas()
     }

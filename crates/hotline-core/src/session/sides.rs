@@ -1232,7 +1232,7 @@ fn last_at(events: &[Value]) -> i64 {
 
 /// Whether a card in the thread is waiting on the person: a permission, or a
 /// request the teammate parked on them and went on.
-fn waiting_on(events: &[Value]) -> bool {
+pub(super) fn waiting_on(events: &[Value]) -> bool {
     events
         .iter()
         .any(|event| match event.get("kind").and_then(Value::as_str) {

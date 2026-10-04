@@ -284,6 +284,15 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Side threads are unavailable on this room.".to_string())
     }
 
+    async fn peers_answer_permission(
+        &self,
+        _key: &str,
+        _request_id: &str,
+        _option_id: &str,
+    ) -> Result<(), String> {
+        Err("Peer threads are unavailable on this room.".to_string())
+    }
+
     /// Text as an agent writes it, for a tape subscription to forward. Never
     /// written to a tape: the durable line lands when the message is whole.
     fn subscribe_deltas(&self) -> broadcast::Receiver<StreamDelta>;

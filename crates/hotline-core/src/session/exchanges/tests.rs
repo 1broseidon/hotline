@@ -1143,3 +1143,151 @@ async fn restart_does_not_replay_an_interrupted_human_answer_turn() {
         "only the caller hears the uncertainty; the recipient's answer turn is not replayed"
     );
 }
+
+#[test]
+fn a_request_saved_before_work_threads_still_loads_and_has_none() {
+    let old = json!({
+        "id": "r1", "from": "ada", "to": "bob", "message": "m",
+        "intent": "handoff", "phase": "running", "reply": "", "failed": false,
+        "started": true, "humanActions": []
+    });
+    let request: Request = serde_json::from_value(old).expect("an old request loads");
+    assert_eq!(request.thread, None);
+    assert_eq!(request.reply_thread, None);
+}
+
+/// Agents whose work threads are held at a gate while every other
+/// conversation answers at once.
+struct HeldWork {
+    gate: Arc<tokio::sync::Semaphore>,
+}
+#[async_trait::async_trait]
+impl Agents for HeldWork {
+    fn agent(
+        &self,
+        _persona: &Persona,
+        preamble: String,
+        _said: Vec<crate::driver::rig::Said>,
+        _tools: TeammateTools,
+        _mcp: Vec<crate::mcp::McpServer>,
+    ) -> Result<Arc<dyn Driver>, String> {
+        let work = preamble.contains("This is a work thread");
+        let (id, text) = if work {
+            ("work", "handoff finished")
+        } else {
+            ("dm", "dm answer")
+        };
+        let script = Scripted::new(vec![
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: id.into(),
+                text: text.into(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".into(),
+                usage: None,
+            },
+        ]);
+        Ok(Arc::new(if work {
+            script.gated(self.gate.clone())
+        } else {
+            script
+        }))
+    }
+    async fn complete(&self, _model: &str, _system: &str, _prompt: &str) -> Result<String, String> {
+        Err("not needed".into())
+    }
+}
+
+#[tokio::test]
+async fn a_target_answers_the_person_while_its_handoff_is_still_working() {
+    let log = scratch("handoff-beside-dm");
+    enrol(&log, &persona("ada"));
+    enrol(&log, &persona("bob"));
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Arc::new(HeldWork { gate: gate.clone() }),
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    let id = send(&room, "handoff").await;
+    until(|| room.sides("bob").iter().any(|side| side.working)).await;
+
+    // Bob's own conversation is open while the handoff holds its thread.
+    room.start("bob").await.unwrap();
+    room.prompt("bob", "how is the weather?", None, None)
+        .await
+        .unwrap();
+    until(|| {
+        room.tape("bob")
+            .iter()
+            .any(|v| v["kind"] == "agent" && v["text"] == "dm answer")
+    })
+    .await;
+    assert_eq!(
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        Phase::Running,
+        "the handoff is still working"
+    );
+    assert!(
+        room.tape("ada")
+            .iter()
+            .all(|v| v["cause"]["requestId"] != id),
+        "no result yet"
+    );
+
+    // It finishes, and the result goes to Ada's DM.
+    gate.add_permits(10);
+    done(&room, &id).await;
+    until(|| {
+        room.tape("ada")
+            .iter()
+            .any(|v| v["cause"]["requestId"] == id)
+    })
+    .await;
+    let result = room
+        .tape("ada")
+        .into_iter()
+        .find(|v| v["cause"]["requestId"] == id)
+        .unwrap();
+    assert_eq!(result["text"], "handoff finished");
+    assert!(
+        room.tape("bob")
+            .iter()
+            .all(|v| v["text"] != "handoff finished"),
+        "the handoff's words never entered Bob's DM"
+    );
+}
+
+#[tokio::test]
+async fn a_handoff_to_a_teammate_with_every_thread_mid_turn_waits_its_place() {
+    let log = scratch("handoff-full");
+    enrol(&log, &persona("ada"));
+    enrol(&log, &persona("bob"));
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Arc::new(HeldWork { gate: gate.clone() }),
+    );
+    room.allow_sender("bob", "ada").unwrap();
+    for title in ["One", "Two", "Three"] {
+        room.start_side("bob", title).await.unwrap();
+    }
+    assert_eq!(room.sides("bob").len(), crate::session::sides::MAX_LIVE);
+    let id = send(&room, "handoff").await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let request = room.exchange_pair("ada~bob").unwrap().requests.remove(0);
+    assert_eq!(
+        request.phase,
+        Phase::Queued,
+        "nothing is interrupted or refused"
+    );
+    assert_eq!(request.thread, None);
+    assert_eq!(room.sides("bob").len(), 3, "none was parked for it");
+
+    gate.add_permits(100);
+    done(&room, &id).await;
+    assert!(work_thread(&room, &id).len() > 10);
+}

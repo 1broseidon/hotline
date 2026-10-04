@@ -176,7 +176,10 @@ function SideList({
 
 	const row = (side: SideThreadSummary) => {
 		const state = sideState({ ...side, working: side.working || sides.some((one) => one.sideId === side.sideId && one.working) });
-		const line = side.status === "archived" ? (side.result ?? side.preview ?? "") : (side.preview ?? "");
+		const said = side.status === "archived" ? (side.result ?? side.preview ?? "") : (side.preview ?? "");
+		// A teammate's handoff sits among the thread's own work, marked by who it came from.
+		const from = side.openedBy && side.openedBy.personaId !== side.personaId ? `from ${side.openedBy.name}` : "";
+		const line = from === "" ? said : said === "" ? from : `${from} · ${said}`;
 		return (
 			<button
 				key={side.sideId}
@@ -184,7 +187,7 @@ function SideList({
 				className="rail-row dock-row"
 				data-side-id={side.sideId}
 				data-restore={opened.current === side.sideId || undefined}
-				aria-label={`${side.title}, ${STATE_WORDS[state]}`}
+				aria-label={`${side.title}${from === "" ? "" : `, ${from}`}, ${STATE_WORDS[state]}`}
 				onClick={() => {
 					opened.current = side.sideId;
 					onOpen({ sideId: side.sideId, title: side.title });

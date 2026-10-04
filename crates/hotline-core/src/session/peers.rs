@@ -31,10 +31,10 @@
 //! never told a tick exists, so there is no behaviour of a model that can
 //! forge one.
 //!
-//! One thing the previous edition had is deliberately missing: nothing can answer
-//! a permission card raised inside a peer turn, because no seat is shown one.
-//! The card is still written to the thread and the marker goes to `waiting`,
-//! so a reader can see what the thread is stopped on.
+//! A permission card raised inside a peer turn is the person's to answer, like
+//! any thread's: it is pushed, the marker goes to `waiting`, and
+//! `peers.answer_permission` (owner seat) answers it while the turn is still
+//! behind it. A card left open when the turn ends is expired.
 
 use super::{Room, fold_said, lock, new_id, now_ms, timed};
 use crate::contract::{
@@ -53,12 +53,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::oneshot;
-
-/// How long a peer session may sit unused before it is stopped.
-///
-/// The marker on each tape lives as long as the session, so this is also how
-/// far apart two exchanges may be and still be drawn as one line.
-const IDLE_MS: i64 = 10 * 60_000;
 
 pub(super) const COLLAB_REQUEST_PREFIX: &str = "collab:";
 pub(super) const ALLOW_SESSION: &str = "allow_session";
@@ -204,6 +198,8 @@ struct PeerSession {
     caller_capability: CapabilityLease,
     target_capability: CapabilityLease,
     thread_key: String,
+    /// The teammate who answers in this session: whose cards these are.
+    target_id: String,
     /// Whether this caller's words are stored as the thread's `agent` side.
     /// The thread's `user` side is its key's first participant, so half of all
     /// pairs are written the other way up from how the session speaks.
@@ -1035,10 +1031,68 @@ impl Room {
         let events = self.log.load(&stream);
         let updates = read_receipt_updates(&events, event_ids);
         let moved = updates.len();
+        let answerer = thread_participants(key).map_or("", |(first, _)| first);
         for event in updates {
-            self.write_thread(key, &event);
+            self.write_thread(key, answerer, &event);
         }
         moved
+    }
+
+    /// Answers a permission card raised in a peer thread, by the one who is
+    /// answering there. The card is the thread's own, so the answer is written
+    /// to it through the shared path; a card whose turn is over has no one
+    /// behind it and is refused.
+    pub(crate) async fn answer_peer_permission(
+        &self,
+        key: &str,
+        request_id: &str,
+        option_id: &str,
+    ) -> Result<(), String> {
+        let sessions: Vec<Arc<PeerSession>> = lock(&self.peers.sessions)
+            .values()
+            .filter(|live| live.thread_key == key && live.valid())
+            .cloned()
+            .collect();
+        let Some(live) = sessions
+            .iter()
+            .find(|live| live.driver.answer_permission(request_id, option_id))
+        else {
+            return Err("That request is no longer waiting for an answer.".to_string());
+        };
+        let id = Value::from(format!("perm:{request_id}"));
+        let card = self
+            .log
+            .load(&StreamId::Pair(key.to_string()))
+            .into_iter()
+            .find(|event| event.get("id") == Some(&id))
+            .and_then(|event| serde_json::from_value::<TranscriptEvent>(event).ok());
+        if let Some(TranscriptEvent::Permission {
+            id,
+            request_id,
+            title,
+            options,
+            ..
+        }) = card
+        {
+            let decided_option_name = options
+                .iter()
+                .find(|option| option.option_id == option_id)
+                .map(|option| option.name.clone());
+            self.write_thread(
+                key,
+                &live.target_id,
+                &TranscriptEvent::Permission {
+                    id,
+                    ts: now_ms(),
+                    request_id,
+                    title,
+                    options,
+                    decision: Some(option_id.to_string()),
+                    decided_option_name,
+                },
+            );
+        }
+        Ok(())
     }
 
     /// Stops every peer session this teammate is a side of. A teammate that
@@ -1142,15 +1196,41 @@ impl Room {
         }
     }
 
-    /// Stops the peer sessions nobody has spoken to for [`IDLE_MS`]. A pair
-    /// mid-delivery is left alone: its turn is what it was kept open for.
-    pub(super) fn sweep_peers(&self, now: i64) {
+    /// The peer sessions the room is holding, for the idle sweep: one row per
+    /// session, quiet since it last answered, working while it is mid-turn.
+    pub(super) fn quiet_peers(&self) -> Vec<(ThreadId, i64, bool)> {
+        lock(&self.peers.sessions)
+            .values()
+            .map(|live| {
+                (
+                    ThreadId::pair(&live.thread_key),
+                    *lock(&live.last_used),
+                    self.peers.answering_in(&live.thread_key).is_some(),
+                )
+            })
+            .collect()
+    }
+
+    /// Whether a peer turn this teammate is answering in has a card waiting on
+    /// the person.
+    pub(super) fn peer_cards_waiting(&self, persona_id: &str) -> bool {
+        let keys: Vec<String> = lock(&self.peers.sessions)
+            .values()
+            .filter(|live| live.target_id == persona_id)
+            .map(|live| live.thread_key.clone())
+            .collect();
+        keys.iter().any(|key| {
+            self.peers.answering_in(key).is_some()
+                && super::sides::waiting_on(&self.log.load(&StreamId::Pair(key.clone())))
+        })
+    }
+
+    /// Lets go of this pair's peer sessions: the agent behind each is stopped,
+    /// and the next exchange starts them again, reading the thread.
+    pub(super) fn park_peer(&self, key: &str) {
         let mut removed = Vec::new();
         lock(&self.peers.sessions).retain(|_, live| {
-            if self.peers.answering_in(&live.thread_key).is_some() {
-                return true;
-            }
-            if now - *lock(&live.last_used) < IDLE_MS {
+            if live.thread_key != key {
                 return true;
             }
             removed.push(live.clone());
@@ -1161,6 +1241,11 @@ impl Room {
             live.target_capability.revoke();
             live.driver.invalidate();
         }
+    }
+
+    /// What follows every sweep of the pairs: sessions whose leases have gone
+    /// are dropped, and the collaboration grants that named them with them.
+    pub(super) fn tidy_peers(&self) {
         self.peers.prune_invalid_sessions();
         self.settle_invalid_collaboration();
     }
@@ -1285,6 +1370,7 @@ impl Room {
             caller_capability: peer_caller_capability,
             target_capability,
             thread_key: key.to_string(),
+            target_id: target_id.clone(),
             flip,
             last_used: Mutex::new(now),
             window: Mutex::new(None),
@@ -1327,25 +1413,24 @@ impl Room {
             through_receipts(&mut window, event)
         };
         if let Some(read) = step.read {
-            self.write_thread(&session.thread_key, &oriented(read, session.flip));
+            self.write_thread(
+                &session.thread_key,
+                &session.target_id,
+                &oriented(read, session.flip),
+            );
         }
-        self.write_thread(&session.thread_key, &oriented(step.event, session.flip));
+        self.write_thread(
+            &session.thread_key,
+            &session.target_id,
+            &oriented(step.event, session.flip),
+        );
     }
 
-    /// One line onto the thread's stream. No index: the search index is over
-    /// what teammates say to the user, and a thread has no teammate whose
-    /// conversation it is.
-    fn write_thread(&self, key: &str, event: &TranscriptEvent) {
-        let value = match serde_json::to_value(event) {
-            Ok(value) => value,
-            Err(error) => {
-                eprintln!("an event for thread {key} could not be written: {error}");
-                return;
-            }
-        };
-        if let Err(error) = self.log.append(&StreamId::Pair(key.to_string()), &value) {
-            eprintln!("the thread {key} could not be appended to: {error}");
-        }
+    /// One line onto the thread's stream, through the shared write path: it
+    /// is indexed under both teammates, and a card in it is pushed to the
+    /// person and counted for `answerer`, who is the one it is waiting on.
+    fn write_thread(&self, key: &str, answerer: &str, event: &TranscriptEvent) {
+        self.threads().write(&ThreadId::pair(key), answerer, event);
     }
 
     /// The marker on both sides' tapes, at whatever the exchange has reached.

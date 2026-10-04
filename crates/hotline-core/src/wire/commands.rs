@@ -536,6 +536,14 @@ pub(crate) async fn run(
         Command::PeersMarkRead { key, event_ids } => {
             Ok(json!(room.mark_peer_read(&key, &event_ids)))
         }
+        Command::PeersAnswerPermission {
+            key,
+            request_id,
+            option_id,
+        } => room
+            .peers_answer_permission(&key, &request_id, &option_id)
+            .await
+            .map(|()| Value::Null),
 
         Command::ComputerCapacity {} => Ok(json!(room.computer_capacity().await)),
         Command::ComputerRuntimes {} => Ok(json!(room.computer_runtimes().await)),

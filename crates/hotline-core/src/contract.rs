@@ -3011,6 +3011,14 @@ pub enum Command {
     /// or an id naming nothing, moves nothing.
     #[serde(rename = "peers.mark_read")]
     PeersMarkRead { key: String, event_ids: Vec<String> },
+    /// Answers a permission card raised in a peer thread, while the teammate
+    /// who raised it is still answering there. Owner seat only.
+    #[serde(rename = "peers.answer_permission")]
+    PeersAnswerPermission {
+        key: String,
+        request_id: String,
+        option_id: String,
+    },
     /// Every runtime this machine knows how to drive, rootless-available first.
     #[serde(rename = "computer.runtimes")]
     ComputerRuntimes {},

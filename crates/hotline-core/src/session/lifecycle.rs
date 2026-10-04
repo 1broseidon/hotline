@@ -60,17 +60,21 @@ impl Room {
     pub(crate) async fn sweep(self: &Arc<Self>, now: i64, looked_again: &mut HashMap<String, i64>) {
         // The DM: its chapters close when the room's idle setting says so.
         self.sweep_chapters(looked_again).await;
-        // A pair: a peer session that has gone quiet is the same kind of
-        // fact as a chapter that has: nothing to arm when a message lands and
-        // nothing to cancel when a teammate is deleted.
-        self.sweep_peers(now);
+        // The rest by kind: a peer session that has gone quiet is the same
+        // kind of fact as a chapter that has: nothing to arm when a message
+        // lands and nothing to cancel when a teammate is deleted.
         self.sweep_threads(now);
     }
 
     /// The idle policy of the kinds whose live threads the room holds in
     /// memory. A thread with a turn running is left alone.
     pub(super) fn sweep_threads(&self, now: i64) {
-        for kind in [ThreadKind::Side, ThreadKind::Run, ThreadKind::Call] {
+        for kind in [
+            ThreadKind::Side,
+            ThreadKind::Run,
+            ThreadKind::Call,
+            ThreadKind::Pair,
+        ] {
             for quiet in self.quiet(kind) {
                 if quiet.working {
                     continue;
@@ -86,6 +90,7 @@ impl Room {
                 }
             }
         }
+        self.tidy_peers();
     }
 
     fn quiet(&self, kind: ThreadKind) -> Vec<Quiet> {
@@ -127,7 +132,16 @@ impl Room {
                         .collect()
                 })
                 .unwrap_or_default(),
-            ThreadKind::Dm | ThreadKind::Pair => Vec::new(),
+            ThreadKind::Pair => self
+                .quiet_peers()
+                .into_iter()
+                .map(|(thread, since, working)| Quiet {
+                    thread,
+                    since,
+                    working,
+                })
+                .collect(),
+            ThreadKind::Dm => Vec::new(),
         }
     }
 
@@ -146,7 +160,10 @@ impl Room {
                     voice.end_quiet(&thread.key);
                 }
             }
-            ThreadKind::Run | ThreadKind::Dm | ThreadKind::Pair => {}
+            // A pair's agent is stopped; the thread is the stream, and the next
+            // exchange reads it again.
+            ThreadKind::Pair => self.park_peer(&thread.key),
+            ThreadKind::Run | ThreadKind::Dm => {}
         }
     }
 

@@ -203,6 +203,7 @@ type Results = {
 	"side.answer_permission": null;
 	/** How many bubbles that receipt actually moved. */
 	"peers.mark_read": number;
+	"peers.answer_permission": null;
 	"computer.capacity": ComputerCapacity;
 	"computer.runtimes": RuntimeReport[];
 	"computer.releases": ComputerReleases;

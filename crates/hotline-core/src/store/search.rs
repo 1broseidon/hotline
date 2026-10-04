@@ -537,8 +537,20 @@ fn index_chapter(database: &Connection, persona_id: &str, chapter: &Value) -> ru
     Ok(())
 }
 
-/// The side threads, runs and calls a teammate's tape carries a link for.
+/// The side threads, runs and calls a teammate's tape carries a link for, and
+/// the pair threads it carries a marker for.
 fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
+    let pairs = events
+        .iter()
+        .filter(|event| event.get("kind").and_then(Value::as_str) == Some("peer"))
+        .filter_map(|event| event.get("threadKey").and_then(Value::as_str))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(ThreadId::pair)
+        .filter_map(|thread| {
+            let stream = thread.stream()?;
+            Some((thread, stream))
+        });
     events
         .iter()
         .filter_map(Link::read)
@@ -552,6 +564,7 @@ fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
             let stream = link.thread.stream()?;
             Some((link.thread, stream))
         })
+        .chain(pairs)
         .collect()
 }
 

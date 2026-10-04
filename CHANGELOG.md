@@ -10,6 +10,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- Threads open in the right-hand pane, whatever they are. The pane lists the
+  open teammate's work threads, handoffs ("from Mack"), conversations with other
+  teammates, subagent runs and calls, work first, with the closed ones folded
+  away. Pressing Open on any of their lines in the conversation reads that
+  thread in the pane with the conversation's own transcript and cards, so a
+  handoff, a peer conversation, a run and a finished call can all be read, and a
+  card in any of them is answered where it is. Runs and calls are read-only. The
+  floating work card now shows only the turn in progress, and the separate pane
+  for a conversation between teammates is gone.
 - A handoff to a teammate no longer lands in their main chat. It opens its own
   work thread on them, with their full tools and the context of who sent it, so
   the person can keep talking to that teammate while it works. The result comes

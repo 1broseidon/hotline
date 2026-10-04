@@ -9,7 +9,7 @@ They differ only in policy. The decision and its trade-offs are in
 design and the plan.
 
 This describes the target. Until the phases below land, each kind still runs
-on its own code. [Today](#today) is the map of that code. Phases 1 to 8 have
+on its own code. [Today](#today) is the map of that code. Phases 1 to 9 have
 landed: [what is built](#built-so-far) says where, and where it differs from
 what is written here.
 
@@ -189,7 +189,7 @@ DM is ported last, because it has the most to lose.
 9. **The desktop.** One `useThread`, and one view for the dock, peer threads,
    runs and calls.
    *Done when:* `useSide`, `useThread` (pair), `useRun` and their
-   components are one hook and one view.
+   components are one hook and one view. **Done.**
 10. **The phone.** The same, in the mobile repo, behind a `threads2`
     capability so older desks keep working.
     *Done when:* the phone opens any kind of thread in one sheet.
@@ -562,6 +562,67 @@ Notes for phase 9:
   hits have no thread to open until the view exists.
 - The old per-kind markers, deltas and their wire types can go once the phone
   has aged out of builds that need them (phase 10 is the phone's switch).
+
+**Phase 9.** The desktop (BRO-204). The window reads the `threads2` wire and
+has one hook and one view.
+
+- **The declaration.** `Wire` sends `client.hello {capabilities: ["threads2"]}`
+  as each socket opens and holds `open` (and the replay of every subscription)
+  until it is answered or refused, so the declaration is in place before the
+  first subscription. A core older than `client.hello` refuses it and the window
+  carries on, but it is then sent the older markers and deltas, which it no
+  longer draws: a desk that old shows no thread lines and no live words, so the
+  window needs a core from this release.
+- **One hook.** `useThread(id: ThreadId | null)` in `ui/src/tape.ts` is the
+  old `TapeStore` made generic: one store per `{kind, key}` per desk, subscribed
+  by `{threadId}`, paged by `thread.page`, with the same linger, keep-eight cache,
+  per-frame delta queue and `earlier`. State changes in one pure reducer,
+  `reduceThread` (snapshot, event, words, page, pull, left), which the tests drive.
+  It returns the verbs bound to the thread: `prompt`, `cancel`, `close`, `resume`.
+  `answerCard(thread, answer)` is `thread.answer`, which the permission and
+  human cards in `Transcript` call whatever the kind. `useSide`, the pair
+  `useThread`, `useRun` and `useTape` are gone.
+- **The DM moved too.** The main conversation reads `useThread(dmOf(id))`: a
+  `{threadId: {kind: "dm"}}` subscription is the same stream as `{tape}` and also
+  forwards `computer_pull`, which is all `useTape` had that the others did not
+  (`pulling` is simply never set on another kind). The DM's composer still sends
+  `session.prompt` and `session.start`, not `thread.prompt`: it starts a session
+  that is down and shows the line before the core writes it, and `thread.prompt`
+  on a DM is that same command.
+- **One view.** `Dock.tsx`'s `ThreadView` renders every kind with `Transcript`
+  and `Composer`; `powersOf(kind, state)` (in `dock.ts`) is the one place that
+  says what a kind allows: a work thread has the composer, Archive and Continue,
+  a pair, a run and a call are read-only. A pair keeps its two named chairs
+  (`speakers`) and sends `peers.mark_read` as it did; a handoff opened from its
+  delivery line keeps its sender, request and reply-route note (`HandoffNote`).
+  `Thread.tsx` (the peer aside) and the work card's run view (`RunWork`,
+  `runPieces`) are gone; `Work` is the current turn's read-only steps.
+- **The list.** `thread.list {personaId}`, grouped by `groupThreads`: work threads
+  first (waiting, running, open, parked), then pairs, runs, calls, each newest
+  first, the closed ones folded. It is read again when the DM's links, the roster's
+  sides or subagents, or a waiting card change, and in between `withLinks` brings
+  rows up to what the links say (a thread that closed reads closed at once, one the
+  list has not heard of is a row from its link: `rowOfLink`).
+- **Links, not markers.** `Transcript` draws one `link` line for every kind
+  (`linkLine` in `links.ts`) with an Open that opens the thread in the dock; the
+  `side`, `subagent` and `call` cases draw nothing, since a `threads2` socket is
+  sent a link even for one written long ago. A `peer` marker and a delivery still
+  open the pair they name, in the dock. The band's subagent and side chips, the
+  More menu's Threads entry and `/side` (now `thread.open`) all open the dock.
+- **Not done.** `search.thread` hits are chapters and messages with no thread in
+  them, so there is nothing to open: search stays on the tape. `park` is a verb the
+  window does not offer (a thread parks itself, and saying something unparks it).
+  The inspector's Threads list is still `peers.list`, opening a pair in the dock.
+  `xthread:` and `exchange-paused:` are still markers, as phase 8 left them.
+
+Notes for phase 10:
+
+- The phone's sheet can take the same shape as the window's `ThreadView`: one
+  `{threadId}` subscription, `thread.list` rows grouped by kind, and
+  `powersOf`'s table (speak and close only in a work thread).
+- The per-kind markers, deltas and commands can leave the wire once no build
+  that needs them is in use; the window no longer sends or reads any of them
+  except `peers.list` and `peers.mark_read`.
 
 ## Today
 

@@ -395,6 +395,8 @@ impl Room {
                     text: timed(now_ms(), &brief(&agent.view.name, &spec.task)),
                     attachments: Vec::new(),
                     handoff: None,
+                    from: None,
+                    delivery: None,
                 },
                 reach,
                 Some(cancel),

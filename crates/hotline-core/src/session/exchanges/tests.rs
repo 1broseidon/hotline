@@ -1016,6 +1016,92 @@ async fn a_saved_human_answer_recovers_the_gap_before_delivery() {
     }
 }
 
+/// The answer reached the work thread's stream, and the desk stopped before a
+/// turn was admitted for it: it is still `sent`, and recovery hands it over.
+#[tokio::test]
+async fn a_human_answer_saved_to_the_thread_but_never_admitted_is_delivered_after_restart() {
+    let (old, id, action) = suspended_handoff("human-answer-saved-unadmitted").await;
+    let thread = work_thread(&old, &id);
+    old.supersede_human(
+        "bob",
+        &action,
+        crate::contract::HumanActionStatus::Done,
+        Some("saved answer".into()),
+    );
+    let sent = TranscriptEvent::Delivery {
+        id: format!("human-answer:{action}"),
+        ts: 1,
+        from: Some(DeliveryFrom::new(
+            &ThreadId::side(&thread),
+            Some(action.clone()),
+        )),
+        cause: DeliveryCause::Answer {
+            action_id: action.clone(),
+            status: crate::contract::HumanActionStatus::Done,
+            about: "Approve the deployment".into(),
+        },
+        text: "saved answer".into(),
+        receipt: Some(crate::contract::Receipt::Sent),
+    };
+    old.log
+        .append(
+            &StreamId::Side(thread.clone()),
+            &serde_json::to_value(sent).unwrap(),
+        )
+        .unwrap();
+    let (room, agents) = restart_human_room(old);
+    room.recover_exchanges().await;
+    done(&room, &id).await;
+    until(|| agents.prompts().len() == 2).await;
+    assert!(agents.prompts()[0].contains("saved answer"));
+    let delivered: Vec<_> = room
+        .log
+        .load(&StreamId::Side(thread))
+        .into_iter()
+        .filter(|event| event["id"] == format!("human-answer:{action}"))
+        .collect();
+    assert_eq!(
+        delivered.iter().next_back().map(|e| e["receipt"].clone()),
+        Some(json!("read")),
+        "it is read once its turn has begun"
+    );
+    assert_eq!(delivered.len(), 1, "and it is on the thread once");
+}
+
+/// A colleague's result for a work thread is admitted when its turn begins,
+/// as the main conversation's is: one the exchange was stopped on while the
+/// thread was busy is never heard.
+#[tokio::test]
+async fn a_result_queued_for_a_busy_work_thread_is_stopped_with_its_exchange() {
+    let (room, agents) = controlled("revoke-work-result");
+    let side = room
+        .start_side("ada", "the person's task")
+        .await
+        .unwrap()
+        .side_id;
+    until(|| agents.drivers["ada"].prompts() == 1).await;
+    let mut reply = saved_request("stopped-work-result", Intent::Ask, Phase::Reply);
+    reply.reply = "queued answer".into();
+    reply.reply_thread = Some(side.clone());
+    seed(&room, reply, 1, false);
+    room.recover_queued_exchanges();
+    done(&room, "stopped-work-result").await;
+    room.invalidate("bob").unwrap();
+    assert_eq!(
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase,
+        Phase::Stopped,
+        "a result that has not begun a turn can still be stopped"
+    );
+    agents.drivers["ada"].updates.add_permits(4);
+    until(|| !room.mid_turn("ada")).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        agents.drivers["ada"].prompts(),
+        1,
+        "the queued result never ran"
+    );
+}
+
 #[tokio::test]
 async fn stopped_or_revoked_human_handoffs_cannot_resume_after_restart() {
     for revoke in [false, true] {

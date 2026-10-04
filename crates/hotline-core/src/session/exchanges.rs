@@ -863,7 +863,6 @@ impl Room {
                                 None,
                             )
                             .await?;
-                            self.begin_exchange_result(&request.id);
                         }
                         None => {
                             self.deliver_identified(

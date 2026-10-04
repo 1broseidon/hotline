@@ -160,6 +160,9 @@ pub(super) struct LiveSide {
     turns: Mutex<Turns<Line>>,
     /// When the person last said something, or the teammate last finished.
     last_used: Mutex<i64>,
+    /// The deliveries this agent has been handed, so that handing one over
+    /// again is heard once. A restart or a wake is a new agent, with none.
+    dispatched: Mutex<std::collections::HashSet<String>>,
     /// Set once the thread is archived; nothing more is written after it.
     closed: AtomicBool,
     /// What `archive_thread` said, held until the turn it was said in ends.
@@ -173,6 +176,23 @@ pub(super) struct LiveSide {
 }
 
 impl LiveSide {
+    /// A delivery's turn has begun: it is read, and a restart does not hand it
+    /// over again.
+    fn heard(&self, room: &Room, id: &str) {
+        let stream = StreamId::Side(self.id.clone());
+        let Some(event) = room
+            .log
+            .load(&stream)
+            .into_iter()
+            .rev()
+            .find(|event| event["id"] == id)
+            .and_then(|event| serde_json::from_value::<TranscriptEvent>(event).ok())
+        else {
+            return;
+        };
+        self.say(room, &super::peers::stamped(event, Receipt::Read));
+    }
+
     pub(super) fn working(&self) -> bool {
         lock(&self.turns).running
     }
@@ -230,6 +250,21 @@ impl Occupant for LiveSide {
     /// A handoff's turn is the exchange's: it begins only while the request is
     /// still running, and its result is saved when it ends.
     async fn begin(self: &Arc<Self>, room: &Arc<Room>, line: Line) -> Begin<WorkTurn> {
+        // A result that came back from a colleague is heard once: it is
+        // consumed as its turn begins, and one the exchange has since stopped,
+        // or whose authority has been revoked, is never heard, however long
+        // it waited behind the turn in flight.
+        if line
+            .from
+            .as_ref()
+            .filter(|from| matches!(from.kind, ThreadKind::Pair | ThreadKind::Side))
+            .and_then(|from| from.request.as_deref())
+            .is_some_and(|request| {
+                room.is_exchange_request(request) && !room.begin_exchange_result(request)
+            })
+        {
+            return Begin::Skip;
+        }
         if let Some(handoff) = &line.handoff {
             if let Some(action) = &handoff.answer
                 && let Err(error) = room.resume_handoff_answer(&handoff.request, action).await
@@ -242,6 +277,9 @@ impl Occupant for LiveSide {
                 return Begin::Skip;
             }
             *lock(&self.handoff) = Some(handoff.request.clone());
+        }
+        if let Some(id) = &line.delivery {
+            self.heard(room, id);
         }
         Begin::Go(WorkTurn { line: Some(line) })
     }
@@ -552,6 +590,7 @@ impl Room {
             holder: agent.holder.clone(),
             turns: Mutex::new(Turns::default()),
             last_used: Mutex::new(now_ms()),
+            dispatched: Mutex::new(Default::default()),
             closed: AtomicBool::new(false),
             archive_note: Mutex::new(None),
             reported: Mutex::new(agent.reported.clone()),
@@ -945,6 +984,8 @@ impl Room {
                 text: timed_from(ts, client, text),
                 attachments: attachments.unwrap_or_default(),
                 handoff: None,
+                from: None,
+                delivery: None,
             },
         );
     }
@@ -971,7 +1012,10 @@ impl Room {
     /// answer, the person's answer to a card, the handoff that opened it. It is
     /// written to the thread's stream first, so it survives a restart and is
     /// heard once, and then handed to the agent behind the turn in flight.
-    /// Delivering the same id twice delivers it once.
+    /// Delivering the same id twice delivers it once: one the thread's turns
+    /// have begun on is not delivered again, but one that was saved and never
+    /// reached a turn, because the desk stopped between the two, is handed to
+    /// the agent that finds it, as the main conversation's is.
     ///
     /// A parked thread is brought back for it, and so is a closed one: the
     /// person answering a card in it is continuing it. `handoff` says the turn
@@ -991,29 +1035,47 @@ impl Room {
             Err(_) => self.wake_side(side_id, true).await?,
         };
         let stream = StreamId::Side(side_id.to_string());
-        if self.log.load(&stream).iter().any(|event| event["id"] == id) {
+        let existing = self
+            .log
+            .load(&stream)
+            .into_iter()
+            .find(|event| event["id"] == id);
+        if existing
+            .as_ref()
+            .is_some_and(|event| event["receipt"] == "read")
+        {
             return Ok(());
         }
-        let ts = now_ms();
+        if !lock(&side.dispatched).insert(id.to_string()) {
+            return Ok(());
+        }
+        let ts = existing
+            .as_ref()
+            .and_then(|event| event["ts"].as_i64())
+            .unwrap_or_else(now_ms);
         let wire = super::peers::delivery_wire(&cause, &text);
-        *lock(&side.last_used) = ts;
-        side.say(
-            self,
-            &TranscriptEvent::Delivery {
-                id: id.to_string(),
-                ts,
-                from: Some(from),
-                cause,
-                text,
-                receipt: Some(Receipt::Sent),
-            },
-        );
+        *lock(&side.last_used) = now_ms();
+        if existing.is_none() {
+            side.say(
+                self,
+                &TranscriptEvent::Delivery {
+                    id: id.to_string(),
+                    ts,
+                    from: Some(from.clone()),
+                    cause,
+                    text,
+                    receipt: Some(Receipt::Sent),
+                },
+            );
+        }
         self.queue_in_side(
             &side,
             Line {
                 text: super::timed(ts, &wire),
                 attachments: Vec::new(),
                 handoff,
+                from: Some(from),
+                delivery: Some(id.to_string()),
             },
         );
         Ok(())

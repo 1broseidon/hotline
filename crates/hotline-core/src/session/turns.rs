@@ -16,7 +16,7 @@
 use super::runner::{Driven, Witness, drive_updates};
 use super::threads::Threads;
 use super::{Room, Wired, lock};
-use crate::contract::{Attachment, DeltaKind, Reach, StreamDelta, TranscriptEvent};
+use crate::contract::{Attachment, DeliveryFrom, DeltaKind, Reach, StreamDelta, TranscriptEvent};
 use crate::driver::{Driver, MessageKind, Update};
 use crate::thread::ThreadId;
 use std::collections::VecDeque;
@@ -87,6 +87,13 @@ pub(super) struct Line {
     /// request it answers. Said by whoever produced the line, never read back
     /// off an id.
     pub handoff: Option<HandoffLine>,
+    /// Where the line came from, when something came back for the thread: a
+    /// colleague's result carries the exchange request it answers, which is
+    /// checked again as the turn begins.
+    pub from: Option<DeliveryFrom>,
+    /// The delivery this line is, which is stamped read once its turn has
+    /// begun: until then a restart finds it still to be heard.
+    pub delivery: Option<String>,
 }
 
 /// The handoff a turn of a work thread belongs to.

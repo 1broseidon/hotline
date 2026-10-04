@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { RemotePairing, RemoteStatus, SealedPairing } from "../generated/contract";
+import { useDesks } from "../desks";
 import { writeClipboard } from "../native";
 import { Refusal } from "../ui/Refusal";
 import { wire } from "../wire";
@@ -106,6 +107,13 @@ export function RemoteSection() {
 		setCopied(false);
 	});
 	const host = status?.host ?? "all";
+	// A relay is a desk this computer pairs with; the server carries sealed
+	// records it cannot read, and phones still pin this desk.
+	const relays = useDesks().filter((desk) => desk.kind === "remote");
+	const relay = status?.relay ?? null;
+	const relayThrough = (deskId: string | null) => run(async () => {
+		setStatus(await wire.command("remote.relay", deskId ? { deskId } : {}));
+	});
 	return <>
 		<section aria-label="Remote access">
 			<h3 className="group-title">Connection</h3>
@@ -128,7 +136,19 @@ export function RemoteSection() {
 						{status?.addresses.map((address) => <option key={address} value={address}>{address}</option>)}
 					</select>
 				</div>
+				{(relays.length > 0 || relay) && <div className="group-row">
+					<label className="group-row-text" htmlFor="remote-relay">
+						<span className="group-row-title">Relay</span>
+						<span className="group-row-detail">{relay?.url ? `Phones also reach this desk through ${relay.name}.` : "Let phones reach this desk through a server it is paired with, without a VPN."}</span>
+					</label>
+					<select id="remote-relay" className="field max-w-56" value={relay?.deskId ?? ""} disabled={busy || !status} onChange={(e) => void relayThrough(e.target.value || null)}>
+						<option value="">None</option>
+						{relay && !relays.some((desk) => desk.id === relay.deskId) && <option value={relay.deskId} disabled>{relay.name}</option>}
+						{relays.map((desk) => <option key={desk.id} value={desk.id}>{desk.name}</option>)}
+					</select>
+				</div>}
 			</div>
+			{relay?.error && status?.enabled && <p className="group-hint">{relay.name}: {relay.error}</p>}
 			<p className="group-hint">Turning Remote off disconnects every phone.</p>
 			{status?.enabled && <details className="group-hint">
 				<summary className="cursor-pointer">Listening addresses</summary>

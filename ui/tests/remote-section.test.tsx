@@ -3,6 +3,7 @@ import { Window } from "happy-dom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { RemoteSection } from "../src/components/RemoteSection";
+import { replaceDesks } from "../src/desks";
 import { wire } from "../src/wire";
 
 // No desk, sockets, native shell, or real clock: drive the mounted UI at its wire boundary.
@@ -127,6 +128,35 @@ describe("Remote settings over the wire", () => {
 		await click("Revoke access");
 		expect(calls.at(-1)).toEqual({ cmd: "remote.revoke", params: { deviceId: owner.id } });
 		expect(text()).not.toContain("Test owner");
+	});
+
+	test("a paired server is offered as a relay, and the choice is the desk's", async () => {
+		const server = { id: "server-desk", name: "Grizzly", kind: "remote" as const, origin: "http://127.0.0.1:1", token: "t" };
+		await settle(() => replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "http://127.0.0.1:2", token: "t" }]));
+		await mount();
+		expect(container.querySelector("#remote-relay")).toBeNull();
+		await unmount();
+		root = createRoot(container);
+		await settle(() => replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "http://127.0.0.1:2", token: "t" }, server]));
+		const relayUrl = "https://grizzly.example/relay/this-desk";
+		respond = ({ cmd, params }) => cmd === "remote.relay"
+			? { ...enabled, relay: { deskId: params.deskId, name: "Grizzly", url: relayUrl, error: null } }
+			: enabled;
+		await mount();
+		await settle(() => {
+			const select = container.querySelector("#remote-relay") as HTMLSelectElement;
+			select.value = server.id;
+			select.dispatchEvent(new dom.Event("change", { bubbles: true }));
+		});
+		expect(calls.at(-1)).toEqual({ cmd: "remote.relay", params: { deskId: server.id } });
+		expect(text()).toContain("Phones also reach this desk through Grizzly.");
+		await settle(() => {
+			const select = container.querySelector("#remote-relay") as HTMLSelectElement;
+			select.value = "";
+			select.dispatchEvent(new dom.Event("change", { bubbles: true }));
+		});
+		expect(calls.at(-1)).toEqual({ cmd: "remote.relay", params: {} });
+		await settle(() => replaceDesks([]));
 	});
 
 	for (const address of ["192.0.2.1", "2001:db8::1"]) {

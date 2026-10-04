@@ -313,10 +313,12 @@ impl Room {
                     view,
                     reach,
                     &stored,
-                    opened_by.as_ref(),
-                    context.clone(),
-                    transcript,
-                    note.clone(),
+                    Joining {
+                        opener: opened_by.as_ref(),
+                        context: context.clone(),
+                        transcript,
+                        note: note.clone(),
+                    },
                 ),
                 history.clone(),
                 tools_of(self, &thread, &view.id, &lease),
@@ -369,17 +371,34 @@ impl Room {
     }
 }
 
+/// What a fresh agent is told of the conversation it joins, over and above who
+/// it is.
+struct Joining<'a> {
+    /// The teammate that handed the work over, when one did.
+    opener: Option<&'a Persona>,
+    /// The parent's chapter note and tail.
+    context: Option<String>,
+    /// The thread's own earlier lines, for a child that could not reopen it.
+    transcript: Option<String>,
+    /// The DM's: how the chapter before it closed, and what became of its
+    /// computer.
+    note: Option<String>,
+}
+
 /// What a kind tells its agent about itself, and about what it joins.
 fn preamble_of(
     kind: ThreadKind,
     persona: &Persona,
     reach: Option<Reach>,
     stored: &[SharedSecret],
-    opener: Option<&Persona>,
-    context: Option<String>,
-    transcript: Option<String>,
-    note: Option<String>,
+    joining: Joining<'_>,
 ) -> String {
+    let Joining {
+        opener,
+        context,
+        transcript,
+        note,
+    } = joining;
     match kind {
         ThreadKind::Run => super::runner::run_preamble(persona, reach),
         // The DM's: what it needs to know of the chapter it joins, and of its

@@ -9,7 +9,7 @@ They differ only in policy. The decision and its trade-offs are in
 design and the plan.
 
 This describes the target. Until the phases below land, each kind still runs
-on its own code. [Today](#today) is the map of that code. Phases 1 to 4 have
+on its own code. [Today](#today) is the map of that code. Phases 1 to 7 have
 landed: [what is built](#built-so-far) says where, and where it differs from
 what is written here.
 
@@ -180,7 +180,9 @@ DM is ported last, because it has the most to lose.
    concern (see below).
 7. **The DM is a thread.** Move the main session onto the runtime and the
    lifecycle, keeping chapters as DM policy.
-   *Done when:* `run_turns` is the shared turn loop.
+   *Done when:* `run_turns` is the shared turn loop. **Done**: `Room::run_queue`
+   serves the DM and work threads, and `start_now` builds through
+   `Room::thread_agent`.
 8. **The wire.** Add `thread.*`, `{thread: id}` and `ThreadDelta`, and alias
    the old commands. Regenerate the contract, and check it is complete.
    *Done when:* both shapes pass the wire tests.
@@ -426,12 +428,83 @@ Where this differs from the design above:
   that was waiting on a human is failed back to the sender on startup.
 - **A result for a work-thread sender returns to that thread** and not the DM.
 
-Notes for phase 7: the main session still builds in `start_now` and runs in
-`run_turns`; moving it onto `thread_agent` and the lifecycle should keep the
-`Driving` computer holder (key `dm`) and make `run_turns` the shared loop for
-`run_side_turns` too. The only prefix-style reads left are producers
-(`handoff:`, `exchange-result:` ids and `xthread:` markers). `exchange-paused:`
-is untouched.
+**Phase 7.** The DM is a thread (BRO-202).
+
+- **One builder.** `start_now` builds through `Room::thread_agent` with the Dm
+  policy and keeps the per-teammate start gate. The Dm row says what is its
+  own: `Resume::Checkpoint` (the teammate's own checkpoint is the session it
+  resumes, and the only one it writes), `Seed::chapters` (the open chapter's
+  lines are the agent's history and the wake block is in its preamble),
+  `Computer::Download` (a start does not wait for an image that is downloading;
+  the agent is told, and the computer joins after the turn), and the folder and
+  skills it writes. `thread_agent` also subscribes to the driver's info,
+  unprompted and subagent streams before it starts, for the DM only, and returns
+  them with the driver's whole start report (`ThreadAgent::started`). `start_now`
+  is the room's part: the gate, the roster, the `Session` it publishes, the
+  watches and the chapter it opens. The computer is held under `Driving` key `dm`
+  (`agent::lease_key`, now the one place a thread's key is made).
+- **One loop.** `Room::run_queue` (`session/turns.rs`) replaces `run_turns` and
+  `run_side_turns`. A kind is an `Occupant`: `Session` in `session/dm.rs`,
+  `LiveSide` in `session/sides.rs`. The turn is one `Threads::drive`, over
+  `runner::drive_updates`, which tells a `Witness` what each update came to.
+  `Threads::turn` (a work thread and a run) uses the `Told` witness; the DM's is
+  `Heard`, which carries what is the DM's alone: the stamps of the funnel, read
+  receipts, the checkpoint, the reply to a call and to the phone, push for a
+  permission card, and steering a line into a turn in flight.
+- **Chapters stay DM policy.** Begin, close and resume are unchanged. The idle
+  sweep is the Dm row of `Room::sweep` (`Policy::of(Dm).idle == Idle::Chapters`),
+  the one row that is awaited. Checkpoints are still stamped on the chapter
+  marker, and `resume_chapter` still nudges.
+- **Provenance is typed to the end.** A queued line carries `voice` (the call it
+  was said on) and `spoken`, so the loop reads no ids. The producers of
+  `human-answer:`, `handoff:` and `exchange-result:` ids already set
+  `DeliveryFrom`; those ids are only idempotency keys now. The one place an id is
+  still parsed is `stopping.rs`, which restores a line kept across a stop.
+
+Where this differs from the design above:
+
+- **The DM's and a work thread's lines are still two types.** `Wired` carries
+  what a schedule, a call and a delivery stamp on a line, and a work thread's
+  `Line` carries a handoff. The loop is generic over the line, so one type was
+  not needed to share it, and merging them would have put a schedule's authority
+  on every thread's line.
+- **The DM's witness is its own.** The tape's write door stays
+  `Room::write_value`: `Threads::write` hands a DM to it and does no push, call
+  mirror or `wake_roster` for a DM. Those are the turn's (`Heard`), because the
+  DM's push is fed by an update and not by the stored line, and a `wake_roster`
+  on every DM card would add roster events no client expects.
+- **`Idle::Chapters` is awaited.** Closing a chapter waits on its note, so
+  `Room::sweep` does the Dm row on its own and calls `sweep_threads` for the
+  others, which it still does synchronously.
+- **`xthread:` and `exchange-paused:` stay as they are.** The first is the
+  pair's `peer` marker, with an exchange count of its own that a client reads;
+  the second is a card, not a link. Writing either through `write_link` would
+  change a wire shape, which is phase 8's.
+- **The two live handles are not one.** `Session` and `LiveSide` each hold their
+  own driver and lease and close through their own door; `Occupant` is the
+  seam where they meet, not a shared handle.
+- **A peer session is still built by `peer_session`** and driven by `drive`.
+  Its policy row is set; it has a queue of one and no person, so it did not need
+  the loop.
+
+Notes for phase 8:
+
+- `thread.list | open | prompt | cancel | park | close | continue | answer` can
+  sit over `Occupant` and `ThreadStore`: every command reads `ThreadId` and the
+  live handle (`Sides::get`, `Room::session`) or the record. `thread.prompt` to a
+  DM is `Room::prompt`, to a work thread `say_in_side`; they already end in the
+  same loop.
+- One `ThreadDelta` replaces `AgentDelta`/`ThoughtDelta` and the side pair. The
+  DM's deltas come from `Heard::delta` and a work thread's from `Told::delta`
+  (`turns.rs::delta_of`); a run's are not sent. Both already know their
+  `ThreadId`, so the new delta is one `match` there.
+- `{thread: id}` has one stream per thread to serve: `Tape`, `Side`, `Pair`,
+  `Run` and `Call` are all `ThreadId::stream()`. The links on a stream must
+  still go through `Link::wire` for phones without the `threads2` capability,
+  and that capability is the gate for sending `link` itself.
+- The old commands (`session.prompt`, `side.*`, `peers.*`) stay as aliases. The
+  DM's `session.start` is the room's start gate, not a thread command: a thread
+  is started by being spoken in.
 
 ## Today
 
@@ -443,10 +516,10 @@ the phases built so far.
 | --- | --- | --- | --- | --- | --- |
 | Stream | `Tape` | `Side` | `Pair(key)` + sidecar + `exchange_pair` on Room | `Call`; desk calls on a `voice-dispatcher` tape | `Run` |
 | Write helper | `write_value` | `Threads::write` | `Threads::write` (`write_thread`) | `Threads::write` (desk calls: `voice_record`) | `Threads::write` |
-| Agent builder | `start_now` | `bring_up` | `peer_session` | dispatcher front | `run_to_end` |
-| Turn loop | `run_turns` + `Turns` | `run_side_turns` + `Turns` | `drive` | voice `run` | `drive_with` |
+| Agent builder | `Room::thread_agent` (from `start_now`) | `Room::thread_agent` (from `bring_up`) | `peer_session` | dispatcher front | `Room::thread_agent` (from `run_to_end`) |
+| Turn loop | `Room::run_queue` (`Session`) | `Room::run_queue` (`LiveSide`) | `drive` | voice `run` | `Threads::turn` |
 | Resume | persona checkpoints | marker `sessionId` | reseed from thread | `Exchange::from_thread` | none |
-| Idle | `sweep_chapters` | `Room::sweep` (3 h) | `Room::sweep` (10 min) | `Room::sweep` (10 min) | `Room::sweep` (none) |
+| Idle | `Room::sweep` (chapters) | `Room::sweep` (3 h) | `Room::sweep` (10 min) | `Room::sweep` (10 min) | `Room::sweep` (none) |
 | Restart | `Room::settle` | `Room::settle` | `Room::settle` + `reconcile_exchanges`, `recover_exchanges` | `Room::settle` (closed) | `Room::settle` |
 | Marker | — | link | `xthread:`, `exchange-paused:` | link (`call`); `voice:` id for desk calls | link |
 | Cards answered by | `session.answer_permission` | `side.answer_permission` | `peers.answer_permission` | never | nobody (expired) |

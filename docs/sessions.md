@@ -42,6 +42,35 @@ is open, and only then may a scheduled firing open one of its own:
 | quiet | an open window may rewrite an `agent` event into a `thought`, or close |
 | scheduled | a firing claims the user line, stamps `scheduled` on it, and may open a quiet window over the turn that follows |
 
+### One turn loop
+
+The DM and a work thread are taken by one loop, `Room::run_queue`
+(`session/turns.rs`), over the one `Turns` queue. The loop is the skeleton:
+is the agent still the one that answers, may this line begin a turn, take the
+turn, let go of the computer, what the kind does when the turn ends, and when
+the queue is empty. A kind says what is its own as an `Occupant`: the DM's is
+`Session` (`session/dm.rs`), a work thread's is `LiveSide` (`session/sides.rs`).
+The turn is one `Threads::drive`, which reads the driver's updates through
+`runner::drive_updates` and tells a `Witness` what each came to. A work
+thread's and a run's witness writes through `Threads::write`; the DM's (`Heard`)
+writes the tape through the funnel above, marks the person's lines read,
+keeps the checkpoint, says a reply to a call and to the phone, and steers: a
+line queued while the driver accepts input mid-turn is handed to it between
+updates, woken by `Session::input_ready`.
+
+What a line is, and where it came from, is a field of it (`Wired`): its
+`from` thread, the call it was said on (`voice`) and whether it was spoken, the
+`said` event, a firing's authority and whether it may steer. The turn loop reads
+no ids. The one id still parsed for provenance is a line kept across a stop
+(`stopping.rs`), which is known by the id it was written under.
+
+The DM's agent is built by the same `Room::thread_agent` as every other
+thread's, under its policy row: it resumes the teammate's checkpoint, is seeded
+with the open chapter and the wake block, writes the teammate's folder and
+skills, and does not hold its start up for a computer image that is
+downloading. `start_now` is what is left of a start: the room's gate, the
+session it publishes and the chapter it opens.
+
 A prompt needs a live session; `session.start` is what brings one up. The
 command returns as soon as the turn is started. Hotline Agent admits new operator
 input into its running activity, and so does an ACP agent that offers steering
@@ -1200,8 +1229,8 @@ teammate's and wake the main conversation.
 
 **Turns.** A line said in a thread is written to its stream and handed to the
 agent at once, or queued behind the turn in flight (the same `Turns` queue the
-main conversation uses, and the same turn a run takes: `Threads::turn`); it
-does not steer. Cancel
+main conversation uses, taken by the same loop, `Room::run_queue`); it does
+not steer. Cancel
 stops the turn and drops the queue and the thread stays live.
 `archive_thread` takes effect when the turn it was called in ends, so the last
 message lands first.
@@ -1258,8 +1287,9 @@ ended (`person`, `agent`, `idle`, `stopped`, and for a run `done`, `failed` or
 run's `elapsedMs` are optional. `session/lifecycle.rs` writes it
 (`Room::write_link`), `thread::Link` is the type, and the thread store, the
 search index and the settle read it. It replaces the `side:<id>` and
-`subagent:<id>` marker ids for every new write; `xthread:` and
-`exchange-paused:` are the pair's, and move in phase 6.
+`subagent:<id>` marker ids for every new write. `xthread:` and
+`exchange-paused:` stay as they are: the first is the pair's `peer` marker, which
+carries its own exchange count, and the second is a card, not a link.
 
 **Compatibility.** A link is the stored model, not what a client is sent. The
 phone and the window on a current build draw `side` and `subagent` events and
@@ -1298,8 +1328,9 @@ once:
   speaking in it and no turn running, and a run has no idle (it ends with its
   work). A call that nobody has spoken on for ten minutes is ended there (the
   voice reports how long each call has been quiet, and `Calls::end_quiet` ends
-  it). The DM's chapter sweep (`sweep_chapters`) and the peer session's quiet
-  clock (`sweep_peers`) are called from it, to be ported with their kinds.
+  it). The DM's row is `Idle::Chapters`: the sweep closes a chapter that has
+  gone quiet (`sweep_chapters`), the one row it awaits, since a close waits on
+  its note. The peer session's quiet clock (`sweep_peers`) is a Pair row.
 - **The settle.** `Room::settle` runs as the room opens, before anything is
   served. It expires a card the last process left open on any tape or pair, moves
   every thread a link says was left live by its kind's restart policy (a side
@@ -1310,9 +1341,9 @@ once:
 - **The closing note.** `Room::queue_closing_note` is the one path: sides and calls use
   it.
 
-What is not shared yet: a live side thread (`LiveSide`) and a run (`Running`)
-each hold their own driver and lease, and close through `end_side` and
-`Running::settle`.
+What is not shared yet: a live side thread (`LiveSide`), a run (`Running`) and
+the DM's `Session` each hold their own driver and lease, and close through
+`end_side`, `Running::settle` and the session's stop.
 
 ## Checkpoints
 

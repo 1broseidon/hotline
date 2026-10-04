@@ -1106,6 +1106,48 @@ in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
 errors, fallback and persistent budget failures. Live provider latency is a
 separate measurement; fake-provider test timings are not a production guarantee.
 
+## Thread commands on the wire (BRO-203)
+
+- **Default and old records:** nothing new is stored, and no seat gains a
+  capability: `thread.*` is the older commands under one name, and each seat may
+  run a verb on a kind of thread exactly when it could run the old command for
+  that kind. A socket reads the newer shapes (`link`, `thread_delta`) only after
+  it says so with `client.hello`; one that never does is sent what it always was.
+- **Grant source:** `phone_thread_command` and `phone_may_read`
+  (`wire/mod.rs`), beside `Seat::permits` and `permits_sub`. The desk and an
+  owner run everything. A companion:
+
+  | verb | companion may | because |
+  | --- | --- | --- |
+  | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
+  | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, `peers.answer_permission` is the owner's |
+  | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive` |
+  | `thread.list` | without pairs | `peers.list` is refused it |
+  | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
+  | `client.hello` | yes | it only chooses the shapes this socket is sent |
+
+- **Enforcement:** the seat check is on the command, in the core, before any
+  handler runs. Each handler then applies the kind: a verb with no meaning for
+  it is refused in a sentence (`wire/threads.rs`), a card in a kind whose
+  `Policy::answer` is `Nobody` (a run, a call) is never answered, and the
+  answer is routed to the room method the old command called, which holds the
+  same lease and card checks as before. `thread.park` goes through
+  `Room::park_side_thread`, which is the sweep's own park.
+- **Tests:** `wire/tests.rs`
+  `the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones` (the table),
+  `a_thread_verb_the_kind_has_no_meaning_for_is_refused`,
+  `thread_verbs_reach_the_handlers_the_older_commands_did`,
+  `thread_list_reads_every_kind_as_one_summary`,
+  `a_thread_subscription_by_id_reads_the_stream_its_kind_keeps`,
+  `a_threads2_client_is_sent_every_link_as_the_link_itself`, and the delta tests
+  that send each shape; `remote/tests.rs` for the hello a phone is sent;
+  `tests/threads.rs` `a_work_thread_is_one_conversation_to_old_and_threads2_clients`
+  runs one conversation through the real core for an old and a `threads2` client.
+- **Residual risk:** `thread.list` with no `personaId` reads every teammate's
+  threads, titles and last lines in one answer. A companion already reads every
+  tape and work thread by subscribing, so this adds no reach, only one place to
+  read it.
+
 ## One computer, several threads
 
 A teammate's work threads, its main conversation and a colleague's ask all

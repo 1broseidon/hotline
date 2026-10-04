@@ -9,7 +9,7 @@ They differ only in policy. The decision and its trade-offs are in
 design and the plan.
 
 This describes the target. Until the phases below land, each kind still runs
-on its own code. [Today](#today) is the map of that code. Phases 1 to 7 have
+on its own code. [Today](#today) is the map of that code. Phases 1 to 8 have
 landed: [what is built](#built-so-far) says where, and where it differs from
 what is written here.
 
@@ -185,7 +185,7 @@ DM is ported last, because it has the most to lose.
    `Room::thread_agent`.
 8. **The wire.** Add `thread.*`, `{thread: id}` and `ThreadDelta`, and alias
    the old commands. Regenerate the contract, and check it is complete.
-   *Done when:* both shapes pass the wire tests.
+   *Done when:* both shapes pass the wire tests. **Done.**
 9. **The desktop.** One `useThread`, and one view for the dock, peer threads,
    runs and calls.
    *Done when:* `useSide`, `useThread` (pair), `useRun` and their
@@ -479,7 +479,7 @@ Where this differs from the design above:
 - **`xthread:` and `exchange-paused:` stay as they are.** The first is the
   pair's `peer` marker, with an exchange count of its own that a client reads;
   the second is a card, not a link. Writing either through `write_link` would
-  change a wire shape, which is phase 8's.
+  change a wire shape. Phase 8 was additive and left them (see its notes).
 - **The two live handles are not one.** `Session` and `LiveSide` each hold their
   own driver and lease and close through their own door; `Occupant` is the
   seam where they meet, not a shared handle.
@@ -487,24 +487,81 @@ Where this differs from the design above:
   Its policy row is set; it has a queue of one and no person, so it did not need
   the loop.
 
-Notes for phase 8:
+**Phase 8.** The wire (BRO-203). The wire's part is in `wire/threads.rs`; the
+protocol is in [wire.md](wire.md#threads) and the seats in
+[security.md](security.md#thread-commands-on-the-wire-bro-203).
 
-- `thread.list | open | prompt | cancel | park | close | continue | answer` can
-  sit over `Occupant` and `ThreadStore`: every command reads `ThreadId` and the
-  live handle (`Sides::get`, `Room::session`) or the record. `thread.prompt` to a
-  DM is `Room::prompt`, to a work thread `say_in_side`; they already end in the
-  same loop.
-- One `ThreadDelta` replaces `AgentDelta`/`ThoughtDelta` and the side pair. The
-  DM's deltas come from `Heard::delta` and a work thread's from `Told::delta`
-  (`turns.rs::delta_of`); a run's are not sent. Both already know their
-  `ThreadId`, so the new delta is one `match` there.
-- `{thread: id}` has one stream per thread to serve: `Tape`, `Side`, `Pair`,
-  `Run` and `Call` are all `ThreadId::stream()`. The links on a stream must
-  still go through `Link::wire` for phones without the `threads2` capability,
-  and that capability is the gate for sending `link` itself.
-- The old commands (`session.prompt`, `side.*`, `peers.*`) stay as aliases. The
-  DM's `session.start` is the room's start gate, not a thread command: a thread
-  is started by being spoken in.
+- **Commands.** `thread.list | open | prompt | cancel | park | close | continue
+  | answer`, and `thread.page`, which is `tape.page` for any thread (a one-view
+  client needs older lines of every kind). Each reads a `ThreadId` and is
+  applied through the room method the old command called. `thread.list` is one
+  `ThreadSummary` for every kind, built from `ThreadStore` and the stream's own
+  end (`summarize`); `Room::park_side_thread` is the one new room method, since
+  a person could archive a work thread but not park it. The old commands that
+  have the same effect (`session.prompt`, `session.cancel`,
+  `session.answer_permission`, `human.answer`, `side.prompt`, `side.cancel`,
+  `side.archive`, `side.answer_permission`, `peers.answer_permission`,
+  `tape.page`) are these handlers; `side.start`, `side.continue`, `side.list`
+  and `peers.list` answer their own kind's summary and still do.
+- **The subscription.** `{"threadId": {kind, key}}`. `{"thread": key}` stays a
+  pair's, because a phone on an older build sends it; a new variant is additive,
+  and a union on `thread` was not. In a command's params `thread` is a
+  `ThreadId`, since no old command used the name.
+- **One delta.** The room broadcasts one `ThreadDelta` and nothing else
+  (`turns.rs::delta_of`, called from `Heard::delta` and `Told::delta`), for every
+  kind including a run. The door turns it into `agent_delta`/`thought_delta` or
+  `side_agent_delta`/`side_thought_delta` for a socket that did not declare
+  `threads2` (`wire::delta_for`), and drops it for a run, as before.
+- **Capability.** The hello lists `threads2`; `client.hello` is the per-socket
+  declaration (`Outbox::threads2`), read as each frame is made. A declaring
+  socket is sent `link` events (`Link::threads2`), including for markers written
+  before links, and `thread_delta`; an undeclaring one is sent `Link::wire` and
+  the older deltas, as before. The contract gained `TranscriptEvent::Link`,
+  `StreamDelta::ThreadDelta`, `Target::ThreadId`, the commands, `ThreadAnswer`,
+  `ThreadSummary`, `ThreadId`, `ThreadEnd`, `DeltaKind` and `LinkState`; nothing
+  was removed or renamed. The window needed two lines for that: a `Results`
+  entry per new command in `ui/src/wire.ts`, and `tape.ts` ignoring
+  `thread_delta`, which it is never sent.
+
+Where this differs from the design above:
+
+- **`thread.answer` takes a typed answer**, `{kind: "permission"|"human", …}`,
+  because the two cards have different keys, and routes by kind and the kind's
+  `Policy::answer`. A run's and a call's cards are refused (their policy is
+  `Nobody`), a pair's is a permission only and the owner's.
+- **Pair `cancel` and `continue` are the exchange's stop and resume**
+  (`teammates.exchange_stop`, `teammates.exchange_resume`), the only things a
+  person does to one. `park` and `close` on anything but a work thread are
+  refused: the DM's lifecycle is its chapters, a pair parks itself in ten
+  minutes, a call and a run are not the person's to end here.
+- **`thread.open` opens a work thread only.** A DM exists, a pair is two
+  teammates', a run is a teammate's and a call is `voice.*`'s.
+- **`xthread:` and `exchange-paused:` are still not links**, so a `threads2`
+  client is still sent a pair's `peer` marker and an exchange pause as they
+  are. Moving them is a wire change for the phone to age out of.
+- **The window keeps no hello.** The desk's own socket is sent none, so
+  `client.hello` answers the capabilities as well.
+- **A phone's list leaves pairs out**, as `peers.list` is refused it.
+- **Unread and read receipts are still the client's** (`peers.mark_read` stays).
+
+Notes for phase 9:
+
+- One `useThread(id: ThreadId)` over `{"threadId"}`, `thread.page`,
+  `thread.prompt` and the other verbs, and one view. Declare `threads2` with
+  `client.hello` before the first subscription, then read `link` where the dock,
+  the peer pane, the runs card and the call line each read their own marker
+  (`side`, `subagent`, `call`), and `thread_delta` where each read its own
+  delta. `useSide`, `useThread` (pair) and `useRun` are what it replaces.
+- The dock's list is `thread.list {personaId}` filtered by kind. `state` and
+  `end` are one vocabulary for every kind, `working` and `waiting` are on the
+  row, and `opener` carries "from Mack". A call's row opens a closed call's
+  transcript, which has had nowhere to go since phase 5; so does a run's.
+- A card is answered with `thread.answer` whatever the kind; the client need
+  not know which room method it is.
+- The window's search (`search.thread`) still finds only a tape, and a thread's
+  hits have no thread to open until the view exists.
+- The old per-kind markers, deltas and their wire types can go once the phone
+  has aged out of builds that need them (phase 10 is the phone's switch).
 
 ## Today
 
@@ -522,7 +579,7 @@ the phases built so far.
 | Idle | `Room::sweep` (chapters) | `Room::sweep` (3 h) | `Room::sweep` (10 min) | `Room::sweep` (10 min) | `Room::sweep` (none) |
 | Restart | `Room::settle` | `Room::settle` | `Room::settle` + `reconcile_exchanges`, `recover_exchanges` | `Room::settle` (closed) | `Room::settle` |
 | Marker | — | link | `xthread:`, `exchange-paused:` | link (`call`); `voice:` id for desk calls | link |
-| Cards answered by | `session.answer_permission` | `side.answer_permission` | `peers.answer_permission` | never | nobody (expired) |
+| Cards answered by | `thread.answer` (`session.answer_permission`) | `thread.answer` (`side.answer_permission`) | `thread.answer` (`peers.answer_permission`) | never | nobody (expired) |
 | Push / waiting | yes | yes | yes | fallback push | no |
 | Search | indexed | indexed | indexed | indexed | indexed |
 | Desktop hook | `useTape` | `useSide` | `useThread` | `voice/call.ts` | `useRun` |

@@ -1151,7 +1151,8 @@ from it.
   `{"side": "<sideId>"}`): the task, what each side said, tool calls and cards.
   Never on the teammate's tape, so the main conversation is not interrupted and
   the teammate's main context never reads it. Live words arrive as
-  `side_agent_delta` / `side_thought_delta`, addressed by side id; a tape
+  `side_agent_delta` / `side_thought_delta`, addressed by side id (a socket that
+  declared `threads2` is sent `thread_delta` for the thread instead); a tape
   subscription never receives them and a side subscription never receives a
   tape's.
 - **The marker.** One link on the teammate's tape (and, for a handoff, a copy
@@ -1301,9 +1302,11 @@ same shape under the same field names; only the id of a thread's line is
 are read as the links they stand for (`Link::read`), render as they were, and are
 searched and resumed as before. When such a thread next changes, its line is
 rewritten as a link *under the id it already has*, so it is replaced in place and
-never joined by a second line. The contract does not include `link`: it is never
-sent. A call's link is sent as a `call` marker, which is new: a client that does
-not know the kind skips it, as the phone does.
+never joined by a second line. A call's link is sent as a `call` marker, which
+is new: a client that does not know the kind skips it, as the phone does. A
+socket that declared `threads2` (`client.hello`) is sent the link itself for
+every kind (`Link::threads2`), the markers on disk read as links included, and
+the contract has `link` for it. See [wire.md](wire.md#threads).
 
 **Deliveries.** A delivery carries where it came from as a field,
 `from: {thread, kind, request}` (`DeliveryFrom`), written beside its `cause`. A

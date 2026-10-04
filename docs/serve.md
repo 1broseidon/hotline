@@ -127,6 +127,26 @@ ciphertext for the handshake payloads and application frames. It can
 still observe connection timing and sizes and deny service. Do not put
 credentials in `--public-url` or its query string.
 
+## Relay
+
+A served desk is also a relay for desktops paired with it as owners, so a
+phone reaches a desktop through the server instead of over a VPN. On the
+desktop, add the server as an owner (Add a server, with `hotline pair --link`
+from the server), then turn on Remote and
+choose the server under **Relay**. The desktop dials out to the server and
+stands in there; nothing listens on the desktop's network for it.
+
+Phones paired after that get the relay address in the QR code. Phones paired
+before learn it the next time they connect directly. A phone dials the relay
+first and the desktop's own address after.
+
+The relay joins a phone's socket to one the desktop dials back for it and
+passes the Noise records between them as they are. The phone still pins the
+desktop's key, so the server cannot read or alter the session; it can only
+drop it. See [ADR 0002](adr/0002-a-served-desk-relays-sealed-records.md).
+Each desktop may have 16 sessions through the relay at once, and a server
+stands in for up to 64 desktops.
+
 ## Public Cloudflare tunnels
 
 Enforce HTTPS at the Cloudflare edge. The desk only listens with TLS and

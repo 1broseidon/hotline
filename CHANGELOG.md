@@ -12,6 +12,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- A server running `hotline serve` relays for the desktops paired with it as
+  owners. Choose the server under Remote → Relay on the desktop, and phones
+  reach the desktop through the server, without a VPN. The server passes the
+  encrypted session along and cannot read it; the phone still checks the
+  desktop's own key. The relay address goes to phones in the pairing code and
+  when they next connect, and phones fall back to the desktop's own address.
+  Phones need the next app build to use it.
 - Threads open in the right-hand pane, whatever they are. The pane lists the
   open teammate's work threads, handoffs ("from Mack"), conversations with other
   teammates, subagent runs and calls, work first, with the closed ones folded

@@ -1592,7 +1592,7 @@ fn subscribe(
         }
         Target::Room => StreamId::Room,
         Target::Tape(persona_id) => StreamId::Tape(persona_id),
-        Target::Thread(key) => StreamId::Thread(key),
+        Target::Thread(key) => StreamId::Pair(key),
         Target::Run(id) => StreamId::Run(id),
         Target::Side(id) => StreamId::Side(id),
     };

@@ -4,7 +4,7 @@
 //! A delivery is one teammate asking another a question, and four records
 //! come out of it:
 //!
-//! - **The thread.** [`StreamId::Thread`] of [`thread_key`], which is one
+//! - **The thread.** [`StreamId::Pair`] of [`thread_key`], which is one
 //!   file per pair and belongs to neither side. The words of the exchange go
 //!   here and never onto either teammate's tape: what a colleague asked is
 //!   not part of the conversation the user is having.
@@ -727,7 +727,7 @@ impl Room {
         // behind, exactly as on a tape — and no seat is shown a peer card, so
         // the child's own timeout is the only thing that ever answered it.
         if driven.asked {
-            let stream = StreamId::Thread(session.thread_key.clone());
+            let stream = StreamId::Pair(session.thread_key.clone());
             for expired in
                 crate::log::expire_orphaned_permissions(&self.log.load(&stream), now_ms())
             {
@@ -984,7 +984,7 @@ impl Room {
                 let (a, b) = thread_participants(&key)?;
                 let other = if a == persona_id { b } else { a };
                 let (user_side, agent_side) = (a.to_string(), b.to_string());
-                let events = self.log.load(&StreamId::Thread(key.clone()));
+                let events = self.log.load(&StreamId::Pair(key.clone()));
                 let last = events
                     .iter()
                     .rfind(|event| matches!(kind_of(event), "user" | "agent"));
@@ -1029,7 +1029,7 @@ impl Room {
     /// that moved. An id naming nothing, or a message that is already read,
     /// moves nothing — which is what makes a repeated receipt harmless.
     pub fn mark_peer_read(&self, key: &str, event_ids: &[String]) -> usize {
-        let stream = StreamId::Thread(key.to_string());
+        let stream = StreamId::Pair(key.to_string());
         let events = self.log.load(&stream);
         let updates = read_receipt_updates(&events, event_ids);
         let moved = updates.len();
@@ -1116,7 +1116,7 @@ impl Room {
                 }
                 let last = self
                     .log
-                    .load(&StreamId::Thread(thread_key.clone()))
+                    .load(&StreamId::Pair(thread_key.clone()))
                     .iter()
                     .filter_map(|event| event.get("ts").and_then(Value::as_i64))
                     .max()
@@ -1251,7 +1251,7 @@ impl Room {
                 in_process.then(|| view.reach.unwrap_or_default()),
                 &self.stored_secrets(),
             ),
-            said_in(&self.log.load(&StreamId::Thread(key.to_string())), flip),
+            said_in(&self.log.load(&StreamId::Pair(key.to_string())), flip),
             TeammateTools::new(self, &view.id)
                 .with_capability(target_capability.clone())
                 .for_peer(),
@@ -1332,7 +1332,7 @@ impl Room {
                 return;
             }
         };
-        if let Err(error) = self.log.append(&StreamId::Thread(key.to_string()), &value) {
+        if let Err(error) = self.log.append(&StreamId::Pair(key.to_string()), &value) {
             eprintln!("the thread {key} could not be appended to: {error}");
         }
     }

@@ -161,7 +161,7 @@ mod tests {
     }
 
     fn stream(key: &str) -> StreamId {
-        StreamId::Thread(key.to_string())
+        StreamId::Pair(key.to_string())
     }
 
     fn user(id: &str, ts: i64, text: &str) -> Value {

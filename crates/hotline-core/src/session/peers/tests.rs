@@ -305,7 +305,7 @@ fn answers(id: &str, text: &str) -> Vec<Update> {
 }
 
 fn thread_of(room: &Room, key: &str) -> Vec<Value> {
-    room.log.load(&StreamId::Thread(key.to_string()))
+    room.log.load(&StreamId::Pair(key.to_string()))
 }
 
 fn kinds(events: &[Value]) -> Vec<&str> {

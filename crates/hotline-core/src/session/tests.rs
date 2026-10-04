@@ -5060,7 +5060,7 @@ async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
     let key = crate::paths::thread_key("ada", "bob").expect("a key for the pair");
     crate::log::thread::ensure(log.root(), &key).unwrap();
     log.append(
-        &StreamId::Thread(key.clone()),
+        &StreamId::Pair(key.clone()),
         &json!({
             "kind": "permission",
             "id": "perm:req-1",
@@ -5079,7 +5079,7 @@ async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
     );
     let card = room
         .log
-        .load(&StreamId::Thread(key))
+        .load(&StreamId::Pair(key))
         .into_iter()
         .find(|event| event["kind"] == "permission")
         .expect("the card is still on the thread");

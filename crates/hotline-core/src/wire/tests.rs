@@ -1027,7 +1027,7 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     let denied = delivery.await.unwrap().unwrap_err();
     assert!(denied.contains("denied"), "{denied}");
     assert!(
-        log.load(&StreamId::Thread("ada~bob".to_string()))
+        log.load(&StreamId::Pair("ada~bob".to_string()))
             .is_empty()
     );
 }

@@ -123,7 +123,7 @@ async fn handoff_uses_main_context_and_returns_the_matching_request_without_anot
             .iter()
             .any(|s| format!("{s:?}").contains("recipient main context"))
     );
-    assert_eq!(room.log.load(&StreamId::Thread("ada~bob".into())).len(), 2);
+    assert_eq!(room.log.load(&StreamId::Pair("ada~bob".into())).len(), 2);
 }
 
 #[tokio::test]
@@ -1084,7 +1084,7 @@ async fn restart_does_not_replay_an_interrupted_human_answer_turn() {
         StreamId::Room,
         StreamId::Tape("ada".into()),
         StreamId::Tape("bob".into()),
-        StreamId::Thread("ada~bob".into()),
+        StreamId::Pair("ada~bob".into()),
     ] {
         for event in active.log.load(&stream) {
             snapshot.append(&stream, &event).unwrap();

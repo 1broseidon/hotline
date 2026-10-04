@@ -777,7 +777,7 @@ impl Room {
         }
         for key in thread::list_all_keys(self.log.root()) {
             self.log
-                .sync(&StreamId::Thread(key))
+                .sync(&StreamId::Pair(key))
                 .map_err(|error| error.to_string())?;
         }
         Ok(held)
@@ -815,7 +815,7 @@ impl Room {
         let streams = teammates.iter().cloned().map(StreamId::Tape).chain(
             thread::list_all_keys(self.log.root())
                 .into_iter()
-                .map(StreamId::Thread),
+                .map(StreamId::Pair),
         );
         for stream in streams {
             let events = self.log.load(&stream);

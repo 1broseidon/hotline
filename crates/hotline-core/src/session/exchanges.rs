@@ -857,7 +857,7 @@ impl Room {
         } else {
             "agent"
         };
-        let stream = StreamId::Thread(key.into());
+        let stream = StreamId::Pair(key.into());
         if self.log.load(&stream).iter().any(|v| v["id"] == id) {
             return Ok(());
         }

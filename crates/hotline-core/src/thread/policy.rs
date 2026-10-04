@@ -37,6 +37,36 @@ pub struct Seed {
     /// What the thread itself has already said, so an agent that cannot
     /// reopen its own session picks the thread up where it stood.
     pub own_history: bool,
+    /// The DM's own seed: the open chapter's lines as the agent's history, and
+    /// the wake block, which says how the chapter before it closed.
+    pub chapters: bool,
+}
+
+/// How a thread's agent picks its conversation up after it was let go of.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Resume {
+    /// The teammate's own session: the checkpoint on its record, which the
+    /// agent is started with. Only the DM has one, and it is the only thread
+    /// that writes it.
+    Checkpoint,
+    /// The session the thread saved on its own link.
+    Binding,
+    /// Nothing is reopened: the agent starts fresh.
+    Never,
+}
+
+/// What a thread's agent is handed of the teammate's computer, and how long
+/// the start waits for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Computer {
+    /// None.
+    No,
+    /// The teammate's computer, shared through a lease. The start waits for it
+    /// however long it takes, and goes on without it if it cannot come up.
+    Lease,
+    /// The same, but a start does not wait for a download: it goes ahead
+    /// without the computer, which joins once the turn in flight ends.
+    Download,
 }
 
 /// Which of the teammate's tools the thread's agent is served.
@@ -118,7 +148,16 @@ pub struct Policy {
     /// Whether the agent is handed the teammate's computer. The teammate has
     /// one, so threads share it through a lease: one drives it at a time
     /// (`computer/gate.rs`), and the thread's lease ending ends its hold.
-    pub computer: bool,
+    pub computer: Computer,
+    /// How a fresh agent picks the conversation up again.
+    pub resume: Resume,
+}
+
+impl Policy {
+    /// Whether the agent is handed the teammate's computer at all.
+    pub fn has_computer(self) -> bool {
+        self.computer != Computer::No
+    }
 }
 
 impl Policy {
@@ -132,9 +171,11 @@ impl Policy {
                 lease: Lease::Same,
                 seed: Seed {
                     parent_tail: false,
-                    own_history: true,
+                    own_history: false,
+                    chapters: true,
                 },
-                computer: true,
+                computer: Computer::Download,
+                resume: Resume::Checkpoint,
                 idle: Idle::Chapters,
                 restart: Restart::Resume,
                 ..Self::asked_of_the_person()
@@ -152,8 +193,10 @@ impl Policy {
                 seed: Seed {
                     parent_tail: true,
                     own_history: true,
+                    chapters: false,
                 },
-                computer: true,
+                computer: Computer::Lease,
+                resume: Resume::Binding,
                 ..Self::asked_of_the_person()
             },
             ThreadKind::Pair => Self {
@@ -162,8 +205,10 @@ impl Policy {
                 seed: Seed {
                     parent_tail: false,
                     own_history: true,
+                    chapters: false,
                 },
-                computer: true,
+                computer: Computer::Lease,
+                resume: Resume::Binding,
                 idle: Idle::Park(QUIET_MS),
                 restart: Restart::Park,
                 ..Self::asked_of_the_person()
@@ -201,13 +246,15 @@ impl Policy {
             seed: Seed {
                 parent_tail: false,
                 own_history: false,
+                chapters: false,
             },
             tools: Tools::None,
             lease: Lease::Same,
             idle: Idle::Never,
             restart: Restart::Resume,
             closing_note: false,
-            computer: false,
+            computer: Computer::No,
+            resume: Resume::Never,
         }
     }
 
@@ -225,13 +272,15 @@ impl Policy {
             seed: Seed {
                 parent_tail: false,
                 own_history: false,
+                chapters: false,
             },
             tools,
             lease,
             idle: Idle::Never,
             restart: Restart::Resume,
             closing_note: false,
-            computer: false,
+            computer: Computer::No,
+            resume: Resume::Never,
         }
     }
 }

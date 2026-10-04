@@ -16,18 +16,30 @@
 //! the preamble for a child. The teammate's own session is never reopened, so
 //! a thread's agent can never answer inside the main conversation.
 //!
-//! The main conversation (`start_now`) and a peer session (`peer_session`) are
-//! still built on their own; each moves onto this when its phase lands, which is
-//! why the policy has a row for them.
+//! The main conversation is built here too, as the DM thread (`start_now` is
+//! the room's part of a start: the gate, the roster, the session it publishes).
+//! Its row says what is its own: the teammate's checkpoint is the session it
+//! resumes, its seed is the open chapter, its folder is written here, its
+//! computer does not hold the start up for a download, and the watches a driver
+//! offers are taken before it starts. A peer session (`peer_session`) is still
+//! built on its own, and moves onto this when its phase lands.
 
-use super::{Driving, Room, chapters, now_ms, said, without_computer};
+use super::{
+    COMPUTER_DOWNLOADING, ComputerAtStart, Driving, Room, chapters, computer_failed_note,
+    computer_unavailable, now_ms, said, with_note, without_computer,
+};
 use crate::contract::{Persona, Reach, SessionCheckpoint, SharedSecret};
-use crate::driver::{CapabilityEpoch, CapabilityLease, Driver, HOTLINE_BACKEND_ID, acp};
+use crate::driver::{
+    CapabilityEpoch, CapabilityLease, Driver, DriverInfo, HOTLINE_BACKEND_ID, SubagentReport,
+    Update, acp,
+};
 use crate::mcp::server::TeammateTools;
 use crate::thread::{
-    AgentBinding, Lease, Opener, Policy, ThreadId, ThreadKind, ThreadStore, Tools,
+    AgentBinding, Computer, Lease, Opener, Policy, Resume, ThreadId, ThreadKind, ThreadStore, Tools,
 };
+use std::path::Path;
 use std::sync::Arc;
+use tokio::sync::{mpsc, watch};
 
 /// What a thread's agent is built for.
 pub(super) struct Opening {
@@ -53,10 +65,26 @@ pub(super) struct ThreadAgent {
     pub view: Persona,
     /// The agent's own id for the conversation, as the driver reports it.
     pub reported: Option<String>,
+    /// All the driver said of itself when it started: its picker, its
+    /// capabilities, whether it restored the context it was given.
+    pub started: DriverInfo,
+    /// Whether the agent was handed the teammate's computer.
+    pub computer: bool,
+    /// What a driver offers to watch, taken before it started. Only the DM's.
+    pub watches: Option<Watches>,
     /// The saved session id the agent reopened, when it did. Nothing else
     /// about the thread's own memory is promised by the harness.
     pub resumed: Option<String>,
     armed: bool,
+}
+
+/// The streams a driver publishes while it lives, subscribed to before it
+/// starts: ACP may publish a picker change between its handshake and the moment
+/// the session enters the room, and the receiver keeps it.
+pub(super) struct Watches {
+    pub info: Option<watch::Receiver<DriverInfo>>,
+    pub unprompted: Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>,
+    pub subagents: Option<mpsc::UnboundedReceiver<SubagentReport>>,
 }
 
 impl ThreadAgent {
@@ -97,13 +125,33 @@ pub(super) fn lease_of(kind: ThreadKind, parent: &CapabilityLease) -> Capability
     }
 }
 
+/// What a thread holds the teammate's computer under, and what another thread
+/// is told it is busy with. The DM's key is `dm`, the one the turn loop lets go
+/// of when the turn ends.
+fn driving_of(thread: &ThreadId, title: &str, lease: &CapabilityLease) -> Driving {
+    match thread.kind {
+        ThreadKind::Dm => Driving::new(lease_key(thread), "the main conversation", lease),
+        _ => Driving::new(lease_key(thread), format!("the thread \"{title}\""), lease),
+    }
+}
+
+/// What a thread holds the teammate's computer under (`computer/gate.rs`).
+pub(super) fn lease_key(thread: &ThreadId) -> String {
+    match thread.kind {
+        ThreadKind::Dm => "dm".to_string(),
+        kind => format!("{}:{}", kind.name(), thread.key),
+    }
+}
+
 /// The teammate as a thread's agent is started for it: with no session of the
 /// teammate's own to reopen, which would answer inside the main conversation,
 /// and with the computer only if the kind has one.
 fn own_view(mut persona: Persona, policy: Policy) -> Persona {
-    persona.session_checkpoints = Vec::new();
-    persona.last_session_id = None;
-    if policy.computer {
+    if policy.resume != Resume::Checkpoint {
+        persona.session_checkpoints = Vec::new();
+        persona.last_session_id = None;
+    }
+    if policy.has_computer() {
         persona
     } else {
         without_computer(persona)
@@ -113,8 +161,14 @@ fn own_view(mut persona: Persona, policy: Policy) -> Persona {
 /// The session a child is asked to reopen: the thread's saved one, when the
 /// harness the teammate runs on now is the one that issued it. Only a child
 /// has a session of its own to reopen.
-fn resumable(binding: Option<AgentBinding>, backend_id: &str, in_process: bool) -> Option<String> {
+fn resumable(
+    resume: Resume,
+    binding: Option<AgentBinding>,
+    backend_id: &str,
+    in_process: bool,
+) -> Option<String> {
     binding
+        .filter(|_| resume == Resume::Binding)
         .filter(|binding| !in_process && binding.backend_id == backend_id)
         .map(|binding| binding.session_id)
 }
@@ -138,12 +192,30 @@ impl Room {
         } = opening;
         let policy = Policy::of(thread.kind);
         let in_process = persona.backend_id == HOTLINE_BACKEND_ID;
+        let main = policy.resume == Resume::Checkpoint;
         std::fs::create_dir_all(&persona.cwd).map_err(|error| {
             format!(
                 "{}'s working directory {} could not be made: {error}",
                 persona.name, persona.cwd
             )
         })?;
+        // The skills the teammate may read are files in its workspace, for
+        // either driver: the built-ins and whatever it is granted of the
+        // offered ones, copied under Hotline's marker so a revoked grant leaves
+        // nothing of Hotline's behind and nothing of the teammate's is ever
+        // touched. The DM writes them; its other threads share the folder.
+        if main {
+            crate::skills::materialize(
+                Path::new(&persona.cwd),
+                &crate::skills::Offering::from_settings(
+                    self.log.root(),
+                    &crate::room::settings(&self.log),
+                ),
+                &persona.skill_policy,
+            )
+            .map_err(|error| format!("{}'s skills could not be written: {error}", persona.name))?;
+            lease.check()?;
+        }
         let mut view = own_view(persona, policy);
         // An ACP session takes no system prompt, so who it is has to be on
         // disk before the child is started.
@@ -153,44 +225,77 @@ impl Room {
             )?;
         }
         // The computer is the teammate's, shared through a lease. A thread that
-        // cannot be given it goes on without, as the DM does: it is told so.
-        let extra_mcp = if policy.computer {
-            let driving = Driving::new(
-                format!("{}:{}", thread.kind.name(), thread.key),
-                format!("the thread \"{title}\""),
-                &lease,
-            );
-            match self.grant_computer(&view, &driving).await {
+        // cannot be given it goes on without, and the DM, which is told so,
+        // does not wait for a download.
+        let driving = driving_of(&thread, &title, &lease);
+        let mut computer_note = None;
+        let extra_mcp = match policy.computer {
+            Computer::No => Vec::new(),
+            Computer::Lease => match self.grant_computer(&view, &driving).await {
                 Ok(servers) => servers,
                 Err(reason) => {
                     eprintln!("{}'s computer is not in this thread: {reason}", view.name);
                     view = without_computer(view);
                     Vec::new()
                 }
-            }
-        } else {
-            Vec::new()
+            },
+            // Wake the computer before the grant. The grant itself is appended
+            // regardless of mcpPolicy. The computer never keeps the teammate
+            // from answering: an image still downloading, or a computer that
+            // cannot come up at all (Docker not running, an image that will
+            // not pull), starts the teammate without it. The agent is told
+            // which, and the tape says so too: never a silent absence.
+            Computer::Download => match self.computer_at_start(&view, &driving).await {
+                ComputerAtStart::NotWanted => Vec::new(),
+                ComputerAtStart::Attached(extra_mcp) => extra_mcp,
+                ComputerAtStart::Downloading => {
+                    view = without_computer(view);
+                    computer_note = Some(COMPUTER_DOWNLOADING.to_string());
+                    Vec::new()
+                }
+                ComputerAtStart::Unavailable(reason) => {
+                    lease.check()?;
+                    eprintln!("{}", computer_unavailable(&view.name, &reason));
+                    computer_note = Some(computer_failed_note(&reason));
+                    view = without_computer(view);
+                    Vec::new()
+                }
+            },
         };
+        let has_computer = !extra_mcp.is_empty();
         lease.check()?;
 
+        // Reach is Hotline Agent's one policy, and only Hotline Agent's: a
+        // child brings its own tools and Hotline enforces nothing over them, so
+        // telling one that a path outside its directory would be refused is a
+        // promise nobody here can keep.
         let reach = in_process.then(|| view.reach.unwrap_or_default());
         let context = if policy.seed.parent_tail {
             chapters::side_context(&self.tape(&view.id), now_ms())
         } else {
             None
         };
+        // The DM's context is one chapter: it hears what was said in the
+        // chapter it is joining, and the wake block tells it about the one that
+        // closed before it, which is the whole of what a fresh context knows of
+        // a conversation that has been going on for months.
+        let tape = policy.seed.chapters.then(|| self.tape(&view.id));
+        let note = tape.as_ref().and_then(|events| {
+            with_note(computer_note.take(), chapters::wake_block(events, now_ms()))
+        });
         let earlier = match thread.stream() {
             Some(stream) if policy.seed.own_history => self.log.load(&stream),
             _ => Vec::new(),
         };
         let has_history = !earlier.is_empty();
-        let history = if in_process {
-            said(&earlier)
-        } else {
-            Vec::new()
+        let history = match &tape {
+            Some(events) => said(events),
+            None if in_process => said(&earlier),
+            None => Vec::new(),
         };
         let transcript = || chapters::serialize_chapter(&earlier);
         let reopening = resumable(
+            policy.resume,
             ThreadStore::new(&self.log)
                 .load(&thread)
                 .and_then(|record| record.binding),
@@ -211,6 +316,7 @@ impl Room {
                     opened_by.as_ref(),
                     context.clone(),
                     transcript,
+                    note.clone(),
                 ),
                 history.clone(),
                 tools_of(self, &thread, &view.id, &lease),
@@ -228,6 +334,13 @@ impl Room {
             &checkpointed,
             (has_history && reopening.is_none()).then(transcript),
         )?;
+        // Subscribe before startup: the receiver keeps what the driver
+        // publishes between its handshake and the moment this joins the room.
+        let watches = main.then(|| Watches {
+            info: driver.subscribe_info(),
+            unprompted: driver.subscribe_unprompted(),
+            subagents: driver.subscribe_subagents(),
+        });
         let mut starting = Starting(Some(driver.clone()));
         let mut info = driver.start(&checkpointed).await?;
         lease.check()?;
@@ -246,7 +359,10 @@ impl Room {
         Ok(ThreadAgent {
             driver,
             view,
-            reported: info.session_id,
+            reported: info.session_id.clone(),
+            started: info,
+            computer: has_computer,
+            watches,
             resumed,
             armed: true,
         })
@@ -262,9 +378,13 @@ fn preamble_of(
     opener: Option<&Persona>,
     context: Option<String>,
     transcript: Option<String>,
+    note: Option<String>,
 ) -> String {
     match kind {
         ThreadKind::Run => super::runner::run_preamble(persona, reach),
+        // The DM's: what it needs to know of the chapter it joins, and of its
+        // computer, is the note.
+        ThreadKind::Dm => super::preamble(persona, reach, note, stored),
         // The kinds not built here yet have their own preambles until they are.
         _ => super::sides::work_preamble(persona, reach, stored, opener, context, transcript),
     }
@@ -342,11 +462,18 @@ mod tests {
 
     #[test]
     fn a_threads_agent_never_holds_its_teammates_session() {
-        for kind in [ThreadKind::Side, ThreadKind::Run, ThreadKind::Dm] {
+        for kind in [ThreadKind::Side, ThreadKind::Run, ThreadKind::Pair] {
             let view = own_view(with_computer(), Policy::of(kind));
             assert!(view.session_checkpoints.is_empty(), "{kind:?}");
             assert_eq!(view.last_session_id, None, "{kind:?}");
         }
+    }
+
+    #[test]
+    fn the_dm_resumes_the_session_its_teammate_holds() {
+        let view = own_view(with_computer(), Policy::of(ThreadKind::Dm));
+        assert_eq!(view.session_checkpoints.len(), 1);
+        assert_eq!(view.last_session_id.as_deref(), Some("main"));
     }
 
     #[test]
@@ -373,16 +500,24 @@ mod tests {
             })
         };
         assert_eq!(
-            resumable(binding("claude"), "claude", false).as_deref(),
+            resumable(Resume::Binding, binding("claude"), "claude", false).as_deref(),
             Some("s1")
         );
-        assert_eq!(resumable(binding("claude"), "codex", false), None);
         assert_eq!(
-            resumable(binding(HOTLINE_BACKEND_ID), HOTLINE_BACKEND_ID, true),
+            resumable(Resume::Binding, binding("claude"), "codex", false),
+            None
+        );
+        assert_eq!(
+            resumable(
+                Resume::Binding,
+                binding(HOTLINE_BACKEND_ID),
+                HOTLINE_BACKEND_ID,
+                true
+            ),
             None,
             "Hotline Agent has no session to reopen; its history is its context"
         );
-        assert_eq!(resumable(None, "claude", false), None);
+        assert_eq!(resumable(Resume::Binding, None, "claude", false), None);
     }
 
     #[test]
@@ -406,10 +541,10 @@ mod tests {
     #[test]
     fn only_conversations_and_a_pair_are_granted_the_computer() {
         for kind in [ThreadKind::Run, ThreadKind::Call] {
-            assert!(!Policy::of(kind).computer, "{kind:?}");
+            assert!(!Policy::of(kind).has_computer(), "{kind:?}");
         }
         for kind in [ThreadKind::Dm, ThreadKind::Side, ThreadKind::Pair] {
-            assert!(Policy::of(kind).computer, "{kind:?}");
+            assert!(Policy::of(kind).has_computer(), "{kind:?}");
         }
     }
 

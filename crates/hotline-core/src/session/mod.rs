@@ -857,6 +857,11 @@ impl Room {
     }
 
     /// The start itself. The caller is holding this teammate's gate.
+    ///
+    /// The agent is the DM thread's, built and started by
+    /// [`Room::thread_agent`] under the Dm policy. What is left here is the
+    /// room's part: the session it publishes, the watches it hands the driver's
+    /// streams to, and the chapter the conversation is in.
     async fn start_now(
         self: &Arc<Self>,
         persona_id: &str,
@@ -866,110 +871,23 @@ impl Room {
         capability.check()?;
         let persona = self.persona(persona_id)?;
         capability.check()?;
-        let in_process = persona.backend_id == HOTLINE_BACKEND_ID;
-        // The directory exists from the moment the teammate can be spoken to.
-        // A workspace under the data directory is made here; one the user
-        // typed is made too, because a path they chose is a path they meant.
-        std::fs::create_dir_all(&persona.cwd).map_err(|error| {
-            format!(
-                "{}'s working directory {} could not be made: {error}",
-                persona.name, persona.cwd
-            )
-        })?;
-        // The skills the teammate may read are files in its workspace, for
-        // either driver: the built-ins and whatever it is granted of the
-        // offered ones, copied under Hotline's marker so a revoked grant
-        // leaves nothing of Hotline's behind and nothing of the teammate's is
-        // ever touched.
-        crate::skills::materialize(
-            Path::new(&persona.cwd),
-            &crate::skills::Offering::from_settings(
-                self.log.root(),
-                &crate::room::settings(&self.log),
-            ),
-            &persona.skill_policy,
-        )
-        .map_err(|error| format!("{}'s skills could not be written: {error}", persona.name))?;
-        capability.check()?;
-        if !in_process {
-            // An ACP session takes no system prompt, so who the teammate is
-            // has to be on disk before the child is started.
-            acp::materialize_agents_md_with_capability(&persona, Some(capability.clone()))
-                .map_err(|error| {
-                    format!("{}'s AGENTS.md could not be written: {error}", persona.name)
-                })?;
-        }
-        // Wake the computer before the grant. The grant itself is appended
-        // regardless of mcpPolicy. The computer never keeps the teammate from
-        // answering: an image still downloading, or a computer that cannot
-        // come up at all (Docker not running, an image that will not pull),
-        // starts the teammate without it. The agent is told which, and the
-        // tape says so too — never a silent absence.
-        let (persona, extra_mcp, computer_note) = match self
-            .computer_at_start(
-                &persona,
-                &Driving::new("dm", "the main conversation", &capability),
-            )
-            .await
-        {
-            ComputerAtStart::NotWanted => (persona, Vec::new(), None),
-            ComputerAtStart::Attached(extra_mcp) => (persona, extra_mcp, None),
-            ComputerAtStart::Downloading => (
-                without_computer(persona),
-                Vec::new(),
-                Some(COMPUTER_DOWNLOADING.to_string()),
-            ),
-            ComputerAtStart::Unavailable(reason) => {
-                capability.check()?;
-                eprintln!("{}", computer_unavailable(&persona.name, &reason));
-                let note = computer_failed_note(&reason);
-                (without_computer(persona), Vec::new(), Some(note))
-            }
+        let mut agent = self
+            .thread_agent(agent::Opening {
+                thread: ThreadId::dm(&persona.id),
+                persona,
+                title: "the main conversation".to_string(),
+                opener: None,
+                lease: capability.clone(),
+            })
+            .await?;
+        let persona = agent.view.clone();
+        let driver = agent.driver.clone();
+        let has_computer = agent.computer;
+        let reported = agent.started.clone();
+        let (info_updates, unprompted, subagents) = match agent.watches.take() {
+            Some(watches) => (watches.info, watches.unprompted, watches.subagents),
+            None => (None, None, None),
         };
-        let has_computer = !extra_mcp.is_empty();
-        capability.check()?;
-        // The agent's context is one chapter: it hears what was said in the
-        // chapter it is joining, and the wake block tells it about the one
-        // that closed before it — which is the whole of what a fresh context
-        // knows about a conversation that has been going on for months.
-        let events = self.tape(&persona.id);
-        // Reach is Hotline Agent's one policy, and only Hotline Agent's: a child
-        // brings its own tools and Hotline enforces nothing over them, so telling
-        // one that a path outside its directory would be refused is a promise
-        // nobody here can keep.
-        let reach = in_process.then(|| persona.reach.unwrap_or_default());
-        let driver = self.agents.agent(
-            &persona,
-            preamble(
-                &persona,
-                reach,
-                with_note(computer_note, chapters::wake_block(&events, now_ms())),
-                &self.stored_secrets(),
-            ),
-            said(&events),
-            TeammateTools::new(self, &persona.id)
-                .with_capability(capability.clone())
-                .with_subagents(),
-            extra_mcp,
-        )?;
-        // Subscribe before startup: ACP may publish a picker change between
-        // its handshake snapshot and the moment this session enters the room.
-        // The receiver keeps that update until the guarded watcher is attached
-        // after publication below.
-        let info_updates = driver.subscribe_info();
-        let unprompted = driver.subscribe_unprompted();
-        let subagents = driver.subscribe_subagents();
-        let reported = match driver.start(&persona).await {
-            Ok(reported) => reported,
-            Err(error) => {
-                driver.invalidate();
-                return Err(error);
-            }
-        };
-        if let Err(error) = capability.check() {
-            driver.invalidate();
-            return Err(error);
-        }
         let mut info = idle_info(&persona.id);
         info.state = if driver.startup_failure().is_some() {
             SessionState::Error
@@ -1021,11 +939,10 @@ impl Room {
         });
         {
             let _lifecycle = lock(&self.lifecycle);
-            if let Err(error) = capability.check() {
-                session.driver.invalidate();
-                return Err(error);
-            }
+            // Dropped, the agent is stopped: the session never joined the room.
+            capability.check()?;
             lock(&self.sessions).insert(persona.id.clone(), session.clone());
+            agent.keep();
             let _ = self.info_changes.send(info.clone());
         }
         if let Some(info_updates) = info_updates {

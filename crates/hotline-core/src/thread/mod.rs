@@ -20,7 +20,8 @@ mod store;
 
 pub use link::{Link, Opener};
 pub use policy::{
-    Answer, Idle, Lease, Policy, QUIET_MS, Restart, SIDE_IDLE_MS, Seed, Surface, Tools,
+    Answer, Computer, Idle, Lease, Policy, QUIET_MS, Restart, Resume, SIDE_IDLE_MS, Seed, Surface,
+    Tools,
 };
 pub use store::ThreadStore;
 

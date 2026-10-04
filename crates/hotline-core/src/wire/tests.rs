@@ -5868,6 +5868,78 @@ async fn thread_list_reads_every_kind_as_one_summary() {
     assert_eq!(answered(&mut socket, 5).await["result"], json!([]));
 }
 
+/// A companion is listed the threads it may read, which leaves out a call:
+/// its summary's preview is what was spoken in it.
+#[tokio::test]
+async fn a_companions_thread_list_leaves_out_calls_and_pairs() {
+    let (_root, log, port) = door("thread-list-companion");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let bob = create(&mut socket, 2, "Bob").await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tape = StreamId::Tape(ada.clone());
+    let link = |kind: &str, key: &str| {
+        json!({
+            "kind": "link", "id": format!("link:{kind}:{key}"), "ts": 200, "thread": key,
+            "threadKind": kind, "personaId": ada, "title": key, "state": "closed",
+            "end": "idle", "at": 300,
+        })
+    };
+    for (kind, key, stream) in [
+        ("side", "s1", StreamId::Side("s1".into())),
+        ("call", "c1", StreamId::Call("c1".into())),
+    ] {
+        log.append(&tape, &link(kind, key)).unwrap();
+        log.append(&stream, &link(kind, key)).unwrap();
+        log.append(
+            &stream,
+            &json!({ "kind": "agent", "id": "x", "ts": 250, "text": format!("said in {key}") }),
+        )
+        .unwrap();
+    }
+    let pair = paths::thread_key(&ada, &bob).unwrap();
+    crate::log::thread::ensure(log.root(), &pair).unwrap();
+    log.append(
+        &StreamId::Pair(pair.clone()),
+        &json!({ "kind": "user", "id": "pu", "ts": 150, "text": "Got a minute?" }),
+    )
+    .unwrap();
+
+    let handle: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
+    let kinds = |answer: &Value| -> Vec<String> {
+        let mut kinds: Vec<String> = answer["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{answer}"))
+            .iter()
+            .map(|row| row["thread"]["kind"].as_str().unwrap().to_string())
+            .collect();
+        kinds.sort();
+        kinds
+    };
+    for params in [json!({ "personaId": ada }), json!({})] {
+        let request = json!({ "id": 1, "cmd": "thread.list", "params": params });
+        let phone = remote_control_answer(Seat::Phone, &handle, &log, request.clone()).await;
+        assert!(
+            !phone.to_string().contains("said in c1"),
+            "a call's words are not a companion's to list: {phone}"
+        );
+        assert!(
+            !kinds(&phone)
+                .iter()
+                .any(|kind| kind == "call" || kind == "pair")
+        );
+        assert!(kinds(&phone).iter().any(|kind| kind == "side"));
+        let owner = remote_control_answer(Seat::Owner, &handle, &log, request).await;
+        assert!(kinds(&owner).iter().any(|kind| kind == "call"));
+        assert!(kinds(&owner).iter().any(|kind| kind == "pair"));
+    }
+}
+
 #[tokio::test]
 async fn a_thread_subscription_by_id_reads_the_stream_its_kind_keeps() {
     let (_root, log, port) = door("thread-id-sub");

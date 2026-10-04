@@ -221,13 +221,14 @@ pub(super) fn page(
 }
 
 /// The threads of one teammate, or of the room: live first, then parked, then
-/// closed, each newest first. A phone is not shown pairs (`pairs` is false),
-/// since it may not list them under their older name either.
+/// closed, each newest first. A companion is listed only what it may read: not
+/// pairs, which it may not list under their older name either, and not calls,
+/// whose summaries carry what was spoken in their `preview`.
 pub(super) fn list(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
     persona_id: Option<&str>,
-    pairs: bool,
+    companion: bool,
 ) -> Result<Value, String> {
     let store = ThreadStore::new(log);
     let threads = match persona_id {
@@ -237,7 +238,9 @@ pub(super) fn list(
     let roster = crate::room::roster(log);
     let mut summaries: Vec<ThreadSummary> = threads
         .iter()
-        .filter(|thread| pairs || thread.kind() != ThreadKind::Pair)
+        .filter(|thread| {
+            !companion || (thread.kind() != ThreadKind::Pair && super::phone_may_read(&thread.id))
+        })
         .map(|thread| summarize(log, room, thread, &roster))
         .collect();
     summaries.sort_by_key(|summary| {

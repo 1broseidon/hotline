@@ -599,7 +599,9 @@ pub(crate) async fn run(
         Command::ClientHello { .. } => {
             Err("A hello is read at the door, on the socket it names.".into())
         }
-        Command::ThreadList { persona_id } => threads::list(log, room, persona_id.as_deref(), true),
+        Command::ThreadList { persona_id } => {
+            threads::list(log, room, persona_id.as_deref(), false)
+        }
         Command::ThreadOpen { persona_id, text } => {
             threads::open(log, room, &persona_id, &text).await
         }

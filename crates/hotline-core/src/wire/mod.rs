@@ -770,8 +770,8 @@ impl Seat {
 /// from the phone through `mobile.prompt`, so `thread.prompt` is for a work
 /// thread only; a card in a pair is the owner's to answer, as
 /// `peers.answer_permission` is; and a thread it could not subscribe to it
-/// cannot page. `thread.list` leaves pairs out for the same reason
-/// `peers.list` is refused.
+/// cannot page. `thread.list` leaves out what it could not read, and pairs for
+/// the same reason `peers.list` is refused.
 fn phone_thread_command(command: &Command) -> bool {
     match command {
         Command::ThreadPrompt { thread, .. } => thread.kind == ThreadKind::Side,
@@ -1353,10 +1353,10 @@ async fn answer(
                     (Command::MobileAttachment { upload }, Some(phone)) => {
                         phone.upload(upload).await
                     }
-                    // A companion is not shown pairs, which `peers.list` would
-                    // not show it either.
+                    // A companion is listed what it could read: no pairs, which
+                    // `peers.list` would not show it either, and no calls.
                     (Command::ThreadList { persona_id }, _) => {
-                        threads::list(log, room, persona_id.as_deref(), seat != Seat::Phone)
+                        threads::list(log, room, persona_id.as_deref(), seat == Seat::Phone)
                     }
                     (Command::ClientHello { capabilities }, _) => {
                         sender.threads2.store(

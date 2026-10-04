@@ -3249,7 +3249,8 @@ pub enum Command {
     #[serde(rename = "thread.list")]
     ThreadList { persona_id: Option<String> },
     /// Opens a work thread with this teammate about `text`, already running
-    /// its first turn. Answers the new thread's `ThreadSummary`.
+    /// its first turn. Empty `text` opens it untitled and idle, named by the
+    /// first line said in it. Answers the new thread's `ThreadSummary`.
     #[serde(rename = "thread.open")]
     ThreadOpen { persona_id: String, text: String },
     /// Says something in a thread, and returns at once: the answer arrives on

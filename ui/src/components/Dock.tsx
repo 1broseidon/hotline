@@ -22,6 +22,7 @@ import {
 	threadDot,
 	withLinks,
 } from "../dock";
+import { sideTitle } from "../links";
 import { dmOf, sameThread, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { Scroll } from "../ui/Scroll";
@@ -249,7 +250,7 @@ function ThreadList({
 					<p className="px-2 py-3 text-sm text-ink-3">Pick a teammate to see their threads.</p>
 				) : !loaded ? null : open.length + closed.length === 0 ? (
 					<p className="px-2 py-3 text-sm text-ink-3">
-						No threads with {teammate.name} yet. Type <span className="font-mono">/side</span> and a task in the composer to start one.
+						No threads with {teammate.name} yet. Start a side thread from the conversation's More menu.
 					</p>
 				) : (
 					<>
@@ -338,7 +339,7 @@ function ThreadView({
 	const turning = (working || row?.working === true) && !closed;
 	const other = id.kind === "pair" ? pairWith(id.key, teammate.id) : undefined;
 	const withName = open.withName ?? (other === undefined ? undefined : nameOf(other)) ?? "a teammate";
-	const title = row !== undefined ? rowTitle(row, teammate.id, nameOf) : (open.title ?? (id.kind === "pair" ? `With ${withName}` : "Thread"));
+	const title = row !== undefined ? rowTitle(row, teammate.id, nameOf) : (id.kind === "side" ? sideTitle(open.title) : (open.title ?? (id.kind === "pair" ? `With ${withName}` : "Thread")));
 	const from = row === undefined ? "" : openerWords(row);
 	// The link is the thread's own line in the conversation that holds it; here the thread is the page.
 	const lines = useMemo(() => events.filter((event) => event.kind !== "link"), [events]);

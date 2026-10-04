@@ -142,7 +142,9 @@ pub(super) fn work_preamble(
 pub(super) struct LiveSide {
     pub(super) id: String,
     persona_id: String,
-    title: String,
+    /// Empty until the person first says something in a thread that was
+    /// opened without a task; that line names it.
+    title: Mutex<String>,
     started: i64,
     /// The harness the agent runs on, which is whose session ids `saved` holds.
     backend_id: String,
@@ -502,7 +504,8 @@ pub(super) enum Ending {
 impl Room {
     /// Starts a side thread with this teammate about `text`, and answers its
     /// summary. The teammate's first turn on it is already running when this
-    /// returns.
+    /// returns. Without `text` the thread opens untitled and waits for the
+    /// person's first line, which names it.
     pub async fn start_side(
         self: &Arc<Self>,
         persona_id: &str,
@@ -510,9 +513,6 @@ impl Room {
     ) -> Result<SideThreadSummary, String> {
         let _working = self.working()?;
         let text = text.trim();
-        if text.is_empty() {
-            return Err("A side thread needs a task to start on.".to_string());
-        }
         if text.len() > super::TEAMMATE_MESSAGE_MAX {
             return Err("That task is too long for a side thread.".to_string());
         }
@@ -527,7 +527,9 @@ impl Room {
                 },
             )
             .await?;
-        self.say_in_side(&live, text, None);
+        if !text.is_empty() {
+            self.say_in_side(&live, text, None);
+        }
         Ok(self.side_summary(&live))
     }
 
@@ -580,7 +582,7 @@ impl Room {
         let live = Arc::new(LiveSide {
             id: start.side_id,
             persona_id: persona_id.to_string(),
-            title: start.title,
+            title: Mutex::new(start.title),
             started: start.started,
             opener: start.opener,
             handoff: Mutex::new(None),
@@ -869,7 +871,7 @@ impl Room {
             .iter()
             .map(|side| RunningSide {
                 side_id: side.id.clone(),
-                title: side.title.clone(),
+                title: lock(&side.title).clone(),
                 started_at: side.started,
                 working: side.working(),
             })
@@ -963,6 +965,7 @@ impl Room {
         let ts = now_ms();
         let client = crate::wire::commands::prompt_client();
         *lock(&side.last_used) = ts;
+        self.name_side(side, text);
         side.say(
             self,
             &TranscriptEvent::User {
@@ -1206,6 +1209,20 @@ impl Room {
 
     /// The link on the teammate's tape and at the head of the thread's own
     /// stream.
+    /// An untitled thread takes its name from the first line said in it.
+    fn name_side(&self, side: &LiveSide, text: &str) {
+        let title = title_of(text);
+        {
+            let mut current = lock(&side.title);
+            if !current.is_empty() || title.is_empty() {
+                return;
+            }
+            *current = title;
+        }
+        self.mark_side(side, ThreadState::Live, None);
+        let _ = self.info_changes.send(self.info(&side.persona_id));
+    }
+
     fn mark_side(&self, side: &LiveSide, state: ThreadState, outcome: Option<String>) {
         let thread = ThreadId::side(&side.id);
         let saved = lock(&side.saved).clone();
@@ -1214,7 +1231,7 @@ impl Room {
             ts: side.started,
             thread,
             persona_id: Some(side.persona_id.clone()),
-            title: side.title.clone(),
+            title: lock(&side.title).clone(),
             state,
             outcome,
             at: matches!(state, ThreadState::Closed(_)).then(now_ms),
@@ -1233,7 +1250,7 @@ impl Room {
         SideThreadSummary {
             side_id: side.id.clone(),
             persona_id: side.persona_id.clone(),
-            title: side.title.clone(),
+            title: lock(&side.title).clone(),
             status: SideStatus::Live,
             started_at: side.started,
             last_at: last_at(&events).max(side.started),
@@ -1440,6 +1457,31 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         panic!("the side thread never finished its turn");
+    }
+
+    #[tokio::test]
+    async fn a_side_thread_opened_empty_waits_and_is_named_by_the_first_line() {
+        let agents = Fake::new(Scripted::new(vec![say("m1", "On it."), turn()]));
+        let room = room("side-empty", agents.clone());
+        let summary = room.start_side("ada", "  ").await.unwrap();
+        assert_eq!(summary.title, "");
+        assert_eq!(summary.status, SideStatus::Live);
+        assert!(!summary.working);
+        assert_eq!(kinds(&side_stream(&room, &summary.side_id)), ["side"]);
+
+        room.prompt_side(&summary.side_id, "Fix the CI badge\nit is red", None)
+            .await
+            .unwrap();
+        settled(&room, &summary.side_id).await;
+        assert_eq!(room.sides("ada")[0].title, "Fix the CI badge");
+        let stored = room.log.load(&StreamId::Tape("ada".to_string()));
+        assert_eq!(stored.last().unwrap()["title"], "Fix the CI badge");
+
+        // A later line does not rename it.
+        room.prompt_side(&summary.side_id, "Also the README", None)
+            .await
+            .unwrap();
+        assert_eq!(room.sides("ada")[0].title, "Fix the CI badge");
     }
 
     #[tokio::test]
@@ -1702,7 +1744,6 @@ mod tests {
             .unwrap();
         room.start_side("ada", "Five").await.unwrap();
         assert_eq!(room.sides("ada").len(), MAX_LIVE);
-        assert!(room.start_side("ada", "  ").await.is_err());
         assert!(room.start_side("nobody", "x").await.is_err());
     }
 

@@ -134,6 +134,7 @@ pub(super) fn lease_of(kind: ThreadKind, parent: &CapabilityLease) -> Capability
 fn driving_of(thread: &ThreadId, title: &str, lease: &CapabilityLease) -> Driving {
     match thread.kind {
         ThreadKind::Dm => Driving::new(lease_key(thread), "the main conversation", lease),
+        _ if title.is_empty() => Driving::new(lease_key(thread), "an untitled thread", lease),
         _ => Driving::new(lease_key(thread), format!("the thread \"{title}\""), lease),
     }
 }

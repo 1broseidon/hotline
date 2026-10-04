@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import type { Attachment, ConfigChoice, ScheduledJob, ThreadId, TranscriptEvent } from "../generated/contract";
+import { sideTitle } from "../links";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
 import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
@@ -32,17 +33,6 @@ import { reactionQuote, Transcript, turnCauseLine, type ReactTarget, type ReplyT
  */
 /** A message on screen before the core has written it down. */
 type Saying = { text: string; at: number; replyTo?: string };
-
-/**
- * `/side <task>` in the composer starts a side thread instead of saying
- * something: a second conversation with this teammate, for another task,
- * while it is busy with the first. `null` when the words are not that
- * command; an empty task when there is none after it.
- */
-export function sideCommand(text: string): { task: string } | null {
-	const found = /^\/side(?:\s+([\s\S]*))?$/i.exec(text.trim());
-	return found === null ? null : { task: (found[1] ?? "").trim() };
-}
 
 /** The words and files a refused send hands back to the composer. */
 export type Refill = { text: string; attachments: Attachment[]; nonce: number };
@@ -119,32 +109,18 @@ export function Conversation({
 	const [refused, setRefused] = useState<string | null>(null);
 	const [chapterBusy, setChapterBusy] = useState(false);
 
-	/* A work thread starts on its own; nothing about it touches the main
-	 * conversation's line or session. A refusal hands the words back. */
-	const startSide = useCallback(
-		(text: string, task: string, attachments: Attachment[]) => {
-			const at = Date.now();
-			const refuse = (sentence: string) => {
-				setRefill({ text, attachments, nonce: at });
-				setRefused(sentence);
-			};
-			if (task === "") return refuse("Say what the side thread is for, like /side fix the CI badge.");
-			if (attachments.length > 0) return refuse("Start the side thread first, then attach files inside it.");
-			setRefused(null);
-			void wire.command("thread.open", { personaId, text: task }).then(
-				(summary) => onOpenThread({ thread: summary.thread, ...(summary.title !== undefined ? { title: summary.title } : {}) }),
-				(error: unknown) => refuse(error instanceof Error ? error.message : String(error)),
-			);
-		},
-		[personaId, onOpenThread],
-	);
+	/* A side thread opens empty and at once, beside this one; nothing about
+	 * it touches the main conversation's line or session. Its first line,
+	 * said in it, names it. */
+	const startSide = useCallback(() => {
+		setRefused(null);
+		void wire.command("thread.open", { personaId, text: "" }).then(
+			(summary) => onOpenThread({ thread: summary.thread, ...(summary.title !== undefined ? { title: summary.title } : {}) }),
+			(error: unknown) => setRefused(error instanceof Error ? error.message : String(error)),
+		);
+	}, [personaId, onOpenThread]);
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
-			const side = sideCommand(text);
-			if (side !== null) {
-				startSide(text, side.task, attachments);
-				return;
-			}
 			const answered = replying;
 			const at = Date.now();
 			setSaying({ text, at, ...(answered ? { replyTo: answered.eventId } : {}) });
@@ -178,7 +154,7 @@ export function Conversation({
 					},
 				);
 		},
-		[personaId, replying, session.state, startSide],
+		[personaId, replying, session.state],
 	);
 	/* The line the core will write, standing in until it does: the same words
 	 * at or after the moment they were sent. */
@@ -304,7 +280,7 @@ export function Conversation({
 			id: "side",
 			text: "Start a side thread",
 			detail: `Another topic with ${persona.name}, in parallel`,
-			onSelect: () => setRefill({ text: "/side ", attachments: [], nonce: Date.now() }),
+			onSelect: startSide,
 		},
 		{ kind: "item", id: "side-list", text: "Threads", detail: "Work threads, conversations between teammates, runs and calls", onSelect: onOpenThreadList },
 		{ kind: "item", id: "reveal", text: onServer() ? "Show working directory on the server" : "Reveal working directory", onSelect: () => showPath(persona.cwd) },
@@ -396,11 +372,11 @@ export function Conversation({
 						type="button"
 						className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
 						title="Open the side thread"
-						aria-label={`Side thread: ${sides[0]!.title}`}
+						aria-label={`Side thread: ${sideTitle(sides[0]!.title)}`}
 						aria-pressed={opened({ kind: "side", key: sides[0]!.sideId })}
 						onClick={() => onOpenThread({ thread: { kind: "side", key: sides[0]!.sideId }, title: sides[0]!.title })}
 					>
-						<span className="truncate">{narrow ? "Side" : `Side: ${sides[0]!.title}`}</span>
+						<span className="truncate">{narrow ? "Side" : `Side: ${sideTitle(sides[0]!.title)}`}</span>
 						{sides[0]!.working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
 					</button>
 				) : sides.length > 1 ? (
@@ -410,7 +386,7 @@ export function Conversation({
 						entries={sides.map((side) => ({
 							kind: "item",
 							id: side.sideId,
-							text: side.title,
+							text: sideTitle(side.title),
 							checked: opened({ kind: "side", key: side.sideId }),
 							onSelect: () => onOpenThread({ thread: { kind: "side", key: side.sideId }, title: side.title }),
 						}))}

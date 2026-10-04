@@ -1,4 +1,5 @@
 import type { LinkState, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
+import { sideTitle } from "./links";
 
 /**
  * The right-hand pane: side threads for the open teammate, and settings, one
@@ -161,6 +162,7 @@ export const pairWith = (key: string, selfId: string): string | undefined => key
 /** What a row is called: its own title, else, for a pair, the teammate it is with. */
 export function rowTitle(row: ThreadSummary, selfId: string, nameOf: (personaId: string) => string | undefined): string {
 	if (row.title !== undefined && row.title !== "") return row.title;
+	if (row.thread.kind === "side") return sideTitle(row.title);
 	const other = row.thread.kind === "pair" ? pairWith(row.thread.key, selfId) : undefined;
 	return other !== undefined ? `With ${nameOf(other) ?? "a teammate"}` : "Conversation";
 }

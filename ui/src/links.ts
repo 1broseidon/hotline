@@ -46,16 +46,20 @@ const ENDINGS: Partial<Record<ThreadEnd, string>> = { stopped: "stopped", idle: 
  * its title and what came of it in one line, and how it ended when nobody said
  * it was done.
  */
+/** A side thread opened without a task is untitled until its first line names it. */
+export const sideTitle = (title: string | undefined): string => (title === undefined || title === "" ? "New side thread" : title);
+
 function workWords(link: LinkEvent): string {
+	const title = sideTitle(link.title);
 	if (link.state === "live") {
 		return link.openerName !== undefined && link.openerName !== ""
-			? `${link.openerName} handed this over · ${link.title}`
-			: `Started a side thread · ${link.title}`;
+			? `${link.openerName} handed this over · ${title}`
+			: `Started a side thread · ${title}`;
 	}
-	if (link.state === "parked") return `Side thread · ${link.title} · parked`;
+	if (link.state === "parked") return `Side thread · ${title} · parked`;
 	const ending = link.end === undefined ? undefined : ENDINGS[link.end];
 	const outcome = link.outcome !== undefined && link.outcome !== "" ? link.outcome : "archived";
-	return `Side thread · ${link.title} · ${outcome}${ending !== undefined && link.outcome !== undefined && link.outcome !== "" ? ` · ${ending}` : ""}`;
+	return `Side thread · ${title} · ${outcome}${ending !== undefined && link.outcome !== undefined && link.outcome !== "" ? ` · ${ending}` : ""}`;
 }
 
 /** A thread's line in the conversation that holds it: one quiet sentence, whatever the kind. */

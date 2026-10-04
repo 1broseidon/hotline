@@ -840,6 +840,8 @@ impl Remote {
             cancel: s.devices.get(&grant.device.id)?.child_token(),
         })
     }
+    // The operation, who it is to, what is said and where: one message, field by field.
+    #[allow(clippy::too_many_arguments)]
     async fn prompt(
         &self,
         phone: &Phone,

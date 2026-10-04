@@ -222,7 +222,8 @@ impl Room {
     }
 }
 
-/// Who the crew member is: its name and job, which pick its pose and props.
+/// Who the crew member is: its name and job, which pick the taste decisions
+/// the house style asks for.
 fn avatar_subject(name: &str, goal: &str) -> String {
     let goal: String = goal.trim().chars().take(600).collect();
     let mut subject = format!("a teammate called {}", name.trim());
@@ -230,7 +231,7 @@ fn avatar_subject(name: &str, goal: &str) -> String {
         subject.push_str(&format!(", whose job is: {goal}"));
     }
     subject.push_str(
-        ". Choose a pose and props a person would remember it by. If the name is a thing, it carries or wears that thing.",
+        ". Pick its taste decisions from these, the few a person would remember it by. If the name is a thing, its colour, skin or a detail echoes that thing.",
     );
     subject
 }

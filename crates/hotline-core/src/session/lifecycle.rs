@@ -9,8 +9,9 @@
 //! - **The sweep.** [`Room::sweep`] is run on the room's clock and applies
 //!   every kind's `idle` policy. A side thread is parked there. A run is
 //!   never idle-ended, and a call that nobody has spoken on for ten minutes is
-//!   ended. The DM's chapters and a peer session's quiet clock are ported in
-//!   later phases, so for now it calls the functions that own them.
+//!   ended. The DM's row is its chapters ([`Idle::Chapters`]), which the sweep
+//!   closes through `sweep_chapters`: a chapter's close is awaited, a note being
+//!   a model call, so it is the one row the sweep awaits.
 //! - **The settle.** [`Room::settle`] is run once as the room opens. The last
 //!   process's agents died with it, so a card it left open is expired and a
 //!   thread it left live is moved by its kind's `restart` policy: a side
@@ -58,16 +59,20 @@ impl Room {
 
     /// Applies every kind's idle policy once. See the module.
     pub(crate) async fn sweep(self: &Arc<Self>, now: i64, looked_again: &mut HashMap<String, i64>) {
-        // The DM: its chapters close when the room's idle setting says so.
-        self.sweep_chapters(looked_again).await;
-        // The rest by kind: a peer session that has gone quiet is the same
-        // kind of fact as a chapter that has: nothing to arm when a message
-        // lands and nothing to cancel when a teammate is deleted.
+        // The DM's row is its chapters, which close when the room's idle
+        // setting says so. Closing one waits on its note, so this is the one
+        // row that is awaited.
+        if Policy::of(ThreadKind::Dm).idle == Idle::Chapters {
+            self.sweep_chapters(looked_again).await;
+        }
         self.sweep_threads(now);
     }
 
     /// The idle policy of the kinds whose live threads the room holds in
-    /// memory. A thread with a turn running is left alone.
+    /// memory. A thread with a turn running is left alone. A peer session that
+    /// has gone quiet is the same kind of fact as a chapter that has: nothing
+    /// to arm when a message lands and nothing to cancel when a teammate is
+    /// deleted.
     pub(super) fn sweep_threads(&self, now: i64) {
         for kind in [
             ThreadKind::Side,

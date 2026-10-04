@@ -245,13 +245,19 @@ impl Room {
         let mut settled = Vec::new();
         for link in events.iter().filter_map(Link::read) {
             // A thread a colleague handed this teammate's tape is that
-            // colleague's to settle, from its own.
-            if link.state != ThreadState::Live
-                || link
-                    .persona_id
-                    .as_deref()
-                    .is_some_and(|whose| whose != owner)
-            {
+            // colleague's to settle, from its own. The copy of a thread this
+            // teammate handed over is settled with it: on this tape only, since
+            // the thread's own stream is settled from the tape it belongs to.
+            let whose = link
+                .persona_id
+                .as_deref()
+                .is_some_and(|whose| whose != owner);
+            let handed_over = whose
+                && link
+                    .opener
+                    .as_ref()
+                    .is_some_and(|opener| opener.persona_id == owner);
+            if link.state != ThreadState::Live || (whose && !handed_over) {
                 continue;
             }
             let state = match Policy::of(link.thread.kind).restart {
@@ -276,6 +282,10 @@ impl Room {
                 });
                 link.at = Some(last.unwrap_or(link.ts).max(link.ts));
                 link.outcome.get_or_insert_with(|| ENDED_BY_RESTART.into());
+            }
+            if handed_over {
+                settled.push(link.event());
+                continue;
             }
             if matches!(state, ThreadState::Closed(_)) {
                 closed.push(link.thread.clone());
@@ -461,7 +471,7 @@ mod tests {
     use crate::contract::{RunningSubagent, SideEnd};
     use crate::driver::{MessageKind, Update};
     use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
-    use crate::thread::{End, SIDE_IDLE_MS, ThreadStore};
+    use crate::thread::{End, Opener, SIDE_IDLE_MS, ThreadStore};
     use serde_json::json;
     use std::time::Duration;
 
@@ -805,5 +815,61 @@ mod tests {
         let found =
             crate::store::search::search_teammate(room.log.root(), "ada", "grease", None).unwrap();
         assert_eq!(found["hits"][0]["thread"], "call:c1");
+    }
+
+    #[tokio::test]
+    async fn a_restart_settles_the_senders_copy_of_a_handoff_link_with_the_targets() {
+        let log = scratch("settle-handoff-copy");
+        enrol(&log, &persona("ada"));
+        enrol(&log, &persona("bob"));
+        let side = ThreadId::side("s1");
+        let live = Link {
+            id: Link::fresh_id(&side),
+            ts: 1_000,
+            thread: side.clone(),
+            persona_id: Some("bob".into()),
+            title: "Mend the crane".into(),
+            state: ThreadState::Live,
+            outcome: None,
+            at: None,
+            note: None,
+            binding: None,
+            elapsed_ms: None,
+            opener: Some(Opener {
+                persona_id: "ada".into(),
+                name: "Ada".into(),
+            }),
+        };
+        let mut copy = live.event();
+        copy["id"] = format!("{}@ada", live.id).into();
+        log.append(&StreamId::Tape("bob".into()), &live.event())
+            .unwrap();
+        log.append(&StreamId::Tape("ada".into()), &copy).unwrap();
+        log.append(&side.stream().unwrap(), &live.event()).unwrap();
+
+        let room = room_on(log, quiet_agents());
+
+        let state_on = |owner: &str| -> Vec<(String, ThreadState)> {
+            stored(&room, StreamId::Tape(owner.into()))
+                .iter()
+                .filter_map(Link::read)
+                .map(|link| (link.id, link.state))
+                .collect()
+        };
+        let parked = [(format!("{}@ada", live.id), ThreadState::Parked)];
+        assert_eq!(
+            state_on("ada"),
+            parked,
+            "the sender's copy does not stay live"
+        );
+        assert_eq!(state_on("bob"), [(live.id.clone(), ThreadState::Parked)]);
+        assert_eq!(
+            stored(&room, side.stream().unwrap())
+                .iter()
+                .filter_map(Link::read)
+                .count(),
+            1,
+            "the copy is settled on its tape only, not written into the thread"
+        );
     }
 }

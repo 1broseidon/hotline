@@ -185,6 +185,15 @@ describe("a link as a row", () => {
 		expect(rows).toHaveLength(3);
 	});
 
+	test("does not undo a row with a stale link: the fresher word wins", () => {
+		const parked = thread("a", "side", { state: "parked", updatedAt: 100 });
+		// A live link from the thread's start, copied to the sender's tape and never settled.
+		expect(withLinks([parked], [link("a", { ts: 5 })], "p")).toEqual([parked]);
+		// A link that closed it since the list was asked is newer.
+		const closed = withLinks([parked], [link("a", { state: "closed", end: "done", at: 150 })], "p");
+		expect(closed[0]).toMatchObject({ state: "closed", end: "done" });
+	});
+
 	test("leaves a row alone when the link agrees, and ignores the conversation's own", () => {
 		const listed = [thread("a", "side", { working: true })];
 		expect(withLinks(listed, [link("a")], "p")).toEqual(listed);

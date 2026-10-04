@@ -111,7 +111,9 @@ export function rowOfLink(link: LinkEvent, personaId: string): ThreadSummary {
  * The listed rows, brought up to what the links say since: a thread that
  * parked or closed reads so at once, and one the list has not heard of yet is
  * a row of its own until the list is asked again. Links are the parent's own
- * account of its threads, so where they disagree with a list they are newer.
+ * account of its threads, so where they disagree with a list they are newer,
+ * unless the list has heard of the thread since: a link older than the row's
+ * last word (a copy of a link that was never settled, say) does not undo it.
  */
 export function withLinks(list: ThreadSummary[], links: LinkEvent[], personaId: string): ThreadSummary[] {
 	const rows = new Map(list.map((row) => [`${row.thread.kind}:${row.thread.key}`, row]));
@@ -124,6 +126,7 @@ export function withLinks(list: ThreadSummary[], links: LinkEvent[], personaId: 
 			continue;
 		}
 		if (known.state === link.state && known.end === link.end && known.title === link.title) continue;
+		if (known.updatedAt > (link.at ?? link.ts)) continue;
 		const { end: _end, outcome: _outcome, ...rest } = known;
 		rows.set(id, {
 			...rest,

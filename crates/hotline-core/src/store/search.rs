@@ -318,7 +318,8 @@ fn unavailable(error: rusqlite::Error) -> String {
 /// The index's schema, and the only copy of it.
 ///
 /// Message identity lives in a B-tree; FTS rowids point to that identity.
-/// An older cache without identities is rebuilt from the tapes by its writer.
+/// An older cache without identities, or stamped with an earlier [`VERSION`],
+/// is rebuilt from the tapes by its writer.
 const SCHEMA: [&str; 7] = [
     "CREATE TABLE IF NOT EXISTS message_ids (
         id INTEGER PRIMARY KEY, persona_id TEXT NOT NULL, event_id TEXT NOT NULL,
@@ -339,6 +340,12 @@ const SCHEMA: [&str; 7] = [
     "CREATE TABLE IF NOT EXISTS index_state (persona_id TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL)",
     "CREATE TABLE IF NOT EXISTS message_threads (id INTEGER PRIMARY KEY, thread TEXT NOT NULL)",
 ];
+
+/// What the index holds, as `PRAGMA user_version` says it: 1 added the lines
+/// said in threads, which an index written before it never indexed, whatever
+/// else its tables hold. Raise it when a change means the rows already there
+/// are wrong or incomplete, and the next open rebuilds them from the tapes.
+const VERSION: i64 = 1;
 
 /// The size and modification time of the file a teammate is being written to.
 ///
@@ -673,10 +680,11 @@ impl Indexer {
             [],
             |row| row.get(0),
         )?;
+        let version: i64 = transaction.query_row("PRAGMA user_version", [], |row| row.get(0))?;
         for statement in SCHEMA {
             transaction.execute(statement, [])?;
         }
-        if !has_identities {
+        if !has_identities || version < VERSION {
             // Stamps from the old schema cannot certify the new one. Rebuild
             // all known tapes in this transaction, so readers see either the
             // old cache or the complete replacement, never a partial upgrade.
@@ -686,6 +694,7 @@ impl Indexer {
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             for table in [
                 "messages",
+                "message_ids",
                 "message_threads",
                 "chapters",
                 "chapters_fts",
@@ -696,6 +705,9 @@ impl Indexer {
             for persona_id in personas {
                 rebuild(&transaction, log, &persona_id)?;
             }
+        }
+        if version != VERSION {
+            transaction.pragma_update(None, "user_version", VERSION)?;
         }
         transaction.commit()?;
         Ok(Self {
@@ -1607,6 +1619,63 @@ mod tests {
         // The window's searches only offer what opens on the tape.
         assert_eq!(ids(&search(&root, "ada", "harbour", None).unwrap()), ["m1"]);
         assert_eq!(ids(&search_all(&root, "harbour", None).unwrap()), ["m1"]);
+    }
+
+    #[test]
+    fn an_index_from_before_threads_were_indexed_is_rebuilt_once_with_their_lines() {
+        let (root, log, mut indexer) = fixture::indexer("thread-backfill");
+        log.append(
+            &StreamId::Tape("ada".into()),
+            &json!({"kind": "user", "id": "m1", "ts": 1, "text": "a winch question"}),
+        )
+        .unwrap();
+        log.append(
+            &StreamId::Tape("ada".into()),
+            &json!({
+                "kind": "side", "id": "side:s1", "ts": 2, "sideId": "s1",
+                "personaId": "ada", "title": "Task", "status": "live"
+            }),
+        )
+        .unwrap();
+        indexer.reindex("ada").unwrap();
+        drop(indexer);
+        // The index as the edition before threads left it: current tables,
+        // current stamp, nothing from the threads, and no version.
+        let old = Connection::open(index_path(&root)).unwrap();
+        old.execute("DELETE FROM message_threads", []).unwrap();
+        old.execute(
+            "DELETE FROM messages WHERE rowid IN (SELECT id FROM message_ids WHERE event_id = 's1-line')",
+            [],
+        )
+        .unwrap();
+        old.pragma_update(None, "user_version", 0).unwrap();
+        drop(old);
+        log.append(
+            &StreamId::Side("s1".into()),
+            &json!({"kind": "agent", "id": "s1-line", "ts": 3, "text": "the winch is fine"}),
+        )
+        .unwrap();
+        // The tape's stamp has not moved, so a sync would not read it again.
+        let indexer = Indexer::open(&log).unwrap();
+        let found = search_teammate(&root, "ada", "winch", None).unwrap();
+        assert_eq!(sorted_ids(&found), ["m1", "s1-line"], "{found}");
+        let version: i64 = indexer
+            .database
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, VERSION);
+        // Once: the next open leaves the rows alone.
+        indexer
+            .database
+            .execute("DELETE FROM messages WHERE rowid IN (SELECT id FROM message_ids WHERE event_id = 'm1')", [])
+            .unwrap();
+        drop(indexer);
+        let _again = Indexer::open(&log).unwrap();
+        assert_eq!(
+            sorted_ids(&search_teammate(&root, "ada", "winch", None).unwrap()),
+            ["s1-line"],
+            "a current index is not rebuilt on every open"
+        );
     }
 
     #[test]

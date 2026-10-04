@@ -2027,9 +2027,9 @@
 		flex: 1;
 		flex-direction: column;
 	}
-	/* A side thread in the list: the status dot leads the row. Running
+	/* A thread in the list: the status dot leads the row. Running
 	 * breathes in the accent, waiting on you is the warning colour, parked is
-	 * a ring, archived is dim. */
+	 * a ring, closed is dim. */
 	/* A line under a thread, above its composer: parked, archived, refused. */
 	.dock-note {
 		flex-shrink: 0;

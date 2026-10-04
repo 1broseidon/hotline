@@ -9,6 +9,7 @@ import type {
 	PasskeyAskStatus,
 	PermissionOption,
 	PlanEntry,
+	ThreadId,
 	ToolOutput,
 	ToolStatus,
 	TranscriptEvent,
@@ -20,7 +21,8 @@ import { wholeBubbles } from "../reveal";
 import { type Block, type ScheduledEvent, type Step, groupScheduled } from "../scheduledRuns";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, CopyIcon, ReplyIcon, SmileIcon, WarningIcon } from "../icons";
 import { popupMessageMenu, writeClipboard } from "../native";
-import type { Streaming } from "../tape";
+import { answerCard, dmOf, type Streaming } from "../tape";
+import { linkFailed, linkLine, threadOfLink } from "../links";
 import { type Activity, type ActivityPhase, activityOf, LANDED, RESTING } from "../activity";
 import { Glyph, LANDED_MS } from "../ui/Glyph";
 import { Avatar } from "../ui/Avatar";
@@ -77,18 +79,16 @@ export function Transcript({
 	onReact,
 	onRetryMessage,
 	onOpenThread,
-	onOpenSubagent,
-	onOpenSide,
 	onOpenScreen,
 	onOpenWork,
 	workOpen,
-	sideId,
+	thread,
 	more = false,
 	onEarlier,
 }: {
 	personaId: string;
-	/** Set when this is a side thread's transcript: a permission is answered to it, not to the main session. */
-	sideId?: string;
+	/** Which thread this is, so a card is answered to it; the teammate's main conversation when unset. */
+	thread?: ThreadId;
 	name: string;
 	/** The teammate's picture, when it has one. */
 	avatarHash?: string | undefined;
@@ -104,10 +104,8 @@ export function Transcript({
 	/** An emoji on a teammate's line, sent the way the phone sends one. */
 	onReact?(target: ReactTarget, emoji: string): void;
 	onRetryMessage?(message: Extract<TranscriptEvent, { kind: "user" }>): void;
+	/** Opens a thread a line stands for in the right-hand pane: a link, a peer line or a delivery. */
 	onOpenThread?(thread: ThreadRef): void;
-	onOpenSubagent?(event: SubagentEvent): void;
-	/** Opens a side thread in the right-hand pane from its line. */
-	onOpenSide?(event: SideEvent): void;
 	/** The teammate's desktop, only while one is running: opens it in a window of its own. */
 	onOpenScreen?(): void;
 	/**
@@ -321,7 +319,7 @@ export function Transcript({
 							) : (
 								<Row
 									personaId={personaId}
-									{...(sideId !== undefined ? { sideId } : {})}
+									thread={thread ?? dmOf(personaId)}
 									ownerName={name}
 									event={block.event}
 									quote={block.event.kind === "user" && block.event.replyTo !== undefined ? said.get(block.event.replyTo) : undefined}
@@ -333,8 +331,6 @@ export function Transcript({
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onReact !== undefined ? { onReact } : {})}
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
-									{...(onOpenSubagent !== undefined ? { onOpenSubagent } : {})}
-									{...(onOpenSide !== undefined ? { onOpenSide } : {})}
 									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
 									onJump={onJump}
 								/>
@@ -634,7 +630,7 @@ export function retryForNotice(events: TranscriptEvent[], noticeId: string,
  */
 const Row = memo(function Row({
 	personaId,
-	sideId,
+	thread,
 	ownerName,
 	event,
 	quote,
@@ -646,13 +642,11 @@ const Row = memo(function Row({
 	onReact,
 	onRetry,
 	onOpenThread,
-	onOpenSubagent,
-	onOpenSide,
 	onOpenScreen,
 	onJump,
 }: {
 	personaId: string;
-	sideId?: string;
+	thread: ThreadId;
 	/** Whose tape this is: the teammate, so a card can speak of it in the third person. */
 	ownerName: string;
 	event: Exclude<TranscriptEvent, Step>;
@@ -667,9 +661,6 @@ const Row = memo(function Row({
 	onReply?(target: ReplyTarget): void;
 	onReact?(target: ReactTarget, emoji: string): void;
 	onOpenThread?(thread: ThreadRef): void;
-	onOpenSubagent?(event: SubagentEvent): void;
-	/** Opens a side thread in the right-hand pane from its line. */
-	onOpenSide?(event: SideEvent): void;
 	onOpenScreen?(): void;
 	onJump(eventId: string): void;
 }) {
@@ -737,13 +728,13 @@ const Row = memo(function Row({
 			);
 
 		case "permission":
-			return <Permission personaId={personaId} {...(sideId !== undefined ? { sideId } : {})} event={event} />;
+			return <Permission thread={thread} event={event} />;
 
 		case "plan":
 			return <Plan entries={event.entries} />;
 
 		case "human_action":
-			return <HumanAction personaId={personaId} event={event} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
+			return <HumanAction thread={thread} event={event} {...(onOpenScreen !== undefined ? { onOpenScreen } : {})} />;
 
 		case "passkey_ask":
 			return <PasskeyAskCard personaId={personaId} event={event} />;
@@ -759,7 +750,7 @@ const Row = memo(function Row({
 		 * Pressing it opens the thread in the inspector's place. */
 		case "peer":
 			return (
-				<button type="button" className="hung-line" data-missed={event.status === "failed" || undefined} onClick={() => onOpenThread?.(event)}>
+				<button type="button" className="hung-line" data-missed={event.status === "failed" || undefined} onClick={() => onOpenThread?.({ thread: { kind: "pair", key: event.threadKey }, withName: event.withName })}>
 					<Avatar id={event.withPersonaId} name={event.withName} size={16} />
 					<span className="min-w-0 truncate">{peerLine(event)}</span>
 					<ChevronRightIcon />
@@ -780,7 +771,7 @@ const Row = memo(function Row({
 					className="hung-line"
 					data-missed={deliveryMissed(event) || undefined}
 					onClick={() => onOpenThread?.({
-						threadKey: cause.threadKey,
+						thread: { kind: "pair", key: cause.threadKey },
 						withName: cause.name,
 						...(cause.kind === "handoff" ? { handoff: cause } : {}),
 					})}
@@ -794,49 +785,29 @@ const Row = memo(function Row({
 			);
 		}
 
-		/* Work the teammate handed to a subagent: one quiet line that fills
-		 * in as the run goes, the way a peer thread is one. Pressing it opens
-		 * the run in the work card; while it runs the band names it too. */
-		case "subagent":
+		/* A thread this conversation holds, whatever its kind: a work thread, a
+		 * subagent's run, a call. One quiet line that fills in as the thread
+		 * goes, and opens it in the right-hand pane. */
+		case "link":
 			return (
 				<button
 					type="button"
 					className="rule-line rule-line-plain w-full"
-					style={event.status === "failed" ? { color: "var(--warn)" } : undefined}
-					onClick={() => onOpenSubagent?.(event)}
+					style={linkFailed(event) ? { color: "var(--warn)" } : undefined}
+					aria-label={`${linkLine(event)}. Open it`}
+					onClick={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })}
 				>
-					<span className="min-w-0 truncate">{`Subagent · ${event.title}`}</span>
-					<span className="shrink-0">{`· ${subagentState(event)}`}</span>
-				</button>
-			);
-
-		/* A side thread the person started beside this conversation: one quiet
-		 * line, "Started a side thread" while it runs, a title and a one-line
-		 * result once it is archived. Either way it opens the thread in the
-		 * work card. */
-		case "side": {
-			const line = sideLine(event);
-			return (
-				<button
-					type="button"
-					className="rule-line rule-line-plain w-full"
-					aria-label={`${line.text}. Open the side thread`}
-					onClick={() => onOpenSide?.(event)}
-				>
-					<span className="min-w-0 truncate">{line.text}</span>
+					<span className="min-w-0 truncate">{linkLine(event)}</span>
 					<span className="shrink-0">· Open</span>
 				</button>
 			);
-		}
 
-		/* A voice call with this teammate: one quiet line, "Call · 4 min ·
-		 * Hung up". What was said on it is kept with the call, not on this tape. */
+		/* The markers links replaced. The window declares `threads2`, so the
+		 * desk sends it a link for each, even for one written long ago. */
+		case "side":
+		case "subagent":
 		case "call":
-			return (
-				<p className="rule-line rule-line-plain w-full">
-					<span className="min-w-0 truncate">{callLine(event)}</span>
-				</p>
-			);
+			return null;
 
 		case "computer_frame":
 			return <ComputerFrame dataUrl={event.dataUrl} />;
@@ -848,36 +819,13 @@ const Row = memo(function Row({
 	}
 });
 
-export type SubagentEvent = Extract<TranscriptEvent, { kind: "subagent" }>;
-export type SideEvent = Extract<TranscriptEvent, { kind: "side" }>;
-export type CallEvent = Extract<TranscriptEvent, { kind: "call" }>;
-
-/** What a call's line in the conversation says: that it is going, or how long it lasted and how it ended. */
-export function callLine(event: CallEvent): string {
-	if (event.status === "live") return `${event.title} · in progress`;
-	const minutes = Math.round((event.durationMs ?? 0) / 60_000);
-	const length = minutes < 1 ? "under a minute" : `${minutes} min`;
-	return [event.title, length, event.outcome].filter((part) => part !== undefined && part !== "").join(" · ");
-}
-
-/**
- * What a side thread's line in the conversation says: while it runs, that it
- * started; parked, that it is waiting to be picked up; once archived, its
- * title and what came of it in one line, and how it ended when nobody said it
- * was done.
- */
-export function sideLine(event: SideEvent): { text: string } {
-	if (event.status === "live") return { text: `Started a side thread · ${event.title}` };
-	if (event.status === "parked") return { text: `Side thread · ${event.title} · parked` };
-	const ending = event.archivedBy === "stopped" ? "stopped" : event.archivedBy === "idle" ? "archived, idle" : "";
-	const outcome = event.result !== undefined && event.result !== "" ? event.result : "archived";
-	return { text: `Side thread · ${event.title} · ${outcome}${ending !== "" && event.result !== undefined ? ` · ${ending}` : ""}` };
-}
-
-/** What opens a thread: a peer marker is one, and a delivery names one. */
+/** What opens a thread from a line: the thread, and what the line knew about it. */
 export type ThreadRef = {
-	threadKey: string;
-	withName: string;
+	thread: ThreadId;
+	/** What a link called it. */
+	title?: string;
+	/** The teammate a pair is with. */
+	withName?: string;
 	handoff?: Extract<DeliveryCause, { kind: "handoff" }>;
 };
 
@@ -961,31 +909,6 @@ export function turnCauseLine(events: TranscriptEvent[]): string | null {
 		}
 	}
 	return null;
-}
-
-/** Where a subagent's run has got to, in the words its line ends with. */
-export function subagentState(event: SubagentEvent): string {
-	const took = event.elapsedMs === undefined ? "" : ` after ${runWords(event.elapsedMs)}`;
-	switch (event.status) {
-		case "running":
-			return "working";
-		case "done":
-			return event.elapsedMs === undefined ? "done" : `done in ${runWords(event.elapsedMs)}`;
-		case "failed":
-			return `failed${took}`;
-		case "cancelled":
-			return `stopped${took}`;
-	}
-}
-
-/** A run is seconds to many minutes long: say it the way a person would. */
-function runWords(ms: number): string {
-	const seconds = Math.round(ms / 1000);
-	if (seconds < 1) return "under a second";
-	if (seconds < 60) return `${seconds} s`;
-	const minutes = Math.floor(seconds / 60);
-	const rest = seconds % 60;
-	return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
 }
 
 /**
@@ -1571,12 +1494,10 @@ function EditLines({ text }: { text: string }) {
  * that answer is in flight so a second click cannot race the first.
  */
 function Permission({
-	personaId,
-	sideId,
+	thread,
 	event,
 }: {
-	personaId: string;
-	sideId?: string;
+	thread: ThreadId;
 	event: Extract<TranscriptEvent, { kind: "permission" }>;
 }) {
 	const [answering, setAnswering] = useState(false);
@@ -1585,10 +1506,7 @@ function Permission({
 	const answer = (optionId: string) => {
 		if (answering || event.decision !== undefined) return;
 		setAnswering(true);
-		void (sideId !== undefined
-			? wire.command("side.answer_permission", { sideId, requestId: event.requestId, optionId })
-			: wire.command("session.answer_permission", { personaId, requestId: event.requestId, optionId })
-		).catch(() => setAnswering(false));
+		void answerCard(thread, { kind: "permission", requestId: event.requestId, optionId }).catch(() => setAnswering(false));
 	};
 
 	return (
@@ -1682,11 +1600,11 @@ const AFTERLIFE: Record<HumanActionStatus, string> = {
  * a question is answered in the same place it was asked. Enter is Done.
  */
 function HumanAction({
-	personaId,
+	thread,
 	event,
 	onOpenScreen,
 }: {
-	personaId: string;
+	thread: ThreadId;
 	event: Extract<TranscriptEvent, { kind: "human_action" }>;
 	onOpenScreen?(): void;
 }) {
@@ -1698,10 +1616,7 @@ function HumanAction({
 		if (answering || event.status !== "pending") return;
 		setAnswering(true);
 		const trimmed = note.trim();
-		const params = { personaId, actionId: event.actionId, status };
-		void wire
-			.command("human.answer", trimmed ? { ...params, note: trimmed } : params)
-			.catch(() => setAnswering(false));
+		void answerCard(thread, { kind: "human", actionId: event.actionId, status, ...(trimmed ? { note: trimmed } : {}) }).catch(() => setAnswering(false));
 	};
 
 	if (event.status !== "pending") {

@@ -15,7 +15,7 @@ import { WindowEdges } from "./ui/WindowEdges";
 import { Teammate } from "./components/Teammate";
 import { Shortcuts } from "./components/Shortcuts";
 import { sameWork, Work, type OpenWork } from "./components/Work";
-import { Thread, type OpenThread } from "./components/Thread";
+import type { ThreadRef } from "./components/Transcript";
 import { Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
 import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, watchWindowShape } from "./native";
@@ -37,9 +37,6 @@ const SettingsRail = lazy(() => import("./components/Settings").then((module) =>
 
 /** What stands in the conversation's place: a room-wide pane, or nothing. */
 type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
-
-/** What can stand in the inspector's place beside a conversation. */
-type Aside = { kind: "thread"; thread: OpenThread };
 
 /**
  * The window for the active desk. Switching desks remounts all of it, so the
@@ -71,9 +68,6 @@ export function App() {
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelected);
-	/* What stands in the inspector's place: a peer thread, opened from its
-	 * line in the conversation. */
-	const [aside, setAside] = useState<Aside | null>(null);
 	/* The work card each teammate has open, by persona: it belongs to them,
 	 * so it goes when you leave them and is there again when you come back. */
 	const [works, setWorks] = useState<Record<string, OpenWork>>({});
@@ -86,7 +80,7 @@ export function App() {
 	}, []);
 	const [pane, setPane] = useState<Pane>(null);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
-	/* The right-hand pane: this teammate's side threads, beside the
+	/* The right-hand pane: this teammate's threads, beside the
 	 * conversation or over it in a window too narrow. */
 	const [dock, setDock] = useState<DockState | null>(null);
 	const [dockWidth, setDockWidthState] = useState(loadDockWidth);
@@ -218,9 +212,8 @@ export function App() {
 	useEffect(() => {
 		setSearchOpen(false);
 		setFocusSchedules(false);
-		setAside(null);
 		// A thread open in the right-hand pane belongs to the teammate who left.
-		setDock((was) => (was !== null && was.side !== null ? { ...was, side: null } : was));
+		setDock((was) => (was !== null && was.open !== null ? { open: null } : was));
 		saveSelected(selectedId);
 	}, [selectedId]);
 
@@ -276,35 +269,22 @@ export function App() {
 			setPane(null);
 			setDock(null);
 			setSearchOpen(false);
-			setAside(null);
 			setFocusSchedules(schedules);
 			setInspector((open) => schedules || !open);
 		},
 		[selectedId],
 	);
-	const openAside = useCallback((next: Aside) => {
-		setPane(null);
-		setDock(null);
-		setSearchOpen(false);
-		setInspector(false);
-		setAside(next);
-	}, []);
-	const openThread = useCallback((thread: OpenThread) => openAside({ kind: "thread", thread }), [openAside]);
 	/* The right-hand pane takes the inspector's place: one of them at a time. */
 	const openDock = useCallback((next: DockState) => {
 		setSearchOpen(false);
 		setInspector(false);
-		setAside(null);
 		setDock(next);
 	}, []);
 	const closeDock = useCallback(() => setDock(null), []);
-	const openSide = useCallback(
-		(side: { sideId: string; title: string }) => openDock({ side }),
-		[openDock],
-	);
-	const openSideList = useCallback(() => openDock({ side: null }), [openDock]);
+	const openThread = useCallback((open: ThreadRef) => openDock({ open }), [openDock]);
+	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
 
-	/* A caption, the mark or a subagent, pressed again with its work already open, closes it. */
+	/* A caption or the mark, pressed again with its work already open, closes it. */
 	const openWork = useCallback(
 		(work: OpenWork) => {
 			const was = works[work.personaId];
@@ -322,7 +302,6 @@ export function App() {
 				if (selectedId === personaId) {
 					setSelectedId(null);
 					setInspector(false);
-					setAside(null);
 				}
 			} catch {
 				// The inspector's own Remove reports a refusal if this fails.
@@ -347,13 +326,8 @@ export function App() {
 				if (dock !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
 					// One step back, then out: a thread to the list, the list to the window.
 					event.preventDefault();
-					if (dock.side !== null) setDock({ ...dock, side: null });
+					if (dock.open !== null) setDock({ open: null });
 					else closeDock();
-					return;
-				}
-				if (aside !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
-					event.preventDefault();
-					setAside(null);
 					return;
 				}
 				if (selectedId !== null && workOf !== undefined && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
@@ -404,7 +378,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, dock, inspector, aside, workOf, closeWork, searchOpen, select, closePane, closeDock, togglePane, toggleInspector, toggleRail]);
+	}, [roster, selectedId, pane, dock, inspector, workOf, closeWork, searchOpen, select, closePane, closeDock, togglePane, toggleInspector, toggleRail]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -580,40 +554,27 @@ export function App() {
 								setFocus({ eventId, at: Date.now() });
 							}}
 							onOpenThread={openThread}
-							onOpenSubagent={(run) => openWork({ personaId: selected.persona.id, ...run })}
+							onOpenThreadList={openThreadList}
 							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}
-							workOpen={workOf !== undefined && "blockId" in workOf ? workOf.blockId : undefined}
-							runOpen={workOf !== undefined && "runId" in workOf ? workOf.runId : undefined}
-							onOpenSide={openSide}
-							onOpenSideList={openSideList}
-							sideOpen={dock?.side?.sideId}
+							workOpen={workOf?.blockId}
+							threadOpen={dock?.open?.thread}
 							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
-						{aside?.kind === "thread" ? (
-							<Thread
-								key={`thread-${aside.thread.key}`}
-								open={aside.thread}
-								selfId={selected.persona.id}
-								selfName={selected.persona.name}
-								onClose={() => setAside(null)}
+						{inspector && (
+							<Teammate
+								key={`inspector-${selected.persona.id}`}
+								persona={selected.persona}
+								session={selected.session}
+								jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
+								roster={roster}
+								focusSchedules={focusSchedules}
+								onClose={() => setInspector(false)}
+								onDeleted={() => {
+									setSelectedId(null);
+									setInspector(false);
+								}}
+								onOpenThread={openThread}
 							/>
-						) : (
-							inspector && (
-								<Teammate
-									key={`inspector-${selected.persona.id}`}
-									persona={selected.persona}
-									session={selected.session}
-									jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
-									roster={roster}
-									focusSchedules={focusSchedules}
-									onClose={() => setInspector(false)}
-									onDeleted={() => {
-										setSelectedId(null);
-										setInspector(false);
-									}}
-									onOpenThread={openThread}
-								/>
-							)
 						)}
 					</>
 				) : (
@@ -631,8 +592,8 @@ export function App() {
 							state={dock}
 							onState={setDock}
 							onClose={closeDock}
-							teammate={selected === null ? null : { id: selected.persona.id, name: selected.persona.name, avatarHash: selected.persona.avatar?.hash }}
-							sides={selected?.sides ?? []}
+							entry={selected}
+							roster={roster}
 							width={dockWidth}
 							onWidth={setDockWidth}
 							overlay={dockOverlay}

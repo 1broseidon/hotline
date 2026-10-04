@@ -1,41 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import type { TranscriptEvent } from "../src/generated/contract";
-import { runPieces, sameWork } from "../src/components/Work";
+import { sameWork } from "../src/components/Work";
 import { sideCommand } from "../src/components/Conversation";
-import { sideLine } from "../src/components/Transcript";
-
-const line = (kind: string, id: string, extra: object = {}) => ({ kind, id, ts: 1, text: `${kind} ${id}`, ...extra }) as unknown as TranscriptEvent;
-
-describe("a subagent's run in the work card", () => {
-	test("steps gather between what it said, and its notices stay", () => {
-		const pieces = runPieces([
-			line("agent", "a1"),
-			line("thought", "t1"),
-			line("tool", "c1", { title: "read", status: "completed" }),
-			line("agent", "a2"),
-			line("notice", "n1", { level: "error" }),
-			line("turn", "u1", { stopReason: "end_turn" }),
-		]);
-		expect(pieces.map((piece) => (piece.kind === "steps" ? `steps:${piece.items.map((one) => one.id).join(",")}` : `${piece.kind}:${piece.id}`))).toEqual([
-			"said:a1",
-			"steps:t1,c1",
-			"said:a2",
-			"notice:n1",
-		]);
-	});
-
-	test("an empty line says nothing", () => {
-		expect(runPieces([line("agent", "a1", { text: "  " })])).toEqual([]);
-	});
-});
 
 describe("pressing what opened a card", () => {
-	test("is the same work only for the same turn or the same run", () => {
+	test("is the same work only for the same turn", () => {
 		expect(sameWork({ personaId: "p", blockId: null }, { personaId: "p", blockId: null })).toBe(true);
 		expect(sameWork({ personaId: "p", blockId: "b1" }, { personaId: "p", blockId: "b2" })).toBe(false);
-		expect(sameWork({ personaId: "p", runId: "r1", title: "x" }, { personaId: "p", runId: "r1", title: "y" })).toBe(true);
-		expect(sameWork({ personaId: "p", runId: "r1", title: "x" }, { personaId: "p", blockId: null })).toBe(false);
-		expect(sameWork({ personaId: "p", blockId: null }, { personaId: "p", runId: "r1", title: "x" })).toBe(false);
+		expect(sameWork({ personaId: "p", blockId: "b1" }, { personaId: "p", blockId: null })).toBe(false);
 	});
 });
 
@@ -51,23 +22,5 @@ describe("/side in the composer", () => {
 		expect(sideCommand("please /side this")).toBeNull();
 		expect(sideCommand("/sidebar is broken")).toBeNull();
 		expect(sideCommand("hello")).toBeNull();
-	});
-});
-
-describe("a side thread's line in the conversation", () => {
-	const marker = (extra: object) => ({ kind: "side", id: "side:s1", ts: 1, sideId: "s1", personaId: "p", title: "Fix the CI badge", ...extra }) as Parameters<typeof sideLine>[0];
-
-	test("says it started while it runs", () => {
-		expect(sideLine(marker({ status: "live" })).text).toBe("Started a side thread · Fix the CI badge");
-	});
-
-	test("becomes its title and a one-line result once archived, and says when nobody ended it", () => {
-		expect(sideLine(marker({ status: "archived", archivedBy: "agent", result: "Badge is green." })).text).toBe("Side thread · Fix the CI badge · Badge is green.");
-		expect(sideLine(marker({ status: "archived", archivedBy: "stopped", result: "Half done." })).text).toBe("Side thread · Fix the CI badge · Half done. · stopped");
-		expect(sideLine(marker({ status: "archived", archivedBy: "person" })).text).toBe("Side thread · Fix the CI badge · archived");
-	});
-
-	test("says it is parked while its agent is let go of and the thread is open", () => {
-		expect(sideLine(marker({ status: "parked" })).text).toBe("Side thread · Fix the CI badge · parked");
 	});
 });

@@ -34,7 +34,7 @@ import { PasskeyArm } from "./PasskeyArm";
 import { ComputerSecrets } from "./Secrets";
 import { PathField } from "./PathField";
 import { Schedules } from "./Schedules";
-import type { OpenThread } from "./Thread";
+import type { ThreadRef } from "./Transcript";
 
 /**
  * One teammate, beside their conversation, in a column 320px wide.
@@ -70,7 +70,7 @@ export function Teammate({
 	focusSchedules: boolean;
 	onClose(): void;
 	onDeleted(): void;
-	onOpenThread(thread: OpenThread): void;
+	onOpenThread(thread: ThreadRef): void;
 }) {
 	const servers = useRoomSettings().mcpServers;
 	const [name, setName] = useState(persona.name);
@@ -1572,11 +1572,11 @@ const THREAD_SEEN_KEY = "hotline.threads.seen";
 
 /**
  * This teammate's conversations with other teammates, behind one row that
- * counts them; their side threads are in the right-hand pane.
+ * counts them; the right-hand pane opens one, and lists the rest.
  * Unread is lastAt against the latest the window has shown, the same way
  * the rail counts a tape.
  */
-function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: OpenThread): void }) {
+function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: ThreadRef): void }) {
 	const [threads, setThreads] = useState<PeerThreadSummary[] | undefined>(undefined);
 	const [seen, setSeen] = useState(loadThreadSeen);
 	const [open, setOpen] = useState(false);
@@ -1626,10 +1626,7 @@ function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: Open
 			saveThreadSeen(next);
 			return next;
 		});
-		onOpen({
-			key: thread.threadKey,
-			withName: thread.withName,
-		});
+		onOpen({ thread: { kind: "pair", key: thread.threadKey }, withName: thread.withName });
 	};
 
 	const dot = <span aria-label="Unread" className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />;

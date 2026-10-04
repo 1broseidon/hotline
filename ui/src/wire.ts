@@ -297,6 +297,9 @@ type Live = {
 	handlers: Handlers<unknown, unknown>;
 };
 
+/** What this window reads beyond what every desk sends: see `client.hello` in docs/wire.md. */
+const THREADS2 = "threads2";
+
 /** How long to wait before dialling again, growing with each failure. */
 const BACKOFF_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
 
@@ -328,11 +331,18 @@ export class Wire {
 
 		socket.onopen = () => {
 			this.failures = 0;
-			this.setState("open");
-			// A subscription belongs to the window, not to the socket that
-			// happened to carry it: everything still on screen is asked for
-			// again, and each one answers with a fresh snapshot.
-			for (const [id, sub] of this.live) this.send({ id, sub: sub.target });
+			// The window reads `threads2`: links and one delta for every kind
+			// of thread. The core reads the declaration as each frame is made,
+			// so it is made, and answered, before anything subscribes.
+			const ready = () => {
+				if (this.socket !== socket) return;
+				this.setState("open");
+				// A subscription belongs to the window, not to the socket that
+				// happened to carry it: everything still on screen is asked for
+				// again, and each one answers with a fresh snapshot.
+				for (const [id, sub] of this.live) this.send({ id, sub: sub.target });
+			};
+			this.command("client.hello", { capabilities: [THREADS2] }).then(ready, ready);
 		};
 		socket.onmessage = (message) => this.receive(message.data);
 		socket.onclose = () => this.drop();

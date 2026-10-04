@@ -1,5 +1,5 @@
 import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Attachment, RunningSide, SideThreadSummary, TranscriptEvent } from "../generated/contract";
+import type { Attachment, ThreadSummary } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import { carry } from "../serverFiles";
@@ -10,34 +10,42 @@ import {
 	DOCK_STEP,
 	DOCK_WIDTH,
 	draggedDock,
-	groupSides,
+	groupThreads,
+	type LinkEvent,
+	openerWords,
+	pairWith,
+	powersOf,
 	relativeTime,
-	type SideState,
-	sideState,
+	rowOpener,
+	rowTitle,
+	type ThreadDot,
+	threadDot,
+	withLinks,
 } from "../dock";
-import { useSide } from "../tape";
+import { dmOf, sameThread, useThread } from "../tape";
 import { Band } from "../ui/Band";
 import { Scroll } from "../ui/Scroll";
-import { wire } from "../wire";
+import { wire, type RosterEntry } from "../wire";
 import { Composer } from "./Composer";
-import { Transcript } from "./Transcript";
+import { Transcript, type ThreadRef } from "./Transcript";
 
-/** What the right-hand pane shows: the list, or one side thread open in it. */
-export type DockState = { side: { sideId: string; title: string } | null };
+/** What the right-hand pane shows: the list, or one thread open in it. */
+export type DockState = { open: ThreadRef | null };
 
 /**
- * The right-hand pane: this teammate's side threads as a list, like the
- * team on the left. A row opens its thread in
- * the pane with a way back to the list; the pane's edge is dragged to size
- * it, and in a window too narrow for it beside the conversation it lies over
- * the conversation instead (`overlay`).
+ * The right-hand pane: this teammate's threads as a list, like the team on the
+ * left, and any one of them open in it. A work thread, a pair, a subagent's run
+ * and a call are all read the same way, through the one conversation view. A
+ * row opens its thread in the pane with a way back to the list; the pane's edge
+ * is dragged to size it, and in a window too narrow for it beside the
+ * conversation it lies over the conversation instead (`overlay`).
  */
 export function Dock({
 	state,
 	onState,
 	onClose,
-	teammate,
-	sides,
+	entry,
+	roster,
 	width,
 	onWidth,
 	overlay,
@@ -45,10 +53,9 @@ export function Dock({
 	state: DockState;
 	onState(next: DockState): void;
 	onClose(): void;
-	/** Whose side threads the Threads view lists; none when nobody is open. */
-	teammate: { id: string; name: string; avatarHash?: string | undefined } | null;
-	/** That teammate's side threads that are live now, from the roster. */
-	sides: RunningSide[];
+	/** Whose threads the pane lists; none when nobody is open. */
+	entry: RosterEntry | null;
+	roster: RosterEntry[];
 	width: number;
 	onWidth(width: number): void;
 	overlay: boolean;
@@ -63,40 +70,53 @@ export function Dock({
 		};
 	}, []);
 
-	const { list, reload } = useSideList(teammate?.id, sides);
+	const teammate = entry === null ? null : { id: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash };
+	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
+	const { rows, list, reload } = useThreadRows(entry);
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
-	const atList = state.side === null;
+	const at = state.open;
 
 	return (
 		<div className="dock-slot" data-overlay={overlay || undefined} style={{ "--dock-width": `${width}px` } as CSSProperties}>
 			<DockEdge width={width} onWidth={onWidth} />
-			<aside ref={root} className="dock" aria-label="Side threads">
-				{atList && <DockBand onClose={onClose} />}
-				{state.side === null ? (
-					<SideList teammate={teammate} sides={sides} list={list} opened={opened} onOpen={(side) => onState({ side })} />
+			<aside ref={root} className="dock" aria-label="Threads">
+				{at === null && <DockBand onClose={onClose} />}
+				{at === null ? (
+					<ThreadList teammate={teammate} rows={rows} loaded={list !== undefined} nameOf={nameOf} opened={opened} onOpen={(open) => onState({ open })} />
 				) : (
-					<SideThread
-						key={state.side.sideId}
-						side={state.side}
-						name={teammate?.name ?? "The teammate"}
-						avatarHash={teammate?.avatarHash}
-						working={sides.find((one) => one.sideId === state.side?.sideId)?.working ?? false}
-						onChanged={reload}
-						onBack={() => onState({ side: null })}
-						onClose={onClose}
-					/>
+					teammate !== null && (
+						<ThreadView
+							key={`${at.thread.kind}:${at.thread.key}`}
+							open={at}
+							row={rows.find((row) => sameThread(row.thread, at.thread))}
+							teammate={teammate}
+							nameOf={nameOf}
+							working={entry !== null && workingNow(entry, at)}
+							onChanged={reload}
+							onOpen={(open) => onState({ open })}
+							onBack={() => onState({ open: null })}
+							onClose={onClose}
+						/>
+					)
 				)}
 			</aside>
 		</div>
 	);
 }
 
+/** Whether a turn of this thread is running, as the roster, which hears of it first, says. */
+function workingNow(entry: RosterEntry, open: ThreadRef): boolean {
+	if (open.thread.kind === "side") return entry.sides?.find((side) => side.sideId === open.thread.key)?.working ?? false;
+	if (open.thread.kind === "run") return entry.subagents?.some((run) => run.runId === open.thread.key) ?? false;
+	return false;
+}
+
 /** The pane's header: what it holds, and the way out. */
 function DockBand({ onClose }: { onClose(): void }) {
 	return (
 		<Band>
-			<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Side threads</h2>
+			<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Threads</h2>
 			<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 				<CloseIcon />
 			</button>
@@ -120,16 +140,30 @@ function useFocusOnOpen(root: RefObject<HTMLElement | null>, first: string | str
 
 /* ------------------------------------------------------------ the list */
 
-/** The teammate's side threads, read again whenever a live one starts, ends or changes hands. */
-function useSideList(personaId: string | undefined, sides: RunningSide[]): { list: SideThreadSummary[] | undefined; reload(): void } {
-	const [list, setList] = useState<SideThreadSummary[] | undefined>(undefined);
+/**
+ * The teammate's threads of every kind: what `thread.list` says, read again
+ * whenever a thread starts, ends, parks or changes hands, and brought up to
+ * what the links on the conversation say in between.
+ */
+function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list: ThreadSummary[] | undefined; reload(): void } {
+	const personaId = entry?.persona.id;
+	const [list, setList] = useState<ThreadSummary[] | undefined>(undefined);
 	const [revision, setRevision] = useState(0);
-	const signature = sides.map((side) => `${side.sideId}:${side.working ? 1 : 0}`).join(",");
+	const { events } = useThread(personaId === undefined ? null : dmOf(personaId));
+	const links = useMemo(() => events.filter((event): event is LinkEvent => event.kind === "link"), [events]);
+	// A thread that started, parked or ended is a link rewritten; a turn starting or a card landing is the roster's word.
+	const signature =
+		links.map((link) => `${link.thread}:${link.state}`).join(",") +
+		"|" +
+		(entry?.sides ?? []).map((side) => `${side.sideId}:${side.working ? 1 : 0}`).join(",") +
+		"|" +
+		(entry?.subagents ?? []).map((run) => run.runId).join(",") +
+		(entry?.waiting === true ? "|waiting" : "");
 	useEffect(() => {
 		if (personaId === undefined) return;
 		let cancelled = false;
 		void wire
-			.command("side.list", { personaId })
+			.command("thread.list", { personaId })
 			.then((next) => !cancelled && setList(next))
 			.catch(() => !cancelled && setList((was) => was ?? []));
 		return () => {
@@ -137,33 +171,38 @@ function useSideList(personaId: string | undefined, sides: RunningSide[]): { lis
 		};
 	}, [personaId, signature, revision]);
 	useEffect(() => setList(undefined), [personaId]);
-	return { list, reload: useCallback(() => setRevision((one) => one + 1), []) };
+	const rows = useMemo(() => withLinks(list ?? [], links, personaId ?? ""), [list, links, personaId]);
+	return { rows, list, reload: useCallback(() => setRevision((one) => one + 1), []) };
 }
 
-const STATE_WORDS: Record<SideState, string> = {
+const STATE_WORDS: Record<ThreadDot, string> = {
 	running: "running",
 	waiting: "waiting on you",
 	parked: "parked",
-	archived: "archived",
+	closed: "closed",
 	idle: "open",
 };
 
-function SideList({
+function ThreadList({
 	teammate,
-	sides,
-	list,
+	rows,
+	loaded,
+	nameOf,
 	opened,
 	onOpen,
 }: {
 	teammate: { id: string; name: string; avatarHash?: string | undefined } | null;
-	sides: RunningSide[];
-	list: SideThreadSummary[] | undefined;
+	rows: ThreadSummary[];
+	loaded: boolean;
+	nameOf(personaId: string): string | undefined;
 	/** The row a thread was last opened from. */
 	opened: RefObject<string | null>;
-	onOpen(side: { sideId: string; title: string }): void;
+	onOpen(open: ThreadRef): void;
 }) {
 	const root = useRef<HTMLDivElement>(null);
-	const [folded, setFolded] = useState(() => !list?.some((side) => side.sideId === opened.current && side.status === "archived"));
+	const idOf = (row: ThreadSummary) => `${row.thread.kind}:${row.thread.key}`;
+	const { open, closed } = groupThreads(rows);
+	const [folded, setFolded] = useState(() => !closed.some((row) => idOf(row) === opened.current));
 	// Relative times age while the list is open.
 	const [now, setNow] = useState(() => Date.now());
 	useEffect(() => {
@@ -171,34 +210,34 @@ function SideList({
 		return () => window.clearInterval(tick);
 	}, []);
 	// Back from a thread, the row it was opened from has focus again; else the switch.
-	useFocusOnOpen(root, ["[data-restore]", ".dock .control"], list !== undefined || teammate === null);
-	const { open, archived } = groupSides(list ?? []);
+	useFocusOnOpen(root, ["[data-restore]", ".dock .control"], loaded || teammate === null);
 
-	const row = (side: SideThreadSummary) => {
-		const state = sideState({ ...side, working: side.working || sides.some((one) => one.sideId === side.sideId && one.working) });
-		const said = side.status === "archived" ? (side.result ?? side.preview ?? "") : (side.preview ?? "");
+	const row = (one: ThreadSummary) => {
+		const dot = threadDot(one);
+		const title = rowTitle(one, teammate?.id ?? "", nameOf);
+		const said = one.state === "closed" ? (one.outcome ?? one.preview ?? "") : (one.preview ?? "");
 		// A teammate's handoff sits among the thread's own work, marked by who it came from.
-		const from = side.openedBy && side.openedBy.personaId !== side.personaId ? `from ${side.openedBy.name}` : "";
+		const from = rowOpener(one);
 		const line = from === "" ? said : said === "" ? from : `${from} · ${said}`;
 		return (
 			<button
-				key={side.sideId}
+				key={idOf(one)}
 				type="button"
 				className="rail-row dock-row"
-				data-side-id={side.sideId}
-				data-restore={opened.current === side.sideId || undefined}
-				aria-label={`${side.title}${from === "" ? "" : `, ${from}`}, ${STATE_WORDS[state]}`}
+				data-thread={idOf(one)}
+				data-restore={opened.current === idOf(one) || undefined}
+				aria-label={`${title}${from === "" ? "" : `, ${from}`}, ${STATE_WORDS[dot]}`}
 				onClick={() => {
-					opened.current = side.sideId;
-					onOpen({ sideId: side.sideId, title: side.title });
+					opened.current = idOf(one);
+					onOpen({ thread: one.thread, title });
 				}}
 			>
-				<span aria-hidden="true" className={`dock-dot ${state === "running" ? "beat" : ""}`} data-state={state} />
+				<span aria-hidden="true" className={`dock-dot ${dot === "running" ? "beat" : ""}`} data-state={dot} />
 				<span className="min-w-0 flex-1">
-					<span className="block h-[18px] truncate font-medium text-ink">{side.title}</span>
-					<span className="block h-4 truncate text-sm text-ink-3">{line === "" ? STATE_WORDS[state] : line}</span>
+					<span className="block h-[18px] truncate font-medium text-ink">{title}</span>
+					<span className="block h-4 truncate text-sm text-ink-3">{line === "" ? STATE_WORDS[dot] : line}</span>
 				</span>
-				<span className="shrink-0 self-start pt-0.5 text-xs text-ink-3">{relativeTime(side.status === "archived" ? (side.archivedAt ?? side.lastAt) : side.lastAt, now)}</span>
+				<span className="shrink-0 self-start pt-0.5 text-xs text-ink-3">{relativeTime(one.updatedAt, now)}</span>
 			</button>
 		);
 	};
@@ -207,15 +246,15 @@ function SideList({
 		<Scroll>
 			<div ref={root} className="px-2 pb-3">
 				{teammate === null ? (
-					<p className="px-2 py-3 text-sm text-ink-3">Pick a teammate to see their side threads.</p>
-				) : list === undefined ? null : list.length === 0 ? (
+					<p className="px-2 py-3 text-sm text-ink-3">Pick a teammate to see their threads.</p>
+				) : !loaded ? null : open.length + closed.length === 0 ? (
 					<p className="px-2 py-3 text-sm text-ink-3">
-						No side threads with {teammate.name} yet. Type <span className="font-mono">/side</span> and a task in the composer to start one.
+						No threads with {teammate.name} yet. Type <span className="font-mono">/side</span> and a task in the composer to start one.
 					</p>
 				) : (
 					<>
 						{open.map(row)}
-						{archived.length > 0 && (
+						{closed.length > 0 && (
 							<div className={open.length > 0 ? "mt-2" : ""}>
 								<button
 									type="button"
@@ -224,10 +263,10 @@ function SideList({
 									onClick={() => setFolded((was) => !was)}
 								>
 									{folded ? <ChevronRightIcon className="text-ink-3" /> : <ChevronDownIcon className="text-ink-3" />}
-									Archived
-									<span className="text-ink-3">{archived.length}</span>
+									Closed
+									<span className="text-ink-3">{closed.length}</span>
 								</button>
-								{!folded && archived.map(row)}
+								{!folded && closed.map(row)}
 							</div>
 						)}
 					</>
@@ -237,79 +276,117 @@ function SideList({
 	);
 }
 
-/* --------------------------------------------------------- a side thread */
+/* ------------------------------------------------------------ one thread */
+
+/** Where a handed-off exchange came from and where its reply goes, for the one who opened it from the line that says so. */
+export function HandoffNote({ handoff }: { handoff: NonNullable<ThreadRef["handoff"]> }) {
+	return (
+		<details open className="mx-4 mb-3 text-sm text-ink-3">
+			<summary className="cursor-pointer">Handed off from {handoff.name}</summary>
+			<dl className="selectable mt-2 space-y-2 break-words">
+				<div><dt className="eyebrow">Sender</dt><dd>{handoff.name} · {handoff.personaId}</dd></div>
+				<div><dt className="eyebrow">Request</dt><dd>{handoff.requestId}</dd></div>
+				<div>
+					<dt className="eyebrow">Reply goes to</dt>
+					<dd>{handoff.name} in this originating exchange, even if they have moved on.</dd>
+					<dd className="mt-1 font-mono text-xs">{handoff.threadKey}</dd>
+				</div>
+			</dl>
+		</details>
+	);
+}
 
 /**
- * A side thread, open in the pane: the same teammate in a second
- * conversation. What the person said, what the teammate said and did, and
- * below it a composer, because unlike a run this one is answerable. A parked
- * thread is answerable too, and says so: saying something in it brings its
- * agent back. Archive ends it; once archived the page is the thread,
- * read-only, with a Continue where the composer was.
+ * A thread, open in the pane, whatever its kind: the same conversation view the
+ * main chat is, and below it a composer only where it can be spoken in. A work
+ * thread is the same teammate in a second conversation, answerable, and a
+ * parked one says so: saying something in it brings its agent back. Archive
+ * ends it; once closed the page is the thread, read-only, with a Continue where
+ * the composer was. A pair, a subagent's run and a call are read, not spoken
+ * in: a run is told its task once and reports once.
  */
-function SideThread({
-	side,
-	name,
-	avatarHash,
+function ThreadView({
+	open,
+	row,
+	teammate,
+	nameOf,
 	working,
 	onChanged,
+	onOpen,
 	onBack,
 	onClose,
 }: {
-	side: { sideId: string; title: string };
-	name: string;
-	avatarHash: string | undefined;
+	open: ThreadRef;
+	/** What the list knows of it: its state and its title. */
+	row: ThreadSummary | undefined;
+	teammate: { id: string; name: string; avatarHash?: string | undefined };
+	nameOf(personaId: string): string | undefined;
 	/** A turn of this thread is running, as the roster says. */
 	working: boolean;
 	/** The thread was archived or continued: the list reads itself again. */
 	onChanged(): void;
+	onOpen(open: ThreadRef): void;
 	onBack(): void;
 	onClose(): void;
 }) {
-	const { events, streaming } = useSide(side.sideId);
-	const marker = events.find((event): event is Extract<TranscriptEvent, { kind: "side" }> => event.kind === "side");
-	const archived = marker?.status === "archived";
-	const parked = marker?.status === "parked";
-	const title = marker?.title ?? side.title;
-	// The marker is the thread's own line in the main conversation; here the thread is the page.
-	const lines = useMemo(() => events.filter((event) => event.kind !== "side"), [events]);
+	const id = open.thread;
+	const { events, streaming, more, earlier, prompt, cancel, close, resume } = useThread(id);
+	const state = row?.state ?? "live";
+	const powers = powersOf(id.kind, state);
+	const closed = state === "closed";
+	const parked = state === "parked";
+	const turning = (working || row?.working === true) && !closed;
+	const other = id.kind === "pair" ? pairWith(id.key, teammate.id) : undefined;
+	const withName = open.withName ?? (other === undefined ? undefined : nameOf(other)) ?? "a teammate";
+	const title = row !== undefined ? rowTitle(row, teammate.id, nameOf) : (open.title ?? (id.kind === "pair" ? `With ${withName}` : "Thread"));
+	const from = row === undefined ? "" : openerWords(row);
+	// The link is the thread's own line in the conversation that holds it; here the thread is the page.
+	const lines = useMemo(() => events.filter((event) => event.kind !== "link"), [events]);
 	const [refused, setRefused] = useState<string | null>(null);
 	const root = useRef<HTMLDivElement>(null);
-	// The composer is where this page is for; an archived one has Continue.
+	// The composer is where this page is for; a closed one has Continue.
 	useFocusOnOpen(root, "textarea, [data-autofocus]");
+
+	// A pair is read where it is open: the other side's lines are then seen.
+	useEffect(() => {
+		if (id.kind !== "pair") return;
+		const eventIds = events.filter((event) => event.kind === "user" || event.kind === "agent").map((event) => event.id);
+		if (eventIds.length > 0) void wire.command("peers.mark_read", { key: id.key, eventIds });
+	}, [id.kind, id.key, events]);
 
 	const refuse = (error: unknown) => setRefused(error instanceof Error ? error.message : String(error));
 	const send = (text: string, attachments: Attachment[]) => {
 		setRefused(null);
-		void carry(attachments)
-			.then((carried) => wire.command("side.prompt", { sideId: side.sideId, text, ...(carried.length > 0 ? { attachments: carried } : {}) }))
-			.catch(refuse);
+		void carry(attachments).then((carried) => prompt(text, carried)).catch(refuse);
 	};
 	const archive = () => {
 		setRefused(null);
-		void wire.command("side.archive", { sideId: side.sideId }).then(onChanged, refuse);
+		void close().then(onChanged, refuse);
 	};
-	const resume = () => {
+	const resumeIt = () => {
 		setRefused(null);
-		void wire.command("side.continue", { sideId: side.sideId }).then(onChanged, refuse);
+		void resume().then(onChanged, refuse);
 	};
+	// A pair's chair is whichever of the key's two ids this teammate is: theirs sit on the right.
+	const speakers = id.kind === "pair" ? { me: teammate.name, them: withName, mine: (id.key.split("~")[0] === teammate.id ? "user" : "agent") as "user" | "agent" } : undefined;
 
 	return (
-		<div ref={root} className="dock-page" role="region" aria-label={`Side thread with ${name}: ${title}`}>
+		<div ref={root} className="dock-page" role="region" aria-label={`Thread with ${teammate.name}: ${title}`}>
 			<Band>
 				<button type="button" className="control btn-icon -ml-1" title="Back to threads" aria-label="Back to threads" onClick={onBack}>
 					<ArrowLeftIcon />
 				</button>
 				<h2 className="flex min-w-0 flex-1 items-center gap-2 truncate pl-1 text-lg font-semibold">
-					{working && !archived && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+					{turning && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
 					<span className="truncate">{title}</span>
 				</h2>
-				{archived ? (
-					<button type="button" className="control btn-quiet px-2 text-sm" data-autofocus title="Bring this side thread back, with what it remembers" onClick={resume}>
+				{powers.resume && (
+					<button type="button" className="control btn-quiet px-2 text-sm" data-autofocus title="Bring this thread back, with what it remembers" onClick={resumeIt}>
 						Continue
 					</button>
-				) : (
-					<button type="button" className="control btn-quiet px-2 text-sm" title="Archive this side thread" onClick={archive}>
+				)}
+				{powers.close && (
+					<button type="button" className="control btn-quiet px-2 text-sm" title="Archive this thread" onClick={archive}>
 						Archive
 					</button>
 				)}
@@ -317,42 +394,46 @@ function SideThread({
 					<CloseIcon />
 				</button>
 			</Band>
+			{from !== "" && <p className="dock-note selectable">{from}</p>}
+			{open.handoff !== undefined && <HandoffNote handoff={open.handoff} />}
 			<div className="relative flex min-h-0 flex-1 flex-col">
 				<Transcript
-					personaId={side.sideId}
-					sideId={side.sideId}
-					name={name}
-					avatarHash={avatarHash}
+					key={`${id.kind}:${id.key}`}
+					personaId={teammate.id}
+					thread={id}
+					name={teammate.name}
+					avatarHash={teammate.avatarHash}
 					events={lines}
 					streaming={streaming}
-					live={working && !archived}
+					live={turning}
 					focus={null}
+					more={more}
+					onEarlier={earlier}
+					onOpenThread={onOpen}
+					{...(speakers !== undefined ? { speakers } : {})}
 				/>
 			</div>
-			{archived ? (
-				<>
-					{marker?.result !== undefined && <p className="dock-note selectable">{marker.result}</p>}
-					{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
-				</>
-			) : (
+			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
+			{powers.say ? (
 				<>
 					{parked && (
 						<p className="dock-note selectable">
 							Parked: no agent is running. Saying something here picks it back up where it left off.
 						</p>
 					)}
-					{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
 					<Composer
 						embedded
-						personaId={side.sideId}
-						name={name}
-						state={working ? "thinking" : "ready"}
+						personaId={`${id.kind}:${id.key}`}
+						name={teammate.name}
+						state={turning ? "thinking" : "ready"}
 						replyQuote={null}
 						onSend={send}
-						onCancel={() => void wire.command("side.cancel", { sideId: side.sideId }).catch(() => undefined)}
+						onCancel={() => void cancel().catch(() => undefined)}
 						onClearReply={() => undefined}
 					/>
 				</>
+			) : (
+				closed && row?.outcome !== undefined && row.outcome !== "" && <p className="dock-note selectable">{row.outcome}</p>
 			)}
 		</div>
 	);

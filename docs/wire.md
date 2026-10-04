@@ -41,8 +41,9 @@ not be read. The sentence stays for a person; the code is for the client.
 
 A command whose result is JSON `null` — delete, stop, prompt, cancel,
 revoke, `session.answer_permission`, `human.answer`, `schedule.cancel`,
-`schedule.set_quiet`, `computer.stop`, `computer.remove`, and a successful
-unsubscribe — is answered
+`schedule.set_quiet`, `computer.stop`, `computer.remove`, `thread.prompt`,
+`thread.cancel`, `thread.park`, `thread.close`, `thread.answer`, and a
+successful unsubscribe — is answered
 `{"id": n, "ok": true}` with no `result` field. `teammate.tools` is not
 on that list: when there is no ledger it is answered
 `{"id": n, "ok": true, "result": null}`, because that null is a value,
@@ -139,6 +140,24 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
+| `peers.answer_permission` | `{key, requestId, optionId}` | none; answers a card raised in a peer turn while that turn waits on it. Owner seat only |
+| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, already running its first turn; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
+| `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued |
+| `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
+| `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none |
+| `side.continue` | `{sideId}` | the `SideThreadSummary`, live again; brings back a parked or archived thread, resuming its saved session when the harness can |
+| `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
+| `side.answer_permission` | `{sideId, requestId, optionId}` | none |
+| `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads); any seat; an unknown name is ignored |
+| `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
+| `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, already running its first turn (`side.start`) |
+| `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
+| `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange |
+| `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none |
+| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`) |
+| `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
+| `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
+| `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
 | `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only for every seat |
 | `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |
 | `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first; Apple's container only in a macOS build |
@@ -584,7 +603,9 @@ that loads a thread. `peers.mark_read` says that
 those messages have been read and answers how many actually moved: an id
 naming nothing, an event that is not a message, and a message that is
 already read all move nothing, which is what makes a repeated receipt
-harmless. A message's `receipt` is `sent` when it enters the thread and
+harmless. `peers.answer_permission` answers a permission card in a peer
+thread (`perm:<requestId>` on the pair stream) and is refused once its turn is
+over. A message's `receipt` is `sent` when it enters the thread and
 `read` once the recipient's session has proved a turn on it; nothing ever
 un-reads a message.
 
@@ -629,14 +650,16 @@ not subscribe to that."` Both seat refusals carry `"code": "forbidden"`.
 ## Subscriptions
 
 `sub` is a `Target`: `"room"`, `{"tape": "<personaId>"}`,
-`{"thread": "<key>"}`, `{"view": "roster"}`, or
-`{"schedules": "<personaId>"}`.
+`{"thread": "<key>"}`, `{"threadId": {"kind", "key"}}`, `{"run": "<runId>"}`,
+`{"side": "<sideId>"}`, `{"view": "roster"}`, or `{"schedules": "<personaId>"}`.
 
 | target | snapshot | then |
 | --- | --- | --- |
 | `"room"` | the room stream's fold | each room event as it lands |
 | `{"tape": id}` | that tape's fold | each tape event; `ephemeral` for streaming deltas |
-| `{"thread": key}` | that thread's fold | each thread event |
+| `{"thread": key}` | that pair's fold | each thread event |
+| `{"threadId": {kind, key}}` | that thread's fold, whatever its kind: the teammate's tape for a `dm`, and the stream of that name for a `side`, `pair`, `run` or `call` | each event; `ephemeral` for streaming deltas |
+| `{"side": id}` | that side thread's fold, headed by its `side` marker | each event; `ephemeral` for its streaming deltas |
 | `{"view": "roster"}` | every living teammate's row | `event` for a changed row, `removed` for a tombstone |
 | `{"schedules": id}` | that teammate's jobs and loops | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
 
@@ -648,8 +671,11 @@ written down:
 ```
 
 `type` is `agent_delta` or `thought_delta`. A delta for another teammate
-is ignored. A closed delta channel is not recovered: the durable line
-carries the characters anyway.
+is ignored. A side subscription forwards `side_agent_delta` /
+`side_thought_delta` carrying `sideId` instead of `personaId`, for that side
+alone; a tape never receives them. A closed delta channel is not recovered: the durable line
+carries the characters anyway. A socket that declared `threads2` is sent
+`thread_delta` instead of all four ([Threads](#threads)).
 
 A view row that goes away:
 
@@ -663,6 +689,92 @@ unsubscribe — frees the id, so a client that reuses the number is not
 told it is already open for a subscription that will never deliver.
 Unsubscribing an id that is not open is `"Subscription n is not
 open."`
+
+## Threads
+
+A thread is any conversation the room keeps: the main conversation (`dm`), a
+work thread (`side`, the name it is stored and sent under), a thread between
+two teammates (`pair`), a voice call (`call`) and a subagent's run (`run`). One
+`ThreadId` names any of them, `{kind, key}`: a teammate's id for a `dm`, the
+side, run or call id, and the pair key. [threads.md](threads.md) is the design.
+
+**The subscription's name.** `{"thread": "<key>"}` already meant a pair, and a
+phone on an older build still sends it, so it keeps meaning that. A thread of
+any kind is a new target, `{"threadId": {"kind": "side", "key": "<id>"}}`: the
+contract gains a variant and no existing one changes. `thread` in a command's
+params is always a `ThreadId` object, since no old command used the name.
+
+**Negotiation, per connection.** A desk lists `threads2` in its hello
+([the phone seat](#the-phone-seat)), and a client that reads the newer shapes
+says so with `client.hello {capabilities: ["threads2"]}`. The window's socket
+has no hello to read, so `client.hello` answers `{capabilities}` for its seat as
+well. The declaration is the socket's, and it is read as each frame is made, so
+it reaches subscriptions already open: declare it before subscribing. A socket
+that never says it is sent exactly what it was before, and the contract's older
+shapes are all still there. The window needs it: a core that rejects the hello or
+leaves `threads2` out of its answer is not subscribed to, and the window says it
+needs a newer core.
+
+| | without `threads2` | with `threads2` |
+| --- | --- | --- |
+| a thread's link on its parent's stream and its own | the marker its kind always had: `side`, `subagent`, and `call` | `link`, for every kind, an old marker on disk included (it keeps its id, so it replaces itself) |
+| live words | `agent_delta` / `thought_delta` on a tape, `side_agent_delta` / `side_thought_delta` on a side thread, nothing for a run | `thread_delta` on every subscription that has live words: a tape, a side thread, a run |
+| pages and snapshots | links as markers | links as `link` |
+
+A `link` is `{kind: "link", id, ts, thread, threadKind, personaId?, title,
+state: "live"|"parked"|"closed", end?, outcome?, at?, note?, sessionId?,
+backendId?, elapsedMs?, openerId?, openerName?}`; `end` is how a closed thread
+ended (`person`, `agent`, `idle`, `stopped`, `done`, `failed`, `cancelled`).
+It is rewritten under the same id as the thread goes. A `thread_delta` is
+`{type: "thread_delta", thread, messageId, kind: "text"|"thought", text}`, never
+written down. The room broadcasts only that; the older four are what the door
+turns it into for a socket that did not declare.
+
+**`ThreadSummary`**, one shape for every kind: `{thread, personaId,
+withPersonaId?, title?, state, end?, opener?, startedAt, updatedAt, working,
+waiting, preview?, outcome?}`. `personaId` is the teammate whose thread it is
+(a pair is listed with the first of its two, and `withPersonaId` is the other);
+`updatedAt` is the newest line, which is what a client counts unread against;
+`working` is a turn running now; `waiting` is a card in it unanswered;
+`preview` is the teammate's last words, else the person's last line. A work
+thread whose record says live and that the room holds no agent for is listed
+`parked`, as the next start would make it.
+
+**Which verb applies to which kind.** A verb a kind has no meaning for is
+refused in a sentence, never silently:
+
+| | `dm` | `side` | `pair` | `call` | `run` |
+| --- | --- | --- | --- | --- | --- |
+| `prompt` | yes | yes | | | |
+| `cancel` | the turn | the turn | stops the exchange | | |
+| `park`, `close` | | yes | | | |
+| `continue` | | yes | resumes the exchange | | |
+| `answer` | yes | yes (a permission, or a request) | a permission | | |
+| `page`, subscription | yes | yes | yes | yes | yes |
+
+**Seats.** The local desk and an owner may run all of it. A companion phone
+may run each verb exactly as it could under the old name, so the rule is by
+kind: `thread.prompt` only in a work thread (it speaks to a teammate with
+`mobile.prompt`, as before), `thread.answer` in anything but a pair
+(`peers.answer_permission` is the owner's), `thread.page` and `{"threadId": …}`
+on anything but a call or the voice dispatcher's tape, and `thread.list` without
+pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is every seat's. A refusal is
+`forbidden`, as ever. [security.md](security.md) has the table and its tests.
+
+A call is `voice.*`'s, a run's lifetime is its teammate's, and nobody answers a
+card in either (the kind's `answer` policy is `Nobody`; the card expires). The
+main conversation is never parked or closed: its chapters are its lifecycle.
+
+**The older commands are these handlers under their old names.**
+`session.prompt`, `session.cancel`, `session.answer_permission`,
+`human.answer` (a DM's `thread.answer`, which also finds a card raised in one of
+its work threads), `side.prompt`, `side.cancel`, `side.archive`,
+`side.answer_permission`, `peers.answer_permission` and `tape.page` run
+`thread.prompt`, `cancel`, `answer`, `close` and `page` on the matching
+`ThreadId`, and answer what they always did. `side.start`, `side.continue`,
+`side.list` and `peers.list` answer their own summaries (`SideThreadSummary`,
+`PeerThreadSummary`) and are left as they were; `peers.mark_read` is a pair's
+read receipts and stays one too. `voice.*` is still the call's control surface.
 
 ## The roster view
 
@@ -764,7 +876,8 @@ phone owners; companion grants retain the smaller set below.
 
 A paired companion's socket is the phone seat: a smaller fixed set of commands
 (`Seat::permits` in `crates/hotline-core/src/wire/mod.rs` lists them) and
-four kinds of subscription — a tape, a thread, the roster, and a teammate's
+four kinds of subscription — a tape, a thread (a pair's `{"thread": key}`, or
+any thread but a call by `{"threadId": …}`), the roster, and a teammate's
 schedules. It never opens the room stream or a run, and it can
 neither make, cancel nor quiet a job. It reads a file a teammate sent with
 `file.read` and a teammate's picture with `avatar.read`, because the file is part of the conversation it already
@@ -781,14 +894,16 @@ The phone's socket opens with a hello before any answer:
 
 ```json
 {"type": "hello", "protocolVersion": 1, "desktopId": "…", "mode": "team",
- "capabilities": ["personaCreate", "personaEdit", "schedules", "threads"]}
+ "capabilities": ["personaCreate", "personaEdit", "schedules", "threads", "runs", "threads2"]}
 ```
 
 `capabilities` names what this desk can do beyond protocol 1, so a phone
 asks only for what the desk it reached understands. `personaCreate` is
 `mobile.persona_create`; `personaEdit` is `mobile.persona_update` and
 `persona.delete`; `schedules` is the schedules view; `threads` is
-reading a thread between two teammates the way a tape is read. A desk from
+reading a thread between two teammates the way a tape is read; `threads2` is
+the `thread.*` commands, `{"threadId": …}`, and, once the phone says it reads
+them with `client.hello`, `link` events and `thread_delta` ([Threads](#threads)). A desk from
 before one of these sends it absent, and a phone reads that as "not on this
 desk", never as "nothing there"; asked anyway, such a desk refuses the
 command as forbidden or the subscription as one it cannot read.
@@ -802,13 +917,15 @@ bubbles it took: its last reply, sent once the driver is done with the
 line. A card goes the moment it is asked. Nothing goes while the desk's
 window says the person is at it (`desk.looking`, below). Every push is `mutableContent`, so the
 phone's notification service may rewrite it as the teammate's own message.
-`data` always names `desktopId` and `personaId`. A card that waits on the
+`data` always names `desktopId` and `personaId`. A card raised in one of the
+teammate's side threads also names it as `data.sideId`, and is answered with
+`side.answer_permission`, not the teammate's. A card that waits on the
 person also names its kind as `categoryId` and its request as
 `data.requestId`, which is the id the answer names:
 
 | `categoryId` | `data.requestId` is | Answered with |
 |---|---|---|
-| `permission` | the request's `requestId` | `session.answer_permission`, with an `optionId` from `data.options` (`[{optionId, kind}]`) |
+| `permission` | the request's `requestId` | `session.answer_permission`, or `side.answer_permission` when `data.sideId` is present, with an `optionId` from `data.options` (`[{optionId, kind}]`) |
 | `human_action` | the card's `actionId` | `human.answer` |
 | `passkey_ask` | the ask's `askId` | `secrets.passkey.answer` |
 

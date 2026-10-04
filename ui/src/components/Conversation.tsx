@@ -1,11 +1,12 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import type { Attachment, ConfigChoice, ScheduledJob, TranscriptEvent } from "../generated/contract";
+import type { Attachment, ConfigChoice, ScheduledJob, ThreadId, TranscriptEvent } from "../generated/contract";
+import { sideTitle } from "../links";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
 import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
 import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
-import { useTape } from "../tape";
+import { dmOf, sameThread, useThread } from "../tape";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
@@ -15,8 +16,7 @@ import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { Search } from "./Search";
 import { Starters, untouched } from "./Starters";
-import type { OpenThread } from "./Thread";
-import { reactionQuote, Transcript, turnCauseLine, type ReactTarget, type ReplyTarget, type SubagentEvent, type ThreadRef } from "./Transcript";
+import { reactionQuote, Transcript, turnCauseLine, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
 /**
  * One teammate's conversation: the band naming them, with their model and
@@ -51,10 +51,10 @@ export function Conversation({
 	onDelete,
 	onPick,
 	onOpenThread,
-	onOpenSubagent,
+	onOpenThreadList,
 	onOpenWork,
 	workOpen,
-	runOpen,
+	threadOpen,
 	dock,
 	models,
 	onSaid,
@@ -78,22 +78,25 @@ export function Conversation({
 	onCloseSearch(): void;
 	onDelete(): void;
 	onPick(personaId: string, eventId: string): void;
-	onOpenThread(thread: OpenThread): void;
-	/** Opens a subagent's run in the work card. */
-	onOpenSubagent(run: { runId: string; title: string }): void;
+	/** Opens a thread, of any kind, in the right-hand pane. */
+	onOpenThread(thread: ThreadRef): void;
+	/** Opens the right-hand pane on this teammate's list of threads. */
+	onOpenThreadList(): void;
 	/** Opens a turn's work beside the conversation; see Transcript's `onOpenWork`. */
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
 	workOpen: string | null | undefined;
-	/** Which subagent's run is open in the work card, if any. */
-	runOpen: string | undefined;
+	/** Which thread is open in the right-hand pane, if any. */
+	threadOpen: ThreadId | undefined;
 	/** The work card, docked under the composer when the window is too narrow for it to float. */
 	dock?: ReactNode;
 }) {
 	const { persona, session } = entry;
+	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const subagents = entry.subagents ?? [];
+	const sides = entry.sides ?? [];
 	const personaId = persona.id;
-	const { events, streaming, loaded, pulling, more: olderOnDesk, earlier } = useTape(personaId);
+	const { events, streaming, loaded, pulling, more: olderOnDesk, earlier } = useThread(dmOf(personaId));
 	const [replying, setReplying] = useState<ReplyTarget | null>(null);
 	/* What was said, from the moment it was said. The core writes the line
 	 * only once a session is up, and starting one is a second or two in which
@@ -106,6 +109,16 @@ export function Conversation({
 	const [refused, setRefused] = useState<string | null>(null);
 	const [chapterBusy, setChapterBusy] = useState(false);
 
+	/* A side thread opens empty and at once, beside this one; nothing about
+	 * it touches the main conversation's line or session. Its first line,
+	 * said in it, names it. */
+	const startSide = useCallback(() => {
+		setRefused(null);
+		void wire.command("thread.open", { personaId, text: "" }).then(
+			(summary) => onOpenThread({ thread: summary.thread, ...(summary.title !== undefined ? { title: summary.title } : {}) }),
+			(error: unknown) => setRefused(error instanceof Error ? error.message : String(error)),
+		);
+	}, [personaId, onOpenThread]);
 	const send = useCallback(
 		(text: string, attachments: Attachment[]) => {
 			const answered = replying;
@@ -231,16 +244,6 @@ export function Conversation({
 		},
 		[events],
 	);
-	const openThreadOf = useCallback(
-		(event: ThreadRef) =>
-			onOpenThread({
-				key: event.threadKey,
-				withName: event.withName,
-				...(event.handoff !== undefined ? { handoff: event.handoff } : {}),
-			}),
-		[onOpenThread],
-	);
-	const openSubagentOf = useCallback((event: SubagentEvent) => onOpenSubagent({ runId: event.runId, title: event.title }), [onOpenSubagent]);
 	const next = jobs.filter((job) => job.operatorCreated || persona.backgroundWork === true).reduce<ScheduledJob | null>(
 		(soonest, job) => (soonest === null || job.nextAt < soonest.nextAt ? job : soonest),
 		null,
@@ -272,6 +275,14 @@ export function Conversation({
 			disabled: chapterBusy || resumeBlocked !== null,
 			onSelect: resumeChapter,
 		},
+		{
+			kind: "item",
+			id: "side",
+			text: "Start a side thread",
+			detail: `Another topic with ${persona.name}, in parallel`,
+			onSelect: startSide,
+		},
+		{ kind: "item", id: "side-list", text: "Threads", detail: "Work threads, conversations between teammates, runs and calls", onSelect: onOpenThreadList },
 		{ kind: "item", id: "reveal", text: onServer() ? "Show working directory on the server" : "Reveal working directory", onSelect: () => showPath(persona.cwd) },
 		{ kind: "rule" },
 		{ kind: "item", id: "teammate", text: inspectorOpen ? "Hide teammate" : "Show teammate", shortcut: chordGlyph("teammate"), onSelect: onToggleInspector },
@@ -322,7 +333,7 @@ export function Conversation({
 
 				{/* Subagents still running, wherever their lines have scrolled to:
 				 * one is named, several are counted, and each opens its run in
-				 * the work card. They leave the band when they finish; their
+				 * the pane. They leave the band when they finish; their
 				 * lines in the conversation keep how each went. */}
 				{subagents.length === 1 ? (
 					<button
@@ -330,8 +341,8 @@ export function Conversation({
 						className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
 						title="Open the subagent's run"
 						aria-label={`Subagent working: ${subagents[0]!.title}`}
-						aria-pressed={runOpen === subagents[0]!.runId}
-						onClick={() => onOpenSubagent({ runId: subagents[0]!.runId, title: subagents[0]!.title })}
+						aria-pressed={opened({ kind: "run", key: subagents[0]!.runId })}
+						onClick={() => onOpenThread({ thread: { kind: "run", key: subagents[0]!.runId }, title: subagents[0]!.title })}
 					>
 						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
 						<span className="truncate">{narrow ? "Subagent" : `Subagent · ${subagents[0]!.title}`}</span>
@@ -344,12 +355,44 @@ export function Conversation({
 							kind: "item",
 							id: run.runId,
 							text: run.title,
-							checked: runOpen === run.runId,
-							onSelect: () => onOpenSubagent({ runId: run.runId, title: run.title }),
+							checked: opened({ kind: "run", key: run.runId }),
+							onSelect: () => onOpenThread({ thread: { kind: "run", key: run.runId }, title: run.title }),
 						}))}
 					>
 						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
 						{`${subagents.length} subagents`}
+					</MenuButton>
+				) : null}
+
+				{/* Side threads still live: a chip each, next to the subagents.
+				 * They leave the band when archived; the conversation's own line
+				 * keeps what came of each. */}
+				{sides.length === 1 ? (
+					<button
+						type="button"
+						className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
+						title="Open the side thread"
+						aria-label={`Side thread: ${sideTitle(sides[0]!.title)}`}
+						aria-pressed={opened({ kind: "side", key: sides[0]!.sideId })}
+						onClick={() => onOpenThread({ thread: { kind: "side", key: sides[0]!.sideId }, title: sides[0]!.title })}
+					>
+						<span className="truncate">{narrow ? "Side" : `Side: ${sideTitle(sides[0]!.title)}`}</span>
+						{sides[0]!.working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+					</button>
+				) : sides.length > 1 ? (
+					<MenuButton
+						className="control btn-quiet shrink-0 gap-1.5 px-2 text-sm"
+						label={`${sides.length} side threads`}
+						entries={sides.map((side) => ({
+							kind: "item",
+							id: side.sideId,
+							text: sideTitle(side.title),
+							checked: opened({ kind: "side", key: side.sideId }),
+							onSelect: () => onOpenThread({ thread: { kind: "side", key: side.sideId }, title: side.title }),
+						}))}
+					>
+						{`${sides.length} side threads`}
+						{sides.some((side) => side.working) && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
 					</MenuButton>
 				) : null}
 
@@ -422,8 +465,7 @@ export function Conversation({
 					onEarlier={earlier}
 					{...(!draftHasContent ? { onRetryMessage: retryMessage } : {})}
 					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
-					onOpenThread={openThreadOf}
-					onOpenSubagent={openSubagentOf}
+					onOpenThread={onOpenThread}
 					onOpenWork={onOpenWork}
 					workOpen={workOpen}
 				/>

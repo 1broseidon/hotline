@@ -18,6 +18,7 @@ pub use v2::{PairingPayload, SealedPairing};
 use crate::contract::MobileAttachmentChunk;
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore, atomic_write};
 use crate::log::Log;
+use crate::thread::{ThreadId, ThreadKind};
 use crate::wire::RoomHandle;
 use curve25519_dalek::scalar::Scalar;
 use serde::{Deserialize, Serialize};
@@ -276,6 +277,7 @@ impl Phone {
         text: &str,
         attachment_ids: &[String],
         reply_to: Option<&str>,
+        thread: Option<&ThreadId>,
     ) -> Result<Value, String> {
         self.remote
             .prompt(
@@ -285,6 +287,7 @@ impl Phone {
                 text,
                 attachment_ids,
                 reply_to,
+                thread,
             )
             .await
     }
@@ -837,6 +840,8 @@ impl Remote {
             cancel: s.devices.get(&grant.device.id)?.child_token(),
         })
     }
+    // The operation, who it is to, what is said and where: one message, field by field.
+    #[allow(clippy::too_many_arguments)]
     async fn prompt(
         &self,
         phone: &Phone,
@@ -845,7 +850,15 @@ impl Remote {
         text: &str,
         attachment_ids: &[String],
         reply_to: Option<&str>,
+        thread: Option<&ThreadId>,
     ) -> Result<Value, String> {
+        // The main conversation, named or not, or one of the teammate's work threads.
+        let side = match thread {
+            None => None,
+            Some(id) if id.kind == ThreadKind::Dm && id.key == persona => None,
+            Some(id) if id.kind == ThreadKind::Side && !id.key.is_empty() => Some(id.key.as_str()),
+            Some(_) => return Err("A phone speaks in the conversation or a work thread.".into()),
+        };
         if Uuid::parse_str(operation).is_err()
             || (text.trim().is_empty() && attachment_ids.is_empty())
             || text.len() > 32_768
@@ -866,10 +879,13 @@ impl Remote {
         // Keep text-only receipts compatible with phones already paired: a
         // field joins the digest only when the message carries it.
         let digest = hash(
-            &match (attachment_ids.is_empty(), reply_to) {
-                (true, None) => json!([persona, text]),
-                (false, None) => json!([persona, text, attachment_ids]),
-                (_, Some(answered)) => json!([persona, text, attachment_ids, answered]),
+            &match (attachment_ids.is_empty(), reply_to, side) {
+                (true, None, None) => json!([persona, text]),
+                (false, None, None) => json!([persona, text, attachment_ids]),
+                (_, Some(answered), None) => json!([persona, text, attachment_ids, answered]),
+                (_, answered, Some(side)) => {
+                    json!([persona, text, attachment_ids, answered, side])
+                }
             }
             .to_string(),
         );
@@ -898,6 +914,13 @@ impl Remote {
         // The desktop opens a session when its conversation pane mounts. A
         // phone may be the first client to speak to a teammate after restart.
         let result = async {
+            if let Some(side) = side {
+                // A work thread brings its own agent up; the main session is not started for it.
+                return self
+                    .room
+                    .side_prompt(side, text, reply_to.map(str::to_owned), Some(attachments))
+                    .await;
+            }
             self.room.start(persona).await?;
             if phone.cancel.is_cancelled() {
                 return Err("This phone has been disconnected.".into());

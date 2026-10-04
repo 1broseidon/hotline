@@ -101,6 +101,7 @@ impl Room {
         let mut shut = self.shut_within(drain).await;
         let mut interrupted = Vec::new();
         if shut.is_none() {
+            self.interrupt_sides();
             for session in &sessions {
                 if !lock(&session.turns).running {
                     continue;
@@ -258,6 +259,11 @@ impl Room {
                 scheduled: line.scheduled.clone(),
                 steer: line.steer,
                 said: Some(line.said.clone()),
+                from: None,
+                // A line kept across a stop is known by the id it was written
+                // under: the one place the id of a spoken line is still read.
+                voice: crate::voice::Origin::from_event_id(&line.said),
+                spoken: line.said.starts_with("voice:"),
                 unprompted: None,
             },
         );

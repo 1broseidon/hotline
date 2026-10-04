@@ -373,7 +373,7 @@ impl Driver for InProcess {
         // A subagent's start is not the teammate's: the ledger says what the
         // teammate's own session was built with, and a run built without its
         // computer must not rewrite that.
-        if !self.teammate.in_run() {
+        if !self.teammate.in_run() && !self.teammate.in_work() {
             publish_ledger(
                 persona,
                 &self.mcp_missing,

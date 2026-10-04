@@ -75,6 +75,20 @@ impl Push {
     /// person is at the desk, where the same thing is already in front of
     /// them.
     pub fn notify(&self, title: &str, body: &str, persona_id: &str, waiting: Option<Waiting>) {
+        self.notify_in(None, title, body, persona_id, waiting);
+    }
+
+    /// [`Self::notify`] for a card raised in one of the teammate's side
+    /// threads: the push also names the thread as `data.sideId`, because the
+    /// answer is `side.answer_permission` and not the teammate's.
+    pub fn notify_in(
+        &self,
+        side_id: Option<&str>,
+        title: &str,
+        body: &str,
+        persona_id: &str,
+        waiting: Option<Waiting>,
+    ) {
         if self.at_the_desk(now_ms()) {
             return;
         }
@@ -93,6 +107,7 @@ impl Push {
                     &body,
                     &targets.desktop_id,
                     persona_id,
+                    side_id,
                     waiting.as_ref(),
                 )
             })
@@ -163,9 +178,13 @@ fn message(
     body: &str,
     desktop_id: &str,
     persona_id: &str,
+    side_id: Option<&str>,
     waiting: Option<&Waiting>,
 ) -> Value {
     let mut data = json!({ "desktopId": desktop_id, "personaId": persona_id });
+    if let Some(side_id) = side_id {
+        data["sideId"] = json!(side_id);
+    }
     let mut message = json!({
         "to": token,
         "title": title,
@@ -281,7 +300,7 @@ mod tests {
 
     #[test]
     fn a_reply_is_mutable_and_names_no_card() {
-        let reply = message("tok", "Frankie", "done", "desk-1", "frankie", None);
+        let reply = message("tok", "Frankie", "done", "desk-1", "frankie", None, None);
         assert_eq!(reply["mutableContent"], true);
         assert!(reply.get("categoryId").is_none(), "{reply}");
         assert_eq!(
@@ -307,6 +326,7 @@ mod tests {
             "Run it?",
             "desk-1",
             "frankie",
+            None,
             Some(&permission),
         );
         assert_eq!(push["mutableContent"], true);
@@ -324,7 +344,7 @@ mod tests {
         let human = Waiting::Human {
             action_id: "act-1".to_string(),
         };
-        let push = message("tok", "t", "b", "desk-1", "frankie", Some(&human));
+        let push = message("tok", "t", "b", "desk-1", "frankie", None, Some(&human));
         assert_eq!(push["categoryId"], "human_action");
         assert_eq!(push["data"]["requestId"], "act-1");
         assert!(push["data"].get("options").is_none());
@@ -332,8 +352,27 @@ mod tests {
         let passkey = Waiting::Passkey {
             ask_id: "ask-2".to_string(),
         };
-        let push = message("tok", "t", "b", "desk-1", "frankie", Some(&passkey));
+        let push = message("tok", "t", "b", "desk-1", "frankie", None, Some(&passkey));
         assert_eq!(push["categoryId"], "passkey_ask");
         assert_eq!(push["data"]["requestId"], "ask-2");
+    }
+
+    #[test]
+    fn a_card_from_a_side_thread_names_the_thread_to_answer_in() {
+        let waiting = Waiting::Permission {
+            request_id: "req-9".to_string(),
+            options: Vec::new(),
+        };
+        let push = message(
+            "tok",
+            "Frankie needs you",
+            "Run it?",
+            "desk-1",
+            "frankie",
+            Some("side-3"),
+            Some(&waiting),
+        );
+        assert_eq!(push["data"]["sideId"], "side-3");
+        assert_eq!(push["data"]["requestId"], "req-9");
     }
 }

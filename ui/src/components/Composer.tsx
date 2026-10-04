@@ -45,6 +45,7 @@ export function Composer({
 	onCancel,
 	onClearReply,
 	onDraftChange,
+	embedded = false,
 }: {
 	personaId: string;
 	name: string;
@@ -57,6 +58,12 @@ export function Composer({
 	onCancel(): void;
 	onClearReply(): void;
 	onDraftChange?(hasContent: boolean): void;
+	/**
+	 * Inside another composer's window (a side thread's): the same size and
+	 * place as the conversation's, and it leaves file drops to the conversation's own composer, which is the one a drop
+	 * on the window is meant for.
+	 */
+	embedded?: boolean;
 }) {
 	const [text, setText] = useState("");
 	const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -86,6 +93,7 @@ export function Composer({
 	// A drop or the picker is how a path becomes a chip. The field never
 	// parses what was typed or pasted, so a path you meant as words stays words.
 	useEffect(() => {
+		if (embedded) return;
 		let cancelled = false;
 		let stop: (() => void) | undefined;
 		// getCurrentWebview() throws in a browser tab before a promise exists,
@@ -114,7 +122,7 @@ export function Composer({
 			cancelled = true;
 			stop?.();
 		};
-	}, []);
+	}, [embedded]);
 
 	// Chips belong to the window, not only the field, so Escape puts them
 	// down even when the field is not focused — and it does so before the

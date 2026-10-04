@@ -34,33 +34,42 @@
 //! tools, the workspace, or the harness invalidate old handles and queued
 //! work before a live session is rebuilt.
 
+mod agent;
 pub(crate) mod avatar;
 mod chapters;
+mod dm;
 mod escalation;
 pub(crate) mod exchanges;
 pub(crate) mod files;
 pub(crate) mod generate;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
+mod lifecycle;
 mod narration;
 mod pacing;
 mod peers;
 mod quiet;
 pub(crate) mod runner;
 pub(crate) mod schedule;
+mod sides;
+pub(crate) use sides::preview_line;
 mod stopping;
+mod threads;
+mod turns;
 pub use stopping::Stopped;
 
 pub use peers::{DeliverResult, Sent, TEAMMATE_MESSAGE_MAX};
 pub use schedule::{parse_duration, parse_when};
+pub use sides::MAX_LIVE as MAX_LIVE_SIDES;
 
 use crate::computer::Computer;
 use crate::contract::{
     Attachment, ChapterClose, ChapterSummary, Client, ComputerStatus, ConfigChoice, CookieSite,
-    DeliveryCause, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
-    PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, ScheduleKind, ScheduledRun,
-    SessionCapabilities, SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger,
-    ToolOutput, ToolSourceKind, ToolState, ToolStatus, TranscriptEvent,
+    DeliveryCause, DeliveryFrom, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel,
+    PasskeyRegistration, PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport,
+    ScheduleKind, ScheduledRun, SessionCapabilities, SessionInfo, SessionState, SharedSecret,
+    StreamDelta, TeammateToolLedger, ToolOutput, ToolSourceKind, ToolState, ToolStatus,
+    TranscriptEvent,
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
@@ -75,16 +84,18 @@ use crate::mcp::server::TeammateTools;
 use crate::room;
 use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
+use crate::thread::ThreadId;
 use crate::vault::Vault;
 use async_trait::async_trait;
 use chrono::{Local, TimeZone};
 use quiet::QuietWindow;
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 use tokio::sync::{Mutex as TokioMutex, Notify, broadcast, mpsc, oneshot, watch};
+use turns::Turns;
 
 /// How much of a tool's output the transcript keeps. The model was given all
 /// of it; this is the size of the bubble.
@@ -340,6 +351,8 @@ struct Session {
     /// attached. A session started while the image was still downloading, or
     /// after the computer failed, runs without it.
     computer: bool,
+    /// What this session's agent holds the teammate's computer under.
+    holder: crate::computer::gate::Holder,
     /// The generation every driver and tool handle for this session shares.
     capability: CapabilityLease,
     /// Which agent is answering, because a checkpoint is kept per backend and
@@ -361,7 +374,6 @@ struct Session {
     /// word. Taking the wire is not enough: a prompt the model errored on
     /// before it read it is the one case a read tick would lie about.
     unread: Mutex<Vec<String>>,
-    active_handoff: Mutex<Option<String>>,
     voice_origin: Mutex<Option<crate::voice::Origin>>,
     dispatched_deliveries: Mutex<std::collections::HashSet<String>>,
     /// The window a quiet schedule is holding this teammate's voice with.
@@ -440,9 +452,28 @@ struct Wired {
     /// The user event this line was written as, so the tape can be told when
     /// the agent has read it. A nudge is never written and has none.
     said: Option<String>,
+    /// The thread this line came from, when it came from one: a direct call's
+    /// turn is its call thread's. Read in place of the prefix of `said`.
+    from: Option<DeliveryFrom>,
+    /// The call this line was said on, when it was: a direct call's is also
+    /// `from`, and a desk call, which is no thread, is only this.
+    voice: Option<crate::voice::Origin>,
+    /// Whether it was said by voice, which decides how the reply is told.
+    spoken: bool,
     /// Work the agent took up by itself between turns. Nothing is said to
     /// the driver; the turn is these updates.
     unprompted: Option<Unprompted>,
+}
+
+/// The call a queued line came from, if it came from one: the thread it says
+/// it came from, or, for the desk's own calls, which are no thread, the call
+/// its producer named.
+fn call_origin(wired: &Wired) -> Option<crate::voice::Origin> {
+    wired
+        .from
+        .as_ref()
+        .and_then(crate::voice::Origin::from_delivery)
+        .or_else(|| wired.voice.clone())
 }
 
 impl Wired {
@@ -453,6 +484,9 @@ impl Wired {
             scheduled: None,
             steer: false,
             said: None,
+            from: None,
+            voice: None,
+            spoken: false,
             unprompted: None,
         }
     }
@@ -469,43 +503,6 @@ impl Wired {
 /// runs it. Shared only so the line it rides on stays cloneable.
 #[derive(Clone)]
 struct Unprompted(Arc<Mutex<Option<mpsc::Receiver<Update>>>>);
-
-/// The lines waiting for a teammate, and whether a driver is already taking
-/// them.
-///
-/// The two are one fact and so they are one lock. Held apart, there was a
-/// moment in which the driver had looked at an empty queue and not yet let go
-/// of the turn: a line dispatched into it was filed behind a turn that was
-/// already over, and the teammate then sat on it until the next thing said
-/// shook it loose.
-#[derive(Default)]
-struct Turns {
-    waiting: VecDeque<Wired>,
-    running: bool,
-}
-
-impl Turns {
-    /// Queues the line behind the turn in flight, or claims the driver for it.
-    ///
-    /// `Some` is the caller's to run: it holds the claim from here until
-    /// [`Turns::next_line`] gives it back.
-    fn claim(&mut self, wire: Wired) -> Option<Wired> {
-        if self.running {
-            self.waiting.push_back(wire);
-            return None;
-        }
-        self.running = true;
-        Some(wire)
-    }
-
-    /// The next line for whoever holds the claim — or, when there is none, the
-    /// release of that claim, in the same breath as the look.
-    fn next_line(&mut self) -> Option<Wired> {
-        let next = self.waiting.pop_front();
-        self.running = next.is_some();
-        next
-    }
-}
 
 /// Every session in the room, and the one place their words are written down.
 /// What a teammate's computer is armed to make: the name the passkey will
@@ -535,6 +532,8 @@ const PASSKEY_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(2
 
 pub struct Room {
     voice: Mutex<std::sync::Weak<crate::voice::Calls>>,
+    /// The room itself, for work that outlives the call that began it.
+    me: Mutex<Weak<Room>>,
     log: Log,
     spending: crate::spending::SpendLedger,
     #[cfg(test)]
@@ -591,6 +590,8 @@ pub struct Room {
     schedule_mutations: Mutex<()>,
     /// The sessions teammates answer each other out of.
     peers: peers::Peers,
+    /// The side threads that are live: second conversations with a teammate.
+    sides: sides::Sides,
     /// A `request_human` wait, by the card's action id. The tool parks on
     /// the oneshot; the person's answer, the deadline, or a settle (session
     /// stop, room restart) is what sends.
@@ -602,6 +603,9 @@ pub struct Room {
     exchange_lock: Mutex<()>,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
     exchange_leases: Mutex<HashMap<String, (CapabilityLease, CapabilityLease)>>,
+    /// Who is driving each teammate's computer: one thread at a time, whichever
+    /// of the teammate's threads asked first (`computer/gate.rs`).
+    computer_leases: Arc<crate::computer::gate::Leases>,
     /// The phones paired with this desk, told when a reply lands or a card
     /// needs the person.
     push: crate::push::Push,
@@ -693,6 +697,7 @@ impl Room {
             image_generators: Mutex::new(None),
             drawn: Mutex::default(),
             voice: Mutex::new(std::sync::Weak::new()),
+            me: Mutex::new(Weak::new()),
             log,
             keys,
             agents,
@@ -711,11 +716,13 @@ impl Room {
             schedule_changed: Arc::new(Notify::new()),
             schedule_mutations: Mutex::new(()),
             peers: peers::Peers::default(),
+            sides: sides::Sides::default(),
             human_waits: Mutex::new(HashMap::new()),
             answering_later: Mutex::new(()),
             exchange_lock: Mutex::new(()),
             exchange_workers: Mutex::new(Default::default()),
             exchange_leases: Mutex::new(Default::default()),
+            computer_leases: crate::computer::gate::Leases::new(),
             push,
             computers,
             vault,
@@ -724,8 +731,8 @@ impl Room {
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
         });
-        room.settle_tapes();
-        room.reconcile_exchanges();
+        *lock(&room.me) = Arc::downgrade(&room);
+        room.settle();
         // What the person said that was still waiting when the last desk
         // stopped is handed on once, now that the room is up.
         let resuming = Arc::downgrade(&room);
@@ -771,7 +778,7 @@ impl Room {
         }
         for key in thread::list_all_keys(self.log.root()) {
             self.log
-                .sync(&StreamId::Thread(key))
+                .sync(&StreamId::Pair(key))
                 .map_err(|error| error.to_string())?;
         }
         Ok(held)
@@ -782,63 +789,6 @@ impl Room {
     /// socket cannot reactivate a generation between those steps.
     pub(crate) fn policy_update_lock(&self) -> Arc<TokioMutex<()>> {
         self.policy_updates.clone()
-    }
-
-    /// The startup fold and the index, brought in line with the files before
-    /// anything is served from them.
-    ///
-    /// A permission or human-action card left open by the last process is a
-    /// button nobody is behind, so it is expired, a subagent line it left
-    /// running is settled as cancelled, and the stream compacted;
-    /// then the index is synced, because the fold just rewrote files and a
-    /// tape written by the importer or the previous edition has never been
-    /// indexed here at all.
-    ///
-    /// Threads are settled with the tapes. A card raised inside a peer turn is
-    /// written to the thread and nowhere else, and the resolver behind it only
-    /// ever existed in the process that received the request — so a thread
-    /// left unfolded draws a live button forever, on a stream nothing else
-    /// revisits.
-    fn settle_tapes(&self) {
-        let now = now_ms();
-        let teammates: Vec<String> = room::roster(&self.log)
-            .into_iter()
-            .map(|persona| persona.id)
-            .chain(std::iter::once(crate::voice::TAPE_ID.to_string()))
-            .collect();
-        let streams = teammates.iter().cloned().map(StreamId::Tape).chain(
-            thread::list_all_keys(self.log.root())
-                .into_iter()
-                .map(StreamId::Thread),
-        );
-        for stream in streams {
-            let events = self.log.load(&stream);
-            let mut settled = crate::log::expire_orphaned_permissions(&events, now);
-            if matches!(stream, StreamId::Tape(_)) {
-                for marker in runner::settle_orphaned_subagents(&events) {
-                    if let Some(run_id) = marker.get("runId").and_then(Value::as_str)
-                        && let Err(error) =
-                            self.log.append(&StreamId::Run(run_id.to_string()), &marker)
-                    {
-                        eprintln!("could not settle the run {run_id}: {error}");
-                    }
-                    settled.push(marker);
-                }
-            }
-            for event in settled {
-                if let Err(error) = self.log.append(&stream, &event) {
-                    eprintln!("could not settle a line left open by the last process: {error}");
-                }
-            }
-            if let Err(error) = self.log.compact(&stream) {
-                eprintln!("could not compact a stream the startup fold rewrote: {error}");
-            }
-        }
-        if let Some(indexer) = lock(&self.indexer).as_mut()
-            && let Err(error) = indexer.sync(&teammates)
-        {
-            eprintln!("the search index could not be synced: {error}");
-        }
     }
 
     pub async fn agent_auth_start(
@@ -913,6 +863,11 @@ impl Room {
     }
 
     /// The start itself. The caller is holding this teammate's gate.
+    ///
+    /// The agent is the DM thread's, built and started by
+    /// [`Room::thread_agent`] under the Dm policy. What is left here is the
+    /// room's part: the session it publishes, the watches it hands the driver's
+    /// streams to, and the chapter the conversation is in.
     async fn start_now(
         self: &Arc<Self>,
         persona_id: &str,
@@ -922,104 +877,23 @@ impl Room {
         capability.check()?;
         let persona = self.persona(persona_id)?;
         capability.check()?;
-        let in_process = persona.backend_id == HOTLINE_BACKEND_ID;
-        // The directory exists from the moment the teammate can be spoken to.
-        // A workspace under the data directory is made here; one the user
-        // typed is made too, because a path they chose is a path they meant.
-        std::fs::create_dir_all(&persona.cwd).map_err(|error| {
-            format!(
-                "{}'s working directory {} could not be made: {error}",
-                persona.name, persona.cwd
-            )
-        })?;
-        // The skills the teammate may read are files in its workspace, for
-        // either driver: the built-ins and whatever it is granted of the
-        // offered ones, copied under Hotline's marker so a revoked grant
-        // leaves nothing of Hotline's behind and nothing of the teammate's is
-        // ever touched.
-        crate::skills::materialize(
-            Path::new(&persona.cwd),
-            &crate::skills::Offering::from_settings(
-                self.log.root(),
-                &crate::room::settings(&self.log),
-            ),
-            &persona.skill_policy,
-        )
-        .map_err(|error| format!("{}'s skills could not be written: {error}", persona.name))?;
-        capability.check()?;
-        if !in_process {
-            // An ACP session takes no system prompt, so who the teammate is
-            // has to be on disk before the child is started.
-            acp::materialize_agents_md_with_capability(&persona, Some(capability.clone()))
-                .map_err(|error| {
-                    format!("{}'s AGENTS.md could not be written: {error}", persona.name)
-                })?;
-        }
-        // Wake the computer before the grant. The grant itself is appended
-        // regardless of mcpPolicy. The computer never keeps the teammate from
-        // answering: an image still downloading, or a computer that cannot
-        // come up at all (Docker not running, an image that will not pull),
-        // starts the teammate without it. The agent is told which, and the
-        // tape says so too — never a silent absence.
-        let (persona, extra_mcp, computer_note) = match self.computer_at_start(&persona).await {
-            ComputerAtStart::NotWanted => (persona, Vec::new(), None),
-            ComputerAtStart::Attached(extra_mcp) => (persona, extra_mcp, None),
-            ComputerAtStart::Downloading => (
-                without_computer(persona),
-                Vec::new(),
-                Some(COMPUTER_DOWNLOADING.to_string()),
-            ),
-            ComputerAtStart::Unavailable(reason) => {
-                capability.check()?;
-                eprintln!("{}", computer_unavailable(&persona.name, &reason));
-                let note = computer_failed_note(&reason);
-                (without_computer(persona), Vec::new(), Some(note))
-            }
+        let mut agent = self
+            .thread_agent(agent::Opening {
+                thread: ThreadId::dm(&persona.id),
+                persona,
+                title: "the main conversation".to_string(),
+                opener: None,
+                lease: capability.clone(),
+            })
+            .await?;
+        let persona = agent.view.clone();
+        let driver = agent.driver.clone();
+        let has_computer = agent.computer;
+        let reported = agent.started.clone();
+        let (info_updates, unprompted, subagents) = match agent.watches.take() {
+            Some(watches) => (watches.info, watches.unprompted, watches.subagents),
+            None => (None, None, None),
         };
-        let has_computer = !extra_mcp.is_empty();
-        capability.check()?;
-        // The agent's context is one chapter: it hears what was said in the
-        // chapter it is joining, and the wake block tells it about the one
-        // that closed before it — which is the whole of what a fresh context
-        // knows about a conversation that has been going on for months.
-        let events = self.tape(&persona.id);
-        // Reach is Hotline Agent's one policy, and only Hotline Agent's: a child
-        // brings its own tools and Hotline enforces nothing over them, so telling
-        // one that a path outside its directory would be refused is a promise
-        // nobody here can keep.
-        let reach = in_process.then(|| persona.reach.unwrap_or_default());
-        let driver = self.agents.agent(
-            &persona,
-            preamble(
-                &persona,
-                reach,
-                with_note(computer_note, chapters::wake_block(&events, now_ms())),
-                &self.stored_secrets(),
-            ),
-            said(&events),
-            TeammateTools::new(self, &persona.id)
-                .with_capability(capability.clone())
-                .with_subagents(),
-            extra_mcp,
-        )?;
-        // Subscribe before startup: ACP may publish a picker change between
-        // its handshake snapshot and the moment this session enters the room.
-        // The receiver keeps that update until the guarded watcher is attached
-        // after publication below.
-        let info_updates = driver.subscribe_info();
-        let unprompted = driver.subscribe_unprompted();
-        let subagents = driver.subscribe_subagents();
-        let reported = match driver.start(&persona).await {
-            Ok(reported) => reported,
-            Err(error) => {
-                driver.invalidate();
-                return Err(error);
-            }
-        };
-        if let Err(error) = capability.check() {
-            driver.invalidate();
-            return Err(error);
-        }
         let mut info = idle_info(&persona.id);
         info.state = if driver.startup_failure().is_some() {
             SessionState::Error
@@ -1052,6 +926,7 @@ impl Room {
         let session = Arc::new(Session {
             persona_id: persona.id.clone(),
             computer: has_computer,
+            holder: agent.holder.clone(),
             capability: capability.clone(),
             backend_id: persona.backend_id.clone(),
             driver,
@@ -1061,7 +936,6 @@ impl Room {
             pending_reply: Mutex::new(None),
             pending_scheduled: Mutex::new(None),
             unread: Mutex::new(Vec::new()),
-            active_handoff: Mutex::new(None),
             voice_origin: Mutex::new(None),
             dispatched_deliveries: Mutex::new(Default::default()),
             quiet: Mutex::new(None),
@@ -1072,11 +946,10 @@ impl Room {
         });
         {
             let _lifecycle = lock(&self.lifecycle);
-            if let Err(error) = capability.check() {
-                session.driver.invalidate();
-                return Err(error);
-            }
+            // Dropped, the agent is stopped: the session never joined the room.
+            capability.check()?;
             lock(&self.sessions).insert(persona.id.clone(), session.clone());
+            agent.keep();
             let _ = self.info_changes.send(info.clone());
         }
         if let Some(info_updates) = info_updates {
@@ -1116,7 +989,11 @@ impl Room {
     /// goes ahead without it: the pull fills its bar on the tape, and once
     /// it lands the session restarts with the computer after the turn in
     /// flight (see [`Room::attach_computer_when_idle`]).
-    async fn computer_at_start(self: &Arc<Self>, persona: &Persona) -> ComputerAtStart {
+    async fn computer_at_start(
+        self: &Arc<Self>,
+        persona: &Persona,
+        driving: &Driving,
+    ) -> ComputerAtStart {
         if !persona
             .computer
             .as_ref()
@@ -1160,7 +1037,7 @@ impl Room {
             result = &mut bringing_up => match result {
                 Ok(Ok(ready)) => {
                     lock(&self.computer_setups).remove(&persona.id);
-                    match self.finish_grant(persona, &ready).await {
+                    match self.finish_grant(persona, &ready, driving).await {
                         Ok(extra_mcp) => ComputerAtStart::Attached(extra_mcp),
                         Err(reason) => ComputerAtStart::Unavailable(reason),
                     }
@@ -1243,7 +1120,7 @@ impl Room {
 
     /// Brings a computer that finished downloading into its teammate's
     /// session, between turns. A turn in flight is never cut short for it:
-    /// the end of the turn calls this again (see `run_turns`). With no
+    /// the end of the turn calls this again (see [`Room::run_queue`]). With no
     /// session running there is nothing to restart; the next start finds
     /// the computer up and grants it at once.
     fn attach_computer_when_idle(self: &Arc<Self>, persona_id: &str) {
@@ -1278,6 +1155,30 @@ impl Room {
             // A restart that fails says why on the teammate's band itself.
             let _ = room.reattach(&persona_id).await;
         });
+    }
+
+    /// What `computer_status` answers in a work thread: the thread was built
+    /// with the computer or without it, and a download that is still going is
+    /// the DM's to watch.
+    pub(crate) fn computer_in_a_thread(&self, persona_id: &str) -> String {
+        let enabled = self.persona(persona_id).ok().is_some_and(|persona| {
+            persona
+                .computer
+                .as_ref()
+                .is_some_and(|computer| computer.enabled)
+        });
+        if enabled {
+            json!({
+                "state": "attached",
+                "note": "Your computer is attached, shared with your other threads: one drives it at a time, and a call says who has it when it is busy. If it did not start for this thread, its `computer__` tools are absent; work without it and say so.",
+            })
+        } else {
+            json!({
+                "state": "none",
+                "note": "You have no computer in this thread.",
+            })
+        }
+        .to_string()
     }
 
     /// What `computer_status` answers: where this teammate's computer is,
@@ -1357,6 +1258,7 @@ impl Room {
     pub(super) async fn grant_computer(
         &self,
         persona: &Persona,
+        driving: &Driving,
     ) -> Result<Vec<mcp::McpServer>, String> {
         if !persona
             .computer
@@ -1378,7 +1280,7 @@ impl Room {
                 self.pull_reporter(&persona.id),
             )
             .await?;
-        self.finish_grant(persona, &ready).await
+        self.finish_grant(persona, &ready, driving).await
     }
 
     /// The rest of the grant, once the computer is up: its guide as the
@@ -1387,6 +1289,7 @@ impl Room {
         &self,
         persona: &Persona,
         ready: &crate::computer::Ready,
+        driving: &Driving,
     ) -> Result<Vec<mcp::McpServer>, String> {
         let ready = ready.clone();
         // The guide the running release serves is the teammate's
@@ -1417,7 +1320,22 @@ impl Room {
             ),
         }
         self.hand_secrets(persona, &ready).await;
-        Ok(vec![crate::computer::mcp_server(&ready)])
+        // The agent is handed a gate in front of the computer, not the
+        // computer: the teammate's threads take turns at it.
+        let lease = driving.lease.clone();
+        let gate = crate::computer::gate::serve(
+            &ready,
+            self.computer_leases.clone(),
+            &persona.id,
+            driving.holder.clone(),
+            move || lease.is_current(),
+        )
+        .await
+        .map_err(|error| format!("{}'s computer could not be shared: {error}", persona.name))?;
+        Ok(vec![crate::computer::mcp_server(&crate::computer::Ready {
+            url: gate.url,
+            token: gate.token,
+        })])
     }
 
     /// Hands a running computer the secrets its teammate is granted — the
@@ -2029,6 +1947,7 @@ impl Room {
             }
         }
         self.drop_peer_sessions(persona_id);
+        self.drop_sides(persona_id);
         self.revoke_exchanges(persona_id);
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
@@ -2074,6 +1993,7 @@ impl Room {
             self.revoke_exchanges(persona_id);
         }
         self.peers.invalidate_all();
+        self.drop_all_sides();
         self.settle_all_collaboration();
         for session in sessions {
             self.settle_permissions(&session.persona_id);
@@ -2099,10 +2019,20 @@ impl Room {
     }
 
     /// Ends the session. The teammate keeps its tape; what stops is the agent.
+    ///
+    /// The person stopping a teammate ends its side threads with it: they are
+    /// its agent, and nothing is left to answer in them.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
+        self.stop_session(persona_id);
+        self.drop_sides(persona_id);
+        Ok(())
+    }
+
+    /// The main session's stop alone, for a chapter swap: a side thread has a
+    /// conversation of its own and goes on through one.
+    fn stop_session(&self, persona_id: &str) {
         self.stop_with_capability(persona_id);
         self.revoke_exchanges(persona_id);
-        Ok(())
     }
 
     /// A chapter restart captures its replacement authority in the same
@@ -2274,13 +2204,22 @@ impl Room {
             Sending {
                 shown: text.to_string(),
                 wire: Wired {
-                    text: text.to_string(),
+                    // A voice call's earlier lines are for the agent alone;
+                    // the conversation shows only what the person said.
+                    text: match crate::wire::commands::call_heard() {
+                        Some(heard) => format!("{heard}\n{text}"),
+                        None => text.to_string(),
+                    },
                     attachments: attachments.clone().unwrap_or_default(),
                     scheduled: None,
                     steer: !crate::wire::commands::from_voice()
                         || crate::wire::commands::voice_origin()
                             .is_some_and(|origin| origin.direct),
                     said: None,
+                    from: crate::wire::commands::voice_origin().and_then(|origin| origin.from()),
+                    voice: crate::wire::commands::voice_origin(),
+                    spoken: crate::wire::commands::from_voice()
+                        || crate::wire::commands::voice_origin().is_some(),
                     unprompted: None,
                 },
                 attachments,
@@ -2373,10 +2312,12 @@ impl Room {
             .and_then(|v| v["ts"].as_i64())
             .unwrap_or_else(now_ms);
         let wire = peers::delivery_wire(&cause, &text);
+        let from = self.delivery_source(persona_id, &cause);
         if existing.is_none() {
             let event = TranscriptEvent::Delivery {
                 id: id.into(),
                 ts,
+                from: Some(from.clone()),
                 cause,
                 text,
                 receipt: Some(Receipt::Sent),
@@ -2388,6 +2329,7 @@ impl Room {
         }
         let mut wired = Wired::words(timed(ts, &wire));
         wired.said = Some(id.into());
+        wired.from = Some(from);
         lock(&session.dispatched_deliveries).insert(id.into());
         self.dispatch(session, wired);
         Ok(())
@@ -2565,7 +2507,7 @@ impl Room {
         let room = self.clone();
         tokio::spawn(async move {
             let _working = working;
-            room.run_turns(session, wire).await;
+            room.run_queue(session, wire).await;
         });
     }
 
@@ -2658,7 +2600,7 @@ impl Room {
                 let room = room.clone();
                 tokio::spawn(async move {
                     let _working = working;
-                    room.run_turns(session, wire).await;
+                    room.run_queue(session, wire).await;
                 });
             }
         });
@@ -2878,6 +2820,7 @@ impl Room {
                 status: HumanActionStatus::Pending,
                 note: None,
                 delivers: None,
+                thread: None,
             },
         );
         self.push.notify(
@@ -2902,7 +2845,12 @@ impl Room {
     /// and the person's answer comes back to the teammate as a delivery
     /// whenever they give it (see [`Room::answer_human`]). The card is the
     /// record, so it outlives the turn, a stop, and a restart.
-    pub fn ask_human(&self, persona_id: &str, reason: &str) -> Result<String, String> {
+    pub fn ask_human(
+        &self,
+        persona_id: &str,
+        reason: &str,
+        home: Option<&str>,
+    ) -> Result<String, String> {
         self.persona(persona_id)?;
         let reason = reason.trim();
         if reason.len() < 3 {
@@ -2910,9 +2858,10 @@ impl Room {
         }
         let reason: String = reason.chars().take(500).collect();
         let action_id = new_id();
-        self.link_handoff_human(persona_id, &action_id)?;
-        self.write(
+        self.link_handoff_human(home, &action_id)?;
+        self.write_home(
             persona_id,
+            home,
             &TranscriptEvent::HumanAction {
                 id: format!("human:{action_id}"),
                 ts: now_ms(),
@@ -2921,9 +2870,11 @@ impl Room {
                 status: HumanActionStatus::Pending,
                 note: None,
                 delivers: Some(true),
+                thread: home.map(str::to_string),
             },
         );
-        self.push.notify(
+        self.push.notify_in(
+            home,
             &self.needs_you(persona_id),
             &reason,
             persona_id,
@@ -2982,17 +2933,19 @@ impl Room {
             reason,
             status: HumanActionStatus::Pending,
             delivers: Some(true),
+            thread,
             ..
         }) = self.human_card(persona_id, action_id)
         else {
             return Err("That request is no longer waiting for an answer.".to_string());
         };
         self.supersede_human(persona_id, action_id, status, note.clone());
-        self.deliver_answer(persona_id, action_id, &reason, status, note);
+        self.deliver_answer(persona_id, action_id, &reason, status, note, thread);
         Ok(())
     }
 
-    /// An answer, or the lack of one, on its way to the teammate that asked.
+    /// An answer, or the lack of one, on its way to the teammate that asked: to
+    /// the work thread the card was raised in, or the teammate's DM.
     fn deliver_answer(
         self: &Arc<Self>,
         persona_id: &str,
@@ -3000,18 +2953,15 @@ impl Room {
         reason: &str,
         status: HumanActionStatus,
         note: Option<String>,
+        thread: Option<String>,
     ) {
-        let cause = DeliveryCause::Answer {
-            action_id: action_id.to_string(),
-            status,
-            about: peers::about(reason),
-        };
         let room = self.clone();
         let persona_id = persona_id.to_string();
-        let delivery_id = format!("human-answer:{action_id}");
+        let action_id = action_id.to_string();
+        let reason = reason.to_string();
         tokio::spawn(async move {
             if let Err(error) = room
-                .deliver_identified(&persona_id, &delivery_id, cause, note.unwrap_or_default())
+                .hand_over_answer(&persona_id, &action_id, &reason, status, note, thread)
                 .await
             {
                 eprintln!("an answer to {persona_id}'s request could not be delivered: {error}");
@@ -3019,18 +2969,80 @@ impl Room {
         });
     }
 
+    /// Hands the person's answer to a card to the agent that raised it: in its
+    /// work thread when the card was raised in one (waking it if it was parked,
+    /// and carrying on a handoff that was waiting behind it), else in its DM.
+    /// Handing over the same answer twice delivers it once.
+    pub(super) async fn hand_over_answer(
+        self: &Arc<Self>,
+        persona_id: &str,
+        action_id: &str,
+        reason: &str,
+        status: HumanActionStatus,
+        note: Option<String>,
+        thread: Option<String>,
+    ) -> Result<(), String> {
+        let cause = DeliveryCause::Answer {
+            action_id: action_id.to_string(),
+            status,
+            about: peers::about(reason),
+        };
+        let delivery_id = format!("human-answer:{action_id}");
+        let text = note.unwrap_or_default();
+        match thread {
+            Some(thread) => {
+                let handoff = self.handoff_awaiting(persona_id, action_id).map(|request| {
+                    turns::HandoffLine {
+                        request,
+                        answer: Some(action_id.to_string()),
+                    }
+                });
+                self.deliver_into_work(
+                    &thread,
+                    &delivery_id,
+                    cause,
+                    DeliveryFrom::new(&ThreadId::side(&thread), Some(action_id.to_string())),
+                    text,
+                    handoff,
+                )
+                .await
+            }
+            None => {
+                self.deliver_identified(persona_id, &delivery_id, cause, text)
+                    .await
+            }
+        }
+    }
+
+    /// One line onto a work thread of the teammate's, or onto its tape when
+    /// the card or the line belongs to no thread.
+    pub(super) fn write_home(&self, persona_id: &str, home: Option<&str>, event: &TranscriptEvent) {
+        match home {
+            Some(thread) => {
+                self.threads()
+                    .write(&ThreadId::side(thread), persona_id, event);
+            }
+            None => self.write(persona_id, event),
+        }
+    }
+
     /// Cards that deliver and have waited [`ASK_TTL`] without an answer:
     /// expired, and the teammate told, so neither the card nor the
     /// teammate's "waiting on you" stays up forever.
     pub(super) fn expire_stale_asks(self: &Arc<Self>, now: i64) {
         for persona in crate::room::roster(&self.log) {
-            for event in self.tape(&persona.id) {
+            let cards = self
+                .tape(&persona.id)
+                .into_iter()
+                .chain(self.cards_in_work(&persona.id));
+            for event in cards {
                 let Ok(TranscriptEvent::HumanAction {
                     ts,
                     action_id,
                     reason,
                     status: HumanActionStatus::Pending,
                     delivers: Some(true),
+                    thread,
                     ..
                 }) = serde_json::from_value::<TranscriptEvent>(event)
                 else {
@@ -3056,6 +3068,7 @@ impl Room {
                     &reason,
                     HumanActionStatus::Expired,
                     None,
+                    thread,
                 );
             }
         }
@@ -3133,13 +3146,15 @@ impl Room {
             id,
             reason,
             delivers,
+            thread,
             ..
         } = card
         else {
             return;
         };
-        self.write(
+        self.write_home(
             persona_id,
+            thread.as_deref(),
             &TranscriptEvent::HumanAction {
                 id,
                 ts: now_ms(),
@@ -3148,14 +3163,18 @@ impl Room {
                 status,
                 note,
                 delivers,
+                thread: thread.clone(),
             },
         );
     }
 
+    /// The card this request raised, on the tape or in one of the teammate's
+    /// work threads.
     fn human_card(&self, persona_id: &str, action_id: &str) -> Option<TranscriptEvent> {
         let id = Value::from(format!("human:{action_id}"));
         self.tape(persona_id)
             .into_iter()
+            .chain(self.cards_in_work(persona_id))
             .find(|event| event.get("id") == Some(&id))
             .and_then(|event| serde_json::from_value(event).ok())
     }
@@ -3354,7 +3373,7 @@ impl Room {
 
     /// Swaps in a computer whose new release has downloaded, between turns.
     /// A turn in flight keeps the old computer to its end, which calls this
-    /// again (see `run_turns`). The swap is the old container going and the
+    /// again (see [`Room::run_queue`]). The swap is the old container going and the
     /// session reattaching, which makes and grants the new one.
     fn swap_computer_when_idle(self: &Arc<Self>, persona_id: &str) {
         if !lock(&self.computer_swaps)
@@ -3765,7 +3784,7 @@ impl Room {
             .filter(|title| !title.is_empty())
             .unwrap_or("the previous chapter");
 
-        self.stop(persona_id)?;
+        self.stop_session(persona_id);
         if let Some(open) = open {
             self.close_marker(
                 persona_id,
@@ -4057,409 +4076,6 @@ impl Room {
             self.info(persona_id).state,
             SessionState::Thinking | SessionState::Starting
         )
-    }
-
-    async fn run_turns(self: Arc<Self>, session: Arc<Session>, first: Wired) {
-        let mut next = Some(first);
-        while let Some(wired) = next.take() {
-            if !session.capability.is_current() || !self.current_session(&session) {
-                let mut turns = lock(&session.turns);
-                turns.waiting.clear();
-                turns.running = false;
-                break;
-            }
-            *lock(&session.voice_origin) = wired
-                .said
-                .as_deref()
-                .and_then(crate::voice::Origin::from_event_id);
-            let mut handoff = wired
-                .said
-                .as_ref()
-                .and_then(|id| id.strip_prefix("handoff:"))
-                .map(str::to_string);
-            if handoff.as_ref().is_some_and(|id| !self.handoff_live(id)) {
-                next = lock(&session.turns).next_line();
-                continue;
-            }
-            if let Some((id, action)) = wired
-                .said
-                .as_deref()
-                .and_then(|said| self.handoff_answer(&session.persona_id, said))
-            {
-                if let Err(error) = self.resume_handoff_answer(&id, &action).await {
-                    eprintln!("handoff answer not started: {error}");
-                    next = lock(&session.turns).next_line();
-                    continue;
-                }
-                handoff = Some(id);
-            }
-            if wired
-                .said
-                .as_ref()
-                .and_then(|id| id.strip_prefix("exchange-result:"))
-                .is_some_and(|id| !self.begin_exchange_result(id))
-            {
-                next = lock(&session.turns).next_line();
-                continue;
-            }
-            *lock(&session.active_handoff) = handoff.clone();
-            if let Some(id) = &handoff
-                && let Err(error) = self.begin_handoff(id)
-            {
-                eprintln!("handoff not started: {error}");
-                *lock(&session.active_handoff) = None;
-                next = lock(&session.turns).next_line();
-                continue;
-            }
-            let mut handoff_replies = Vec::new();
-            let mut handoff_finished = false;
-            let mut handoff_failed = false;
-            self.set_state(&session, SessionState::Thinking);
-            let reach = self.reach_of(&session.persona_id);
-            if !session.capability.is_current() || !self.current_session(&session) {
-                let mut turns = lock(&session.turns);
-                turns.waiting.clear();
-                turns.running = false;
-                break;
-            }
-            if wired.scheduled.as_ref().is_some_and(|run| {
-                !schedule::scheduled_run_allowed(&self.log, &session.persona_id, run)
-            }) {
-                next = lock(&session.turns).next_line();
-                continue;
-            }
-            if let Some(said) = wired.said.clone() {
-                lock(&session.unread).push(said);
-            }
-            // A quiet run's replies are thinking; it is heard only by asking.
-            // Armed for this turn alone, and cleared for every other one.
-            let quiet_run = wired
-                .scheduled
-                .clone()
-                .filter(|run| run.quiet == Some(true));
-            let escalation = quiet_run
-                .as_ref()
-                .map(|_| Arc::new(escalation::Escalation::new()));
-            let mut updates = if let Some(unprompted) = &wired.unprompted {
-                let Some(updates) = lock(&unprompted.0).take() else {
-                    next = lock(&session.turns).next_line();
-                    continue;
-                };
-                updates
-            } else {
-                session.driver.escalate_next(
-                    escalation
-                        .clone()
-                        .map(|armed| armed as Arc<dyn crate::driver::Escalate>),
-                );
-                session
-                    .driver
-                    .prompt(wired.text, wired.attachments, reach)
-                    .await
-            };
-            let mut in_flight: HashMap<String, PendingTool> = HashMap::new();
-            // What the agent says between its tool calls is held here until
-            // the next update says whether it was narration or the report.
-            let mut voice = narration::Voice::new();
-            let mut asked = false;
-            let mut steered_inputs = Vec::new();
-            loop {
-                self.steer_waiting(&session, &mut steered_inputs);
-                let update = tokio::select! {
-                    biased;
-                    () = session.input_ready.notified() => continue,
-                    update = updates.recv() => update,
-                };
-                let Some(update) = update else { break };
-                for update in voice.step(update) {
-                    // A full context mid-turn is the driver's to carry on from:
-                    // it has rebuilt its history from what this turn committed,
-                    // under the same preamble and wake. A chapter is the
-                    // person's unit of work, not the model's window, so it
-                    // stays open, and with it the collaboration it holds: a
-                    // handoff in flight keeps its authority (BRO-150).
-                    if let Update::Chapter { boundary } = update {
-                        boundary.finish(None);
-                        continue;
-                    }
-                    if let Update::Message {
-                        kind: MessageKind::Agent,
-                        text,
-                        ..
-                    } = &update
-                    {
-                        handoff_replies.push(text.clone());
-                    }
-                    if let Update::Turn { stop_reason, .. } = &update {
-                        handoff_finished = true;
-                        handoff_failed |= matches!(
-                            stop_reason.as_str(),
-                            "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
-                        );
-                    }
-                    asked |= matches!(update, Update::Permission { .. });
-                    self.record(&session, update, &mut in_flight, &voice);
-                }
-            }
-            // A driver that stopped without a turn — its model errored, its
-            // child died — leaves a tool spinning in the transcript forever,
-            // and a card nobody is behind. A line it was still holding is the
-            // last thing it said.
-            for update in voice.finish() {
-                if let Update::Message {
-                    kind: MessageKind::Agent,
-                    text,
-                    ..
-                } = &update
-                {
-                    handoff_replies.push(text.clone());
-                }
-                self.record(&session, update, &mut in_flight, &voice);
-            }
-            if let Some(id) = handoff {
-                let failed = handoff_failed || !handoff_finished;
-                let reply = if failed && handoff_replies.is_empty() {
-                    "The handoff turn ended without a result; inspect before retrying.".to_string()
-                } else {
-                    handoff_replies.join("\n\n")
-                };
-                self.finish_handoff(&id, reply, failed);
-            }
-            *lock(&session.active_handoff) = None;
-            self.fail_in_flight(&session, &mut in_flight);
-            self.send_glance(
-                &session,
-                wired
-                    .said
-                    .as_deref()
-                    .is_some_and(|id| id.starts_with("voice:")),
-            );
-            if asked {
-                // A permission the turn left open is a button nobody is
-                // behind. A `request_human` wait is not: the tool is still
-                // parked on it, and only the person, the deadline, or a
-                // session stop settles that card.
-                for expired in crate::log::expire_orphaned_permissions(
-                    &self.tape(&session.persona_id),
-                    now_ms(),
-                ) {
-                    if expired.get("kind").and_then(Value::as_str) == Some("permission") {
-                        self.write_value(&session.persona_id, &expired);
-                    }
-                }
-            }
-            for (text, attachments) in session.driver.take_unconsumed().into_iter().rev() {
-                // Drivers return the input's contents, not its tape identity.
-                // Match from the end because replay is requeued in reverse;
-                // identical inputs must keep their original order and origin.
-                let wire = if let Some(index) = steered_inputs
-                    .iter()
-                    .rposition(|wire| wire.text == text && wire.attachments == attachments)
-                {
-                    steered_inputs.remove(index)
-                } else {
-                    let mut wire = Wired::words(text);
-                    wire.attachments = attachments;
-                    wire
-                };
-                lock(&session.turns).waiting.push_front(wire);
-            }
-            if let (Some(run), Some(note)) = (
-                quiet_run,
-                escalation.as_ref().and_then(|armed| armed.take()),
-            ) {
-                self.escalate(&session, run, &note);
-            }
-            next = lock(&session.turns).next_line();
-        }
-        if !self.current_session(&session) || !session.capability.is_current() {
-            lock(&session.turns).running = false;
-            return;
-        }
-        self.set_state(&session, SessionState::Ready);
-        self.attach_computer_when_idle(&session.persona_id);
-        self.swap_computer_when_idle(&session.persona_id);
-    }
-
-    /// A quiet run found something: the teammate is prompted with it in the
-    /// open, next, so it answers the person as any reply is answered. The
-    /// line is stamped with the job but not quiet, so no window opens over
-    /// the answer.
-    fn escalate(&self, session: &Session, run: ScheduledRun, note: &str) {
-        let run = ScheduledRun { quiet: None, ..run };
-        let ts = now_ms();
-        let mut wire = Wired::words(timed(ts, &escalation::follow_up(&run, note)));
-        wire.scheduled = Some(run.clone());
-        mark(&session.pending_scheduled, run);
-        let id = new_id();
-        self.append(
-            session,
-            TranscriptEvent::User {
-                id: id.clone(),
-                ts,
-                text: note.to_string(),
-                attachments: None,
-                reactions: None,
-                reply_to: None,
-                scheduled: None,
-                ring: None,
-                receipt: Some(Receipt::Sent),
-                client: None,
-            },
-        );
-        wire.said = Some(id);
-        lock(&session.turns).waiting.push_front(wire);
-    }
-
-    fn steer_waiting(&self, session: &Arc<Session>, steered_inputs: &mut Vec<Wired>) {
-        if !session.capability.is_current() || !self.current_session(session) {
-            return;
-        }
-        let mut turns = lock(&session.turns);
-        let mut steered = false;
-        while let Some(index) = turns.waiting.iter().position(|wire| wire.steer) {
-            let wire = &turns.waiting[index];
-            if !session
-                .driver
-                .steer(wire.text.clone(), wire.attachments.clone())
-            {
-                break;
-            }
-            *lock(&session.voice_origin) = wire
-                .said
-                .as_deref()
-                .and_then(crate::voice::Origin::from_event_id);
-            if let Some(said) = wire.said.clone() {
-                lock(&session.unread).push(said);
-            }
-            steered_inputs.push(
-                turns
-                    .waiting
-                    .remove(index)
-                    .expect("steered input is queued"),
-            );
-            steered = true;
-        }
-        drop(turns);
-        if steered {
-            // A new instruction is neither an answer nor permission. Release
-            // an obsolete human wait so the model can reconsider the request.
-            self.release_human_waits(&session.persona_id);
-        }
-    }
-
-    /// One driver update, as the tape and the wire see it.
-    fn record(
-        &self,
-        session: &Session,
-        update: Update,
-        in_flight: &mut HashMap<String, PendingTool>,
-        voice: &narration::Voice,
-    ) {
-        // Anything the agent produces proves it has what it was handed; a
-        // notice can be an error raised before the prompt reached the model.
-        if !matches!(update, Update::Notice { .. }) {
-            self.mark_read(session);
-        }
-        if let Update::Delta {
-            kind,
-            message_id,
-            text,
-        } = update
-        {
-            // A muted turn must not run the writing indicator for a message
-            // that will never land, so the delta is demoted with the event it
-            // is building; and after the acknowledgement a message may turn
-            // out to be narration, so it streams as thinking too.
-            let muted = kind == MessageKind::Agent
-                && (quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms())
-                    || voice.mutes_deltas());
-            let persona_id = session.persona_id.clone();
-            let _ = self.deltas.send(match kind {
-                MessageKind::Agent if !muted => StreamDelta::AgentDelta {
-                    persona_id,
-                    message_id,
-                    text,
-                },
-                _ => StreamDelta::ThoughtDelta {
-                    persona_id,
-                    message_id,
-                    text,
-                },
-            });
-            return;
-        }
-        if matches!(update, Update::Turn { .. }) {
-            // A cancelled turn leaves tools running; they are marked before
-            // the turn is closed, so the transcript never shows a finished
-            // turn above a tool still in progress.
-            self.fail_in_flight(session, in_flight);
-            if !session.driver.checkpoint_valid()
-                || matches!(&update, Update::Turn { stop_reason, .. } if stop_reason == "failed")
-            {
-                lock(&session.pending_checkpoint).take();
-                let _ = room::clear_checkpoint(&self.log, &session.persona_id, &session.backend_id);
-            } else {
-                self.checkpoint(session);
-            }
-        }
-        // A phone hears a turn's reply once the driver is done with the line
-        // ([`Self::send_glance`]), and a question the agent cannot go on
-        // without the moment it is asked. A quiet schedule's reply is demoted
-        // to a thought and says nothing anywhere.
-        if let Update::Message {
-            kind: MessageKind::Agent,
-            id,
-            text,
-        } = &update
-            && !quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms())
-            && !text.trim().is_empty()
-        {
-            // narration::Voice has committed this as an acknowledgement or report.
-            // Direct callers hear it now rather than waiting for tool work to end,
-            // unless the call has a voice of its own that already acknowledged
-            // it and answers how it is going; then only the turn's reply is said.
-            if let Some(origin) = lock(&session.voice_origin).clone()
-                && origin.direct
-                && let Some(voice) = lock(&self.voice).upgrade()
-                && !voice.fronted(&origin)
-            {
-                let name = self
-                    .persona(&session.persona_id)
-                    .map(|p| p.name)
-                    .unwrap_or_else(|_| "Hotline".into());
-                voice.delivery(&session.persona_id, id, &name, text, true, Some(&origin));
-            }
-            *lock(&session.glance) = Some(Glance {
-                event_id: id.clone(),
-                text: text.trim().to_string(),
-            });
-        }
-        let card = match &update {
-            Update::Permission {
-                request_id,
-                title,
-                options,
-            } => Some((
-                title.clone(),
-                crate::push::Waiting::Permission {
-                    request_id: request_id.clone(),
-                    options: options.clone(),
-                },
-            )),
-            _ => None,
-        };
-        for event in event_of(update, in_flight) {
-            self.append(session, event);
-        }
-        if let Some((title, waiting)) = card {
-            self.push.notify(
-                &self.needs_you(&session.persona_id),
-                &title,
-                &session.persona_id,
-                Some(waiting),
-            );
-        }
     }
 
     /// The desk window has the person, or has lost them; the phone is quiet
@@ -4824,12 +4440,7 @@ fn sweep_idle_chapters(room: Weak<Room>) {
         loop {
             match room.upgrade() {
                 Some(room) => {
-                    room.sweep_chapters(&mut looked_again).await;
-                    // The same clock, because a peer session that has gone
-                    // quiet is the same kind of fact as a chapter that has:
-                    // nothing to arm when a message lands and nothing to
-                    // cancel when a teammate is deleted.
-                    room.sweep_peers(now_ms());
+                    room.sweep(now_ms(), &mut looked_again).await;
                     room.expire_stale_asks(now_ms());
                     room.sweep_computers().await;
                 }
@@ -5177,6 +4788,49 @@ enum ComputerSetup {
     /// Downloaded and up: joins the session when its turn ends.
     Ready,
     Failed(String),
+}
+
+/// Which agent is being handed the teammate's computer, and the authority it
+/// holds it under. The computer is shared by the teammate's threads one at a
+/// time ([`crate::computer::gate`]), and its gate ends with this lease.
+pub(super) struct Driving {
+    holder: crate::computer::gate::Holder,
+    lease: CapabilityLease,
+}
+
+impl Driving {
+    /// What this agent holds the computer under.
+    pub(super) fn holder(&self) -> &crate::computer::gate::Holder {
+        &self.holder
+    }
+
+    /// `key` is what the thread holds the computer under, and `title` is what
+    /// another thread is told it is busy with.
+    pub(super) fn new(
+        key: impl Into<String>,
+        title: impl Into<String>,
+        lease: &CapabilityLease,
+    ) -> Self {
+        Self {
+            holder: crate::computer::gate::Holder::new(key, title),
+            lease: lease.clone(),
+        }
+    }
+}
+
+impl Room {
+    /// A thread's turn is over: it has no more use for the teammate's computer
+    /// until it is next asked something.
+    ///
+    /// It is the agent's own hold that is let go of: a thread's replacement
+    /// agent has the same key and a hold of its own.
+    pub(super) fn let_go_of_computer(
+        &self,
+        persona_id: &str,
+        holder: &crate::computer::gate::Holder,
+    ) {
+        self.computer_leases.release(persona_id, holder);
+    }
 }
 
 /// What a start does about the teammate's computer.

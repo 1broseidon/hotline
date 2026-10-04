@@ -135,7 +135,7 @@ const PERMISSION_VERBS: &[(&str, &str)] = &[
 ];
 
 /// The marker that says a file in a teammate's workspace is Hotline's to rewrite.
-const MANAGED_MARKER: &str = "<!-- managed by Hotline -->";
+pub(crate) const MANAGED_MARKER: &str = "<!-- managed by Hotline -->";
 
 /// Writes the teammate's identity where the agent will read it.
 ///
@@ -1635,7 +1635,9 @@ impl ChildAgent {
         // given nothing and still gets no ledger at all; one that initialized
         // and then refused `session/new` keeps the ledger it was handed,
         // because the rows were declared to it whether or not it went on.
-        self.publish_ledger(persona, serving);
+        if !self.teammate.in_work() {
+            self.publish_ledger(persona, serving);
+        }
         if let Err(error) = self.open_session(&connection, persona, capabilities).await {
             let failure = auth::failure(&self.live, &error, "acp_start");
             if failure.kind == super::failure::Kind::AgentAuth && failure.sign_in.is_some() {

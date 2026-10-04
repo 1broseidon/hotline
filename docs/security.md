@@ -42,7 +42,7 @@ it.
 | MCP gateway | `mcpPolicy` | `none` | Each selected server's own capabilities, wherever it reaches. Hotline connects it as the client; it is not inside the shell sandbox. `all` includes servers added later. An imported or invalid policy grants nothing. |
 | Collaboration | `allowedSenders` on the recipient, and the caller's reach | empty | Asking another teammate to use its workspace and tools. A `machine` Hotline Agent caller has this implicitly. A `workspace` caller needs the operator's first-contact decision per direction: a session grant bound to both live leases, or a standing grant recorded by the sender's stable id. Discovery gives a workspace caller ids and names only. |
 | Background work | `backgroundWork` | `false`, including on older records | Creating its own schedules and loops. Jobs the person creates over the desk wire carry `operatorCreated` and run without it; an agent tool cannot set that flag. |
-| Computer | `computer.enabled` | off | A containerized desktop, `--cap-drop=ALL`, `no-new-privileges`, with the workspace and the teammate's declared mounts bound in. It is a per-teammate capability, not a gateway server, and does not widen reach. |
+| Computer | `computer.enabled` | off | A containerized desktop, `--cap-drop=ALL`, `no-new-privileges`, with the workspace and the teammate's declared mounts bound in. It is a per-teammate capability, not a gateway server, and does not widen reach. Its threads share it through an exclusive lease, below. |
 | Secrets | `computer.secrets` | none | Named values from the operator's store (see below), in the environment of every job that computer runs. The computer redacts each value from what its tools answer and nothing returns one. A record from before the field, or a name nobody ticked, grants nothing. |
 | ACP harness | `backendId` other than `hotline` | Hotline Agent | Trust in that harness: its process, tools, configuration and permission policy are its own, outside Hotline's sandbox. Hotline's file callbacks for it stay in the workspace whatever its saved `reach` or advertised mode says. Its runtime mode is shown as *Externally managed*. |
 
@@ -1105,3 +1105,76 @@ state-machine text/sequence/cancellation/accounting tests,
 in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
 errors, fallback and persistent budget failures. Live provider latency is a
 separate measurement; fake-provider test timings are not a production guarantee.
+
+## Thread commands on the wire (BRO-203)
+
+- **Default and old records:** nothing new is stored, and no seat gains a
+  capability: `thread.*` is the older commands under one name, and each seat may
+  run a verb on a kind of thread exactly when it could run the old command for
+  that kind. A socket reads the newer shapes (`link`, `thread_delta`) only after
+  it says so with `client.hello`; one that never does is sent what it always was.
+- **Grant source:** `phone_thread_command` and `phone_may_read`
+  (`wire/mod.rs`), beside `Seat::permits` and `permits_sub`. The desk and an
+  owner run everything. A companion:
+
+  | verb | companion may | because |
+  | --- | --- | --- |
+  | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
+  | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, `peers.answer_permission` is the owner's |
+  | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive` |
+  | `thread.list` | only what it may read: no pairs, no calls | `peers.list` is refused it, and a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page |
+  | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
+  | `client.hello` | yes | it only chooses the shapes this socket is sent |
+
+- **Enforcement:** the seat check is on the command, in the core, before any
+  handler runs. Each handler then applies the kind: a verb with no meaning for
+  it is refused in a sentence (`wire/threads.rs`), a card in a kind whose
+  `Policy::answer` is `Nobody` (a run, a call) is never answered, and the
+  answer is routed to the room method the old command called, which holds the
+  same lease and card checks as before. `thread.park` goes through
+  `Room::park_side_thread`, which is the sweep's own park.
+- **Tests:** `wire/tests.rs`
+  `the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones` (the table),
+  `a_thread_verb_the_kind_has_no_meaning_for_is_refused`,
+  `thread_verbs_reach_the_handlers_the_older_commands_did`,
+  `thread_list_reads_every_kind_as_one_summary`,
+  `a_companions_thread_list_leaves_out_calls_and_pairs`,
+  `a_thread_subscription_by_id_reads_the_stream_its_kind_keeps`,
+  `a_threads2_client_is_sent_every_link_as_the_link_itself`, and the delta tests
+  that send each shape; `remote/tests.rs` for the hello a phone is sent;
+  `tests/threads.rs` `a_work_thread_is_one_conversation_to_old_and_threads2_clients`
+  runs one conversation through the real core for an old and a `threads2` client.
+- **Residual risk:** `thread.list` with no `personaId` reads every teammate's
+  threads, titles and last lines in one answer. A companion already reads every
+  tape and work thread by subscribing, so this adds no reach, only one place to
+  read it.
+
+## One computer, several threads
+
+A teammate's work threads, its main conversation and a colleague's ask all
+reach the same computer, so they take turns. The computer's MCP URL is handed to
+each agent through a loopback gate (`computer/gate.rs`) with a token of its own;
+the gate replaces it with the real bearer only when it forwards. `tools/call`
+takes the teammate's exclusive lease: a second thread waits up to 20 s and is
+then told the computer is busy and which thread has it, never queued silently.
+The hold ends with the holder's turn, after 30 s without a call (never while a
+call is in flight), or when the thread's capability lease is revoked (it
+closes, parks, is stopped, or the teammate's authority changes), at which point
+the gate closes too.
+
+Three rules keep that exclusion honest. Authority is asked again while a call
+waits and once more with the lease in hand, immediately before the call is
+forwarded, so a call queued behind another thread when its thread is parked,
+closed or stopped is answered `403` and never reaches the computer. A hold is
+kept by the agent that took it (`Holder::new` gives each agent its own owner),
+not by its thread's name, so a DM's replacement agent is not released by the
+old one's late turn end or gate shutdown. And a release (turn end, park, close,
+stop) while a call is in flight takes effect when the call ends: revocation
+refuses new calls at once, but another thread cannot take the computer while the
+upstream operation is still driving it. Tests: `computer/gate.rs`
+`a_call_queued_at_the_gate_when_its_thread_is_revoked_never_reaches_the_computer`,
+`a_waiting_call_whose_authority_ends_is_cancelled_and_never_given_the_computer`,
+`a_retiring_agent_cannot_release_its_replacements_hold`,
+`a_release_while_a_call_is_in_flight_keeps_the_computer_until_it_ends`. The gate forwards only to the URL the thread was already
+granted, so a thread never has a computer wider than the teammate's grants, and a
+teammate's lease never covers another teammate's computer.

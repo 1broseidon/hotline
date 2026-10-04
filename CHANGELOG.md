@@ -10,6 +10,63 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- Threads open in the right-hand pane, whatever they are. The pane lists the
+  open teammate's work threads, handoffs ("from Mack"), conversations with other
+  teammates, subagent runs and calls, work first, with the closed ones folded
+  away. Pressing Open on any of their lines in the conversation reads that
+  thread in the pane with the conversation's own transcript and cards, so a
+  handoff, a peer conversation, a run and a finished call can all be read, and a
+  card in any of them is answered where it is. Runs and calls are read-only. The
+  floating work card now shows only the turn in progress, and the separate pane
+  for a conversation between teammates is gone.
+- A handoff to a teammate no longer lands in their main chat. It opens its own
+  work thread on them, with their full tools and the context of who sent it, so
+  the person can keep talking to that teammate while it works. The result comes
+  back to the sender's chat, both chats show a marker for the thread, and a
+  handoff's row in the side-thread pane says "from Mack". A teammate may have
+  three work threads at once; a handoff to one that is fully busy waits its
+  turn. Threads share the teammate's computer one at a time, and one that finds
+  it in use is told who has it.
+- A permission card raised while a colleague is answering a teammate can now be
+  answered, and what two teammates said to each other is found by
+  `search_thread`.
+
+- Side threads live in a pane docked on the right, not in the floating work
+  card. The pane lists the open teammate's side threads: title, a dot for
+  running, waiting on you, parked or archived, the last line and when, with the
+  archived ones folded at the bottom. A row opens the thread inside the pane,
+  with a back arrow, its own composer, Archive, and Continue on an archived one;
+  a parked one says it is parked and that saying something wakes it. Starting a
+  side thread, or pressing Open on its line in the conversation, opens the pane
+  on it, and More has a Side threads entry for the list. The work card stays for
+  a turn's steps and subagent runs.
+- The right pane is resizable like the team list: drag its edge (arrow keys
+  step it, double-click puts it back), and the width is remembered. In a window
+  too narrow for the team, the conversation and the pane side by side, the pane
+  lies over the conversation instead of squeezing it. Escape steps back from a
+  thread to the list, then closes the pane.
+- While a teammate is busy, you can start a side thread with the same
+  teammate for another topic: choose "Start a side thread" under More, and it
+  opens at once, empty, named by the first thing you say in it. It runs in parallel in its own context, so
+  nothing it does reaches the main conversation, and you chat with the teammate
+  in it from the right-hand pane for as long as the topic lasts. A chip next to the
+  subagents shows it while it runs, and the teammate does not close it on its
+  own: it archives when you say you are done or press Archive.
+- A side thread is no longer lost when it goes quiet. After a few hours, or a
+  restart, it is parked: still open, listed under the teammate's Threads, and
+  saying something in it brings it back where it left off. An archived thread
+  has a Continue button that reopens it, with the teammate's own memory of it
+  when its agent can resume, and from the thread's transcript when it cannot.
+- When a side thread is archived, the conversation keeps its title and a
+  one-line outcome with Open, and a closing note (goal, what got done, what is
+  still open, key files) is written for `search_thread` to find.
+- A teammate runs at most two side threads at a time. Only running agents count:
+  starting a third parks the one you have left alone longest, and parked and
+  archived threads take no place.
+- A voice call with a teammate is kept: what you and the voice said, and the
+  teammate's reports it relayed, are saved with the call and survive a restart.
+  `search_thread` finds them, and the conversation shows one quiet line for the
+  call, "Call · 4 min · Hung up". A call a restart cut off is closed and says so.
 - Pin up to three teammates to the top of the team. Pinned teammates sit above
   the list as larger faces with their names under them, keep their status,
   unread and working marks, and reorder by dragging (or Move left / right in
@@ -19,11 +76,31 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Changed
 
+- A permission card in a side thread now reaches your phone as a push, like
+  one in the main conversation, and marks the teammate as waiting on you in
+  the team list. Answering it from the notification works in the thread. A
+  teammate's `search_thread` now also finds what was said in its side threads
+  and subagent runs, naming the thread.
+- A direct call's voice now talks as the teammate: it remembers what was said
+  on the call, knows the teammate's goal, its project's `AGENTS.md` and its
+  last chapter's note, and speaks to you as "you". A scheduled prompt in the
+  conversation is no longer mistaken for something you said. When it passes
+  work on, the teammate is also told what was said on the call that it had not
+  heard, ahead of your words, without that showing in the conversation.
+- Without a chosen voice model, the desk now picks a mid-tier fast model
+  (flash, mini, fast) ahead of the lightest ones, which were too thin to hold
+  a conversation.
 - A teammate's drawn picture has character: the house style asks for two to
   four taste decisions that tell one story about who it is (a mood in the
   eyes, a marking, hair, what it wears, one small accent) instead of a plain
   jacket and no pins or props, and teammates are told to name theirs when
   they draw themselves.
+
+### Fixed
+
+- A permission card raised in a subagent run is refused at once instead of
+  waiting for a button nobody could press: the run's agent is told no and goes
+  on.
 
 ## [0.31.1] - 2026-10-02
 

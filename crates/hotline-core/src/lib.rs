@@ -35,6 +35,7 @@ pub mod session;
 pub mod skills;
 pub mod spending;
 pub mod store;
+pub mod thread;
 pub mod tools;
 pub mod vault;
 pub mod voice;

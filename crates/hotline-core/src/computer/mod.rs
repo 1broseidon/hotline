@@ -107,6 +107,7 @@ pub struct Ready {
 
 pub mod cookies;
 pub(crate) mod files;
+pub(crate) mod gate;
 pub mod guide;
 pub mod login;
 pub mod passkeys;

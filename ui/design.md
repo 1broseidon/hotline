@@ -83,8 +83,8 @@ does not squeeze its rows; it drops to faces, 52px, each name and line
 waiting on a hover card on the menus' surface; dragged past the faces
 it closes. The key in the left corner of the titlebar and Ctrl/⌘+B close
 and open it; closed, its edge stays in the window's left gutter so it
-can be pulled back out, and it returns at the width it had. Settings'
-sections stand in the same place at the same width.
+can be pulled back out, and it returns at the width it had. Settings' sections stand in the same
+place at the same width.
 
 A window narrower than 720px keeps the pane and shows the rail as faces
 only beside it, opened and closed from the same titlebar key; it is
@@ -119,8 +119,31 @@ Settings, New teammate, Keyboard shortcuts and About are panes in the
 conversation's place. Settings also takes the rail: its sections stand
 where the team stood, one row each, and the band carries the way back
 where the team's plus was — it is a place you go, and the room steps
-aside until you return. The inspector and a peer thread are panes beside
-the conversation.
+aside until you return. The inspector is a pane beside the conversation.
+
+The **right-hand pane** holds the open teammate's threads, beside the
+conversation: a work thread (a side thread or a handoff), a conversation with
+another teammate, a subagent's run, a call. Its band is the title, Threads, and
+the way out; the list is rows of a status dot (breathing accent running,
+warning waiting on you, a ring parked, dim closed), the title over the last
+line, and a relative time. Work threads come first, live before parked, then
+conversations between teammates, runs and calls, each kind newest first with
+what waits on you at its head; the closed ones are folded under a disclosure.
+A handoff's row opens its line with "from Mack", and a run or call says what it
+is where its title would not. A row, or Open on a thread's line in the
+conversation, opens the thread in the pane under a band of its own with a back
+arrow. Every kind is the same page, the conversation's own transcript and
+cards, and only what can be done in it differs: a work thread has the composer,
+Archive in the band and Continue in its place once closed, and a parked one says
+it is parked and that saying something wakes it; a pair, a run and a call are
+read-only, with no composer. Like the rail, its edge is the gutter beside it,
+dragged between 300 and 560px, remembered, put back to 360px by a double-click,
+and stepped by the arrows. One of it and the inspector stands there at a time,
+and none shows in Settings, as the inspector does not. When the conversation
+would be left under 396px beside it, the pane lies over the conversation at the
+window's right on the menus' float shadow instead of squeezing it. Escape steps
+back to the list, then closes. The work card keeps only the current turn's
+steps, read-only, and stays a floating card that moves left of the pane.
 
 ## Theme
 

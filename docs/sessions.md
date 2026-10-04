@@ -12,6 +12,17 @@ wrote, and offers the line to the search index. What was said is on the tape
 that started it. Hotline Agent's live history keeps the user's line on failure
 too, the same as on cancel, so a retry still has the question.
 
+A side thread's or a run's lines do not go to the tape. They go through
+`Threads::write` (`session/threads.rs`), the one write path of
+[threads.md](threads.md): it appends to the stream, offers what was said to the
+search index under the teammate, and routes a permission card by what the kind
+decides. A side thread's card is pushed to the phone (naming the thread, so the
+answer is `side.answer_permission`), signalled to a live call and counted in the
+teammate's roster `waiting`. A run's card has nobody to answer it, so it is
+expired at once and the run's agent is told no: with the card's reject option
+when it has one, and by stopping the turn when it has not. The DM still writes
+through the tape's own door until it is ported.
+
 The wire that starts, prompts and stops a session is [wire.md](wire.md). The
 tape those events land on is [log.md](log.md).
 
@@ -30,6 +41,35 @@ is open, and only then may a scheduled firing open one of its own:
 | reply | `session.prompt`'s `replyTo` is left as a mark and stamped onto the user line as `replyTo`, if the mark is still younger than fifteen seconds |
 | quiet | an open window may rewrite an `agent` event into a `thought`, or close |
 | scheduled | a firing claims the user line, stamps `scheduled` on it, and may open a quiet window over the turn that follows |
+
+### One turn loop
+
+The DM and a work thread are taken by one loop, `Room::run_queue`
+(`session/turns.rs`), over the one `Turns` queue. The loop is the skeleton:
+is the agent still the one that answers, may this line begin a turn, take the
+turn, let go of the computer, what the kind does when the turn ends, and when
+the queue is empty. A kind says what is its own as an `Occupant`: the DM's is
+`Session` (`session/dm.rs`), a work thread's is `LiveSide` (`session/sides.rs`).
+The turn is one `Threads::drive`, which reads the driver's updates through
+`runner::drive_updates` and tells a `Witness` what each came to. A work
+thread's and a run's witness writes through `Threads::write`; the DM's (`Heard`)
+writes the tape through the funnel above, marks the person's lines read,
+keeps the checkpoint, says a reply to a call and to the phone, and steers: a
+line queued while the driver accepts input mid-turn is handed to it between
+updates, woken by `Session::input_ready`.
+
+What a line is, and where it came from, is a field of it (`Wired`): its
+`from` thread, the call it was said on (`voice`) and whether it was spoken, the
+`said` event, a firing's authority and whether it may steer. The turn loop reads
+no ids. The one id still parsed for provenance is a line kept across a stop
+(`stopping.rs`), which is known by the id it was written under.
+
+The DM's agent is built by the same `Room::thread_agent` as every other
+thread's, under its policy row: it resumes the teammate's checkpoint, is seeded
+with the open chapter and the wake block, writes the teammate's folder and
+skills, and does not hold its start up for a computer image that is
+downloading. `start_now` is what is left of a start: the room's gate, the
+session it publishes and the chapter it opens.
 
 A prompt needs a live session; `session.start` is what brings one up. The
 command returns as soon as the turn is started. Hotline Agent admits new operator
@@ -171,15 +211,18 @@ Its report is what it said after its last tool call; a run that ends on an
 error or a cancel says so and keeps what it had said.
 
 A run writes to its own stream, `runs/<runId>.jsonl`, the way a tape is
-written. On the teammate's tape it leaves one `subagent` line, rewritten as
-the run goes from `running` to `done`, `failed` or `cancelled`; pressing it
+written. On the teammate's tape it leaves one link (see
+[Thread links](#thread-links)), rewritten as the run goes from live to closed
+`done`, `failed` or `cancelled`, which a client is sent as a `subagent` line
+going from `running` to the same three; pressing it
 opens the run in the work card, the same floating card a turn's steps open
 in. While a run is going, the teammate's roster row lists it in `subagents`
 (`Room::subagents`), so the conversation's band names it and opens it from
 there however far its line has scrolled up. The run id is the job id and the
 tool call's id. Stop, revocation or any other end of the teammate's turn
 cancels its runs and waits for them to settle; a run the process died under
-is settled as `cancelled` on the next start. The authority rules are
+is settled as `cancelled` on the next start, by the one settle
+([Lifecycle](#lifecycle)). The authority rules are
 [security.md](security.md#grant-lifecycle).
 
 An ACP harness's own subagents become runs too. Hotline offers
@@ -1019,12 +1062,16 @@ caller may be mid-turn on its own tape while the exchange runs: nothing
 touches the caller's session until the answer is delivered.
 
 **Ask or hand off** (`session/exchanges.rs`). `message_teammate` takes
-`intent: "ask" | "handoff"`, defaulting to Ask. Ask keeps the isolated side
-session above; Handoff puts the request on the pair's thread and delivers
-it into the recipient's own conversation behind its current turn. The
-`handoff` cause keeps the sender, thread, and `requestId`. The recipient's
-final reply returns automatically as a correlated peer delivery, even when
-the sender has moved on. Neither intent expands the recipient's permissions.
+`intent: "ask" | "handoff"`, defaulting to Ask. Ask keeps the isolated peer
+session above; Handoff opens a **work thread** on the recipient (see
+[Side threads](#side-threads)) with the sender as its opener, and never lands
+in the recipient's main conversation, which stays open to the person. The
+brief arrives in the thread as a delivery whose `handoff` cause keeps the
+sender, thread and `requestId` and whose `from` is the sender's DM. The
+thread's final reply returns automatically as a correlated peer delivery to the
+sender's DM (or to the work thread the sender was in), even when the sender has
+moved on, from the work thread. A handoff to a recipient whose three work
+threads are all mid-turn stays queued until one is free. Neither intent expands the recipient's permissions.
 There is no link record, roster link, or chapter-scoped relationship.
 
 The existing collaboration card now explains both intents. A legacy grant
@@ -1066,13 +1113,240 @@ is `sent` when it enters the thread and `read` when the recipient's
 session proves it took it into a turn. Nothing un-reads a message. The
 agent is never told a tick exists.
 
-Nothing can answer a permission card raised inside a peer turn, because no
-seat is shown one. The card is still written to the thread and the marker
-goes to `waiting`, so a reader can see what the thread is stopped on. On
-startup those cards expire with the tapes.
+A permission card raised inside a peer turn is the person's to answer. The
+card is written to the thread through the shared write path, pushed, counted in
+the answering teammate's `waiting`, and the marker goes to `waiting`; the owner
+seat answers it with `peers.answer_permission {key, requestId, optionId}` while
+the turn is still behind it. A card the turn left open expires when the turn
+ends, and on startup with the tapes. Pair lines are searchable by both
+teammates (`pair:<key>` hits).
 
 Deleting a teammate stops every peer session it is a side of. The wire for
 listing threads and marking them read is [wire.md](wire.md).
+
+## Side threads
+
+A side thread is the same teammate borrowed for a second conversation while it
+is busy with the first, and the one kind of thread a teammate works in beside
+its main conversation: the **work thread**. The person starts one beside the
+main conversation, or a colleague hands work to the teammate (`message_teammate`
+with intent handoff), and it runs in parallel in a context of its own, served by
+the teammate's own agent with the full toolset. The opener is a participant
+and the person talks with the teammate in it as they would anywhere. (Stored and
+on the wire it is still `side`.) It is a working session on a topic, not an errand: the
+main conversation can work on one repository while a side thread triages five
+over an afternoon. What makes it "side" is that it never pollutes the main
+context, not that it is short-lived. It has no button of its own; a handoff
+from a colleague opens one with the colleague as its opener (`opener`, and
+`openedBy` on the marker and the summary), and the dock row says "from Mack".
+
+A thread is **live** (an agent is running it), **parked** (open, its agent let
+go of) or **archived** (ended on purpose, read-only until continued). Parking
+and archiving lose nothing: the stream is kept whole and a new agent is built
+from it.
+
+`session/sides.rs` owns it. Four records come out of one:
+
+- **The stream.** `sides/<sideId>.jsonl` (`StreamId::Side`, subscribed to as
+  `{"side": "<sideId>"}`): the task, what each side said, tool calls and cards.
+  Never on the teammate's tape, so the main conversation is not interrupted and
+  the teammate's main context never reads it. Live words arrive as
+  `side_agent_delta` / `side_thought_delta`, addressed by side id (a socket that
+  declared `threads2` is sent `thread_delta` for the thread instead); a tape
+  subscription never receives them and a side subscription never receives a
+  tape's.
+- **The marker.** One link on the teammate's tape (and, for a handoff, a copy
+  on the opener's tape under `<id>@<opener>`, so both DMs show title, state and
+  outcome) (id `link:side:<sideId>`; a
+  thread started before links keeps its `side:<sideId>`), rewritten as the
+  thread goes and heading the stream too. A client is sent it as a `side` event
+  ([Thread links](#thread-links)), and these are that event's words. `live` reads
+  "Started a side thread"; `parked` is the same thread with no agent;
+  `archived` carries `result` (one line), `archivedBy` (`agent`, `person` or
+  `stopped`; `idle` only on threads written before parking existed) and
+  `archivedAt`, and is drawn as the title and result with Open. Once an agent
+  has completed a turn the marker also holds its `sessionId` and `backendId`,
+  written the way `sessionCheckpoints` is, and an archived one holds the
+  closing `note`. The indexer reads an archived marker as one message of the
+  teammate's ("Side thread: title. result" and the note), replaced each time the
+  marker is rewritten, so `search_thread` finds the thread by what it did and a
+  hit opens the marker.
+- **The roster entry.** `RosterEntry.sides`, like `subagents`: `{sideId, title,
+  startedAt, working}` while live. Nothing about it survives a restart.
+- **The driver.** A second agent for the teammate, built by the shared thread
+  agent builder (`Room::thread_agent`, `session/agent.rs`) under the side
+  kind's policy, on either harness: the teammate's own checkpoint is never
+  reopened and the main tape never seeds it, so it can never land in the main
+  conversation. A subagent run is built by the same function under the run
+  kind's policy.
+
+What a new thread is told: the person's task, or the handoff brief, is its first
+message. Its preamble holds who the teammate is, a brief (a second, parallel
+context; another thread of itself may be writing in the same folder, so keep to
+the files the topic needs and never undo work it did not do; the computer is
+shared and one thread drives at a time; no chapter tools; for a handoff, who
+sent it and why, and that ending the turn returns the result; for an operator's
+thread, a working session closed with `archive_thread` only when the person says
+they are done), and the main conversation's background: the handoff note of the
+chapter that closed before the current one, if there is one, and the last few
+lines. Not the transcript.
+
+**Parking and continuing.** The idle sweep (three hours, never a thread with a
+turn running) and a restart park a thread instead of archiving it. A restart
+leaves live markers behind; at start the one settle (`Room::settle`) parks them
+and expires their open cards. A line said to a parked thread (`side.prompt`) brings
+it back by itself; an archived one is refused until `side.continue`, which also
+works on a parked one. Both build a new agent from the *current* teammate, so the
+folder and grants are exactly what the teammate has now, never wider, and the
+computer is taken through the lease below. How it remembers depends on the harness:
+
+- **ACP.** The marker's `sessionId` is handed to the child as a checkpoint
+  (`session/resume`, else `session/load`) when it was issued by the backend the
+  teammate runs on now. If the child does not report `contextRestored`, it is
+  started over with a compact transcript of the thread in the preamble instead,
+  and recall is never claimed. A fresh session's id is saved after its first
+  completed turn, not before, and withdrawn after a failed turn or a session the
+  driver calls invalid.
+- **Hotline Agent.** It has no session of its own: the thread's stream seeds its
+  history, the way the tape seeds a chapter.
+
+**Shared and not.** The working folder, MCP grants and skills are the
+teammate's, and so is the computer, through an exclusive lease: a loopback gate
+(`computer/gate.rs`) in front of the computer's MCP URL lets one thread drive at
+a time. `tools/call` takes the lease, waiting up to 20 s and otherwise answering
+that the computer is busy and who has it; the main DM and peer sessions take
+part under the same lease. A thread keeps it until its turn ends, 30 s without a
+call, or its capability lease is revoked (close, park, stop). A thread never
+holds a computer wider than the teammate's grants. Its tools are the work
+variant of the teammate's (`TeammateTools::for_work`): all of them but
+`new_chapter` and `resume_chapter`, plus `archive_thread {summary}`.
+`search_thread` and `list_chapters` read the main conversation (and
+`search_thread` the teammate's other threads and runs too); `react` and
+`open_link` act on this thread; `send_file`, `generate_image` and
+`request_human` post in the thread, and `request_human` pushes to the person
+(answered by side id, `side.answer_permission`, or `human.answer`);
+`message_teammate` replies come back to the thread. Schedules and loops are the
+teammate's and wake the main conversation.
+
+**Turns.** A line said in a thread is written to its stream and handed to the
+agent at once, or queued behind the turn in flight (the same `Turns` queue the
+main conversation uses, taken by the same loop, `Room::run_queue`); it does
+not steer. Cancel
+stops the turn and drops the queue and the thread stays live.
+`archive_thread` takes effect when the turn it was called in ends, so the last
+message lands first.
+
+**Limits and ending.** At most three *agents* run per teammate (`MAX_LIVE`),
+operator- and teammate-opened together; parked and archived threads take no
+place. Starting or bringing back a thread with every place taken parks the one
+used least recently, since parking loses nothing; the person's start is refused
+(with a sentence) only when all are mid-turn and there is nothing to let go of,
+and a colleague's handoff then waits queued. The thread holds its own capability lease, not the
+teammate's session's, so a chapter rotating in the main conversation does not end
+it. What ends the teammate's authority does: the person stopping it, a policy
+change (`invalidate`), room-wide invalidation, and removal each archive its
+threads as `stopped`, revoking the lease and the agent; the person can continue
+them under the teammate's next policy.
+
+**The closing note.** Archiving (by the person, the teammate, or a stop) writes
+the archived marker at once, then in the background asks the same summariser a
+chapter's note is written by (`Room::note`, through `Room::queue_closing_note`,
+which is the thread-level mechanism and reads the kind's `closing_note` policy)
+for a note over the thread's stream:
+goal, outcome, open loops, decisions, key files. The marker is rewritten with
+the note, the note's short title, and its outcome as the one-line `result`
+unless the teammate wrote one with `archive_thread`. A marker that has moved on
+meanwhile (continued, or archived again) is left alone. With no model, the
+thread is archived without a note and the result is the teammate's last words.
+
+The wire is `side.start`, `side.prompt`, `side.cancel`, `side.archive`,
+`side.continue`, `side.list` and `side.answer_permission`; phones may use all of
+them. A `SideThreadSummary` and the marker gained `parked` as a status.
+
+The desk lists a teammate's side threads in a pane docked on the right of the
+window (`ui/src/components/Dock.tsx`): rows of title, status
+dot, `preview` (an archived one shows its `result`) and time, the archived
+folded below, and a thread opens inside the pane with its own composer. A
+parked thread says so there, and saying something wakes it.
+
+## Thread links
+
+A thread that hangs off another leaves one `link` event on its parent, and the
+same line heads its own stream. It is rewritten under the same id as the thread
+goes, so the parent holds one line per child however many times it changed:
+
+```json
+{"kind": "link", "id": "link:side:7f3", "ts": 1760000000000,
+ "thread": "7f3", "threadKind": "side", "personaId": "ada",
+ "title": "Fix the CI badge", "state": "closed", "end": "agent",
+ "outcome": "It was the cache.", "at": 1760000900000}
+```
+
+`state` is `live`, `parked` or `closed`, and `end` says how a closed thread
+ended (`person`, `agent`, `idle`, `stopped`, and for a run `done`, `failed` or
+`cancelled`). A closing `note`, the agent's `sessionId` and `backendId`, and a
+run's `elapsedMs` are optional. `session/lifecycle.rs` writes it
+(`Room::write_link`), `thread::Link` is the type, and the thread store, the
+search index and the settle read it. It replaces the `side:<id>` and
+`subagent:<id>` marker ids for every new write. `xthread:` and
+`exchange-paused:` stay as they are: the first is the pair's `peer` marker, which
+carries its own exchange count, and the second is a card, not a link.
+
+**Compatibility.** A link is the stored model, not what a client is sent. The
+phone and the window on a current build draw `side` and `subagent` events and
+nothing else of a thread, so the wire turns a link back into the marker its kind
+has always had (`Link::wire`, applied to a tape's snapshot, its pages and its
+live events, and to a side thread's or a run's own stream). A phone sees the
+same shape under the same field names; only the id of a thread's line is
+`link:...` for a thread started after this change. The markers already on disk
+are read as the links they stand for (`Link::read`), render as they were, and are
+searched and resumed as before. When such a thread next changes, its line is
+rewritten as a link *under the id it already has*, so it is replaced in place and
+never joined by a second line. A call's link is sent as a `call` marker, which
+is new: a client that does not know the kind skips it, as the phone does. A
+socket that declared `threads2` (`client.hello`) is sent the link itself for
+every kind (`Link::threads2`), the markers on disk read as links included, and
+the contract has `link` for it. See [wire.md](wire.md#threads).
+
+**Deliveries.** A delivery carries where it came from as a field,
+`from: {thread, kind, request}` (`DeliveryFrom`), written beside its `cause`. A
+delivery written before the field has none. A direct call's turn says which call
+it came from (`from`), and the turn loop reads that; only the desk's calls, which
+are no thread, are still read off the `voice:` id. A result
+returned from an exchange names its request in `from`, and the turn loop reads
+that; the `handoff:` and `exchange-result:` ids are only idempotency keys. A work
+thread's result goes to the opener by `from` too. `human-answer:` is still read
+off the id.
+
+## Lifecycle
+
+A thread is live, parked or closed, and what moves it is the same few things for
+every kind, bar what the kind's `Policy` says (`thread/policy.rs`): its `idle`
+(`Idle::Park`, `Close`, `Chapters` or `Never`), its `restart` (`Resume`, `Park`
+or `Close`) and whether closing writes a note. `session/lifecycle.rs` holds each
+once:
+
+- **The sweep.** `Room::sweep` runs on the room's minute and applies every
+  kind's idle policy: a side thread is parked after three hours with nobody
+  speaking in it and no turn running, and a run has no idle (it ends with its
+  work). A call that nobody has spoken on for ten minutes is ended there (the
+  voice reports how long each call has been quiet, and `Calls::end_quiet` ends
+  it). The DM's row is `Idle::Chapters`: the sweep closes a chapter that has
+  gone quiet (`sweep_chapters`), the one row it awaits, since a close waits on
+  its note. The peer session's quiet clock (`sweep_peers`) is a Pair row.
+- **The settle.** `Room::settle` runs as the room opens, before anything is
+  served. It expires a card the last process left open on any tape or pair, moves
+  every thread a link says was left live by its kind's restart policy (a side
+  thread is parked, a run is closed as cancelled, a call is closed as stopped
+  with its transcript kept), compacts, syncs the index and
+  then calls `reconcile_exchanges` for the pairs. `recover_exchanges`, which
+  needs the runtime and the first sweep's delay, is still started with the sweep.
+- **The closing note.** `Room::queue_closing_note` is the one path: sides and calls use
+  it.
+
+What is not shared yet: a live side thread (`LiveSide`), a run (`Running`) and
+the DM's `Session` each hold their own driver and lease, and close through
+`end_side`, `Running::settle` and the session's stop.
 
 ## Checkpoints
 

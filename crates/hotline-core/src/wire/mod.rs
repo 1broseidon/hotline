@@ -26,11 +26,13 @@
 //! teammate and then subscribes must see it.
 
 use crate::contract::{
-    Command, HumanActionStatus, PasskeyAskStatus, Preview, RosterEntry, SessionConfigCategory,
-    SessionInfo, SessionState, StreamDelta, Target, ToolStatus, TranscriptEvent, ViewName,
+    Command, DeltaKind, HumanActionStatus, PasskeyAskStatus, Preview, RosterEntry,
+    SessionConfigCategory, SessionInfo, SessionState, StreamDelta, Target, ToolStatus,
+    TranscriptEvent, ViewName,
 };
 use crate::log::{Log, StreamId};
 use crate::store::previews;
+use crate::thread::{Link, ThreadId, ThreadKind};
 use async_trait::async_trait;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use serde_json::{Value, json};
@@ -52,6 +54,7 @@ pub(crate) mod commands;
 mod files;
 mod roster;
 mod schedules;
+mod threads;
 
 #[cfg(test)]
 mod tests;
@@ -222,6 +225,81 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// The subagents this teammate has running, for the roster row.
     fn subagents(&self, _persona_id: &str) -> Vec<crate::contract::RunningSubagent> {
         Vec::new()
+    }
+
+    /// The side threads this teammate has live, for the roster row.
+    fn sides(&self, _persona_id: &str) -> Vec<crate::contract::RunningSide> {
+        Vec::new()
+    }
+
+    /// Whether one of this teammate's threads other than its DM has a card
+    /// waiting on the person, for the roster row.
+    fn threads_waiting(&self, _persona_id: &str) -> bool {
+        false
+    }
+
+    /// Starts a side thread: a second conversation with this teammate.
+    async fn side_start(
+        &self,
+        _persona_id: &str,
+        _text: &str,
+    ) -> Result<crate::contract::SideThreadSummary, String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    /// Says something in a live side thread, in answer to `reply_to` when it
+    /// names one of the thread's lines.
+    async fn side_prompt(
+        &self,
+        _side_id: &str,
+        _text: &str,
+        _reply_to: Option<String>,
+        _attachments: Option<Vec<crate::contract::Attachment>>,
+    ) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    fn side_cancel(&self, _side_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    fn side_archive(&self, _side_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    /// Lets go of a side thread's agent and keeps the thread open.
+    fn side_park(&self, _side_id: &str) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    /// Brings a parked or archived side thread back.
+    async fn side_continue(
+        &self,
+        _side_id: &str,
+    ) -> Result<crate::contract::SideThreadSummary, String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    fn side_list(&self, _persona_id: &str) -> Vec<crate::contract::SideThreadSummary> {
+        Vec::new()
+    }
+
+    async fn side_answer_permission(
+        &self,
+        _side_id: &str,
+        _request_id: &str,
+        _option_id: &str,
+    ) -> Result<(), String> {
+        Err("Side threads are unavailable on this room.".to_string())
+    }
+
+    async fn peers_answer_permission(
+        &self,
+        _key: &str,
+        _request_id: &str,
+        _option_id: &str,
+    ) -> Result<(), String> {
+        Err("Peer threads are unavailable on this room.".to_string())
     }
 
     /// Text as an agent writes it, for a tape subscription to forward. Never
@@ -579,9 +657,10 @@ impl Seat {
             // names a message, never a path, and serves only what the desk
             // kept for that message.
             Seat::Phone => {
-                matches!(
-                    command,
-                    Command::MobilePrompt { .. }
+                phone_thread_command(command)
+                    || matches!(
+                        command,
+                        Command::MobilePrompt { .. }
                     | Command::MobileAttachment { .. }
                     | Command::MobilePushRegister { .. }
                     // A narrow create, confined in core rather than by
@@ -612,7 +691,18 @@ impl Seat {
                     | Command::TapePage { .. }
                     | Command::TeammatesExchangeStop { .. }
                     | Command::TeammatesExchangeResume { .. }
-                )
+                    // A side thread is a conversation with a teammate the
+                    // person already talks to from the phone; starting,
+                    // speaking in, stopping and archiving one grant nothing
+                    // a prompt and a cancel do not.
+                    | Command::SideStart { .. }
+                    | Command::SidePrompt { .. }
+                    | Command::SideCancel { .. }
+                    | Command::SideArchive { .. }
+                    | Command::SideContinue { .. }
+                    | Command::SideList { .. }
+                    | Command::SideAnswerPermission { .. }
+                    )
             }
         }
     }
@@ -660,16 +750,54 @@ impl Seat {
             // task, its steps and what it said.
             Seat::Phone => {
                 !matches!(target, Target::Tape(id) if id == crate::voice::TAPE_ID)
-                    && matches!(
-                        target,
-                        Target::Tape(_)
-                            | Target::Thread(_)
-                            | Target::Run(_)
-                            | Target::View(ViewName::Roster)
-                            | Target::Schedules(_)
-                    )
+                    && match target {
+                        Target::ThreadId(thread) => phone_may_read(thread),
+                        _ => matches!(
+                            target,
+                            Target::Tape(_)
+                                | Target::Thread(_)
+                                | Target::Run(_)
+                                | Target::Side(_)
+                                | Target::View(ViewName::Roster)
+                                | Target::Schedules(_)
+                        ),
+                    }
             }
         }
+    }
+}
+
+/// The `thread.*` commands a companion may run, each as what it already may do
+/// with the same thing under the older name: the person speaks to a teammate
+/// from the phone through `mobile.prompt`, so `thread.prompt` is for a work
+/// thread only; a card in a pair is the owner's to answer, as
+/// `peers.answer_permission` is; and a thread it could not subscribe to it
+/// cannot page. `thread.list` leaves out what it could not read, and pairs for
+/// the same reason `peers.list` is refused.
+fn phone_thread_command(command: &Command) -> bool {
+    match command {
+        Command::ThreadPrompt { thread, .. } => thread.kind == ThreadKind::Side,
+        Command::ThreadAnswer { thread, .. } => thread.kind != ThreadKind::Pair,
+        Command::ThreadPage { thread, .. } => phone_may_read(thread),
+        Command::ClientHello { .. }
+        | Command::ThreadList { .. }
+        | Command::ThreadOpen { .. }
+        | Command::ThreadCancel { .. }
+        | Command::ThreadPark { .. }
+        | Command::ThreadClose { .. }
+        | Command::ThreadContinue { .. } => true,
+        _ => false,
+    }
+}
+
+/// Whether a companion may read this thread: the way it reads a tape, a pair,
+/// a work thread and a run, but never the voice dispatcher's tape, and never a
+/// call, which is a voice surface it is not seated on.
+fn phone_may_read(thread: &crate::thread::ThreadId) -> bool {
+    match thread.kind {
+        ThreadKind::Dm => thread.key != crate::voice::TAPE_ID,
+        ThreadKind::Call => false,
+        ThreadKind::Side | ThreadKind::Pair | ThreadKind::Run => true,
     }
 }
 
@@ -844,6 +972,11 @@ pub(super) struct Outbox {
     /// Only this socket's latest invitation is cancelled on disconnect.
     pairing: Arc<std::sync::Mutex<Option<String>>>,
     uploads: Arc<std::sync::Mutex<files::Uploads>>,
+    /// Whether this socket said, with `client.hello`, that it reads `threads2`:
+    /// `link` events and `ThreadDelta`s, in place of the per-kind markers and
+    /// deltas. Read as each frame is made, so a declaration reaches the
+    /// subscriptions already open.
+    threads2: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Clone)]
 enum Outgoing {
@@ -863,6 +996,10 @@ impl IncomingOutput {
     }
 }
 impl Outbox {
+    fn threads2(&self) -> bool {
+        self.threads2.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     fn send(&self, text: String) -> Result<(), ()> {
         let oversized = text.len() > self.max;
         let failed = oversized
@@ -971,6 +1108,7 @@ where
         auth_attempts: Arc::default(),
         pairing: Arc::default(),
         uploads: Arc::default(),
+        threads2: Arc::default(),
         sender,
         cancel: cancel.clone(),
         max: match seat {
@@ -1005,14 +1143,17 @@ where
                 };
                 let answer = commands::PROMPT_CLIENT.scope(
                     client,
-                    answer(
-                        &text,
-                        seat,
-                        &log,
-                        &room,
-                        &sender,
-                        &mut subscriptions,
-                        phone.as_ref(),
+                    commands::THREADS2.scope(
+                        sender.threads2(),
+                        answer(
+                            &text,
+                            seat,
+                            &log,
+                            &room,
+                            &sender,
+                            &mut subscriptions,
+                            phone.as_ref(),
+                        ),
                     ),
                 );
                 if seat.is_remote() {
@@ -1198,6 +1339,7 @@ async fn answer(
                             text,
                             attachment_ids,
                             reply_to,
+                            thread,
                         },
                         Some(phone),
                     ) => {
@@ -1208,11 +1350,24 @@ async fn answer(
                                 text,
                                 attachment_ids,
                                 reply_to.as_deref(),
+                                thread.as_ref(),
                             )
                             .await
                     }
                     (Command::MobileAttachment { upload }, Some(phone)) => {
                         phone.upload(upload).await
+                    }
+                    // A companion is listed what it could read: no pairs, which
+                    // `peers.list` would not show it either, and no calls.
+                    (Command::ThreadList { persona_id }, _) => {
+                        threads::list(log, room, persona_id.as_deref(), seat == Seat::Phone)
+                    }
+                    (Command::ClientHello { capabilities }, _) => {
+                        sender.threads2.store(
+                            capabilities.iter().any(|name| name == THREADS2),
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
+                        Ok(json!({ "capabilities": seat.capabilities_for(room.as_ref()) }))
                     }
                     (Command::MobilePushRegister { token, platform }, Some(phone)) => {
                         phone.register_push(token.clone(), platform.clone())
@@ -1232,7 +1387,9 @@ async fn answer(
                     }
                     // A page of older lines is cut for the phone the way its
                     // snapshot is: long text shortened, frames made phone-sized.
-                    (Command::TapePage { .. }, Some(_)) if seat == Seat::Phone => {
+                    (Command::TapePage { .. } | Command::ThreadPage { .. }, Some(_))
+                        if seat == Seat::Phone =>
+                    {
                         commands::run(command, log, room).await.map(|mut page| {
                             if let Some(events) =
                                 page.get_mut("events").and_then(Value::as_array_mut)
@@ -1363,7 +1520,12 @@ pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "schedules",
     "threads",
     "runs",
+    "threads2",
 ];
+
+/// The capability a client names in `client.hello` to be sent `link` events
+/// and `ThreadDelta`s, and the one a hello advertises that the core can.
+const THREADS2: &str = "threads2";
 
 /// The seat may not do this, whoever asks and whatever the room holds.
 const FORBIDDEN: &str = "forbidden";
@@ -1527,14 +1689,16 @@ fn subscribe(
         }
         Target::Room => StreamId::Room,
         Target::Tape(persona_id) => StreamId::Tape(persona_id),
-        Target::Thread(key) => StreamId::Thread(key),
+        Target::Thread(key) => StreamId::Pair(key),
+        Target::ThreadId(thread) => thread.stream().expect("every thread has a stream"),
         Target::Run(id) => StreamId::Run(id),
+        Target::Side(id) => StreamId::Side(id),
     };
 
     reply(sender, id, Ok(Value::Null));
     let events = log.subscribe(&stream);
     let deltas = match &stream {
-        StreamId::Tape(_) => Some(room.subscribe_deltas()),
+        StreamId::Tape(_) | StreamId::Side(_) | StreamId::Run(_) => Some(room.subscribe_deltas()),
         _ => None,
     };
     let forward = stream_events(
@@ -1551,8 +1715,10 @@ fn subscribe(
 }
 
 /// A stream's fold, then its events, and on a tape the deltas that are never
-/// written beside them.
-fn public_snapshot(log: &Log, stream: &StreamId) -> Vec<Value> {
+/// written beside them. A thread's link is sent as the marker its kind has
+/// always had (see [`Link::wire`]), or as itself to a client that declared
+/// `threads2` (see [`Link::threads2`]).
+fn public_snapshot(log: &Log, stream: &StreamId, threads2: bool) -> Vec<Value> {
     let events = log.load(stream);
     if *stream == StreamId::Room {
         events
@@ -1561,6 +1727,20 @@ fn public_snapshot(log: &Log, stream: &StreamId) -> Vec<Value> {
             .collect()
     } else {
         events
+            .into_iter()
+            .map(|event| link_as_sent(event, threads2))
+            .collect()
+    }
+}
+
+/// An event as this client is sent it: a thread's link as the one `link` shape
+/// when it declared `threads2`, and as the marker its kind has always had when
+/// it did not.
+fn link_as_sent(event: Value, threads2: bool) -> Value {
+    if threads2 {
+        Link::threads2(event)
+    } else {
+        Link::wire(event)
     }
 }
 
@@ -1663,8 +1843,8 @@ fn window_start(events: &[Value], len: usize) -> usize {
     events[..start].iter().rposition(said).unwrap_or(start)
 }
 
-fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat) -> Vec<Value> {
-    let events = public_snapshot(log, stream);
+fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat, threads2: bool) -> Vec<Value> {
+    let events = public_snapshot(log, stream, threads2);
     if seat != Seat::Phone {
         // The desk and its owner device open a tape on its last lines and
         // page back with `tape.page`; a whole tape is too much to draw.
@@ -1693,18 +1873,19 @@ fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat) -> Vec<Value> {
     recent
 }
 
-/// The lines of a teammate's tape before `before`, oldest first: a page of
+/// The lines of a thread's stream before `before`, oldest first: a page of
 /// `limit`, or back to a little above `through` when that line is further up.
-/// A `before` the tape does not hold answers an empty page, not an error: the
+/// A `before` the stream does not hold answers an empty page, not an error: the
 /// line may have been rewritten out, and the window then simply stops.
-pub(super) fn tape_page(
+pub(super) fn thread_page(
     log: &Log,
-    persona_id: &str,
+    stream: &StreamId,
     before: &str,
     limit: Option<i64>,
     through: Option<&str>,
+    threads2: bool,
 ) -> Value {
-    let events = log.load(&StreamId::Tape(persona_id.to_string()));
+    let events = log.load(stream);
     let id_of = |event: &Value| event.get("id").and_then(Value::as_str).map(str::to_string);
     let Some(end) = events
         .iter()
@@ -1724,7 +1905,11 @@ pub(super) fn tape_page(
         })
         .map(|at| at.saturating_sub(THROUGH_CONTEXT));
     let start = reach.unwrap_or_else(|| end.saturating_sub(limit));
-    let page: Vec<Value> = events[start..end].to_vec();
+    let page: Vec<Value> = events[start..end]
+        .iter()
+        .cloned()
+        .map(|event| link_as_sent(event, threads2))
+        .collect();
     json!({ "events": page, "more": start > 0 })
 }
 
@@ -1737,13 +1922,10 @@ async fn stream_events(
     sender: Outbox,
     seat: Seat,
 ) {
-    let persona_id = match &stream {
-        StreamId::Tape(persona_id) => persona_id.clone(),
-        _ => String::new(),
-    };
+    let scope = delta_scope(&stream);
     if !send(
         &sender,
-        json!({ "sub": id, "snapshot": snapshot_for_seat(&log, &stream, seat) }),
+        json!({ "sub": id, "snapshot": snapshot_for_seat(&log, &stream, seat, sender.threads2()) }),
     ) {
         return;
     }
@@ -1758,7 +1940,7 @@ async fn stream_events(
         tokio::select! {
             event = events.recv() => match event {
                 Ok(event) => {
-                    let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { event };
+                    let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { link_as_sent(event, sender.threads2()) };
                     if !send(&sender, json!({ "sub": id, "event": if seat == Seat::Phone { phone_event(event) } else { event } })) {
                         return;
                     }
@@ -1767,7 +1949,7 @@ async fn stream_events(
                 // everything instead: a second snapshot, which a client that
                 // folds by id absorbs the same way it absorbed the first.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
-                    if !send(&sender, json!({ "sub": id, "snapshot": snapshot_for_seat(&log, &stream, seat) })) {
+                    if !send(&sender, json!({ "sub": id, "snapshot": snapshot_for_seat(&log, &stream, seat, sender.threads2()) })) {
                         return;
                     }
                 }
@@ -1776,12 +1958,15 @@ async fn stream_events(
             delta = delta => match delta {
                 // The phone draws words; a download ring is the desk's.
                 Ok(StreamDelta::ComputerPull { .. }) if seat == Seat::Phone => {}
-                Ok(delta) if delta_persona(&delta) == persona_id => {
-                    if !send(&sender, json!({ "sub": id, "ephemeral": delta })) {
+                Ok(delta) => {
+                    let heard = scope.as_ref().and_then(|scope| delta_for(delta, scope, sender.threads2()));
+                    if let Some(heard) = heard
+                        && !send(&sender, json!({ "sub": id, "ephemeral": heard }))
+                    {
                         return;
                     }
                 }
-                Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
                 // Nothing to recover: a delta nobody saw is a few characters
                 // the durable line will carry anyway.
                 Err(broadcast::error::RecvError::Closed) => deltas = None,
@@ -1790,11 +1975,72 @@ async fn stream_events(
     }
 }
 
-fn delta_persona(delta: &StreamDelta) -> &str {
+/// The thread whose words a stream's subscription hears live: a tape is the
+/// teammate's DM, a side thread and a run their own. None for a stream that
+/// has no live words.
+fn delta_scope(stream: &StreamId) -> Option<ThreadId> {
+    match stream {
+        StreamId::Tape(persona_id) => Some(ThreadId::dm(persona_id)),
+        StreamId::Side(side_id) => Some(ThreadId::side(side_id)),
+        StreamId::Run(run_id) => Some(ThreadId::run(run_id)),
+        _ => None,
+    }
+}
+
+/// A delta as this subscription's client is sent it, or none when it is not
+/// this thread's. A client that declared `threads2` is sent a `ThreadDelta`;
+/// one that did not is sent the shape its kind has always had, and for a kind
+/// that never had one, nothing. Never the other way round, so a side thread's
+/// words cannot land in the teammate's main conversation.
+fn delta_for(delta: StreamDelta, scope: &ThreadId, threads2: bool) -> Option<StreamDelta> {
     match delta {
-        StreamDelta::AgentDelta { persona_id, .. }
-        | StreamDelta::ThoughtDelta { persona_id, .. }
-        | StreamDelta::ComputerPull { persona_id, .. } => persona_id,
+        StreamDelta::ThreadDelta {
+            thread,
+            message_id,
+            kind,
+            text,
+        } if thread == *scope => {
+            if threads2 {
+                return Some(StreamDelta::ThreadDelta {
+                    thread,
+                    message_id,
+                    kind,
+                    text,
+                });
+            }
+            let text_kind = kind == DeltaKind::Text;
+            match (thread.kind, text_kind) {
+                (ThreadKind::Dm, true) => Some(StreamDelta::AgentDelta {
+                    persona_id: thread.key,
+                    message_id,
+                    text,
+                }),
+                (ThreadKind::Dm, false) => Some(StreamDelta::ThoughtDelta {
+                    persona_id: thread.key,
+                    message_id,
+                    text,
+                }),
+                (ThreadKind::Side, true) => Some(StreamDelta::SideAgentDelta {
+                    side_id: thread.key,
+                    message_id,
+                    text,
+                }),
+                (ThreadKind::Side, false) => Some(StreamDelta::SideThoughtDelta {
+                    side_id: thread.key,
+                    message_id,
+                    text,
+                }),
+                _ => None,
+            }
+        }
+        StreamDelta::ComputerPull { ref persona_id, .. }
+            if scope.kind == ThreadKind::Dm && *persona_id == scope.key =>
+        {
+            Some(delta)
+        }
+        // The older shapes are what a `ThreadDelta` is sent as. The room
+        // broadcasts only the one, so none of them is a thread's to forward.
+        _ => None,
     }
 }
 
@@ -1818,13 +2064,14 @@ fn roster_entry(
     let session = room.info(&persona.id);
     json!(RosterEntry {
         activity: activity_on(&tail, &session),
-        waiting: waiting_on(&tail),
+        waiting: waiting_on(&tail) || room.threads_waiting(&persona.id),
         drawing: room.drawing(&persona.id),
         pin: pins
             .iter()
             .position(|pin| *pin == persona.id)
             .and_then(|slot| u8::try_from(slot).ok()),
         subagents: room.subagents(&persona.id),
+        sides: room.sides(&persona.id),
         session,
         preview,
         latest,

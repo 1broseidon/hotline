@@ -305,7 +305,7 @@ fn answers(id: &str, text: &str) -> Vec<Update> {
 }
 
 fn thread_of(room: &Room, key: &str) -> Vec<Value> {
-    room.log.load(&StreamId::Thread(key.to_string()))
+    room.log.load(&StreamId::Pair(key.to_string()))
 }
 
 fn kinds(events: &[Value]) -> Vec<&str> {
@@ -589,6 +589,78 @@ async fn a_peer_session_still_waits_for_its_answer() {
     );
 }
 
+/// A delivery says where it came from in a field, and keeps it as it is read:
+/// the turn that takes it has no id to parse. One written before the field
+/// still reads, as without a source.
+#[tokio::test]
+async fn a_delivery_carries_where_it_came_from_and_keeps_it_when_read() {
+    let agents = Fake::new(Scripted::new(answers("a1", "ok")));
+    let room = room("provenance", agents);
+    room.start("ada").await.unwrap();
+    room.deliver_into(
+        "ada",
+        DeliveryCause::Peer {
+            request_id: Some("req-1".to_string()),
+            persona_id: "bob".to_string(),
+            name: "Bob".to_string(),
+            thread_key: "ada~bob".to_string(),
+            status: PeerStatus::Done,
+            about: "what broke?".to_string(),
+        },
+        "the winch".to_string(),
+    )
+    .await
+    .unwrap();
+    room.deliver_into(
+        "ada",
+        DeliveryCause::Answer {
+            action_id: "act-1".to_string(),
+            status: HumanActionStatus::Done,
+            about: "which key?".to_string(),
+        },
+        "the blue one".to_string(),
+    )
+    .await
+    .unwrap();
+
+    let delivered = || {
+        room.tape("ada")
+            .into_iter()
+            .filter(|event| kind_of(event) == "delivery")
+            .collect::<Vec<_>>()
+    };
+    for _ in 0..500 {
+        if delivered().iter().all(|event| event["receipt"] == "read") && delivered().len() == 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    let delivered = delivered();
+    assert_eq!(delivered.len(), 2);
+    assert_eq!(
+        delivered[0]["from"],
+        serde_json::json!({"thread": "ada~bob", "kind": "pair", "request": "req-1"})
+    );
+    assert_eq!(
+        delivered[1]["from"],
+        serde_json::json!({"thread": "ada", "kind": "dm", "request": "act-1"})
+    );
+    assert!(delivered.iter().all(|event| event["receipt"] == "read"));
+    let from: DeliveryFrom = serde_json::from_value(delivered[0]["from"].clone()).unwrap();
+    assert_eq!(from.thread(), ThreadId::pair("ada~bob"));
+
+    let before: TranscriptEvent = serde_json::from_value(serde_json::json!({
+        "kind": "delivery", "id": "d0", "ts": 1, "text": "old",
+        "cause": {"kind": "peer", "personaId": "bob", "name": "Bob",
+                  "threadKey": "ada~bob", "status": "done", "about": "x"}
+    }))
+    .unwrap();
+    assert!(matches!(
+        before,
+        TranscriptEvent::Delivery { from: None, .. }
+    ));
+}
+
 /// What a restart left: a delivery the agent never read is handed to it
 /// again, once, and an exchange cut off mid-turn is closed and its sender
 /// told, while an old one is only closed.
@@ -614,6 +686,7 @@ async fn a_restart_hands_on_unheard_deliveries_and_closes_cut_off_exchanges() {
             cause: cause.clone(),
             text: "the winch".to_string(),
             receipt: Some(Receipt::Sent),
+            from: None,
         },
     );
     room.write(
@@ -624,6 +697,7 @@ async fn a_restart_hands_on_unheard_deliveries_and_closes_cut_off_exchanges() {
             cause,
             text: "already heard".to_string(),
             receipt: Some(Receipt::Read),
+            from: None,
         },
     );
     for (id, ts) in [
@@ -749,16 +823,16 @@ async fn a_peer_session_that_has_gone_quiet_is_stopped_and_a_deleted_teammate_ta
     assert_eq!(lock(&room.peers.sessions).len(), 1);
 
     let now = now_ms();
-    room.sweep_peers(now);
+    room.sweep_threads(now);
     assert_eq!(
         lock(&room.peers.sessions).len(),
         1,
         "a session used a moment ago is not idle"
     );
     for live in lock(&room.peers.sessions).values() {
-        *lock(&live.last_used) = now - IDLE_MS - 1;
+        *lock(&live.last_used) = now - crate::thread::QUIET_MS - 1;
     }
-    room.sweep_peers(now);
+    room.sweep_threads(now);
     assert!(lock(&room.peers.sessions).is_empty());
 
     room.deliver("ada", "bob", "and now?").await.unwrap();
@@ -1542,5 +1616,93 @@ async fn collaboration_consent_covers_separate_operator_turns_and_both_intents()
                 .count(),
             1
         );
+    }
+}
+
+/// A card raised in a peer turn is the person's to answer: it is counted for
+/// the teammate answering, answered through `peers.answer_permission` while
+/// the turn is behind it, and the turn goes on.
+#[tokio::test]
+async fn a_card_raised_in_a_peer_turn_is_answerable_while_the_turn_waits() {
+    let gate = Arc::new(tokio::sync::Semaphore::new(1));
+    let mut script = vec![Update::Permission {
+        request_id: "r1".to_string(),
+        title: "Run ls".to_string(),
+        options: vec![crate::contract::PermissionOption {
+            option_id: "once".to_string(),
+            name: "Allow once".to_string(),
+            kind: None,
+        }],
+    }];
+    script.extend(answers("a1", "aye"));
+    let agents = Fake::new(Scripted::new(script).gated(gate.clone()));
+    agents.awaiting("r1");
+    let room = room("peer-permission-answer", agents);
+
+    let asking = {
+        let room = room.clone();
+        tokio::spawn(async move { room.deliver("ada", "Bob", "may I look?").await })
+    };
+    for _ in 0..500 {
+        if thread_of(&room, "ada~bob")
+            .iter()
+            .any(|event| kind_of(event) == "permission")
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert!(room.threads_waiting("bob"), "the roster row says Bob waits");
+    assert!(!room.threads_waiting("ada"));
+
+    assert!(
+        room.answer_peer_permission("ada~bob", "nope", "once")
+            .await
+            .is_err()
+    );
+    room.answer_peer_permission("ada~bob", "r1", "once")
+        .await
+        .unwrap();
+    let card = thread_of(&room, "ada~bob")
+        .into_iter()
+        .find(|event| kind_of(event) == "permission")
+        .unwrap();
+    assert_eq!(card["decision"], "once", "{card}");
+    assert_eq!(card["decidedOptionName"], "Allow once");
+    assert!(
+        room.answer_peer_permission("ada~bob", "r1", "once")
+            .await
+            .is_err(),
+        "a card is answered once"
+    );
+    assert!(!room.threads_waiting("bob"));
+
+    gate.add_permits(10);
+    let result = asking.await.unwrap().unwrap();
+    assert_eq!(result.reply, "aye");
+}
+
+/// What two teammates said to each other is found by either of them, and the
+/// hit names the thread; a rebuild keeps it.
+#[tokio::test]
+async fn a_pair_thread_is_searchable_by_both_teammates_and_survives_a_rebuild() {
+    let room = room(
+        "peer-search",
+        Fake::new(Scripted::new(answers("a1", "the winch is jammed"))),
+    );
+    room.deliver("ada", "Bob", "what about the capstan?")
+        .await
+        .unwrap();
+    for (who, word) in [("ada", "capstan"), ("bob", "capstan"), ("ada", "winch")] {
+        let found =
+            crate::store::search::search_teammate(room.log.root(), who, word, None).unwrap();
+        let text = found.to_string();
+        assert!(text.contains("pair:ada~bob"), "{who} {word}: {text}");
+    }
+    for who in ["ada", "bob"] {
+        lock(&room.indexer).as_mut().unwrap().reindex(who).unwrap();
+        let found =
+            crate::store::search::search_teammate(room.log.root(), who, "capstan", None).unwrap();
+        assert!(found.to_string().contains("pair:ada~bob"), "{who}: {found}");
     }
 }

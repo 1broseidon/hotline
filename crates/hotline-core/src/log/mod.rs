@@ -7,7 +7,7 @@
 //! keeps its place, so the fold is the whole state of a stream, and a
 //! compaction is that fold written back over the file.
 //!
-//! Four streams, one rule for all of them:
+//! Six streams, one rule for all of them:
 //!
 //! - [`StreamId::Room`] is the room itself — the roster, the settings, the
 //!   schedules — in `room.jsonl`. One file, no epochs.
@@ -15,12 +15,18 @@
 //!   `transcripts/<id>/<epoch>.jsonl`, with the legacy flat file standing in
 //!   for epoch 1. Byte-for-byte what the previous edition writes, so importing
 //!   its data directory copies tapes unchanged.
-//! - [`StreamId::Thread`] is one pair of teammates' conversation, in
+//! - [`StreamId::Pair`] is one pair of teammates' conversation, in
 //!   `threads/<key>.jsonl` beside a sidecar naming the two sides.
 //! - [`StreamId::Run`] is one subagent's run, in `runs/<id>.jsonl`: the task
 //!   it was handed and everything it did with it. Nobody replicates it.
+//! - [`StreamId::Side`] is one side thread, in `sides/<id>.jsonl`: a second
+//!   conversation with a teammate, led by the person, kept apart from its
+//!   tape. Its first line is the thread's own marker, rewritten as it goes.
+//! - [`StreamId::Call`] is one voice call with a teammate, in
+//!   `calls/<id>.jsonl`: what the person and the voice said, and the call's own
+//!   marker. It is kept after the call ends.
 //!
-//! [`Log`] is the only door to all four, and the only writer. A reader that
+//! [`Log`] is the only door to all of them, and the only writer. A reader that
 //! wants history calls [`Log::load`]; a reader that wants to keep up calls
 //! [`Log::subscribe`] and is handed every event appended after it asked.
 //! There is no cursor and no "from" on the subscription: history and the live
@@ -53,14 +59,16 @@ use tokio::sync::broadcast;
 const SUBSCRIPTION_DEPTH: usize = 256;
 
 /// Which stream. The room's belongs to the room, a tape's to one teammate,
-/// a thread's to one pair — the key from [`crate::paths::thread_key`] — and a
+/// a pair's to two teammates — the key from [`crate::paths::thread_key`] — and a
 /// run's to one subagent run, by its id.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StreamId {
     Room,
     Tape(String),
-    Thread(String),
+    Pair(String),
     Run(String),
+    Side(String),
+    Call(String),
 }
 
 /// One write, as replication sees it: which bytes landed where. The bytes are
@@ -425,7 +433,7 @@ impl Log {
                 Ok((room_path(&self.root), 1))
             }
             StreamId::Tape(persona_id) => tape::writable_segment(&self.root, persona_id),
-            StreamId::Thread(key) => {
+            StreamId::Pair(key) => {
                 let file = thread::file(&self.root, key)?;
                 fs::create_dir_all(crate::paths::threads_dir(&self.root))?;
                 Ok((file, 1))
@@ -434,6 +442,18 @@ impl Log {
                 let file = crate::paths::run_path(&self.root, id)
                     .ok_or_else(|| io::Error::other(format!("Invalid run id: {id}")))?;
                 fs::create_dir_all(crate::paths::runs_dir(&self.root))?;
+                Ok((file, 1))
+            }
+            StreamId::Side(id) => {
+                let file = crate::paths::side_path(&self.root, id)
+                    .ok_or_else(|| io::Error::other(format!("Invalid side id: {id}")))?;
+                fs::create_dir_all(crate::paths::sides_dir(&self.root))?;
+                Ok((file, 1))
+            }
+            StreamId::Call(id) => {
+                let file = crate::paths::call_path(&self.root, id)
+                    .ok_or_else(|| io::Error::other(format!("Invalid call id: {id}")))?;
+                fs::create_dir_all(crate::paths::calls_dir(&self.root))?;
                 Ok((file, 1))
             }
         }
@@ -449,8 +469,14 @@ impl Log {
                 .into_iter()
                 .map(|(_, path)| path)
                 .collect(),
-            StreamId::Thread(key) => thread::file(&self.root, key).into_iter().collect(),
+            StreamId::Pair(key) => thread::file(&self.root, key).into_iter().collect(),
             StreamId::Run(id) => crate::paths::run_path(&self.root, id).into_iter().collect(),
+            StreamId::Side(id) => crate::paths::side_path(&self.root, id)
+                .into_iter()
+                .collect(),
+            StreamId::Call(id) => crate::paths::call_path(&self.root, id)
+                .into_iter()
+                .collect(),
         }
     }
 }

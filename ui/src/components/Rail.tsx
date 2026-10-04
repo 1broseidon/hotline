@@ -63,6 +63,7 @@ export function Rail({
 	compact?: boolean;
 }) {
 	const [tip, setTip] = useState<Tip | null>(null);
+	const words = connection === "outdated" ? "This window needs a newer Hotline core" : "Reconnecting";
 	/* The pinned face being dragged, and the slot it would drop into. */
 	const [drag, setDrag] = useState<{ id: string; over: number | null } | null>(null);
 	const { pinned, rest } = railOrder(entries);
@@ -173,10 +174,10 @@ export function Rail({
 					<p
 						role="status"
 						className={`instrument flex min-w-0 items-center gap-1.5 truncate ${compact ? "h-6" : "ml-auto"}`}
-						title={compact ? "Reconnecting" : undefined}
+						title={compact || connection === "outdated" ? words : undefined}
 					>
 						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--warn)" }} />
-						{compact ? <span className="sr-only">Reconnecting</span> : "Reconnecting"}
+						{compact ? <span className="sr-only">{words}</span> : words}
 					</p>
 				)}
 			</footer>

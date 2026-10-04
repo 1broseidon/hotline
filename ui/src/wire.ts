@@ -32,11 +32,13 @@ import type {
 	ScheduledJob,
 	SessionInfo,
 	SharedSecret,
+	SideThreadSummary,
 	SkillEntry,
 	StreamDelta,
 	Target,
 	TeammateToolLedger,
 	ThreadSearchHit,
+	ThreadSummary,
 	TranscriptEvent,
 	Welcome,
 	VoiceCall,
@@ -191,8 +193,34 @@ type Results = {
 	"schedule.cancel": null;
 	"schedule.set_quiet": null;
 	"peers.list": PeerThreadSummary[];
+	/** The new thread, already running its first turn. */
+	"side.start": SideThreadSummary;
+	"side.prompt": null;
+	"side.cancel": null;
+	"side.archive": null;
+	/** A parked or archived thread, back with an agent. */
+	"side.continue": SideThreadSummary;
+	/** Live threads first, then parked, then archived, each newest first. */
+	"side.list": SideThreadSummary[];
+	"side.answer_permission": null;
 	/** How many bubbles that receipt actually moved. */
 	"peers.mark_read": number;
+	"peers.answer_permission": null;
+	/** What this core can do for the seat; declares `threads2` when it names it. */
+	"client.hello": { capabilities: string[] };
+	/** Every kind of thread as one list: live first, then parked, then closed. */
+	"thread.list": ThreadSummary[];
+	/** The new work thread, already running its first turn. */
+	"thread.open": ThreadSummary;
+	"thread.prompt": null;
+	"thread.cancel": null;
+	"thread.park": null;
+	"thread.close": null;
+	/** The thread, live again. */
+	"thread.continue": ThreadSummary;
+	"thread.answer": null;
+	/** Older lines of any thread than its window, oldest first. */
+	"thread.page": { events: TranscriptEvent[]; more: boolean };
 	"computer.capacity": ComputerCapacity;
 	"computer.runtimes": RuntimeReport[];
 	"computer.releases": ComputerReleases;
@@ -261,7 +289,12 @@ declare global {
 	}
 }
 
-export type Connection = "connecting" | "open" | "closed";
+/**
+ * `outdated` is a core that did not take this window's `threads2` declaration:
+ * it would answer the window's subscriptions with shapes it cannot read, so the
+ * socket is not opened for them.
+ */
+export type Connection = "connecting" | "open" | "closed" | "outdated";
 
 type Pending = { resolve(value: unknown): void; reject(error: Error): void };
 
@@ -269,6 +302,9 @@ type Live = {
 	target: Target;
 	handlers: Handlers<unknown, unknown>;
 };
+
+/** What this window reads beyond what every desk sends: see `client.hello` in docs/wire.md. */
+const THREADS2 = "threads2";
 
 /** How long to wait before dialling again, growing with each failure. */
 const BACKOFF_MS = [250, 500, 1_000, 2_000, 4_000, 8_000];
@@ -287,6 +323,8 @@ export class Wire {
 	private failures = 0;
 	private retry: ReturnType<typeof setTimeout> | null = null;
 	private state: Connection = "closed";
+	/** The core refused or ignored `threads2` on the socket that last dropped. */
+	private outdated = false;
 
 	constructor(private readonly endpoint: Endpoint) {}
 
@@ -301,11 +339,30 @@ export class Wire {
 
 		socket.onopen = () => {
 			this.failures = 0;
-			this.setState("open");
-			// A subscription belongs to the window, not to the socket that
-			// happened to carry it: everything still on screen is asked for
-			// again, and each one answers with a fresh snapshot.
-			for (const [id, sub] of this.live) this.send({ id, sub: sub.target });
+			// The window reads `threads2`: links and one delta for every kind
+			// of thread. The core reads the declaration as each frame is made,
+			// so it is made, and answered, before anything subscribes.
+			const ready = () => {
+				if (this.socket !== socket) return;
+				this.outdated = false;
+				this.setState("open");
+				// A subscription belongs to the window, not to the socket that
+				// happened to carry it: everything still on screen is asked for
+				// again, and each one answers with a fresh snapshot.
+				for (const [id, sub] of this.live) this.send({ id, sub: sub.target });
+			};
+			// A core that rejects the hello, or does not list `threads2` in its
+			// answer, cannot send what the window reads: the connection is not
+			// opened to replay subscriptions it would answer with empty views.
+			const refused = () => {
+				if (this.socket !== socket) return;
+				this.outdated = true;
+				socket.close();
+			};
+			this.command("client.hello", { capabilities: [THREADS2] }).then(
+				(hello) => (hello?.capabilities?.includes(THREADS2) ? ready() : refused()),
+				refused,
+			);
 		};
 		socket.onmessage = (message) => this.receive(message.data);
 		socket.onclose = () => this.drop();
@@ -420,7 +477,7 @@ export class Wire {
 	 */
 	private drop(): void {
 		this.socket = null;
-		this.setState("closed");
+		this.setState(this.outdated ? "outdated" : "closed");
 		for (const waiting of this.pending.values()) {
 			waiting.reject(new Error("The connection to Hotline dropped."));
 		}

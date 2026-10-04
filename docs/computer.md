@@ -103,7 +103,7 @@ has `computer_status` (optionally waiting up to 300 s) to follow it, the pull
 streams as a `computer_pull` delta that the window draws as a ring where the
 computer's button will be (never a line on the tape, never sent to the
 phone), and when `ensure_running` returns the session is restarted with the
-grant as soon as no turn is in flight (`run_turns` checks on its way out).
+grant as soon as no turn is in flight (the turn loop checks on its way out).
 A computer that fails, at once or behind the session, leaves the teammate
 answering without it, with the reason in its preamble and the desk's log;
 the persona keeps the grant, so the next start tries again. None of this is

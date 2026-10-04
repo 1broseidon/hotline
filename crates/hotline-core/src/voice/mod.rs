@@ -1,8 +1,10 @@
 //! One owner call per desk, with bounded work and complete sentence clips.
 
 pub mod dispatcher;
+pub mod exchange;
 pub mod ledger;
 pub mod metering;
+mod record;
 pub mod settings;
 pub mod speech;
 
@@ -13,8 +15,10 @@ use crate::contract::{
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use dispatcher::{Context, Dispatcher, Front, ProviderDispatcher};
+use exchange::{Exchange, Speaker};
 use ledger::Kind;
 use metering::{BUDGET_ERROR, Budget};
+use record::Record;
 use settings::VoiceSettings;
 use speech::{Clip, SpeechId, SpeechOutput, SpeechSet};
 use std::collections::VecDeque;
@@ -25,9 +29,11 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-/// This tape is indexed, but has no persona and never enters the roster.
+/// The desk's own calls, which name no teammate, are kept on this tape and not
+/// as call threads: they have no DM to hang off, and the dispatcher reads the
+/// tape's tail as what was said on the desk lately, across calls. It is
+/// indexed, but has no persona and never enters the roster.
 pub const TAPE_ID: &str = "voice-dispatcher";
-const IDLE: Duration = Duration::from_secs(600);
 const RETRY_LINE: &str = "Sorry, say that again.";
 const ERROR_LINE: &str = "Voice keeps failing. Please continue by text.";
 const MAX_FAILURES: u8 = 3;
@@ -90,6 +96,16 @@ pub(crate) struct Origin {
 }
 
 impl Origin {
+    /// The thread and turn a direct call's line came from.
+    pub(crate) fn from(&self) -> Option<crate::contract::DeliveryFrom> {
+        self.direct.then(|| {
+            crate::contract::DeliveryFrom::new(
+                &crate::thread::ThreadId::call(&self.call_id),
+                Some(self.seq.to_string()),
+            )
+        })
+    }
+
     pub(crate) fn event_id(&self, event: &str) -> String {
         format!(
             "voice:{}:{}:{}:{event}",
@@ -98,6 +114,23 @@ impl Origin {
             if self.direct { "agent" } else { "desk" }
         )
     }
+    /// The call a line came from, when the line says so as a delivery does:
+    /// the call thread, and the turn of it. Only a direct call is a thread, so
+    /// a call said in this way is one.
+    pub(crate) fn from_delivery(from: &crate::contract::DeliveryFrom) -> Option<Self> {
+        if from.kind != crate::thread::ThreadKind::Call {
+            return None;
+        }
+        Some(Self {
+            call_id: from.thread.clone(),
+            seq: from.request.as_deref()?.parse().ok()?,
+            direct: true,
+        })
+    }
+
+    /// Where the line a call's turn was written under came from. A desk call
+    /// is no thread, so its lines are still known by the id they were written
+    /// under; so are the lines of a direct call written before it was one.
     pub(crate) fn from_event_id(id: &str) -> Option<Self> {
         let mut parts = id.strip_prefix("voice:")?.split(':');
         let call_id = parts.next()?.to_string();
@@ -154,6 +187,12 @@ struct Call {
     /// voice answers some turns itself, so a reply can belong to an earlier
     /// turn than the latest.
     handed: Arc<Mutex<VecDeque<u32>>>,
+    /// What was said on a direct call, which its voice converses from and
+    /// its session is told.
+    exchange: Arc<Mutex<Exchange>>,
+    /// A direct call's thread, which keeps all of what was said. A desk call
+    /// is kept on the desk tape.
+    record: Option<Record>,
 }
 
 impl Call {
@@ -164,10 +203,14 @@ impl Call {
         }
     }
     fn state(&mut self, state: VoiceState, reason: Option<VoiceEndReason>) {
+        let ended = self.state == VoiceState::Ended;
         self.state = state;
         self.reason = reason;
         let _ = self.events.send(self.snapshot());
         if state == VoiceState::Ended {
+            if !ended && let Some(record) = &self.record {
+                record.ended(reason);
+            }
             self.input = None;
             self.cancel.cancel();
             self.speech.cancel();
@@ -237,7 +280,7 @@ impl Calls {
         room: Weak<Room>,
         injected: Option<Services>,
     ) -> Arc<Self> {
-        let calls = Arc::new(Self {
+        Arc::new(Self {
             ledger: Arc::new(Budget::open(log.clone())),
             log,
             vault,
@@ -245,24 +288,28 @@ impl Calls {
             injected,
             calls: Mutex::new(VecDeque::new()),
             narration: Arc::new(tokio::sync::Semaphore::new(1)),
-        });
-        let weak = Arc::downgrade(&calls);
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                let Some(calls) = weak.upgrade() else { break };
-                calls.expire();
-            }
-        });
-        calls
+        })
     }
 
-    fn expire(&self) {
-        for call in lock(&self.calls).iter_mut() {
-            if call.state != VoiceState::Ended && call.activity.elapsed() >= IDLE {
-                call.state(VoiceState::Ended, Some(VoiceEndReason::Idle));
-            }
-        }
+    /// How long each call still going has been quiet, in milliseconds: the
+    /// room's sweep reads this, and ends a call that is quiet for long enough
+    /// (`Policy::of(ThreadKind::Call).idle`).
+    pub(crate) fn quiet(&self) -> Vec<(String, i64)> {
+        lock(&self.calls)
+            .iter()
+            .filter(|call| call.state != VoiceState::Ended)
+            .map(|call| {
+                (
+                    call.id.clone(),
+                    i64::try_from(call.activity.elapsed().as_millis()).unwrap_or(i64::MAX),
+                )
+            })
+            .collect()
+    }
+
+    /// Ends a call nobody has spoken on for long enough.
+    pub(crate) fn end_quiet(&self, id: &str) {
+        let _ = self.finish(id, VoiceEndReason::Idle);
     }
 
     fn settings(&self) -> VoiceSettings {
@@ -402,6 +449,17 @@ impl Calls {
                 utterance_pending: false,
                 first_clip_started: None,
                 handed: Arc::default(),
+                // A call picked up again under an id it had is remembered
+                // from its thread; a new one has nothing yet.
+                exchange: Arc::new(Mutex::new(match &target {
+                    Some(_) => Exchange::from_thread(
+                        &self.log.load(&crate::log::StreamId::Call(id.to_string())),
+                    ),
+                    None => Exchange::default(),
+                })),
+                record: target
+                    .as_deref()
+                    .map(|persona_id| Record::open(self.room.clone(), id, persona_id)),
             });
             let this = self.clone();
             let id = id.to_string();
@@ -858,9 +916,15 @@ impl Calls {
         audio: &[u8],
         interrupted: Option<&CancellationToken>,
     ) {
-        let line = self
-            .record("agent", text)
-            .unwrap_or_else(|_| Uuid::new_v4().to_string());
+        let direct = self
+            .change(id, |call| Ok(call.target.is_some()))
+            .unwrap_or(false);
+        let line = if direct {
+            self.keep(id, Speaker::Voice, text)
+        } else {
+            self.record("agent", text)
+                .unwrap_or_else(|_| Uuid::new_v4().to_string())
+        };
         self.emit(
             id,
             VoiceEvent::Said {
@@ -1095,6 +1159,8 @@ impl Calls {
         let target = self.change(id, |call| Ok(call.target.clone()))?;
         if target.is_none() {
             self.record("user", &text)?;
+        } else {
+            self.keep(id, Speaker::Person, &text);
         }
         if goodbye(&text) && source.permits_goodbye() {
             if self
@@ -1241,13 +1307,24 @@ impl Calls {
             .into_iter()
             .find(|persona| persona.id == target)
             .ok_or("That teammate is no longer in the room.")?;
-        let (work, notices, handed) = self.change(id, |call| {
+        let (work, notices, handed, exchange) = self.change(id, |call| {
             Ok((
                 call.work.clone(),
                 call.deliveries.clone(),
                 call.handed.clone(),
+                call.exchange.clone(),
             ))
         })?;
+        // What was said before this turn is the voice's conversation and, for
+        // a handoff, what its session has not been told. The person's words
+        // join the call's record now, so a reply that is never spoken still
+        // leaves them remembered.
+        let (earlier, unseen) = {
+            let mut exchange = lock(&exchange);
+            let earlier = (exchange.lines(), exchange.unseen());
+            exchange.push(Speaker::Person, &text);
+            earlier
+        };
         let handed_off = Arc::new(std::sync::atomic::AtomicBool::new(false));
         // Read here, in the call's scope: the voice may run its tool elsewhere.
         let client = crate::wire::commands::prompt_client();
@@ -1258,10 +1335,13 @@ impl Calls {
             let name = persona.name.clone();
             let text = text.clone();
             let cancel = context.cancel.clone();
+            let exchange = exchange.clone();
+            let preamble = exchange::handoff_preamble(&unseen);
             Arc::new(move || {
                 if handed_off.swap(true, Ordering::SeqCst) {
                     return Ok(serde_json::json!({"status": "already handed"}));
                 }
+                lock(&exchange).told();
                 {
                     let mut handed = lock(&handed);
                     if handed.len() >= 16 {
@@ -1277,6 +1357,7 @@ impl Calls {
                 let cancel = cancel.clone();
                 let work = work.clone();
                 let notices = notices.clone();
+                let preamble = preamble.clone();
                 // Accepted work outlives what the voice says about it; only
                 // the call ending stops a handoff still waiting to land.
                 tokio::spawn(async move {
@@ -1287,8 +1368,11 @@ impl Calls {
                             .map_err(|_| "The teammate did not start in time.".to_string())??;
                         let prompt = crate::wire::commands::VOICE_COMMAND.scope(
                             (),
-                            crate::wire::commands::CALL_ORIGIN
-                                .scope(origin, room.prompt(&target, &text, None, None)),
+                            crate::wire::commands::CALL_ORIGIN.scope(
+                                origin,
+                                crate::wire::commands::CALL_HEARD
+                                    .scope(preamble, room.prompt(&target, &text, None, None)),
+                            ),
                         );
                         let prompt = async move {
                             match client {
@@ -1331,6 +1415,15 @@ impl Calls {
                 crate::contract::SessionState::Thinking | crate::contract::SessionState::Starting
             ),
             recent: recent(&self.log, target),
+            call: earlier,
+            standing: {
+                let cwd = persona.cwd.clone();
+                tokio::task::spawn_blocking(move || workspace_instructions(&cwd))
+                    .await
+                    .ok()
+                    .flatten()
+            },
+            note: chapter_note(&self.log, target),
             hand_off: hand_off.clone(),
         };
         let (output, mut answers) = mpsc::channel(8);
@@ -1485,7 +1578,21 @@ impl Calls {
             self.push(delivery, &delivery.text);
             return Ok(());
         }
-        self.say(id, &text, speech, &context.cancel).await
+        self.say_as(id, &text, Speaker::Relayed, speech, &context.cancel)
+            .await
+    }
+
+    /// A line said on a direct call, kept on the call's thread. The line's id
+    /// is what the clients know it by; the write is made behind the call.
+    fn keep(&self, id: &str, speaker: Speaker, text: &str) -> String {
+        let line = Uuid::new_v4().to_string();
+        let _ = self.change(id, |call| {
+            if let Some(record) = &call.record {
+                record.said(speaker, &line, text);
+            }
+            Ok(())
+        });
+        line
     }
 
     fn record(&self, kind: &str, text: &str) -> Result<String, String> {
@@ -1539,13 +1646,31 @@ impl Calls {
         interrupted: &CancellationToken,
         ended: &CancellationToken,
     ) -> Result<(), String> {
+        self.say_as(id, text, Speaker::Voice, interrupted, ended)
+            .await
+    }
+
+    /// Speaks a line, and on a direct call remembers it as `speaker`'s.
+    async fn say_as(
+        &self,
+        id: &str,
+        text: &str,
+        speaker: Speaker,
+        interrupted: &CancellationToken,
+        ended: &CancellationToken,
+    ) -> Result<(), String> {
         let sentences = sentences(text);
         if sentences.is_empty() {
             return Err("The dispatcher returned no words.".into());
         }
         let text = sentences.join(" ");
-        let line = if self.change(id, |call| Ok(call.target.is_some()))? {
-            Uuid::new_v4().to_string()
+        let line = if self.change(id, |call| {
+            if call.target.is_some() {
+                lock(&call.exchange).push(speaker, &text);
+            }
+            Ok(call.target.is_some())
+        })? {
+            self.keep(id, speaker, &text)
         } else {
             self.record("agent", &text)?
         };
@@ -1875,7 +2000,10 @@ impl Calls {
 }
 
 /// A teammate's conversation as its voice reads it: the newest lines first,
-/// each cut short, with tool steps as their titles.
+/// each cut short, with tool steps as their titles. A line is called a user's
+/// only when the person said it: a schedule's prompt, a colleague's message
+/// and an answer that came back are named for what they are, so the voice
+/// never takes them for the person's words.
 fn recent(log: &Log, persona: &str) -> Vec<serde_json::Value> {
     let clip = |text: &str| text.chars().take(600).collect::<String>();
     log.load(&crate::log::StreamId::Tape(persona.into()))
@@ -1884,8 +2012,30 @@ fn recent(log: &Log, persona: &str) -> Vec<serde_json::Value> {
         .filter_map(|event| {
             let kind = event["kind"].as_str()?.to_string();
             match kind.as_str() {
+                "user" if event.get("scheduled").is_some_and(|run| !run.is_null()) => {
+                    Some(serde_json::json!({
+                        "kind": "scheduled prompt",
+                        "job": clip(event["scheduled"]["name"].as_str().unwrap_or_default()),
+                        "text": clip(event["text"].as_str()?),
+                    }))
+                }
                 "user" | "agent" => {
                     Some(serde_json::json!({"kind": kind, "text": clip(event["text"].as_str()?)}))
+                }
+                "delivery" => {
+                    let cause = &event["cause"];
+                    let from = clip(cause["name"].as_str().unwrap_or_default());
+                    let (kind, from) = match cause["kind"].as_str() {
+                        Some("peer") => ("message from a teammate", Some(from)),
+                        Some("handoff") => ("work handed over by a teammate", Some(from)),
+                        Some("answer") => ("the person's answer to a request", None),
+                        _ => ("delivery", None),
+                    };
+                    Some(serde_json::json!({
+                        "kind": kind,
+                        "from": from,
+                        "text": clip(event["text"].as_str().unwrap_or_default()),
+                    }))
                 }
                 "tool" => Some(serde_json::json!({
                     "kind": "step",
@@ -1898,6 +2048,53 @@ fn recent(log: &Log, persona: &str) -> Vec<serde_json::Value> {
         })
         .take(24)
         .collect()
+}
+
+/// The workspace's own `AGENTS.md`, when a person wrote it: the standing
+/// instructions of the project the teammate works in. The one Hotline writes
+/// holds only the name and goal the voice is already given, and a link out of
+/// the workspace is never followed.
+fn workspace_instructions(cwd: &str) -> Option<String> {
+    use std::io::Read;
+    let path = std::path::Path::new(cwd).join("AGENTS.md");
+    if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(&path)
+        .ok()?
+        .take(32_768)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let text = text.trim();
+    if text.is_empty() || text.starts_with(crate::driver::acp::MANAGED_MARKER) {
+        return None;
+    }
+    Some(text.chars().take(4_000).collect())
+}
+
+/// What the teammate's last handoff note says: the open chapter's, which a
+/// reopened chapter carries, else the one that just ended.
+fn chapter_note(log: &Log, persona: &str) -> Option<String> {
+    use crate::store::chapters;
+    let events = log.load(&crate::log::StreamId::Tape(persona.into()));
+    let noted = |chapter: &&serde_json::Value| {
+        chapter["note"]
+            .as_str()
+            .is_some_and(|note| !note.trim().is_empty())
+    };
+    let chapter = chapters::open_chapter(&events)
+        .filter(noted)
+        .or_else(|| chapters::previous_chapter(&events).filter(noted))?;
+    let note = chapter["note"].as_str()?.trim();
+    let note: String = note.chars().take(1_500).collect();
+    Some(
+        match chapter["title"].as_str().filter(|title| !title.is_empty()) {
+            Some(title) => format!("{title}: {note}"),
+            None => note,
+        },
+    )
 }
 
 fn speech_ready(text: &str) -> bool {

@@ -5,7 +5,7 @@ import type { TranscriptEvent } from "../src/generated/contract";
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { Transcript, deliveryLine, deliveryMissed, peerLine, superseded, turnCauseLine, stepRuns, stepsSummary } = await import("../src/components/Transcript");
-const { Thread } = await import("../src/components/Thread");
+const { HandoffNote } = await import("../src/components/Dock");
 
 const handoff = {
 	kind: "handoff",
@@ -61,11 +61,8 @@ describe("Ask or hand off", () => {
 		expect(deliveryLine({ ...delivery, text: "`GET /receipts` is **live**" })?.said).toBe("handed you: GET /receipts is live");
 	});
 
-	test("the inspector retains sender, request and originating reply route", () => {
-		const html = renderToStaticMarkup(
-			<Thread open={{ key: handoff.threadKey, withName: handoff.name, handoff }}
-				selfId="ada" selfName="Ada" onClose={() => {}} />,
-		);
+	test("the pane retains sender, request and originating reply route", () => {
+		const html = renderToStaticMarkup(<HandoffNote handoff={handoff} />);
 		expect(html).toContain("Handed off from Mack");
 		expect(html).toContain("Mack · mack");
 		expect(html).toContain("request-123");
@@ -134,5 +131,17 @@ describe("Ask or hand off", () => {
 		expect(html).toContain("blue");
 		expect(html).not.toContain("Picking up your answer");
 		expect(html.match(/blue/g)?.length).toBe(1);
+	});
+
+	test("a thread's link is one line that opens it, and the markers links replaced draw nothing", () => {
+		const link: Extract<TranscriptEvent, { kind: "link" }> = {
+			kind: "link", id: "link:side:s1", ts: 1, thread: "s1", threadKind: "side", personaId: "ada",
+			title: "Fix the CI badge", state: "live", openerId: "mack", openerName: "Mack",
+		};
+		const html = transcript([link]);
+		expect(html).toContain("Mack handed this over · Fix the CI badge");
+		expect(html).toContain("· Open");
+		const old = { kind: "side", id: "side:s1", ts: 1, sideId: "s1", personaId: "ada", title: "Old marker", status: "live" } as TranscriptEvent;
+		expect(transcript([old])).not.toContain("Old marker");
 	});
 });

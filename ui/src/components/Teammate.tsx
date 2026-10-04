@@ -35,7 +35,7 @@ import { PasskeyArm } from "./PasskeyArm";
 import { ComputerSecrets } from "./Secrets";
 import { PathField } from "./PathField";
 import { Schedules } from "./Schedules";
-import type { OpenThread } from "./Thread";
+import type { ThreadRef } from "./Transcript";
 
 /**
  * One teammate, beside their conversation, in a column 320px wide.
@@ -71,7 +71,7 @@ export function Teammate({
 	focusSchedules: boolean;
 	onClose(): void;
 	onDeleted(): void;
-	onOpenThread(thread: OpenThread): void;
+	onOpenThread(thread: ThreadRef): void;
 }) {
 	const servers = useRoomSettings().mcpServers;
 	const [name, setName] = useState(persona.name);
@@ -1592,11 +1592,12 @@ function groupedByOrigin(rows: ToolLedgerRow[]): [string, ToolLedgerRow[]][] {
 const THREAD_SEEN_KEY = "hotline.threads.seen";
 
 /**
- * This teammate's side conversations, behind one row that counts them.
+ * This teammate's conversations with other teammates, behind one row that
+ * counts them; the right-hand pane opens one, and lists the rest.
  * Unread is lastAt against the latest the window has shown, the same way
  * the rail counts a tape.
  */
-function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: OpenThread): void }) {
+function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: ThreadRef): void }) {
 	const [threads, setThreads] = useState<PeerThreadSummary[] | undefined>(undefined);
 	const [seen, setSeen] = useState(loadThreadSeen);
 	const [open, setOpen] = useState(false);
@@ -1638,6 +1639,7 @@ function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: Open
 
 	const isUnread = (thread: PeerThreadSummary) => thread.lastAt > (seen[thread.threadKey] ?? 0);
 	const unread = threads.filter(isUnread).length;
+	const total = threads.length;
 
 	const openThread = (thread: PeerThreadSummary) => {
 		setSeen((current) => {
@@ -1645,10 +1647,7 @@ function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: Open
 			saveThreadSeen(next);
 			return next;
 		});
-		onOpen({
-			key: thread.threadKey,
-			withName: thread.withName,
-		});
+		onOpen({ thread: { kind: "pair", key: thread.threadKey }, withName: thread.withName });
 	};
 
 	const dot = <span aria-label="Unread" className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />;
@@ -1657,13 +1656,13 @@ function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: Open
 		<section>
 			<h3 className="label">Threads</h3>
 			<div className="grouped">
-				{threads.length === 0 ? (
+				{total === 0 ? (
 					<div className="group-row">
 						<RowText title="None yet" />
 					</div>
 				) : (
 					<FoldRow
-						title={threads.length === 1 ? "1 thread" : `${threads.length} threads`}
+						title={total === 1 ? "1 thread" : `${total} threads`}
 						{...(unread > 0 ? { value: `${unread} unread`, mark: dot } : {})}
 						open={open}
 						onToggle={() => setOpen((was) => !was)}

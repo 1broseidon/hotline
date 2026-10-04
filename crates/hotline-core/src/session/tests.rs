@@ -7,8 +7,8 @@
 
 use super::*;
 use crate::contract::{
-    AttachmentKind, ChapterStatus, HumanAnswer, McpPolicy, PermissionOption, PersonaComputer,
-    PolicyMode, ScheduledJob, SessionCheckpoint,
+    AttachmentKind, ChapterStatus, DeltaKind, HumanAnswer, McpPolicy, PermissionOption,
+    PersonaComputer, PolicyMode, ScheduledJob, SessionCheckpoint,
 };
 use crate::driver::{DriverInfo, Escalate};
 use crate::mcp::server::TeammateTools;
@@ -41,6 +41,8 @@ pub(super) struct Scripted {
     /// The agent's own id for the conversation, when this script is standing
     /// in for a child that issues one.
     session_id: Arc<Mutex<Option<String>>>,
+    /// Whether that child says it reopened the conversation it was handed.
+    restored: Arc<Mutex<bool>>,
     /// Permission requests this driver is waiting on, by request id.
     waiting: Arc<Mutex<Vec<String>>>,
     /// How many times the room asked this driver to stop, which is how a
@@ -80,6 +82,7 @@ impl Scripted {
             attachments: Arc::new(Mutex::new(Vec::new())),
             reaches: Arc::new(Mutex::new(Vec::new())),
             session_id: Arc::new(Mutex::new(None)),
+            restored: Arc::new(Mutex::new(false)),
             waiting: Arc::new(Mutex::new(Vec::new())),
             cancels: Arc::new(Mutex::new(0)),
             info_changes: None,
@@ -97,6 +100,12 @@ impl Scripted {
         let (sender, receiver) = mpsc::unbounded_channel();
         *lock(&self.unprompted) = Some(receiver);
         (self, sender)
+    }
+
+    /// What a cancel produces, in place of the rest of the script.
+    pub(super) fn on_cancel(mut self, updates: Vec<Update>) -> Self {
+        self.on_cancel = updates;
+        self
     }
 
     pub(super) fn gated(mut self, gate: Arc<Semaphore>) -> Self {
@@ -122,6 +131,7 @@ impl Scripted {
             current_model_id: "anthropic/claude".to_string(),
             model_label: Some("Claude".to_string()),
             session_id: lock(&self.session_id).clone(),
+            context_restored: *lock(&self.restored),
             ..DriverInfo::default()
         }
     }
@@ -298,6 +308,33 @@ impl Fake {
         *lock(&self.driver.cancels)
     }
 
+    /// Makes the agents stand in for a child that issues this session id, and
+    /// says whether it reopens a conversation it is asked to.
+    pub(super) fn reporting(&self, session_id: &str, restored: bool) {
+        *lock(&self.driver.session_id) = Some(session_id.to_string());
+        *lock(&self.driver.restored) = restored;
+    }
+
+    /// The tools each agent was handed, in order.
+    pub(super) fn tools(&self) -> Vec<TeammateTools> {
+        lock(&self.tools).clone()
+    }
+
+    /// Each teammate view an agent was built for, in order.
+    pub(super) fn views(&self) -> Vec<Persona> {
+        lock(&self.views).clone()
+    }
+
+    /// Makes the driver treat this permission request as one it is waiting on.
+    pub(super) fn awaiting(&self, request_id: &str) {
+        lock(&self.driver.waiting).push(request_id.to_string());
+    }
+
+    /// The permission requests the driver is still waiting on.
+    pub(super) fn waiting(&self) -> Vec<String> {
+        lock(&self.driver.waiting).clone()
+    }
+
     /// Every line any driver in this room has been handed, in order.
     pub(super) fn prompts(&self) -> Vec<String> {
         lock(&self.driver.prompts).clone()
@@ -362,7 +399,7 @@ impl ProviderKeys for DeskKeys {
 }
 
 /// The JSON a summariser answers with, as a model would write it.
-fn note_json(title: &str) -> Result<String, String> {
+pub(super) fn note_json(title: &str) -> Result<String, String> {
     Ok(format!(
         r#"{{"title": "{title}", "goal": "Get the crane moving", "outcome": "It moved.",
             "open_loops": ["oil the winch"], "decisions": [], "files": ["crane.log"],
@@ -438,8 +475,14 @@ fn room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
     )
 }
 
+/// The tape as a client is sent it: a thread's link is the marker its kind has
+/// always had. What is stored is checked where it is the point.
 fn tape(room: &Room, persona_id: &str) -> Vec<Value> {
-    room.log.load(&StreamId::Tape(persona_id.to_string()))
+    room.log
+        .load(&StreamId::Tape(persona_id.to_string()))
+        .into_iter()
+        .map(crate::thread::Link::wire)
+        .collect()
 }
 
 /// The chapter markers on the tape, oldest first.
@@ -608,14 +651,16 @@ async fn the_users_line_is_on_the_tape_first_and_every_update_lands_behind_it() 
     assert_eq!(
         streamed,
         [
-            StreamDelta::ThoughtDelta {
-                persona_id: "ada".to_string(),
+            StreamDelta::ThreadDelta {
+                thread: ThreadId::dm("ada"),
                 message_id: "m1".to_string(),
+                kind: DeltaKind::Thought,
                 text: "let me look".to_string(),
             },
-            StreamDelta::ThoughtDelta {
-                persona_id: "ada".to_string(),
+            StreamDelta::ThreadDelta {
+                thread: ThreadId::dm("ada"),
                 message_id: "m2".to_string(),
+                kind: DeltaKind::Thought,
                 text: "one file".to_string(),
             },
         ]
@@ -688,6 +733,40 @@ async fn a_cancelled_turn_leaves_its_line_sent() {
     let events = settled(&room, "ada", 2).await;
     assert_eq!(kinds(&events), ["user", "turn"]);
     assert_eq!(events[0]["receipt"], "sent");
+}
+
+/// What a voice call said before a handoff is heard by the agent ahead of the
+/// person's words, and never shown as theirs.
+#[tokio::test]
+async fn a_handoff_tells_the_agent_the_call_but_the_tape_shows_only_the_words() {
+    let agents = Fake::new(Scripted::new(spoken_turn()));
+    let prompts = agents.driver.prompts.clone();
+    let room = room("call-heard", agents);
+    room.start("ada").await.unwrap();
+    crate::wire::commands::CALL_HEARD
+        .scope(
+            Some(
+                "Earlier on this voice call:\nThe person: hi\n\nThe person now says, by voice:"
+                    .into(),
+            ),
+            room.prompt("ada", "Check the build.", None, None),
+        )
+        .await
+        .unwrap();
+    for _ in 0..200 {
+        if !lock(&prompts).is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let heard = lock(&prompts).clone();
+    assert!(
+        heard[0].starts_with("Earlier on this voice call:"),
+        "{heard:?}"
+    );
+    assert!(heard[0].ends_with("\nCheck the build."), "{heard:?}");
+    let events = settled(&room, "ada", 2).await;
+    assert_eq!(events[0]["text"], "Check the build.");
 }
 
 /// The agent's reaction lands on the person's last message and nowhere else.
@@ -1599,9 +1678,17 @@ async fn what_is_said_between_tool_calls_is_thinking_not_chat() {
     let mut streamed = Vec::new();
     while let Ok(delta) = deltas.try_recv() {
         streamed.push(match delta {
-            StreamDelta::AgentDelta { message_id, .. } => format!("agent:{message_id}"),
-            StreamDelta::ThoughtDelta { message_id, .. } => format!("thought:{message_id}"),
-            StreamDelta::ComputerPull { .. } => "pull".to_string(),
+            StreamDelta::ThreadDelta {
+                message_id,
+                kind: DeltaKind::Text,
+                ..
+            } => format!("agent:{message_id}"),
+            StreamDelta::ThreadDelta {
+                message_id,
+                kind: DeltaKind::Thought,
+                ..
+            } => format!("thought:{message_id}"),
+            other => panic!("the room broadcast {other:?} to the DM"),
         });
     }
     assert_eq!(
@@ -2746,7 +2833,7 @@ async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
         "the swap waits for that turn instead"
     );
 
-    // The turn ends; what `run_turns` does next swaps the computer in.
+    // The turn ends; what the turn loop does next swaps the computer in.
     lock(&session.turns).running = false;
     room.swap_computer_when_idle("ada");
     let swapped = tokio::time::timeout(Duration::from_secs(10), async {
@@ -3017,7 +3104,7 @@ async fn a_download_starts_the_teammate_at_once_and_the_computer_joins_after_the
     );
     assert!(!still.computer);
 
-    // The turn ends; what `run_turns` does next brings the computer in.
+    // The turn ends; what the turn loop does next brings the computer in.
     lock(&session.turns).running = false;
     desk.room.attach_computer_when_idle("ada");
     let attached = tokio::time::timeout(Duration::from_secs(10), async {
@@ -3249,14 +3336,16 @@ async fn a_quiet_runs_words_are_thinking_and_the_next_plain_prompt_speaks() {
     assert_eq!(
         streamed,
         [
-            StreamDelta::ThoughtDelta {
-                persona_id: "ada".to_string(),
+            StreamDelta::ThreadDelta {
+                thread: ThreadId::dm("ada"),
                 message_id: "m-quiet".to_string(),
+                kind: DeltaKind::Thought,
                 text: "No change — staying silent per protocol.".to_string(),
             },
-            StreamDelta::AgentDelta {
-                persona_id: "ada".to_string(),
+            StreamDelta::ThreadDelta {
+                thread: ThreadId::dm("ada"),
                 message_id: "m-loud".to_string(),
+                kind: DeltaKind::Text,
                 text: "It moved.".to_string(),
             },
         ]
@@ -4102,6 +4191,32 @@ async fn the_wake_block_carries_the_previous_chapters_note() {
     );
 }
 
+/// The DM's row of the room's one sweep is its chapters.
+#[tokio::test]
+async fn the_rooms_sweep_closes_a_stale_chapter_as_the_dms_idle_row() {
+    let log = scratch("chapter-room-sweep");
+    enrol(&log, &persona("ada"));
+    let stale = now_ms() - 10 * 3_600_000;
+    write_tape(
+        &log,
+        "ada",
+        &[
+            json!({"kind": "chapter", "id": "c-ada", "ts": stale, "backendId": "hotline"}),
+            spoken("user", "u1", stale + 1_000, "did the crane jam?"),
+            spoken("agent", "a1", stale + 2_000, "It jammed."),
+        ],
+    );
+    let room = Room::with_agents(
+        log,
+        Arc::new(DeskKeys),
+        Fake::answering(Scripted::new(Vec::new()), note_json("Crane jam")),
+    );
+
+    room.sweep(now_ms(), &mut HashMap::new()).await;
+
+    assert_eq!(markers(&room, "ada")[0]["closedBy"], "idle");
+}
+
 /// The idle clock: a chapter nobody has said anything in for longer than the
 /// room allows closes itself, and one that is still warm is left alone.
 #[tokio::test]
@@ -4775,6 +4890,7 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
             status: HumanActionStatus::Pending,
             note: None,
             delivers: Some(true),
+            thread: None,
         },
     );
     room.write(
@@ -4787,6 +4903,7 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
             status: HumanActionStatus::Pending,
             note: None,
             delivers: Some(true),
+            thread: None,
         },
     );
 
@@ -4996,7 +5113,7 @@ async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
     let key = crate::paths::thread_key("ada", "bob").expect("a key for the pair");
     crate::log::thread::ensure(log.root(), &key).unwrap();
     log.append(
-        &StreamId::Thread(key.clone()),
+        &StreamId::Pair(key.clone()),
         &json!({
             "kind": "permission",
             "id": "perm:req-1",
@@ -5015,7 +5132,7 @@ async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
     );
     let card = room
         .log
-        .load(&StreamId::Thread(key))
+        .load(&StreamId::Pair(key))
         .into_iter()
         .find(|event| event["kind"] == "permission")
         .expect("the card is still on the thread");
@@ -5129,7 +5246,11 @@ mod runs {
     }
 
     fn run_stream(room: &Room, run_id: &str) -> Vec<Value> {
-        room.log.load(&StreamId::Run(run_id.to_string()))
+        room.log
+            .load(&StreamId::Run(run_id.to_string()))
+            .into_iter()
+            .map(crate::thread::Link::wire)
+            .collect()
     }
 
     fn worked() -> Vec<Update> {
@@ -5217,11 +5338,16 @@ mod runs {
         // in place, and none of the run's words.
         let tape = tape(&room, "ada");
         assert_eq!(kinds(&tape), ["subagent"]);
-        assert_eq!(tape[0]["id"], "subagent:r1");
+        assert_eq!(tape[0]["id"], "link:run:r1");
         assert_eq!(tape[0]["runId"], "r1");
         assert_eq!(tape[0]["title"], "Check the crane");
         assert_eq!(tape[0]["status"], "done");
         assert!(tape[0]["elapsedMs"].as_i64().is_some());
+        let stored = room.log.load(&StreamId::Tape("ada".to_string()));
+        assert_eq!(stored[0]["kind"], "link");
+        assert_eq!(stored[0]["threadKind"], "run");
+        assert_eq!(stored[0]["state"], "closed");
+        assert_eq!(stored[0]["end"], "done");
 
         // A worker's brief, none of the conversation, and the task as its
         // one message.

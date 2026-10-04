@@ -23,15 +23,25 @@
 //! ([`Room::watch_subagents`]): the harness does the work, and the room keeps
 //! the marker and the transcript the same way it does for its own.
 //!
+//! A run's agent is built by [`Room::thread_agent`] under the run kind's
+//! policy, and its one turn is [`super::threads::Threads::turn`], the turn
+//! a side thread's agent takes.
+//!
+//! A run's lines are written through [`super::threads::Threads::write`], which
+//! indexes what it said for `search_thread` and expires a permission card it
+//! raises: nobody is looking at a run to answer one.
+//!
 //! A run never writes to its teammate's tape. The one line it keeps there is
-//! a [`TranscriptEvent::Subagent`] marker, rewritten by id as the run goes,
-//! which is what the person presses to open the run's own transcript.
+//! its [`Link`], rewritten by id as the run goes, which a client is sent as
+//! the `subagent` marker the person presses to open the run's own transcript.
 //!
 //! Authority follows [`crate::driver::CapabilityLease`]: a run's lease is a
 //! child of the session that started it, so stopping that teammate, changing
 //! its policy or deleting it revokes every run it has going, and a run can
 //! never hold more than its parent did.
 
+use super::agent::{Opening, lease_of};
+use super::turns::{Line, Seat};
 use super::{
     CLOCK, PendingTool, Room, event_of, narration, new_id, now_ms, reach_sentence, skills_index,
     timed,
@@ -40,15 +50,15 @@ use crate::contract::{
     NoticeLevel, Persona, Reach, RunningSubagent, SessionInfo, SubagentStatus, ToolStatus,
     TranscriptEvent,
 };
-use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID, SubagentReport, Update};
-use crate::log::StreamId;
-use crate::mcp::server::TeammateTools;
+use crate::driver::{
+    CapabilityLease, Driver, HOTLINE_BACKEND_ID, MessageKind, SubagentReport, Update,
+};
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
+use crate::thread::{End, Link, ThreadId, ThreadKind, ThreadState};
 use futures_util::future::BoxFuture;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
 /// What one driver turn came to, as the stream it was written to saw it.
@@ -82,32 +92,133 @@ pub(super) async fn drive(
     text: String,
     reach: Reach,
     cancel: Option<&CancellationToken>,
-    mut write: impl FnMut(TranscriptEvent, bool),
+    write: impl FnMut(TranscriptEvent, bool),
 ) -> Driven {
-    let mut updates = driver
-        .prompt(timed(now_ms(), &text), Vec::new(), reach)
-        .await;
+    drive_with(
+        driver,
+        timed(now_ms(), &text),
+        Vec::new(),
+        reach,
+        cancel,
+        |_, _, _, _| {},
+        write,
+    )
+    .await
+}
+
+/// What a kind does about each thing its agent does in a turn, the one place
+/// the kinds differ in how a turn is driven. [`drive_updates`] reads the turn
+/// off the driver and calls it; the funnel it feeds (what the agent says
+/// between tool calls is thinking, a tool left running is failed, the words
+/// are split into bubbles) is the same whoever is listening.
+pub(super) trait Witness {
+    /// An update, before it becomes events or a delta. The turn's tools still
+    /// running are `in_flight`, for the one that has to fail them first.
+    fn heard(&mut self, _update: &Update, _in_flight: &mut HashMap<String, PendingTool>) {}
+
+    /// The words as they arrive (kind, message id, text, and whether the reply
+    /// is being held back as narration), before the message is whole.
+    fn delta(&mut self, _kind: MessageKind, _message_id: &str, _text: &str, _muted: bool) {}
+
+    /// One event of the turn, and whether it came of a permission request.
+    fn write(&mut self, event: TranscriptEvent, asked: bool);
+
+    /// A look at the lines waiting behind the turn, between one update and the
+    /// next, for a kind whose person can steer a turn in flight.
+    fn steer(&mut self) {}
+}
+
+/// A witness made of two closures: how a peer turn and a run are written.
+struct Calls<D, W> {
+    delta: D,
+    write: W,
+}
+
+impl<D, W> Witness for Calls<D, W>
+where
+    D: FnMut(MessageKind, &str, &str, bool),
+    W: FnMut(TranscriptEvent, bool),
+{
+    fn delta(&mut self, kind: MessageKind, message_id: &str, text: &str, muted: bool) {
+        (self.delta)(kind, message_id, text, muted);
+    }
+
+    fn write(&mut self, event: TranscriptEvent, asked: bool) {
+        (self.write)(event, asked);
+    }
+}
+
+/// [`drive`] for a conversation somebody is watching: the line is handed over
+/// already stamped, with its attachments, and `delta` is told the words as
+/// they arrive (kind, message id, text, and whether the reply is being held
+/// back as narration) so they can be shown before the message is whole.
+pub(super) async fn drive_with(
+    driver: &dyn Driver,
+    wire_text: String,
+    attachments: Vec<crate::contract::Attachment>,
+    reach: Reach,
+    cancel: Option<&CancellationToken>,
+    delta: impl FnMut(MessageKind, &str, &str, bool),
+    write: impl FnMut(TranscriptEvent, bool),
+) -> Driven {
+    let updates = driver.prompt(wire_text, attachments, reach).await;
+    drive_updates(driver, updates, cancel, None, &mut Calls { delta, write }).await
+}
+
+/// Reads one turn's updates off the driver to its end and tells `witness`
+/// what each came to.
+///
+/// `ready` wakes the loop when a line is queued behind the turn, so a witness
+/// that can steer is asked to look at once rather than at the next update. A
+/// cancel asks the driver to stop and keeps reading until it has, so the
+/// turn's own end is still written down.
+pub(super) async fn drive_updates(
+    driver: &dyn Driver,
+    mut updates: mpsc::Receiver<Update>,
+    cancel: Option<&CancellationToken>,
+    ready: Option<&Notify>,
+    witness: &mut impl Witness,
+) -> Driven {
     let mut in_flight = HashMap::new();
     let mut voice = narration::Voice::new();
     let mut driven = Driven::default();
     loop {
-        let received = match cancel {
-            Some(cancel) if !driven.cancelled => tokio::select! {
-                biased;
-                () = cancel.cancelled() => {
-                    driven.cancelled = true;
-                    driver.cancel();
-                    continue;
+        witness.steer();
+        let received = tokio::select! {
+            biased;
+            () = async {
+                match cancel {
+                    Some(cancel) if !driven.cancelled => cancel.cancelled().await,
+                    _ => std::future::pending().await,
                 }
-                update = updates.recv() => update,
-            },
-            _ => updates.recv().await,
+            } => {
+                driven.cancelled = true;
+                driver.cancel();
+                continue;
+            }
+            () = async {
+                match ready {
+                    Some(ready) => ready.notified().await,
+                    None => std::future::pending().await,
+                }
+            } => continue,
+            update = updates.recv() => update,
         };
         let (batch, done) = match received {
             Some(update) => (voice.step(update), false),
             None => (voice.finish(), true),
         };
         for update in batch {
+            witness.heard(&update, &mut in_flight);
+            if let Update::Delta {
+                kind,
+                message_id,
+                text,
+            } = &update
+            {
+                let muted = *kind == MessageKind::Agent && voice.mutes_deltas();
+                witness.delta(*kind, message_id, text, muted);
+            }
             let asked = matches!(update, Update::Permission { .. });
             driven.asked |= asked;
             for event in event_of(update, &mut in_flight) {
@@ -127,7 +238,7 @@ pub(super) async fn drive(
                     }
                     _ => {}
                 }
-                write(event, asked);
+                witness.write(event, asked);
             }
         }
         if done {
@@ -137,7 +248,7 @@ pub(super) async fn drive(
     // A driver that stopped without a turn leaves a tool spinning in the
     // stream forever, exactly as it would on a tape.
     for (call_id, pending) in in_flight.drain() {
-        write(pending.event(&call_id, ToolStatus::Failed, None), false);
+        witness.write(pending.event(&call_id, ToolStatus::Failed, None), false);
     }
     driven
 }
@@ -192,10 +303,11 @@ impl Room {
             lease: None,
             settled: false,
         };
-        running.mark(SubagentStatus::Running, None);
-        self.append_run(
-            &spec.run_id,
-            TranscriptEvent::User {
+        running.mark(ThreadState::Live, None);
+        self.threads().write(
+            &ThreadId::run(&spec.run_id),
+            &spec.persona_id,
+            &TranscriptEvent::User {
                 id: new_id(),
                 ts: running.started,
                 text: spec.task.clone(),
@@ -211,9 +323,10 @@ impl Room {
         let outcome = match self.run_to_end(&spec, &cancel, &mut running).await {
             Ok(outcome) => outcome,
             Err(error) => {
-                self.append_run(
-                    &spec.run_id,
-                    TranscriptEvent::Notice {
+                self.threads().write(
+                    &ThreadId::run(&spec.run_id),
+                    &spec.persona_id,
+                    &TranscriptEvent::Notice {
                         id: new_id(),
                         ts: now_ms(),
                         level: NoticeLevel::Error,
@@ -246,21 +359,11 @@ impl Room {
         if persona.backend_id != HOTLINE_BACKEND_ID {
             return Err("Only a Hotline Agent teammate runs subagents.".to_string());
         }
-        let lease = spec.capability.scoped();
+        let lease = lease_of(ThreadKind::Run, &spec.capability);
         running.lease = Some(lease.clone());
-        let view = run_view(persona, &self.info(&spec.persona_id));
-        let reach = view.reach.unwrap_or_default();
-        let driver = self.agents.agent(
-            &view,
-            run_preamble(&view, reach),
-            Vec::new(),
-            TeammateTools::new(self, &view.id)
-                .for_run()
-                .with_capability(lease.clone()),
-            Vec::new(),
-        )?;
-        running.driver = Some(driver.clone());
-        tokio::select! {
+        let view = on_the_sessions_model(persona, &self.info(&spec.persona_id));
+        let thread = ThreadId::run(&spec.run_id);
+        let mut agent = tokio::select! {
             biased;
             () = cancel.cancelled() => {
                 return Ok(RunOutcome {
@@ -268,17 +371,38 @@ impl Room {
                     report: "The subagent was stopped before it started.".to_string(),
                 });
             }
-            started = driver.start(&view) => { started?; }
-        }
-        lease.check()?;
-        let driven = drive(
-            driver.as_ref(),
-            brief(&view.name, &spec.task),
-            reach,
-            Some(cancel),
-            |event, _| self.append_run(&spec.run_id, event),
-        )
-        .await;
+            built = self.thread_agent(Opening {
+                thread: thread.clone(),
+                persona: view,
+                title: spec.title.clone(),
+                opener: None,
+                lease,
+            }) => built?,
+        };
+        // The run settles its own agent, however it ends.
+        agent.keep();
+        running.driver = Some(agent.driver.clone());
+        let reach = agent.view.reach.unwrap_or_default();
+        let driven = self
+            .threads()
+            .turn(
+                Seat {
+                    thread: &thread,
+                    persona_id: &spec.persona_id,
+                    driver: agent.driver.as_ref(),
+                },
+                Line {
+                    text: timed(now_ms(), &brief(&agent.view.name, &spec.task)),
+                    attachments: Vec::new(),
+                    handoff: None,
+                    from: None,
+                    delivery: None,
+                },
+                reach,
+                Some(cancel),
+                || true,
+            )
+            .await;
         Ok(outcome_of(driven))
     }
 
@@ -323,11 +447,12 @@ impl Room {
                     lease: None,
                     settled: false,
                 };
-                running.mark(SubagentStatus::Running, None);
+                running.mark(ThreadState::Live, None);
                 if !task.trim().is_empty() {
-                    self.append_run(
-                        &running.run_id,
-                        TranscriptEvent::User {
+                    self.threads().write(
+                        &ThreadId::run(&running.run_id),
+                        persona_id,
+                        &TranscriptEvent::User {
                             id: new_id(),
                             ts: running.started,
                             text: task,
@@ -356,7 +481,11 @@ impl Room {
                 };
                 for update in run.voice.step(update) {
                     for event in event_of(update, &mut run.in_flight) {
-                        self.append_run(&run.running.run_id, event);
+                        self.threads().write(
+                            &ThreadId::run(&run.running.run_id),
+                            persona_id,
+                            &event,
+                        );
                     }
                 }
             }
@@ -367,11 +496,16 @@ impl Room {
                 let run_id = run.running.run_id.clone();
                 for update in run.voice.finish() {
                     for event in event_of(update, &mut run.in_flight) {
-                        self.append_run(&run_id, event);
+                        self.threads()
+                            .write(&ThreadId::run(&run_id), persona_id, &event);
                     }
                 }
                 for (call_id, pending) in run.in_flight.drain() {
-                    self.append_run(&run_id, pending.event(&call_id, ToolStatus::Failed, None));
+                    self.threads().write(
+                        &ThreadId::run(&run_id),
+                        persona_id,
+                        &pending.event(&call_id, ToolStatus::Failed, None),
+                    );
                 }
                 run.running.settle(match status {
                     SubagentStatus::Done => RunEnd::Done,
@@ -379,23 +513,6 @@ impl Room {
                     SubagentStatus::Running | SubagentStatus::Cancelled => RunEnd::Cancelled,
                 });
             }
-        }
-    }
-
-    /// One event onto a run's own stream. Nothing indexes it and nothing
-    /// stamps it: a run's words are the teammate's working, not its
-    /// conversation.
-    fn append_run(&self, run_id: &str, event: TranscriptEvent) {
-        let written = serde_json::to_value(&event)
-            .map_err(|error| error.to_string())
-            .and_then(|event| {
-                self.log
-                    .append(&StreamId::Run(run_id.to_string()), &event)
-                    .map(|_| ())
-                    .map_err(|error| error.to_string())
-            });
-        if let Err(error) = written {
-            eprintln!("the run {run_id} could not be written to: {error}");
         }
     }
 }
@@ -439,16 +556,9 @@ fn outcome_of(driven: Driven) -> RunOutcome {
     }
 }
 
-/// The teammate as a run sees it: its record, on the model and effort its
-/// session is using right now, with no conversation to reopen and no
-/// computer. Two agents driving one desktop at once is a fight nobody wins,
-/// so the desktop stays with the teammate.
-fn run_view(mut persona: Persona, session: &SessionInfo) -> Persona {
-    persona.session_checkpoints = Vec::new();
-    persona.last_session_id = None;
-    if let Some(computer) = persona.computer.as_mut() {
-        computer.enabled = false;
-    }
+/// The teammate as a run is started for it: on the model and effort its
+/// session is using right now, which its record may not say.
+fn on_the_sessions_model(mut persona: Persona, session: &SessionInfo) -> Persona {
     if let Some(model) = session.current_model_id.clone() {
         persona.model_id = Some(model);
     }
@@ -466,7 +576,7 @@ fn run_view(mut persona: Persona, session: &SessionInfo) -> Persona {
 /// A subagent's whole system prompt. It is not the teammate's: no name to
 /// answer to, no goal, no house style for chat — a worker's brief, plus the
 /// facts of the place it works in.
-fn run_preamble(persona: &Persona, reach: Reach) -> String {
+pub(super) fn run_preamble(persona: &Persona, reach: Option<Reach>) -> String {
     let name = &persona.name;
     format!(
         "You are a subagent working for {name}, a teammate in Hotline. {name} handed you one task, and your last message is returned to them as your report. You are not {name}, and you are not talking with the person {name} works for: nobody reads this conversation while you work, and you cannot ask anyone a question. Where something is unclear, make the sensible choice, say which choice you made, and carry on.\n\n\
@@ -476,7 +586,7 @@ fn run_preamble(persona: &Persona, reach: Reach) -> String {
          {}\n\n\
          Work until the task is done, or until you are sure it cannot be. Then finish with one message, your report: lead with the outcome or the answer; then what you did and where, naming files you changed and commands you ran; then anything unresolved, uncertain, or left for {name} to decide. If something failed, say so plainly. Do not narrate while you work: the report is the only thing {name} reads.",
         persona.cwd,
-        reach_sentence(Some(reach)),
+        reach_sentence(reach),
         skills_index(persona),
     )
 }
@@ -500,23 +610,28 @@ struct Running {
 }
 
 impl Running {
-    /// The run's line, on the teammate's tape and at the head of the run's
+    /// The run's link, on the teammate's tape and at the head of the run's
     /// own stream, so the run says what it is and how it went to whoever
     /// opens it without reading the tape.
-    fn mark(&self, status: SubagentStatus, elapsed_ms: Option<i64>) {
+    fn mark(&self, state: ThreadState, elapsed_ms: Option<i64>) {
         let Some(room) = self.room.upgrade() else {
             return;
         };
-        let marker = TranscriptEvent::Subagent {
-            id: marker_id(&self.run_id),
+        let thread = ThreadId::run(&self.run_id);
+        room.write_link(&Link {
+            id: room.link_id(&thread),
             ts: self.started,
-            run_id: self.run_id.clone(),
+            thread,
+            persona_id: Some(self.persona_id.clone()),
             title: self.title.clone(),
-            status,
+            state,
+            outcome: None,
+            at: None,
+            note: None,
+            binding: None,
             elapsed_ms,
-        };
-        room.write(&self.persona_id, &marker);
-        room.append_run(&self.run_id, marker);
+            opener: None,
+        });
         room.list_subagent(
             &self.persona_id,
             RunningSubagent {
@@ -524,7 +639,7 @@ impl Running {
                 title: self.title.clone(),
                 started_at: self.started,
             },
-            status == SubagentStatus::Running,
+            state == ThreadState::Live,
         );
     }
 
@@ -540,12 +655,12 @@ impl Running {
         if let Some(lease) = &self.lease {
             lease.revoke();
         }
-        let status = match end {
-            RunEnd::Done => SubagentStatus::Done,
-            RunEnd::Failed => SubagentStatus::Failed,
-            RunEnd::Cancelled => SubagentStatus::Cancelled,
+        let end = match end {
+            RunEnd::Done => End::Done,
+            RunEnd::Failed => End::Failed,
+            RunEnd::Cancelled => End::Cancelled,
         };
-        self.mark(status, Some(now_ms() - self.started));
+        self.mark(ThreadState::Closed(end), Some(now_ms() - self.started));
     }
 }
 
@@ -560,10 +675,6 @@ struct HarnessRun {
     running: Running,
     voice: narration::Voice,
     in_flight: HashMap<String, PendingTool>,
-}
-
-fn marker_id(run_id: &str) -> String {
-    format!("subagent:{run_id}")
 }
 
 /// A teammate's subagents, as its managed jobs start them.
@@ -615,29 +726,10 @@ impl Delegate for Subagents {
     }
 }
 
-/// Subagent lines a previous process left running on a tape. A run lives
-/// only as long as the activity that started it, and no activity survives a
-/// restart, so the line is settled as cancelled rather than drawn running
-/// forever — on the tape, and by the caller on the run's own stream.
-pub(crate) fn settle_orphaned_subagents(events: &[Value]) -> Vec<Value> {
-    events
-        .iter()
-        .filter(|event| {
-            event.get("kind").and_then(Value::as_str) == Some("subagent")
-                && event.get("status").and_then(Value::as_str) == Some("running")
-        })
-        .filter_map(|event| {
-            let mut settled = event.as_object()?.clone();
-            settled.insert("status".into(), Value::from("cancelled"));
-            Some(Value::Object(settled))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::{PersonaComputer, SessionConfig};
+    use crate::contract::SessionConfig;
     use crate::session::idle_info;
     use crate::session::tests::persona;
 
@@ -650,18 +742,9 @@ mod tests {
     }
 
     #[test]
-    fn a_run_takes_the_effort_its_teammate_is_on_and_leaves_the_computer_behind() {
+    fn a_run_takes_the_effort_its_teammate_is_on() {
         let mut ada = persona("ada");
         ada.effort_id = Some("low".to_string());
-        ada.computer = Some(PersonaComputer {
-            cpus: None,
-            enabled: true,
-            image: None,
-            memory: None,
-            pids: None,
-            mounts: None,
-            secrets: None,
-        });
         let mut session = idle_info("ada");
         session.configs = vec![SessionConfig {
             id: "effort".to_string(),
@@ -670,10 +753,9 @@ mod tests {
             current_id: Some("high".to_string()),
             options: Vec::new(),
         }];
-        let view = run_view(ada, &session);
+        let view = on_the_sessions_model(ada, &session);
         assert_eq!(view.effort_id.as_deref(), Some("high"));
         assert_eq!(view.model_id, None, "no live model, so the record's stands");
-        assert!(!view.computer.unwrap().enabled);
     }
 
     #[test]

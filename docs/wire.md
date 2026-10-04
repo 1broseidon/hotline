@@ -148,7 +148,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
 | `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads); any seat; an unknown name is ignored |
-| `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs |
+| `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, already running its first turn (`side.start`) |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
 | `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange |
@@ -702,7 +702,9 @@ has no hello to read, so `client.hello` answers `{capabilities}` for its seat as
 well. The declaration is the socket's, and it is read as each frame is made, so
 it reaches subscriptions already open: declare it before subscribing. A socket
 that never says it is sent exactly what it was before, and the contract's older
-shapes are all still there.
+shapes are all still there. The window needs it: a core that rejects the hello or
+leaves `threads2` out of its answer is not subscribed to, and the window says it
+needs a newer core.
 
 | | without `threads2` | with `threads2` |
 | --- | --- | --- |
@@ -747,7 +749,7 @@ kind: `thread.prompt` only in a work thread (it speaks to a teammate with
 `mobile.prompt`, as before), `thread.answer` in anything but a pair
 (`peers.answer_permission` is the owner's), `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
-pairs (`peers.list` is refused it). `client.hello` is every seat's. A refusal is
+pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is every seat's. A refusal is
 `forbidden`, as ever. [security.md](security.md) has the table and its tests.
 
 A call is `voice.*`'s, a run's lifetime is its teammate's, and nobody answers a

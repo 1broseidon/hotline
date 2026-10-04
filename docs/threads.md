@@ -615,6 +615,24 @@ has one hook and one view.
   The inspector's Threads list is still `peers.list`, opening a pair in the dock.
   `xthread:` and `exchange-paused:` are still markers, as phase 8 left them.
 
+**Review fixes** (after the phase 9 review). Computer calls: a call queued for
+the lease is turned away if its thread was revoked while it waited, a release
+waits for the call in flight, and the lease is held by an agent (`Holder::new`)
+rather than by its thread's key, so a replaced DM agent cannot release its
+replacement's hold (`computer/gate.rs`, `docs/security.md`). A companion's
+`thread.list` leaves out calls as well as pairs (`phone_may_read`). A work
+thread's delivery is stamped read when its turn begins (`LiveSide::begin`), so
+one saved and never admitted is handed over again after a restart, and a
+colleague's result carries its request through `Line::from` and is checked
+against stop and revocation as the DM's is, instead of being consumed on enqueue.
+A restart settles the sender's copy of a handoff link with the target's, and
+`withLinks` leaves a row alone when the list has heard of the thread since the
+link. The search index carries `PRAGMA user_version` and is rebuilt once when it
+is older (it backfills thread lines). The window refuses a core that rejects the
+`client.hello` or does not list `threads2` (`Connection` is `outdated`, and the
+rail says "This window needs a newer Hotline core"). The mobile review finding
+is another change's.
+
 Notes for phase 10:
 
 - The phone's sheet can take the same shape as the window's `ThreadView`: one

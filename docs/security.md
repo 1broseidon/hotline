@@ -1122,7 +1122,7 @@ separate measurement; fake-provider test timings are not a production guarantee.
   | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
   | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, `peers.answer_permission` is the owner's |
   | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive` |
-  | `thread.list` | without pairs | `peers.list` is refused it |
+  | `thread.list` | only what it may read: no pairs, no calls | `peers.list` is refused it, and a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page |
   | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
   | `client.hello` | yes | it only chooses the shapes this socket is sent |
 
@@ -1138,6 +1138,7 @@ separate measurement; fake-provider test timings are not a production guarantee.
   `a_thread_verb_the_kind_has_no_meaning_for_is_refused`,
   `thread_verbs_reach_the_handlers_the_older_commands_did`,
   `thread_list_reads_every_kind_as_one_summary`,
+  `a_companions_thread_list_leaves_out_calls_and_pairs`,
   `a_thread_subscription_by_id_reads_the_stream_its_kind_keeps`,
   `a_threads2_client_is_sent_every_link_as_the_link_itself`, and the delta tests
   that send each shape; `remote/tests.rs` for the hello a phone is sent;
@@ -1159,6 +1160,21 @@ then told the computer is busy and which thread has it, never queued silently.
 The hold ends with the holder's turn, after 30 s without a call (never while a
 call is in flight), or when the thread's capability lease is revoked (it
 closes, parks, is stopped, or the teammate's authority changes), at which point
-the gate closes too. The gate forwards only to the URL the thread was already
+the gate closes too.
+
+Three rules keep that exclusion honest. Authority is asked again while a call
+waits and once more with the lease in hand, immediately before the call is
+forwarded, so a call queued behind another thread when its thread is parked,
+closed or stopped is answered `403` and never reaches the computer. A hold is
+kept by the agent that took it (`Holder::new` gives each agent its own owner),
+not by its thread's name, so a DM's replacement agent is not released by the
+old one's late turn end or gate shutdown. And a release (turn end, park, close,
+stop) while a call is in flight takes effect when the call ends: revocation
+refuses new calls at once, but another thread cannot take the computer while the
+upstream operation is still driving it. Tests: `computer/gate.rs`
+`a_call_queued_at_the_gate_when_its_thread_is_revoked_never_reaches_the_computer`,
+`a_waiting_call_whose_authority_ends_is_cancelled_and_never_given_the_computer`,
+`a_retiring_agent_cannot_release_its_replacements_hold`,
+`a_release_while_a_call_is_in_flight_keeps_the_computer_until_it_ends`. The gate forwards only to the URL the thread was already
 granted, so a thread never has a computer wider than the teammate's grants, and a
 teammate's lease never covers another teammate's computer.

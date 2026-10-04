@@ -70,6 +70,9 @@ pub(super) struct ThreadAgent {
     pub started: DriverInfo,
     /// Whether the agent was handed the teammate's computer.
     pub computer: bool,
+    /// What the agent holds the teammate's computer under, which is its own
+    /// and no replacement's.
+    pub holder: crate::computer::gate::Holder,
     /// What a driver offers to watch, taken before it started. Only the DM's.
     pub watches: Option<Watches>,
     /// The saved session id the agent reopened, when it did. Nothing else
@@ -364,6 +367,7 @@ impl Room {
             reported: info.session_id.clone(),
             started: info,
             computer: has_computer,
+            holder: driving.holder().clone(),
             watches,
             resumed,
             armed: true,

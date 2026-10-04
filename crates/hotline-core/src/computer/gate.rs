@@ -13,13 +13,18 @@
 //! (the gate ends with the thread's authority and releases what it held), and
 //! when the thread has made no call for [`Timing::idle`], so a thread that has
 //! simply stopped needing the machine does not hold it. A call in flight is
-//! never taken from under it. Another thread's call waits up to
+//! never taken from under it, and a release while one is in flight takes
+//! effect when it ends, so the computer is never driven by two at once. A
+//! lease belongs to one agent, not to a thread's name: a replacement agent of
+//! the same thread is a different [`Holder`], and the one it replaces cannot
+//! let go of what it holds. Another thread's call waits up to
 //! [`Timing::wait`] for the lease, and is then answered, as a tool result and
 //! not a protocol error, that the computer is busy and who has it.
 //!
 //! The gate reaches only the computer it was made for, with the bearer the
 //! teammate's grant already carried: it adds no authority, and a thread whose
-//! lease has been revoked is refused at the gate before anything is forwarded.
+//! lease has been revoked is refused at the gate before anything is forwarded,
+//! including a call that was waiting for the computer when it was revoked.
 
 use axum::body::Body;
 use axum::extract::{Request, State};
@@ -29,6 +34,7 @@ use futures_util::StreamExt;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
@@ -57,12 +63,49 @@ pub(crate) struct Holder {
     pub key: String,
     /// What another thread is told when it is turned away.
     pub title: String,
+    /// Which agent of the thread this is. A thread's agent is replaced while
+    /// the one it replaces is still shutting down, and it is this that tells
+    /// their holds apart.
+    owner: u64,
+}
+
+impl Holder {
+    /// A holder of its own, never equal to another made for the same thread.
+    pub(crate) fn new(key: impl Into<String>, title: impl Into<String>) -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self {
+            key: key.into(),
+            title: title.into(),
+            owner: NEXT.fetch_add(1, Ordering::Relaxed),
+        }
+    }
 }
 
 struct Held {
     by: Holder,
     last: Instant,
     in_flight: usize,
+    /// Let go of while a call was in flight: it is the holder's until the
+    /// call ends, and nobody's after.
+    released: bool,
+}
+
+/// Why a call was not given the computer.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Refused {
+    /// Another thread has it; what to tell the caller.
+    Busy(String),
+    /// The caller's authority ended while it waited.
+    Revoked,
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Busy(text) => out.write_str(text),
+            Self::Revoked => out.write_str("This thread's authority has ended."),
+        }
+    }
 }
 
 /// Who has each teammate's computer.
@@ -77,7 +120,7 @@ pub(crate) struct Leases {
 pub(crate) struct Call {
     leases: Arc<Leases>,
     persona_id: String,
-    key: String,
+    holder: Holder,
 }
 
 impl Drop for Call {
@@ -87,11 +130,18 @@ impl Drop for Call {
             .held
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        if let Some(entry) = held.get_mut(&self.persona_id)
-            && entry.by.key == self.key
-        {
-            entry.in_flight = entry.in_flight.saturating_sub(1);
-            entry.last = Instant::now();
+        let Some(entry) = held.get_mut(&self.persona_id) else {
+            return;
+        };
+        if entry.by != self.holder {
+            return;
+        }
+        entry.in_flight = entry.in_flight.saturating_sub(1);
+        entry.last = Instant::now();
+        if entry.released && entry.in_flight == 0 {
+            held.remove(&self.persona_id);
+            drop(held);
+            self.leases.freed.notify_waiters();
         }
     }
 }
@@ -110,12 +160,15 @@ impl Leases {
     }
 
     /// Takes the lease for a call, or waits for it, and says who has it when
-    /// the wait runs out.
+    /// the wait runs out. `alive` is the caller's authority, asked again
+    /// every time the lease could be given, so a caller whose authority ended
+    /// while it waited is turned away and never given the computer.
     pub(crate) async fn take(
         self: &Arc<Self>,
         persona_id: &str,
         holder: &Holder,
-    ) -> Result<Call, String> {
+        alive: &(dyn Fn() -> bool + Send + Sync),
+    ) -> Result<Call, Refused> {
         let deadline = Instant::now() + self.timing.wait;
         loop {
             let freed = self.freed.notified();
@@ -123,9 +176,13 @@ impl Leases {
             freed.as_mut().enable();
             let busy = {
                 let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+                if !alive() {
+                    return Err(Refused::Revoked);
+                }
                 match held.get_mut(persona_id) {
-                    Some(entry) if entry.by.key == holder.key => {
+                    Some(entry) if entry.by == *holder => {
                         entry.in_flight += 1;
+                        entry.released = false;
                         None
                     }
                     Some(entry)
@@ -135,6 +192,7 @@ impl Leases {
                             by: holder.clone(),
                             last: Instant::now(),
                             in_flight: 1,
+                            released: false,
                         };
                         None
                     }
@@ -146,6 +204,7 @@ impl Leases {
                                 by: holder.clone(),
                                 last: Instant::now(),
                                 in_flight: 1,
+                                released: false,
                             },
                         );
                         None
@@ -156,14 +215,14 @@ impl Leases {
                 return Ok(Call {
                     leases: self.clone(),
                     persona_id: persona_id.to_string(),
-                    key: holder.key.clone(),
+                    holder: holder.clone(),
                 });
             };
             let now = Instant::now();
             if now >= deadline {
-                return Err(format!(
+                return Err(Refused::Busy(format!(
                     "The computer is busy: {title} is using it right now. Work on something that does not need it, or try again in a minute."
-                ));
+                )));
             }
             // Wake when it is let go of, or often enough to see the holder go
             // idle, which nothing announces.
@@ -173,17 +232,24 @@ impl Leases {
         }
     }
 
-    /// Lets go of what `key` holds of this teammate's computer, if anything.
-    pub(crate) fn release(&self, persona_id: &str, key: &str) {
+    /// Lets go of what `holder` holds of this teammate's computer, if
+    /// anything. A call in flight keeps the computer until it ends: the hold
+    /// goes then, and nothing else is let on in between.
+    pub(crate) fn release(&self, persona_id: &str, holder: &Holder) {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-        if held
-            .get(persona_id)
-            .is_some_and(|entry| entry.by.key == key)
-        {
-            held.remove(persona_id);
-            drop(held);
-            self.freed.notify_waiters();
+        let Some(entry) = held.get_mut(persona_id) else {
+            return;
+        };
+        if entry.by != *holder {
+            return;
         }
+        if entry.in_flight > 0 {
+            entry.released = true;
+            return;
+        }
+        held.remove(persona_id);
+        drop(held);
+        self.freed.notify_waiters();
     }
 
     /// Who has this teammate's computer now, for a test and for the log.
@@ -274,7 +340,7 @@ pub(crate) async fn serve(
         let _ = axum::serve(listener, router)
             .with_graceful_shutdown(ended)
             .await;
-        leases.release(&persona, &holder.key);
+        leases.release(&persona, &holder);
     });
     Ok(Gate {
         url: format!("http://127.0.0.1:{port}{path}"),
@@ -316,12 +382,16 @@ fn answer(status: StatusCode, body: Value) -> Response {
         .expect("a json answer is a response")
 }
 
+fn ended() -> Response {
+    answer(
+        StatusCode::FORBIDDEN,
+        json!({ "error": "This thread's authority has ended." }),
+    )
+}
+
 async fn forward(State(state): State<Arc<Shared>>, request: Request) -> Response {
     if !(state.alive)() {
-        return answer(
-            StatusCode::FORBIDDEN,
-            json!({ "error": "This thread's authority has ended." }),
-        );
+        return ended();
     }
     let (parts, body) = request.into_parts();
     let Ok(bytes) = axum::body::to_bytes(body, 64 * 1024 * 1024).await else {
@@ -332,8 +402,13 @@ async fn forward(State(state): State<Arc<Shared>>, request: Request) -> Response
     };
     let call = if parts.method == Method::POST {
         match calls_a_tool(&bytes) {
-            Some(id) => match state.leases.take(&state.persona_id, &state.holder).await {
+            Some(id) => match state
+                .leases
+                .take(&state.persona_id, &state.holder, &*state.alive)
+                .await
+            {
                 Ok(call) => Some(call),
+                Err(Refused::Revoked) => return ended(),
                 Err(busy) => {
                     return answer(
                         StatusCode::OK,
@@ -341,7 +416,7 @@ async fn forward(State(state): State<Arc<Shared>>, request: Request) -> Response
                             "jsonrpc": "2.0",
                             "id": id,
                             "result": {
-                                "content": [{ "type": "text", "text": busy }],
+                                "content": [{ "type": "text", "text": busy.to_string() }],
                                 "isError": true,
                             },
                         }),
@@ -353,6 +428,12 @@ async fn forward(State(state): State<Arc<Shared>>, request: Request) -> Response
     } else {
         None
     };
+    // The authority is checked again with the lease in hand and nothing else
+    // between it and the computer: a thread parked or stopped while its call
+    // queued must not reach it.
+    if !(state.alive)() {
+        return ended();
+    }
     let target = format!(
         "{}{}",
         state.origin,
@@ -405,10 +486,12 @@ mod tests {
     use super::*;
 
     fn holder(key: &str) -> Holder {
-        Holder {
-            key: key.to_string(),
-            title: format!("the {key} thread"),
-        }
+        Holder::new(key, format!("the {key} thread"))
+    }
+
+    /// A call from a thread whose authority is current.
+    async fn take(leases: &Arc<Leases>, persona: &str, by: &Holder) -> Result<Call, Refused> {
+        leases.take(persona, by, &|| true).await
     }
 
     fn quick() -> Arc<Leases> {
@@ -421,25 +504,26 @@ mod tests {
     #[tokio::test]
     async fn one_thread_holds_the_computer_and_another_is_told_who_has_it() {
         let leases = quick();
-        let first = leases.take("ada", &holder("main")).await.unwrap();
-        let busy = leases
-            .take("ada", &holder("side"))
+        let (main, side) = (holder("main"), holder("side"));
+        let first = take(&leases, "ada", &main).await.unwrap();
+        let busy = take(&leases, "ada", &side)
             .await
             .err()
-            .expect("it is held");
+            .expect("it is held")
+            .to_string();
         assert!(busy.contains("the main thread"), "{busy}");
         assert!(busy.contains("busy"));
         drop(first);
         // Between calls it is still the main thread's.
-        assert!(leases.take("ada", &holder("side")).await.is_err());
-        assert!(leases.take("ada", &holder("main")).await.is_ok());
+        assert!(take(&leases, "ada", &side).await.is_err());
+        assert!(take(&leases, "ada", &main).await.is_ok());
     }
 
     #[tokio::test]
     async fn another_teammates_computer_is_its_own() {
         let leases = quick();
-        let _ada = leases.take("ada", &holder("main")).await.unwrap();
-        assert!(leases.take("bob", &holder("side")).await.is_ok());
+        let _ada = take(&leases, "ada", &holder("main")).await.unwrap();
+        assert!(take(&leases, "bob", &holder("side")).await.is_ok());
     }
 
     #[tokio::test]
@@ -448,14 +532,16 @@ mod tests {
             idle: Duration::from_secs(60),
             wait: Duration::from_secs(5),
         });
-        drop(leases.take("ada", &holder("main")).await.unwrap());
+        let (main, side) = (holder("main"), holder("side"));
+        drop(take(&leases, "ada", &main).await.unwrap());
         let waiting = {
             let leases = leases.clone();
-            tokio::spawn(async move { leases.take("ada", &holder("side")).await.map(|_| ()) })
+            let side = side.clone();
+            tokio::spawn(async move { take(&leases, "ada", &side).await.map(|_| ()) })
         };
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(!waiting.is_finished(), "it waits while the other holds it");
-        leases.release("ada", "main");
+        leases.release("ada", &main);
         waiting.await.unwrap().unwrap();
         assert_eq!(leases.holder("ada").as_deref(), Some("side"));
     }
@@ -463,23 +549,97 @@ mod tests {
     #[tokio::test]
     async fn a_thread_that_stops_using_it_lets_go_but_a_call_in_flight_is_never_taken() {
         let leases = quick();
-        let call = leases.take("ada", &holder("main")).await.unwrap();
+        let (main, side) = (holder("main"), holder("side"));
+        let call = take(&leases, "ada", &main).await.unwrap();
         tokio::time::sleep(Duration::from_millis(600)).await;
         assert!(
-            leases.take("ada", &holder("side")).await.is_err(),
+            take(&leases, "ada", &side).await.is_err(),
             "a call that has not finished keeps it however long it takes"
         );
         drop(call);
         tokio::time::sleep(Duration::from_millis(600)).await;
-        assert!(leases.take("ada", &holder("side")).await.is_ok());
+        assert!(take(&leases, "ada", &side).await.is_ok());
     }
 
     #[tokio::test]
     async fn releasing_what_you_do_not_hold_changes_nothing() {
         let leases = quick();
-        let _held = leases.take("ada", &holder("main")).await.unwrap();
-        leases.release("ada", "side");
+        let _held = take(&leases, "ada", &holder("main")).await.unwrap();
+        leases.release("ada", &holder("side"));
         assert_eq!(leases.holder("ada").as_deref(), Some("main"));
+    }
+
+    #[tokio::test]
+    async fn a_retiring_agent_cannot_release_its_replacements_hold() {
+        let leases = quick();
+        let old = holder("dm");
+        let replacement = holder("dm");
+        assert_eq!(old.key, replacement.key, "the same thread, another agent");
+        drop(take(&leases, "ada", &old).await.unwrap());
+        leases.release("ada", &old);
+        let _held = take(&leases, "ada", &replacement).await.unwrap();
+        // The old agent's queue finishes, and its gate shuts down, late.
+        leases.release("ada", &old);
+        assert_eq!(leases.holder("ada").as_deref(), Some("dm"));
+        assert!(
+            take(&leases, "ada", &holder("side")).await.is_err(),
+            "the replacement still has the computer"
+        );
+        // And the replacement is no more the old one's to call on.
+        let call = take(&leases, "ada", &old).await;
+        assert!(matches!(call, Err(Refused::Busy(_))));
+    }
+
+    #[tokio::test]
+    async fn a_release_while_a_call_is_in_flight_keeps_the_computer_until_it_ends() {
+        let leases = Leases::with(Timing {
+            idle: Duration::from_secs(60),
+            wait: Duration::from_millis(100),
+        });
+        let (main, side) = (holder("main"), holder("side"));
+        let call = take(&leases, "ada", &main).await.unwrap();
+        leases.release("ada", &main);
+        assert!(
+            take(&leases, "ada", &side).await.is_err(),
+            "the upstream operation is still driving the computer"
+        );
+        assert_eq!(leases.holder("ada").as_deref(), Some("main"));
+        drop(call);
+        assert_eq!(leases.holder("ada"), None, "it is let go of when it ends");
+        assert!(take(&leases, "ada", &side).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_waiting_call_whose_authority_ends_is_cancelled_and_never_given_the_computer() {
+        let leases = Leases::with(Timing {
+            idle: Duration::from_secs(60),
+            wait: Duration::from_secs(5),
+        });
+        let (main, side) = (holder("main"), holder("side"));
+        let call = take(&leases, "ada", &main).await.unwrap();
+        let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let waiting = {
+            let (leases, side, alive) = (leases.clone(), side.clone(), alive.clone());
+            tokio::spawn(async move {
+                leases
+                    .take("ada", &side, &move || {
+                        alive.load(std::sync::atomic::Ordering::SeqCst)
+                    })
+                    .await
+                    .map(|_| ())
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!waiting.is_finished());
+        alive.store(false, std::sync::atomic::Ordering::SeqCst);
+        let refused = tokio::time::timeout(Duration::from_secs(2), waiting)
+            .await
+            .expect("it does not wait out the lease")
+            .unwrap();
+        assert_eq!(refused, Err(Refused::Revoked));
+        drop(call);
+        leases.release("ada", &main);
+        assert_eq!(leases.holder("ada"), None, "it was not handed the computer");
     }
 
     /// A computer that says only what it was asked, on a port of its own.
@@ -608,6 +768,56 @@ mod tests {
             leases.holder("ada"),
             None,
             "a gate that ends releases what it held"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_call_queued_at_the_gate_when_its_thread_is_revoked_never_reaches_the_computer() {
+        let (computer, seen) = upstream().await;
+        let leases = Leases::with(Timing {
+            idle: Duration::from_secs(60),
+            wait: Duration::from_secs(5),
+        });
+        let (main, side) = (holder("main"), holder("side"));
+        let on = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let gate = {
+            let (computer, leases, on) = (computer.clone(), leases.clone(), on.clone());
+            move |by: Holder, own: bool| {
+                let (computer, leases, on) = (computer.clone(), leases.clone(), on.clone());
+                async move {
+                    serve(&computer, leases, "ada", by, move || {
+                        !own || on.load(std::sync::atomic::Ordering::SeqCst)
+                    })
+                    .await
+                    .unwrap()
+                }
+            }
+        };
+        let main_gate = gate(main.clone(), false).await;
+        let side_gate = gate(side.clone(), true).await;
+        let call = json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"click"}});
+        post(&main_gate, call.clone()).await;
+        let before = lock_seen(&seen).len();
+
+        let queued = {
+            let call = call.clone();
+            tokio::spawn(async move { post(&side_gate, call).await })
+        };
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!queued.is_finished(), "the call waits for the computer");
+        // The thread is parked while its call waits, and then the computer
+        // comes free.
+        on.store(false, std::sync::atomic::Ordering::SeqCst);
+        leases.release("ada", &main);
+        let (status, _) = tokio::time::timeout(Duration::from_secs(3), queued)
+            .await
+            .expect("a revoked call does not wait out the lease")
+            .unwrap();
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(
+            lock_seen(&seen).len(),
+            before,
+            "nothing a revoked thread queued was sent to the computer"
         );
     }
 

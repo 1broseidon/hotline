@@ -351,6 +351,8 @@ struct Session {
     /// attached. A session started while the image was still downloading, or
     /// after the computer failed, runs without it.
     computer: bool,
+    /// What this session's agent holds the teammate's computer under.
+    holder: crate::computer::gate::Holder,
     /// The generation every driver and tool handle for this session shares.
     capability: CapabilityLease,
     /// Which agent is answering, because a checkpoint is kept per backend and
@@ -924,6 +926,7 @@ impl Room {
         let session = Arc::new(Session {
             persona_id: persona.id.clone(),
             computer: has_computer,
+            holder: agent.holder.clone(),
             capability: capability.clone(),
             backend_id: persona.backend_id.clone(),
             driver,
@@ -4796,6 +4799,11 @@ pub(super) struct Driving {
 }
 
 impl Driving {
+    /// What this agent holds the computer under.
+    pub(super) fn holder(&self) -> &crate::computer::gate::Holder {
+        &self.holder
+    }
+
     /// `key` is what the thread holds the computer under, and `title` is what
     /// another thread is told it is busy with.
     pub(super) fn new(
@@ -4804,10 +4812,7 @@ impl Driving {
         lease: &CapabilityLease,
     ) -> Self {
         Self {
-            holder: crate::computer::gate::Holder {
-                key: key.into(),
-                title: title.into(),
-            },
+            holder: crate::computer::gate::Holder::new(key, title),
             lease: lease.clone(),
         }
     }
@@ -4816,8 +4821,15 @@ impl Driving {
 impl Room {
     /// A thread's turn is over: it has no more use for the teammate's computer
     /// until it is next asked something.
-    pub(super) fn let_go_of_computer(&self, persona_id: &str, key: &str) {
-        self.computer_leases.release(persona_id, key);
+    ///
+    /// It is the agent's own hold that is let go of: a thread's replacement
+    /// agent has the same key and a hold of its own.
+    pub(super) fn let_go_of_computer(
+        &self,
+        persona_id: &str,
+        holder: &crate::computer::gate::Holder,
+    ) {
+        self.computer_leases.release(persona_id, holder);
     }
 }
 

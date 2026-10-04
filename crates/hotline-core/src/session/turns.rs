@@ -234,6 +234,8 @@ pub(super) trait Occupant: Send + Sync + 'static {
     fn queue(&self) -> &Mutex<Turns<Self::Line>>;
     fn persona_id(&self) -> &str;
     fn thread(&self) -> ThreadId;
+    /// What the agent holds the teammate's computer under.
+    fn holder(&self) -> &crate::computer::gate::Holder;
 
     /// Whether this agent is still the one that answers: its authority is
     /// current and the room still holds it.
@@ -279,10 +281,7 @@ impl Room {
                 Begin::Stop => break,
                 Begin::Go(mut held) => {
                     let driven = occupant.turn(&self, &mut held).await;
-                    self.let_go_of_computer(
-                        occupant.persona_id(),
-                        &super::agent::lease_key(&occupant.thread()),
-                    );
+                    self.let_go_of_computer(occupant.persona_id(), occupant.holder());
                     if let Then::Stop = occupant.end(&self, held, driven) {
                         break;
                     }

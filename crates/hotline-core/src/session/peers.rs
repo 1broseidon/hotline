@@ -198,6 +198,8 @@ struct PeerSession {
     caller_capability: CapabilityLease,
     target_capability: CapabilityLease,
     thread_key: String,
+    /// What this session's agent holds the target's computer under.
+    holder: crate::computer::gate::Holder,
     /// The teammate who answers in this session: whose cards these are.
     target_id: String,
     /// Whether this caller's words are stored as the thread's `agent` side.
@@ -737,7 +739,7 @@ impl Room {
             }
         }
         *lock(&session.last_used) = now_ms();
-        self.let_go_of_computer(&target.id, &format!("pair:{key}"));
+        self.let_go_of_computer(&target.id, &session.holder);
 
         if !session.valid() {
             self.mark(&session, &caller, &target, PeerStatus::Failed);
@@ -1321,16 +1323,12 @@ impl Room {
                 })?;
         }
         let flip = thread_participants(key).is_some_and(|(user_side, _)| user_side != caller.id);
-        let extra_mcp = self
-            .grant_computer(
-                &view,
-                &super::Driving::new(
-                    format!("pair:{key}"),
-                    format!("a request from {}", caller.name),
-                    &target_capability,
-                ),
-            )
-            .await?;
+        let driving = super::Driving::new(
+            format!("pair:{key}"),
+            format!("a request from {}", caller.name),
+            &target_capability,
+        );
+        let extra_mcp = self.grant_computer(&view, &driving).await?;
         caller_capability.check()?;
         target_capability.check()?;
         peer_caller_capability.check()?;
@@ -1370,6 +1368,7 @@ impl Room {
             caller_capability: peer_caller_capability,
             target_capability,
             thread_key: key.to_string(),
+            holder: driving.holder().clone(),
             target_id: target_id.clone(),
             flip,
             last_used: Mutex::new(now),

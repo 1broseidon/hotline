@@ -155,6 +155,8 @@ pub(super) struct LiveSide {
     /// The thread's own authority. Revoking it ends every tool handle the
     /// agent holds.
     capability: CapabilityLease,
+    /// What the agent holds the teammate's computer under.
+    holder: crate::computer::gate::Holder,
     turns: Mutex<Turns<Line>>,
     /// When the person last said something, or the teammate last finished.
     last_used: Mutex<i64>,
@@ -215,6 +217,10 @@ impl Occupant for LiveSide {
 
     fn thread(&self) -> ThreadId {
         ThreadId::side(&self.id)
+    }
+
+    fn holder(&self) -> &crate::computer::gate::Holder {
+        &self.holder
     }
 
     fn answering(self: &Arc<Self>, _room: &Room) -> bool {
@@ -543,6 +549,7 @@ impl Room {
             backend_id: agent.view.backend_id.clone(),
             driver: agent.driver.clone(),
             capability: lease,
+            holder: agent.holder.clone(),
             turns: Mutex::new(Turns::default()),
             last_used: Mutex::new(now_ms()),
             closed: AtomicBool::new(false),
@@ -1075,7 +1082,7 @@ impl Room {
         lock(&side.turns).clear();
         side.capability.revoke();
         side.driver.invalidate();
-        self.let_go_of_computer(&side.persona_id, &super::agent::lease_key(&side.thread()));
+        self.let_go_of_computer(&side.persona_id, &side.holder);
         let stream = StreamId::Side(side.id.clone());
         let events = self.log.load(&stream);
         for expired in crate::log::expire_orphaned_permissions(&events, now_ms()) {

@@ -67,6 +67,10 @@ impl Occupant for Session {
         ThreadId::dm(&self.persona_id)
     }
 
+    fn holder(&self) -> &crate::computer::gate::Holder {
+        &self.holder
+    }
+
     fn answering(self: &Arc<Self>, room: &Room) -> bool {
         self.capability.is_current() && room.current_session(self)
     }

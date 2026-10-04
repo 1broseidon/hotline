@@ -9,7 +9,7 @@ They differ only in policy. The decision and its trade-offs are in
 design and the plan.
 
 This describes the target. Until the phases below land, each kind still runs
-on its own code. [Today](#today) is the map of that code. Phases 1 and 2 have
+on its own code. [Today](#today) is the map of that code. Phases 1 to 3 have
 landed: [what is built](#built-so-far) says where, and where it differs from
 what is written here.
 
@@ -155,6 +155,7 @@ DM is ported last, because it has the most to lose.
 3. **One runtime.** Merge the agent builders, `Turns` and the turn loops, and
    put resume behind one mechanism. Port sides first, then runs.
    *Done when:* there is one `Turns` and the side and run builders are gone.
+   **Done**, for sides and runs; the DM and pairs follow in phases 6 and 7.
 4. **One lifecycle.** One sweep, one restart settle, one closing note, and
    the link marker with typed delivery provenance.
    *Done when:* the four settle functions and four sweeps are one each, and
@@ -233,6 +234,43 @@ Where this differs from the design above:
 - **The call mirror is the existing `voice.card`.** A card in a side thread
   reaches a live call the way one on the tape does; the mirror is not tested
   at the call level yet.
+
+**Phase 3.** `Room::thread_agent` in `session/agent.rs` builds the agent of a
+side thread or a run from its kind's `Policy`, which now also holds `seed`,
+`tools`, `lease` and `computer`. `bring_up` and `run_to_end` call it, and
+`side_agent` and the run's own builder are gone. `session/turns.rs` holds the
+one `Turns` (generic over the line it queues, so the DM's `Wired` lines use it
+too) and `Threads::turn`, the turn both a side's loop and a run take: it drives
+the agent, writes through `Threads::write`, delivers a refusal, and emits a
+side's live deltas. Resume is in the builder: the binding is read from the
+thread's own record, a child is asked to reopen it, and otherwise the agent is
+seeded from the thread's stream.
+
+Where this differs from the design above:
+
+- **The builder is `Room::thread_agent`, not `Threads::agent`.** The tools
+  hold a `Weak<Room>` made from an `Arc<Room>`, and `Threads` borrows a `&Room`.
+  It moves onto `Threads` if that borrow becomes an `Arc`.
+- **The lease is made before the agent.** `lease_of(kind, parent)` derives it
+  from the kind's policy, and the caller passes it in, because a run's drop
+  guard has to revoke it even when the start is cancelled halfway. A side's
+  `Independent` lease is its own epoch; a run's is `Scoped`; the DM's and a
+  pair's rows are set but nothing reads them yet.
+- **A thread's own history is read by the builder.** A policy `seed` decides
+  whether a kind has any: a side does, a run does not, though its stream already
+  holds its task and marker when it starts.
+- **The run's one turn is `Threads::turn`, not a loop.** A run has no queue, so
+  there is one `Turns` and no second turn loop for it to use; the loop over a
+  queue stays in `run_side_turns` until the DM's `run_turns` can share it.
+- **Not moved:** `start_now` (phase 7) and `peer_session` (phase 6) still build
+  their own agents. The builder already grants the computer when a kind's policy
+  says so, which is the part of `start_now` and `peer_session` they share, but
+  that branch has no caller and no test until one of them moves. The skills
+  index is not materialised by the builder: a side and a run share the main
+  session's folder, where `start_now` already wrote it.
+- **Resume is not tested beyond a thread's own record.** The existing
+  side-thread tests cover a reopened session and a refused one; the selection
+  rule is a pure function with its own test.
 
 ## Today
 

@@ -1124,9 +1124,12 @@ from it.
   hit opens the marker.
 - **The roster entry.** `RosterEntry.sides`, like `subagents`: `{sideId, title,
   startedAt, working}` while live. Nothing about it survives a restart.
-- **The driver.** A second agent for the teammate, started the way a peer session
-  is, on either harness: the teammate's own checkpoint is never reopened and the
-  main tape never seeds it, so it can never land in the main conversation.
+- **The driver.** A second agent for the teammate, built by the shared thread
+  agent builder (`Room::thread_agent`, `session/agent.rs`) under the side
+  kind's policy, on either harness: the teammate's own checkpoint is never
+  reopened and the main tape never seeds it, so it can never land in the main
+  conversation. A subagent run is built by the same function under the run
+  kind's policy.
 
 What a new thread is told: the person's task is its first message. Its preamble
 holds who the teammate is, a brief (a second, parallel context; another thread
@@ -1169,7 +1172,9 @@ the person is in the thread, so the teammate asks them there. Permission cards
 are answered by side id (`side.answer_permission`).
 
 **Turns.** A line said in a thread is written to its stream and handed to the
-agent at once, or queued behind the turn in flight; it does not steer. Cancel
+agent at once, or queued behind the turn in flight (the same `Turns` queue the
+main conversation uses, and the same turn a run takes: `Threads::turn`); it
+does not steer. Cancel
 stops the turn and drops the queue and the thread stays live.
 `archive_thread` takes effect when the turn it was called in ends, so the last
 message lands first.

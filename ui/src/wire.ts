@@ -288,7 +288,12 @@ declare global {
 	}
 }
 
-export type Connection = "connecting" | "open" | "closed";
+/**
+ * `outdated` is a core that did not take this window's `threads2` declaration:
+ * it would answer the window's subscriptions with shapes it cannot read, so the
+ * socket is not opened for them.
+ */
+export type Connection = "connecting" | "open" | "closed" | "outdated";
 
 type Pending = { resolve(value: unknown): void; reject(error: Error): void };
 
@@ -317,6 +322,8 @@ export class Wire {
 	private failures = 0;
 	private retry: ReturnType<typeof setTimeout> | null = null;
 	private state: Connection = "closed";
+	/** The core refused or ignored `threads2` on the socket that last dropped. */
+	private outdated = false;
 
 	constructor(private readonly endpoint: Endpoint) {}
 
@@ -336,13 +343,25 @@ export class Wire {
 			// so it is made, and answered, before anything subscribes.
 			const ready = () => {
 				if (this.socket !== socket) return;
+				this.outdated = false;
 				this.setState("open");
 				// A subscription belongs to the window, not to the socket that
 				// happened to carry it: everything still on screen is asked for
 				// again, and each one answers with a fresh snapshot.
 				for (const [id, sub] of this.live) this.send({ id, sub: sub.target });
 			};
-			this.command("client.hello", { capabilities: [THREADS2] }).then(ready, ready);
+			// A core that rejects the hello, or does not list `threads2` in its
+			// answer, cannot send what the window reads: the connection is not
+			// opened to replay subscriptions it would answer with empty views.
+			const refused = () => {
+				if (this.socket !== socket) return;
+				this.outdated = true;
+				socket.close();
+			};
+			this.command("client.hello", { capabilities: [THREADS2] }).then(
+				(hello) => (hello?.capabilities?.includes(THREADS2) ? ready() : refused()),
+				refused,
+			);
 		};
 		socket.onmessage = (message) => this.receive(message.data);
 		socket.onclose = () => this.drop();
@@ -457,7 +476,7 @@ export class Wire {
 	 */
 	private drop(): void {
 		this.socket = null;
-		this.setState("closed");
+		this.setState(this.outdated ? "outdated" : "closed");
 		for (const waiting of this.pending.values()) {
 			waiting.reject(new Error("The connection to Hotline dropped."));
 		}

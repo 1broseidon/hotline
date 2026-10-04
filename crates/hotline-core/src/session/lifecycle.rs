@@ -8,13 +8,14 @@
 //!
 //! - **The sweep.** [`Room::sweep`] is run on the room's clock and applies
 //!   every kind's `idle` policy. A side thread is parked there. A run is
-//!   never idle-ended, and the DM's chapters and a peer session's quiet clock
-//!   are ported in later phases, so for now it calls the functions that own
-//!   them.
+//!   never idle-ended, and a call that nobody has spoken on for ten minutes is
+//!   ended. The DM's chapters and a peer session's quiet clock are ported in
+//!   later phases, so for now it calls the functions that own them.
 //! - **The settle.** [`Room::settle`] is run once as the room opens. The last
 //!   process's agents died with it, so a card it left open is expired and a
 //!   thread it left live is moved by its kind's `restart` policy: a side
-//!   thread is parked, a run is closed as cancelled. A peer exchange the
+//!   thread is parked, a run is closed as cancelled, and a call is closed as
+//!   stopped, its transcript kept. A peer exchange the
 //!   process was answering is told to its sender by `reconcile_exchanges`,
 //!   which the settle calls.
 //! - **The closing note.** [`Room::queue_closing_note`] writes a thread's note
@@ -25,10 +26,16 @@
 use super::sides::{Ending, TITLE_CHARS, cut, outcome_line};
 use super::{Room, lock, now_ms};
 use crate::log::StreamId;
-use crate::thread::{Idle, Link, Policy, Restart, ThreadId, ThreadKind, ThreadState};
+use crate::thread::{End, Idle, Link, Policy, Restart, ThreadId, ThreadKind, ThreadState};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// What a call is called until its closing note says better.
+const CALL_TITLE: &str = "Call";
+
+/// What a call says it came to when the desk restarted under it.
+const ENDED_BY_RESTART: &str = "Ended when the desk restarted.";
 
 /// A live thread, as the sweep sees it.
 struct Quiet {
@@ -50,7 +57,7 @@ impl Room {
     // The sweep.
 
     /// Applies every kind's idle policy once. See the module.
-    pub(super) async fn sweep(self: &Arc<Self>, now: i64, looked_again: &mut HashMap<String, i64>) {
+    pub(crate) async fn sweep(self: &Arc<Self>, now: i64, looked_again: &mut HashMap<String, i64>) {
         // The DM: its chapters close when the room's idle setting says so.
         self.sweep_chapters(looked_again).await;
         // A pair: a peer session that has gone quiet is the same kind of
@@ -102,8 +109,25 @@ impl Room {
                     working: true,
                 })
                 .collect(),
-            // A call's own clock is the voice's, until calls are threads.
-            ThreadKind::Call | ThreadKind::Dm | ThreadKind::Pair => Vec::new(),
+            // A call that nobody has spoken on for a while: the voice keeps the
+            // time, and the room's clock reads it. A desk call is here too,
+            // with no thread behind it.
+            ThreadKind::Call => lock(&self.voice)
+                .upgrade()
+                .map(|voice| {
+                    let now = now_ms();
+                    voice
+                        .quiet()
+                        .into_iter()
+                        .map(|(call_id, quiet_ms)| Quiet {
+                            thread: ThreadId::call(call_id),
+                            since: now - quiet_ms,
+                            working: false,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            ThreadKind::Dm | ThreadKind::Pair => Vec::new(),
         }
     }
 
@@ -116,7 +140,13 @@ impl Room {
                     self.end_side(&side, ending);
                 }
             }
-            ThreadKind::Run | ThreadKind::Call | ThreadKind::Dm | ThreadKind::Pair => {}
+            // Ending the call writes its link and takes its note.
+            ThreadKind::Call => {
+                if let Some(voice) = lock(&self.voice).upgrade() {
+                    voice.end_quiet(&thread.key);
+                }
+            }
+            ThreadKind::Run | ThreadKind::Dm | ThreadKind::Pair => {}
         }
     }
 
@@ -144,6 +174,7 @@ impl Room {
             .map(|persona| persona.id)
             .chain(std::iter::once(crate::voice::TAPE_ID.to_string()))
             .collect();
+        let mut closed = Vec::new();
         let streams = teammates.iter().cloned().map(StreamId::Tape).chain(
             crate::log::thread::list_all_keys(self.log.root())
                 .into_iter()
@@ -153,7 +184,7 @@ impl Room {
             let events = self.log.load(&stream);
             let mut settled = crate::log::expire_orphaned_permissions(&events, now);
             if matches!(stream, StreamId::Tape(_)) {
-                settled.extend(self.settle_links(&events, now));
+                settled.extend(self.settle_links(&events, now, &mut closed));
             }
             for event in settled {
                 if let Err(error) = self.log.append(&stream, &event) {
@@ -172,12 +203,17 @@ impl Room {
         // What a pair was answering when the process died is told to the
         // teammate that asked.
         self.reconcile_exchanges();
+        // A thread the restart closed is told as one that closed any other way
+        // is: with the note its kind takes.
+        for thread in closed {
+            self.queue_closing_note(&thread, false);
+        }
     }
 
     /// The threads a tape holds a link for that the last process left live:
     /// each is moved as its kind's restart policy says, on the thread's own
     /// stream (after expiring a card it left open) and, returned, on the tape.
-    fn settle_links(&self, events: &[Value], now: i64) -> Vec<Value> {
+    fn settle_links(&self, events: &[Value], now: i64, closed: &mut Vec<ThreadId>) -> Vec<Value> {
         let mut settled = Vec::new();
         for link in events.iter().filter_map(Link::read) {
             if link.state != ThreadState::Live {
@@ -188,11 +224,27 @@ impl Room {
                 Restart::Park => ThreadState::Parked,
                 Restart::Close(end) => ThreadState::Closed(end),
             };
-            let link = Link {
+            let mut link = Link {
                 state,
                 at: matches!(state, ThreadState::Closed(_)).then_some(now),
                 ..link
             };
+            if link.thread.kind == ThreadKind::Call {
+                // The call stopped being spoken on when its last line was said,
+                // not when the desk next opened.
+                let last = link.thread.stream().and_then(|stream| {
+                    self.log
+                        .load(&stream)
+                        .iter()
+                        .filter_map(|event| event.get("ts").and_then(Value::as_i64))
+                        .max()
+                });
+                link.at = Some(last.unwrap_or(link.ts).max(link.ts));
+                link.outcome.get_or_insert_with(|| ENDED_BY_RESTART.into());
+            }
+            if matches!(state, ThreadState::Closed(_)) {
+                closed.push(link.thread.clone());
+            }
             if let Some(stream) = link.thread.stream() {
                 let mut lines =
                     crate::log::expire_orphaned_permissions(&self.log.load(&stream), now);
@@ -234,6 +286,66 @@ impl Room {
             threads.write(&ThreadId::dm(persona_id), persona_id, &event);
         }
         threads.write(&link.thread, persona_id, &event);
+    }
+
+    // Calls.
+
+    /// A call with a teammate has begun, or begun again under an id it
+    /// had: its link goes on the teammate's DM and heads its own stream.
+    pub(crate) fn call_began(&self, call_id: &str, persona_id: &str, ts: i64) {
+        let thread = ThreadId::call(call_id);
+        let earlier = self.link_of(&thread);
+        self.write_link(&Link {
+            id: earlier
+                .as_ref()
+                .map_or_else(|| Link::fresh_id(&thread), |link| link.id.clone()),
+            ts: earlier.as_ref().map_or(ts, |link| link.ts),
+            thread,
+            persona_id: Some(persona_id.to_string()),
+            title: CALL_TITLE.into(),
+            state: ThreadState::Live,
+            outcome: None,
+            at: None,
+            note: None,
+            binding: None,
+            elapsed_ms: None,
+        });
+    }
+
+    /// One line said on a call, to its thread.
+    pub(crate) fn call_said(&self, call_id: &str, persona_id: &str, line: &Value) {
+        self.threads()
+            .write(&ThreadId::call(call_id), persona_id, line);
+    }
+
+    /// A call has ended: its link says how, and the note a closed thread of its
+    /// kind takes is queued.
+    pub(crate) fn call_ended(
+        &self,
+        call_id: &str,
+        persona_id: &str,
+        end: End,
+        outcome: &str,
+        ts: i64,
+    ) {
+        let thread = ThreadId::call(call_id);
+        let began = self.link_of(&thread);
+        self.write_link(&Link {
+            id: began
+                .as_ref()
+                .map_or_else(|| Link::fresh_id(&thread), |link| link.id.clone()),
+            ts: began.as_ref().map_or(ts, |link| link.ts),
+            thread: thread.clone(),
+            persona_id: Some(persona_id.to_string()),
+            title: CALL_TITLE.into(),
+            state: ThreadState::Closed(end),
+            outcome: Some(outcome.to_string()),
+            at: Some(ts),
+            note: None,
+            binding: None,
+            elapsed_ms: None,
+        });
+        self.queue_closing_note(&thread, false);
     }
 
     // The closing note.
@@ -588,5 +700,64 @@ mod tests {
         assert_eq!(on_tape[0]["state"], "live");
         assert_eq!(on_tape[0]["ts"], 5);
         assert_eq!(Link::wire(on_tape[0].clone())["status"], "live");
+    }
+    #[tokio::test]
+    async fn a_call_the_last_process_left_going_is_closed_with_its_transcript_kept() {
+        let log = scratch("settle-call");
+        enrol(&log, &persona("ada"));
+        let call = ThreadId::call("c1");
+        let live = Link {
+            id: Link::fresh_id(&call),
+            ts: 1_000,
+            thread: call.clone(),
+            persona_id: Some("ada".into()),
+            title: "Call".into(),
+            state: ThreadState::Live,
+            outcome: None,
+            at: None,
+            note: None,
+            binding: None,
+            elapsed_ms: None,
+        };
+        let tape = StreamId::Tape("ada".into());
+        let stream = call.stream().unwrap();
+        log.append(&tape, &live.event()).unwrap();
+        log.append(&stream, &live.event()).unwrap();
+        for (kind, id, ts, text) in [
+            ("user", "u1", 61_000, "Is the winch jammed?"),
+            ("agent", "a1", 241_000, "It was the grease."),
+        ] {
+            log.append(
+                &stream,
+                &json!({"kind": kind, "id": id, "ts": ts, "text": text}),
+            )
+            .unwrap();
+        }
+
+        let room = room_on(log, quiet_agents());
+
+        let closed = room.link_of(&call).unwrap();
+        assert_eq!(closed.state, ThreadState::Closed(End::Stopped));
+        assert_eq!(closed.at, Some(241_000), "when it was last spoken on");
+        assert_eq!(closed.outcome.as_deref(), Some(ENDED_BY_RESTART));
+        let on_tape: Vec<Link> = stored(&room, tape).iter().filter_map(Link::read).collect();
+        assert_eq!(on_tape.len(), 1);
+        assert_eq!(on_tape[0].state, ThreadState::Closed(End::Stopped));
+        // The client is sent a quiet line about it: how long, and how it ended.
+        let sent = Link::wire(closed.event());
+        assert_eq!(sent["kind"], "call");
+        assert_eq!(sent["callId"], "c1");
+        assert_eq!(sent["status"], "ended");
+        assert_eq!(sent["durationMs"], 240_000);
+        assert_eq!(sent["outcome"], ENDED_BY_RESTART);
+
+        // What was said is still there, loads as a closed thread, and is found.
+        assert_eq!(stored(&room, stream).len(), 3, "its link and what was said");
+        let loaded = ThreadStore::new(&room.log).load(&call).unwrap();
+        assert_eq!(loaded.state, ThreadState::Closed(End::Stopped));
+        assert_eq!(loaded.parent.unwrap().thread, ThreadId::dm("ada"));
+        let found =
+            crate::store::search::search_teammate(room.log.root(), "ada", "grease", None).unwrap();
+        assert_eq!(found["hits"][0]["thread"], "call:c1");
     }
 }

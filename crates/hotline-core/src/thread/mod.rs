@@ -40,7 +40,7 @@ pub enum ThreadKind {
     Side,
     /// Two teammates talking to each other, by an ask or a handoff.
     Pair,
-    /// A voice call. Not stored yet: its transcript is in memory.
+    /// A voice call with a teammate, kept in `calls/<id>.jsonl`.
     Call,
     /// A subagent's run of one task.
     Run,
@@ -91,6 +91,10 @@ impl ThreadId {
         Self::of(ThreadKind::Run, run_id)
     }
 
+    pub fn call(call_id: impl Into<String>) -> Self {
+        Self::of(ThreadKind::Call, call_id)
+    }
+
     pub fn new(kind: ThreadKind, key: impl Into<String>) -> Self {
         Self::of(kind, key)
     }
@@ -102,8 +106,7 @@ impl ThreadId {
         }
     }
 
-    /// The stream the thread's events are on, or none for a kind that keeps
-    /// no stream yet (a call).
+    /// The stream the thread's events are on.
     pub fn stream(&self) -> Option<StreamId> {
         let key = self.key.clone();
         match self.kind {
@@ -111,7 +114,7 @@ impl ThreadId {
             ThreadKind::Side => Some(StreamId::Side(key)),
             ThreadKind::Pair => Some(StreamId::Pair(key)),
             ThreadKind::Run => Some(StreamId::Run(key)),
-            ThreadKind::Call => None,
+            ThreadKind::Call => Some(StreamId::Call(key)),
         }
     }
 }

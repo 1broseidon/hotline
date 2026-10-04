@@ -9,9 +9,9 @@
 //! roster's `waiting`; one that nobody may answer is expired on the spot and
 //! handed back, so the agent behind it is refused instead of left waiting.
 //!
-//! Sides and runs are written here. The DM's tape keeps its own door
+//! Sides, runs and calls are written here. The DM's tape keeps its own door
 //! ([`Room::write_value`]) until it is ported: chapters index it, and the turn
-//! loop pushes its cards. Pairs and calls are not written through here yet.
+//! loop pushes its cards. Pairs are not written through here yet.
 //!
 //! Unread is not kept here: a client counts it against each thread's newest
 //! line, so a write's part is only to land one and to wake the roster row.
@@ -125,8 +125,8 @@ impl Threads<'_> {
                 self.room.write_value(persona_id, &event);
                 return Written::default();
             }
-            ThreadKind::Side | ThreadKind::Run => {}
-            ThreadKind::Pair | ThreadKind::Call => {
+            ThreadKind::Side | ThreadKind::Run | ThreadKind::Call => {}
+            ThreadKind::Pair => {
                 eprintln!("the {thread} is not written through the shared path yet");
                 return Written::default();
             }

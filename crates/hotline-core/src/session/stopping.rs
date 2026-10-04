@@ -259,6 +259,7 @@ impl Room {
                 scheduled: line.scheduled.clone(),
                 steer: line.steer,
                 said: Some(line.said.clone()),
+                from: None,
                 unprompted: None,
             },
         );

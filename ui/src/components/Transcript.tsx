@@ -829,6 +829,15 @@ const Row = memo(function Row({
 			);
 		}
 
+		/* A voice call with this teammate: one quiet line, "Call · 4 min ·
+		 * Hung up". What was said on it is kept with the call, not on this tape. */
+		case "call":
+			return (
+				<p className="rule-line rule-line-plain w-full">
+					<span className="min-w-0 truncate">{callLine(event)}</span>
+				</p>
+			);
+
 		case "computer_frame":
 			return <ComputerFrame dataUrl={event.dataUrl} />;
 
@@ -841,6 +850,15 @@ const Row = memo(function Row({
 
 export type SubagentEvent = Extract<TranscriptEvent, { kind: "subagent" }>;
 export type SideEvent = Extract<TranscriptEvent, { kind: "side" }>;
+export type CallEvent = Extract<TranscriptEvent, { kind: "call" }>;
+
+/** What a call's line in the conversation says: that it is going, or how long it lasted and how it ended. */
+export function callLine(event: CallEvent): string {
+	if (event.status === "live") return `${event.title} · in progress`;
+	const minutes = Math.round((event.durationMs ?? 0) / 60_000);
+	const length = minutes < 1 ? "under a minute" : `${minutes} min`;
+	return [event.title, length, event.outcome].filter((part) => part !== undefined && part !== "").join(" · ");
+}
 
 /**
  * What a side thread's line in the conversation says: while it runs, that it

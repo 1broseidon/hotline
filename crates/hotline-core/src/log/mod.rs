@@ -7,7 +7,7 @@
 //! keeps its place, so the fold is the whole state of a stream, and a
 //! compaction is that fold written back over the file.
 //!
-//! Five streams, one rule for all of them:
+//! Six streams, one rule for all of them:
 //!
 //! - [`StreamId::Room`] is the room itself — the roster, the settings, the
 //!   schedules — in `room.jsonl`. One file, no epochs.
@@ -22,8 +22,11 @@
 //! - [`StreamId::Side`] is one side thread, in `sides/<id>.jsonl`: a second
 //!   conversation with a teammate, led by the person, kept apart from its
 //!   tape. Its first line is the thread's own marker, rewritten as it goes.
+//! - [`StreamId::Call`] is one voice call with a teammate, in
+//!   `calls/<id>.jsonl`: what the person and the voice said, and the call's own
+//!   marker. It is kept after the call ends.
 //!
-//! [`Log`] is the only door to all four, and the only writer. A reader that
+//! [`Log`] is the only door to all of them, and the only writer. A reader that
 //! wants history calls [`Log::load`]; a reader that wants to keep up calls
 //! [`Log::subscribe`] and is handed every event appended after it asked.
 //! There is no cursor and no "from" on the subscription: history and the live
@@ -65,6 +68,7 @@ pub enum StreamId {
     Pair(String),
     Run(String),
     Side(String),
+    Call(String),
 }
 
 /// One write, as replication sees it: which bytes landed where. The bytes are
@@ -446,6 +450,12 @@ impl Log {
                 fs::create_dir_all(crate::paths::sides_dir(&self.root))?;
                 Ok((file, 1))
             }
+            StreamId::Call(id) => {
+                let file = crate::paths::call_path(&self.root, id)
+                    .ok_or_else(|| io::Error::other(format!("Invalid call id: {id}")))?;
+                fs::create_dir_all(crate::paths::calls_dir(&self.root))?;
+                Ok((file, 1))
+            }
         }
     }
 
@@ -462,6 +472,9 @@ impl Log {
             StreamId::Pair(key) => thread::file(&self.root, key).into_iter().collect(),
             StreamId::Run(id) => crate::paths::run_path(&self.root, id).into_iter().collect(),
             StreamId::Side(id) => crate::paths::side_path(&self.root, id)
+                .into_iter()
+                .collect(),
+            StreamId::Call(id) => crate::paths::call_path(&self.root, id)
                 .into_iter()
                 .collect(),
         }

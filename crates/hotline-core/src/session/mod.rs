@@ -63,10 +63,11 @@ pub use sides::MAX_LIVE as MAX_LIVE_SIDES;
 use crate::computer::Computer;
 use crate::contract::{
     Attachment, ChapterClose, ChapterSummary, Client, ComputerStatus, ConfigChoice, CookieSite,
-    DeliveryCause, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
-    PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, ScheduleKind, ScheduledRun,
-    SessionCapabilities, SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger,
-    ToolOutput, ToolSourceKind, ToolState, ToolStatus, TranscriptEvent,
+    DeliveryCause, DeliveryFrom, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel,
+    PasskeyRegistration, PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport,
+    ScheduleKind, ScheduledRun, SessionCapabilities, SessionInfo, SessionState, SharedSecret,
+    StreamDelta, TeammateToolLedger, ToolOutput, ToolSourceKind, ToolState, ToolStatus,
+    TranscriptEvent,
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
@@ -447,9 +448,28 @@ struct Wired {
     /// The user event this line was written as, so the tape can be told when
     /// the agent has read it. A nudge is never written and has none.
     said: Option<String>,
+    /// The thread this line came from, when it came from one: a direct call's
+    /// turn is its call thread's. Read in place of the prefix of `said`.
+    from: Option<DeliveryFrom>,
     /// Work the agent took up by itself between turns. Nothing is said to
     /// the driver; the turn is these updates.
     unprompted: Option<Unprompted>,
+}
+
+/// The call a queued line came from, if it came from one: the thread it says
+/// it came from, or, for the desk's own calls, which are no thread, the id it
+/// was written under.
+fn call_origin(wired: &Wired) -> Option<crate::voice::Origin> {
+    wired
+        .from
+        .as_ref()
+        .and_then(crate::voice::Origin::from_delivery)
+        .or_else(|| {
+            wired
+                .said
+                .as_deref()
+                .and_then(crate::voice::Origin::from_event_id)
+        })
 }
 
 impl Wired {
@@ -460,6 +480,7 @@ impl Wired {
             scheduled: None,
             steer: false,
             said: None,
+            from: None,
             unprompted: None,
         }
     }
@@ -2217,6 +2238,7 @@ impl Room {
                         || crate::wire::commands::voice_origin()
                             .is_some_and(|origin| origin.direct),
                     said: None,
+                    from: crate::wire::commands::voice_origin().and_then(|origin| origin.from()),
                     unprompted: None,
                 },
                 attachments,
@@ -4005,18 +4027,15 @@ impl Room {
                 turns.running = false;
                 break;
             }
-            // TODO(threads phases 5-7): what a line is, and where it came from,
-            // is still read off the prefix of the id it was written under:
-            // `voice:` (a call, phase 5), `handoff:` and `exchange-result:`
-            // (the pair exchanges, phase 6) and `human-answer:` (the DM's own
-            // cards, phase 7). Each delivery already carries its source as a
-            // field (`DeliveryFrom`), so a read moves onto it when its
-            // producer is ported. Sides and runs deliver nothing into a DM by
-            // id, so none of the kinds ported so far is parsed here.
-            *lock(&session.voice_origin) = wired
-                .said
-                .as_deref()
-                .and_then(crate::voice::Origin::from_event_id);
+            // TODO(threads phases 6-7): what a line is, and where it came from,
+            // is still read off the prefix of the id it was written under for
+            // `handoff:` and `exchange-result:` (the pair exchanges, phase 6)
+            // and `human-answer:` (the DM's own cards, phase 7). Each delivery
+            // already carries its source as a field (`DeliveryFrom`), so a
+            // read moves onto it when its producer is ported. A direct call's
+            // turn says which call thread it came from (`Wired::from`), and
+            // only the desk's calls, which are no thread, are read off the id.
+            *lock(&session.voice_origin) = call_origin(&wired);
             let mut handoff = wired
                 .said
                 .as_ref()
@@ -4270,10 +4289,7 @@ impl Room {
             {
                 break;
             }
-            *lock(&session.voice_origin) = wire
-                .said
-                .as_deref()
-                .and_then(crate::voice::Origin::from_event_id);
+            *lock(&session.voice_origin) = call_origin(wire);
             if let Some(said) = wire.said.clone() {
                 lock(&session.unread).push(said);
             }

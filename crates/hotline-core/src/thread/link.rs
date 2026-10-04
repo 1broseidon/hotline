@@ -24,7 +24,7 @@
 //! changes, so it is replaced in place and never doubled.
 
 use super::{AgentBinding, End, ThreadId, ThreadKind, ThreadState};
-use crate::contract::{SideEnd, SideStatus, SubagentStatus, TranscriptEvent};
+use crate::contract::{CallStatus, SideEnd, SideStatus, SubagentStatus, TranscriptEvent};
 use serde_json::{Value, json};
 
 /// The `kind` of a link line.
@@ -262,7 +262,8 @@ impl Link {
     }
 
     /// The marker this link has always been sent to clients as, for the kinds
-    /// that had one. None for a kind whose clients have never drawn one.
+    /// that had one, and a call's, which is new. None for a kind a client
+    /// draws no marker for.
     fn marker(&self) -> Option<TranscriptEvent> {
         match self.thread.kind {
             ThreadKind::Side => Some(TranscriptEvent::Side {
@@ -308,7 +309,19 @@ impl Link {
                 },
                 elapsed_ms: self.elapsed_ms,
             }),
-            ThreadKind::Dm | ThreadKind::Pair | ThreadKind::Call => None,
+            ThreadKind::Call => Some(TranscriptEvent::Call {
+                id: self.id.clone(),
+                ts: self.ts,
+                call_id: self.thread.key.clone(),
+                title: self.title.clone(),
+                status: match self.state {
+                    ThreadState::Closed(_) => CallStatus::Ended,
+                    ThreadState::Live | ThreadState::Parked => CallStatus::Live,
+                },
+                duration_ms: self.at.map(|at| (at - self.ts).max(0)),
+                outcome: self.outcome.clone(),
+            }),
+            ThreadKind::Dm | ThreadKind::Pair => None,
         }
     }
 

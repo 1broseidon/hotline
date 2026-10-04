@@ -4,6 +4,7 @@ pub mod dispatcher;
 pub mod exchange;
 pub mod ledger;
 pub mod metering;
+mod record;
 pub mod settings;
 pub mod speech;
 
@@ -17,6 +18,7 @@ use dispatcher::{Context, Dispatcher, Front, ProviderDispatcher};
 use exchange::{Exchange, Speaker};
 use ledger::Kind;
 use metering::{BUDGET_ERROR, Budget};
+use record::Record;
 use settings::VoiceSettings;
 use speech::{Clip, SpeechId, SpeechOutput, SpeechSet};
 use std::collections::VecDeque;
@@ -27,9 +29,11 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-/// This tape is indexed, but has no persona and never enters the roster.
+/// The desk's own calls, which name no teammate, are kept on this tape and not
+/// as call threads: they have no DM to hang off, and the dispatcher reads the
+/// tape's tail as what was said on the desk lately, across calls. It is
+/// indexed, but has no persona and never enters the roster.
 pub const TAPE_ID: &str = "voice-dispatcher";
-const IDLE: Duration = Duration::from_secs(600);
 const RETRY_LINE: &str = "Sorry, say that again.";
 const ERROR_LINE: &str = "Voice keeps failing. Please continue by text.";
 const MAX_FAILURES: u8 = 3;
@@ -92,6 +96,16 @@ pub(crate) struct Origin {
 }
 
 impl Origin {
+    /// The thread and turn a direct call's line came from.
+    pub(crate) fn from(&self) -> Option<crate::contract::DeliveryFrom> {
+        self.direct.then(|| {
+            crate::contract::DeliveryFrom::new(
+                &crate::thread::ThreadId::call(&self.call_id),
+                Some(self.seq.to_string()),
+            )
+        })
+    }
+
     pub(crate) fn event_id(&self, event: &str) -> String {
         format!(
             "voice:{}:{}:{}:{event}",
@@ -100,6 +114,23 @@ impl Origin {
             if self.direct { "agent" } else { "desk" }
         )
     }
+    /// The call a line came from, when the line says so as a delivery does:
+    /// the call thread, and the turn of it. Only a direct call is a thread, so
+    /// a call said in this way is one.
+    pub(crate) fn from_delivery(from: &crate::contract::DeliveryFrom) -> Option<Self> {
+        if from.kind != crate::thread::ThreadKind::Call {
+            return None;
+        }
+        Some(Self {
+            call_id: from.thread.clone(),
+            seq: from.request.as_deref()?.parse().ok()?,
+            direct: true,
+        })
+    }
+
+    /// Where the line a call's turn was written under came from. A desk call
+    /// is no thread, so its lines are still known by the id they were written
+    /// under; so are the lines of a direct call written before it was one.
     pub(crate) fn from_event_id(id: &str) -> Option<Self> {
         let mut parts = id.strip_prefix("voice:")?.split(':');
         let call_id = parts.next()?.to_string();
@@ -159,6 +190,9 @@ struct Call {
     /// What was said on a direct call, which its voice converses from and
     /// its session is told.
     exchange: Arc<Mutex<Exchange>>,
+    /// A direct call's thread, which keeps all of what was said. A desk call
+    /// is kept on the desk tape.
+    record: Option<Record>,
 }
 
 impl Call {
@@ -169,10 +203,14 @@ impl Call {
         }
     }
     fn state(&mut self, state: VoiceState, reason: Option<VoiceEndReason>) {
+        let ended = self.state == VoiceState::Ended;
         self.state = state;
         self.reason = reason;
         let _ = self.events.send(self.snapshot());
         if state == VoiceState::Ended {
+            if !ended && let Some(record) = &self.record {
+                record.ended(reason);
+            }
             self.input = None;
             self.cancel.cancel();
             self.speech.cancel();
@@ -242,7 +280,7 @@ impl Calls {
         room: Weak<Room>,
         injected: Option<Services>,
     ) -> Arc<Self> {
-        let calls = Arc::new(Self {
+        Arc::new(Self {
             ledger: Arc::new(Budget::open(log.clone())),
             log,
             vault,
@@ -250,24 +288,28 @@ impl Calls {
             injected,
             calls: Mutex::new(VecDeque::new()),
             narration: Arc::new(tokio::sync::Semaphore::new(1)),
-        });
-        let weak = Arc::downgrade(&calls);
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                let Some(calls) = weak.upgrade() else { break };
-                calls.expire();
-            }
-        });
-        calls
+        })
     }
 
-    fn expire(&self) {
-        for call in lock(&self.calls).iter_mut() {
-            if call.state != VoiceState::Ended && call.activity.elapsed() >= IDLE {
-                call.state(VoiceState::Ended, Some(VoiceEndReason::Idle));
-            }
-        }
+    /// How long each call still going has been quiet, in milliseconds: the
+    /// room's sweep reads this, and ends a call that is quiet for long enough
+    /// (`Policy::of(ThreadKind::Call).idle`).
+    pub(crate) fn quiet(&self) -> Vec<(String, i64)> {
+        lock(&self.calls)
+            .iter()
+            .filter(|call| call.state != VoiceState::Ended)
+            .map(|call| {
+                (
+                    call.id.clone(),
+                    i64::try_from(call.activity.elapsed().as_millis()).unwrap_or(i64::MAX),
+                )
+            })
+            .collect()
+    }
+
+    /// Ends a call nobody has spoken on for long enough.
+    pub(crate) fn end_quiet(&self, id: &str) {
+        let _ = self.finish(id, VoiceEndReason::Idle);
     }
 
     fn settings(&self) -> VoiceSettings {
@@ -407,7 +449,17 @@ impl Calls {
                 utterance_pending: false,
                 first_clip_started: None,
                 handed: Arc::default(),
-                exchange: Arc::default(),
+                // A call picked up again under an id it had is remembered
+                // from its thread; a new one has nothing yet.
+                exchange: Arc::new(Mutex::new(match &target {
+                    Some(_) => Exchange::from_thread(
+                        &self.log.load(&crate::log::StreamId::Call(id.to_string())),
+                    ),
+                    None => Exchange::default(),
+                })),
+                record: target
+                    .as_deref()
+                    .map(|persona_id| Record::open(self.room.clone(), id, persona_id)),
             });
             let this = self.clone();
             let id = id.to_string();
@@ -864,9 +916,15 @@ impl Calls {
         audio: &[u8],
         interrupted: Option<&CancellationToken>,
     ) {
-        let line = self
-            .record("agent", text)
-            .unwrap_or_else(|_| Uuid::new_v4().to_string());
+        let direct = self
+            .change(id, |call| Ok(call.target.is_some()))
+            .unwrap_or(false);
+        let line = if direct {
+            self.keep(id, Speaker::Voice, text)
+        } else {
+            self.record("agent", text)
+                .unwrap_or_else(|_| Uuid::new_v4().to_string())
+        };
         self.emit(
             id,
             VoiceEvent::Said {
@@ -1101,6 +1159,8 @@ impl Calls {
         let target = self.change(id, |call| Ok(call.target.clone()))?;
         if target.is_none() {
             self.record("user", &text)?;
+        } else {
+            self.keep(id, Speaker::Person, &text);
         }
         if goodbye(&text) && source.permits_goodbye() {
             if self
@@ -1522,6 +1582,19 @@ impl Calls {
             .await
     }
 
+    /// A line said on a direct call, kept on the call's thread. The line's id
+    /// is what the clients know it by; the write is made behind the call.
+    fn keep(&self, id: &str, speaker: Speaker, text: &str) -> String {
+        let line = Uuid::new_v4().to_string();
+        let _ = self.change(id, |call| {
+            if let Some(record) = &call.record {
+                record.said(speaker, &line, text);
+            }
+            Ok(())
+        });
+        line
+    }
+
     fn record(&self, kind: &str, text: &str) -> Result<String, String> {
         self.room
             .upgrade()
@@ -1597,7 +1670,7 @@ impl Calls {
             }
             Ok(call.target.is_some())
         })? {
-            Uuid::new_v4().to_string()
+            self.keep(id, speaker, &text)
         } else {
             self.record("agent", &text)?
         };

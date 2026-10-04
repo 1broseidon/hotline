@@ -4,7 +4,13 @@
 //! The call remembers this for itself. The teammate's tape only holds what was
 //! handed to its session, so without it the voice would forget the sentence
 //! before, and the session would never learn what was said on the way.
+//!
+//! The call's thread keeps the whole conversation (`calls/<id>.jsonl`, see
+//! [`super::record`]). This is the part of it the voice is given: the newest
+//! lines under the caps below, which [`Exchange::from_thread`] rebuilds from
+//! the thread when a call is picked up again.
 
+use serde_json::Value;
 use std::collections::VecDeque;
 
 /// The most lines kept; the oldest go first.
@@ -62,6 +68,29 @@ impl Exchange {
         });
         self.unseen += 1;
         self.trim();
+    }
+
+    /// What a call's thread says was said, under the same caps as it was kept
+    /// under live. Every line is taken as told to the session: what the last
+    /// process's session was not told is not known, and the voice keeps its own
+    /// memory of it in any case.
+    pub fn from_thread(events: &[Value]) -> Self {
+        let mut exchange = Self::default();
+        for event in events {
+            let speaker = match event.get("kind").and_then(Value::as_str) {
+                Some("user") => Speaker::Person,
+                Some("agent") if event.get("relayed").and_then(Value::as_bool) == Some(true) => {
+                    Speaker::Relayed
+                }
+                Some("agent") => Speaker::Voice,
+                _ => continue,
+            };
+            if let Some(text) = event.get("text").and_then(Value::as_str) {
+                exchange.push(speaker, text);
+            }
+        }
+        exchange.told();
+        exchange
     }
 
     /// Every line, oldest first.
@@ -159,6 +188,38 @@ mod tests {
         exchange.push(Speaker::Voice, "Third.");
         let said: Vec<_> = exchange.lines().into_iter().map(|l| l.text).collect();
         assert_eq!(said, ["First. Second.", "Hm.", "Third."]);
+    }
+
+    #[test]
+    fn the_exchange_is_rebuilt_from_the_thread_under_the_same_caps() {
+        let said = |kind: &str, text: &str, relayed: bool| {
+            let mut line = serde_json::json!({"kind": kind, "id": text, "ts": 1, "text": text});
+            if relayed {
+                line["relayed"] = true.into();
+            }
+            line
+        };
+        let mut events = vec![
+            serde_json::json!({"kind": "link", "id": "link:call:c", "ts": 1}),
+            said("user", "Is the winch fixed?", false),
+            said("agent", "Not yet.", false),
+            said("agent", "Still waiting on the part.", true),
+        ];
+        let rebuilt = Exchange::from_thread(&events);
+        let lines = rebuilt.lines();
+        assert_eq!(
+            lines.iter().map(|line| line.speaker).collect::<Vec<_>>(),
+            [Speaker::Person, Speaker::Voice, Speaker::Relayed]
+        );
+        assert!(rebuilt.unseen().is_empty());
+
+        for number in 0..45 {
+            events.push(said("user", &format!("line {number}"), false));
+            events.push(said("agent", &format!("reply {number}"), false));
+        }
+        let rebuilt = Exchange::from_thread(&events);
+        assert_eq!(rebuilt.lines().len(), MAX_LINES);
+        assert_eq!(rebuilt.lines().last().unwrap().text, "reply 44");
     }
 
     #[test]

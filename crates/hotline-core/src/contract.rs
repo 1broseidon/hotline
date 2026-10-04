@@ -1273,6 +1273,30 @@ pub enum TranscriptEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         backend_id: Option<String>,
     },
+    /// A voice call with this teammate: one quiet line on the tape, written
+    /// again under the same id as the call goes, that stands for the call
+    /// kept in `calls/<callId>`. What was said on it is not on this tape
+    /// unless the teammate was handed it. While `status` is `live` the line
+    /// reads as a call in progress; once `ended` it says how long it lasted
+    /// and what it came to.
+    ///
+    /// Stored as a thread's link (`thread::Link`) and sent as this. Clients
+    /// that do not know the kind skip it.
+    Call {
+        id: String,
+        /// When the call started. The line keeps its place as it is rewritten.
+        ts: i64,
+        call_id: String,
+        /// "Call", or what the closing note called it.
+        title: String,
+        status: CallStatus,
+        /// How long it lasted, once it has ended.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<i64>,
+        /// Once ended: what it came to, in a line, or how it ended.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        outcome: Option<String>,
+    },
     /// A chapter boundary: one working context of the agent, marked in the
     /// tape it belongs to. Written once when the chapter opens and superseded
     /// by id when it closes, carrying what the next chapter needs to know.
@@ -1689,6 +1713,15 @@ pub enum SubagentStatus {
     Done,
     Failed,
     Cancelled,
+}
+
+/// Whether a call is still going.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum CallStatus {
+    Live,
+    Ended,
 }
 
 /// Whether a side thread is still going.

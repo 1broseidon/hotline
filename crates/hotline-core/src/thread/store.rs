@@ -3,9 +3,10 @@
 //! Nothing here writes, and nothing is a new record. A DM is the teammate's
 //! persona and its tape; a side thread is the link at the head of its stream;
 //! a run is its link, and the tape that holds the line the person presses to
-//! open it; a pair is its sidecar and, on the room stream, the `exchange_pair`
-//! that says whether a request is being answered. The folding of those into a
-//! [`Thread`] is the whole of this module.
+//! open it; a call is its link too, at the head of its own stream; a pair is
+//! its sidecar and, on the room stream, the `exchange_pair` that says whether a
+//! request is being answered. The folding of those into a [`Thread`] is the
+//! whole of this module.
 
 use super::{
     AgentBinding, Link, Participant, Thread, ThreadId, ThreadKind, ThreadLink, ThreadState,
@@ -32,8 +33,7 @@ impl ThreadStore {
         Self { log: log.clone() }
     }
 
-    /// One thread, or none when no record of it exists. A call has no record
-    /// yet, so it is never found.
+    /// One thread, or none when no record of it exists.
     pub fn load(&self, id: &ThreadId) -> Option<Thread> {
         match id.kind {
             ThreadKind::Dm => self.dm(&id.key),
@@ -43,11 +43,11 @@ impl ThreadStore {
                 let owner = self.owner_of_run(&id.key);
                 self.run(&id.key, owner.as_deref())
             }
-            ThreadKind::Call => None,
+            ThreadKind::Call => self.call(&id.key),
         }
     }
 
-    /// The threads a teammate is in: its DM, its side threads and runs, then
+    /// The threads a teammate is in: its DM, its side threads, runs and calls, then
     /// the pairs it is one side of. Empty for a teammate the room does not
     /// hold.
     pub fn list(&self, persona_id: &str) -> Vec<Thread> {
@@ -68,6 +68,11 @@ impl ThreadStore {
             self.run_ids_on_tape(persona_id)
                 .iter()
                 .filter_map(|run_id| self.run(run_id, Some(persona_id))),
+        );
+        threads.extend(
+            self.call_ids_on_tape(persona_id)
+                .iter()
+                .filter_map(|call_id| self.call(call_id)),
         );
         threads.extend(
             pair_files::keys_for(self.log.root(), persona_id)
@@ -152,6 +157,25 @@ impl ThreadStore {
         })
     }
 
+    /// A call, from the link at the head of its own stream. A call is the
+    /// person and a teammate's voice; its parent is the teammate's DM.
+    fn call(&self, call_id: &str) -> Option<Thread> {
+        let link = self.link(&ThreadId::call(call_id))?;
+        let persona_id = link.persona_id?;
+        Some(Thread {
+            id: link.thread,
+            parent: Some(ThreadLink {
+                thread: ThreadId::dm(&persona_id),
+                event: Some(link.id),
+            }),
+            participants: vec![Participant::Person, Participant::Voice(persona_id)],
+            state: link.state,
+            title: Some(link.title),
+            binding: None,
+            note: link.note,
+        })
+    }
+
     /// The link at the head of a thread's own stream, as last written.
     fn link(&self, thread: &ThreadId) -> Option<Link> {
         Link::find(&self.log.load(&thread.stream()?), thread)
@@ -218,6 +242,18 @@ impl ThreadStore {
             .iter()
             .filter_map(Link::read)
             .filter(|link| link.thread.kind == ThreadKind::Run)
+            .map(|link| link.thread.key)
+            .collect()
+    }
+
+    /// The calls a teammate's tape carries a link for, in the order they
+    /// started.
+    fn call_ids_on_tape(&self, persona_id: &str) -> Vec<String> {
+        self.log
+            .load(&StreamId::Tape(persona_id.to_string()))
+            .iter()
+            .filter_map(Link::read)
+            .filter(|link| link.thread.kind == ThreadKind::Call)
             .map(|link| link.thread.key)
             .collect()
     }

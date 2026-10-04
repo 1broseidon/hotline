@@ -860,8 +860,12 @@ async fn idle_replacement_and_disconnect_end_only_the_named_call() {
         .iter_mut()
         .find(|c| c.id == second)
         .unwrap()
-        .activity = Instant::now() - IDLE;
-    calls.expire();
+        .activity = Instant::now() - Duration::from_millis(crate::thread::QUIET_MS as u64);
+    for (call, quiet) in calls.quiet() {
+        if quiet >= crate::thread::QUIET_MS {
+            calls.end_quiet(&call);
+        }
+    }
     assert!(matches!(
         calls.subscribe(&second).unwrap().0,
         VoiceEvent::State {
@@ -2062,4 +2066,309 @@ fn a_scheduled_prompt_is_not_the_person_speaking() {
     assert_eq!(seen[1]["kind"], "scheduled prompt");
     assert_eq!(seen[1]["job"], "Reminder");
     assert_eq!(seen[2]["kind"], "user");
+}
+
+/// A direct call that is a thread from the start: the teammate Mack, and a
+/// call to it that names Mack as its target when it begins.
+async fn direct_call(
+    plan: Result<(String, bool), String>,
+) -> (
+    tempfile::TempDir,
+    Arc<crate::desk::Desk>,
+    Arc<Calls>,
+    String,
+    String,
+    broadcast::Receiver<VoiceEvent>,
+) {
+    use crate::contract::Command;
+    let fake = Arc::new(Fake::default());
+    *lock(&fake.front) = Some(plan);
+    *lock(&fake.transcript) = "Can you check the build?".into();
+    let (root, desk, calls) = desk(with_fake(fake));
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Keep the build green","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
+    let persona = crate::wire::commands::run(create, &desk.log, &handle)
+        .await
+        .unwrap();
+    let persona = persona["id"].as_str().unwrap().to_string();
+    let id = Uuid::new_v4().to_string();
+    calls
+        .start_target(&id, Some(persona.clone()), false, desk.clone())
+        .unwrap();
+    let (_, rx) = calls.subscribe(&id).unwrap();
+    (root, desk, calls, id, persona, rx)
+}
+
+async fn until_written(what: &str, mut done: impl FnMut() -> bool) {
+    for _ in 0..1000 {
+        if done() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("{what} was never written");
+}
+
+fn said_on(desk: &crate::desk::Desk, id: &str) -> Vec<(String, String)> {
+    desk.log
+        .load(&StreamId::Call(id.into()))
+        .into_iter()
+        .filter(|event| matches!(event["kind"].as_str(), Some("user" | "agent")))
+        .map(|event| {
+            (
+                event["kind"].as_str().unwrap().to_string(),
+                event["text"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect()
+}
+
+fn call_link(desk: &crate::desk::Desk, persona: &str) -> Option<Value> {
+    desk.log
+        .load(&StreamId::Tape(persona.into()))
+        .into_iter()
+        .find(|event| event["kind"] == "link" && event["threadKind"] == "call")
+}
+
+#[tokio::test]
+async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
+    let (_root, desk, calls, id, persona, mut rx) =
+        direct_call(Ok(("What's on your mind?".into(), false))).await;
+    utterance(&calls, &id, 1).unwrap();
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "What's on your mind?"),
+    )
+    .await;
+    until_written("the call's lines", || said_on(&desk, &id).len() == 2).await;
+
+    assert_eq!(
+        said_on(&desk, &id),
+        [
+            ("user".to_string(), "Can you check the build?".to_string()),
+            ("agent".to_string(), "What's on your mind?".to_string()),
+        ]
+    );
+    // The DM shows the call, once, and the call stream heads with the same line.
+    until_written("the link", || call_link(&desk, &persona).is_some()).await;
+    let link = call_link(&desk, &persona).unwrap();
+    assert_eq!(link["thread"], id.as_str());
+    assert_eq!(link["state"], "live");
+    assert_eq!(link["personaId"], persona.as_str());
+
+    // The teammate finds what was said, naming the call.
+    let found =
+        crate::store::search::search_teammate(desk.log.root(), &persona, "build", None).unwrap();
+    assert_eq!(found["hits"][0]["thread"], format!("call:{id}"));
+    let heard =
+        crate::store::search::search_teammate(desk.log.root(), &persona, "mind", None).unwrap();
+    assert_eq!(heard["hits"][0]["thread"], format!("call:{id}"));
+
+    calls.end(&id).unwrap();
+    until_written("the closing link", || {
+        call_link(&desk, &persona).is_some_and(|link| link["state"] == "closed")
+    })
+    .await;
+    let link = call_link(&desk, &persona).unwrap();
+    assert_eq!(link["end"], "person");
+    assert_eq!(link["outcome"], "Hung up");
+    assert_eq!(
+        desk.log
+            .load(&StreamId::Tape(persona.clone()))
+            .iter()
+            .filter(|event| event["kind"] == "link" && event["threadKind"] == "call")
+            .count(),
+        1,
+        "one line, rewritten as the call goes"
+    );
+
+    // A closed call reads back as a thread.
+    let thread = crate::thread::ThreadStore::new(&desk.log)
+        .load(&crate::thread::ThreadId::call(&id))
+        .unwrap();
+    assert_eq!(
+        thread.state,
+        crate::thread::ThreadState::Closed(crate::thread::End::Person)
+    );
+    assert_eq!(
+        thread.participants,
+        [
+            crate::thread::Participant::Person,
+            crate::thread::Participant::Voice(persona.clone())
+        ]
+    );
+    assert!(
+        crate::thread::ThreadStore::new(&desk.log)
+            .list(&persona)
+            .iter()
+            .any(|listed| listed.id == thread.id)
+    );
+}
+
+#[tokio::test]
+async fn a_relayed_report_and_the_persons_words_are_kept_as_who_said_them() {
+    let (_root, desk, calls, id, _persona, mut rx) =
+        direct_call(Ok(("On it.".into(), false))).await;
+    utterance(&calls, &id, 1).unwrap();
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "On it."),
+    )
+    .await;
+    calls
+        .change(&id, |call| {
+            call.record.as_ref().unwrap().said(
+                Speaker::Relayed,
+                "relayed-1",
+                "The build is green.",
+            );
+            Ok(())
+        })
+        .unwrap();
+    until_written("the relayed line", || said_on(&desk, &id).len() == 3).await;
+    let stored = desk.log.load(&StreamId::Call(id.clone()));
+    let relayed = stored
+        .iter()
+        .find(|event| event["id"] == "relayed-1")
+        .unwrap();
+    assert_eq!(relayed["relayed"], true);
+    let rebuilt = Exchange::from_thread(&stored);
+    assert_eq!(
+        rebuilt
+            .lines()
+            .iter()
+            .map(|line| line.speaker)
+            .collect::<Vec<_>>(),
+        [Speaker::Person, Speaker::Voice, Speaker::Relayed]
+    );
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test]
+async fn a_call_picked_up_again_remembers_what_its_thread_says() {
+    let fake = Arc::new(Fake::default());
+    *lock(&fake.front) = Some(Ok(("Go on.".into(), false)));
+    let (_root, desk, calls) = desk(with_fake(fake));
+    let persona = {
+        use crate::contract::Command;
+        let handle: Arc<dyn RoomHandle> = desk.clone();
+        let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Keep the build green","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
+        crate::wire::commands::run(create, &desk.log, &handle)
+            .await
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let id = Uuid::new_v4().to_string();
+    // What an earlier process kept of the call.
+    for (kind, text) in [
+        ("user", "We were talking about the harbour."),
+        ("agent", "Yes, the cranes."),
+    ] {
+        desk.log
+            .append(
+                &StreamId::Call(id.clone()),
+                &json!({"kind": kind, "id": text, "ts": 1, "text": text}),
+            )
+            .unwrap();
+    }
+    calls
+        .start_target(&id, Some(persona), false, desk.clone())
+        .unwrap();
+    let exchange = calls.change(&id, |call| Ok(call.exchange.clone())).unwrap();
+    let remembered: Vec<String> = lock(&exchange)
+        .lines()
+        .into_iter()
+        .map(|line| line.text)
+        .collect();
+    assert_eq!(
+        remembered,
+        ["We were talking about the harbour.", "Yes, the cranes."]
+    );
+    assert!(lock(&exchange).unseen().is_empty());
+    calls.end(&id).unwrap();
+}
+
+#[tokio::test]
+async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_not() {
+    let (_root, desk, calls, id, persona, _rx) = direct_call(Ok(("Go on.".into(), false))).await;
+    let room = calls.room.upgrade().unwrap();
+    let mut looked_again = std::collections::HashMap::new();
+    until_written("the link", || call_link(&desk, &persona).is_some()).await;
+
+    room.sweep(
+        crate::session::now_ms() + crate::thread::QUIET_MS - 60_000,
+        &mut looked_again,
+    )
+    .await;
+    assert_eq!(
+        calls.subscribe(&id).unwrap().0,
+        VoiceEvent::State {
+            state: VoiceState::Listening,
+            reason: None
+        },
+        "not quiet for long enough"
+    );
+
+    room.sweep(
+        crate::session::now_ms() + crate::thread::QUIET_MS + 60_000,
+        &mut looked_again,
+    )
+    .await;
+    assert_eq!(
+        calls.subscribe(&id).unwrap().0,
+        VoiceEvent::State {
+            state: VoiceState::Ended,
+            reason: Some(VoiceEndReason::Idle)
+        }
+    );
+    until_written("the closing link", || {
+        call_link(&desk, &persona).is_some_and(|link| link["state"] == "closed")
+    })
+    .await;
+    let link = call_link(&desk, &persona).unwrap();
+    assert_eq!(link["end"], "idle");
+    assert_eq!(link["outcome"], "Went quiet");
+}
+
+#[tokio::test]
+async fn a_desk_call_is_kept_on_the_dispatchers_tape_and_is_no_thread() {
+    let (_root, desk, calls) = desk(services());
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk.clone()).unwrap();
+    utterance(&calls, &id, 1).unwrap();
+    let (_, mut rx) = calls.subscribe(&id).unwrap();
+    event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
+    assert!(
+        desk.log.load(&StreamId::Call(id.clone())).is_empty(),
+        "no thread, and so no call stream"
+    );
+    assert!(!desk.log.load(&StreamId::Tape(TAPE_ID.into())).is_empty());
+    calls.end(&id).unwrap();
+}
+
+#[test]
+fn a_direct_calls_turn_names_its_call_thread_and_a_desk_calls_does_not() {
+    let direct = Origin {
+        call_id: Uuid::new_v4().to_string(),
+        seq: 3,
+        direct: true,
+    };
+    let from = direct.from().unwrap();
+    assert_eq!(from.kind, crate::thread::ThreadKind::Call);
+    assert_eq!(from.thread, direct.call_id);
+    assert_eq!(from.request.as_deref(), Some("3"));
+    assert_eq!(Origin::from_delivery(&from), Some(direct));
+    let desk = Origin {
+        direct: false,
+        ..Origin {
+            call_id: Uuid::new_v4().to_string(),
+            seq: 1,
+            direct: false,
+        }
+    };
+    assert_eq!(desk.from(), None, "a desk call is no thread");
+    let pair = crate::contract::DeliveryFrom::new(&crate::thread::ThreadId::pair("a\u{1f}b"), None);
+    assert_eq!(Origin::from_delivery(&pair), None);
 }

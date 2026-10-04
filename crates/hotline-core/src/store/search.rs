@@ -537,12 +537,17 @@ fn index_chapter(database: &Connection, persona_id: &str, chapter: &Value) -> ru
     Ok(())
 }
 
-/// The side threads and runs a teammate's tape carries a link for.
+/// The side threads, runs and calls a teammate's tape carries a link for.
 fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
     events
         .iter()
         .filter_map(Link::read)
-        .filter(|link| matches!(link.thread.kind, ThreadKind::Side | ThreadKind::Run))
+        .filter(|link| {
+            matches!(
+                link.thread.kind,
+                ThreadKind::Side | ThreadKind::Run | ThreadKind::Call
+            )
+        })
         .filter_map(|link| {
             let stream = link.thread.stream()?;
             Some((link.thread, stream))

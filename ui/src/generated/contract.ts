@@ -97,6 +97,11 @@ id: string,
 name: string, };
 
 /**
+ * Whether a call is still going.
+ */
+export type CallStatus = "live" | "ended";
+
+/**
  * One job the owner can pick a provider for.
  */
 export type CapabilityJob = { 
@@ -1439,7 +1444,23 @@ note?: string,
  * its first turn, and the harness that issued it. What lets a parked
  * or archived thread be reopened with recall.
  */
-sessionId?: string, backendId?: string, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
+sessionId?: string, backendId?: string, } | { "kind": "call", id: string, 
+/**
+ * When the call started. The line keeps its place as it is rewritten.
+ */
+ts: number, callId: string, 
+/**
+ * "Call", or what the closing note called it.
+ */
+title: string, status: CallStatus, 
+/**
+ * How long it lasted, once it has ended.
+ */
+durationMs?: number, 
+/**
+ * Once ended: what it came to, in a line, or how it ended.
+ */
+outcome?: string, } | { "kind": "chapter", id: string, ts: number, backendId: string, sessionId?: string, endedAt?: number, title?: string, 
 /**
  * The handoff note: goal, outcome, open loops, decisions, files.
  */

@@ -356,6 +356,22 @@ pub fn side_path(root: &Path, id: &str) -> Option<PathBuf> {
     plausible.then(|| sides_dir(root).join(format!("{id}.jsonl")))
 }
 
+/// Where voice calls keep their transcripts, one file per call.
+pub fn calls_dir(root: &Path) -> PathBuf {
+    root.join("calls")
+}
+
+/// The file one call's events are written to. A call id is a UUID the client
+/// minted, so anything with a character a UUID never has names no file.
+pub fn call_path(root: &Path, id: &str) -> Option<PathBuf> {
+    let plausible = !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-');
+    plausible.then(|| calls_dir(root).join(format!("{id}.jsonl")))
+}
+
 pub fn thread_meta_path(root: &Path, key: &str) -> Option<PathBuf> {
     thread_participants(key)?;
     Some(managed_path(&threads_dir(root), key, ".json"))

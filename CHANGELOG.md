@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-10-04
+
 ### Added
 
 - Threads open in the right-hand pane, whatever they are. The pane lists the

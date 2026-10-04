@@ -9,7 +9,7 @@ to say where its bytes landed, and two of those at once would be told an
 offset that is already taken. Opening a log touches nothing: a stream's
 file is made when something is appended to it.
 
-Five streams, one rule for all of them:
+Six streams, one rule for all of them:
 
 | Stream | File | One per |
 | --- | --- | --- |
@@ -18,6 +18,7 @@ Five streams, one rule for all of them:
 | `Pair(key)` | `threads/<key>.jsonl` | pair |
 | `Run(id)` | `runs/<id>.jsonl` | subagent run |
 | `Side(id)` | `sides/<id>.jsonl` | side thread |
+| `Call(id)` | `calls/<id>.jsonl` | direct voice call |
 
 A subscriber is handed every event appended after it asked. History is
 `Log::load`, not replayed on subscribe. A stream nobody is still
@@ -102,6 +103,17 @@ here is left alone. A thread whose sides are both strangers is skipped.
 
 A label for a side the roster cannot resolve is written onto an existing
 sidecar. No sidecar, no invented one.
+
+## Calls
+
+A direct voice call is a stream of its own, `calls/<callId>.jsonl`, named by the
+UUID the client minted for the call and checked like a side id. It has no
+segments and no sidecar. It holds the call's `link` (rewritten as the call goes),
+then the person's lines (`user`), what the voice said (`agent`) and the
+teammate's reports it retold (`agent` with `relayed: true`). It is kept after the
+call ends, and the teammate's search index reads it as it does a side thread. A
+call with no teammate, a desk call, is not here: it is on the `voice-dispatcher`
+tape.
 
 ## Side threads
 

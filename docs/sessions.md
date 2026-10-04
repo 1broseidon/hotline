@@ -1249,15 +1249,17 @@ are read as the links they stand for (`Link::read`), render as they were, and ar
 searched and resumed as before. When such a thread next changes, its line is
 rewritten as a link *under the id it already has*, so it is replaced in place and
 never joined by a second line. The contract does not include `link`: it is never
-sent.
+sent. A call's link is sent as a `call` marker, which is new: a client that does
+not know the kind skips it, as the phone does.
 
 **Deliveries.** A delivery carries where it came from as a field,
 `from: {thread, kind, request}` (`DeliveryFrom`), written beside its `cause`. A
-delivery written before the field has none. The turn loop still reads the prefix
-of the id a line was written under (`voice:`, `handoff:`, `exchange-result:`,
-`human-answer:`), because every producer of those is a kind that is ported in a
-later phase; the reads move onto `from` with them. Sides and runs deliver nothing
-into a DM by id.
+delivery written before the field has none. A direct call's turn says which call
+it came from (`from`), and the turn loop reads that; only the desk's calls, which
+are no thread, are still read off the `voice:` id. It still reads the prefix of
+the id for `handoff:`, `exchange-result:` and `human-answer:`, because every
+producer of those is a kind that is ported in a later phase; the reads move onto
+`from` with them. Sides and runs deliver nothing into a DM by id.
 
 ## Lifecycle
 
@@ -1270,17 +1272,19 @@ once:
 - **The sweep.** `Room::sweep` runs on the room's minute and applies every
   kind's idle policy: a side thread is parked after three hours with nobody
   speaking in it and no turn running, and a run has no idle (it ends with its
-  work). The DM's chapter sweep (`sweep_chapters`) and the peer session's quiet
-  clock (`sweep_peers`) are called from it, to be ported with their kinds. A
-  call's own ten-minute clock is still the voice's.
+  work). A call that nobody has spoken on for ten minutes is ended there (the
+  voice reports how long each call has been quiet, and `Calls::end_quiet` ends
+  it). The DM's chapter sweep (`sweep_chapters`) and the peer session's quiet
+  clock (`sweep_peers`) are called from it, to be ported with their kinds.
 - **The settle.** `Room::settle` runs as the room opens, before anything is
   served. It expires a card the last process left open on any tape or pair, moves
   every thread a link says was left live by its kind's restart policy (a side
-  thread is parked, a run is closed as cancelled), compacts, syncs the index and
+  thread is parked, a run is closed as cancelled, a call is closed as stopped
+  with its transcript kept), compacts, syncs the index and
   then calls `reconcile_exchanges` for the pairs. `recover_exchanges`, which
   needs the runtime and the first sweep's delay, is still started with the sweep.
-- **The closing note.** `Room::queue_closing_note` is the one path: sides use it
-  now, and a call's row is set for phase 5.
+- **The closing note.** `Room::queue_closing_note` is the one path: sides and calls use
+  it.
 
 What is not shared yet: a live side thread (`LiveSide`) and a run (`Running`)
 each hold their own driver and lease, and close through `end_side` and

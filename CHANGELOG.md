@@ -42,6 +42,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A teammate runs at most two side threads at a time. Only running agents count:
   starting a third parks the one you have left alone longest, and parked and
   archived threads take no place.
+- A voice call with a teammate is kept: what you and the voice said, and the
+  teammate's reports it relayed, are saved with the call and survive a restart.
+  `search_thread` finds them, and the conversation shows one quiet line for the
+  call, "Call · 4 min · Hung up". A call a restart cut off is closed and says so.
 
 ### Changed
 

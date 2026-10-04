@@ -161,6 +161,14 @@ latest chapter closed with and the newest 24 entries of its conversation. A
 scheduled prompt, a colleague's message or an answer to a request is named for
 what it is in that data, never as something the person said. A question about
 how the work is going is answered from that and reaches no session.
+The exchange is only what the voice is given: a direct call is a thread
+(`docs/threads.md`), and everything said on it is kept in `calls/<id>.jsonl`,
+indexed for `search_thread`, linked from the teammate's DM and read back after
+the call ends. A call picked up again under its id rebuilds its exchange from
+that thread, under the same caps. A call nobody has spoken on for ten minutes
+is ended by the room's sweep, and one a restart cut off is closed as stopped.
+The desk's own calls, which name no teammate, are not threads; they stay on the
+`voice-dispatcher` tape, which the dispatcher reads across calls.
 A request for work calls the front's one tool, `hand_to_session`, which hands
 the words to the teammate's session as a call without a front would, at most
 once per utterance; the front then says a short acknowledgement. The session

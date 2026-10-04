@@ -164,7 +164,7 @@ DM is ported last, because it has the most to lose.
 5. **Calls are threads.** Persist the call transcript to `calls/<id>.jsonl`,
    index it, link it to the DM, and let a closed call be read back.
    *Done when:* a call's lines survive a restart and `search_thread` finds
-   them.
+   them. **Done**, for direct calls.
 6. **Pairs are threads.** Port asks and handoffs. Give peer cards an answer
    path, index pair threads, and fold read receipts into the shared unread.
    *Done when:* a card raised in a peer turn can be answered, and pair
@@ -324,6 +324,42 @@ Where this differs from the design above:
 - **`Room::me`** is the room's own weak handle, replacing the one `Sides` kept
   for the closing note.
 
+**Phase 5.** A direct call (one with a teammate) is a thread of kind `Call`.
+`ThreadId::stream()` is `StreamId::Call`, `calls/<id>.jsonl`, and
+`Threads::write` takes it. `voice/record.rs` is the call's writer: the call
+pushes each person, voice and relayed line (`relayed: true`) on a channel and a
+task of its own appends them in order, so nothing on the live path waits on a
+file or the index. The same task writes the call's link (`Room::call_began`,
+`call_ended`, which also queue the closing note) with its `outcome` ("Hung up",
+"Went quiet", ...) and its `end`. `search_teammate` indexes a call's stream
+with side and run lines, named `call:<id>`. `Exchange::from_thread` rebuilds the
+voice's memory from the stream under the exchange's own caps when a call is
+picked up again under an id it had. The call's quiet clock is gone from the
+voice: `Calls::quiet` reports how long each call has been quiet, and
+`Room::sweep` applies the `Call` policy's `Idle::Close(QUIET_MS)`. `settle`
+closes a call the last process left live as stopped, at the time of its last
+line. A direct call's turn names its thread (`Wired::from`, `Origin::from`), so
+the `voice:` id is read only for the desk's calls.
+
+Where this differs from the design above:
+
+- **Desk calls stay on the `voice-dispatcher` tape.** They name no teammate, so
+  they have no DM to hang off, and the dispatcher reads that tape's tail as what
+  was said on the desk lately, across calls. A thread per desk call would take
+  that context away. They are indexed as before, still end in the sweep, and
+  have no thread or marker.
+- **The client marker is `call`, additive.** `Link::wire` sends a call's link as
+  `TranscriptEvent::Call` (`callId`, `title`, `status`, `durationMs`,
+  `outcome`). The desktop draws a quiet line, "Call · 4 min · Hung up". It has
+  no Open yet: reading a closed call in the pane waits for the thread view
+  (phase 9). The phone drops transcript kinds it does not know (its tape filter
+  and renderer have no case for them), so no capability gate was needed.
+- **Memory is rebuilt only for a call taken up again.** A call id is minted by
+  the client for each call, so this matters for a call re-opened under its id;
+  the rest of the call's lines are read from the thread by nothing else yet.
+- **A call that settles has no `parked` state.** Its restart row is `Close`
+  (stopped), as designed; there is nothing to resume.
+
 ## Today
 
 The map this design replaces, as of `qa/sides-voice` (main, plus side
@@ -332,17 +368,17 @@ the phases built so far.
 
 | Concern | DM | Side | Pair | Call | Run |
 | --- | --- | --- | --- | --- | --- |
-| Stream | `Tape` | `Side` | `Pair(key)` + sidecar + `exchange_pair` on Room | memory (`Exchange`); desk calls on a `voice-dispatcher` tape | `Run` |
-| Write helper | `write_value` | `Threads::write` | `write_thread`, `exchange_thread_line` | `voice_record` | `Threads::write` |
+| Stream | `Tape` | `Side` | `Pair(key)` + sidecar + `exchange_pair` on Room | `Call`; desk calls on a `voice-dispatcher` tape | `Run` |
+| Write helper | `write_value` | `Threads::write` | `write_thread`, `exchange_thread_line` | `Threads::write` (desk calls: `voice_record`) | `Threads::write` |
 | Agent builder | `start_now` | `bring_up` | `peer_session` | dispatcher front | `run_to_end` |
 | Turn loop | `run_turns` + `Turns` | `run_side_turns` + `Turns` | `drive` | voice `run` | `drive_with` |
-| Resume | persona checkpoints | marker `sessionId` | reseed from thread | none | none |
-| Idle | `sweep_chapters` | `Room::sweep` (3 h) | `sweep_peers` (10 min) | own loop (10 min) | `Room::sweep` (none) |
-| Restart | `Room::settle` | `Room::settle` | `Room::settle` + `reconcile_exchanges`, `recover_exchanges` | lost | `Room::settle` |
-| Marker | — | link | `xthread:`, `exchange-paused:` | `voice:` id grammar | link |
+| Resume | persona checkpoints | marker `sessionId` | reseed from thread | `Exchange::from_thread` | none |
+| Idle | `sweep_chapters` | `Room::sweep` (3 h) | `sweep_peers` (10 min) | `Room::sweep` (10 min) | `Room::sweep` (none) |
+| Restart | `Room::settle` | `Room::settle` | `Room::settle` + `reconcile_exchanges`, `recover_exchanges` | `Room::settle` (closed) | `Room::settle` |
+| Marker | — | link | `xthread:`, `exchange-paused:` | link (`call`); `voice:` id for desk calls | link |
 | Cards answered by | `session.answer_permission` | `side.answer_permission` | nobody | never | nobody (expired) |
 | Push / waiting | yes | yes | no | fallback push | no |
-| Search | indexed | indexed | no | desk calls only | indexed |
+| Search | indexed | indexed | no | indexed | indexed |
 | Desktop hook | `useTape` | `useSide` | `useThread` | `voice/call.ts` | `useRun` |
 | Phone hook | team state | `use-side` (unreleased) | `use-peer-thread` | `voice/call.ts` | `use-run` |
 

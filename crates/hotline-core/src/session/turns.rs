@@ -1,23 +1,28 @@
 //! The turns of an agent, queued and driven.
 //!
 //! [`Turns`] is the queue behind one agent: the lines said while it is in the
-//! middle of a turn, and whether a driver holds it. [`Threads::turn`] is what
-//! one turn of a thread's agent is, for every kind that is built by
-//! [`Room::thread_agent`]: it drives the agent, writes what it does to the
-//! thread through the shared write path, and refuses an agent a card nobody
-//! may answer. A side thread loops over its queue with it, and a run is one
-//! turn of it.
-//!
-//! The main conversation still runs `run_turns`, on the same [`Turns`] and
-//! the same driver loop ([`super::runner::drive_with`]), until it is ported.
+//! middle of a turn, and whether a driver holds it. [`Room::run_queue`] is the
+//! one loop over it, for every kind of thread with a live agent: the DM and a
+//! work thread are each an [`Occupant`], which says what is its own at the
+//! few places a kind differs (whether its agent still answers, whether a line
+//! may begin a turn, what the turn does with what the agent says, what is done
+//! when it ends). [`Threads::turn`] is what one turn is, for those and for a
+//! run: it drives the agent, and its [`Witness`] writes what the agent does to
+//! the thread. A work thread's and a run's witness is [`Told`], which writes
+//! through the shared write path and refuses an agent a card nobody may answer;
+//! the DM's is its own (`session/dm.rs`), which also stamps the tape, reads
+//! lines on, and tells the phone.
 
-use super::Wired;
-use super::runner::{Driven, drive_with};
+use super::runner::{Driven, Witness, drive_updates};
 use super::threads::Threads;
-use crate::contract::{Attachment, Reach, StreamDelta};
-use crate::driver::{Driver, MessageKind};
+use super::{Room, Wired, lock};
+use crate::contract::{Attachment, Reach, StreamDelta, TranscriptEvent};
+use crate::driver::{Driver, MessageKind, Update};
 use crate::thread::{ThreadId, ThreadKind};
 use std::collections::VecDeque;
+use std::future::Future;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 /// The lines waiting for an agent, and whether a driver is already taking
@@ -100,15 +105,63 @@ pub(super) struct Seat<'a> {
     pub driver: &'a dyn Driver,
 }
 
+/// What starts a turn: a line the driver is told, or the work the agent took
+/// up by itself, which is already under way and only has to be read.
+pub(super) enum Source {
+    Say {
+        text: String,
+        attachments: Vec<Attachment>,
+    },
+    Updates(mpsc::Receiver<Update>),
+}
+
+impl From<Line> for Source {
+    fn from(line: Line) -> Self {
+        Self::Say {
+            text: line.text,
+            attachments: line.attachments,
+        }
+    }
+}
+
+/// How a work thread's turn and a run's are written: through the shared write
+/// path, and nothing once the thread is over. A card nobody may answer comes
+/// back refused by the write, and the agent is told no, so it is not left
+/// waiting on a button nobody can press.
+struct Told<'a, F> {
+    threads: Threads<'a>,
+    seat: Seat<'a>,
+    open: F,
+}
+
+impl<F: Fn() -> bool> Witness for Told<'_, F> {
+    fn delta(&mut self, kind: MessageKind, message_id: &str, text: &str, muted: bool) {
+        if !(self.open)() {
+            return;
+        }
+        if let Some(delta) = delta_of(self.seat.thread, kind, message_id, text, muted) {
+            let _ = self.threads.room.deltas.send(delta);
+        }
+    }
+
+    fn write(&mut self, event: TranscriptEvent, _asked: bool) {
+        if !(self.open)() {
+            return;
+        }
+        let written = self
+            .threads
+            .write(self.seat.thread, self.seat.persona_id, &event);
+        for refusal in written.refused {
+            refusal.deliver(self.seat.driver);
+        }
+    }
+}
+
 impl Threads<'_> {
-    /// Drives one turn of a thread's agent to its end, writing what it does
-    /// to `thread` as it goes. Nothing is written or announced once `open`
-    /// says the thread is over.
-    ///
-    /// A card the thread's policy says nobody answers comes back refused by
-    /// the write, and the agent is told no, so it is not left waiting on a
-    /// button nobody can press. A cancel stops the agent and still reads
-    /// what the turn's own end was.
+    /// Drives one turn of a work thread's or a run's agent to its end, writing
+    /// what it does to the thread as it goes. Nothing is written or announced
+    /// once `open` says the thread is over. A cancel stops the agent and still
+    /// reads what the turn's own end was.
     pub(super) async fn turn(
         &self,
         seat: Seat<'_>,
@@ -117,35 +170,123 @@ impl Threads<'_> {
         cancel: Option<&CancellationToken>,
         open: impl Fn() -> bool,
     ) -> Driven {
-        let Seat {
-            thread,
-            persona_id,
-            driver,
-        } = seat;
-        drive_with(
-            driver,
-            line.text,
-            line.attachments,
-            reach,
-            cancel,
-            |kind, message_id, text, muted| {
-                if !open() {
-                    return;
+        let driver = seat.driver;
+        let mut told = Told {
+            threads: Threads { room: self.room },
+            seat,
+            open,
+        };
+        self.drive(driver, line.into(), reach, cancel, None, &mut told)
+            .await
+    }
+
+    /// Drives one turn of a thread's agent to its end, telling `witness` what
+    /// it does as it goes. `ready` wakes the turn when a line is queued behind
+    /// it, for a witness that steers.
+    pub(super) async fn drive(
+        &self,
+        driver: &dyn Driver,
+        source: Source,
+        reach: Reach,
+        cancel: Option<&CancellationToken>,
+        ready: Option<&tokio::sync::Notify>,
+        witness: &mut impl Witness,
+    ) -> Driven {
+        let updates = match source {
+            Source::Say { text, attachments } => driver.prompt(text, attachments, reach).await,
+            Source::Updates(updates) => updates,
+        };
+        drive_updates(driver, updates, cancel, ready, witness).await
+    }
+}
+
+/// What a line came to at the door of its turn.
+pub(super) enum Begin<H> {
+    /// The line does not begin a turn: it is spent, or it is no longer wanted.
+    Skip,
+    /// The thread is not answering any more, and the queue is let go of.
+    Stop,
+    /// The turn is to be taken, with what the kind holds through it.
+    Go(H),
+}
+
+/// What the loop does once a turn is over.
+pub(super) enum Then {
+    Next,
+    Stop,
+}
+
+/// The live agent of a thread that is answered in turns, as the one loop
+/// ([`Room::run_queue`]) sees it. Each kind says what is its own at the
+/// points where kinds differ: the DM in `session/dm.rs`, a work thread in
+/// `session/sides.rs`.
+pub(super) trait Occupant: Send + Sync + 'static {
+    /// What the kind queues: the DM's lines carry what a schedule, a call or a
+    /// delivery stamped on them, and a work thread's carry a handoff.
+    type Line: Send + 'static;
+    /// What the kind keeps from the door of a turn to its end.
+    type Held: Send + 'static;
+
+    fn queue(&self) -> &Mutex<Turns<Self::Line>>;
+    fn persona_id(&self) -> &str;
+    fn thread(&self) -> ThreadId;
+
+    /// Whether this agent is still the one that answers: its authority is
+    /// current and the room still holds it.
+    fn answering(self: &Arc<Self>, room: &Room) -> bool;
+
+    /// The agent is not answering, and what waited for it is let go of.
+    fn abandon(self: &Arc<Self>) {}
+
+    /// Whether the line begins a turn, and what the kind holds for it.
+    fn begin(
+        self: &Arc<Self>,
+        room: &Arc<Room>,
+        line: Self::Line,
+    ) -> impl Future<Output = Begin<Self::Held>> + Send;
+
+    /// The turn itself: one [`Threads::drive`] with the kind's witness.
+    fn turn(
+        self: &Arc<Self>,
+        room: &Arc<Room>,
+        held: &mut Self::Held,
+    ) -> impl Future<Output = Driven> + Send;
+
+    /// What the kind does when a turn is over, before the next line is taken.
+    fn end(self: &Arc<Self>, room: &Arc<Room>, held: Self::Held, driven: Driven) -> Then;
+
+    /// The queue is empty, or the loop stopped: the agent is at rest.
+    fn rest(self: &Arc<Self>, room: &Arc<Room>);
+}
+
+impl Room {
+    /// Drives a thread's turns, one after another, until none is waiting. The
+    /// caller holds the claim on the queue ([`Turns::claim`]) and hands in the
+    /// line it claimed.
+    pub(super) async fn run_queue<O: Occupant>(self: Arc<Self>, occupant: Arc<O>, first: O::Line) {
+        let mut next = Some(first);
+        while let Some(line) = next.take() {
+            if !occupant.answering(&self) {
+                occupant.abandon();
+                break;
+            }
+            match occupant.begin(&self, line).await {
+                Begin::Skip => {}
+                Begin::Stop => break,
+                Begin::Go(mut held) => {
+                    let driven = occupant.turn(&self, &mut held).await;
+                    self.let_go_of_computer(
+                        occupant.persona_id(),
+                        &super::agent::lease_key(&occupant.thread()),
+                    );
+                    if let Then::Stop = occupant.end(&self, held, driven) {
+                        break;
+                    }
                 }
-                if let Some(delta) = delta_of(thread, kind, message_id, text, muted) {
-                    let _ = self.room.deltas.send(delta);
-                }
-            },
-            |event, _| {
-                if !open() {
-                    return;
-                }
-                for refusal in self.write(thread, persona_id, &event).refused {
-                    refusal.deliver(driver);
-                }
-            },
-        )
-        .await
+            }
+            next = lock(occupant.queue()).next_line();
+        }
+        occupant.rest(&self);
     }
 }
 

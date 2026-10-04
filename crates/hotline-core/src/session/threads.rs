@@ -182,6 +182,21 @@ impl Threads<'_> {
         written
     }
 
+    /// A card the turn left open is a button nobody is behind: expires every
+    /// permission card the thread still shows, through the write path.
+    pub(super) fn expire_asked(&self, thread: &ThreadId, persona_id: &str) {
+        let Some(stream) = thread.stream() else {
+            return;
+        };
+        for expired in
+            crate::log::expire_orphaned_permissions(&self.room.log.load(&stream), now_ms())
+        {
+            if expired.get("kind").and_then(Value::as_str) == Some("permission") {
+                self.write(thread, persona_id, &expired);
+            }
+        }
+    }
+
     fn index(&self, persona_id: &str, thread: &ThreadId, event: &Value) {
         let mut indexer = super::lock(&self.room.indexer);
         let Some(indexer) = indexer.as_mut() else {

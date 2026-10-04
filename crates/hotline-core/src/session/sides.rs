@@ -59,7 +59,8 @@
 //! folder is shared, and it is told that too.
 
 use super::agent::{Opening, lease_of};
-use super::turns::{HandoffLine, Line, Seat, Turns};
+use super::runner::Driven;
+use super::turns::{Begin, HandoffLine, Line, Occupant, Seat, Then, Turns};
 use super::{Room, lock, new_id, now_ms, timed_from};
 use crate::contract::{
     Attachment, DeliveryCause, DeliveryFrom, NoticeLevel, PermissionOption, Persona, Receipt,
@@ -191,6 +192,115 @@ impl LiveSide {
         }
         room.threads()
             .write(&ThreadId::side(&self.id), &self.persona_id, event);
+    }
+}
+
+/// What a work thread keeps from the door of a turn to its end: the line, until
+/// it is handed to the driver.
+pub(super) struct WorkTurn {
+    line: Option<Line>,
+}
+
+impl Occupant for LiveSide {
+    type Line = Line;
+    type Held = WorkTurn;
+
+    fn queue(&self) -> &Mutex<Turns<Line>> {
+        &self.turns
+    }
+
+    fn persona_id(&self) -> &str {
+        &self.persona_id
+    }
+
+    fn thread(&self) -> ThreadId {
+        ThreadId::side(&self.id)
+    }
+
+    fn answering(self: &Arc<Self>, _room: &Room) -> bool {
+        !self.closed.load(Ordering::SeqCst) && self.capability.check().is_ok()
+    }
+
+    /// A handoff's turn is the exchange's: it begins only while the request is
+    /// still running, and its result is saved when it ends.
+    async fn begin(self: &Arc<Self>, room: &Arc<Room>, line: Line) -> Begin<WorkTurn> {
+        if let Some(handoff) = &line.handoff {
+            if let Some(action) = &handoff.answer
+                && let Err(error) = room.resume_handoff_answer(&handoff.request, action).await
+            {
+                eprintln!("handoff answer not started: {error}");
+                return Begin::Skip;
+            }
+            if let Err(error) = room.begin_handoff(&handoff.request) {
+                eprintln!("handoff not started: {error}");
+                return Begin::Skip;
+            }
+            *lock(&self.handoff) = Some(handoff.request.clone());
+        }
+        Begin::Go(WorkTurn { line: Some(line) })
+    }
+
+    async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut WorkTurn) -> Driven {
+        let thread = self.thread();
+        let line = held.line.take().expect("a turn is taken once");
+        room.threads()
+            .turn(
+                Seat {
+                    thread: &thread,
+                    persona_id: &self.persona_id,
+                    driver: self.driver.as_ref(),
+                },
+                line,
+                room.reach_of(&self.persona_id),
+                None,
+                || !self.closed.load(Ordering::SeqCst),
+            )
+            .await
+    }
+
+    fn end(self: &Arc<Self>, room: &Arc<Room>, _held: WorkTurn, driven: Driven) -> Then {
+        let side = self;
+        *lock(&side.last_used) = now_ms();
+        if side.closed.load(Ordering::SeqCst) {
+            return Then::Stop;
+        }
+        room.remember_session(side, &driven);
+        // A card the turn left open is a button nobody is behind.
+        if driven.asked {
+            room.threads()
+                .expire_asked(&side.thread(), &side.persona_id);
+        }
+        let said_so = lock(&side.archive_note).take();
+        if let Some(request) = lock(&side.handoff).take() {
+            // The handoff's result is what the teammate said when it was
+            // done. The thread closes with it unless the turn stopped to
+            // wait for the person, in which case it is the person's answer
+            // that carries it on.
+            let failed = driven.stop_reason.as_deref().is_none_or(|reason| {
+                matches!(
+                    reason,
+                    "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
+                )
+            });
+            let reply = if failed && driven.replies.is_empty() {
+                "The handoff turn ended without a result; inspect before retrying.".to_string()
+            } else {
+                driven.replies.join("\n\n")
+            };
+            if !room.finish_handoff(&request, reply, failed) {
+                room.finish_side(side, if failed { End::Failed } else { End::Agent }, None);
+                return Then::Stop;
+            }
+        } else if let Some(summary) = said_so {
+            room.finish_side(side, End::Agent, Some(summary));
+            return Then::Stop;
+        }
+        Then::Next
+    }
+
+    fn rest(self: &Arc<Self>, room: &Arc<Room>) {
+        lock(&self.turns).running = false;
+        let _ = room.info_changes.send(room.info(&self.persona_id));
     }
 }
 
@@ -825,7 +935,7 @@ impl Room {
         let side = side.clone();
         tokio::spawn(async move {
             let _working = working;
-            room.run_side_turns(side, queued).await;
+            room.run_queue(side, queued).await;
         });
     }
 
@@ -911,94 +1021,6 @@ impl Room {
             || self
                 .link_of(&ThreadId::side(side_id))
                 .is_some_and(|link| !matches!(link.state, ThreadState::Closed(_)))
-    }
-
-    /// Drives the thread's turns, one after another, until none is waiting.
-    async fn run_side_turns(self: Arc<Self>, side: Arc<LiveSide>, first: Line) {
-        let thread = ThreadId::side(&side.id);
-        let mut next = Some(first);
-        while let Some(line) = next.take() {
-            if side.closed.load(Ordering::SeqCst) || side.capability.check().is_err() {
-                break;
-            }
-            // A handoff's turn is the exchange's: it begins only while the
-            // request is still running, and its result is saved when it ends.
-            if let Some(handoff) = &line.handoff {
-                if let Some(action) = &handoff.answer
-                    && let Err(error) = self.resume_handoff_answer(&handoff.request, action).await
-                {
-                    eprintln!("handoff answer not started: {error}");
-                    next = lock(&side.turns).next_line();
-                    continue;
-                }
-                if let Err(error) = self.begin_handoff(&handoff.request) {
-                    eprintln!("handoff not started: {error}");
-                    next = lock(&side.turns).next_line();
-                    continue;
-                }
-                *lock(&side.handoff) = Some(handoff.request.clone());
-            }
-            let reach = self.reach_of(&side.persona_id);
-            let driven = self
-                .threads()
-                .turn(
-                    Seat {
-                        thread: &thread,
-                        persona_id: &side.persona_id,
-                        driver: side.driver.as_ref(),
-                    },
-                    line,
-                    reach,
-                    None,
-                    || !side.closed.load(Ordering::SeqCst),
-                )
-                .await;
-            *lock(&side.last_used) = now_ms();
-            self.let_go_of_computer(&side.persona_id, &format!("side:{}", side.id));
-            if side.closed.load(Ordering::SeqCst) {
-                break;
-            }
-            self.remember_session(&side, &driven);
-            // A card the turn left open is a button nobody is behind.
-            if driven.asked {
-                let stream = StreamId::Side(side.id.clone());
-                for expired in
-                    crate::log::expire_orphaned_permissions(&self.log.load(&stream), now_ms())
-                {
-                    if expired.get("kind").and_then(Value::as_str) == Some("permission") {
-                        self.threads().write(&thread, &side.persona_id, &expired);
-                    }
-                }
-            }
-            let said_so = lock(&side.archive_note).take();
-            if let Some(request) = lock(&side.handoff).take() {
-                // The handoff's result is what the teammate said when it was
-                // done. The thread closes with it unless the turn stopped to
-                // wait for the person, in which case it is the person's answer
-                // that carries it on.
-                let failed = driven.stop_reason.as_deref().is_none_or(|reason| {
-                    matches!(
-                        reason,
-                        "failed" | "cancelled" | "canceled" | "aborted" | "revoked"
-                    )
-                });
-                let reply = if failed && driven.replies.is_empty() {
-                    "The handoff turn ended without a result; inspect before retrying.".to_string()
-                } else {
-                    driven.replies.join("\n\n")
-                };
-                if !self.finish_handoff(&request, reply, failed) {
-                    self.finish_side(&side, if failed { End::Failed } else { End::Agent }, None);
-                    break;
-                }
-            } else if let Some(summary) = said_so {
-                self.finish_side(&side, End::Agent, Some(summary));
-                break;
-            }
-            next = lock(&side.turns).next_line();
-        }
-        lock(&side.turns).running = false;
-        let _ = self.info_changes.send(self.info(&side.persona_id));
     }
 
     /// Ends a thread for good, until it is continued: its agent stopped, its

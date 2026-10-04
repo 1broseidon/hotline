@@ -37,6 +37,7 @@
 mod agent;
 pub(crate) mod avatar;
 mod chapters;
+mod dm;
 mod escalation;
 pub(crate) mod exchanges;
 pub(crate) mod files;
@@ -82,7 +83,7 @@ use crate::mcp::server::TeammateTools;
 use crate::room;
 use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
-use crate::thread::{ThreadId, ThreadKind};
+use crate::thread::ThreadId;
 use crate::vault::Vault;
 use async_trait::async_trait;
 use chrono::{Local, TimeZone};
@@ -2497,7 +2498,7 @@ impl Room {
         let room = self.clone();
         tokio::spawn(async move {
             let _working = working;
-            room.run_turns(session, wire).await;
+            room.run_queue(session, wire).await;
         });
     }
 
@@ -2590,7 +2591,7 @@ impl Room {
                 let room = room.clone();
                 tokio::spawn(async move {
                     let _working = working;
-                    room.run_turns(session, wire).await;
+                    room.run_queue(session, wire).await;
                 });
             }
         });
@@ -4066,347 +4067,6 @@ impl Room {
             self.info(persona_id).state,
             SessionState::Thinking | SessionState::Starting
         )
-    }
-
-    async fn run_turns(self: Arc<Self>, session: Arc<Session>, first: Wired) {
-        let mut next = Some(first);
-        while let Some(wired) = next.take() {
-            if !session.capability.is_current() || !self.current_session(&session) {
-                let mut turns = lock(&session.turns);
-                turns.waiting.clear();
-                turns.running = false;
-                break;
-            }
-            // What a line is, and where it came from, is a field of it. The
-            // desk's own calls, which are no thread, are the one origin still
-            // read off the id they were written under.
-            *lock(&session.voice_origin) = call_origin(&wired);
-            // A result that came back from a colleague is heard once: it is
-            // consumed as its turn begins, and one the exchange has since
-            // stopped is never heard.
-            if wired
-                .from
-                .as_ref()
-                .filter(|from| matches!(from.kind, ThreadKind::Pair | ThreadKind::Side))
-                .and_then(|from| from.request.as_deref())
-                .is_some_and(|request| {
-                    self.is_exchange_request(request) && !self.begin_exchange_result(request)
-                })
-            {
-                next = lock(&session.turns).next_line();
-                continue;
-            }
-            self.set_state(&session, SessionState::Thinking);
-            let reach = self.reach_of(&session.persona_id);
-            if !session.capability.is_current() || !self.current_session(&session) {
-                let mut turns = lock(&session.turns);
-                turns.waiting.clear();
-                turns.running = false;
-                break;
-            }
-            if wired.scheduled.as_ref().is_some_and(|run| {
-                !schedule::scheduled_run_allowed(&self.log, &session.persona_id, run)
-            }) {
-                next = lock(&session.turns).next_line();
-                continue;
-            }
-            if let Some(said) = wired.said.clone() {
-                lock(&session.unread).push(said);
-            }
-            // A quiet run's replies are thinking; it is heard only by asking.
-            // Armed for this turn alone, and cleared for every other one.
-            let quiet_run = wired
-                .scheduled
-                .clone()
-                .filter(|run| run.quiet == Some(true));
-            let escalation = quiet_run
-                .as_ref()
-                .map(|_| Arc::new(escalation::Escalation::new()));
-            let mut updates = if let Some(unprompted) = &wired.unprompted {
-                let Some(updates) = lock(&unprompted.0).take() else {
-                    next = lock(&session.turns).next_line();
-                    continue;
-                };
-                updates
-            } else {
-                session.driver.escalate_next(
-                    escalation
-                        .clone()
-                        .map(|armed| armed as Arc<dyn crate::driver::Escalate>),
-                );
-                session
-                    .driver
-                    .prompt(wired.text, wired.attachments, reach)
-                    .await
-            };
-            let mut in_flight: HashMap<String, PendingTool> = HashMap::new();
-            // What the agent says between its tool calls is held here until
-            // the next update says whether it was narration or the report.
-            let mut voice = narration::Voice::new();
-            let mut asked = false;
-            let mut steered_inputs = Vec::new();
-            loop {
-                self.steer_waiting(&session, &mut steered_inputs);
-                let update = tokio::select! {
-                    biased;
-                    () = session.input_ready.notified() => continue,
-                    update = updates.recv() => update,
-                };
-                let Some(update) = update else { break };
-                for update in voice.step(update) {
-                    // A full context mid-turn is the driver's to carry on from:
-                    // it has rebuilt its history from what this turn committed,
-                    // under the same preamble and wake. A chapter is the
-                    // person's unit of work, not the model's window, so it
-                    // stays open, and with it the collaboration it holds: a
-                    // handoff in flight keeps its authority (BRO-150).
-                    if let Update::Chapter { boundary } = update {
-                        boundary.finish(None);
-                        continue;
-                    }
-                    asked |= matches!(update, Update::Permission { .. });
-                    self.record(&session, update, &mut in_flight, &voice);
-                }
-            }
-            // A driver that stopped without a turn — its model errored, its
-            // child died — leaves a tool spinning in the transcript forever,
-            // and a card nobody is behind. A line it was still holding is the
-            // last thing it said.
-            for update in voice.finish() {
-                self.record(&session, update, &mut in_flight, &voice);
-            }
-            self.let_go_of_computer(&session.persona_id, "dm");
-            self.fail_in_flight(&session, &mut in_flight);
-            self.send_glance(
-                &session,
-                wired
-                    .said
-                    .as_deref()
-                    .is_some_and(|id| id.starts_with("voice:")),
-            );
-            if asked {
-                // A permission the turn left open is a button nobody is
-                // behind. A `request_human` wait is not: the tool is still
-                // parked on it, and only the person, the deadline, or a
-                // session stop settles that card.
-                for expired in crate::log::expire_orphaned_permissions(
-                    &self.tape(&session.persona_id),
-                    now_ms(),
-                ) {
-                    if expired.get("kind").and_then(Value::as_str) == Some("permission") {
-                        self.write_value(&session.persona_id, &expired);
-                    }
-                }
-            }
-            for (text, attachments) in session.driver.take_unconsumed().into_iter().rev() {
-                // Drivers return the input's contents, not its tape identity.
-                // Match from the end because replay is requeued in reverse;
-                // identical inputs must keep their original order and origin.
-                let wire = if let Some(index) = steered_inputs
-                    .iter()
-                    .rposition(|wire| wire.text == text && wire.attachments == attachments)
-                {
-                    steered_inputs.remove(index)
-                } else {
-                    let mut wire = Wired::words(text);
-                    wire.attachments = attachments;
-                    wire
-                };
-                lock(&session.turns).waiting.push_front(wire);
-            }
-            if let (Some(run), Some(note)) = (
-                quiet_run,
-                escalation.as_ref().and_then(|armed| armed.take()),
-            ) {
-                self.escalate(&session, run, &note);
-            }
-            next = lock(&session.turns).next_line();
-        }
-        if !self.current_session(&session) || !session.capability.is_current() {
-            lock(&session.turns).running = false;
-            return;
-        }
-        self.set_state(&session, SessionState::Ready);
-        self.attach_computer_when_idle(&session.persona_id);
-        self.swap_computer_when_idle(&session.persona_id);
-    }
-
-    /// A quiet run found something: the teammate is prompted with it in the
-    /// open, next, so it answers the person as any reply is answered. The
-    /// line is stamped with the job but not quiet, so no window opens over
-    /// the answer.
-    fn escalate(&self, session: &Session, run: ScheduledRun, note: &str) {
-        let run = ScheduledRun { quiet: None, ..run };
-        let ts = now_ms();
-        let mut wire = Wired::words(timed(ts, &escalation::follow_up(&run, note)));
-        wire.scheduled = Some(run.clone());
-        mark(&session.pending_scheduled, run);
-        let id = new_id();
-        self.append(
-            session,
-            TranscriptEvent::User {
-                id: id.clone(),
-                ts,
-                text: note.to_string(),
-                attachments: None,
-                reactions: None,
-                reply_to: None,
-                scheduled: None,
-                ring: None,
-                receipt: Some(Receipt::Sent),
-                client: None,
-            },
-        );
-        wire.said = Some(id);
-        lock(&session.turns).waiting.push_front(wire);
-    }
-
-    fn steer_waiting(&self, session: &Arc<Session>, steered_inputs: &mut Vec<Wired>) {
-        if !session.capability.is_current() || !self.current_session(session) {
-            return;
-        }
-        let mut turns = lock(&session.turns);
-        let mut steered = false;
-        while let Some(index) = turns.waiting.iter().position(|wire| wire.steer) {
-            let wire = &turns.waiting[index];
-            if !session
-                .driver
-                .steer(wire.text.clone(), wire.attachments.clone())
-            {
-                break;
-            }
-            *lock(&session.voice_origin) = call_origin(wire);
-            if let Some(said) = wire.said.clone() {
-                lock(&session.unread).push(said);
-            }
-            steered_inputs.push(
-                turns
-                    .waiting
-                    .remove(index)
-                    .expect("steered input is queued"),
-            );
-            steered = true;
-        }
-        drop(turns);
-        if steered {
-            // A new instruction is neither an answer nor permission. Release
-            // an obsolete human wait so the model can reconsider the request.
-            self.release_human_waits(&session.persona_id);
-        }
-    }
-
-    /// One driver update, as the tape and the wire see it.
-    fn record(
-        &self,
-        session: &Session,
-        update: Update,
-        in_flight: &mut HashMap<String, PendingTool>,
-        voice: &narration::Voice,
-    ) {
-        // Anything the agent produces proves it has what it was handed; a
-        // notice can be an error raised before the prompt reached the model.
-        if !matches!(update, Update::Notice { .. }) {
-            self.mark_read(session);
-        }
-        if let Update::Delta {
-            kind,
-            message_id,
-            text,
-        } = update
-        {
-            // A muted turn must not run the writing indicator for a message
-            // that will never land, so the delta is demoted with the event it
-            // is building; and after the acknowledgement a message may turn
-            // out to be narration, so it streams as thinking too.
-            let muted = kind == MessageKind::Agent
-                && (quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms())
-                    || voice.mutes_deltas());
-            let persona_id = session.persona_id.clone();
-            let _ = self.deltas.send(match kind {
-                MessageKind::Agent if !muted => StreamDelta::AgentDelta {
-                    persona_id,
-                    message_id,
-                    text,
-                },
-                _ => StreamDelta::ThoughtDelta {
-                    persona_id,
-                    message_id,
-                    text,
-                },
-            });
-            return;
-        }
-        if matches!(update, Update::Turn { .. }) {
-            // A cancelled turn leaves tools running; they are marked before
-            // the turn is closed, so the transcript never shows a finished
-            // turn above a tool still in progress.
-            self.fail_in_flight(session, in_flight);
-            if !session.driver.checkpoint_valid()
-                || matches!(&update, Update::Turn { stop_reason, .. } if stop_reason == "failed")
-            {
-                lock(&session.pending_checkpoint).take();
-                let _ = room::clear_checkpoint(&self.log, &session.persona_id, &session.backend_id);
-            } else {
-                self.checkpoint(session);
-            }
-        }
-        // A phone hears a turn's reply once the driver is done with the line
-        // ([`Self::send_glance`]), and a question the agent cannot go on
-        // without the moment it is asked. A quiet schedule's reply is demoted
-        // to a thought and says nothing anywhere.
-        if let Update::Message {
-            kind: MessageKind::Agent,
-            id,
-            text,
-        } = &update
-            && !quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms())
-            && !text.trim().is_empty()
-        {
-            // narration::Voice has committed this as an acknowledgement or report.
-            // Direct callers hear it now rather than waiting for tool work to end,
-            // unless the call has a voice of its own that already acknowledged
-            // it and answers how it is going; then only the turn's reply is said.
-            if let Some(origin) = lock(&session.voice_origin).clone()
-                && origin.direct
-                && let Some(voice) = lock(&self.voice).upgrade()
-                && !voice.fronted(&origin)
-            {
-                let name = self
-                    .persona(&session.persona_id)
-                    .map(|p| p.name)
-                    .unwrap_or_else(|_| "Hotline".into());
-                voice.delivery(&session.persona_id, id, &name, text, true, Some(&origin));
-            }
-            *lock(&session.glance) = Some(Glance {
-                event_id: id.clone(),
-                text: text.trim().to_string(),
-            });
-        }
-        let card = match &update {
-            Update::Permission {
-                request_id,
-                title,
-                options,
-            } => Some((
-                title.clone(),
-                crate::push::Waiting::Permission {
-                    request_id: request_id.clone(),
-                    options: options.clone(),
-                },
-            )),
-            _ => None,
-        };
-        for event in event_of(update, in_flight) {
-            self.append(session, event);
-        }
-        if let Some((title, waiting)) = card {
-            self.push.notify(
-                &self.needs_you(&session.persona_id),
-                &title,
-                &session.persona_id,
-                Some(waiting),
-            );
-        }
     }
 
     /// The desk window has the person, or has lost them; the phone is quiet

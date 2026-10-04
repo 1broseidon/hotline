@@ -58,7 +58,7 @@ use crate::thread::{End, Link, ThreadId, ThreadKind, ThreadState};
 use futures_util::future::BoxFuture;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
 
 /// What one driver turn came to, as the stream it was written to saw it.
@@ -106,6 +106,48 @@ pub(super) async fn drive(
     .await
 }
 
+/// What a kind does about each thing its agent does in a turn, the one place
+/// the kinds differ in how a turn is driven. [`drive_updates`] reads the turn
+/// off the driver and calls it; the funnel it feeds (what the agent says
+/// between tool calls is thinking, a tool left running is failed, the words
+/// are split into bubbles) is the same whoever is listening.
+pub(super) trait Witness {
+    /// An update, before it becomes events or a delta. The turn's tools still
+    /// running are `in_flight`, for the one that has to fail them first.
+    fn heard(&mut self, _update: &Update, _in_flight: &mut HashMap<String, PendingTool>) {}
+
+    /// The words as they arrive (kind, message id, text, and whether the reply
+    /// is being held back as narration), before the message is whole.
+    fn delta(&mut self, _kind: MessageKind, _message_id: &str, _text: &str, _muted: bool) {}
+
+    /// One event of the turn, and whether it came of a permission request.
+    fn write(&mut self, event: TranscriptEvent, asked: bool);
+
+    /// A look at the lines waiting behind the turn, between one update and the
+    /// next, for a kind whose person can steer a turn in flight.
+    fn steer(&mut self) {}
+}
+
+/// A witness made of two closures: how a peer turn and a run are written.
+struct Calls<D, W> {
+    delta: D,
+    write: W,
+}
+
+impl<D, W> Witness for Calls<D, W>
+where
+    D: FnMut(MessageKind, &str, &str, bool),
+    W: FnMut(TranscriptEvent, bool),
+{
+    fn delta(&mut self, kind: MessageKind, message_id: &str, text: &str, muted: bool) {
+        (self.delta)(kind, message_id, text, muted);
+    }
+
+    fn write(&mut self, event: TranscriptEvent, asked: bool) {
+        (self.write)(event, asked);
+    }
+}
+
 /// [`drive`] for a conversation somebody is watching: the line is handed over
 /// already stamped, with its attachments, and `delta` is told the words as
 /// they arrive (kind, message id, text, and whether the reply is being held
@@ -116,31 +158,58 @@ pub(super) async fn drive_with(
     attachments: Vec<crate::contract::Attachment>,
     reach: Reach,
     cancel: Option<&CancellationToken>,
-    mut delta: impl FnMut(MessageKind, &str, &str, bool),
-    mut write: impl FnMut(TranscriptEvent, bool),
+    delta: impl FnMut(MessageKind, &str, &str, bool),
+    write: impl FnMut(TranscriptEvent, bool),
 ) -> Driven {
-    let mut updates = driver.prompt(wire_text, attachments, reach).await;
+    let updates = driver.prompt(wire_text, attachments, reach).await;
+    drive_updates(driver, updates, cancel, None, &mut Calls { delta, write }).await
+}
+
+/// Reads one turn's updates off the driver to its end and tells `witness`
+/// what each came to.
+///
+/// `ready` wakes the loop when a line is queued behind the turn, so a witness
+/// that can steer is asked to look at once rather than at the next update. A
+/// cancel asks the driver to stop and keeps reading until it has, so the
+/// turn's own end is still written down.
+pub(super) async fn drive_updates(
+    driver: &dyn Driver,
+    mut updates: mpsc::Receiver<Update>,
+    cancel: Option<&CancellationToken>,
+    ready: Option<&Notify>,
+    witness: &mut impl Witness,
+) -> Driven {
     let mut in_flight = HashMap::new();
     let mut voice = narration::Voice::new();
     let mut driven = Driven::default();
     loop {
-        let received = match cancel {
-            Some(cancel) if !driven.cancelled => tokio::select! {
-                biased;
-                () = cancel.cancelled() => {
-                    driven.cancelled = true;
-                    driver.cancel();
-                    continue;
+        witness.steer();
+        let received = tokio::select! {
+            biased;
+            () = async {
+                match cancel {
+                    Some(cancel) if !driven.cancelled => cancel.cancelled().await,
+                    _ => std::future::pending().await,
                 }
-                update = updates.recv() => update,
-            },
-            _ => updates.recv().await,
+            } => {
+                driven.cancelled = true;
+                driver.cancel();
+                continue;
+            }
+            () = async {
+                match ready {
+                    Some(ready) => ready.notified().await,
+                    None => std::future::pending().await,
+                }
+            } => continue,
+            update = updates.recv() => update,
         };
         let (batch, done) = match received {
             Some(update) => (voice.step(update), false),
             None => (voice.finish(), true),
         };
         for update in batch {
+            witness.heard(&update, &mut in_flight);
             if let Update::Delta {
                 kind,
                 message_id,
@@ -148,7 +217,7 @@ pub(super) async fn drive_with(
             } = &update
             {
                 let muted = *kind == MessageKind::Agent && voice.mutes_deltas();
-                delta(*kind, message_id, text, muted);
+                witness.delta(*kind, message_id, text, muted);
             }
             let asked = matches!(update, Update::Permission { .. });
             driven.asked |= asked;
@@ -169,7 +238,7 @@ pub(super) async fn drive_with(
                     }
                     _ => {}
                 }
-                write(event, asked);
+                witness.write(event, asked);
             }
         }
         if done {
@@ -179,7 +248,7 @@ pub(super) async fn drive_with(
     // A driver that stopped without a turn leaves a tool spinning in the
     // stream forever, exactly as it would on a tape.
     for (call_id, pending) in in_flight.drain() {
-        write(pending.event(&call_id, ToolStatus::Failed, None), false);
+        witness.write(pending.event(&call_id, ToolStatus::Failed, None), false);
     }
     driven
 }

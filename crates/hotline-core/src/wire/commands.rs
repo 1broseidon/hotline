@@ -226,6 +226,11 @@ pub(crate) async fn run(
             let _held = gate.lock().await;
             delete_persona(log, room, &id)
         }
+        Command::PersonaPin { id, slot } => {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            pin_persona(log, &id, slot)
+        }
         Command::SettingsUpdate { mut patch } => {
             for (key, value) in &mut patch {
                 if !value.is_null() {
@@ -1207,9 +1212,42 @@ fn delete_persona(log: &Log, room: &Arc<dyn RoomHandle>, id: &str) -> Result<Val
         log,
         &json!({ "kind": "persona", "id": id, "deleted": true }),
     )?;
+    // The roster already ignores a pin on a teammate who is gone; settling
+    // the stored list keeps it honest and frees the slot.
+    let settled = room::pinned_teammates(log);
+    let stored = room::settings(log).remove("pinnedTeammates");
+    if stored.unwrap_or_else(|| json!([])) != json!(settled) {
+        write_pins(log, &settled)?;
+    }
     crate::session::ledger::forget(id);
     room.forget(id);
     Ok(Value::Null)
+}
+
+/// Pins `id` at `slot`, or unpins it. The list is the setting's whole value,
+/// so the answer is the list as it now stands.
+fn pin_persona(log: &Log, id: &str, slot: Option<u8>) -> Result<Value, String> {
+    living(log, id)?;
+    let mut pins = room::pinned_teammates(log);
+    let was_pinned = pins.iter().any(|pin| pin == id);
+    pins.retain(|pin| pin != id);
+    if let Some(slot) = slot {
+        if !was_pinned && pins.len() >= room::MAX_PINS {
+            return Err(room::too_many_pins());
+        }
+        pins.insert(usize::from(slot).min(pins.len()), id.to_string());
+    }
+    write_pins(log, &pins)?;
+    Ok(json!(pins))
+}
+
+fn write_pins(log: &Log, pins: &[String]) -> Result<(), String> {
+    let event = if pins.is_empty() {
+        json!({ "kind": "setting", "id": "pinnedTeammates", "deleted": true })
+    } else {
+        json!({ "kind": "setting", "id": "pinnedTeammates", "value": pins })
+    };
+    append(log, &event)
 }
 
 /// One event per key, and `null` clears a key rather than setting it to

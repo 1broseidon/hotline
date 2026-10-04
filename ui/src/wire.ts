@@ -114,6 +114,7 @@ type Results = {
 	"persona.create": Persona;
 	"persona.update": Persona;
 	"persona.delete": null;
+	"persona.pin": string[];
 	"settings.update": Record<string, unknown>;
 	"images.status": ImagesStatus;
 	"capabilities.options": CapabilityOptions;

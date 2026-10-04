@@ -46,8 +46,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   lies over the conversation instead of squeezing it. Escape steps back from a
   thread to the list, then closes the pane.
 - While a teammate is busy, you can start a side thread with the same
-  teammate for another topic: type `/side <task>` in the composer, or choose
-  "Start a side thread" under More. It runs in parallel in its own context, so
+  teammate for another topic: choose "Start a side thread" under More, and it
+  opens at once, empty, named by the first thing you say in it. It runs in parallel in its own context, so
   nothing it does reaches the main conversation, and you chat with the teammate
   in it from the right-hand pane for as long as the topic lasts. A chip next to the
   subagents shows it while it runs, and the teammate does not close it on its
@@ -67,6 +67,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   teammate's reports it relayed, are saved with the call and survive a restart.
   `search_thread` finds them, and the conversation shows one quiet line for the
   call, "Call · 4 min · Hung up". A call a restart cut off is closed and says so.
+- Pin up to three teammates to the top of the team. Pinned teammates sit above
+  the list as larger faces with their names under them, keep their status,
+  unread and working marks, and reorder by dragging (or Move left / right in
+  the context menu). Pin or unpin from a teammate's right-click menu or the
+  foot of its pane. The pins live on the desk, so every device shows the same
+  ones, and Ctrl+1 to 9 count them first.
 
 ### Changed
 
@@ -84,6 +90,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - Without a chosen voice model, the desk now picks a mid-tier fast model
   (flash, mini, fast) ahead of the lightest ones, which were too thin to hold
   a conversation.
+- A teammate's drawn picture has character: the house style asks for two to
+  four taste decisions that tell one story about who it is (a mood in the
+  eyes, a marking, hair, what it wears, one small accent) instead of a plain
+  jacket and no pins or props, and teammates are told to name theirs when
+  they draw themselves.
 
 ### Fixed
 

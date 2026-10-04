@@ -24,6 +24,7 @@ import { noticeRoster, setWindowTitle, toastTarget } from "./notify";
 import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
+import { railOrder } from "./pins";
 import { activeDeskId, deskKey, LOCAL_DESK, setActiveDesk, useActiveDesk, useDesks } from "./desks";
 import { syncWatches, useBackgroundUnread } from "./deskWatch";
 import { AddDesk } from "./components/AddDesk";
@@ -294,6 +295,16 @@ export function App() {
 		[works, closeWork],
 	);
 
+	/* A refusal here is a race — the pane and the menu both stop at three —
+	 * so the next roster event is the whole answer. */
+	const pinTeammate = useCallback(async (personaId: string, slot: number | null) => {
+		try {
+			await wire.command("persona.pin", slot === null ? { id: personaId } : { id: personaId, slot });
+		} catch {
+			// Nothing to undo: the roster never moved.
+		}
+	}, []);
+
 	const removeTeammate = useCallback(
 		async (personaId: string, name: string) => {
 			if (!(await confirmRemove(name))) return;
@@ -371,7 +382,7 @@ export function App() {
 			}
 			if (chord === null || !chord.startsWith("teammate-")) return;
 			const seat = Number(chord.slice("teammate-".length));
-			const entry = roster[seat - 1];
+			const entry = railOrder(roster).all[seat - 1];
 			if (!entry) return;
 			event.preventDefault();
 			select(entry.persona.id);
@@ -501,6 +512,7 @@ export function App() {
 					setInspector(true);
 				}}
 				onDelete={(id, name) => void removeTeammate(id, name)}
+				onPin={(id, slot) => void pinTeammate(id, slot)}
 				onHelp={(id) => {
 					if (id === "github") void openLink("https://github.com/1broseidon/hotline");
 					else togglePane(id);

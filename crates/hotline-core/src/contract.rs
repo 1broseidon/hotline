@@ -2774,6 +2774,16 @@ pub enum Command {
     },
     #[serde(rename = "persona.delete")]
     PersonaDelete { id: String },
+    /// Pins a teammate to the top of the desk at `slot` (0-based), or unpins
+    /// it when `slot` is absent. Pinning shifts the pins at and after the slot
+    /// along, moving an already pinned teammate reorders, and a fourth pin is
+    /// refused. Owners only: a companion phone sees the pins on the roster.
+    #[serde(rename = "persona.pin")]
+    PersonaPin {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        slot: Option<u8>,
+    },
     /// One key at a time, `null` clearing a key back to its default.
     #[serde(rename = "settings.update")]
     SettingsUpdate {
@@ -3491,6 +3501,11 @@ pub struct RosterEntry {
     /// than leaving the initial looking final.
     #[serde(default)]
     pub drawing: bool,
+    /// Where this teammate is pinned on the desk, 0-based, absent when it is
+    /// not. On the row so a companion phone, which cannot read settings, sees
+    /// the same pins as the desk.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin: Option<u8>,
     /// Subagents this teammate has running, oldest first, so the
     /// conversation can show them without scrolling back to their lines.
     /// Absent when there are none.

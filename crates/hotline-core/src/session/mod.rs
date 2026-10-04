@@ -43,6 +43,7 @@ pub(crate) mod files;
 pub(crate) mod generate;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
+mod lifecycle;
 mod narration;
 mod pacing;
 mod peers;
@@ -504,6 +505,8 @@ const PASSKEY_LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(2
 
 pub struct Room {
     voice: Mutex<std::sync::Weak<crate::voice::Calls>>,
+    /// The room itself, for work that outlives the call that began it.
+    me: Mutex<Weak<Room>>,
     log: Log,
     spending: crate::spending::SpendLedger,
     #[cfg(test)]
@@ -664,6 +667,7 @@ impl Room {
             image_generators: Mutex::new(None),
             drawn: Mutex::default(),
             voice: Mutex::new(std::sync::Weak::new()),
+            me: Mutex::new(Weak::new()),
             log,
             keys,
             agents,
@@ -696,9 +700,8 @@ impl Room {
             activity: Arc::new(tokio::sync::RwLock::new(())),
             closing: std::sync::atomic::AtomicBool::new(false),
         });
-        room.sides.attach(&room);
-        room.settle_tapes();
-        room.reconcile_exchanges();
+        *lock(&room.me) = Arc::downgrade(&room);
+        room.settle();
         // What the person said that was still waiting when the last desk
         // stopped is handed on once, now that the room is up.
         let resuming = Arc::downgrade(&room);
@@ -755,66 +758,6 @@ impl Room {
     /// socket cannot reactivate a generation between those steps.
     pub(crate) fn policy_update_lock(&self) -> Arc<TokioMutex<()>> {
         self.policy_updates.clone()
-    }
-
-    /// The startup fold and the index, brought in line with the files before
-    /// anything is served from them.
-    ///
-    /// A permission or human-action card left open by the last process is a
-    /// button nobody is behind, so it is expired, a subagent line it left
-    /// running is settled as cancelled, and the stream compacted;
-    /// then the index is synced, because the fold just rewrote files and a
-    /// tape written by the importer or the previous edition has never been
-    /// indexed here at all.
-    ///
-    /// Threads are settled with the tapes. A card raised inside a peer turn is
-    /// written to the thread and nowhere else, and the resolver behind it only
-    /// ever existed in the process that received the request — so a thread
-    /// left unfolded draws a live button forever, on a stream nothing else
-    /// revisits.
-    fn settle_tapes(&self) {
-        let now = now_ms();
-        let teammates: Vec<String> = room::roster(&self.log)
-            .into_iter()
-            .map(|persona| persona.id)
-            .chain(std::iter::once(crate::voice::TAPE_ID.to_string()))
-            .collect();
-        let streams = teammates.iter().cloned().map(StreamId::Tape).chain(
-            thread::list_all_keys(self.log.root())
-                .into_iter()
-                .map(StreamId::Pair),
-        );
-        for stream in streams {
-            let events = self.log.load(&stream);
-            let mut settled = crate::log::expire_orphaned_permissions(&events, now);
-            if matches!(stream, StreamId::Tape(_)) {
-                settled.extend(self.settle_orphaned_sides(&events));
-            }
-            if matches!(stream, StreamId::Tape(_)) {
-                for marker in runner::settle_orphaned_subagents(&events) {
-                    if let Some(run_id) = marker.get("runId").and_then(Value::as_str)
-                        && let Err(error) =
-                            self.log.append(&StreamId::Run(run_id.to_string()), &marker)
-                    {
-                        eprintln!("could not settle the run {run_id}: {error}");
-                    }
-                    settled.push(marker);
-                }
-            }
-            for event in settled {
-                if let Err(error) = self.log.append(&stream, &event) {
-                    eprintln!("could not settle a line left open by the last process: {error}");
-                }
-            }
-            if let Err(error) = self.log.compact(&stream) {
-                eprintln!("could not compact a stream the startup fold rewrote: {error}");
-            }
-        }
-        if let Some(indexer) = lock(&self.indexer).as_mut()
-            && let Err(error) = indexer.sync(&teammates)
-        {
-            eprintln!("the search index could not be synced: {error}");
-        }
     }
 
     pub async fn agent_auth_start(
@@ -2370,6 +2313,7 @@ impl Room {
             let event = TranscriptEvent::Delivery {
                 id: id.into(),
                 ts,
+                from: Some(peers::delivery_from(persona_id, &cause)),
                 cause,
                 text,
                 receipt: Some(Receipt::Sent),
@@ -4061,6 +4005,14 @@ impl Room {
                 turns.running = false;
                 break;
             }
+            // TODO(threads phases 5-7): what a line is, and where it came from,
+            // is still read off the prefix of the id it was written under:
+            // `voice:` (a call, phase 5), `handoff:` and `exchange-result:`
+            // (the pair exchanges, phase 6) and `human-answer:` (the DM's own
+            // cards, phase 7). Each delivery already carries its source as a
+            // field (`DeliveryFrom`), so a read moves onto it when its
+            // producer is ported. Sides and runs deliver nothing into a DM by
+            // id, so none of the kinds ported so far is parsed here.
             *lock(&session.voice_origin) = wired
                 .said
                 .as_deref()
@@ -4817,13 +4769,7 @@ fn sweep_idle_chapters(room: Weak<Room>) {
         loop {
             match room.upgrade() {
                 Some(room) => {
-                    room.sweep_chapters(&mut looked_again).await;
-                    // The same clock, because a peer session that has gone
-                    // quiet is the same kind of fact as a chapter that has:
-                    // nothing to arm when a message lands and nothing to
-                    // cancel when a teammate is deleted.
-                    room.sweep_peers(now_ms());
-                    room.sweep_sides(now_ms());
+                    room.sweep(now_ms(), &mut looked_again).await;
                     room.expire_stale_asks(now_ms());
                     room.sweep_computers().await;
                 }

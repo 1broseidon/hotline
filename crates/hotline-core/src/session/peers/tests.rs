@@ -589,6 +589,78 @@ async fn a_peer_session_still_waits_for_its_answer() {
     );
 }
 
+/// A delivery says where it came from in a field, and keeps it as it is read:
+/// the turn that takes it has no id to parse. One written before the field
+/// still reads, as without a source.
+#[tokio::test]
+async fn a_delivery_carries_where_it_came_from_and_keeps_it_when_read() {
+    let agents = Fake::new(Scripted::new(answers("a1", "ok")));
+    let room = room("provenance", agents);
+    room.start("ada").await.unwrap();
+    room.deliver_into(
+        "ada",
+        DeliveryCause::Peer {
+            request_id: Some("req-1".to_string()),
+            persona_id: "bob".to_string(),
+            name: "Bob".to_string(),
+            thread_key: "ada~bob".to_string(),
+            status: PeerStatus::Done,
+            about: "what broke?".to_string(),
+        },
+        "the winch".to_string(),
+    )
+    .await
+    .unwrap();
+    room.deliver_into(
+        "ada",
+        DeliveryCause::Answer {
+            action_id: "act-1".to_string(),
+            status: HumanActionStatus::Done,
+            about: "which key?".to_string(),
+        },
+        "the blue one".to_string(),
+    )
+    .await
+    .unwrap();
+
+    let delivered = || {
+        room.tape("ada")
+            .into_iter()
+            .filter(|event| kind_of(event) == "delivery")
+            .collect::<Vec<_>>()
+    };
+    for _ in 0..500 {
+        if delivered().iter().all(|event| event["receipt"] == "read") && delivered().len() == 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    let delivered = delivered();
+    assert_eq!(delivered.len(), 2);
+    assert_eq!(
+        delivered[0]["from"],
+        serde_json::json!({"thread": "ada~bob", "kind": "pair", "request": "req-1"})
+    );
+    assert_eq!(
+        delivered[1]["from"],
+        serde_json::json!({"thread": "ada", "kind": "dm", "request": "act-1"})
+    );
+    assert!(delivered.iter().all(|event| event["receipt"] == "read"));
+    let from: DeliveryFrom = serde_json::from_value(delivered[0]["from"].clone()).unwrap();
+    assert_eq!(from.thread(), ThreadId::pair("ada~bob"));
+
+    let before: TranscriptEvent = serde_json::from_value(serde_json::json!({
+        "kind": "delivery", "id": "d0", "ts": 1, "text": "old",
+        "cause": {"kind": "peer", "personaId": "bob", "name": "Bob",
+                  "threadKey": "ada~bob", "status": "done", "about": "x"}
+    }))
+    .unwrap();
+    assert!(matches!(
+        before,
+        TranscriptEvent::Delivery { from: None, .. }
+    ));
+}
+
 /// What a restart left: a delivery the agent never read is handed to it
 /// again, once, and an exchange cut off mid-turn is closed and its sender
 /// told, while an old one is only closed.
@@ -614,6 +686,7 @@ async fn a_restart_hands_on_unheard_deliveries_and_closes_cut_off_exchanges() {
             cause: cause.clone(),
             text: "the winch".to_string(),
             receipt: Some(Receipt::Sent),
+            from: None,
         },
     );
     room.write(
@@ -624,6 +697,7 @@ async fn a_restart_hands_on_unheard_deliveries_and_closes_cut_off_exchanges() {
             cause,
             text: "already heard".to_string(),
             receipt: Some(Receipt::Read),
+            from: None,
         },
     );
     for (id, ts) in [

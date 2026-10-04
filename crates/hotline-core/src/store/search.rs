@@ -22,7 +22,7 @@
 use crate::log::{Log, StreamId, open_epoch};
 use crate::paths::{index_path, transcript_path, transcript_segment_path};
 use crate::store::chapters::{chapters_of, open_chapter, slice_of};
-use crate::thread::ThreadId;
+use crate::thread::{Link, ThreadId, ThreadKind, ThreadState};
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row};
 use serde_json::{Map, Value, json};
@@ -381,41 +381,29 @@ fn text_of(event: &Value, key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-/// One message, if it is one and it said anything.
 /// An archived side thread, as the line of the conversation it leaves behind.
 ///
 /// A side thread's own words are on its own stream and never on the tape, so
-/// what `search_thread` can find of it is its marker once it is archived: the
+/// what `search_thread` can find of it is its link once it is archived: the
 /// task and what came of it, standing in as one message of the teammate's.
-/// The marker's id is the line's id, so a hit opens the very line that
-/// carries the thread's Open. The marker is written again when the closing
+/// The link's id is the line's id, so a hit opens the very line that
+/// carries the thread's Open. The link is written again when the closing
 /// note lands, and when a continued thread is archived a second time, so the
 /// row is rewritten in place rather than kept from the first.
 fn side_line(event: &Value) -> Option<Value> {
-    if event.get("kind").and_then(Value::as_str) != Some("side")
-        || event.get("status").and_then(Value::as_str) != Some("archived")
-    {
+    let link = Link::read(event)?;
+    if link.thread.kind != ThreadKind::Side || !matches!(link.state, ThreadState::Closed(_)) {
         return None;
     }
-    let title = event
-        .get("title")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let result = event
-        .get("result")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
     // The closing note is the thread's handoff: goal, what got done, what is
     // still open, the files that matter.
-    let note = event
-        .get("note")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let note = link.note.as_deref().unwrap_or_default();
+    let outcome = link.outcome.as_deref().unwrap_or_default();
     Some(serde_json::json!({
         "kind": "agent",
-        "id": event.get("id")?,
-        "ts": event.get("archivedAt").or_else(|| event.get("ts"))?,
-        "text": format!("Side thread: {title}. {result}\n{note}").trim().to_string(),
+        "id": link.id,
+        "ts": link.at.unwrap_or(link.ts),
+        "text": format!("Side thread: {}. {outcome}\n{note}", link.title).trim().to_string(),
     }))
 }
 
@@ -549,18 +537,15 @@ fn index_chapter(database: &Connection, persona_id: &str, chapter: &Value) -> ru
     Ok(())
 }
 
-/// The side threads and runs a teammate's tape carries a marker for.
+/// The side threads and runs a teammate's tape carries a link for.
 fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
     events
         .iter()
-        .filter_map(|event| {
-            let thread = match event.get("kind").and_then(Value::as_str)? {
-                "side" => ThreadId::side(event.get("sideId")?.as_str()?),
-                "subagent" => ThreadId::run(event.get("runId")?.as_str()?),
-                _ => return None,
-            };
-            let stream = thread.stream()?;
-            Some((thread, stream))
+        .filter_map(Link::read)
+        .filter(|link| matches!(link.thread.kind, ThreadKind::Side | ThreadKind::Run))
+        .filter_map(|link| {
+            let stream = link.thread.stream()?;
+            Some((link.thread, stream))
         })
         .collect()
 }
@@ -726,7 +711,7 @@ impl Indexer {
                 .insert(persona_id.to_string(), id.filter(|_| still_open));
             return stamp(&self.database, self.log.root(), persona_id);
         }
-        if kind != "user" && kind != "agent" && kind != "side" {
+        if !matches!(kind, "user" | "agent" | "side" | "link") {
             return Ok(());
         }
         if !self.open_chapters.contains_key(persona_id) {

@@ -14,17 +14,25 @@
 //! None of it is on the wire yet, and no stream moves: a thread is a view over
 //! the files that were there before it.
 
+mod link;
 mod policy;
 mod store;
 
-pub use policy::{Answer, Lease, Policy, Seed, Surface, Tools};
+pub use link::Link;
+pub use policy::{
+    Answer, Idle, Lease, Policy, QUIET_MS, Restart, SIDE_IDLE_MS, Seed, Surface, Tools,
+};
 pub use store::ThreadStore;
 
 use crate::log::StreamId;
+use serde::{Deserialize, Serialize};
 use std::fmt;
+use ts_rs::TS;
 
 /// What kind of conversation a thread is. The kind picks its [`Policy`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
 pub enum ThreadKind {
     /// The person and a teammate: the teammate's tape.
     Dm,
@@ -39,7 +47,8 @@ pub enum ThreadKind {
 }
 
 impl ThreadKind {
-    fn name(self) -> &'static str {
+    /// The kind as it is written in a link and in a log line.
+    pub fn name(self) -> &'static str {
         match self {
             Self::Dm => "dm",
             Self::Side => "side",
@@ -47,6 +56,12 @@ impl ThreadKind {
             Self::Call => "call",
             Self::Run => "run",
         }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        [Self::Dm, Self::Side, Self::Pair, Self::Call, Self::Run]
+            .into_iter()
+            .find(|kind| kind.name() == name)
     }
 }
 
@@ -74,6 +89,10 @@ impl ThreadId {
 
     pub fn run(run_id: impl Into<String>) -> Self {
         Self::of(ThreadKind::Run, run_id)
+    }
+
+    pub fn new(kind: ThreadKind, key: impl Into<String>) -> Self {
+        Self::of(kind, key)
     }
 
     fn of(kind: ThreadKind, key: impl Into<String>) -> Self {

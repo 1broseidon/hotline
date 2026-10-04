@@ -475,8 +475,14 @@ fn room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
     )
 }
 
+/// The tape as a client is sent it: a thread's link is the marker its kind has
+/// always had. What is stored is checked where it is the point.
 fn tape(room: &Room, persona_id: &str) -> Vec<Value> {
-    room.log.load(&StreamId::Tape(persona_id.to_string()))
+    room.log
+        .load(&StreamId::Tape(persona_id.to_string()))
+        .into_iter()
+        .map(crate::thread::Link::wire)
+        .collect()
 }
 
 /// The chapter markers on the tape, oldest first.
@@ -5203,7 +5209,11 @@ mod runs {
     }
 
     fn run_stream(room: &Room, run_id: &str) -> Vec<Value> {
-        room.log.load(&StreamId::Run(run_id.to_string()))
+        room.log
+            .load(&StreamId::Run(run_id.to_string()))
+            .into_iter()
+            .map(crate::thread::Link::wire)
+            .collect()
     }
 
     fn worked() -> Vec<Update> {
@@ -5291,11 +5301,16 @@ mod runs {
         // in place, and none of the run's words.
         let tape = tape(&room, "ada");
         assert_eq!(kinds(&tape), ["subagent"]);
-        assert_eq!(tape[0]["id"], "subagent:r1");
+        assert_eq!(tape[0]["id"], "link:run:r1");
         assert_eq!(tape[0]["runId"], "r1");
         assert_eq!(tape[0]["title"], "Check the crane");
         assert_eq!(tape[0]["status"], "done");
         assert!(tape[0]["elapsedMs"].as_i64().is_some());
+        let stored = room.log.load(&StreamId::Tape("ada".to_string()));
+        assert_eq!(stored[0]["kind"], "link");
+        assert_eq!(stored[0]["threadKind"], "run");
+        assert_eq!(stored[0]["state"], "closed");
+        assert_eq!(stored[0]["end"], "done");
 
         // A worker's brief, none of the conversation, and the task as its
         // one message.

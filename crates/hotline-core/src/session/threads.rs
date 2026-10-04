@@ -360,7 +360,7 @@ mod tests {
             side.parent,
             Some(ThreadLink {
                 thread: ThreadId::dm("ada"),
-                event: Some(format!("side:{}", summary.side_id)),
+                event: Some(format!("link:side:{}", summary.side_id)),
             })
         );
         assert_eq!(
@@ -404,7 +404,7 @@ mod tests {
             run.parent,
             Some(ThreadLink {
                 thread: ThreadId::dm("ada"),
-                event: Some("subagent:r1".into()),
+                event: Some("link:run:r1".into()),
             })
         );
         assert_eq!(store.load(&ThreadId::run("elsewhere")), None);

@@ -38,8 +38,8 @@
 
 use super::{Room, fold_said, lock, new_id, now_ms, timed};
 use crate::contract::{
-    DeliveryCause, HumanActionStatus, PeerPreview, PeerRole, PeerStatus, PeerThreadSummary,
-    PermissionOption, Persona, Reach, Receipt, TranscriptEvent,
+    DeliveryCause, DeliveryFrom, HumanActionStatus, PeerPreview, PeerRole, PeerStatus,
+    PeerThreadSummary, PermissionOption, Persona, Reach, Receipt, TranscriptEvent,
 };
 use crate::driver::rig::Said;
 use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID, acp};
@@ -48,6 +48,7 @@ use crate::mcp::server::TeammateTools;
 use crate::paths::{thread_key, thread_participants};
 use crate::room;
 use crate::store::chapters as chapter_view;
+use crate::thread::ThreadId;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -1506,6 +1507,7 @@ fn unheard(tape: &[Value]) -> Vec<(String, i64, DeliveryCause, String)> {
                 cause,
                 text,
                 receipt,
+                ..
             } if receipt != Some(Receipt::Read) => Some((id, ts, cause, text)),
             _ => None,
         })
@@ -1571,6 +1573,28 @@ pub(super) fn about(message: &str) -> String {
 /// answer quoted, exactly as a colleague's message is quoted to the one it
 /// was sent to. Built from the tape's record alone, so a delivery sent again
 /// after a restart, or replayed into a chapter, reads the same.
+/// Where a delivery came from, as a field of it. A peer's answer and a handoff
+/// come from the pair's thread, and the request they answer is the exchange's;
+/// the person's answer to a card comes from the teammate's own DM, and answers
+/// the card's action.
+pub(super) fn delivery_from(persona_id: &str, cause: &DeliveryCause) -> DeliveryFrom {
+    match cause {
+        DeliveryCause::Peer {
+            request_id,
+            thread_key,
+            ..
+        } => DeliveryFrom::new(&ThreadId::pair(thread_key), request_id.clone()),
+        DeliveryCause::Handoff {
+            request_id,
+            thread_key,
+            ..
+        } => DeliveryFrom::new(&ThreadId::pair(thread_key), Some(request_id.clone())),
+        DeliveryCause::Answer { action_id, .. } => {
+            DeliveryFrom::new(&ThreadId::dm(persona_id), Some(action_id.clone()))
+        }
+    }
+}
+
 pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
     let named = |about: &str| match about {
         "" => String::new(),
@@ -1748,12 +1772,14 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             cause,
             text,
             receipt,
+            from,
         } => TranscriptEvent::Delivery {
             id,
             ts,
             cause,
             text,
             receipt: Some(higher(receipt, rung)),
+            from,
         },
         other => other,
     }

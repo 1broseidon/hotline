@@ -31,6 +31,7 @@ use crate::contract::{
 };
 use crate::log::{Log, StreamId};
 use crate::store::previews;
+use crate::thread::Link;
 use async_trait::async_trait;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use serde_json::{Value, json};
@@ -1623,7 +1624,8 @@ fn subscribe(
 }
 
 /// A stream's fold, then its events, and on a tape the deltas that are never
-/// written beside them.
+/// written beside them. A thread's link is sent as the marker its kind has
+/// always had (see [`Link::wire`]).
 fn public_snapshot(log: &Log, stream: &StreamId) -> Vec<Value> {
     let events = log.load(stream);
     if *stream == StreamId::Room {
@@ -1632,7 +1634,7 @@ fn public_snapshot(log: &Log, stream: &StreamId) -> Vec<Value> {
             .map(crate::mcp::public_room_event)
             .collect()
     } else {
-        events
+        events.into_iter().map(Link::wire).collect()
     }
 }
 
@@ -1796,7 +1798,7 @@ pub(super) fn tape_page(
         })
         .map(|at| at.saturating_sub(THROUGH_CONTEXT));
     let start = reach.unwrap_or_else(|| end.saturating_sub(limit));
-    let page: Vec<Value> = events[start..end].to_vec();
+    let page: Vec<Value> = events[start..end].iter().cloned().map(Link::wire).collect();
     json!({ "events": page, "more": start > 0 })
 }
 
@@ -1834,7 +1836,7 @@ async fn stream_events(
         tokio::select! {
             event = events.recv() => match event {
                 Ok(event) => {
-                    let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { event };
+                    let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { Link::wire(event) };
                     if !send(&sender, json!({ "sub": id, "event": if seat == Seat::Phone { phone_event(event) } else { event } })) {
                         return;
                     }

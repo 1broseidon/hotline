@@ -67,23 +67,18 @@ use crate::contract::{
 };
 use crate::driver::{CapabilityLease, Driver};
 use crate::log::StreamId;
-use crate::thread::{ThreadId, ThreadKind};
-use serde_json::{Value, json};
+use crate::thread::{AgentBinding, End, Link, ThreadId, ThreadKind, ThreadState};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 
 /// The most side threads one teammate may have running at once. It caps agents,
 /// not threads: parked and archived ones cost nothing and are not counted.
 pub const MAX_LIVE: usize = 2;
 
-/// How long a live thread may sit with nobody speaking in it before its agent
-/// is let go of and it is parked. Hours, not minutes: the person may leave a
-/// thread to think and come back after lunch.
-const IDLE_MS: i64 = 3 * 60 * 60_000;
-
 /// The label a task is cut to for the chip and the marker.
-const TITLE_CHARS: usize = 60;
+pub(super) const TITLE_CHARS: usize = 60;
 
 /// The longest one-line result a thread keeps.
 const RESULT_CHARS: usize = 200;
@@ -141,7 +136,7 @@ pub(super) fn side_preamble(
 
 /// One live side thread.
 pub(super) struct LiveSide {
-    id: String,
+    pub(super) id: String,
     persona_id: String,
     title: String,
     started: i64,
@@ -167,8 +162,12 @@ pub(super) struct LiveSide {
 }
 
 impl LiveSide {
-    fn working(&self) -> bool {
+    pub(super) fn working(&self) -> bool {
         lock(&self.turns).running
+    }
+
+    pub(super) fn last_used(&self) -> i64 {
+        *lock(&self.last_used)
     }
 
     /// One event onto the thread, through the room's write path. Once the
@@ -193,19 +192,12 @@ struct Inner {
 #[derive(Default)]
 pub(super) struct Sides {
     inner: Mutex<Inner>,
-    /// The room, for work that outlives the call that began it: a closing note
-    /// is a model call, and the person has long since been told it is archived.
-    room: Mutex<Weak<Room>>,
     /// One thread is brought back at a time, so two lines said to the same
     /// parked thread at once start one agent between them.
     waking: tokio::sync::Mutex<()>,
 }
 
 impl Sides {
-    pub(super) fn attach(&self, room: &Arc<Room>) {
-        *lock(&self.room) = Arc::downgrade(room);
-    }
-
     /// Takes one of a teammate's places for a start that is under way. When
     /// they are all taken, the thread that has waited longest for the person
     /// is handed back to be parked: parking loses nothing, so it is the
@@ -249,7 +241,7 @@ impl Sides {
         }
     }
 
-    fn get(&self, side_id: &str) -> Option<Arc<LiveSide>> {
+    pub(super) fn get(&self, side_id: &str) -> Option<Arc<LiveSide>> {
         lock(&self.inner).live.get(side_id).cloned()
     }
 
@@ -268,7 +260,7 @@ impl Sides {
         sides
     }
 
-    fn all(&self) -> Vec<Arc<LiveSide>> {
+    pub(super) fn all(&self) -> Vec<Arc<LiveSide>> {
         lock(&self.inner).live.values().cloned().collect()
     }
 }
@@ -295,53 +287,13 @@ fn title_of(text: &str) -> String {
     cut(line, TITLE_CHARS)
 }
 
-fn cut(text: &str, max: usize) -> String {
+pub(super) fn cut(text: &str, max: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= max {
         return flat;
     }
     let kept: String = flat.chars().take(max.saturating_sub(1)).collect();
     format!("{}…", kept.trim_end())
-}
-
-fn marker_id(side_id: &str) -> String {
-    format!("side:{side_id}")
-}
-
-/// What the marker says, written to both places at once.
-struct Mark<'a> {
-    side_id: &'a str,
-    persona_id: &'a str,
-    title: &'a str,
-    started: i64,
-    status: SideStatus,
-    result: Option<String>,
-    by: Option<SideEnd>,
-    at: Option<i64>,
-    /// The saved session, with the harness that issued it.
-    session: Option<(&'a str, String)>,
-}
-
-impl Mark<'_> {
-    fn event(&self) -> TranscriptEvent {
-        TranscriptEvent::Side {
-            id: marker_id(self.side_id),
-            ts: self.started,
-            side_id: self.side_id.to_string(),
-            persona_id: self.persona_id.to_string(),
-            title: self.title.to_string(),
-            status: self.status,
-            result: self.result.clone(),
-            archived_by: self.by,
-            archived_at: self.at,
-            note: None,
-            session_id: self.session.as_ref().map(|(_, session)| session.clone()),
-            backend_id: self
-                .session
-                .as_ref()
-                .map(|(backend, _)| backend.to_string()),
-        }
-    }
 }
 
 /// What a thread is brought up from: a task that has never run, or a thread
@@ -355,11 +307,12 @@ struct Start {
 }
 
 /// How a live thread comes to an end.
-enum Ending {
+pub(super) enum Ending {
     /// The agent is let go of and the thread stays open.
     Park,
-    /// The thread is over, by `by`, with `result` in a line if it was said.
-    Archive { by: SideEnd, result: Option<String> },
+    /// The thread is over, `by` whom or what, with `outcome` in a line if it
+    /// was said.
+    Close(End, Option<String>),
 }
 
 impl Room {
@@ -463,7 +416,7 @@ impl Room {
         }
         agent.keep();
 
-        self.mark_side(&live, SideStatus::Live, None, None);
+        self.mark_side(&live, ThreadState::Live, None);
         let _ = self.info_changes.send(self.info(persona_id));
         Ok(live)
     }
@@ -480,34 +433,28 @@ impl Room {
         if let Ok(side) = self.live_side(side_id) {
             return Ok(side);
         }
-        let marker = self
-            .side_marker(side_id)
+        let link = self
+            .link_of(&ThreadId::side(side_id))
             .ok_or_else(|| "There is no such side thread.".to_string())?;
-        match marker.get("status").and_then(Value::as_str) {
-            Some("parked") => {}
-            Some("archived") if continuing => {}
-            Some("archived") => {
+        match link.state {
+            ThreadState::Parked => {}
+            ThreadState::Closed(_) if continuing => {}
+            ThreadState::Closed(_) => {
                 return Err(
                     "That side thread is archived. Continue it to talk in it again.".to_string(),
                 );
             }
-            _ => return Err("That side thread is not live.".to_string()),
+            ThreadState::Live => return Err("That side thread is not live.".to_string()),
         }
-        let Ok(TranscriptEvent::Side {
-            persona_id,
-            title,
-            ts,
-            ..
-        }) = serde_json::from_value::<TranscriptEvent>(marker)
-        else {
+        let Some(persona_id) = link.persona_id else {
             return Err("That side thread could not be read.".to_string());
         };
         self.bring_up(
             &persona_id,
             Start {
                 side_id: side_id.to_string(),
-                title,
-                started: ts,
+                title: link.title,
+                started: link.ts,
             },
         )
         .await
@@ -555,19 +502,19 @@ impl Room {
         result: Option<String>,
     ) -> Result<(), String> {
         if let Some(side) = self.sides.get(side_id) {
-            self.finish_side(&side, by, result);
+            self.finish_side(&side, by.into(), result);
             return Ok(());
         }
-        let Some(marker) = self.side_marker(side_id) else {
+        let Some(link) = self.link_of(&ThreadId::side(side_id)) else {
             return Err("There is no such side thread.".to_string());
         };
-        match marker.get("status").and_then(Value::as_str) {
-            Some("archived") => Ok(()),
-            Some("parked") => {
-                self.archive_parked(&marker, by, result);
+        match link.state {
+            ThreadState::Closed(_) => Ok(()),
+            ThreadState::Parked => {
+                self.archive_parked(link, by.into(), result);
                 Ok(())
             }
-            _ => Err("There is no such side thread.".to_string()),
+            ThreadState::Live => Err("There is no such side thread.".to_string()),
         }
     }
 
@@ -754,24 +701,13 @@ impl Room {
     /// their agents are. The person can continue them under what it has next.
     pub(super) fn drop_sides(&self, persona_id: &str) {
         for side in self.sides.of(persona_id) {
-            self.finish_side(&side, SideEnd::Stopped, None);
+            self.finish_side(&side, End::Stopped, None);
         }
     }
 
     pub(super) fn drop_all_sides(&self) {
         for side in self.sides.all() {
-            self.finish_side(&side, SideEnd::Stopped, None);
-        }
-    }
-
-    /// Parks the threads nobody has spoken in for [`IDLE_MS`]. One with a turn
-    /// running is left alone.
-    pub(super) fn sweep_sides(&self, now: i64) {
-        for side in self.sides.all() {
-            if side.working() || now - *lock(&side.last_used) < IDLE_MS {
-                continue;
-            }
-            self.park_side(&side);
+            self.finish_side(&side, End::Stopped, None);
         }
     }
 
@@ -792,39 +728,6 @@ impl Room {
                 },
             );
         }
-    }
-
-    /// Side threads a previous process left live: their agents died with it,
-    /// so each is parked, on the tape and on its own stream, and a card it
-    /// left open is expired. The next line said in one starts an agent again.
-    pub(super) fn settle_orphaned_sides(&self, events: &[Value]) -> Vec<Value> {
-        let now = now_ms();
-        let mut settled = Vec::new();
-        for event in events {
-            if event.get("kind").and_then(Value::as_str) != Some("side")
-                || event.get("status").and_then(Value::as_str) != Some("live")
-            {
-                continue;
-            }
-            let Some(side_id) = event.get("sideId").and_then(Value::as_str) else {
-                continue;
-            };
-            let Some(mut marker) = event.as_object().cloned() else {
-                continue;
-            };
-            marker.insert("status".into(), Value::from("parked"));
-            let marker = Value::Object(marker);
-            let stream = StreamId::Side(side_id.to_string());
-            let mut lines = crate::log::expire_orphaned_permissions(&self.log.load(&stream), now);
-            lines.push(marker.clone());
-            for line in lines {
-                if let Err(error) = self.log.append(&stream, &line) {
-                    eprintln!("could not settle the side thread {side_id}: {error}");
-                }
-            }
-            settled.push(marker);
-        }
-        settled
     }
 
     fn live_side(&self, side_id: &str) -> Result<Arc<LiveSide>, String> {
@@ -922,7 +825,7 @@ impl Room {
                 }
             }
             if let Some(summary) = lock(&side.archive_note).take() {
-                self.finish_side(&side, SideEnd::Agent, Some(summary));
+                self.finish_side(&side, End::Agent, Some(summary));
                 break;
             }
             next = lock(&side.turns).next_line();
@@ -932,9 +835,9 @@ impl Room {
     }
 
     /// Ends a thread for good, until it is continued: its agent stopped, its
-    /// authority revoked, its marker archived. Safe to call twice.
-    fn finish_side(&self, side: &Arc<LiveSide>, by: SideEnd, result: Option<String>) {
-        self.end_side(side, Ending::Archive { by, result });
+    /// authority revoked, its link closed. Safe to call twice.
+    fn finish_side(&self, side: &Arc<LiveSide>, by: End, result: Option<String>) {
+        self.end_side(side, Ending::Close(by, result));
     }
 
     /// Lets go of a thread's agent and leaves the thread open.
@@ -942,7 +845,7 @@ impl Room {
         self.end_side(side, Ending::Park);
     }
 
-    fn end_side(&self, side: &Arc<LiveSide>, ending: Ending) {
+    pub(super) fn end_side(&self, side: &Arc<LiveSide>, ending: Ending) {
         if side.closed.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -957,102 +860,34 @@ impl Room {
                 .write(&ThreadId::side(&side.id), &side.persona_id, &expired);
         }
         match ending {
-            Ending::Park => self.mark_side(side, SideStatus::Parked, None, None),
-            Ending::Archive { by, result } => {
+            Ending::Park => self.mark_side(side, ThreadState::Parked, None),
+            Ending::Close(by, result) => {
                 let said_so = result.is_some();
                 let result = result.or_else(|| last_words(&events));
-                self.mark_side(side, SideStatus::Archived, result, Some(by));
-                self.queue_closing_note(&side.id, &side.persona_id, said_so);
+                self.mark_side(side, ThreadState::Closed(by), result);
+                self.queue_closing_note(&ThreadId::side(&side.id), said_so);
             }
         }
         let _ = self.info_changes.send(self.info(&side.persona_id));
     }
 
     /// Archives a thread that has no agent: the person ended a parked one.
-    fn archive_parked(&self, marker: &Value, by: SideEnd, result: Option<String>) {
-        let (Some(side_id), Some(persona_id)) = (
-            marker.get("sideId").and_then(Value::as_str),
-            marker.get("personaId").and_then(Value::as_str),
-        ) else {
+    fn archive_parked(&self, link: Link, by: End, result: Option<String>) {
+        let thread = link.thread.clone();
+        let Some(persona_id) = link.persona_id.clone() else {
             return;
         };
         let said_so = result.is_some();
-        let result = result.or_else(|| last_words(&self.log.load(&StreamId::Side(side_id.into()))));
-        let Some(mut archived) = marker.as_object().cloned() else {
-            return;
-        };
-        archived.insert("status".into(), Value::from("archived"));
-        archived.insert("archivedBy".into(), json!(by));
-        archived.insert("archivedAt".into(), Value::from(now_ms()));
-        match result {
-            Some(result) => archived.insert("result".into(), Value::from(result)),
-            None => archived.remove("result"),
-        };
-        self.write_marker(persona_id, side_id, &Value::Object(archived));
-        self.queue_closing_note(side_id, persona_id, said_so);
-        let _ = self.info_changes.send(self.info(persona_id));
-    }
-
-    /// Writes the closing note of a thread that has just been archived, once a
-    /// model has written it, in the background: the person was told the thread
-    /// is archived the moment they pressed the button, and the note is a
-    /// model call.
-    ///
-    /// The note is produced the way a chapter's is ([`Room::note`]): the same
-    /// summariser over the thread's stream, so it reads goal, what got done,
-    /// what is still open and the key files. It replaces the marker's title
-    /// with the note's, and its outcome becomes the one-line result unless the
-    /// teammate wrote one itself. A marker that has moved on since — the
-    /// thread was continued, or archived again — is left alone.
-    fn queue_closing_note(&self, side_id: &str, persona_id: &str, said_so: bool) {
-        let Some(room) = lock(&self.sides.room).upgrade() else {
-            return;
-        };
-        let (Ok(persona), Ok(runtime)) = (
-            self.persona(persona_id),
-            tokio::runtime::Handle::try_current(),
-        ) else {
-            return;
-        };
-        let Some(archived_at) = self
-            .side_marker(side_id)
-            .and_then(|marker| marker.get("archivedAt").and_then(Value::as_i64))
-        else {
-            return;
-        };
-        let side_id = side_id.to_string();
-        runtime.spawn(async move {
-            let Ok(_working) = room.working() else {
-                return;
-            };
-            let slice = room.log.load(&StreamId::Side(side_id.clone()));
-            if !slice.iter().any(crate::store::chapters::is_message) {
-                return;
-            }
-            let Some(note) = room.note(&persona, &slice).await else {
-                eprintln!(
-                    "the side thread {side_id} was archived without a closing note: no model answered"
-                );
-                return;
-            };
-            let Some(mut marker) = room
-                .side_marker(&side_id)
-                .and_then(|marker| marker.as_object().cloned())
-            else {
-                return;
-            };
-            if marker.get("status").and_then(Value::as_str) != Some("archived")
-                || marker.get("archivedAt").and_then(Value::as_i64) != Some(archived_at)
-            {
-                return;
-            }
-            marker.insert("title".into(), Value::from(cut(&note.title, TITLE_CHARS)));
-            if !said_so && let Some(outcome) = outcome_line(&note.note) {
-                marker.insert("result".into(), Value::from(outcome));
-            }
-            marker.insert("note".into(), Value::from(note.note));
-            room.write_marker(&persona.id, &side_id, &Value::Object(marker));
+        let result =
+            result.or_else(|| last_words(&self.log.load(&StreamId::Side(thread.key.clone()))));
+        self.write_link(&Link {
+            state: ThreadState::Closed(by),
+            outcome: result,
+            at: Some(now_ms()),
+            ..link
         });
+        self.queue_closing_note(&thread, said_so);
+        let _ = self.info_changes.send(self.info(&persona_id));
     }
 
     /// Keeps the agent's session id on the marker once a turn has completed on
@@ -1074,40 +909,30 @@ impl Room {
             }
             *saved = next;
         }
-        self.mark_side(side, SideStatus::Live, None, None);
+        self.mark_side(side, ThreadState::Live, None);
     }
 
-    /// The marker on the teammate's tape and at the head of the thread's own
+    /// The link on the teammate's tape and at the head of the thread's own
     /// stream.
-    fn mark_side(
-        &self,
-        side: &LiveSide,
-        status: SideStatus,
-        result: Option<String>,
-        by: Option<SideEnd>,
-    ) {
+    fn mark_side(&self, side: &LiveSide, state: ThreadState, outcome: Option<String>) {
+        let thread = ThreadId::side(&side.id);
         let saved = lock(&side.saved).clone();
-        let marker = Mark {
-            side_id: &side.id,
-            persona_id: &side.persona_id,
-            title: &side.title,
-            started: side.started,
-            status,
-            result,
-            by,
-            at: by.map(|_| now_ms()),
-            session: saved.map(|session| (side.backend_id.as_str(), session)),
-        }
-        .event();
-        if let Ok(value) = serde_json::to_value(&marker) {
-            self.write_marker(&side.persona_id, &side.id, &value);
-        }
-    }
-
-    fn write_marker(&self, persona_id: &str, side_id: &str, marker: &Value) {
-        let threads = self.threads();
-        threads.write(&ThreadId::dm(persona_id), persona_id, marker);
-        threads.write(&ThreadId::side(side_id), persona_id, marker);
+        self.write_link(&Link {
+            id: self.link_id(&thread),
+            ts: side.started,
+            thread,
+            persona_id: Some(side.persona_id.clone()),
+            title: side.title.clone(),
+            state,
+            outcome,
+            at: matches!(state, ThreadState::Closed(_)).then(now_ms),
+            note: None,
+            binding: saved.map(|session_id| AgentBinding {
+                backend_id: side.backend_id.clone(),
+                session_id,
+            }),
+            elapsed_ms: None,
+        });
     }
 
     fn side_summary(&self, side: &LiveSide) -> SideThreadSummary {
@@ -1128,15 +953,6 @@ impl Room {
         }
     }
 
-    /// The marker at the head of a thread's stream, as last written.
-    fn side_marker(&self, side_id: &str) -> Option<Value> {
-        let id = Value::from(marker_id(side_id));
-        self.log
-            .load(&StreamId::Side(side_id.to_string()))
-            .into_iter()
-            .find(|event| event.get("id") == Some(&id))
-    }
-
     fn stored_side_ids(&self) -> Vec<String> {
         let Ok(entries) = std::fs::read_dir(crate::paths::sides_dir(self.log.root())) else {
             return Vec::new();
@@ -1150,47 +966,42 @@ impl Room {
             .collect()
     }
 
-    /// A thread with no agent, as its marker and stream say it is.
+    /// A thread with no agent, as its link and stream say it is.
     fn stored_summary(&self, side_id: &str, persona_id: &str) -> Option<SideThreadSummary> {
         let events = self.log.load(&StreamId::Side(side_id.to_string()));
-        let id = Value::from(marker_id(side_id));
-        let marker = events.iter().find(|event| event.get("id") == Some(&id))?;
-        let TranscriptEvent::Side {
-            side_id,
-            persona_id: owner,
-            title,
-            ts,
-            status,
-            result,
-            archived_by,
-            archived_at,
-            ..
-        } = serde_json::from_value(marker.clone()).ok()?
-        else {
-            return None;
-        };
-        if owner != persona_id {
+        let link = Link::find(&events, &ThreadId::side(side_id))?;
+        if link.persona_id.as_deref() != Some(persona_id) {
             return None;
         }
-        // A stream whose marker still says live belongs to a process that is
+        // A stream whose link still says live belongs to a process that is
         // gone, and the next start parks it: it is never listed as live from
         // here.
-        if status == SideStatus::Live {
-            return None;
-        }
+        let (status, archived_by) = match link.state {
+            ThreadState::Live => return None,
+            ThreadState::Parked => (SideStatus::Parked, None),
+            ThreadState::Closed(end) => (
+                SideStatus::Archived,
+                Some(match end {
+                    End::Agent => SideEnd::Agent,
+                    End::Idle => SideEnd::Idle,
+                    End::Stopped => SideEnd::Stopped,
+                    _ => SideEnd::Person,
+                }),
+            ),
+        };
         Some(SideThreadSummary {
-            side_id,
-            persona_id: owner,
-            title,
+            side_id: side_id.to_string(),
+            persona_id: persona_id.to_string(),
+            title: link.title,
             status,
-            started_at: ts,
-            last_at: last_at(&events).max(ts),
+            started_at: link.ts,
+            last_at: last_at(&events).max(link.ts),
             working: false,
             waiting: false,
             preview: preview_line(&events),
-            result,
+            result: link.outcome,
             archived_by,
-            archived_at,
+            archived_at: link.at,
         })
     }
 }
@@ -1221,7 +1032,7 @@ fn preview_line(events: &[Value]) -> Option<String> {
 }
 
 /// The one line a closing note says about how it came out.
-fn outcome_line(note: &str) -> Option<String> {
+pub(super) fn outcome_line(note: &str) -> Option<String> {
     note.lines()
         .find_map(|line| line.strip_prefix("Outcome:"))
         .map(|outcome| cut(outcome, RESULT_CHARS))
@@ -1251,6 +1062,7 @@ mod tests {
     use crate::driver::{MessageKind, Update};
     use crate::mcp::server::TeammateTools;
     use crate::session::tests::{Fake, Scripted, enrol, persona, scratch};
+    use crate::thread::SIDE_IDLE_MS;
     use std::time::Duration;
     use tokio::sync::Semaphore;
 
@@ -1295,12 +1107,22 @@ mod tests {
         )
     }
 
+    /// What a client is sent of a thread's stream: its link as the marker the
+    /// kind has always had. The stored line is checked where it is the point.
     fn side_stream(room: &Room, side_id: &str) -> Vec<Value> {
-        room.log.load(&StreamId::Side(side_id.to_string()))
+        room.log
+            .load(&StreamId::Side(side_id.to_string()))
+            .into_iter()
+            .map(Link::wire)
+            .collect()
     }
 
     fn tape(room: &Room) -> Vec<Value> {
-        room.log.load(&StreamId::Tape("ada".to_string()))
+        room.log
+            .load(&StreamId::Tape("ada".to_string()))
+            .into_iter()
+            .map(Link::wire)
+            .collect()
     }
 
     fn kinds(events: &[Value]) -> Vec<String> {
@@ -1340,9 +1162,15 @@ mod tests {
         // The main tape holds the marker and none of the thread's words.
         let tape = tape(&room);
         assert_eq!(kinds(&tape), ["side"]);
-        assert_eq!(tape[0]["id"], format!("side:{}", summary.side_id));
+        assert_eq!(tape[0]["id"], format!("link:side:{}", summary.side_id));
         assert_eq!(tape[0]["status"], "live");
         assert_eq!(tape[0]["personaId"], "ada");
+        // Stored, it is a link; a client is sent the marker.
+        let stored = room.log.load(&StreamId::Tape("ada".to_string()));
+        assert_eq!(stored[0]["kind"], "link");
+        assert_eq!(stored[0]["threadKind"], "side");
+        assert_eq!(stored[0]["thread"], summary.side_id);
+        assert_eq!(stored[0]["state"], "live");
 
         let sides = room.sides("ada");
         assert_eq!(sides.len(), 1);
@@ -1657,9 +1485,9 @@ mod tests {
         let room = room("side-idle", agents.clone());
         let summary = room.start_side("ada", "Task").await.unwrap();
         settled(&room, &summary.side_id).await;
-        room.sweep_sides(now_ms() + IDLE_MS - 60_000);
+        room.sweep_threads(now_ms() + SIDE_IDLE_MS - 60_000);
         assert_eq!(room.sides("ada").len(), 1, "not yet");
-        room.sweep_sides(now_ms() + IDLE_MS + 60_000);
+        room.sweep_threads(now_ms() + SIDE_IDLE_MS + 60_000);
         assert!(room.sides("ada").is_empty(), "the agent is let go of");
         assert!(agents.cancel_count() >= 1);
 
@@ -1687,7 +1515,7 @@ mod tests {
         let summary = room.start_side("ada", "Triage my repos").await.unwrap();
         let id = summary.side_id;
         settled(&room, &id).await;
-        room.sweep_sides(now_ms() + IDLE_MS + 60_000);
+        room.sweep_threads(now_ms() + SIDE_IDLE_MS + 60_000);
         assert!(room.sides("ada").is_empty());
 
         room.prompt_side(&id, "Now repo two", None).await.unwrap();
@@ -1798,7 +1626,7 @@ mod tests {
         assert_eq!(marker["backendId"], "cursor");
         assert_eq!(side_stream(&room, &id)[0]["sessionId"], "s-side");
 
-        room.sweep_sides(now_ms() + IDLE_MS + 60_000);
+        room.sweep_threads(now_ms() + SIDE_IDLE_MS + 60_000);
         room.prompt_side(&id, "Next", None).await.unwrap();
         settled(&room, &id).await;
         let views = agents.views();

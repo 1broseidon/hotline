@@ -32,8 +32,8 @@
 //! raises: nobody is looking at a run to answer one.
 //!
 //! A run never writes to its teammate's tape. The one line it keeps there is
-//! a [`TranscriptEvent::Subagent`] marker, rewritten by id as the run goes,
-//! which is what the person presses to open the run's own transcript.
+//! its [`Link`], rewritten by id as the run goes, which a client is sent as
+//! the `subagent` marker the person presses to open the run's own transcript.
 //!
 //! Authority follows [`crate::driver::CapabilityLease`]: a run's lease is a
 //! child of the session that started it, so stopping that teammate, changing
@@ -54,9 +54,8 @@ use crate::driver::{
     CapabilityLease, Driver, HOTLINE_BACKEND_ID, MessageKind, SubagentReport, Update,
 };
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
-use crate::thread::{ThreadId, ThreadKind};
+use crate::thread::{End, Link, ThreadId, ThreadKind, ThreadState};
 use futures_util::future::BoxFuture;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
 use tokio::sync::mpsc;
@@ -235,7 +234,7 @@ impl Room {
             lease: None,
             settled: false,
         };
-        running.mark(SubagentStatus::Running, None);
+        running.mark(ThreadState::Live, None);
         self.threads().write(
             &ThreadId::run(&spec.run_id),
             &spec.persona_id,
@@ -370,7 +369,7 @@ impl Room {
                     lease: None,
                     settled: false,
                 };
-                running.mark(SubagentStatus::Running, None);
+                running.mark(ThreadState::Live, None);
                 if !task.trim().is_empty() {
                     self.threads().write(
                         &ThreadId::run(&running.run_id),
@@ -533,24 +532,27 @@ struct Running {
 }
 
 impl Running {
-    /// The run's line, on the teammate's tape and at the head of the run's
+    /// The run's link, on the teammate's tape and at the head of the run's
     /// own stream, so the run says what it is and how it went to whoever
     /// opens it without reading the tape.
-    fn mark(&self, status: SubagentStatus, elapsed_ms: Option<i64>) {
+    fn mark(&self, state: ThreadState, elapsed_ms: Option<i64>) {
         let Some(room) = self.room.upgrade() else {
             return;
         };
-        let marker = TranscriptEvent::Subagent {
-            id: marker_id(&self.run_id),
+        let thread = ThreadId::run(&self.run_id);
+        room.write_link(&Link {
+            id: room.link_id(&thread),
             ts: self.started,
-            run_id: self.run_id.clone(),
+            thread,
+            persona_id: Some(self.persona_id.clone()),
             title: self.title.clone(),
-            status,
+            state,
+            outcome: None,
+            at: None,
+            note: None,
+            binding: None,
             elapsed_ms,
-        };
-        let threads = room.threads();
-        threads.write(&ThreadId::dm(&self.persona_id), &self.persona_id, &marker);
-        threads.write(&ThreadId::run(&self.run_id), &self.persona_id, &marker);
+        });
         room.list_subagent(
             &self.persona_id,
             RunningSubagent {
@@ -558,7 +560,7 @@ impl Running {
                 title: self.title.clone(),
                 started_at: self.started,
             },
-            status == SubagentStatus::Running,
+            state == ThreadState::Live,
         );
     }
 
@@ -574,12 +576,12 @@ impl Running {
         if let Some(lease) = &self.lease {
             lease.revoke();
         }
-        let status = match end {
-            RunEnd::Done => SubagentStatus::Done,
-            RunEnd::Failed => SubagentStatus::Failed,
-            RunEnd::Cancelled => SubagentStatus::Cancelled,
+        let end = match end {
+            RunEnd::Done => End::Done,
+            RunEnd::Failed => End::Failed,
+            RunEnd::Cancelled => End::Cancelled,
         };
-        self.mark(status, Some(now_ms() - self.started));
+        self.mark(ThreadState::Closed(end), Some(now_ms() - self.started));
     }
 }
 
@@ -594,10 +596,6 @@ struct HarnessRun {
     running: Running,
     voice: narration::Voice,
     in_flight: HashMap<String, PendingTool>,
-}
-
-fn marker_id(run_id: &str) -> String {
-    format!("subagent:{run_id}")
 }
 
 /// A teammate's subagents, as its managed jobs start them.
@@ -647,25 +645,6 @@ impl Delegate for Subagents {
             }
         })
     }
-}
-
-/// Subagent lines a previous process left running on a tape. A run lives
-/// only as long as the activity that started it, and no activity survives a
-/// restart, so the line is settled as cancelled rather than drawn running
-/// forever — on the tape, and by the caller on the run's own stream.
-pub(crate) fn settle_orphaned_subagents(events: &[Value]) -> Vec<Value> {
-    events
-        .iter()
-        .filter(|event| {
-            event.get("kind").and_then(Value::as_str) == Some("subagent")
-                && event.get("status").and_then(Value::as_str) == Some("running")
-        })
-        .filter_map(|event| {
-            let mut settled = event.as_object()?.clone();
-            settled.insert("status".into(), Value::from("cancelled"));
-            Some(Value::Object(settled))
-        })
-        .collect()
 }
 
 #[cfg(test)]

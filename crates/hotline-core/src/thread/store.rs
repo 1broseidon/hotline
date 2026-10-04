@@ -1,16 +1,16 @@
 //! Reading threads out of the records each kind already keeps.
 //!
 //! Nothing here writes, and nothing is a new record. A DM is the teammate's
-//! persona and its tape; a side thread is the marker at the head of its stream;
-//! a run is its marker, and the tape that holds the line the person presses to
+//! persona and its tape; a side thread is the link at the head of its stream;
+//! a run is its link, and the tape that holds the line the person presses to
 //! open it; a pair is its sidecar and, on the room stream, the `exchange_pair`
 //! that says whether a request is being answered. The folding of those into a
 //! [`Thread`] is the whole of this module.
 
 use super::{
-    AgentBinding, End, Participant, Thread, ThreadId, ThreadKind, ThreadLink, ThreadState,
+    AgentBinding, Link, Participant, Thread, ThreadId, ThreadKind, ThreadLink, ThreadState,
 };
-use crate::contract::{Persona, SideEnd, SideStatus, SubagentStatus, TranscriptEvent};
+use crate::contract::Persona;
 use crate::log::{Log, StreamId, thread as pair_files};
 use crate::paths::{sides_dir, thread_meta_path, thread_participants};
 use crate::room;
@@ -113,92 +113,48 @@ impl ThreadStore {
     }
 
     fn side(&self, side_id: &str) -> Option<Thread> {
-        let marker_id = Value::from(format!("side:{side_id}"));
-        let marker = self
-            .log
-            .load(&StreamId::Side(side_id.to_string()))
-            .into_iter()
-            .find(|event| event.get("id") == Some(&marker_id))?;
-        let TranscriptEvent::Side {
-            id,
-            persona_id,
-            title,
-            status,
-            archived_by,
-            note,
-            session_id,
-            backend_id,
-            ..
-        } = serde_json::from_value(marker).ok()?
-        else {
-            return None;
-        };
-        let state = match status {
-            SideStatus::Live => ThreadState::Live,
-            SideStatus::Parked => ThreadState::Parked,
-            SideStatus::Archived => ThreadState::Closed(match archived_by {
-                Some(SideEnd::Agent) => End::Agent,
-                Some(SideEnd::Idle) => End::Idle,
-                Some(SideEnd::Stopped) => End::Stopped,
-                Some(SideEnd::Person) | None => End::Person,
-            }),
-        };
+        let link = self.link(&ThreadId::side(side_id))?;
+        let persona_id = link.persona_id?;
         Some(Thread {
-            id: ThreadId::side(side_id),
+            id: link.thread,
             parent: Some(ThreadLink {
                 thread: ThreadId::dm(&persona_id),
-                event: Some(id),
+                event: Some(link.id),
             }),
             participants: vec![Participant::Person, Participant::Persona(persona_id)],
-            state,
-            title: Some(title),
-            binding: session_id
-                .zip(backend_id)
-                .map(|(session_id, backend_id)| AgentBinding {
-                    backend_id,
-                    session_id,
-                }),
-            note,
+            state: link.state,
+            title: Some(link.title),
+            binding: link.binding,
+            note: link.note,
         })
     }
 
-    /// A run, from the marker at the head of its own stream. The marker does
-    /// not say whose run it was; the teammate's tape does, so the owner is
-    /// handed in by whoever found it.
+    /// A run, from the link at the head of its own stream. A link written
+    /// before links existed does not say whose run it was; the teammate's tape
+    /// does, so the owner is handed in by whoever found it.
     fn run(&self, run_id: &str, owner: Option<&str>) -> Option<Thread> {
-        let marker_id = Value::from(format!("subagent:{run_id}"));
-        let marker = self
-            .log
-            .load(&StreamId::Run(run_id.to_string()))
-            .into_iter()
-            .find(|event| event.get("id") == Some(&marker_id))?;
-        let TranscriptEvent::Subagent {
-            id, title, status, ..
-        } = serde_json::from_value(marker).ok()?
-        else {
-            return None;
-        };
-        let state = match status {
-            SubagentStatus::Running => ThreadState::Live,
-            SubagentStatus::Done => ThreadState::Closed(End::Done),
-            SubagentStatus::Failed => ThreadState::Closed(End::Failed),
-            SubagentStatus::Cancelled => ThreadState::Closed(End::Cancelled),
-        };
+        let link = self.link(&ThreadId::run(run_id))?;
+        let owner = link.persona_id.as_deref().or(owner);
         Some(Thread {
-            id: ThreadId::run(run_id),
+            id: link.thread.clone(),
             parent: owner.map(|persona_id| ThreadLink {
                 thread: ThreadId::dm(persona_id),
-                event: Some(id),
+                event: Some(link.id.clone()),
             }),
             participants: owner
                 .map(|persona_id| Participant::Persona(persona_id.to_string()))
                 .into_iter()
                 .collect(),
-            state,
-            title: Some(title),
+            state: link.state,
+            title: Some(link.title),
             binding: None,
             note: None,
         })
+    }
+
+    /// The link at the head of a thread's own stream, as last written.
+    fn link(&self, thread: &ThreadId) -> Option<Link> {
+        Link::find(&self.log.load(&thread.stream()?), thread)
     }
 
     /// A pair, from its sidecar's key. It is `Live` while the room stream
@@ -260,13 +216,9 @@ impl ThreadStore {
         self.log
             .load(&StreamId::Tape(persona_id.to_string()))
             .iter()
-            .filter(|event| event.get("kind").and_then(Value::as_str) == Some("subagent"))
-            .filter_map(|event| {
-                event
-                    .get("runId")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            })
+            .filter_map(Link::read)
+            .filter(|link| link.thread.kind == ThreadKind::Run)
+            .map(|link| link.thread.key)
             .collect()
     }
 

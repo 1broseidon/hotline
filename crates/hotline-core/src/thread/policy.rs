@@ -4,7 +4,7 @@
 //! the write path and the agent builder read the row. Only the decisions they
 //! make are here; each later phase adds the ones it needs.
 
-use super::ThreadKind;
+use super::{End, ThreadKind};
 
 /// Who may answer a card raised in the thread.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,6 +25,8 @@ pub struct Surface {
     pub mirror_to_call: bool,
     /// Index the thread's messages, so `search_thread` finds them.
     pub index: bool,
+    /// Write one `link` line on the parent that stands for the thread.
+    pub link: bool,
 }
 
 /// What a fresh agent is told about the conversation it joins.
@@ -52,6 +54,42 @@ pub enum Tools {
     None,
 }
 
+/// What an idle thread comes to, and when. The one sweep reads this for every
+/// kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Idle {
+    /// The DM is not idle-swept as a thread: its chapters close when the
+    /// room's idle setting says so.
+    Chapters,
+    /// The agent is let go of after this many milliseconds with nobody
+    /// speaking, and the thread stays open.
+    Park(i64),
+    /// The thread ends this long after anyone last spoke.
+    Close(i64, End),
+    /// Idle does not end it: it lasts as long as the work it is for.
+    Never,
+}
+
+/// What a restart does to a thread the last process left live. Its agent died
+/// with that process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Restart {
+    /// Nothing is done: the thread is reopened from its record.
+    Resume,
+    /// It is parked, and the next line said in it starts an agent again.
+    Park,
+    /// It is closed, with this end, and its transcript kept.
+    Close(End),
+}
+
+/// How long a side thread may sit with nobody speaking in it before it is
+/// parked. Hours, not minutes: the person may leave a thread to think and come
+/// back after lunch.
+pub const SIDE_IDLE_MS: i64 = 3 * 60 * 60_000;
+
+/// How long a peer session or a call may go quiet.
+pub const QUIET_MS: i64 = 10 * 60_000;
+
 /// How a thread's authority derives from the one it hangs off. Never wider.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lease {
@@ -71,6 +109,11 @@ pub struct Policy {
     pub seed: Seed,
     pub tools: Tools,
     pub lease: Lease,
+    pub idle: Idle,
+    pub restart: Restart,
+    /// Whether closing the thread writes a note through the chapter
+    /// summariser. A run's report is a job result, so it has none.
+    pub closing_note: bool,
     /// Whether the agent gets the teammate's computer. Two agents driving one
     /// desktop is a fight nobody wins, so only the main conversation does.
     pub computer: bool,
@@ -90,11 +133,20 @@ impl Policy {
                     own_history: true,
                 },
                 computer: true,
+                idle: Idle::Chapters,
+                restart: Restart::Resume,
                 ..Self::asked_of_the_person()
             },
             ThreadKind::Side => Self {
                 tools: Tools::Side,
                 lease: Lease::Independent,
+                idle: Idle::Park(SIDE_IDLE_MS),
+                restart: Restart::Park,
+                closing_note: true,
+                surface: Surface {
+                    link: true,
+                    ..Self::asked_of_the_person().surface
+                },
                 seed: Seed {
                     parent_tail: true,
                     own_history: true,
@@ -110,13 +162,24 @@ impl Policy {
                     own_history: true,
                 },
                 computer: true,
+                idle: Idle::Park(QUIET_MS),
+                restart: Restart::Park,
                 ..Self::asked_of_the_person()
             },
             // A call signals a card and never answers it, and a run has no
             // one to answer: both expire what they raise. A call has no agent
             // of its own yet, and a run starts fresh and is never reopened.
-            ThreadKind::Call => Self::unattended(Tools::None, Lease::Same),
-            ThreadKind::Run => Self::unattended(Tools::Run, Lease::Scoped),
+            ThreadKind::Call => Self {
+                idle: Idle::Close(QUIET_MS, End::Idle),
+                restart: Restart::Close(End::Stopped),
+                closing_note: true,
+                ..Self::unattended(Tools::None, Lease::Same)
+            },
+            ThreadKind::Run => Self {
+                idle: Idle::Never,
+                restart: Restart::Close(End::Cancelled),
+                ..Self::unattended(Tools::Run, Lease::Scoped)
+            },
         }
     }
 }
@@ -131,6 +194,7 @@ impl Policy {
                 push_cards: true,
                 mirror_to_call: true,
                 index: true,
+                link: false,
             },
             seed: Seed {
                 parent_tail: false,
@@ -138,6 +202,9 @@ impl Policy {
             },
             tools: Tools::None,
             lease: Lease::Same,
+            idle: Idle::Never,
+            restart: Restart::Resume,
+            closing_note: false,
             computer: false,
         }
     }
@@ -151,6 +218,7 @@ impl Policy {
                 push_cards: false,
                 mirror_to_call: false,
                 index: true,
+                link: true,
             },
             seed: Seed {
                 parent_tail: false,
@@ -158,6 +226,9 @@ impl Policy {
             },
             tools,
             lease,
+            idle: Idle::Never,
+            restart: Restart::Resume,
+            closing_note: false,
             computer: false,
         }
     }

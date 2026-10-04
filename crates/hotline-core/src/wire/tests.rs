@@ -5463,6 +5463,74 @@ async fn images_status_refuses_corrupt_saved_zero_caps_without_exposing_room_con
     assert!(!root.path().join("spending.json").exists());
 }
 
+/// A thread's link is what is stored, and a client on any build is sent the
+/// marker its kind has always had: in a snapshot, as an event, and in a page.
+#[tokio::test]
+async fn a_thread_link_reaches_every_client_as_the_marker_its_kind_always_had() {
+    let (_root, log, port) = door("link-wire");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let persona_id = ada["id"].as_str().unwrap().to_string();
+    let tape = StreamId::Tape(persona_id.clone());
+    let link = |state: &str| {
+        json!({
+            "kind": "link", "id": "link:side:s1", "ts": 5, "thread": "s1",
+            "threadKind": "side", "personaId": persona_id, "title": "Mend the crane",
+            "state": state
+        })
+    };
+    log.append(&tape, &link("live")).unwrap();
+    log.append(&StreamId::Side("s1".into()), &link("live"))
+        .unwrap();
+    // One written before links, which is sent as it is.
+    let old = json!({
+        "kind": "subagent", "id": "subagent:r1", "ts": 6, "runId": "r1",
+        "title": "Look it up", "status": "done"
+    });
+    log.append(&tape, &old).unwrap();
+
+    ask(
+        &mut socket,
+        json!({ "id": 2, "sub": { "tape": persona_id } }),
+    )
+    .await;
+    let snapshot = heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    let lines = snapshot["snapshot"].as_array().unwrap();
+    assert_eq!(lines[0]["kind"], "side");
+    assert_eq!(lines[0]["id"], "link:side:s1");
+    assert_eq!(lines[0]["sideId"], "s1");
+    assert_eq!(lines[0]["status"], "live");
+    assert_eq!(lines[1], old);
+
+    // Rewritten as the thread goes: the event a client folds by id.
+    log.append(&tape, &link("parked")).unwrap();
+    let event = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(event["event"]["kind"], "side");
+    assert_eq!(event["event"]["status"], "parked");
+
+    ask(&mut socket, json!({ "id": 3, "sub": { "side": "s1" } })).await;
+    let own = heard_where(&mut socket, |frame| {
+        frame["sub"] == 3 && frame["snapshot"].is_array()
+    })
+    .await;
+    assert_eq!(own["snapshot"][0]["kind"], "side");
+    assert_eq!(own["snapshot"][0]["personaId"], persona_id);
+
+    log.append(
+        &tape,
+        &json!({ "kind": "user", "id": "u1", "ts": 9, "text": "later" }),
+    )
+    .unwrap();
+    ask(
+        &mut socket,
+        json!({ "id": 4, "cmd": "tape.page", "params": { "personaId": persona_id, "before": "u1" } }),
+    )
+    .await;
+    let page = answered(&mut socket, 4).await;
+    assert_eq!(page["result"]["events"][0]["kind"], "side");
+    assert_eq!(page["result"]["events"][0]["status"], "parked");
+}
+
 #[tokio::test]
 async fn the_window_opens_on_a_tapes_last_lines_and_pages_back_to_the_first() {
     let (_root, log, port) = door("tape-window");

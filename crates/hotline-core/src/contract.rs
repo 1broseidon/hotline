@@ -16,6 +16,7 @@
 //! why the tests at the bottom feed the store's own output through these
 //! types and back out again.
 
+use crate::thread::{ThreadId, ThreadKind};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use ts_rs::TS;
@@ -1187,6 +1188,11 @@ pub enum TranscriptEvent {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         receipt: Option<Receipt>,
+        /// The thread it came from and the request it answers. Absent from a
+        /// delivery written before this was kept, which is told apart by the
+        /// id it was written under.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<DeliveryFrom>,
     },
     /// A pair reached the automatic message cap. Its queue waits for the
     /// person to Keep going or Stop exchange, across intents and restarts.
@@ -1210,6 +1216,10 @@ pub enum TranscriptEvent {
     /// own transcript. The run itself never writes to this tape — what it did
     /// is on its own stream, `runs/<runId>`, and what it reported came back
     /// to the teammate as a job result.
+    ///
+    /// Stored as a thread's link (`thread::Link`) and sent as this, so a
+    /// client that draws markers needs nothing else; lines written before
+    /// links are this already.
     Subagent {
         id: String,
         /// When the run started. The line keeps its place as it is rewritten.
@@ -1230,6 +1240,8 @@ pub enum TranscriptEvent {
     /// line reads "Started a side thread"; `parked` is the same thread with
     /// its agent let go of, still open; once `archived` it is a one-line
     /// `result` with an Open, and `note` holds the closing handoff note.
+    ///
+    /// Stored as a thread's link (`thread::Link`) and sent as this.
     Side {
         id: String,
         /// When the thread started. The line keeps its place as it is rewritten.
@@ -1430,6 +1442,34 @@ pub enum DeliveryCause {
         /// The start of the card's reason, clipped to a line.
         about: String,
     },
+}
+
+/// Where a delivery came from: the thread that produced it, and the request it
+/// answers when it answers one. It is a field of the delivery, so the turn that
+/// takes it never has to read an id to find out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct DeliveryFrom {
+    /// The thread's key: see [`ThreadId`].
+    pub thread: String,
+    pub kind: ThreadKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<String>,
+}
+
+impl DeliveryFrom {
+    pub fn new(thread: &ThreadId, request: Option<String>) -> Self {
+        Self {
+            thread: thread.key.clone(),
+            kind: thread.kind,
+            request,
+        }
+    }
+
+    pub fn thread(&self) -> ThreadId {
+        ThreadId::new(self.kind, self.thread.clone())
+    }
 }
 
 /// What a firing stamps on the user event it writes.

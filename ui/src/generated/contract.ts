@@ -394,6 +394,17 @@ about: string, } | { "kind": "answer", actionId: string, status: HumanActionStat
  */
 about: string, };
 
+/**
+ * Where a delivery came from: the thread that produced it, and the request it
+ * answers when it answers one. It is a field of the delivery, so the turn that
+ * takes it never has to read an id to find out.
+ */
+export type DeliveryFrom = { 
+/**
+ * The thread's key: see [`ThreadId`].
+ */
+thread: string, kind: ThreadKind, request?: string, };
+
 export type DeviceRole = "owner" | "companion";
 
 /**
@@ -1234,6 +1245,11 @@ export type TeammateToolLedger = { personaId: string, agentKind: AgentKind, back
 at: number, rows: Array<ToolLedgerRow>, };
 
 /**
+ * What kind of conversation a thread is. The kind picks its [`Policy`].
+ */
+export type ThreadKind = "dm" | "side" | "pair" | "call" | "run";
+
+/**
  * One hit from a thread search: a chapter by its note, or a message by its
  * text.
  */
@@ -1376,7 +1392,13 @@ name: string, rpId: string, origin: string, rpName?: string, userName?: string, 
  * message from outside the room must never look like one from a
  * teammate.
  */
-seat?: PeerSeat, } | { "kind": "delivery", id: string, ts: number, cause: DeliveryCause, text: string, receipt?: Receipt, } | { "kind": "exchange_paused", id: string, ts: number, withPersonaId: string, withName: string, exchanges: number, status: ExchangePauseStatus, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, } | { "kind": "subagent", id: string, 
+seat?: PeerSeat, } | { "kind": "delivery", id: string, ts: number, cause: DeliveryCause, text: string, receipt?: Receipt, 
+/**
+ * The thread it came from and the request it answers. Absent from a
+ * delivery written before this was kept, which is told apart by the
+ * id it was written under.
+ */
+from?: DeliveryFrom, } | { "kind": "exchange_paused", id: string, ts: number, withPersonaId: string, withName: string, exchanges: number, status: ExchangePauseStatus, } | { "kind": "turn", id: string, ts: number, stopReason: string, usage?: TokenUsage, } | { "kind": "subagent", id: string, 
 /**
  * When the run started. The line keeps its place as it is rewritten.
  */

@@ -325,6 +325,11 @@ impl Fake {
         lock(&self.driver.waiting).push(request_id.to_string());
     }
 
+    /// The permission requests the driver is still waiting on.
+    pub(super) fn waiting(&self) -> Vec<String> {
+        lock(&self.driver.waiting).clone()
+    }
+
     /// Every line any driver in this room has been handed, in order.
     pub(super) fn prompts(&self) -> Vec<String> {
         lock(&self.driver.prompts).clone()

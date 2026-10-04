@@ -22,7 +22,10 @@
 //! - **The stream.** [`StreamId::Side`], `sides/<id>.jsonl`: the task, what the
 //!   teammate and the person said, its tool calls and cards. Never on the
 //!   teammate's tape, so the main conversation is not interrupted by it and
-//!   the teammate's main context never reads it. Live words arrive as
+//!   the teammate's main context never reads it unasked: what was said in it
+//!   is indexed under the teammate, so `search_thread` can find it, naming the
+//!   thread. Written through [`super::threads::Threads::write`], so a card
+//!   raised in it reaches the phone and the roster's `waiting`. Live words arrive as
 //!   [`StreamDelta::SideAgentDelta`], addressed by side id.
 //! - **The marker.** One [`TranscriptEvent::Side`] line on the teammate's tape,
 //!   written again under the same id as the thread goes: "started a side
@@ -68,6 +71,7 @@ use crate::driver::{
 };
 use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
+use crate::thread::ThreadId;
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -181,6 +185,16 @@ pub(super) struct LiveSide {
 impl LiveSide {
     fn working(&self) -> bool {
         lock(&self.turns).running
+    }
+
+    /// One event onto the thread, through the room's write path. Once the
+    /// thread is archived nothing more lands.
+    fn say(&self, room: &Room, event: &impl serde::Serialize) {
+        if self.closed.load(Ordering::SeqCst) {
+            return;
+        }
+        room.threads()
+            .write(&ThreadId::side(&self.id), &self.persona_id, event);
     }
 }
 
@@ -719,8 +733,8 @@ impl Room {
             .iter()
             .find(|option: &&PermissionOption| option.option_id == option_id)
             .map(|option| option.name.clone());
-        self.write_side(
-            &side,
+        side.say(
+            self,
             &TranscriptEvent::Permission {
                 id,
                 ts: now_ms(),
@@ -769,8 +783,8 @@ impl Room {
             return Ok(());
         }
         reactions.push(emoji.to_string());
-        self.write_side(
-            &side,
+        side.say(
+            self,
             &TranscriptEvent::User {
                 id,
                 ts,
@@ -849,6 +863,15 @@ impl Room {
         live
     }
 
+    /// Whether a live side thread of this teammate is stopped on a card, for
+    /// the roster row.
+    pub(super) fn side_cards_waiting(&self, persona_id: &str) -> bool {
+        self.sides
+            .of(persona_id)
+            .iter()
+            .any(|side| waiting_on(&self.log.load(&StreamId::Side(side.id.clone()))))
+    }
+
     /// Archives every thread this teammate has: its authority is gone, so
     /// their agents are. The person can continue them under what it has next.
     pub(super) fn drop_sides(&self, persona_id: &str) {
@@ -883,9 +906,7 @@ impl Room {
             }
             lock(&side.turns).queue.clear();
             side.driver.cancel();
-            self.write_side(
-                &side,
-                &TranscriptEvent::Notice {
+            side.say(self, &TranscriptEvent::Notice {
                     id: new_id(),
                     ts: now_ms(),
                     level: NoticeLevel::Warn,
@@ -948,8 +969,8 @@ impl Room {
         let ts = now_ms();
         let client = crate::wire::commands::prompt_client();
         *lock(&side.last_used) = ts;
-        self.write_side(
-            side,
+        side.say(
+            self,
             &TranscriptEvent::User {
                 id: new_id(),
                 ts,
@@ -1021,7 +1042,7 @@ impl Room {
                         },
                     });
                 },
-                |event, _| self.write_side(&side, &event),
+                |event, _| side.say(&self, &event),
             )
             .await;
             *lock(&side.last_used) = now_ms();
@@ -1036,7 +1057,8 @@ impl Room {
                     crate::log::expire_orphaned_permissions(&self.log.load(&stream), now_ms())
                 {
                     if expired.get("kind").and_then(Value::as_str) == Some("permission") {
-                        let _ = self.log.append(&stream, &expired);
+                        self.threads()
+                            .write(&ThreadId::side(&side.id), &side.persona_id, &expired);
                     }
                 }
             }
@@ -1076,7 +1098,8 @@ impl Room {
         let stream = StreamId::Side(side.id.clone());
         let events = self.log.load(&stream);
         for expired in crate::log::expire_orphaned_permissions(&events, now_ms()) {
-            let _ = self.log.append(&stream, &expired);
+            self.threads()
+                .write(&ThreadId::side(&side.id), &side.persona_id, &expired);
         }
         match ending {
             Ending::Park => self.mark_side(side, SideStatus::Parked, None, None),
@@ -1227,32 +1250,9 @@ impl Room {
     }
 
     fn write_marker(&self, persona_id: &str, side_id: &str, marker: &Value) {
-        self.write_value(persona_id, marker);
-        if let Err(error) = self
-            .log
-            .append(&StreamId::Side(side_id.to_string()), marker)
-        {
-            eprintln!("the side thread {side_id} could not be written to: {error}");
-        }
-    }
-
-    /// One event onto a thread's own stream. Nothing indexes it and nothing
-    /// stamps it, and once the thread is archived nothing more lands.
-    fn write_side(&self, side: &LiveSide, event: &TranscriptEvent) {
-        if side.closed.load(Ordering::SeqCst) {
-            return;
-        }
-        match serde_json::to_value(event) {
-            Ok(value) => {
-                if let Err(error) = self.log.append(&StreamId::Side(side.id.clone()), &value) {
-                    eprintln!(
-                        "the side thread {} could not be written to: {error}",
-                        side.id
-                    );
-                }
-            }
-            Err(error) => eprintln!("a side thread event could not be written: {error}"),
-        }
+        let threads = self.threads();
+        threads.write(&ThreadId::dm(persona_id), persona_id, marker);
+        threads.write(&ThreadId::side(side_id), persona_id, marker);
     }
 
     fn side_summary(&self, side: &LiveSide) -> SideThreadSummary {
@@ -1411,7 +1411,7 @@ mod tests {
         let said = serde_json::json!({"kind": "agent", "text": "Done, it was the cache."});
         assert_eq!(preview_line(&[]), None);
         assert_eq!(
-            preview_line(&[asked.clone()]).as_deref(),
+            preview_line(std::slice::from_ref(&asked)).as_deref(),
             Some("fix the CI badge")
         );
         assert_eq!(

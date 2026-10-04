@@ -420,6 +420,10 @@ impl RoomHandle for Desk {
         self.room.sides(persona_id)
     }
 
+    fn threads_waiting(&self, persona_id: &str) -> bool {
+        self.room.threads_waiting(persona_id)
+    }
+
     async fn side_start(
         &self,
         persona_id: &str,

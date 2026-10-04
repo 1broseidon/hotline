@@ -50,6 +50,7 @@ pub(crate) mod runner;
 pub(crate) mod schedule;
 mod sides;
 mod stopping;
+mod threads;
 pub use stopping::Stopped;
 
 pub use peers::{DeliverResult, Sent, TEAMMATE_MESSAGE_MAX};

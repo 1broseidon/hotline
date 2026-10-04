@@ -800,13 +800,15 @@ bubbles it took: its last reply, sent once the driver is done with the
 line. A card goes the moment it is asked. Nothing goes while the desk's
 window says the person is at it (`desk.looking`, below). Every push is `mutableContent`, so the
 phone's notification service may rewrite it as the teammate's own message.
-`data` always names `desktopId` and `personaId`. A card that waits on the
+`data` always names `desktopId` and `personaId`. A card raised in one of the
+teammate's side threads also names it as `data.sideId`, and is answered with
+`side.answer_permission`, not the teammate's. A card that waits on the
 person also names its kind as `categoryId` and its request as
 `data.requestId`, which is the id the answer names:
 
 | `categoryId` | `data.requestId` is | Answered with |
 |---|---|---|
-| `permission` | the request's `requestId` | `session.answer_permission`, with an `optionId` from `data.options` (`[{optionId, kind}]`) |
+| `permission` | the request's `requestId` | `session.answer_permission`, or `side.answer_permission` when `data.sideId` is present, with an `optionId` from `data.options` (`[{optionId, kind}]`) |
 | `human_action` | the card's `actionId` | `human.answer` |
 | `passkey_ask` | the ask's `askId` | `secrets.passkey.answer` |
 

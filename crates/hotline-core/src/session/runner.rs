@@ -23,6 +23,10 @@
 //! ([`Room::watch_subagents`]): the harness does the work, and the room keeps
 //! the marker and the transcript the same way it does for its own.
 //!
+//! A run's lines are written through [`super::threads::Threads::write`], which
+//! indexes what it said for `search_thread` and expires a permission card it
+//! raises: nobody is looking at a run to answer one.
+//!
 //! A run never writes to its teammate's tape. The one line it keeps there is
 //! a [`TranscriptEvent::Subagent`] marker, rewritten by id as the run goes,
 //! which is what the person presses to open the run's own transcript.
@@ -43,9 +47,9 @@ use crate::contract::{
 use crate::driver::{
     CapabilityLease, Driver, HOTLINE_BACKEND_ID, MessageKind, SubagentReport, Update,
 };
-use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
+use crate::thread::ThreadId;
 use futures_util::future::BoxFuture;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -227,9 +231,10 @@ impl Room {
             settled: false,
         };
         running.mark(SubagentStatus::Running, None);
-        self.append_run(
-            &spec.run_id,
-            TranscriptEvent::User {
+        self.threads().write(
+            &ThreadId::run(&spec.run_id),
+            &spec.persona_id,
+            &TranscriptEvent::User {
                 id: new_id(),
                 ts: running.started,
                 text: spec.task.clone(),
@@ -245,9 +250,10 @@ impl Room {
         let outcome = match self.run_to_end(&spec, &cancel, &mut running).await {
             Ok(outcome) => outcome,
             Err(error) => {
-                self.append_run(
-                    &spec.run_id,
-                    TranscriptEvent::Notice {
+                self.threads().write(
+                    &ThreadId::run(&spec.run_id),
+                    &spec.persona_id,
+                    &TranscriptEvent::Notice {
                         id: new_id(),
                         ts: now_ms(),
                         level: NoticeLevel::Error,
@@ -310,7 +316,16 @@ impl Room {
             brief(&view.name, &spec.task),
             reach,
             Some(cancel),
-            |event, _| self.append_run(&spec.run_id, event),
+            |event, _| {
+                let written =
+                    self.threads()
+                        .write(&ThreadId::run(&spec.run_id), &spec.persona_id, &event);
+                // A card in a run has nobody to answer it, so the agent is
+                // told no rather than left waiting on it.
+                for refusal in written.refused {
+                    refusal.deliver(driver.as_ref());
+                }
+            },
         )
         .await;
         Ok(outcome_of(driven))
@@ -359,9 +374,10 @@ impl Room {
                 };
                 running.mark(SubagentStatus::Running, None);
                 if !task.trim().is_empty() {
-                    self.append_run(
-                        &running.run_id,
-                        TranscriptEvent::User {
+                    self.threads().write(
+                        &ThreadId::run(&running.run_id),
+                        persona_id,
+                        &TranscriptEvent::User {
                             id: new_id(),
                             ts: running.started,
                             text: task,
@@ -390,7 +406,11 @@ impl Room {
                 };
                 for update in run.voice.step(update) {
                     for event in event_of(update, &mut run.in_flight) {
-                        self.append_run(&run.running.run_id, event);
+                        self.threads().write(
+                            &ThreadId::run(&run.running.run_id),
+                            persona_id,
+                            &event,
+                        );
                     }
                 }
             }
@@ -401,11 +421,16 @@ impl Room {
                 let run_id = run.running.run_id.clone();
                 for update in run.voice.finish() {
                     for event in event_of(update, &mut run.in_flight) {
-                        self.append_run(&run_id, event);
+                        self.threads()
+                            .write(&ThreadId::run(&run_id), persona_id, &event);
                     }
                 }
                 for (call_id, pending) in run.in_flight.drain() {
-                    self.append_run(&run_id, pending.event(&call_id, ToolStatus::Failed, None));
+                    self.threads().write(
+                        &ThreadId::run(&run_id),
+                        persona_id,
+                        &pending.event(&call_id, ToolStatus::Failed, None),
+                    );
                 }
                 run.running.settle(match status {
                     SubagentStatus::Done => RunEnd::Done,
@@ -413,23 +438,6 @@ impl Room {
                     SubagentStatus::Running | SubagentStatus::Cancelled => RunEnd::Cancelled,
                 });
             }
-        }
-    }
-
-    /// One event onto a run's own stream. Nothing indexes it and nothing
-    /// stamps it: a run's words are the teammate's working, not its
-    /// conversation.
-    fn append_run(&self, run_id: &str, event: TranscriptEvent) {
-        let written = serde_json::to_value(&event)
-            .map_err(|error| error.to_string())
-            .and_then(|event| {
-                self.log
-                    .append(&StreamId::Run(run_id.to_string()), &event)
-                    .map(|_| ())
-                    .map_err(|error| error.to_string())
-            });
-        if let Err(error) = written {
-            eprintln!("the run {run_id} could not be written to: {error}");
         }
     }
 }
@@ -549,8 +557,9 @@ impl Running {
             status,
             elapsed_ms,
         };
-        room.write(&self.persona_id, &marker);
-        room.append_run(&self.run_id, marker);
+        let threads = room.threads();
+        threads.write(&ThreadId::dm(&self.persona_id), &self.persona_id, &marker);
+        threads.write(&ThreadId::run(&self.run_id), &self.persona_id, &marker);
         room.list_subagent(
             &self.persona_id,
             RunningSubagent {

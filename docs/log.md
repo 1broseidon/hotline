@@ -15,7 +15,7 @@ Five streams, one rule for all of them:
 | --- | --- | --- |
 | `Room` | `room.jsonl` | room |
 | `Tape(id)` | `transcripts/<id>/<epoch>.jsonl` | teammate |
-| `Thread(key)` | `threads/<key>.jsonl` | pair |
+| `Pair(key)` | `threads/<key>.jsonl` | pair |
 | `Run(id)` | `runs/<id>.jsonl` | subagent run |
 | `Side(id)` | `sides/<id>.jsonl` | side thread |
 
@@ -76,7 +76,9 @@ reply is split into bubbles is [sessions.md](sessions.md#pacing).
 
 ## Threads
 
-A thread is a stream like any other, minus the epochs: one file per pair,
+In code this stream is `StreamId::Pair`: *thread* now names any conversation
+the room keeps ([threads.md](threads.md)), and this file layout, which is
+unchanged, is the pair's. A pair is a stream like any other, minus the epochs: one file per pair,
 `threads/<key>.jsonl`, and no segments. The key names the two
 participants sorted by UTF-16 code unit, `ada~bob`. A key that does not
 spell itself the same way again — unsorted, three-sided, or an id holding
@@ -91,8 +93,8 @@ a field a newer build added is not dropped on the next label write. A
 sidecar whose `version` is not 1 is ignored as a sidecar. A conversation
 exists from the moment its sidecar is opened, whether or not anybody has
 said anything yet; listing threads reads the sidecars, not the streams.
-A thread is not offered to the search index: the index is over what
-teammates say to the user.
+A pair is not offered to the search index yet: the index is over what
+teammates say to the user, and what is said in their own threads.
 
 Import copies a thread whose key names at least one teammate in this
 room — sidecar and stream, byte for byte. A thread that already exists
@@ -110,9 +112,11 @@ the thread goes, so it is also where the owner, title, status and saved agent
 session are read from when the thread is parked, archived or continued), the
 person's lines, and what the teammate said and did. A thread that is continued
 goes on appending to the same stream. The one trace it leaves on the tape is the
-same `side` marker. Only an archived marker is offered to the search index, as
+same `side` marker. An archived marker is offered to the search index as
 one message (title, result and closing note), and it replaces that message each
-time the marker is rewritten. See
+time the marker is rewritten. What the person and the teammate said in the
+thread is indexed too, as it is written, under the teammate and tagged with the
+thread (`side:<sideId>`). See
 [sessions.md](sessions.md#side-threads).
 
 ## Runs
@@ -123,9 +127,9 @@ and names the run everywhere: a run id that is not 1 to 64 letters,
 digits and hyphens is refused rather than made into a path. The stream is
 written the way a tape is — the same events, split and folded the same
 way — and holds, in order of first appearance, the run's `subagent` line,
-the task as a `user` event, and what the worker said and did. A run is
-not offered to the search index: it is the teammate's working, not its
-conversation.
+the task as a `user` event, and what the worker said and did. What was said
+in it is offered to the search index, as it is written, under the teammate and
+tagged `run:<runId>`.
 
 The one trace a run leaves on its teammate's tape is its `subagent` line,
 rewritten by id (`subagent:<runId>`) as the run goes:
@@ -335,7 +339,11 @@ note on the report rather than a failed import, because the index is
 rebuildable and the next start will catch up. A schema change is a new
 `CREATE` and a rebuild — nothing migrates this file.
 
-Two things are indexed. Messages answer "where did we say X". Chapters —
+Two things are indexed. Messages answer "where did we say X", on the tape and
+in the teammate's side threads and runs. A line from a thread has a row in
+`message_threads` naming it, and a rebuild re-reads the threads a tape holds a
+marker for. The window's searches (`search.thread`, `search.all`) offer only the
+tape's lines, because a hit must open; the agent's `search_thread` offers both. Chapters —
 title, note, tags — answer "what was that thing we did in June". Chapter
 hits come first. Each word becomes a quoted prefix term; the words are
 ANDed, then ORed if nothing matched.

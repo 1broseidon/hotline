@@ -80,6 +80,8 @@ struct Quiet {
     reattaches: Mutex<Vec<String>>,
     invalidations: Mutex<Vec<String>>,
     computer_changes: Mutex<Vec<String>>,
+    /// Teammates with a card waiting in a thread other than their DM.
+    thread_cards: Mutex<std::collections::HashSet<String>>,
     policy_updates: Arc<tokio::sync::Mutex<()>>,
 }
 
@@ -95,6 +97,7 @@ impl Quiet {
             reattaches: Mutex::new(Vec::new()),
             invalidations: Mutex::new(Vec::new()),
             computer_changes: Mutex::new(Vec::new()),
+            thread_cards: Mutex::default(),
             policy_updates: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
@@ -157,6 +160,10 @@ impl ProviderKeys for NoKeys {
 
 #[async_trait]
 impl RoomHandle for CoreHandle {
+    fn threads_waiting(&self, persona_id: &str) -> bool {
+        self.room.threads_waiting(persona_id)
+    }
+
     fn policy_update_lock(&self) -> Arc<tokio::sync::Mutex<()>> {
         self.room.policy_update_lock()
     }
@@ -415,6 +422,10 @@ impl RoomHandle for CoreHandle {
 
 #[async_trait::async_trait]
 impl RoomHandle for Quiet {
+    fn threads_waiting(&self, persona_id: &str) -> bool {
+        self.thread_cards.lock().unwrap().contains(persona_id)
+    }
+
     async fn computer_cookies_push(
         &self,
         _persona_id: &str,
@@ -1026,10 +1037,7 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     assert_eq!(answer["ok"], true, "{answer}");
     let denied = delivery.await.unwrap().unwrap_err();
     assert!(denied.contains("denied"), "{denied}");
-    assert!(
-        log.load(&StreamId::Pair("ada~bob".to_string()))
-            .is_empty()
-    );
+    assert!(log.load(&StreamId::Pair("ada~bob".to_string())).is_empty());
 }
 
 #[tokio::test]
@@ -1172,6 +1180,23 @@ async fn a_card_waiting_on_the_person_marks_the_row_until_it_is_answered() {
     .unwrap();
     let human = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
     assert_eq!(human["event"]["waiting"], true, "{human}");
+}
+
+#[tokio::test]
+async fn a_card_waiting_in_a_side_thread_marks_the_row_though_the_tape_has_none() {
+    let room = Arc::new(Quiet::new());
+    let (_root, _log, port) = door_with("roster-thread-waiting", room.clone());
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let persona_id = ada["id"].as_str().unwrap().to_string();
+    ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
+    let snapshot = heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    assert_eq!(snapshot["snapshot"][0]["waiting"], false, "{snapshot}");
+
+    room.thread_cards.lock().unwrap().insert(persona_id.clone());
+    room.set_info(idle(&persona_id));
+    let asked = heard_where(&mut socket, |frame| frame["event"].is_object()).await;
+    assert_eq!(asked["event"]["waiting"], true, "{asked}");
 }
 
 #[tokio::test]

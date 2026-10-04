@@ -229,6 +229,12 @@ pub trait RoomHandle: Send + Sync + 'static {
         Vec::new()
     }
 
+    /// Whether one of this teammate's threads other than its DM has a card
+    /// waiting on the person, for the roster row.
+    fn threads_waiting(&self, _persona_id: &str) -> bool {
+        false
+    }
+
     /// Starts a side thread: a second conversation with this teammate.
     async fn side_start(
         &self,
@@ -1888,7 +1894,7 @@ fn roster_entry(log: &Log, room: &Arc<dyn RoomHandle>, persona: crate::contract:
     let session = room.info(&persona.id);
     json!(RosterEntry {
         activity: activity_on(&tail, &session),
-        waiting: waiting_on(&tail),
+        waiting: waiting_on(&tail) || room.threads_waiting(&persona.id),
         drawing: room.drawing(&persona.id),
         subagents: room.subagents(&persona.id),
         sides: room.sides(&persona.id),

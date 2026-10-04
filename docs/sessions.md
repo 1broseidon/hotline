@@ -12,6 +12,17 @@ wrote, and offers the line to the search index. What was said is on the tape
 that started it. Hotline Agent's live history keeps the user's line on failure
 too, the same as on cancel, so a retry still has the question.
 
+A side thread's or a run's lines do not go to the tape. They go through
+`Threads::write` (`session/threads.rs`), the one write path of
+[threads.md](threads.md): it appends to the stream, offers what was said to the
+search index under the teammate, and routes a permission card by what the kind
+decides. A side thread's card is pushed to the phone (naming the thread, so the
+answer is `side.answer_permission`), signalled to a live call and counted in the
+teammate's roster `waiting`. A run's card has nobody to answer it, so it is
+expired at once and the run's agent is told no: with the card's reject option
+when it has one, and by stopping the turn when it has not. The DM still writes
+through the tape's own door until it is ported.
+
 The wire that starts, prompts and stops a session is [wire.md](wire.md). The
 tape those events land on is [log.md](log.md).
 
@@ -1151,7 +1162,7 @@ teammate's. The computer is not: two agents driving one desktop is a fight
 nobody wins, so a side thread never has it (the same rule as a subagent run) and
 is told so. Its tools are the side variant of the teammate's
 (`TeammateTools::for_side`): `search_thread` and `list_chapters` read the main
-conversation; `react` and `open_link` act on this thread; `archive_thread
+conversation (and `search_thread` the teammate's other threads and runs too); `react` and `open_link` act on this thread; `archive_thread
 {summary}` ends it. There are no chapter tools, no schedules, no colleagues, and
 no `send_file`, `generate_image` or `request_human`, which post to the main tape:
 the person is in the thread, so the teammate asks them there. Permission cards

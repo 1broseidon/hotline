@@ -551,8 +551,12 @@ impl TeammateTools {
                     .and_then(Value::as_i64)
                     .unwrap_or(DEFAULT_LIMIT)
                     .clamp(1, MAX_LIMIT);
-                let hits =
-                    store::search::search(room.log().root(), &self.persona_id, query, Some(limit))?;
+                let hits = store::search::search_teammate(
+                    room.log().root(),
+                    &self.persona_id,
+                    query,
+                    Some(limit),
+                )?;
                 Ok(quoted(&hits))
             }
             LIST_CHAPTERS => {

@@ -22,6 +22,7 @@
 use crate::log::{Log, StreamId, open_epoch};
 use crate::paths::{index_path, transcript_path, transcript_segment_path};
 use crate::store::chapters::{chapters_of, open_chapter, slice_of};
+use crate::thread::ThreadId;
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row};
 use serde_json::{Map, Value, json};
@@ -30,11 +31,16 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
-/// Whose conversation is searched. The two methods differ in exactly this: a
-/// thread search filters by teammate, and a search across everyone has to say
-/// on each hit whose conversation it came from.
+/// Whose conversation is searched. A teammate's tape, the same with the
+/// threads that hang off it, or everyone's: a search across everyone has to
+/// say on each hit whose conversation it came from.
+///
+/// A line that came from a thread other than the tape is found only by the
+/// scope that asks for threads, and says which one it was. Until the window
+/// can open one, its own searches stay on the tape, where every hit opens.
 enum Scope<'a> {
-    Thread(&'a str),
+    Tape(&'a str),
+    Teammate(&'a str),
     Everyone,
 }
 
@@ -98,7 +104,7 @@ fn arguments(scope: &Scope, match_expression: &str, limit: i64) -> Vec<SqlValue>
         SqlValue::Text(match_expression.to_string()),
         SqlValue::Integer(limit),
     ];
-    if let Scope::Thread(persona_id) = scope {
+    if let Scope::Tape(persona_id) | Scope::Teammate(persona_id) = scope {
         arguments.push(SqlValue::Text((*persona_id).to_string()));
     }
     arguments
@@ -146,6 +152,7 @@ fn message_hit(row: &Row, scope: &Scope) -> rusqlite::Result<Value> {
     }
     hit.insert("eventId".into(), json!(row.get::<_, String>("event_id")?));
     insert_if_present(&mut hit, "chapterId", row.get("chapter_id")?);
+    insert_if_present(&mut hit, "thread", row.get("thread")?);
     hit.insert("ts".into(), json!(row.get::<_, i64>("ts")?));
     let from = if row.get::<_, String>("kind")? == "user" {
         "me"
@@ -181,8 +188,15 @@ fn attempt(
     limit: i64,
 ) -> rusqlite::Result<Found> {
     let (chapter_filter, message_filter) = match scope {
-        Scope::Thread(_) => (" AND chapters_fts.persona_id = ?3", " AND persona_id = ?3"),
-        Scope::Everyone => ("", ""),
+        Scope::Tape(_) => (
+            " AND chapters_fts.persona_id = ?3",
+            " AND messages.persona_id = ?3 AND message_threads.thread IS NULL",
+        ),
+        Scope::Teammate(_) => (
+            " AND chapters_fts.persona_id = ?3",
+            " AND messages.persona_id = ?3",
+        ),
+        Scope::Everyone => ("", " AND message_threads.thread IS NULL"),
     };
     Ok(Found {
         chapters: rows(
@@ -200,9 +214,11 @@ fn attempt(
         messages: rows(
             database,
             &format!(
-                "SELECT persona_id, event_id, chapter_id, kind, ts,
+                "SELECT messages.persona_id, messages.event_id, messages.chapter_id,
+				        messages.kind, messages.ts, message_threads.thread,
 				        snippet(messages, 5, '', '', '…', 24) AS excerpt
-				 FROM messages WHERE messages MATCH ?1{message_filter}
+				 FROM messages LEFT JOIN message_threads ON message_threads.id = messages.rowid
+				 WHERE messages MATCH ?1{message_filter}
 				 ORDER BY bm25(messages) LIMIT ?2"
             ),
             arguments(scope, match_expression, limit.saturating_add(1)),
@@ -252,7 +268,24 @@ pub fn search(
 ) -> Result<Value, String> {
     run(
         root,
-        Scope::Thread(persona_id),
+        Scope::Tape(persona_id),
+        query,
+        limit.unwrap_or(20).clamp(1, 40),
+    )
+    .map_err(unavailable)
+}
+
+/// The same search over a teammate's tape and every thread hanging off it:
+/// its side threads and runs. A hit from one carries a `thread`.
+pub fn search_teammate(
+    root: &Path,
+    persona_id: &str,
+    query: &str,
+    limit: Option<i64>,
+) -> Result<Value, String> {
+    run(
+        root,
+        Scope::Teammate(persona_id),
         query,
         limit.unwrap_or(20).clamp(1, 40),
     )
@@ -286,7 +319,7 @@ fn unavailable(error: rusqlite::Error) -> String {
 ///
 /// Message identity lives in a B-tree; FTS rowids point to that identity.
 /// An older cache without identities is rebuilt from the tapes by its writer.
-const SCHEMA: [&str; 6] = [
+const SCHEMA: [&str; 7] = [
     "CREATE TABLE IF NOT EXISTS message_ids (
         id INTEGER PRIMARY KEY, persona_id TEXT NOT NULL, event_id TEXT NOT NULL,
         UNIQUE(persona_id, event_id)
@@ -304,6 +337,7 @@ const SCHEMA: [&str; 6] = [
 		chapter_id UNINDEXED, persona_id UNINDEXED, text, tokenize = 'porter unicode61'
 	)",
     "CREATE TABLE IF NOT EXISTS index_state (persona_id TEXT PRIMARY KEY, size INTEGER NOT NULL, mtime INTEGER NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS message_threads (id INTEGER PRIMARY KEY, thread TEXT NOT NULL)",
 ];
 
 /// The size and modification time of the file a teammate is being written to.
@@ -389,6 +423,7 @@ fn index_message(
     database: &Connection,
     persona_id: &str,
     chapter_id: Option<&str>,
+    thread: Option<&str>,
     event: &Value,
 ) -> rusqlite::Result<()> {
     let synthetic = side_line(event);
@@ -446,6 +481,22 @@ fn index_message(
             text
         ],
     )?;
+    if let Some(thread) = thread {
+        database.execute(
+            "INSERT OR REPLACE INTO message_threads (id, thread) VALUES (?, ?)",
+            rusqlite::params![row_id, thread],
+        )?;
+    }
+    Ok(())
+}
+
+/// Forgets which thread each of a teammate's lines came from, ahead of the
+/// lines themselves going.
+fn forget_threads(database: &Connection, persona_id: &str) -> rusqlite::Result<()> {
+    database.execute(
+        "DELETE FROM message_threads WHERE id IN (SELECT id FROM message_ids WHERE persona_id = ?)",
+        [persona_id],
+    )?;
     Ok(())
 }
 
@@ -498,9 +549,35 @@ fn index_chapter(database: &Connection, persona_id: &str, chapter: &Value) -> ru
     Ok(())
 }
 
+/// The side threads and runs a teammate's tape carries a marker for.
+fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
+    events
+        .iter()
+        .filter_map(|event| {
+            let thread = match event.get("kind").and_then(Value::as_str)? {
+                "side" => ThreadId::side(event.get("sideId")?.as_str()?),
+                "subagent" => ThreadId::run(event.get("runId")?.as_str()?),
+                _ => return None,
+            };
+            let stream = thread.stream()?;
+            Some((thread, stream))
+        })
+        .collect()
+}
+
+/// Whether an event on a thread's own stream is something said in it. A
+/// thread's marker is not: it is the tape's line, already indexed there.
+fn said_in_thread(event: &Value) -> bool {
+    matches!(
+        event.get("kind").and_then(Value::as_str),
+        Some("user" | "agent")
+    )
+}
+
 /// Rebuild inside the caller's transaction, including schema upgrades.
 fn rebuild(database: &Connection, log: &Log, persona_id: &str) -> rusqlite::Result<Option<String>> {
     let events = log.load(&StreamId::Tape(persona_id.to_string()));
+    forget_threads(database, persona_id)?;
     for table in [
         "messages",
         "message_ids",
@@ -526,12 +603,27 @@ fn rebuild(database: &Connection, log: &Log, persona_id: &str) -> rusqlite::Resu
         None => &events[..],
     };
     for event in unchaptered {
-        index_message(database, persona_id, None, event)?;
+        index_message(database, persona_id, None, None, event)?;
     }
     for chapter in &chapters {
         let id = chapter.get("id").and_then(Value::as_str);
         for event in slice_of(&events, chapter) {
-            index_message(database, persona_id, id, event)?;
+            index_message(database, persona_id, id, None, event)?;
+        }
+    }
+    // The threads the tape holds a marker for come after it, so a rebuild
+    // keeps what the write path indexed as they were said.
+    for (thread, stream) in threads_on(&events) {
+        for event in log.load(&stream) {
+            if said_in_thread(&event) {
+                index_message(
+                    database,
+                    persona_id,
+                    None,
+                    Some(&thread.to_string()),
+                    &event,
+                )?;
+            }
         }
     }
     stamp(database, log.root(), persona_id)?;
@@ -589,7 +681,13 @@ impl Indexer {
                 .prepare("SELECT persona_id FROM index_state UNION SELECT persona_id FROM messages UNION SELECT persona_id FROM chapters")?
                 .query_map([], |row| row.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            for table in ["messages", "chapters", "chapters_fts", "index_state"] {
+            for table in [
+                "messages",
+                "message_threads",
+                "chapters",
+                "chapters_fts",
+                "index_state",
+            ] {
                 transaction.execute(&format!("DELETE FROM {table}"), [])?;
             }
             for persona_id in personas {
@@ -641,8 +739,30 @@ impl Indexer {
         }
         let chapter_id = self.open_chapters.get(persona_id).cloned().flatten();
         let transaction = self.database.transaction()?;
-        index_message(&transaction, persona_id, chapter_id.as_deref(), event)?;
+        index_message(&transaction, persona_id, chapter_id.as_deref(), None, event)?;
         stamp(&transaction, self.log.root(), persona_id)?;
+        transaction.commit()
+    }
+
+    /// Indexes one line said in a teammate's side thread or run as it lands.
+    /// It belongs to no chapter, and the hit that finds it names the thread.
+    pub fn index_thread_event(
+        &mut self,
+        persona_id: &str,
+        thread: &ThreadId,
+        event: &Value,
+    ) -> rusqlite::Result<()> {
+        if !said_in_thread(event) {
+            return Ok(());
+        }
+        let transaction = self.database.transaction()?;
+        index_message(
+            &transaction,
+            persona_id,
+            None,
+            Some(&thread.to_string()),
+            event,
+        )?;
         transaction.commit()
     }
 
@@ -659,6 +779,7 @@ impl Indexer {
     /// them being rebuilt.
     pub fn forget(&mut self, persona_id: &str) -> rusqlite::Result<()> {
         let transaction = self.database.transaction()?;
+        forget_threads(&transaction, persona_id)?;
         for table in [
             "messages",
             "message_ids",
@@ -741,6 +862,7 @@ pub(crate) mod fixture {
         super::index_message(
             &transaction,
             persona_id,
+            None,
             None,
             &serde_json::json!({
                 "id": id, "kind": kind, "text": text, "ts": 1
@@ -1315,6 +1437,7 @@ mod tests {
                 ["index", "chapters_persona"],
                 ["table", "index_state"],
                 ["table", "message_ids"],
+                ["table", "message_threads"],
                 ["table", "messages"],
                 ["table", "messages_config"],
                 ["table", "messages_content"],
@@ -1441,5 +1564,75 @@ mod tests {
                 "a limit of {slipped:?} answered with no messages at all"
             );
         }
+    }
+    #[test]
+    fn a_line_said_in_a_thread_is_found_by_its_teammate_and_names_the_thread() {
+        let (root, log, mut indexer) = fixture::indexer("thread-lines");
+        let tape = StreamId::Tape("ada".into());
+        log.append(
+            &tape,
+            &json!({"kind": "user", "id": "m1", "ts": 1, "text": "the harbour"}),
+        )
+        .unwrap();
+        indexer
+            .index_event(
+                "ada",
+                &json!({"kind": "user", "id": "m1", "ts": 1, "text": "the harbour"}),
+            )
+            .unwrap();
+        let said = json!({"kind": "agent", "id": "s1-line", "ts": 2, "text": "the harbour crane"});
+        indexer
+            .index_thread_event("ada", &ThreadId::side("s1"), &said)
+            .unwrap();
+
+        let teammate = search_teammate(&root, "ada", "harbour", None).unwrap();
+        assert_eq!(sorted_ids(&teammate), ["m1", "s1-line"]);
+        let line = hits(&teammate)
+            .iter()
+            .find(|hit| hit["eventId"] == "s1-line")
+            .unwrap()
+            .clone();
+        assert_eq!(line["thread"], "side:s1");
+        assert!(
+            hits(&teammate)
+                .iter()
+                .find(|hit| hit["eventId"] == "m1")
+                .unwrap()
+                .get("thread")
+                .is_none()
+        );
+        // The window's searches only offer what opens on the tape.
+        assert_eq!(ids(&search(&root, "ada", "harbour", None).unwrap()), ["m1"]);
+        assert_eq!(ids(&search_all(&root, "harbour", None).unwrap()), ["m1"]);
+    }
+
+    #[test]
+    fn a_rebuild_keeps_what_the_threads_on_the_tape_said() {
+        let (root, log, mut indexer) = fixture::indexer("thread-rebuild");
+        log.append(
+            &StreamId::Tape("ada".into()),
+            &json!({
+                "kind": "side", "id": "side:s1", "ts": 1, "sideId": "s1",
+                "personaId": "ada", "title": "Task", "status": "live"
+            }),
+        )
+        .unwrap();
+        for (id, text) in [("u1", "a winch question"), ("a1", "the winch is fine")] {
+            let kind = if id == "u1" { "user" } else { "agent" };
+            log.append(
+                &StreamId::Side("s1".into()),
+                &json!({"kind": kind, "id": id, "ts": 2, "text": text}),
+            )
+            .unwrap();
+        }
+        indexer.reindex("ada").unwrap();
+
+        let found = search_teammate(&root, "ada", "winch", None).unwrap();
+        assert_eq!(sorted_ids(&found), ["a1", "u1"]);
+        assert!(hits(&found).iter().all(|hit| hit["thread"] == "side:s1"));
+        assert!(hits(&search(&root, "ada", "winch", None).unwrap()).is_empty());
+
+        indexer.forget("ada").unwrap();
+        assert!(hits(&search_teammate(&root, "ada", "winch", None).unwrap()).is_empty());
     }
 }

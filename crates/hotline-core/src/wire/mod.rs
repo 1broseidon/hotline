@@ -1015,31 +1015,6 @@ impl Outbox {
     }
 }
 
-pub(crate) async fn seated_phone<S>(
-    mut socket: WebSocketStream<S>,
-    log: Log,
-    room: Arc<dyn RoomHandle>,
-    phone: crate::remote::Phone,
-    desktop_id: &str,
-) -> Result<(), Error>
-where
-    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-{
-    socket
-        .send(Message::text(
-            json!({
-                "type": "hello",
-                "protocolVersion": 1,
-                "desktopId": desktop_id,
-                "mode": "team",
-                "capabilities": Seat::for_phone(&phone).capabilities_for(room.as_ref()),
-            })
-            .to_string(),
-        ))
-        .await?;
-    seated_inner(socket, Seat::for_phone(&phone), log, room, Some(phone)).await
-}
-
 /// Only the authenticated sealed transport calls this: the hello itself is encrypted.
 pub(crate) async fn seated_phone_v2<S>(
     mut socket: S,
@@ -1258,7 +1233,6 @@ async fn answer(
                     (
                         Command::RemotePairing {
                             id: None,
-                            legacy: false,
                             cancel: false,
                             ..
                         },

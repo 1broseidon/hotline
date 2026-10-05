@@ -538,7 +538,7 @@ extend; when a change adds a boundary, it adds a row.
 | Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only `search_thread` and `list_chapters`, starts no runs of its own and never reopens the teammate's session or computer; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests.rs` `runs::a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `runs::a_run_is_on_its_teammates_live_model_with_no_computer_and_no_session_to_reopen`, `runs::a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `runs::a_cancelled_run_stops_its_agent_and_its_line_says_so`, `runs::a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
 | A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
-| A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the door refuses the unpaired, a path naming anything but a teammate, and a stopped computer; revoking the device drops the socket | `remote/tests.rs` `a_phone_reaches_a_running_computer_through_the_desk_and_never_holds_its_bearer`, `the_computer_door_is_shut_to_the_unpaired_the_unnamed_and_the_stopped`, `revoking_the_phone_drops_its_computer_socket`, `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
+| A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the sealed handshake binds the persona and refuses an unpaired device; revoking the device drops the socket | `remote/tests.rs` `sealed_network::sealed_computer_handshake_binds_purpose_and_target_before_upstream`, `sealed_network::sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant`, `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
 | What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; a companion can neither list nor take back; expired cookies are left on the host | `session/tests.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
 | Stored secrets are operator-only: a companion can neither list, store, delete nor arm one, nor grant one through `persona.update` | `wire/tests.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
 | A companion reads one living teammate's schedules and nothing it could change them with: no job made, cancelled or quieted, no whole-room list, no room stream (a thread between two teammates and a subagent's run are read like a tape); the entry leaves out who made a job; an unknown teammate or an unreadable room is a refusal, never an empty list; a revoked phone's socket closes and cannot reopen | `wire/tests.rs` `the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them`, `a_teammate_the_room_does_not_hold_or_cannot_read_is_refused_rather_than_empty`; `remote/tests.rs` `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away` | — |
@@ -814,10 +814,14 @@ made it so.
   These container controls impose no resource limit on host shell tools or
   an external harness.
 
-## Sealed served connections and explicit pairing (BRO-114)
+## Sealed connections and explicit pairing (BRO-114, BRO-218)
 
-- **Default and grant source:** desktop Remote remains opt-in with existing
-  legacy grants retained. `serve` requires an explicit non-wildcard fixed
+- **Default and grant source:** desktop Remote remains opt-in. Both desktop
+  and served listeners accept only sealed v2 pairing and sessions. Old grants
+  without a device public key stay listed and revocable, but cannot
+  authenticate or receive push notifications; the window says **Needs re-pair**.
+  Phones paired with the six-digit code before 0.33 scan the new QR once.
+  `serve` requires an explicit non-wildcard fixed
   listen address and public HTTPS URL; it starts that listener and never
   widens or chooses an ephemeral fallback. An owner or local desk operator opens
   a two-minute single-use QR invitation. Empty grants never bootstrap an
@@ -826,8 +830,9 @@ made it so.
 - **Enforcement:** `remote/v2.rs` persists a separate X25519 identity in the
   selected SecretStore and atomically consumes the invitation with grant
   creation. `remote/server.rs`, `sealed.rs` and `channel.rs` authenticate
-  Noise IK before any hello or application frame. Unknown devices close
-  silently. Viewer purpose and persona are authenticated handshake content,
+  Noise IK before any hello or application frame. A valid handshake with an
+  unknown or revoked device key receives an encrypted refusal; invalid
+  handshakes close silently. Viewer purpose and persona are authenticated handshake content,
   checked against the HTTP target, so a TLS proxy cannot redirect controls.
   Only the desk resolves computer addresses and presents viewer bearers.
   `Seat::permits` refuses remote administration to companions.
@@ -837,15 +842,22 @@ made it so.
   not rollback of already dispatched effects or persisted choices. Local
   desk mutations still finish when their socket disconnects.
   The wire cancels only its own invitation on disconnect; CLI Ctrl-C, process
-  death and SSH disconnect close that window. Pairing has no six-digit route
-  on a served listener. Desktop manual retries now require an unexpired
-  invitation and matching original confirmation before replaying an answer.
+  death and SSH disconnect close that window. There is no six-digit flow or
+  legacy bearer pairing, room or computer route on either listener.
 - **Tests:** `remote::sealed::tests` and `tests/fixtures/noise_v2.json` cover
   framing and fixed-key interoperability. `remote::tests::sealed_network`
   covers real TLS/Noise, replay/tamper/plaintext rejection, atomic pairing,
   roles, certificate rotation, viewer binding and revocation. Other Remote
-  tests cover supplied TLS, exact late binding, absent served legacy routes,
-  handshake budgets and manual retry hardening. `wire::tests` checks owner
+  tests cover supplied TLS, exact late binding, absent legacy routes and
+  handshake budgets.
+  `remote::tests::desktop_legacy_routes_are_absent_and_old_grants_only_remain_for_revocation`
+  proves the desktop has no v1 routes and token-only records have no auth or
+  push authority while remaining revocable.
+  `remote::tests::old_grants_do_not_consume_the_sealed_device_limit` proves
+  sixteen inactive grants do not block migration, while the sixteen-device
+  cap still applies to sealed grants. `ui/tests/remote-section.test.tsx`
+  proves the re-pair label, revocation and sealed QR/link lifecycle.
+  `wire::tests` checks owner
   authority and companion refusals through the real handler; `hotline-cli/tests/pair.rs`
   proves SIGINT and SIGKILL close the claim route through the running CLI.
 - **Residual risk:** this is not traffic-analysis protection: a proxy sees
@@ -859,8 +871,6 @@ made it so.
   can still disrupt handshakes and require edge traffic controls.
   The local desk seat, service account, secret store and QR display are
   trusted. QR scrollback remains sensitive until consumption or expiry.
-  Desktop legacy TLS/bearer/manual routes remain intentionally available;
-  sealed transport does not retroactively protect those legacy sessions.
   Physical iOS and real certificate/proxy deployment QA remain separate from
   Rust network harnesses and shared deterministic vectors.
 
@@ -868,9 +878,9 @@ made it so.
 ## Remote admission behind a tunnel (BRO-163)
 
 - **Default and grant source:** the same admission rules cover desktop and
-  served listeners. Device identity comes only from a valid saved bearer grant
-  or a completed Noise handshake against a paired public key. Pairing attempts
-  remain in the pending pool and keep their existing invitation/attempt limits.
+  served listeners. Device identity comes only from a completed Noise handshake
+  against a paired public key. Pairing attempts remain in the pending pool and
+  require an explicit, unexpired, single-use invitation.
 - **Enforcement:** `remote/admission.rs` owns pending rotation, atomic promotion,
   device budgets and final-owner cleanup. `remote/server.rs` keeps the same
   permit across TLS, HTTP and spawned WebSocket tasks. Revocation retains the

@@ -1465,7 +1465,7 @@ async fn a_queued_startup_failure_reaches_the_phone_after_hold_or_hangup() {
     for held in [false, true] {
         let fake = Arc::new(Fake::default());
         let (_root, desk, calls) = desk(with_fake(fake.clone()));
-        std::fs::write(desk.log.root().join("remote.json"), json!({"desktopId":"desk", "host":"desk.local", "enabled":true, "grants":[{"device":{"id":"phone","name":"Phone","pairedAt":0},"tokenHash":"hash","push":{"token":"ExponentPushToken[phone]","platform":"ios"}}]}).to_string()).unwrap();
+        std::fs::write(desk.log.root().join("remote.json"), json!({"desktopId":"desk", "host":"desk.local", "enabled":true, "grants":[{"device":{"id":"phone","name":"Phone","pairedAt":0,"publicKey":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},"push":{"token":"ExponentPushToken[phone]","platform":"ios"}}]}).to_string()).unwrap();
         let room = calls.room.upgrade().unwrap();
         let id = Uuid::new_v4().to_string();
         calls.start(&id, desk).unwrap();

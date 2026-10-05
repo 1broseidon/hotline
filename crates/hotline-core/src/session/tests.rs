@@ -1744,8 +1744,7 @@ async fn a_turn_reaches_the_phone_once_with_its_report() {
             "host": "desk.local",
             "enabled": true,
             "grants": [{
-                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0},
-                "tokenHash": "hash",
+                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0, "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
                 "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
             }]
         })
@@ -1784,8 +1783,7 @@ async fn work_the_agent_started_itself_reaches_the_chat_and_the_phone() {
             "host": "desk.local",
             "enabled": true,
             "grants": [{
-                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0},
-                "tokenHash": "hash",
+                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0, "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
                 "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
             }]
         })
@@ -6119,7 +6117,7 @@ async fn short_voice_handoff_replies_keep_their_text_without_an_extra_model() {
         },
     ];
     let room = room("voice-push-provenance", Fake::new(Scripted::new(turn)));
-    std::fs::write(room.log.root().join("remote.json"), json!({"desktopId":"desk", "host":"desk.local", "enabled":true, "grants":[{"device":{"id":"phone","name":"Phone","pairedAt":0},"tokenHash":"hash","push":{"token":"ExponentPushToken[phone]","platform":"ios"}}]}).to_string()).unwrap();
+    std::fs::write(room.log.root().join("remote.json"), json!({"desktopId":"desk", "host":"desk.local", "enabled":true, "grants":[{"device":{"id":"phone","name":"Phone","pairedAt":0,"publicKey":"AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},"push":{"token":"ExponentPushToken[phone]","platform":"ios"}}]}).to_string()).unwrap();
     let fake = Arc::new(crate::voice::tests::Fake::default());
     let vault = Arc::new(
         crate::vault::Vault::open_with_store(

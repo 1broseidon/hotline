@@ -1,7 +1,7 @@
 use super::*;
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use http_body_util::{BodyExt, Full, Limited};
+use http_body_util::Full;
 use hyper::{
     Request, Response, StatusCode, body::Incoming, server::conn::http1, service::service_fn,
 };
@@ -52,21 +52,6 @@ fn response(status: StatusCode, value: Value) -> Response<Full<Bytes>> {
 fn error(status: StatusCode, code: &str) -> Response<Full<Bytes>> {
     response(status, json!({"error": code}))
 }
-/// A small JSON body, read within a deadline. Anything else is a bad claim.
-async fn body<T: serde::de::DeserializeOwned>(
-    request: Request<Incoming>,
-) -> Result<T, &'static str> {
-    let body = tokio::time::timeout(
-        Duration::from_secs(5),
-        Limited::new(request.into_body(), 8192).collect(),
-    )
-    .await;
-    let Ok(Ok(body)) = body else {
-        return Err("invalid_claim");
-    };
-    serde_json::from_slice(&body.to_bytes()).map_err(|_| "invalid_claim")
-}
-
 pub(super) fn run(
     remote: Arc<Remote>,
     listener: TcpListener,
@@ -119,7 +104,7 @@ pub(super) fn run(
 }
 async fn handle(
     remote: Arc<Remote>,
-    mut request: Request<Incoming>,
+    request: Request<Incoming>,
     slot: Arc<admission::Permit>,
 ) -> Result<Response<Full<Bytes>>, Infallible> {
     // Pairing and wire credentials belong to native clients. Browser origins
@@ -145,102 +130,10 @@ async fn handle(
     {
         return Ok(relay_door(remote, request, slot, route).await);
     }
-    // Served listeners have no bearer or manual pairing surface, including
-    // when an old desktop grant remains on disk for a later desktop launch.
-    if remote.served.is_some() {
-        return Ok(error(StatusCode::NOT_FOUND, "not_found"));
-    }
-    if request.method() == "POST" {
-        let outcome = match path.as_str() {
-            "/pair" => body::<Claim>(request)
-                .await
-                .and_then(|claim| remote.claim(claim)),
-            "/pair/manual/start" => body::<ManualStart>(request)
-                .await
-                .and_then(|start| remote.manual_start(start)),
-            "/pair/manual/finish" => body::<ManualFinish>(request)
-                .await
-                .and_then(|finish| remote.manual_finish(finish)),
-            _ => return Ok(error(StatusCode::NOT_FOUND, "not_found")),
-        };
-        return Ok(match outcome {
-            Ok(value) => response(StatusCode::OK, value),
-            Err("invalid_claim") => error(StatusCode::BAD_REQUEST, "invalid_claim"),
-            Err(code @ ("rate_limited" | "too_many_attempts")) => {
-                error(StatusCode::TOO_MANY_REQUESTS, code)
-            }
-            Err("storage_unavailable") => {
-                error(StatusCode::SERVICE_UNAVAILABLE, "storage_unavailable")
-            }
-            Err(code) => error(StatusCode::FORBIDDEN, code),
-        });
-    }
-    if request.method() != "GET" {
-        return Ok(error(StatusCode::NOT_FOUND, "not_found"));
-    }
-    if let Some(persona_id) = computer_path(&path).map(str::to_owned) {
-        return Ok(computer_door(remote, request, slot, &persona_id).await);
-    }
-    if path != "/ws" {
-        return Ok(error(StatusCode::NOT_FOUND, "not_found"));
-    }
-    let Some(phone) = remote.authenticate(bearer(&request)) else {
-        return Ok(error(StatusCode::UNAUTHORIZED, "unauthorized"));
-    };
-    let upgraded = hyper::upgrade::on(&mut request);
-    let Ok(reply) = create_response(&request.map(|_| ())) else {
-        return Ok(error(StatusCode::BAD_REQUEST, "invalid_upgrade"));
-    };
-    tokio::spawn(async move {
-        let upgraded = tokio::select! {
-            biased;
-            _ = phone.cancel.cancelled() => return,
-            _ = slot.expired() => return,
-            upgraded = upgraded => upgraded,
-        };
-        let Ok(upgraded) = upgraded else {
-            return;
-        };
-        if phone.cancel.is_cancelled() || !slot.authenticate(&phone.id) {
-            return;
-        }
-        let _slot = slot;
-        // Authentication has finished. Owners can send bounded voice clips;
-        // companion input retains the smaller legacy cap.
-        let message_max = if phone.role == DeviceRole::Owner {
-            3 * 1024 * 1024
-        } else {
-            65_536
-        };
-        let config = WebSocketConfig::default()
-            .max_message_size(Some(message_max))
-            .max_frame_size(Some(message_max));
-        let socket =
-            WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, Some(config))
-                .await;
-        let desktop_id = remote.state.lock().unwrap().saved.desktop_id.clone();
-        let _ = crate::wire::seated_phone(
-            socket,
-            remote.log.clone(),
-            remote.room.clone(),
-            phone,
-            &desktop_id,
-        )
-        .await;
-    });
-    Ok(reply.map(|_| Full::new(Bytes::new())))
+    Ok(error(StatusCode::NOT_FOUND, "not_found"))
 }
 
-fn bearer<B>(request: &Request<B>) -> &str {
-    request
-        .headers()
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .unwrap_or("")
-}
-
-/// `/computer/{personaId}/ws`, and the persona it names. A phone names a
+/// The computer suffix of `/v2/computer/{personaId}/ws`. A phone names a
 /// teammate and nothing else: no runtime, no port, no path of its own.
 fn computer_path(path: &str) -> Option<&str> {
     let persona_id = path.strip_prefix("/computer/")?.strip_suffix("/ws")?;
@@ -266,101 +159,6 @@ pub(crate) fn computer_target(status: &crate::contract::ComputerStatus) -> Optio
     let (port, token) = rest.split_once("/#")?;
     let port = port.parse().ok()?;
     (!token.is_empty()).then(|| (port, token.to_string()))
-}
-
-/// A door to a teammate's computer for a paired phone. The desk checks the
-/// grant and that the computer is up, then carries bytes between the phone
-/// and the container's own viewer socket on loopback, presenting the bearer
-/// it holds. Frames go to the phone as they are; what the phone sends goes
-/// to the computer as it is, text only, since input is text. Revoking the
-/// device drops the pipe.
-async fn computer_door(
-    remote: Arc<Remote>,
-    mut request: Request<Incoming>,
-    slot: Arc<admission::Permit>,
-    persona_id: &str,
-) -> Response<Full<Bytes>> {
-    let Some(phone) = remote.authenticate(bearer(&request)) else {
-        return error(StatusCode::UNAUTHORIZED, "unauthorized");
-    };
-    let Ok(status) = remote.room.computer_status(persona_id).await else {
-        return error(StatusCode::NOT_FOUND, "not_found");
-    };
-    let Some((port, token)) = computer_target(&status) else {
-        return error(StatusCode::CONFLICT, "computer_not_running");
-    };
-    let upgraded = hyper::upgrade::on(&mut request);
-    let Ok(reply) = create_response(&request.map(|_| ())) else {
-        return error(StatusCode::BAD_REQUEST, "invalid_upgrade");
-    };
-    tokio::spawn(async move {
-        let upgraded = tokio::select! {
-            biased;
-            _ = phone.cancel.cancelled() => return,
-            _ = slot.expired() => return,
-            upgraded = upgraded => upgraded,
-        };
-        let Ok(upgraded) = upgraded else {
-            return;
-        };
-        if phone.cancel.is_cancelled() || !slot.authenticate(&phone.id) {
-            return;
-        }
-        let _slot = slot;
-        let config = WebSocketConfig::default()
-            .max_message_size(Some(COMPUTER_MESSAGE_MAX))
-            .max_frame_size(Some(COMPUTER_MESSAGE_MAX));
-        let mut phone_socket =
-            WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, Some(config))
-                .await;
-        let address = format!("ws://127.0.0.1:{port}/ws?token={token}");
-        let Ok(Ok((computer, _))) = tokio::time::timeout(
-            Duration::from_secs(5),
-            tokio_tungstenite::connect_async(address),
-        )
-        .await
-        else {
-            let _ = phone_socket.close(None).await;
-            return;
-        };
-        pipe(phone_socket, computer, phone.cancel).await;
-    });
-    reply.map(|_| Full::new(Bytes::new()))
-}
-
-async fn pipe<P, C>(
-    mut phone: WebSocketStream<P>,
-    mut computer: WebSocketStream<C>,
-    revoked: CancellationToken,
-) where
-    P: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-    C: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
-{
-    loop {
-        tokio::select! {
-            _ = revoked.cancelled() => break,
-            from_phone = phone.next() => match from_phone {
-                Some(Ok(Message::Text(text))) => {
-                    if computer.send(Message::Text(text)).await.is_err() {
-                        break;
-                    }
-                }
-                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
-                Some(Ok(_)) => {}
-            },
-            from_computer = computer.next() => match from_computer {
-                Some(Ok(message @ (Message::Binary(_) | Message::Text(_)))) => {
-                    if phone.send(message).await.is_err() {
-                        break;
-                    }
-                }
-                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
-                Some(Ok(_)) => {}
-            },
-        }
-    }
-    let _ = phone.close(None).await;
-    let _ = computer.close(None).await;
 }
 
 async fn sealed_door(

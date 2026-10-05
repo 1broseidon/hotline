@@ -867,8 +867,8 @@ What a client can tell apart, and where each comes from:
 
 ## The seat
 
-A seat is what a socket may do: a set, not a routing table. The token that
-opened the socket is what seated it. The local desk and paired owner seats
+A seat is what a socket may do: a set, not a routing table. A remote socket's
+seat comes from the device grant authenticated by Noise. The local desk and paired owner seats
 may run every command and subscribe to every target. This includes existing
 phone owners; companion grants retain the smaller set below.
 
@@ -893,11 +893,11 @@ Anything else is refused with `"code": "forbidden"`.
 The phone's socket opens with a hello before any answer:
 
 ```json
-{"type": "hello", "protocolVersion": 1, "desktopId": "…", "mode": "team",
+{"type": "hello", "protocolVersion": 2, "desktopId": "…", "mode": "team",
  "capabilities": ["personaCreate", "personaEdit", "schedules", "threads", "runs", "threads2"]}
 ```
 
-`capabilities` names what this desk can do beyond protocol 1, so a phone
+`capabilities` names the optional features this desk supports, so a phone
 asks only for what the desk it reached understands. `personaCreate` is
 `mobile.persona_create`; `personaEdit` is `mobile.persona_update` and
 `persona.delete`; `schedules` is the schedules view; `threads` is
@@ -965,7 +965,8 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
   independently of TLS certificates. Each phone holds its own device key.
 - Session path: `<public-url>/v2`. Pairing path: `<public-url>/v2/pair`.
   Both are WebSockets over TLS. The pairing path returns 404 unless an
-  explicit two-minute pairing window is open. No served PAKE route exists.
+  explicit two-minute pairing window is open. Neither desktop nor served
+  listeners expose a PAKE or legacy bearer route.
 - Each handshake message is one binary WebSocket message. Message 1 is the
   initiator's `(e, es, s, ss)`; message 2 the responder's `(e, ee, se)`.
   Successful room session payloads are empty. Viewer payloads bind the target as
@@ -997,8 +998,9 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
 - The phone validates publicly trusted certificates normally and allows
   self-signed TLS for this pinned Noise desk identity. Identity trust is
   the Noise key, not the certificate. A wrong key fails even with a valid
-  certificate; rotating certificates does not revoke v2 grants. Existing
-  pinned-certificate grants retain their legacy route until re-pairing.
+  certificate; rotating certificates does not revoke v2 grants. Old
+  pinned-certificate grants cannot authenticate; the phone must re-pair
+  through the sealed QR or link.
 - Grants record the device public key and explicit `owner` or `companion`
   role. Missing legacy roles migrate to owner; an empty grant set never
   bootstraps an owner. Companion retains the existing phone allowlist;
@@ -1031,14 +1033,16 @@ Remote controls require an owner or local desk seat, used by the window and CLI:
 | `remote.pairing` | `{role?}` | `SealedPairing` with id, QR, URI and expiry; owner by default |
 | `remote.pairing` | `{id}` | paired device, or explicit JSON `null` while waiting |
 | `remote.pairing` | `{id, cancel: true}` | none; ends only the matching invitation |
-| `remote.pairing` | `{legacy: true}` | desktop-only legacy QR/manual invitation |
 
 The socket creating a sealed invitation owns its disconnect cleanup. A new
 invitation replaces the previous one; disconnecting an old socket cannot
 cancel the replacement. The CLI keeps its socket open until success,
 cancellation or expiry. An owner may invoke these controls; a companion may not.
-A served listener mounts only v2 routes. Desktop legacy routes remain for old
-pairings; manual retries recheck expiry and original confirmation.
+Both listeners mount only v2 pairing, room and computer routes. A stored
+device without a public key stays listed and revocable, but cannot
+authenticate or receive push notifications. The window labels it as needing
+a re-pair. These inactive records do not consume the 16 sealed-device slots.
+There is no typed short-code flow.
 
 Pending connections have their own budget: 16 total and 4 per TCP peer IP.
 When that budget fills, the oldest pending connection in the exhausted budget

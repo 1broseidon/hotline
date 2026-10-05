@@ -8,6 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Changed
+
+- Phones link through the sealed QR or pairing link. The six-digit code and
+  older bearer pairing are removed. Phones paired with the six-digit code
+  before 0.33 scan the new QR once. Their old grants stay listed as needing a
+  re-pair and can still be revoked.
+
 ### Fixed
 
 - A handoff's line in the conversation says what it is: "Handed to Mack" in

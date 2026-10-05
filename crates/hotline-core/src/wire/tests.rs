@@ -4221,7 +4221,6 @@ async fn remote_controls_are_denied_to_companions() {
             ("remote.relay", json!({"deskId":"any"})),
             ("remote.pairing", json!({})),
             ("remote.pairing", json!({"role":"companion"})),
-            ("remote.pairing", json!({"legacy":true})),
             ("remote.pairing", json!({"id":"any"})),
             ("remote.pairing", json!({"id":"any","cancel":true})),
             (
@@ -4293,7 +4292,7 @@ async fn remote_controls_are_denied_to_companions() {
 }
 
 #[tokio::test]
-async fn desk_pairing_commands_start_poll_cancel_and_preserve_manual_pairing() {
+async fn desk_pairing_commands_start_poll_and_cancel_sealed_pairing() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
@@ -4345,24 +4344,7 @@ async fn desk_pairing_commands_start_poll_cancel_and_preserve_manual_pairing() {
         .await;
         assert_eq!(cancelled, json!({"id":1,"ok":true}));
     }
-    let legacy = remote_control_answer(
-        Seat::Desk,
-        &room,
-        &desk.log,
-        json!({"id":1,"cmd":"remote.pairing","params":{"legacy":true}}),
-    )
-    .await;
-    assert_eq!(legacy["ok"], true, "{legacy}");
-    assert_eq!(legacy["result"]["invitation"]["version"], 1);
-    assert_eq!(
-        legacy["result"]["manual"]["code"].as_str().unwrap().len(),
-        6
-    );
-    for params in [
-        json!({"cancel":true}),
-        json!({"legacy":true,"role":"companion"}),
-        json!({"id":"any","role":"owner"}),
-    ] {
+    for params in [json!({"cancel":true}), json!({"id":"any","role":"owner"})] {
         let refused = remote_control_answer(
             Seat::Desk,
             &room,

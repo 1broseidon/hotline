@@ -83,12 +83,7 @@ rmcp = { version = "=3.2.0", features = [
 # hold the socket. axum is what rmcp's own examples serve it with, and the
 # bearer check in front of it is one layer.
 axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"] }
-# Manual pairing: a six-digit code the operator types is a password, and a
-# password on a LAN needs a PAKE, not a bearer secret. ristretto255 is what the
-# phone's crypto library also speaks.
-curve25519-dalek = "5"
 getrandom = "0.3"
-hmac = "0.12"
 hex = "0.4"
 # A phone photo is 5 to 10 MB and a 12-megapixel frame; every provider has
 # a ceiling below that, so an attached picture is decoded and shrunk before

@@ -8,21 +8,15 @@ import { wire } from "../src/wire";
 
 // No desk, sockets, native shell, or real clock: drive the mounted UI at its wire boundary.
 const epoch = 1_800_000_000_000;
-const owner = { id: "owner-test", name: "Test owner", role: "owner", pairedAt: epoch };
-const companion = { id: "companion-test", name: "Test companion", role: "companion", pairedAt: epoch };
+const owner = { id: "owner-test", name: "Test owner", role: "owner", pairedAt: epoch, publicKey: "owner-key" };
+const companion = { id: "companion-test", name: "Test companion", role: "companion", pairedAt: epoch, publicKey: "companion-key" };
 const enabled = {
 	enabled: true, host: "all", endpoint: "https://192.0.2.1:8788",
 	endpoints: ["https://192.0.2.1:8788", "https://[2001:db8::1]:8788"],
 	addresses: ["192.0.2.1", "2001:db8::1"], devices: [], error: null,
 };
-function legacy(address = "192.0.2.1") {
-	return {
-		invitation: { expiresAt: epoch + 120_000 }, qrSvg: "<svg>legacy-test</svg>",
-		manual: { address, port: 8788, code: "123456" },
-	};
-}
 function sealed(id = "invitation-test", expiresAt = epoch + 120_000) {
-	return { id, expiresAt, qrSvg: `<svg>${id}</svg>` };
+	return { id, expiresAt, qrSvg: `<svg>${id}</svg>`, link: `hotline://pair?p=${id}` };
 }
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -69,7 +63,7 @@ beforeEach(() => {
 		if (cmd === "remote.status") return enabled;
 		if (cmd === "remote.configure") return { ...enabled, ...params };
 		if (cmd === "remote.revoke") return enabled;
-		if (cmd === "remote.pairing") return params.id ? null : params.legacy ? legacy() : sealed();
+		if (cmd === "remote.pairing") return params.id ? null : sealed();
 		throw new Error(`Unexpected command ${cmd}`);
 	};
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
@@ -113,7 +107,7 @@ describe("Remote settings over the wire", () => {
 			: cmd === "remote.configure" ? { ...enabled, ...params, devices: [owner, companion] } : enabled;
 		await mount();
 		expect(calls).toEqual([{ cmd: "remote.status", params: {} }]);
-		expect(text()).not.toContain("Show pairing code");
+		expect(container.querySelector('[aria-label="Mobile pairing"]')).toBeNull();
 		await settle(() => (container.querySelector('[role="switch"]') as HTMLInputElement).click());
 		expect(calls.at(-1)).toEqual({ cmd: "remote.configure", params: { enabled: true, host: "all" } });
 		expect(text()).toContain("Owner · Paired");
@@ -159,55 +153,59 @@ describe("Remote settings over the wire", () => {
 		await settle(() => replaceDesks([]));
 	});
 
-	for (const address of ["192.0.2.1", "2001:db8::1"]) {
-		test(`manual/legacy remains the default, including copying ${address}`, async () => {
-			const fallback = respond;
-			respond = (call) => call.cmd === "remote.pairing" ? legacy(address) : fallback(call);
-			await mount();
-			expect(pairingCalls()).toHaveLength(0);
-			await click("Show pairing code");
-			expect(pairingCalls()).toEqual([{ cmd: "remote.pairing", params: { legacy: true, cancel: false } }]);
-			expect(text()).toContain("123456");
-			const expected = address.includes(":") ? `[${address}]:8788` : `${address}:8788`;
-			expect(text()).toContain(expected);
-			expect(container.querySelector("img")?.getAttribute("src")).toContain(encodeURIComponent("<svg>legacy-test</svg>"));
-			await click("Copy address");
-			expect(clipboard).toEqual([expected]);
-			expect(text()).toContain("Copied");
-			await tick();
-			expect(polls()).toHaveLength(0);
-			await unmount();
-			expect(cancellations()).toHaveLength(0);
-		});
-	}
+	test("linking a phone offers one sealed QR and its pairing link", async () => {
+		await mount();
+		expect(pairingCalls()).toHaveLength(0);
+		expect(container.querySelectorAll('[aria-label="Mobile pairing"] button')).toHaveLength(1);
+		await click("Link a phone");
+		expect(pairingCalls()).toEqual([{ cmd: "remote.pairing", params: { cancel: false } }]);
+		expect(container.querySelector("img")?.getAttribute("src")).toContain(encodeURIComponent("<svg>invitation-test</svg>"));
+		expect(text()).not.toContain("six digits");
+		expect(text()).not.toContain("Show sealed QR");
+		await click("Copy link");
+		expect(clipboard).toEqual([sealed().link]);
+		expect(text()).toContain("Copied");
+	});
+
+	test("an old phone needs re-pairing and its stored access can still be revoked", async () => {
+		const oldPhone = { ...owner, name: "Old phone", publicKey: undefined };
+		respond = ({ cmd }) => cmd === "remote.status" ? { ...enabled, devices: [oldPhone] } : enabled;
+		await mount();
+		expect(text()).toContain("Old phoneOwner · Needs re-pair · Scan a new QR");
+		await click("Revoke access");
+		expect(calls.at(-1)).toEqual({ cmd: "remote.revoke", params: { deviceId: oldPhone.id } });
+		expect(text()).not.toContain("Old phone");
+	});
 
 	test("sealed QR polls null, then links exactly once without offering a manual code", async () => {
 		await mount();
-		await click("Show sealed QR (v2)");
-		expect(pairingCalls()[0]).toEqual({ cmd: "remote.pairing", params: { legacy: false, cancel: false } });
+		await click("Link a phone");
+		expect(pairingCalls()[0]).toEqual({ cmd: "remote.pairing", params: { cancel: false } });
 		expect(container.querySelector("img") !== null).toBe(true);
 		expect(text()).not.toContain("Copy address");
-		expect(text()).not.toContain("123456");
+		expect(container.querySelector("dl")).toBeNull();
 		await tick();
-		expect(polls()).toEqual([{ cmd: "remote.pairing", params: { id: "invitation-test", cancel: false, legacy: false } }]);
+		expect(polls()).toEqual([{ cmd: "remote.pairing", params: { id: "invitation-test", cancel: false } }]);
 		expect(text()).not.toContain("Phone linked.");
 		const fallback = respond;
 		respond = (call) => call.params.id && !call.params.cancel ? owner : fallback(call);
 		await tick();
 		expect(text()).toContain("Phone linked.");
 		expect(container.querySelector("img") === null).toBe(true);
+		expect(text()).not.toContain("Copy link");
 		const count = polls().length;
 		await tick();
 		await tick(120_000);
 		expect(polls()).toHaveLength(count);
-		expect(text()).not.toContain("This code expired");
+		expect(text()).not.toContain("This QR expired");
 	});
 
 	test("expired sealed QR disappears and never polls again", async () => {
 		await mount();
-		await click("Show sealed QR (v2)");
+		await click("Link a phone");
 		await tick(120_000);
-		expect(text()).toContain("This code expired");
+		expect(text()).toContain("This QR expired");
+		expect(text()).not.toContain("Copy link");
 		expect(container.querySelector("img") === null).toBe(true);
 		expect(polls()).toHaveLength(0);
 		await tick();
@@ -220,16 +218,16 @@ describe("Remote settings over the wire", () => {
 			const fallback = respond;
 			respond = (call) => call.params.id && !call.params.cancel ? pending.promise : fallback(call);
 			await mount();
-			await click("Show sealed QR (v2)");
+			await click("Link a phone");
 			await tick();
-			if (action === "replace") await click("New pairing code");
+			if (action === "replace") await click("Link a phone");
 			if (action === "disable") await settle(() => (container.querySelector('[role="switch"]') as HTMLInputElement).click());
 			if (action === "unmount") await unmount();
-			expect(cancellations()).toEqual([{ cmd: "remote.pairing", params: { id: "invitation-test", cancel: true, legacy: false } }]);
+			expect(cancellations()).toEqual([{ cmd: "remote.pairing", params: { id: "invitation-test", cancel: true } }]);
 			await settle(() => pending.resolve(owner));
 			expect(text()).not.toContain("Phone linked.");
 			expect(polls()).toHaveLength(1);
-			if (action === "replace") expect(text()).toContain("123456");
+			if (action === "replace") expect(container.querySelector("img")).not.toBeNull();
 			if (action === "unmount") expect(intervals.size).toBe(0);
 		});
 	}
@@ -239,7 +237,7 @@ describe("Remote settings over the wire", () => {
 		const fallback = respond;
 		respond = (call) => call.params.id && !call.params.cancel ? pending.promise : fallback(call);
 		await mount();
-		await click("Show sealed QR (v2)");
+		await click("Link a phone");
 		await tick();
 		await tick();
 		await tick();
@@ -254,10 +252,10 @@ describe("Remote settings over the wire", () => {
 		const fallback = respond;
 		respond = (call) => call.cmd === "remote.pairing" && !call.params.id ? pending.promise : fallback(call);
 		await mount();
-		await click("Show sealed QR (v2)");
+		await click("Link a phone");
 		await unmount();
 		await settle(() => pending.resolve(sealed()));
-		expect(cancellations()).toEqual([{ cmd: "remote.pairing", params: { id: "invitation-test", cancel: true, legacy: false } }]);
+		expect(cancellations()).toEqual([{ cmd: "remote.pairing", params: { id: "invitation-test", cancel: true } }]);
 		expect(intervals.size).toBe(0);
 	});
 
@@ -267,10 +265,10 @@ describe("Remote settings over the wire", () => {
 		const fallback = respond;
 		respond = (call) => call.params.id && !call.params.cancel ? oldPoll.promise : fallback(call);
 		await mount();
-		await click("Show sealed QR (v2)");
+		await click("Link a phone");
 		await tick();
 		respond = (call) => call.cmd === "remote.pairing" && !call.params.id ? replacement.promise : fallback(call);
-		await click("Show sealed QR (v2)");
+		await click("Link a phone");
 		expect(container.querySelector("img") === null).toBe(true);
 		expect(cancellations()).toHaveLength(1);
 		await settle(() => oldPoll.reject(new Error("stale poll failure")));
@@ -289,7 +287,7 @@ describe("Remote settings over the wire", () => {
 		await settle(() => (container.querySelector('[role="switch"]') as HTMLInputElement).click());
 		await settle(() => oldStatus.resolve(enabled));
 		expect((container.querySelector('[role="switch"]') as HTMLInputElement).checked).toBe(false);
-		expect(text()).not.toContain("Show pairing code");
+		expect(container.querySelector('[aria-label="Mobile pairing"]')).toBeNull();
 	});
 
 	test("slow status refreshes do not overlap and regress device state", async () => {
@@ -306,13 +304,13 @@ describe("Remote settings over the wire", () => {
 	test("wire failures are visible and a failed action releases the controls", async () => {
 		await mount();
 		respond = () => { throw new Error("test wire refused"); };
-		await click("Show sealed QR (v2)");
+		await click("Link a phone");
 		expect(text()).toContain("test wire refused");
-		expect(button("Show pairing code").disabled).toBe(false);
+		expect(button("Link a phone").disabled).toBe(false);
 		expect(container.querySelector("img") === null).toBe(true);
-		respond = ({ cmd }) => cmd === "remote.pairing" ? legacy() : enabled;
-		await click("Show pairing code");
+		respond = ({ cmd }) => cmd === "remote.pairing" ? sealed() : enabled;
+		await click("Link a phone");
 		expect(text()).not.toContain("test wire refused");
-		expect(text()).toContain("123456");
+		expect(container.querySelector("img")).not.toBeNull();
 	});
 });

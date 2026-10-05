@@ -19,6 +19,15 @@ use tokio_tungstenite::{
 };
 
 type Socket = WebSocketStream<TlsStream<TcpStream>>;
+struct TestPhone {
+    id: String,
+    private: [u8; 32],
+    public: [u8; 32],
+}
+struct PhoneSocket {
+    socket: Socket,
+    state: snow::TransportState,
+}
 struct Harness {
     root: tempfile::TempDir,
     remote: Arc<Remote>,
@@ -106,60 +115,29 @@ impl Harness {
     fn endpoint(&self) -> String {
         self.remote.status().endpoint.unwrap()
     }
-    async fn claim(&self, value: &Value) -> reqwest::Response {
-        self.http
-            .post(format!("{}/pair", self.endpoint()))
-            .json(value)
-            .send()
+    async fn pair(&self) -> TestPhone {
+        self.pair_role(DeviceRole::Owner).await
+    }
+    async fn pair_companion(&self) -> TestPhone {
+        self.pair_role(DeviceRole::Companion).await
+    }
+    async fn pair_role(&self, role: DeviceRole) -> TestPhone {
+        let pairing = self.remote.pairing_v2(role).unwrap();
+        let (private, public) = sealed::keypair().unwrap();
+        sealed_network::claim(self, &pairing, &private)
             .await
-            .unwrap()
+            .unwrap();
+        TestPhone {
+            id: self.remote.pairing_result(&pairing.id).unwrap().unwrap().id,
+            private,
+            public,
+        }
     }
-    async fn post(&self, path: &str, value: &Value) -> reqwest::Response {
-        self.http
-            .post(format!("{}{path}", self.endpoint()))
-            .json(value)
-            .send()
-            .await
-            .unwrap()
-    }
-    async fn pair(&self) -> Value {
-        let invite = self.remote.pairing().unwrap().invitation;
-        self.claim_invitation(invite).await
-    }
-    async fn pair_companion(&self) -> Value {
-        let grant = self.pair().await;
-        let mut state = self.remote.state.lock().unwrap();
-        state
-            .saved
-            .grants
-            .iter_mut()
-            .find(|g| g.device.id == grant["deviceId"])
-            .unwrap()
-            .device
-            .role = DeviceRole::Companion;
-        self.remote.save(&state.saved).unwrap();
-        grant
-    }
-    /// Scans the invitation already on screen rather than minting one.
-    async fn pair_current(&self) -> Value {
-        let invite = self
-            .remote
-            .state
-            .lock()
-            .unwrap()
-            .invitation
-            .as_ref()
-            .unwrap()
-            .value
-            .clone();
-        self.claim_invitation(invite).await
-    }
-    async fn claim_invitation(&self, invite: PairingInvitation) -> Value {
-        self.claim(&json!({"invitationId":invite.invitation_id,"secret":invite.secret,"claimId":Uuid::new_v4(),"name":"Test phone"}))
-            .await.error_for_status().unwrap().json().await.unwrap()
-    }
-    async fn socket(&self, token: &str) -> Result<Socket, tokio_tungstenite::tungstenite::Error> {
-        self.socket_at("/ws", token).await
+    async fn socket(&self, private: &[u8; 32]) -> Option<PhoneSocket> {
+        let (_, public) = self.remote.noise_keys().unwrap();
+        let (socket, state, payload) =
+            sealed_network::exchange(self, "/v2", private, &public, &[]).await?;
+        payload.is_empty().then_some(PhoneSocket { socket, state })
     }
     async fn socket_at(
         &self,
@@ -197,75 +175,150 @@ impl Harness {
             .map(|v| v.0)
     }
 }
-async fn read(socket: &mut Socket) -> Value {
-    let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    serde_json::from_str(frame.to_text().unwrap()).unwrap()
+async fn read(socket: &mut PhoneSocket) -> Value {
+    sealed_network::read_sealed(&mut socket.socket, &mut socket.state).await
 }
-async fn send(socket: &mut Socket, frame: Value) {
-    socket.send(Message::text(frame.to_string())).await.unwrap();
+async fn send(socket: &mut PhoneSocket, frame: Value) {
+    sealed_network::send_sealed(&mut socket.socket, &mut socket.state, frame).await;
 }
 
 #[tokio::test]
-async fn pairing_is_single_use_persistent_and_revocation_closes_the_live_wire() {
-    let h = Harness::new().await;
-    let invitation = h.remote.pairing().unwrap().invitation;
-    let mut claim = json!({"invitationId":invitation.invitation_id,"secret":"wrong","claimId":Uuid::new_v4(),"name":"My phone"});
-    assert_eq!(h.claim(&claim).await.status(), 403);
-    claim["secret"] = json!(invitation.secret);
-    let grant: Value = h.claim(&claim).await.json().await.unwrap();
-    assert_eq!(grant, h.claim(&claim).await.json::<Value>().await.unwrap());
-    claim["claimId"] = json!(Uuid::new_v4());
-    assert_eq!(h.claim(&claim).await.status(), 403);
-    assert!(h.socket("desk-token").await.is_err());
-    let token = grant["token"].as_str().unwrap();
-    assert!(
-        !fs::read_to_string(h.root.path().join("remote.json"))
-            .unwrap()
-            .contains(token)
-    );
-    let mut socket = h.socket(token).await.unwrap();
-    assert_eq!(read(&mut socket).await["mode"], "team");
+async fn desktop_legacy_routes_are_absent_and_old_grants_only_remain_for_revocation() {
+    use tokio_tungstenite::tungstenite::Error;
+
+    let mut h = Harness::new().await;
+    let sealed_phone = h.pair().await;
     h.remote
-        .revoke(grant["deviceId"].as_str().unwrap())
+        .authenticate_v2(&sealed_phone.public)
+        .unwrap()
+        .register_push("ExponentPushToken[sealed]".into(), "ios".into())
         .unwrap();
-    let closed = tokio::time::timeout(Duration::from_secs(3), socket.next())
-        .await
-        .unwrap();
-    assert!(!matches!(closed, Some(Ok(Message::Text(_)))));
-    assert!(h.socket(token).await.is_err());
-    assert_eq!(h.claim(&claim).await.status(), 403);
-    let next = h.pair().await;
-    let endpoint = h.endpoint();
-    let fingerprint = h.remote.pairing().unwrap().invitation.certificate_sha256;
     h.remote.configure(false, network::ALL).await.unwrap();
-    assert!(
-        TcpStream::connect(endpoint.trim_start_matches("https://"))
-            .await
-            .is_err()
-    );
-    let restored = Remote::open_with_store(
+    let path = h.root.path().join("remote.json");
+    let mut saved: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let bearer = "old-phone-bearer";
+    saved["grants"].as_array_mut().unwrap().push(json!({
+        "device": {"id":"old-phone", "name":"Before 0.33", "pairedAt":1},
+        "tokenHash":hash(bearer),
+        "push":{"token":"ExponentPushToken[old]", "platform":"ios"}
+    }));
+    atomic_write(&path, &serde_json::to_vec(&saved).unwrap()).unwrap();
+    h.remote = Remote::open_with_store(
         h.root.path(),
         h.desk.log.clone(),
         h.desk.clone(),
         h.store.clone(),
     )
     .unwrap();
-    restored.configure(true, network::ALL).await.unwrap();
-    assert_eq!(restored.status().endpoint.unwrap(), endpoint);
+    h.remote.configure(true, network::ALL).await.unwrap();
+
+    let listed = h.remote.devices();
+    assert_eq!(listed.len(), 2);
+    let old = listed
+        .iter()
+        .find(|device| device.id == "old-phone")
+        .unwrap();
+    assert_eq!(old.name, "Before 0.33");
+    assert_eq!(old.role, DeviceRole::Owner);
+    assert!(old.public_key.is_none());
     assert_eq!(
-        restored.pairing().unwrap().invitation.certificate_sha256,
-        fingerprint
+        serde_json::to_value(h.remote.status().devices).unwrap(),
+        serde_json::to_value(listed).unwrap()
     );
+    assert!(h.remote.authenticate_v2(&sealed_phone.public).is_some());
     assert!(
-        restored
-            .authenticate(next["token"].as_str().unwrap())
-            .is_some()
+        h.remote
+            .authenticate_v2(&hex::decode(hash(bearer)).unwrap())
+            .is_none()
     );
-    restored.configure(false, network::ALL).await.unwrap();
+    assert_eq!(
+        super::push_targets(h.root.path()).tokens,
+        ["ExponentPushToken[sealed]"]
+    );
+
+    for token in ["", bearer, "desk-token"] {
+        for path in ["/pair", "/pair/manual/start", "/pair/manual/finish"] {
+            assert_eq!(
+                h.http
+                    .post(format!("{}{path}", h.endpoint()))
+                    .bearer_auth(token)
+                    .json(&json!({"claimId":Uuid::new_v4(), "secret":"old"}))
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                404,
+                "legacy pairing route {path} still exists"
+            );
+        }
+        for path in ["/ws", "/computer/ada/ws"] {
+            assert_eq!(
+                h.http
+                    .get(format!("{}{path}", h.endpoint()))
+                    .bearer_auth(token)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                404
+            );
+            let Error::Http(refused) = h.socket_at(path, token).await.err().unwrap() else {
+                panic!("legacy wire route {path} did not return an HTTP refusal");
+            };
+            assert_eq!(refused.status(), 404);
+        }
+    }
+    let (private, _) = sealed::keypair().unwrap();
+    let (_, public) = h.remote.noise_keys().unwrap();
+    let (mut socket, _, answer) = sealed_network::exchange(&h, "/v2", &private, &public, &[])
+        .await
+        .unwrap();
+    assert_eq!(answer, sealed::DEVICE_REJECTED);
+    sealed_network::closed(&mut socket).await;
+
+    h.remote.revoke("old-phone").unwrap();
+    assert_eq!(h.remote.devices().len(), 1);
+    assert_eq!(h.remote.devices()[0].id, sealed_phone.id);
+    assert_eq!(
+        super::push_targets(h.root.path()).tokens,
+        ["ExponentPushToken[sealed]"]
+    );
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn old_grants_do_not_consume_the_sealed_device_limit() {
+    let h = Harness::new().await;
+    {
+        let mut state = h.remote.state.lock().unwrap();
+        for id in 0..16 {
+            state.saved.grants.push(Grant {
+                device: RemoteDevice {
+                    id: format!("old-phone-{id}"),
+                    name: "Before 0.33".into(),
+                    paired_at: 1,
+                    role: DeviceRole::Owner,
+                    public_key: None,
+                },
+                push: None,
+            });
+        }
+        h.remote.save(&state.saved).unwrap();
+    }
+    for _ in 0..16 {
+        h.pair().await;
+    }
+    assert_eq!(h.remote.devices().len(), 32);
+    let pairing = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let (private, _) = sealed::keypair().unwrap();
+    assert!(
+        sealed_network::claim(&h, &pairing, &private)
+            .await
+            .is_none()
+    );
+    assert!(h.remote.pairing_result(&pairing.id).unwrap().is_none());
+    assert_eq!(h.remote.devices().len(), 32);
+    h.remote.configure(false, network::ALL).await.unwrap();
 }
 
 #[tokio::test]
@@ -312,7 +365,7 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
         serde_json::from_str(desk.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
     assert_eq!(looking["ok"], true, "{looking}");
     let grant = h.pair_companion().await;
-    let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
+    let mut phone = h.socket(&grant.private).await.unwrap();
     read(&mut phone).await;
     for frame in [
         json!({"id":1,"cmd":"credential.list"}),
@@ -477,7 +530,7 @@ async fn a_phone_creates_a_confined_teammate_but_not_through_persona_create() {
     let h = Harness::new().await;
 
     let grant = h.pair_companion().await;
-    let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
+    let mut phone = h.socket(&grant.private).await.unwrap();
     read(&mut phone).await;
 
     send(&mut phone, json!({"id": 1, "cmd": "backends.list"})).await;
@@ -555,7 +608,7 @@ async fn a_phone_creates_a_confined_teammate_but_not_through_persona_create() {
 async fn a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update() {
     let h = Harness::new().await;
     let grant = h.pair_companion().await;
-    let mut phone = h.socket(grant["token"].as_str().unwrap()).await.unwrap();
+    let mut phone = h.socket(&grant.private).await.unwrap();
     read(&mut phone).await;
 
     let request_id = Uuid::new_v4().to_string();
@@ -663,8 +716,7 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
         .to_string();
 
     let grant = h.pair_companion().await;
-    let token = grant["token"].as_str().unwrap();
-    let mut phone = h.socket(token).await.unwrap();
+    let mut phone = h.socket(&grant.private).await.unwrap();
     // The hello is how a phone knows it may ask; a desk from before this
     // list names nothing, and the phone then shows no schedules section. A
     // companion keeps the smaller command set.
@@ -726,7 +778,7 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
 
     // Away: the loop is cancelled, a one-shot is made, and Bob gets a job of
     // his own. Back, the list is what is true now.
-    phone.close(None).await.unwrap();
+    phone.socket.close(None).await.unwrap();
     drop(phone);
     at_desk("schedule.cancel", json!({"id": sweep["id"]})).await;
     let when = crate::session::now_ms() + 3_600_000;
@@ -740,7 +792,7 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
         json!({"personaId": bob, "kind": "loop", "every": 3_600_000, "prompt": "Count the boats"}),
     )
     .await;
-    let mut phone = h.socket(token).await.unwrap();
+    let mut phone = h.socket(&grant.private).await.unwrap();
     read(&mut phone).await;
     send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;
     assert_eq!(read(&mut phone).await, json!({"id": 1, "ok": true}));
@@ -753,14 +805,15 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
     assert_eq!(jobs[0]["nextAt"], when);
 
     // Revoked, the phone's socket closes and cannot be opened again.
-    h.remote
-        .revoke(grant["deviceId"].as_str().unwrap())
-        .unwrap();
-    let closed = tokio::time::timeout(Duration::from_secs(3), phone.next())
+    h.remote.revoke(&grant.id).unwrap();
+    let closed = tokio::time::timeout(Duration::from_secs(3), phone.socket.next())
         .await
         .unwrap();
-    assert!(!matches!(closed, Some(Ok(Message::Text(_)))), "{closed:?}");
-    assert!(h.socket(token).await.is_err());
+    assert!(
+        !matches!(closed, Some(Ok(Message::Text(_) | Message::Binary(_)))),
+        "{closed:?}"
+    );
+    assert!(h.socket(&grant.private).await.is_none());
 
     h.remote.configure(false, network::ALL).await.unwrap();
     task.abort();
@@ -770,10 +823,7 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
 async fn an_uncertain_prompt_is_never_replayed_and_operation_ids_cannot_change_meaning() {
     let h = Harness::new().await;
     let grant = h.pair().await;
-    let phone = h
-        .remote
-        .authenticate(grant["token"].as_str().unwrap())
-        .unwrap();
+    let phone = h.remote.authenticate_v2(&grant.public).unwrap();
     let operation = Uuid::new_v4().to_string();
     let dir = h.root.path().join("remote-receipts").join(&phone.id);
     fs::create_dir_all(&dir).unwrap();
@@ -815,10 +865,7 @@ async fn an_uncertain_prompt_is_never_replayed_and_operation_ids_cannot_change_m
 async fn a_prompt_for_a_work_thread_is_said_there_and_is_its_own_operation() {
     let h = Harness::new().await;
     let grant = h.pair().await;
-    let phone = h
-        .remote
-        .authenticate(grant["token"].as_str().unwrap())
-        .unwrap();
+    let phone = h.remote.authenticate_v2(&grant.public).unwrap();
     let pair = ThreadId {
         kind: ThreadKind::Pair,
         key: "a|b".into(),
@@ -872,23 +919,28 @@ async fn all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls() 
             .unwrap();
         assert_eq!(response.status(), 404);
     }
-    let invitation = h.remote.pairing().unwrap().invitation;
-    assert_eq!(Some(invitation.endpoint), status.endpoint);
+    let pairing = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let (noise_public, _) = sealed_network::invitation(&pairing);
+    let pairing_url = url::Url::parse(&pairing.url).unwrap();
+    assert_eq!(
+        pairing_url
+            .query_pairs()
+            .find(|(key, _)| key == "u")
+            .unwrap()
+            .1,
+        status.endpoint.clone().unwrap()
+    );
     for host in ["127.0.0.1", "127.2.3.4", "::1", "0.0.0.0", "::"] {
         assert!(h.remote.configure(true, host).await.is_err());
         assert_eq!(h.remote.status().endpoints, status.endpoints);
     }
     let grant = h.pair().await;
-    let token = grant["token"].as_str().unwrap();
     let specific = status.addresses[0].clone();
     let narrowed = h.remote.configure(true, &specific).await.unwrap();
     assert_eq!(narrowed.host, specific);
     assert_eq!(narrowed.endpoints, vec![status.endpoint.clone().unwrap()]);
-    assert!(h.remote.authenticate(token).is_some());
-    assert_eq!(
-        h.remote.pairing().unwrap().invitation.certificate_sha256,
-        invitation.certificate_sha256
-    );
+    assert!(h.remote.authenticate_v2(&grant.public).is_some());
+    assert_eq!(h.remote.noise_keys().unwrap().1, noise_public);
     for other in status.endpoints.iter().skip(1) {
         let result = h
             .http
@@ -902,7 +954,7 @@ async fn all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls() 
     assert!(!off.enabled);
     assert_eq!(off.host, network::ALL);
     assert!(off.endpoints.is_empty());
-    assert!(h.remote.authenticate(token).is_none());
+    assert!(h.remote.authenticate_v2(&grant.public).is_none());
     assert_eq!(
         h.remote
             .configure(true, network::ALL)
@@ -911,7 +963,7 @@ async fn all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls() 
             .endpoints,
         status.endpoints
     );
-    assert!(h.remote.authenticate(token).is_some());
+    assert!(h.remote.authenticate_v2(&grant.public).is_some());
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 
@@ -984,7 +1036,6 @@ async fn an_unreadable_identity_is_replaced_but_a_locked_store_is_reported() {
             role: DeviceRole::Owner,
             public_key: None,
         },
-        token_hash: hash("token"),
         push: None,
     });
     atomic_write(&path, &serde_json::to_vec(&saved).unwrap()).unwrap();
@@ -1025,157 +1076,13 @@ async fn an_unreadable_identity_is_replaced_but_a_locked_store_is_reported() {
     restored.configure(false, network::ALL).await.unwrap();
 }
 
-/// The phone's half of the manual exchange, as the mobile client does it.
-struct TypingPhone {
-    claim_id: String,
-    secret: Scalar,
-    public: String,
-}
-impl TypingPhone {
-    fn new(code: &str) -> Self {
-        let claim_id = Uuid::new_v4().to_string();
-        let secret = pake::random_scalar();
-        let public = pake::public(code, &claim_id, &secret);
-        Self {
-            claim_id,
-            secret,
-            public,
-        }
-    }
-    async fn start(&self, h: &Harness) -> reqwest::Response {
-        h.post(
-            "/pair/manual/start",
-            &json!({"claimId": self.claim_id, "name": "Typed phone", "phonePublic": self.public}),
-        )
-        .await
-    }
-    /// `cert` is what the phone believes it connected to.
-    fn confirm(&self, started: &Value, cert: &str) -> pake::Confirmations {
-        let desktop_public = started["desktopPublic"].as_str().unwrap();
-        pake::confirmations(
-            started["desktopId"].as_str().unwrap(),
-            &self.claim_id,
-            &self.secret,
-            &pake::decode_public(desktop_public).unwrap(),
-            &self.public,
-            desktop_public,
-            cert,
-        )
-        .unwrap()
-    }
-    async fn finish(&self, h: &Harness, confirm: &str) -> reqwest::Response {
-        h.post(
-            "/pair/manual/finish",
-            &json!({"claimId": self.claim_id, "confirm": confirm}),
-        )
-        .await
-    }
-}
-
-#[tokio::test]
-async fn a_typed_code_pairs_through_a_pake_bound_to_the_certificate() {
-    let h = Harness::new().await;
-    let pairing = h.remote.pairing().unwrap();
-    let manual = pairing.manual;
-    let cert = pairing.invitation.certificate_sha256.clone();
-    assert!(manual.code.len() == 6 && manual.code.bytes().all(|b| b.is_ascii_digit()));
-    assert_eq!(
-        network::endpoint(&manual.address, manual.port),
-        pairing.invitation.endpoint
-    );
-    assert_eq!(manual.expires_at, pairing.invitation.expires_at);
-
-    // A guess with the wrong code, and the right code seen through a relay's
-    // certificate, both fail the same way and each burns its session.
-    let guessing = TypingPhone::new("000000");
-    let started: Value = guessing.start(&h).await.json().await.unwrap();
-    assert_eq!(started["desktopId"], pairing.invitation.desktop_id);
-    assert_eq!(started["expiresAt"], manual.expires_at);
-    let wrong = guessing.confirm(&started, &cert).phone;
-    let refused = guessing.finish(&h, &wrong).await;
-    assert_eq!(refused.status(), 403);
-    assert_eq!(refused.json::<Value>().await.unwrap()["error"], "bad_code");
-    assert_eq!(guessing.finish(&h, &wrong).await.status(), 403);
-
-    let relayed = TypingPhone::new(&manual.code);
-    let started: Value = relayed.start(&h).await.json().await.unwrap();
-    let seen_through_relay = relayed.confirm(&started, &hex::encode([7u8; 32])).phone;
-    let refused = relayed.finish(&h, &seen_through_relay).await;
-    assert_eq!(refused.json::<Value>().await.unwrap()["error"], "bad_code");
-
-    // The real phone: the desktop's confirmation proves it saw the same
-    // certificate, and the token it hands over opens the wire.
-    let phone = TypingPhone::new(&manual.code);
-    let started: Value = phone.start(&h).await.json().await.unwrap();
-    let tags = phone.confirm(&started, &cert);
-    let granted: Value = phone.finish(&h, &tags.phone).await.json().await.unwrap();
-    assert_eq!(granted["confirm"], tags.desktop);
-    assert_eq!(granted["certificateSha256"], cert);
-    assert_eq!(granted["desktopId"], pairing.invitation.desktop_id);
-    assert_eq!(
-        granted,
-        phone
-            .finish(&h, &tags.phone)
-            .await
-            .json::<Value>()
-            .await
-            .unwrap()
-    );
-    let mut socket = h.socket(granted["token"].as_str().unwrap()).await.unwrap();
-    assert_eq!(read(&mut socket).await["mode"], "team");
-    assert_eq!(h.remote.status().devices[0].name, "Typed phone");
-    // The pairing session is spent on both paths.
-    let invite = pairing.invitation;
-    let scan = h.claim(&json!({"invitationId": invite.invitation_id, "secret": invite.secret, "claimId": Uuid::new_v4(), "name": "Scanner"})).await;
-    assert_eq!(scan.status(), 403);
-    assert_eq!(TypingPhone::new(&manual.code).start(&h).await.status(), 403);
-
-    // Five wrong confirmations kill the code, and a scan closes the typed path.
-    let manual = h.remote.pairing().unwrap().manual;
-    for attempt in 1..=5 {
-        let guess = TypingPhone::new("111111");
-        let started: Value = guess.start(&h).await.json().await.unwrap();
-        let refused = guess
-            .finish(&h, &guess.confirm(&started, &cert).phone)
-            .await;
-        let expected = if attempt == 5 {
-            (429, "too_many_attempts")
-        } else {
-            (403, "bad_code")
-        };
-        assert_eq!(refused.status(), expected.0, "attempt {attempt}");
-        assert_eq!(refused.json::<Value>().await.unwrap()["error"], expected.1);
-    }
-    let dead = TypingPhone::new(&manual.code).start(&h).await;
-    assert_eq!(dead.status(), 403);
-    assert_eq!(
-        dead.json::<Value>().await.unwrap()["error"],
-        "pairing_closed"
-    );
-    h.remote.state.lock().unwrap().attempts = 0;
-    let manual = h.remote.pairing().unwrap().manual;
-    h.pair_current().await;
-    assert_eq!(TypingPhone::new(&manual.code).start(&h).await.status(), 403);
-    let junk = h
-        .post(
-            "/pair/manual/start",
-            &json!({"claimId": Uuid::new_v4(), "name": "x", "phonePublic": hex::encode([0u8; 32])}),
-        )
-        .await;
-    assert_eq!(junk.status(), 400);
-    h.remote.configure(false, network::ALL).await.unwrap();
-}
-
 /// A phone says where to notify it; the desk keeps that on the grant, and the
 /// room reads it back without holding the remote.
 #[tokio::test]
 async fn a_phone_registers_where_to_notify_it_and_the_room_can_read_it() {
     let h = Harness::new().await;
     let grant = h.pair().await;
-    let phone = h
-        .remote
-        .authenticate(grant["token"].as_str().unwrap())
-        .unwrap();
+    let phone = h.remote.authenticate_v2(&grant.public).unwrap();
     assert!(super::push_targets(h.root.path()).tokens.is_empty());
     assert!(
         phone
@@ -1187,9 +1094,16 @@ async fn a_phone_registers_where_to_notify_it_and_the_room_can_read_it() {
             .register_push("ExponentPushToken[abc]".into(), "watch".into())
             .is_err()
     );
-    phone
-        .register_push("ExponentPushToken[abc]".into(), "ios".into())
-        .unwrap();
+    let mut socket = h.socket(&grant.private).await.unwrap();
+    assert_eq!(read(&mut socket).await["protocolVersion"], 2);
+    send(
+        &mut socket,
+        json!({"id":1,"cmd":"mobile.push_register","params":{"token":"ExponentPushToken[abc]", "platform":"ios"}}),
+    )
+    .await;
+    let registered = read(&mut socket).await;
+    assert_eq!(registered["id"], 1);
+    assert_eq!(registered["ok"], true, "{registered}");
     let targets = super::push_targets(h.root.path());
     assert_eq!(targets.tokens, ["ExponentPushToken[abc]"]);
     assert_eq!(targets.desktop_id, h.remote.status_desktop_id());
@@ -1496,95 +1410,6 @@ async fn fake_computer() -> (u16, Arc<std::sync::Mutex<Option<String>>>) {
     (port, asked)
 }
 
-#[tokio::test]
-async fn a_phone_reaches_a_running_computer_through_the_desk_and_never_holds_its_bearer() {
-    let (port, asked) = fake_computer().await;
-    let (h, room) = Harness::with_computer().await;
-    *room.viewer.lock().unwrap() = Some(format!("http://127.0.0.1:{port}/#secret-bearer"));
-    let grant = h.pair().await;
-    let token = grant["token"].as_str().unwrap();
-    let mut screen = h.socket_at("/computer/ada/ws", token).await.unwrap();
-    // The frame the computer sends on connect arrives as it is.
-    let first = tokio::time::timeout(Duration::from_secs(3), screen.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert!(first.is_binary());
-    assert_eq!(first.into_data().as_ref(), b"\x89PNG frame");
-    // What the phone says reaches the computer as it was said.
-    screen
-        .send(Message::text(r#"{"t":"control","take":true}"#))
-        .await
-        .unwrap();
-    let echoed = tokio::time::timeout(Duration::from_secs(3), screen.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert_eq!(echoed.to_text().unwrap(), r#"{"t":"control","take":true}"#);
-    // The computer was asked with the desk's bearer, which the phone never had.
-    assert_eq!(
-        asked.lock().unwrap().as_deref(),
-        Some("token=secret-bearer")
-    );
-    assert!(!grant.to_string().contains("secret-bearer"));
-}
-
-#[tokio::test]
-async fn the_computer_door_is_shut_to_the_unpaired_the_unnamed_and_the_stopped() {
-    use tokio_tungstenite::tungstenite::Error;
-    let (h, room) = Harness::with_computer().await;
-    let grant = h.pair().await;
-    let token = grant["token"].as_str().unwrap();
-    let status_of = |error: Error| match error {
-        Error::Http(response) => response.status().as_u16(),
-        other => panic!("expected an HTTP refusal, got {other:?}"),
-    };
-    // No grant: nothing is said about whether the teammate exists.
-    let refused = h.socket_at("/computer/ada/ws", &"0".repeat(64)).await;
-    assert_eq!(status_of(refused.err().unwrap()), 401);
-    // A path that names anything but a teammate id is not a door.
-    let refused = h.socket_at("/computer/../ws", token).await;
-    assert_eq!(status_of(refused.err().unwrap()), 404);
-    let refused = h.socket_at("/computer/ada/ws/extra", token).await;
-    assert_eq!(status_of(refused.err().unwrap()), 404);
-    // A computer that is not running has no socket to reach.
-    *room.viewer.lock().unwrap() = None;
-    let refused = h.socket_at("/computer/ada/ws", token).await;
-    assert_eq!(status_of(refused.err().unwrap()), 409);
-}
-
-#[tokio::test]
-async fn revoking_the_phone_drops_its_computer_socket() {
-    let (port, _asked) = fake_computer().await;
-    let (h, room) = Harness::with_computer().await;
-    *room.viewer.lock().unwrap() = Some(format!("http://127.0.0.1:{port}/#secret-bearer"));
-    let grant = h.pair().await;
-    let mut screen = h
-        .socket_at("/computer/ada/ws", grant["token"].as_str().unwrap())
-        .await
-        .unwrap();
-    let _frame = tokio::time::timeout(Duration::from_secs(3), screen.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    h.remote
-        .revoke(grant["deviceId"].as_str().unwrap())
-        .unwrap();
-    let ended = tokio::time::timeout(Duration::from_secs(3), async {
-        loop {
-            match screen.next().await {
-                None | Some(Err(_)) | Some(Ok(Message::Close(_))) => break,
-                Some(Ok(_)) => {}
-            }
-        }
-    })
-    .await;
-    assert!(ended.is_ok(), "the socket stayed open after revocation");
-}
-
 #[test]
 fn the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running() {
     use crate::contract::{ComputerState, ComputerStatus};
@@ -1658,7 +1483,7 @@ mod sealed_network {
             params["s"].clone(),
         )
     }
-    async fn exchange(
+    pub(super) async fn exchange(
         h: &Harness,
         path: &str,
         private: &[u8; 32],
@@ -1985,31 +1810,8 @@ mod sealed_network {
     }
 
     #[tokio::test]
-    async fn manual_retry_requires_the_original_confirmation_and_a_live_window() {
-        let h = Harness::new().await;
-        let pairing = h.remote.pairing().unwrap();
-        let phone = TypingPhone::new(&pairing.manual.code);
-        let started = phone.start(&h).await.json().await.unwrap();
-        let tags = phone.confirm(&started, &pairing.invitation.certificate_sha256);
-        assert_eq!(phone.finish(&h, &tags.phone).await.status(), 200);
-        assert_eq!(phone.finish(&h, &"0".repeat(64)).await.status(), 403);
-        assert_eq!(phone.finish(&h, &tags.phone).await.status(), 200);
-        h.remote
-            .state
-            .lock()
-            .unwrap()
-            .manual
-            .as_mut()
-            .unwrap()
-            .expires_at = now() - 1;
-        assert_eq!(phone.finish(&h, &tags.phone).await.status(), 403);
-        h.remote.configure(false, network::ALL).await.unwrap();
-    }
-
-    #[tokio::test]
     async fn tls_rotation_preserves_noise_identity_and_grants_across_restart() {
         let h = Harness::new().await;
-        h.pair().await;
         let (private, _) = sealed::keypair().unwrap();
         let pairing = h.remote.pairing_v2(DeviceRole::Companion).unwrap();
         claim(&h, &pairing, &private).await.unwrap();
@@ -2028,8 +1830,8 @@ mod sealed_network {
         reopened.configure(true, network::ALL).await.unwrap();
         assert_ne!(reopened.identity.read().unwrap().unwrap(), before);
         assert_eq!(reopened.noise_keys().unwrap(), keys);
-        assert_eq!(reopened.devices().len(), 2);
-        assert!(reopened.devices().iter().any(|d| d.public_key.is_none()));
+        assert_eq!(reopened.devices().len(), 1);
+        assert!(reopened.devices().iter().all(|d| d.public_key.is_some()));
         assert!(
             reopened
                 .authenticate_v2(&sealed::keypair().unwrap().1)
@@ -2050,6 +1852,28 @@ mod sealed_network {
         reopened.noise_identity.write(b"broken Noise").unwrap();
         assert!(reopened.configure(true, network::ALL).await.is_err());
         assert!(!reopened.status().enabled);
+    }
+
+    #[tokio::test]
+    async fn sealed_computer_door_refuses_a_stopped_computer() {
+        let (h, room) = Harness::with_computer().await;
+        let phone = h.pair_companion().await;
+        let (_, public) = h.remote.noise_keys().unwrap();
+        *room.viewer.lock().unwrap() = None;
+        let (mut socket, _, answer) = exchange(
+            &h,
+            "/v2/computer/ada/ws",
+            &phone.private,
+            &public,
+            br#"{"purpose":"computer","personaId":"ada"}"#,
+        )
+        .await
+        .unwrap();
+        assert!(answer.is_empty());
+        // Device authentication completes before the desk resolves the
+        // viewer. A stopped computer sends no application frame.
+        closed(&mut socket).await;
+        h.remote.configure(false, network::ALL).await.unwrap();
     }
 
     #[tokio::test]
@@ -2196,7 +2020,7 @@ async fn served_listener_waits_for_exact_socket_and_has_no_legacy_routes() {
     assert!(!remote.status().enabled);
     assert!(remote.status().error.unwrap().contains("Waiting"));
     assert!(remote.configure(true, "0.0.0.0").await.is_err());
-    assert!(remote.pairing().is_err());
+    assert!(remote.pairing_v2(DeviceRole::Owner).is_err());
     drop(occupied);
     tokio::time::timeout(Duration::from_secs(4), async {
         while !remote.status().enabled {

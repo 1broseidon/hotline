@@ -11,7 +11,7 @@ account.
 
 ## "Pairing expired. Run `hotline pair` to try again."
 
-A pairing code lasts two minutes. Open the scanner on the phone first
+A pairing QR or link lasts two minutes. Open the scanner on the phone first
 (**Add a desktop**), then run `hotline pair`.
 
 ## The phone can't reach the server
@@ -24,6 +24,12 @@ A pairing code lasts two minutes. Open the scanner on the phone first
 ## "Update the Hotline app to link to this server"
 
 The phone is running a version from before servers. Update it from TestFlight.
+
+## An old QR says the desk needs updating
+
+Pairing through the six-digit code and older QR format ended in 0.33.
+Update the desk, then open **Settings → Remote → Link a phone** or run
+`hotline pair` to create a new QR. Scan it once with the updated phone.
 
 ## "This phone is no longer paired with the desktop"
 

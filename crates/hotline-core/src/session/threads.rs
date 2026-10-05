@@ -297,8 +297,7 @@ mod tests {
                 "host": "desk.local",
                 "enabled": true,
                 "grants": [{
-                    "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0},
-                    "tokenHash": "hash",
+                    "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0, "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
                     "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
                 }]
             })

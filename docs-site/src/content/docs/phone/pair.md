@@ -1,23 +1,28 @@
 ---
 title: Link a desk
-description: Pair the phone with Hotline on your Mac, or with a server.
+description: Pair the phone with Hotline on your computer, or with a server.
 ---
 
 The first time you open Hotline on the phone, it asks you to link a desk.
 Later, to add another, open the desktop menu beside the Hotline name at the
 top of the team list and choose **Add a desktop**.
 
-## Your Mac
+## Your computer
 
-1. In Hotline on the Mac, open **Settings → Remote** and turn on **Remote
+1. In Hotline on your computer, open **Settings → Remote** and turn on **Remote
    access**.
-2. Under **Link a phone**, a code appears.
-3. On the phone, scan it. Or choose **Enter address and code** and type the
-   address and the six-digit code the Mac shows.
+2. Press **Link a phone** to show the QR.
+3. On the phone, scan it. Or press **Copy link** on the computer and open that
+   link on your phone.
 
-The phone needs to reach the Mac: the same Wi-Fi, or your VPN. A code
-expires after a few minutes; make a new one if it does. **Paired phones**
-on the Mac lists every phone, and **Revoke access** unlinks one.
+The phone needs to reach the computer: the same Wi-Fi, your VPN, or a
+server selected under **Relay**. The QR and link expire after two minutes
+and work for one phone. Press **Link a phone** again if they expire.
+**Paired phones** lists every phone, and **Revoke access** unlinks one.
+
+Phones paired with the six-digit code before 0.33 scan the new QR once.
+Their old entries say **Needs re-pair** and can still be revoked. A phone
+already paired through the sealed QR keeps working.
 
 ## A server
 

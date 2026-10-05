@@ -24,7 +24,6 @@ import type {
 	Provider,
 	Report,
 	RemoteDevice,
-	RemotePairing,
 	RemoteStatus,
 	SealedPairing,
 	RosterEntry,
@@ -107,7 +106,7 @@ type Results = {
     "remote.devices": RemoteDevice[];
     "remote.revoke": RemoteStatus;
     "remote.relay": RemoteStatus;
-    "remote.pairing": RemotePairing | SealedPairing | RemoteDevice | null;
+    "remote.pairing": SealedPairing | RemoteDevice | null;
     "agent.auth.start": { id: string };
     "agent.auth.poll": { state: "running" | "succeeded" | "failed"; output: string; error?: string };
     "agent.auth.input": null;

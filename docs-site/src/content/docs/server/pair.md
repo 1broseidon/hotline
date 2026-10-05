@@ -26,8 +26,9 @@ and the server shows up on the phone's team list.
 - Nothing else can pair: there is no six-digit code and no pairing address
   while no `hotline pair` is waiting.
 
-If your phone says **Update the Hotline app to link to this server**, it is
-a version from before servers. Update it from TestFlight and scan again.
+If your phone says **Update the Hotline app to link to this server**, update
+it from TestFlight and scan again. If it says the desk needs updating after
+scanning an old QR, update the desk and create a new QR.
 Hotline for iPhone is [in beta](/docs/phone/).
 
 ## Owner and companion
@@ -47,3 +48,6 @@ hotline revoke DEVICE_ID
 Revoking closes that phone's connections at once. The phone then says it is
 no longer paired. Revoking every phone does not open pairing to anyone: run
 `hotline pair` again on the server.
+
+Old entries from six-digit pairing remain listed and revocable, but have no
+access. Phones paired with the six-digit code before 0.33 scan the new QR once.

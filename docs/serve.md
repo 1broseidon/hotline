@@ -273,12 +273,16 @@ see, such as a room somewhere else, use that form yourself: set
 Scan the terminal QR with Hotline on the phone. The two-minute invitation
 is single-use; the command waits and prints the device name and role.
 Treat the QR and terminal scrollback as sensitive until it expires. Cancel
-with Ctrl-C. A served desk does not offer the six-digit manual pairing
-route, and its v2 claim endpoint is absent when no pairing window is open.
+with Ctrl-C. Desktop and served desks pair only through the sealed QR or
+link; neither offers a six-digit manual code or a legacy bearer route. The
+v2 claim endpoint is absent when no pairing window is open.
 Removing every device does not open an owner bootstrap route: run `pair`
 again explicitly. An owner has the same commands and subscriptions as the
 local desk, including providers, grants and server paths. A companion keeps
 the limited phone command set. Existing grants without a role remain owners.
+Old grants with only a token hash and no public key remain listed and
+revocable, but give no access or push delivery. Phones paired with the
+six-digit code before 0.33 scan the new QR once.
 
 The default command prints only the QR, never the link as text, so a casual
 copy of the terminal does not carry the secret. `hotline pair --json` prints

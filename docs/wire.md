@@ -141,7 +141,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
 | `peers.answer_permission` | `{key, requestId, optionId}` | none; answers a card raised in a peer turn while that turn waits on it. Owner seat only |
-| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, already running its first turn; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
+| `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
 | `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued |
 | `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
 | `side.archive` | `{sideId}` | none; ends a live or parked thread, and archiving an archived thread is also none |
@@ -150,7 +150,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
 | `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads); any seat; an unknown name is ignored |
 | `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
-| `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, already running its first turn (`side.start`) |
+| `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
 | `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange |
 | `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none |

@@ -60,6 +60,11 @@ pub(super) struct Scripted {
     unconsumed: Option<Unconsumed>,
     /// Each prompt exactly as handed over, stamp and all.
     heard: Arc<Mutex<Vec<String>>>,
+    /// One permit lets one start finish, so a start can be caught while the
+    /// harness is still coming up. `None` starts at once.
+    start_gate: Option<Arc<Semaphore>>,
+    /// Why every start is refused, for a harness that cannot come up.
+    start_error: Option<String>,
 }
 
 /// What one turn was handed to be heard through, if anything.
@@ -91,7 +96,22 @@ impl Scripted {
             unprompted: Arc::new(Mutex::new(None)),
             unconsumed: None,
             heard: Arc::new(Mutex::new(Vec::new())),
+            start_gate: None,
+            start_error: None,
         }
+    }
+
+    /// An agent whose start-up waits for a permit, as a child's does while its
+    /// process spawns and handshakes.
+    pub(super) fn slow_to_start(mut self, gate: Arc<Semaphore>) -> Self {
+        self.start_gate = Some(gate);
+        self
+    }
+
+    /// An agent that cannot be started, and says why.
+    pub(super) fn failing_to_start(mut self, reason: &str) -> Self {
+        self.start_error = Some(reason.to_string());
+        self
     }
 
     /// An agent that can start work by itself: each receiver sent is one such
@@ -154,6 +174,12 @@ impl Scripted {
 #[async_trait]
 impl Driver for Scripted {
     async fn start(&self, _persona: &Persona) -> Result<DriverInfo, String> {
+        if let Some(gate) = &self.start_gate {
+            gate.acquire().await.expect("the gate closed").forget();
+        }
+        if let Some(reason) = &self.start_error {
+            return Err(reason.clone());
+        }
         Ok(self.reported())
     }
 

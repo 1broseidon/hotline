@@ -1,6 +1,6 @@
 //! Durable automatic exchanges. A pair record is the queue and the brake in
 //! one append: accepting a message never relies on a task surviving the desk.
-use super::sides::Start;
+use super::sides::{HandoffStart, Start};
 use super::turns::HandoffLine;
 use super::{Room, lock, new_id, now_ms, peers};
 use crate::contract::{
@@ -929,7 +929,7 @@ impl Room {
         }
         Ok(())
     }
-    fn set_exchange_reply(
+    pub(super) fn set_exchange_reply(
         &self,
         key: &str,
         id: &str,
@@ -970,47 +970,58 @@ impl Room {
         }
         let side_id = new_id();
         self.set_handoff_thread(key, &request.id, &side_id)?;
-        let started = self
-            .bring_up(
-                &request.to,
-                Start {
-                    side_id: side_id.clone(),
-                    title: super::sides::title_of(&request.message),
-                    started: now_ms(),
-                    opener: Some(Opener {
-                        persona_id: caller.id.clone(),
-                        name: caller.name.clone(),
-                    }),
+        let started = self.bring_up(
+            &request.to,
+            Start {
+                side_id: side_id.clone(),
+                title: super::sides::title_of(&request.message),
+                started: now_ms(),
+                opener: Some(Opener {
+                    persona_id: caller.id.clone(),
+                    name: caller.name.clone(),
+                }),
+                fresh: true,
+                saved: None,
+                handoff: Some(HandoffStart {
+                    key: key.to_string(),
+                    request: request.id.clone(),
+                }),
+            },
+        );
+        let launch = match started {
+            Ok((_, launch)) => launch,
+            Err(error) => {
+                let target = self.persona(&request.to)?;
+                return self.set_exchange_reply(
+                    key,
+                    &request.id,
+                    format!("{} could not start a thread for this: {error}", target.name),
+                    true,
+                );
+            }
+        };
+        let delivered = self
+            .deliver_into_work(
+                &side_id,
+                &format!("handoff:{}", request.id),
+                DeliveryCause::Handoff {
+                    request_id: request.id.clone(),
+                    persona_id: caller.id.clone(),
+                    name: caller.name,
+                    thread_key: key.into(),
+                    about: peers::about(&request.message),
                 },
+                DeliveryFrom::new(&ThreadId::dm(&caller.id), Some(request.id.clone())),
+                request.message.clone(),
+                Some(HandoffLine {
+                    request: request.id.clone(),
+                    answer: None,
+                }),
             )
             .await;
-        if let Err(error) = started {
-            let target = self.persona(&request.to)?;
-            return self.set_exchange_reply(
-                key,
-                &request.id,
-                format!("{} could not start a thread for this: {error}", target.name),
-                true,
-            );
-        }
-        self.deliver_into_work(
-            &side_id,
-            &format!("handoff:{}", request.id),
-            DeliveryCause::Handoff {
-                request_id: request.id.clone(),
-                persona_id: caller.id.clone(),
-                name: caller.name,
-                thread_key: key.into(),
-                about: peers::about(&request.message),
-            },
-            DeliveryFrom::new(&ThreadId::dm(&caller.id), Some(request.id.clone())),
-            request.message.clone(),
-            Some(HandoffLine {
-                request: request.id.clone(),
-                answer: None,
-            }),
-        )
-        .await
+        // The line is queued first, so the agent's start finds it waiting.
+        self.launch(launch);
+        delivered
     }
 
     fn set_handoff_thread(&self, key: &str, id: &str, thread: &str) -> Result<(), String> {

@@ -474,9 +474,13 @@ fn wake_note(chapter: &Value, ended: i64, now: i64, quoted: Option<String>) -> S
 
 /// The last `count` messages as JSON, trimmed to `chars`, or nothing to quote.
 fn quoted_tail(events: &[Value], count: usize, chars: usize) -> Option<String> {
+    // Only the last `count` are kept, so only those are read: a tape can hold
+    // tens of thousands of messages and this runs as a thread opens.
     let mut messages: Vec<Value> = events
         .iter()
+        .rev()
         .filter(|event| is_message(event))
+        .take(count)
         .map(|event| {
             json!({
                 "speaker": match string(event, "kind") {
@@ -487,11 +491,9 @@ fn quoted_tail(events: &[Value], count: usize, chars: usize) -> Option<String> {
             })
         })
         .collect();
+    messages.reverse();
     if messages.is_empty() {
         return None;
-    }
-    if messages.len() > count {
-        messages.drain(..messages.len() - count);
     }
     while messages.len() > 1 && Value::from(messages.clone()).to_string().len() > chars {
         messages.remove(0);

@@ -39,7 +39,7 @@ use rig::message::{
 };
 use rig::prelude::*;
 use rig::providers::{
-    anthropic, chatgpt, copilot, deepseek, gemini, groq, mistral, openai, openrouter, xai, zai,
+    anthropic, chatgpt, deepseek, gemini, groq, mistral, openai, openrouter, xai, zai,
 };
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
@@ -1082,13 +1082,7 @@ async fn agent_builder(
             if crate::providers::copilot::wants_responses(token_dir, model) {
                 crate::providers::copilot::responses_agent(token_dir, model).await?
             } else {
-                copilot::Client::builder()
-                    .oauth()
-                    .token_dir(token_dir)
-                    .allow_device_flow(false)
-                    .build()
-                    .map_err(text)?
-                    .agent(model)
+                crate::providers::copilot::chat_agent(token_dir, model)?
             }
         }
         (Client::OpenRouter, ProviderAuth::StoredLogin { tokens }) => {
@@ -2484,5 +2478,104 @@ mod tests {
         assert_eq!(effort_params(Client::Groq, "high"), Some(chat.clone()));
         assert_eq!(effort_params(Client::DeepSeek, "high"), Some(chat.clone()));
         assert_eq!(effort_params(Client::Mistral, "high"), Some(chat));
+    }
+
+    /// The standup that posted on every turn: on Copilot, a teammate's own
+    /// earlier reply must reach the next request as text the model can read.
+    /// Copilot drops an assistant `content` list on the way to Claude, so the
+    /// reply goes as a string.
+    #[tokio::test]
+    async fn a_copilot_teammate_hears_its_own_last_reply_on_the_next_turn() {
+        use axum::{Router, body::Bytes, routing::post};
+        const CALL: &str = concat!(
+            r#"data: {"choices":[{"index":0,"delta":{"content":"On it.","role":"assistant"}}]}"#,
+            "\n\n",
+            r#"data: {"choices":[{"index":0,"delta":{"content":null,"tool_calls":[{"function":{"name":"ls"},"id":"tooluse_1","index":1,"type":"function"}]}}]}"#,
+            "\n\n",
+            r#"data: {"choices":[{"index":0,"delta":{"content":null,"tool_calls":[{"function":{"arguments":""},"index":1,"type":"function"}]}}]}"#,
+            "\n\n",
+            r#"data: {"choices":[{"finish_reason":"tool_calls","index":0,"delta":{"content":null}}],"usage":{"completion_tokens":1,"prompt_tokens":1,"total_tokens":2}}"#,
+            "\n\n",
+            "data: [DONE]\n\n",
+        );
+        const SAY: &str = concat!(
+            r#"data: {"choices":[{"index":0,"delta":{"content":"Today — Mon 5 Oct","role":"assistant"}}]}"#,
+            "\n\n",
+            r#"data: {"choices":[{"finish_reason":"stop","index":0,"delta":{"content":null}}],"usage":{"completion_tokens":1,"prompt_tokens":1,"total_tokens":2}}"#,
+            "\n\n",
+            "data: [DONE]\n\n",
+        );
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
+        let app = Router::new().route(
+            "/chat/completions",
+            post(move |body: Bytes| {
+                let tx = tx.clone();
+                async move {
+                    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                    let opening = body["messages"].as_array().unwrap().len() == 2;
+                    tx.send(body).unwrap();
+                    (
+                        [("content-type", "text/event-stream")],
+                        if opening { CALL } else { SAY },
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let dir = crate::providers::copilot::tests::seeded_login("own-reply", &url);
+        crate::providers::copilot::tests::record_endpoints(
+            &dir,
+            json!({"claude-opus-5.5": ["/chat/completions"]}),
+        );
+        let root = login_scratch("own-reply");
+        let history = Arc::new(AsyncMutex::new(Vec::new()));
+        let turn = || Turn {
+            output_limit: None,
+            context_limit: None,
+            keys: HashMap::from([(
+                "github-copilot".to_string(),
+                ProviderAuth::Login {
+                    token_dir: dir.clone(),
+                },
+            )]),
+            model: "github-copilot/claude-opus-5.5".to_string(),
+            effort: None,
+            preamble: "you are Ada".to_string(),
+            cwd: root.clone(),
+            reach: Reach::Workspace,
+            history: history.clone(),
+            stop: Arc::new(Stop::default()),
+            steering: Arc::new(turn::Steering::default()),
+            output_dir: root.join("out"),
+            mcp_tools: Vec::new(),
+            capability: None,
+            delegate: None,
+        };
+        let (sender, mut receiver) = mpsc::channel(256);
+        tokio::spawn(async move { while receiver.recv().await.is_some() {} });
+        turn()
+            .run(&sender, Message::user("run the standup"))
+            .await
+            .unwrap();
+        turn()
+            .run(&sender, Message::user("have a peek"))
+            .await
+            .unwrap();
+        let mut bodies = Vec::new();
+        while let Ok(body) = rx.try_recv() {
+            bodies.push(body);
+        }
+        assert_eq!(bodies.len(), 3);
+        let said: Vec<&serde_json::Value> = bodies[2]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "assistant")
+            .map(|message| &message["content"])
+            .collect();
+        assert_eq!(said, [&json!("On it."), &json!("Today — Mon 5 Oct")]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

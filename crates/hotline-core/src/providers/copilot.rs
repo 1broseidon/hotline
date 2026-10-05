@@ -258,6 +258,115 @@ pub(crate) fn wants_responses(token_dir: &Path, model: &str) -> bool {
         })
 }
 
+// ---- The chat-completions route ------------------------------------------
+
+/// An agent on Rig's own Copilot chat route, over [`ChatBody`].
+pub(crate) fn chat_agent(
+    token_dir: &Path,
+    model: &str,
+) -> Result<rig::agent::AgentBuilder, String> {
+    use rig::client::AgentClientExt;
+    Ok(copilot::Client::builder()
+        .http_client(ChatBody::default())
+        .oauth()
+        .token_dir(token_dir)
+        .allow_device_flow(false)
+        .build()
+        .map_err(|_| {
+            "Could not prepare the GitHub Copilot sign-in. Sign in again under Settings → Providers."
+                .to_string()
+        })?
+        .agent(model))
+}
+
+/// Rig's HTTP client with one change to what it sends: an assistant
+/// message's text goes as a string, not as a list of text parts.
+///
+/// Copilot's `/chat/completions` hands Claude only the string form. An
+/// assistant message whose `content` is a list reaches the model with its
+/// text gone, and the request still succeeds, so a teammate never saw a word
+/// it had said before, only its tool calls, and answered every new message
+/// by producing again what it believed it had never sent.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ChatBody(reqwest::Client);
+
+/// The body with each all-text assistant `content` list joined into one
+/// string. Anything that is not a chat request, or not text, passes as it
+/// came.
+fn flatten_assistant_text(body: Bytes) -> Bytes {
+    let Ok(mut request) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return body;
+    };
+    let Some(messages) = request
+        .get_mut("messages")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return body;
+    };
+    let mut changed = false;
+    for message in messages {
+        if message.get("role").and_then(serde_json::Value::as_str) != Some("assistant") {
+            continue;
+        }
+        let Some(parts) = message.get("content").and_then(serde_json::Value::as_array) else {
+            continue;
+        };
+        let texts: Option<Vec<&str>> = parts
+            .iter()
+            .map(
+                |part| match part.get("type").and_then(serde_json::Value::as_str) {
+                    Some("text") => part.get("text").and_then(serde_json::Value::as_str),
+                    _ => None,
+                },
+            )
+            .collect();
+        if let Some(texts) = texts.filter(|texts| !texts.is_empty()) {
+            message["content"] = serde_json::Value::String(texts.join("\n\n"));
+            changed = true;
+        }
+    }
+    if !changed {
+        return body;
+    }
+    serde_json::to_vec(&request).map_or(body, Bytes::from)
+}
+
+impl HttpClientExt for ChatBody {
+    fn send<T, U>(
+        &self,
+        request: http::Request<T>,
+    ) -> impl Future<Output = http_client::Result<http::Response<LazyBody<U>>>> + Send + 'static
+    where
+        T: Into<Bytes> + Send,
+        U: From<Bytes> + Send + 'static,
+    {
+        self.0
+            .send(request.map(|body| flatten_assistant_text(body.into())))
+    }
+
+    fn send_multipart<U>(
+        &self,
+        request: http::Request<MultipartForm>,
+    ) -> impl Future<Output = http_client::Result<http::Response<LazyBody<U>>>> + Send + 'static
+    where
+        U: From<Bytes> + Send + 'static,
+    {
+        self.0.send_multipart(request)
+    }
+
+    async fn send_streaming<T>(
+        &self,
+        request: http::Request<T>,
+    ) -> http_client::Result<StreamingResponse>
+    where
+        T: Into<Bytes> + Send,
+    {
+        self.0
+            .send_streaming(request.map(|body| flatten_assistant_text(body.into())))
+            .await
+    }
+}
+
 // ---- The Responses route -------------------------------------------------
 
 /// An agent on Copilot's `/responses` for this model. Tools are marked
@@ -815,5 +924,41 @@ pub(crate) mod tests {
         assert!(err.to_string().contains("sign-in"), "{err}");
         server.abort();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What Copilot's chat route hands Claude: a string, or nothing. Text
+    /// lists become strings; tool calls, user content and anything that is
+    /// not all text are left alone.
+    #[test]
+    fn assistant_text_goes_as_a_string_and_nothing_else_moves() {
+        let body = json!({
+            "model": "claude-opus-5.5",
+            "messages": [
+                {"role": "system", "content": [{"type": "text", "text": "you are Ada"}]},
+                {"role": "user", "content": [{"type": "text", "text": "run the standup"}]},
+                {"role": "assistant",
+                 "content": [{"type": "text", "text": "On it."}, {"type": "text", "text": "Checking."}],
+                 "tool_calls": [{"id": "1", "type": "function", "function": {"name": "ls", "arguments": "{}"}}]},
+                {"role": "tool", "tool_call_id": "1", "content": "(empty)"},
+                {"role": "assistant", "content": [{"type": "text", "text": "Today — Mon 5 Oct"}]},
+                {"role": "assistant", "content": [{"type": "refusal", "refusal": "no"}]},
+                {"role": "assistant", "content": "already a string"}
+            ]
+        });
+        let out: serde_json::Value = serde_json::from_slice(&flatten_assistant_text(Bytes::from(
+            serde_json::to_vec(&body).unwrap(),
+        )))
+        .unwrap();
+        let messages = out["messages"].as_array().unwrap();
+        assert_eq!(messages[0], body["messages"][0]);
+        assert_eq!(messages[1], body["messages"][1]);
+        assert_eq!(messages[2]["content"], "On it.\n\nChecking.");
+        assert_eq!(messages[2]["tool_calls"], body["messages"][2]["tool_calls"]);
+        assert_eq!(messages[3], body["messages"][3]);
+        assert_eq!(messages[4]["content"], "Today — Mon 5 Oct");
+        assert_eq!(messages[5], body["messages"][5]);
+        assert_eq!(messages[6], body["messages"][6]);
+        let other = Bytes::from_static(b"not json");
+        assert_eq!(flatten_assistant_text(other.clone()), other);
     }
 }

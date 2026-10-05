@@ -1503,7 +1503,7 @@ pub enum DeliveryCause {
         /// The start of the message this answers, clipped to a line.
         about: String,
     },
-    /// Work explicitly handed into this teammate's main conversation.
+    /// Work explicitly handed to this teammate, in a work thread of its own.
     /// The result returns automatically to requestId on the sender's tape.
     Handoff {
         request_id: String,

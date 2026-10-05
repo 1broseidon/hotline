@@ -1021,7 +1021,7 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     assert!(request_id.starts_with("collab:"), "{card}");
     assert_eq!(
         card["event"]["title"],
-        "Allow Ada to ask Bob to work?\n\nBob can receive handoffs into its main conversation, use its own context, workspace and enabled tools to fulfill Ada's requests and return results."
+        "Allow Ada to ask Bob to work?\n\nBob can take handoffs in a work thread of its own, use its own context, workspace and enabled tools to fulfill Ada's requests and return results."
     );
 
     ask(

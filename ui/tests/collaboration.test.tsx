@@ -57,6 +57,12 @@ describe("Ask or hand off", () => {
 		expect(turnCauseLine([{ ...delivery, receipt: "sent" }])).toBeNull();
 	});
 
+	test("an answer's preview skips an opener that only acknowledges the work", () => {
+		expect(deliveryLine({ ...delivery, text: "On it.\n\n7.0.0-31-generic" })?.said).toBe("handed you: 7.0.0-31-generic");
+		expect(deliveryLine({ ...delivery, text: "Sure!" })?.said).toBe("handed you: Sure!");
+		expect(deliveryLine({ ...delivery, text: "On it now, the build is red" })?.said).toBe("handed you: On it now, the build is red");
+	});
+
 	test("a quoted line reads as words, not markdown", () => {
 		expect(deliveryLine({ ...delivery, text: "`GET /receipts` is **live**" })?.said).toBe("handed you: GET /receipts is live");
 	});
@@ -139,7 +145,7 @@ describe("Ask or hand off", () => {
 			title: "Fix the CI badge", state: "live", openerId: "mack", openerName: "Mack",
 		};
 		const html = transcript([link]);
-		expect(html).toContain("Mack handed this over · Fix the CI badge");
+		expect(html).toContain("From Mack · Fix the CI badge");
 		expect(html).toContain("· Open");
 		const old = { kind: "side", id: "side:s1", ts: 1, sideId: "s1", personaId: "ada", title: "Old marker", status: "live" } as TranscriptEvent;
 		expect(transcript([old])).not.toContain("Old marker");

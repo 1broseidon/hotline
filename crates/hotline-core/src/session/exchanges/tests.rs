@@ -389,7 +389,7 @@ async fn a_legacy_grant_requires_informed_handoff_approval_but_still_allows_ask(
         card["title"]
             .as_str()
             .unwrap()
-            .contains("handoffs into its main conversation")
+            .contains("handoffs in a work thread of its own")
     );
     assert!(room.tape("bob").iter().all(|v| v["kind"] != "delivery"));
     room.answer_permission("ada", card["requestId"].as_str().unwrap(), "allow_always")

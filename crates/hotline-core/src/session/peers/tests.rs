@@ -67,7 +67,7 @@ async fn workspace_delivery_requires_consent_before_peer_side_effects() {
     let request_id = card["requestId"].as_str().unwrap().to_string();
     assert_eq!(
         card["title"],
-        "Allow Ada to ask Bob to work?\n\nBob can receive handoffs into its main conversation, use its own context, workspace and enabled tools to fulfill Ada's requests and return results."
+        "Allow Ada to ask Bob to work?\n\nBob can take handoffs in a work thread of its own, use its own context, workspace and enabled tools to fulfill Ada's requests and return results."
     );
     assert_eq!(card["options"][0]["name"], "Allow this session");
     assert_eq!(card["options"][1]["name"], "Always allow Ada");

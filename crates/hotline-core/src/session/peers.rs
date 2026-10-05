@@ -807,7 +807,7 @@ impl Room {
 
         let request_id = format!("{COLLAB_REQUEST_PREFIX}{}", new_id());
         let title = format!(
-            "Allow {} to ask {} to work?\n\n{} can receive handoffs into its main conversation, use its own context, workspace and enabled tools to fulfill {}'s requests and return results.",
+            "Allow {} to ask {} to work?\n\n{} can take handoffs in a work thread of its own, use its own context, workspace and enabled tools to fulfill {}'s requests and return results.",
             caller.name, target.name, target.name, caller.name
         );
         let options = collaboration_options(&caller.name);
@@ -923,7 +923,7 @@ impl Room {
                 ts: now_ms(),
                 request_id: wait.request_id.clone(),
                 title: format!(
-                    "Allow {} to ask {} to work?\n\n{} can receive handoffs into its main conversation, use its own context, workspace and enabled tools to fulfill {}'s requests and return results.",
+                    "Allow {} to ask {} to work?\n\n{} can take handoffs in a work thread of its own, use its own context, workspace and enabled tools to fulfill {}'s requests and return results.",
                     wait.caller_name,
                     wait.target_name,
                     wait.target_name,

@@ -588,8 +588,9 @@ is read-only reference and is not modified by work here.
 `message_teammate(to, message, intent)` defaults to `ask`: a bounded answer or
 review in a side session with none of the recipient's main conversation. Ask
 is not tool-free: the recipient uses its own workspace and granted tools.
-`handoff` delivers into that teammate's main conversation, behind its current
-turn (or wakes it idle), to implement or continue work in its own context.
+`handoff` opens a work thread of the recipient's own, which starts from its
+main conversation's context, to implement or continue work there; the main
+conversation is never interrupted by it.
 The recipient never silently promotes an Ask. Neither intent overrides the
 person or expands the recipient's permissions.
 

@@ -365,6 +365,56 @@ async fn stop_and_revocation_settle_saved_work_and_resume_cannot_resurrect_it() 
     );
 }
 
+/// Revoking a teammate stops everything waiting on it at once; the sender is
+/// told in one line that names the teammate, not one line per message with
+/// its id.
+#[tokio::test]
+async fn a_revoke_tells_the_sender_once_by_name_however_many_it_stopped() {
+    let (room, _) = setup("revoke-one-line");
+    let mut requests = Vec::new();
+    for (id, message) in [
+        ("one", "first ask"),
+        ("two", "second ask"),
+        ("three", "third ask"),
+    ] {
+        let mut request = saved_request(id, Intent::Ask, Phase::Queued);
+        request.message = message.into();
+        requests.push(request);
+    }
+    room.save_pair(&Pair {
+        id: "ada~bob".into(),
+        a: "ada".into(),
+        b: "bob".into(),
+        exchanges: 0,
+        paused: false,
+        requests,
+    })
+    .unwrap();
+    room.invalidate("bob").unwrap();
+    let ended: Vec<serde_json::Value> = room
+        .tape("ada")
+        .into_iter()
+        .filter(|v| {
+            v["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("exchange-ended:"))
+        })
+        .collect();
+    assert_eq!(ended.len(), 1, "{ended:?}");
+    let name = room.persona("bob").unwrap().name;
+    let text = ended[0]["text"].as_str().unwrap();
+    assert!(
+        text.starts_with(&format!(
+            "3 messages to {name} stopped, the last (third ask)"
+        )),
+        "{text}"
+    );
+    assert!(
+        !text.contains("bob ("),
+        "names the teammate, not its id: {text}"
+    );
+}
+
 #[tokio::test]
 async fn a_legacy_grant_requires_informed_handoff_approval_but_still_allows_ask() {
     let (room, _) = setup("legacy-handoff-grant");

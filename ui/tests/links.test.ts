@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { LinkEvent } from "../src/dock";
-import { linkFailed, linkLine, runState, threadOfLink } from "../src/links";
+import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, runState, threadOfLink } from "../src/links";
 
 const link = (extra: Partial<LinkEvent> = {}): LinkEvent => ({
 	kind: "link",
@@ -81,4 +81,29 @@ describe("a call's line", () => {
 
 test("a link names the thread it stands for", () => {
 	expect(threadOfLink(link({ threadKind: "run", thread: "r9" }))).toEqual({ kind: "run", key: "r9" });
+});
+
+describe("work colleagues handed a teammate", () => {
+	const handed = (id: string, state: LinkEvent["state"], openerName = "Poe", openerId = "poe") =>
+		link({ id, thread: id, threadKind: "side", state, personaId: "toad", openerId, openerName });
+
+	test("is told apart from the teammate's own threads and from what it handed on", () => {
+		expect(handedIn(handed("a", "live"), "toad")).toBe(true);
+		expect(handedIn(link({ threadKind: "side", personaId: "toad" }), "toad")).toBe(false);
+		expect(handedIn(handed("a", "live", "Toad", "toad"), "toad")).toBe(false);
+		// The copy on the sender's tape is what the sender handed on.
+		expect(handedIn(handed("a", "live"), "poe")).toBe(false);
+	});
+
+	test("is one line for whatever is unfinished, newest state of each", () => {
+		const events = [handed("a", "live"), handed("b", "live", "Clementine", "clem"), handed("a", "closed"), handed("c", "parked")];
+		expect(handoffsUnderway(events, "toad")).toEqual({ count: 2, from: ["Clementine", "Poe"] });
+		expect(handoffsUnderway([handed("a", "closed")], "toad")).toEqual({ count: 0, from: [] });
+	});
+
+	test("names its senders the way a person lists them", () => {
+		expect(namesSaid(["Poe"])).toBe("Poe");
+		expect(namesSaid(["Poe", "Mack"])).toBe("Poe and Mack");
+		expect(namesSaid(["Poe", "Mack", "Ada"])).toBe("Poe, Mack and Ada");
+	});
 });

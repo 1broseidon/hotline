@@ -610,6 +610,7 @@ export function App() {
 							width={dockWidth}
 							onWidth={setDockWidth}
 							overlay={dockOverlay}
+							onOpenTeammate={select}
 						/>
 					)}
 					{/* What floats over the window runs down its right edge: a turn's work at the top, the call at the bottom. */}

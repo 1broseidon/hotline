@@ -1,5 +1,5 @@
 import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Attachment, ThreadSummary } from "../generated/contract";
+import type { Attachment, ThreadId, ThreadSummary } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import { carry } from "../serverFiles";
@@ -12,6 +12,7 @@ import {
 	draggedDock,
 	groupThreads,
 	type LinkEvent,
+	openerOf,
 	openerWords,
 	pairWith,
 	powersOf,
@@ -24,7 +25,8 @@ import {
 } from "../dock";
 import { type Person, peopleOf } from "../avatars";
 import { sideTitle } from "../links";
-import { dmOf, sameThread, useThread } from "../tape";
+import { answerCard, dmOf, sameThread, useThread } from "../tape";
+import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Scroll } from "../ui/Scroll";
 import { wire, type RosterEntry } from "../wire";
@@ -51,10 +53,13 @@ export function Dock({
 	width,
 	onWidth,
 	overlay,
+	onOpenTeammate,
 }: {
 	state: DockState;
 	onState(next: DockState): void;
 	onClose(): void;
+	/** Opens a teammate's conversation: where a handoff is steered, with whoever handed it over. */
+	onOpenTeammate(personaId: string): void;
 	/** Whose threads the pane lists; none when nobody is open. */
 	entry: RosterEntry | null;
 	roster: RosterEntry[];
@@ -101,6 +106,7 @@ export function Dock({
 							onOpen={(open) => onState({ open })}
 							onBack={() => onState({ open: null })}
 							onClose={onClose}
+							onOpenTeammate={onOpenTeammate}
 						/>
 					)
 				)}
@@ -320,6 +326,7 @@ function ThreadView({
 	onOpen,
 	onBack,
 	onClose,
+	onOpenTeammate,
 }: {
 	open: ThreadRef;
 	/** What the list knows of it: its state and its title. */
@@ -334,11 +341,14 @@ function ThreadView({
 	onOpen(open: ThreadRef): void;
 	onBack(): void;
 	onClose(): void;
+	onOpenTeammate(personaId: string): void;
 }) {
 	const id = open.thread;
 	const { events, streaming, more, earlier, prompt, cancel, close, resume } = useThread(id);
 	const state = row?.state ?? "live";
-	const powers = powersOf(id.kind, state);
+	// A teammate's handoff is the two teammates' work, read along and steered through whoever handed it over.
+	const opener = openerOf(row);
+	const powers = powersOf(id.kind, state, opener !== undefined);
 	const closed = state === "closed";
 	const parked = state === "parked";
 	const turning = (working || row?.working === true) && !closed;
@@ -373,8 +383,15 @@ function ThreadView({
 		setRefused(null);
 		void resume().then(onChanged, refuse);
 	};
-	// A pair's chair is whichever of the key's two ids this teammate is: theirs sit on the right.
-	const speakers = id.kind === "pair" ? { me: teammate.name, them: withName, mine: (id.key.split("~")[0] === teammate.id ? "user" : "agent") as "user" | "agent" } : undefined;
+	// A pair's chair is whichever of the key's two ids this teammate is: theirs sit on the right. In a handoff, this teammate's.
+	const speakers =
+		id.kind === "pair"
+			? { me: teammate.name, them: withName, mine: (id.key.split("~")[0] === teammate.id ? "user" : "agent") as "user" | "agent" }
+			: opener !== undefined
+				? { me: teammate.name, them: opener.name, mine: "agent" as const }
+				: undefined;
+	// What a handoff asks the person, the oldest first: the one thing they say in it.
+	const asked = opener === undefined ? undefined : lines.find((event): event is Extract<typeof event, { kind: "human_action" }> => event.kind === "human_action" && event.status === "pending");
 
 	return (
 		<div ref={root} className="dock-page" role="region" aria-label={`Thread with ${teammate.name}: ${title}`}>
@@ -396,11 +413,16 @@ function ThreadView({
 						Archive
 					</button>
 				)}
+				{powers.stop && turning && (
+					<button type="button" className="control btn-quiet px-2 text-sm" title="Stop this turn" onClick={() => void cancel().catch(refuse)}>
+						Stop
+					</button>
+				)}
 				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>
 			</Band>
-			{from !== "" && <p className="dock-note selectable">{from}</p>}
+			{from !== "" && opener === undefined && <p className="dock-note selectable">{from}</p>}
 			{open.handoff !== undefined && <HandoffNote handoff={open.handoff} />}
 			<div className="relative flex min-h-0 flex-1 flex-col">
 				<Transcript
@@ -421,7 +443,13 @@ function ThreadView({
 				/>
 			</div>
 			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
-			{powers.say ? (
+			{opener !== undefined ? (
+				asked !== undefined ? (
+					<AnswerField thread={id} name={teammate.name} actionId={asked.actionId} onRefused={refuse} />
+				) : (
+					<HandoffBar opener={opener} teammate={teammate} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />
+				)
+			) : powers.say ? (
 				<>
 					{parked && (
 						<p className="dock-note selectable">
@@ -442,6 +470,71 @@ function ThreadView({
 			) : (
 				closed && row?.outcome !== undefined && row.outcome !== "" && <p className="dock-note selectable">{row.outcome}</p>
 			)}
+		</div>
+	);
+}
+
+/**
+ * Where the composer is in a thread a teammate handed over: whose work it is,
+ * and the way to the conversation where it is steered.
+ */
+function HandoffBar({
+	opener,
+	teammate,
+	people,
+	onTalk,
+}: {
+	opener: { personaId: string; name: string };
+	teammate: { id: string; name: string; avatarHash?: string | undefined };
+	people: ReadonlyMap<string, Person>;
+	onTalk(): void;
+}) {
+	return (
+		<div className="handoff-bar">
+			<span className="handoff-faces" aria-hidden="true">
+				<Avatar id={opener.personaId} name={opener.name} size={24} hash={people.get(opener.personaId)?.hash} />
+				<Avatar id={teammate.id} name={teammate.name} size={24} hash={teammate.avatarHash} />
+			</span>
+			<p className="min-w-0 flex-1 text-sm text-ink-3">
+				{opener.name} handed this to {teammate.name}. You can read along.{" "}
+				<button type="button" className="link-quiet" onClick={onTalk}>
+					Talk to {opener.name} about it ›
+				</button>
+			</p>
+		</div>
+	);
+}
+
+/** The one thing the person says in a handoff: the answer to what it asked them, written on its card. */
+function AnswerField({ thread, name, actionId, onRefused }: { thread: ThreadId; name: string; actionId: string; onRefused(error: unknown): void }) {
+	const [note, setNote] = useState("");
+	const [sending, setSending] = useState(false);
+	const send = () => {
+		const said = note.trim();
+		if (said === "" || sending) return;
+		setSending(true);
+		void answerCard(thread, { kind: "human", actionId, status: "done", note: said }).catch((error: unknown) => {
+			setSending(false);
+			onRefused(error);
+		});
+	};
+	return (
+		<div className="handoff-answer">
+			<p className="text-xs text-ink-3">Your answer goes to {name}. The thread goes back to read-only after.</p>
+			<input
+				className="field w-full"
+				aria-label={`Answer ${name}`}
+				placeholder={`Answer ${name}…`}
+				autoComplete="off"
+				disabled={sending}
+				value={note}
+				onChange={(change) => setNote(change.target.value)}
+				onKeyDown={(key) => {
+					if (key.key !== "Enter") return;
+					key.preventDefault();
+					send();
+				}}
+			/>
 		</div>
 	);
 }

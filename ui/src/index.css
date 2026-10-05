@@ -2080,6 +2080,43 @@
 	/* A thread in the list: the status dot leads the row. Running
 	 * breathes in the accent, waiting on you is the warning colour, parked is
 	 * a ring, closed is dim. */
+	/* Where the composer is in a handoff: the two faces, whose work it is, and
+	 * the way to where it is steered. Waiting on the person, it becomes the
+	 * one field they answer in, in the warning colour a waiting card has. */
+	.handoff-bar {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 12px;
+		padding: 12px 24px 16px;
+		border-top: 1px solid var(--line);
+	}
+	.handoff-faces {
+		display: flex;
+		flex-shrink: 0;
+	}
+	.handoff-faces > * + * {
+		margin-left: -8px;
+		box-shadow: 0 0 0 2px var(--canvas);
+		border-radius: 999px;
+	}
+	.handoff-answer {
+		display: flex;
+		flex-shrink: 0;
+		flex-direction: column;
+		gap: 6px;
+		padding: 10px 24px 16px;
+	}
+	.handoff-answer .field {
+		border-color: color-mix(in oklch, var(--warn) 60%, transparent);
+	}
+	.link-quiet {
+		color: var(--accent);
+		font-weight: 600;
+	}
+	.link-quiet:hover {
+		color: var(--accent-hover);
+	}
 	/* A line under a thread, above its composer: parked, archived, refused. */
 	.dock-note {
 		flex-shrink: 0;

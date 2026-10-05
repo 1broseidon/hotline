@@ -180,10 +180,24 @@ export function relativeTime(at: number, now: number = Date.now()): string {
 	return new Date(at).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-/** What a person can do in a thread, by what it is: only a work thread is spoken in, ended and brought back. */
-export type Powers = { say: boolean; close: boolean; resume: boolean };
+/**
+ * What a person can do in a thread, by what it is: only a work thread is
+ * spoken in, ended and brought back. One a teammate handed over is the two
+ * teammates' work: it is read along, and only its turn may be stopped. The
+ * desk refuses the rest the same way.
+ */
+export type Powers = { say: boolean; close: boolean; resume: boolean; stop: boolean };
 
-export function powersOf(kind: ThreadKind, state: LinkState): Powers {
-	if (kind !== "side") return { say: false, close: false, resume: false };
-	return state === "closed" ? { say: false, close: false, resume: true } : { say: true, close: true, resume: false };
+const READ: Powers = { say: false, close: false, resume: false, stop: false };
+
+export function powersOf(kind: ThreadKind, state: LinkState, handedOver = false): Powers {
+	if (kind !== "side") return READ;
+	if (handedOver) return { ...READ, stop: state !== "closed" };
+	return state === "closed" ? { ...READ, resume: true } : { ...READ, say: true, close: true };
+}
+
+/** The teammate who handed a work thread over, when one did rather than the person. */
+export function openerOf(row: ThreadSummary | undefined): { personaId: string; name: string } | undefined {
+	if (row === undefined || row.thread.kind !== "side" || row.opener === undefined) return undefined;
+	return row.opener.personaId !== row.personaId ? row.opener : undefined;
 }

@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.33.2] - 2026-10-05
+
 ### Fixed
 
 - A Hotline Agent teammate on GitHub Copilot now remembers what it said.

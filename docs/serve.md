@@ -127,6 +127,50 @@ ciphertext for the handshake payloads and application frames. It can
 still observe connection timing and sizes and deny service. Do not put
 credentials in `--public-url` or its query string.
 
+## Relay
+
+A served desk is also a relay for desktops paired with it as owners, so a
+phone reaches a desktop through the server instead of over a VPN. On the
+desktop, add the server as an owner (Add a server, with `hotline pair --link`
+from the server), then turn on Remote and choose the server under **Relay**.
+The desktop dials out to the server and stands in there, so the server never
+needs a way into the desktop's network.
+
+Phones paired after that get the relay address in the QR code. Phones paired
+before learn it the next time they connect directly. A phone dials the relay
+first and the desktop's own address after.
+
+The relay joins a phone's socket to one the desktop dials back for it and
+passes the Noise records between them as they are. The phone still pins the
+desktop's key, so the server cannot read or alter the session; it can only
+drop it. See [ADR 0002](adr/0002-a-served-desk-relays-sealed-records.md).
+The callback claims its single-use capability in a sealed IK handshake at
+`/v2/relay/accept`, using the same device key as its control registration.
+The old `/relay/accept/<capability>` route is closed. A capability expires
+after 10 seconds and belongs to its registration generation; replacing or
+revoking that registration invalidates pending visits and closes joined ones.
+
+Each desktop may have 16 waiting or joined sessions through the relay at
+once, out of 256 across the server. Visit rate is 30 a minute per desk with
+a burst of 10 (`429 desk_busy` on excess). These limits survive registration
+changes. At most 1,024 desk budget records are kept; inactive records leave
+only after sessions end and their rate burst replenishes. The server stands
+in for up to 64 desktops, independently of its 16 direct-device seats.
+Visitors and callbacks release their pending transport permits after upgrade
+and authentication respectively; forwarded-IP headers buy no capacity.
+
+The desktop holds at most 32 relayed callbacks and applies the same 16
+sessions per desk and four per device as its direct listener. Changing or
+deselecting the relay, turning Remote off, losing control, or revoking the
+host device cancels its relayed sessions. Joined writes, closes, and control
+writes have a 10-second bound. Standing URLs clear before reconnect, whose
+backoff resets after `ready` and varies by ±20%.
+
+The Rust client pairs at the invitation's direct URL, then its relay if the
+direct route fails. Authenticated v2 hello frames update the session and
+bridge's relay endpoint and the desktop's `desks.json` registry. Discovery
+cannot change the pinned key or be supplied by a plaintext TLS proxy.
+
 ## Public Cloudflare tunnels
 
 Enforce HTTPS at the Cloudflare edge. The desk only listens with TLS and
@@ -323,7 +367,7 @@ is dropped. None of this is exactly-once. A desk killed outright
 ## Desktop client library
 
 `hotline_core::remote::client::pair(&payload, device_name)` uses the OS secret
-store and returns `PairedDesk { desk_id, name, url, desk_key }`. Tests and shells
+store and returns `PairedDesk { desk_id, name, url, desk_key, relay }`. Tests and shells
 with an explicitly chosen store use `Client::new(store).pair(...)`. Keep the
 registry entry; it contains no private key or invitation secret.
 
@@ -339,6 +383,13 @@ only for that persona on that bridge; reconnects need a fresh one. The owner
 `?token=TOKEN` is accepted only on `/ws`, never on a viewer route. Viewer upgrades
 require the single-use subprotocol token; query-string tokens and mixed owner/viewer
 credentials are refused. Only the server holds the computer's bearer.
+
+`Client::connect` returns a session with a `relay` watch receiver alongside
+its wire queues and `state`. The bridge also exposes a `relay` watch receiver
+for the shell to persist into its paired-desk registry. Only authenticated,
+valid endpoint arrays update these watches: malformed or missing discovery
+preserves the prior route; a valid array with no relay clears it. Newer
+hello discoveries take precedence across concurrent bridge sessions.
 
 The bridge exposes a watch receiver in `state`. Its wire connection reconnects
 with backoff from 250 ms to 30 seconds and resubscribes for fresh snapshots.

@@ -7,6 +7,7 @@ mod channel;
 pub mod client;
 mod network;
 mod pake;
+mod relay;
 mod sealed;
 mod served;
 mod server;
@@ -131,6 +132,9 @@ struct Saved {
     port: u16,
     enabled: bool,
     grants: Vec<Grant>,
+    /// The paired desk whose relay this one stands in on, when it does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    relay: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
 struct Identity {
@@ -184,6 +188,8 @@ pub struct RemoteStatus {
     pub addresses: Vec<String>,
     pub devices: Vec<RemoteDevice>,
     pub error: Option<String>,
+    /// The paired desk carrying visitors to this one, when one is chosen.
+    pub relay: Option<relay::RemoteRelay>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -239,6 +245,7 @@ struct Live {
     error: Option<String>,
     attempts: u16,
     attempts_since: i64,
+    relay: relay::Standing,
 }
 #[derive(Serialize, Deserialize)]
 struct Receipt {
@@ -252,6 +259,9 @@ pub struct Remote {
     noise_identity: CredentialFile,
     served: Option<ServeOptions>,
     admission: Arc<admission::Admission>,
+    relay: Arc<relay::Hub>,
+    relayed: Arc<tokio::sync::Semaphore>,
+    store: Arc<dyn SecretStore>,
     state: Mutex<Live>,
     server: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
     lifecycle: AsyncMutex<()>,
@@ -267,6 +277,9 @@ pub(crate) struct Phone {
     pub cancel: CancellationToken,
 }
 impl Phone {
+    pub(crate) fn endpoints(&self) -> Vec<String> {
+        self.remote.status().endpoints
+    }
     pub(crate) fn role(&self) -> DeviceRole {
         self.role
     }
@@ -371,7 +384,7 @@ impl Remote {
             saved.port = options.listen.port();
             saved.enabled = false;
         }
-        let files = CredentialFiles::new(root.to_path_buf(), store);
+        let files = CredentialFiles::new(root.to_path_buf(), store.clone());
         let identity = files.file(root.join("remote-identity.json"));
         let noise_identity = files.file(root.join("remote-noise-identity.json"));
         Ok(Arc::new(Self {
@@ -380,6 +393,9 @@ impl Remote {
             noise_identity,
             served,
             admission: Arc::new(admission::Admission::default()),
+            relay: Arc::default(),
+            relayed: Arc::new(tokio::sync::Semaphore::new(relay::RELAYED_MAX)),
+            store,
             state: Mutex::new(Live {
                 saved,
                 endpoints: Vec::new(),
@@ -392,6 +408,7 @@ impl Remote {
                 error: None,
                 attempts: 0,
                 attempts_since: now(),
+                relay: relay::Standing::default(),
             }),
             server: AsyncMutex::new(None),
             lifecycle: AsyncMutex::new(()),
@@ -419,10 +436,11 @@ impl Remote {
             enabled: !s.endpoints.is_empty(),
             host: s.saved.host.clone(),
             endpoint: s.endpoints.first().cloned(),
-            endpoints: s.endpoints.clone(),
+            endpoints: s.endpoints.iter().chain(&s.relay.url).cloned().collect(),
             addresses: Self::addresses(),
             devices: s.saved.grants.iter().map(|g| g.device.clone()).collect(),
             error: s.error.clone(),
+            relay: self.relay_status(&s),
         }
     }
     pub async fn restore(self: &Arc<Self>) {
@@ -494,6 +512,7 @@ impl Remote {
             let _ = task.await;
         }
         if !enabled {
+            self.stand();
             return Ok(self.status());
         }
         let saved_port = self.state.lock().unwrap().saved.port;
@@ -568,6 +587,7 @@ impl Remote {
         *self.server.lock().await = Some(tokio::spawn(async move {
             server::run(this, listener, tls, cancel).await;
         }));
+        self.stand();
         Ok(self.status())
     }
     pub fn pairing(&self) -> Result<RemotePairing, String> {

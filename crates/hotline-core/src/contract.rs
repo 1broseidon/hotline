@@ -2607,6 +2607,13 @@ pub enum Command {
     RemoteDevices {},
     #[serde(rename = "remote.revoke")]
     RemoteRevoke { device_id: String },
+    /// Stand in on a paired desk's relay so visitors reach this desk through
+    /// it, or stop with no desk named. Kept, and used whenever Remote is on.
+    #[serde(rename = "remote.relay")]
+    RemoteRelay {
+        #[serde(default)]
+        desk_id: Option<String>,
+    },
     /// Start a v2 invitation, poll/cancel its id, or explicitly request desktop legacy pairing.
     #[serde(rename = "remote.pairing")]
     RemotePairing {

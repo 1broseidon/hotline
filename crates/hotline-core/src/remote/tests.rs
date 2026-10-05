@@ -2421,6 +2421,130 @@ async fn rust_client_pairs_pins_and_recovers_subscriptions_without_replaying_com
 }
 
 #[tokio::test]
+async fn rust_client_and_bridge_learn_and_clear_a_relay_from_an_authenticated_hello() {
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let desk = client
+        .pair(&invitation.payload, "Discovery laptop")
+        .await
+        .unwrap();
+    assert!(desk.relay.is_none());
+
+    // This desk chose a relay after pairing. Its next authenticated hello,
+    // rather than an invitation or an unsealed server frame, announces it.
+    let relay = format!("https://relay.example/room/relay/{}", desk.desk_id);
+    h.remote.state.lock().unwrap().relay.url = Some(relay.clone());
+    let mut session = client.connect(&desk);
+    tokio::time::timeout(Duration::from_secs(5), session.relay.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(*session.relay.borrow_and_update(), Some(relay.clone()));
+    assert_eq!(
+        serde_json::from_str::<Value>(&session.incoming.recv().await.unwrap()).unwrap()["type"],
+        "hello"
+    );
+
+    let mut bridge = bridge::Bridge::with_client(&desk, client.clone())
+        .await
+        .unwrap();
+    let (mut local, _) = tokio_tungstenite::connect_async(format!(
+        "{}/ws?token={}",
+        bridge.origin.replace("http:", "ws:"),
+        bridge.token
+    ))
+    .await
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), bridge.relay.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(*bridge.relay.borrow_and_update(), Some(relay.clone()));
+    assert!(matches!(local.next().await, Some(Ok(Message::Text(_)))));
+    drop(local);
+    drop(session);
+
+    // An authenticated hello that no longer advertises a relay clears it.
+    h.remote.state.lock().unwrap().relay.url = None;
+    let mut previous = desk.clone();
+    previous.relay = Some(relay);
+    let mut session = client.connect(&previous);
+    tokio::time::timeout(Duration::from_secs(5), session.relay.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(*session.relay.borrow(), None);
+    let (local, _) = tokio_tungstenite::connect_async(format!(
+        "{}/ws?token={}",
+        bridge.origin.replace("http:", "ws:"),
+        bridge.token
+    ))
+    .await
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), bridge.relay.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(*bridge.relay.borrow(), None);
+    drop(local);
+    drop(bridge);
+    drop(session);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_client_and_bridge_preserve_a_known_relay_when_authenticated_endpoints_are_malformed()
+{
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let mut desk = client
+        .pair(&invitation.payload, "Endpoint validation")
+        .await
+        .unwrap();
+    let known = Some(format!("https://relay.example/relay/{}", desk.desk_id));
+    desk.relay = known.clone();
+    // The listener still answers at the paired address, but its authenticated
+    // hello has a malformed endpoint list. That is not a relay removal.
+    h.remote.state.lock().unwrap().endpoints = vec!["http://invalid.example".into()];
+    let mut session = client.connect(&desk);
+    let hello = tokio::time::timeout(Duration::from_secs(5), session.incoming.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&hello).unwrap()["type"],
+        "hello"
+    );
+    assert_eq!(*session.state.borrow(), client::State::Open);
+    assert_eq!(*session.relay.borrow(), known);
+    assert!(!session.relay.has_changed().unwrap());
+    assert!(session.discovery.borrow().is_none());
+
+    let bridge = bridge::Bridge::with_client(&desk, client).await.unwrap();
+    let (mut local, _) = tokio_tungstenite::connect_async(format!(
+        "{}/ws?token={}",
+        bridge.origin.replace("http:", "ws:"),
+        bridge.token
+    ))
+    .await
+    .unwrap();
+    let hello = tokio::time::timeout(Duration::from_secs(5), local.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(matches!(hello, Message::Text(_)));
+    assert_eq!(*bridge.relay.borrow(), known);
+    assert!(!bridge.relay.has_changed().unwrap());
+    drop(local);
+    drop(bridge);
+    drop(session);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
 async fn rust_client_companion_cannot_change_settings_or_subscribe_to_room() {
     let h = Harness::new().await;
     let client = client::Client::new(Arc::new(MemoryStore::default()));
@@ -2896,7 +3020,17 @@ async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
         .unwrap();
     let identity: Identity =
         serde_json::from_slice(&h.remote.identity.read().unwrap().unwrap()).unwrap();
-    for forge_rejection in [false, true] {
+    for forged in [
+        None,
+        Some(Message::Binary(sealed::DEVICE_REJECTED.to_vec().into())),
+        Some(Message::text(
+            json!({
+                "type":"hello", "protocolVersion":2, "desktopId":desk.desk_id, "mode":"team",
+                "endpoints":["https://forged.example/relay/desk"]
+            })
+            .to_string(),
+        )),
+    ] {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mut target = desk.clone();
         target.url = format!("https://{}", listener.local_addr().unwrap());
@@ -2906,11 +3040,8 @@ async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
             let stream = tls.accept(stream).await.unwrap();
             let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
             assert!(matches!(socket.next().await, Some(Ok(Message::Binary(_)))));
-            if forge_rejection {
-                socket
-                    .send(Message::Binary(sealed::DEVICE_REJECTED.to_vec().into()))
-                    .await
-                    .unwrap();
+            if let Some(forged) = forged {
+                socket.send(forged).await.unwrap();
             }
             let _ = socket.close(None).await;
         });
@@ -2922,6 +3053,10 @@ async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
         .await
         .unwrap()
         .unwrap();
+        assert_eq!(*session.relay.borrow(), None);
+        assert!(!session.relay.has_changed().unwrap());
+        assert!(session.discovery.borrow().is_none());
+        assert!(!session.discovery.has_changed().unwrap());
         tokio::time::timeout(Duration::from_secs(5), fake)
             .await
             .unwrap()
@@ -2941,4 +3076,5 @@ async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
 
 mod viewer_file_tests;
 
+mod relay_tests;
 mod viewer_token_tests;

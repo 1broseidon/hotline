@@ -169,8 +169,6 @@ impl Remote {
             expires_at: pairing.expires_at,
             result: None,
         });
-        s.invitation = None;
-        s.manual = None;
         Ok(pairing)
     }
 
@@ -230,7 +228,15 @@ impl Remote {
             .iter()
             .find(|g| g.device.public_key.as_deref() == Some(&public_key))
             .map(|g| g.device.id.clone());
-        if old_id.is_none() && s.saved.grants.len() >= 16 {
+        // Inert bearer records remain revocable but must not block their
+        // phones from migrating to a sealed grant.
+        let keyed_devices = s
+            .saved
+            .grants
+            .iter()
+            .filter(|grant| grant.device.public_key.is_some())
+            .count();
+        if old_id.is_none() && keyed_devices >= 16 {
             return Err("Device limit reached.".into());
         }
         let role = window.role;
@@ -247,7 +253,6 @@ impl Remote {
             .retain(|g| Some(&g.device.id) != old_id.as_ref());
         saved.grants.push(Grant {
             device: device.clone(),
-            token_hash: String::new(),
             push: None,
         });
         self.save(&saved)?;

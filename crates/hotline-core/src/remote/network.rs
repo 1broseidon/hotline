@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 
 pub(super) const ALL: &str = "all";
-/// The port a fresh install asks for, so a typed address can be a bare host.
+/// The port a fresh install asks for before falling back to an available one.
 /// A busy port falls back to an ephemeral one, and whatever was bound is saved.
 pub(super) const DEFAULT_PORT: u16 = 8788;
 
@@ -57,15 +57,6 @@ pub(super) fn endpoint(host: &str, port: u16) -> String {
     let ip: IpAddr = host.parse().expect("validated interface address");
     format!("https://{}", SocketAddr::new(ip, port))
 }
-/// The bare host and port of an endpoint this module made.
-pub(super) fn split(endpoint: &str) -> (String, u16) {
-    let address: SocketAddr = endpoint
-        .trim_start_matches("https://")
-        .parse()
-        .expect("an endpoint is a socket address");
-    (address.ip().to_string(), address.port())
-}
-
 pub(super) async fn bind(
     host: &str,
     port: u16,
@@ -145,13 +136,6 @@ mod tests {
             assert!(reachable(host.parse().unwrap()), "{host}");
         }
         assert_eq!(endpoint("fd00::42", 52261), "https://[fd00::42]:52261");
-        assert_eq!(
-            split("https://[fd00::42]:52261"),
-            ("fd00::42".into(), 52261)
-        );
-        assert_eq!(
-            split("https://192.168.1.5:8788"),
-            ("192.168.1.5".into(), 8788)
-        );
+        assert_eq!(endpoint("192.168.1.5", 8788), "https://192.168.1.5:8788");
     }
 }

@@ -145,19 +145,8 @@ pub(crate) async fn run(
         Command::RemoteDevices {} => Ok(json!(remote(room)?.devices())),
         Command::RemoteRevoke { device_id } => Ok(json!(remote(room)?.revoke(&device_id)?)),
         Command::RemoteRelay { desk_id } => Ok(json!(remote(room)?.relay_through(desk_id)?)),
-        Command::RemotePairing {
-            role,
-            id,
-            cancel,
-            legacy,
-        } => {
+        Command::RemotePairing { role, id, cancel } => {
             let remote = remote(room)?;
-            if legacy {
-                if role.is_some() || id.is_some() || cancel {
-                    return Err("Legacy pairing cannot name a role or a v2 invitation.".into());
-                }
-                return Ok(json!(remote.pairing()?));
-            }
             if let Some(id) = id {
                 if role.is_some() {
                     return Err("A pairing role is chosen when the invitation is created.".into());

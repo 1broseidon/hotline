@@ -159,7 +159,7 @@ impl Permit {
         Some(action())
     }
 
-    /// Called only after bearer validation or the Noise handshake. Promotion
+    /// Called only after a granted device's Noise handshake. Promotion
     /// and eviction share a lock, so an evicted handshake cannot take a seat.
     pub fn authenticate(&self, device: &str) -> bool {
         let mut connections = self.admission.connections.lock().unwrap();

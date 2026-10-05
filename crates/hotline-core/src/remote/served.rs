@@ -137,8 +137,6 @@ impl Remote {
             s.cancel.cancel();
             s.endpoints.clear();
             s.devices.clear();
-            s.invitation = None;
-            s.manual = None;
             s.sealed_pairing = None;
             s.saved.enabled = false;
             s.error = None;
@@ -178,7 +176,9 @@ impl Remote {
                             s.endpoints = vec![options.public_url.clone()];
                             s.error = None;
                             for grant in s.saved.grants.clone() {
-                                s.devices.insert(grant.device.id, cancel.child_token());
+                                if grant.device.public_key.is_some() {
+                                    s.devices.insert(grant.device.id, cancel.child_token());
+                                }
                             }
                         }
                         server::run(remote, listener, tls, cancel).await;

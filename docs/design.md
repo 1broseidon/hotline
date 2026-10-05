@@ -142,28 +142,28 @@ addresses are not choices; old loopback settings migrate to all host IPs. The
 all-address listener accepts IPv4 and IPv6, falling back to IPv4 on hosts without
 IPv6 support. The active route is preferred for the pairing QR.
 
-The desktop's legacy two-minute QR invitation carries the certificate fingerprint; its claim grants
-one phone a bearer credential. The TLS key lives in the OS credential store, and
-only credential hashes and device metadata live on disk. A new certificate covers
+Settings → Remote has one **Link a phone** action, showing a two-minute,
+single-use sealed QR and a copyable pairing link. It grants the phone's public
+key, never a bearer credential. The TLS key lives in the OS credential store;
+device public keys, roles and metadata live on disk. A new certificate covers
 all advertised host IPs. The certificate, port, and grants are reused when the
 selected addresses are already covered, including toggling Remote off and on.
-Enabling an address absent from that certificate replaces it and requires pairing
-again, and so does a certificate the desk can no longer read: corrupt, gone from
-the OS store, or written by an earlier edition into a store this build cannot
-name, as a room moved over from Toad holds. A store that is merely locked or
-unavailable is reported, not replaced. A phone using an address excluded by a
-new restriction also needs a fresh pairing QR. TLS rotation retains grant records;
-legacy phones must re-pair when their pin changes, while sealed phones keep
-trusting the independent desk identity. Disable and revoke close the affected
-sockets immediately.
+Enabling an address absent from that certificate replaces it, and so does a
+certificate the desk can no longer read: corrupt, gone from the OS store, or
+written by an earlier edition into a store this build cannot name. A store
+that is merely locked or unavailable is reported, not replaced. A phone using
+an address excluded by a new restriction needs a reachable address from a
+fresh pairing QR. TLS rotation retains grants and phones keep trusting the
+independent desk identity. Disable and revoke close the affected sockets
+immediately.
 
 A served desk instead requires one explicit fixed listen address and public
 HTTPS URL. It retries that exact socket if the address is late, never widening
 or falling back to an ephemeral port. Its only phone routes use Noise IK inside
 TLS WebSockets, authenticated by a persistent X25519 desk identity in the
 selected SecretStore and the phone's granted public key. TLS certificates can
-rotate without changing this trust. The desktop also offers sealed pairing;
-its legacy routes remain for existing phones.
+rotate without changing this trust. Desktop and served desks use the same
+sealed pairing and session protocol.
 
 `hotline pair` opens a two-minute, atomic single-use QR invitation and keeps
 it open only while its local desk-seat connection lives. No empty grant list
@@ -171,7 +171,11 @@ bootstraps an owner. Owner grants carry full desk authority; companion grants
 retain the limited phone allowlist. `--json` and `--link` expose the same
 invitation for desktop clients. Remote administration uses owner and local
 desk wire commands, shared by the window and CLI, not Tauri wrappers.
-The served listener never mounts manual or legacy bearer routes.
+Neither listener mounts manual or legacy bearer routes. Stored grants with
+only a token hash and no device public key cannot authenticate or receive
+push notifications. They stay listed as needing a re-pair, so the operator can
+revoke them. Phones paired with the six-digit code before 0.33 scan the new QR
+once; existing sealed grants keep working.
 
 All sealed application frames, including computer traffic, travel inside
 Noise. A viewer's authenticated handshake binds both its purpose and persona,
@@ -180,17 +184,9 @@ The desk alone resolves the viewer address and supplies its bearer. The proxy
 still sees paths, timing and sizes and can deny service. Protocol and limits
 are in `docs/wire.md`; listener setup is in `docs/serve.md`.
 
-Desktop manual pairing is the same two-minute session for a phone that cannot scan: the
-panel shows the address, port, and a six-digit code next to the QR. Six digits
-cannot carry a certificate fingerprint, so the code is never a bearer secret; it
-is the password of a CPace-shaped PAKE over ristretto255 (`remote/pake.rs`
-spells every byte). `POST /pair/manual/start` carries the phone's share and
-returns the desktop's; `POST /pair/manual/finish` carries a confirmation whose
-key binds the certificate the phone actually connected to, so a relay with its
-own certificate fails on both sides. A wrong guess is one online guess, the
-fifth kills the code, and the first phone through either path closes the other.
-A fresh install listens on 8788 so a typed address can be a bare host; a busy
-port falls back to an ephemeral one that is saved and reused.
+A phone that cannot scan opens the pairing link instead. There is no typed
+short code. A fresh desktop install listens on 8788; a busy port falls back to
+an ephemeral one that is saved and reused.
 
 The first phone seat reads the roster and a bounded recent tape window, sends
 text and uploaded attachments through `mobile.prompt`, and cancels a response.

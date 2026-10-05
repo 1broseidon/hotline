@@ -6,7 +6,6 @@ pub mod bridge;
 mod channel;
 pub mod client;
 mod network;
-mod pake;
 mod relay;
 mod sealed;
 mod served;
@@ -21,7 +20,6 @@ use crate::credentials::{CredentialFile, CredentialFiles, SecretStore, atomic_wr
 use crate::log::Log;
 use crate::thread::{ThreadId, ThreadKind};
 use crate::wire::RoomHandle;
-use curve25519_dalek::scalar::Scalar;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -49,24 +47,11 @@ fn hash(value: &str) -> String {
 fn message(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
-/// Six uniform decimal digits, leading zeros kept.
-fn pairing_code() -> String {
-    loop {
-        let mut bytes = [0u8; 4];
-        getrandom::fill(&mut bytes).expect("the OS random source is available");
-        let value = u32::from_le_bytes(bytes);
-        // Reject the top of the range so the modulus is unbiased.
-        if value < 4_294_000_000 {
-            return format!("{:06}", value % 1_000_000);
-        }
-    }
-}
-
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum DeviceRole {
-    /// Missing roles retain owner authority, including the full desk command set.
+    /// Keyed grants with missing roles retain the full owner command set.
     #[default]
     Owner,
     Companion,
@@ -81,6 +66,8 @@ pub struct RemoteDevice {
     pub paired_at: i64,
     #[serde(default)]
     pub role: DeviceRole,
+    // Older bearer grants remain visible for revocation, but only a public
+    // key can authorize a sealed connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub public_key: Option<String>,
@@ -89,8 +76,6 @@ pub struct RemoteDevice {
 #[serde(rename_all = "camelCase")]
 struct Grant {
     device: RemoteDevice,
-    #[serde(default)]
-    token_hash: String,
     /// Where a notification for this phone goes, once it has said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     push: Option<PushTarget>,
@@ -118,7 +103,7 @@ pub fn push_targets(root: &Path) -> PushTargets {
         tokens: saved
             .grants
             .iter()
-            .filter(|_| saved.enabled)
+            .filter(|grant| saved.enabled && grant.device.public_key.is_some())
             .filter_map(|grant| grant.push.as_ref().map(|push| push.token.clone()))
             .collect(),
     }
@@ -143,40 +128,6 @@ struct Identity {
     certificate: Vec<u8>,
     key: Vec<u8>,
 }
-#[derive(Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct PairingInvitation {
-    pub kind: String,
-    pub version: u8,
-    pub desktop_id: String,
-    pub name: String,
-    pub endpoint: String,
-    pub certificate_sha256: String,
-    pub invitation_id: String,
-    pub secret: String,
-    pub expires_at: i64,
-}
-/// What an operator types into a phone that cannot scan: where the desktop
-/// is, and a six-digit code that is the password of a PAKE, never a secret
-/// sent on the wire.
-#[derive(Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct ManualPairing {
-    pub address: String,
-    pub port: u16,
-    pub code: String,
-    pub expires_at: i64,
-}
-#[derive(Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct RemotePairing {
-    pub invitation: PairingInvitation,
-    pub qr_svg: String,
-    pub manual: ManualPairing,
-}
 #[derive(Clone, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -191,54 +142,9 @@ pub struct RemoteStatus {
     /// The paired desk carrying visitors to this one, when one is chosen.
     pub relay: Option<relay::RemoteRelay>,
 }
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct Claim {
-    invitation_id: String,
-    secret: String,
-    claim_id: String,
-    name: String,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ManualStart {
-    claim_id: String,
-    name: String,
-    phone_public: String,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ManualFinish {
-    claim_id: String,
-    confirm: String,
-}
-struct Invitation {
-    value: PairingInvitation,
-    claimed: Option<(String, Value)>,
-}
-/// One phone's half-finished exchange. A session is one guess: a failed
-/// confirmation discards it, so a second guess costs a second start.
-struct Session {
-    secret: Scalar,
-    name: String,
-    phone_public: String,
-    desktop_public: String,
-}
-struct Manual {
-    code: String,
-    expires_at: i64,
-    failures: u8,
-    sessions: HashMap<String, Session>,
-    claimed: Option<(String, String, Value)>,
-}
-const MANUAL_ATTEMPTS: u8 = 5;
-const MANUAL_SESSIONS: usize = 8;
 struct Live {
     saved: Saved,
     endpoints: Vec<String>,
-    fingerprint: String,
-    invitation: Option<Invitation>,
-    manual: Option<Manual>,
     sealed_pairing: Option<v2::Window>,
     cancel: CancellationToken,
     devices: HashMap<String, CancellationToken>,
@@ -399,9 +305,6 @@ impl Remote {
             state: Mutex::new(Live {
                 saved,
                 endpoints: Vec::new(),
-                fingerprint: String::new(),
-                invitation: None,
-                manual: None,
                 sealed_pairing: None,
                 cancel: CancellationToken::new(),
                 devices: HashMap::new(),
@@ -499,8 +402,6 @@ impl Remote {
             }
             s.cancel.cancel();
             s.endpoints.clear();
-            s.invitation = None;
-            s.manual = None;
             s.sealed_pairing = None;
             s.devices.clear();
             s.saved.enabled = false;
@@ -522,11 +423,9 @@ impl Remote {
         let port = listener.local_addr().map_err(message)?.port();
         // The identity is a certificate this desk signed itself, so one it
         // cannot read any more — corrupt, gone from the OS store, or written
-        // by an earlier edition into a store this build cannot name, which is
-        // what a room moved over from Toad holds — is replaced like a missing
-        // one, and the phones that pinned it pair again. A locked or
-        // unavailable store is reported instead: the identity is most likely
-        // still there, and replacing it would orphan every phone for nothing.
+        // by an earlier edition into a store this build cannot name — is replaced
+        // like a missing one. Sealed phones trust the independent Noise key.
+        // A locked or unavailable store is reported instead of replaced.
         let identity = match self.identity.read() {
             Ok(Some(bytes)) => serde_json::from_slice::<Identity>(&bytes).ok(),
             Ok(None) => None,
@@ -557,8 +456,7 @@ impl Remote {
                 self.identity
                     .write(&serde_json::to_vec(&identity).map_err(message)?)
                     .map_err(message)?;
-                // TLS rotation changes no device authority. Legacy phones
-                // keep their records until explicitly revoked or re-paired.
+                // TLS rotation changes no device authority.
                 identity
             }
         };
@@ -577,10 +475,11 @@ impl Remote {
                 .iter()
                 .map(|host| network::endpoint(host, port))
                 .collect();
-            s.fingerprint = format!("{:x}", Sha256::digest(&identity.certificate));
             s.cancel = cancel.clone();
             for grant in s.saved.grants.clone() {
-                s.devices.insert(grant.device.id, cancel.child_token());
+                if grant.device.public_key.is_some() {
+                    s.devices.insert(grant.device.id, cancel.child_token());
+                }
             }
         }
         let this = self.clone();
@@ -589,58 +488,6 @@ impl Remote {
         }));
         self.stand();
         Ok(self.status())
-    }
-    pub fn pairing(&self) -> Result<RemotePairing, String> {
-        if self.served.is_some() {
-            return Err("Served desks offer sealed v2 pairing only.".into());
-        }
-        let mut s = self.state.lock().unwrap();
-        let endpoint = s
-            .endpoints
-            .first()
-            .cloned()
-            .ok_or("Enable remote access first.")?;
-        let invitation = PairingInvitation {
-            kind: "hotline-pairing".into(),
-            version: 1,
-            desktop_id: s.saved.desktop_id.clone(),
-            name: desktop_name(),
-            endpoint,
-            certificate_sha256: s.fingerprint.clone(),
-            invitation_id: Uuid::new_v4().to_string(),
-            secret: secret(),
-            expires_at: now() + 120_000,
-        };
-        let code = qrcode::QrCode::new(serde_json::to_vec(&invitation).map_err(message)?)
-            .map_err(message)?;
-        let qr_svg = code
-            .render::<qrcode::render::svg::Color>()
-            .min_dimensions(280, 280)
-            .build();
-        let (address, port) = network::split(&invitation.endpoint);
-        let manual = ManualPairing {
-            address,
-            port,
-            code: pairing_code(),
-            expires_at: invitation.expires_at,
-        };
-        s.sealed_pairing = None;
-        s.invitation = Some(Invitation {
-            value: invitation.clone(),
-            claimed: None,
-        });
-        s.manual = Some(Manual {
-            code: manual.code.clone(),
-            expires_at: manual.expires_at,
-            failures: 0,
-            sessions: HashMap::new(),
-            claimed: None,
-        });
-        Ok(RemotePairing {
-            invitation,
-            qr_svg,
-            manual,
-        })
     }
     pub fn revoke(&self, id: &str) -> Result<RemoteStatus, String> {
         let mut s = self.state.lock().unwrap();
@@ -660,8 +507,6 @@ impl Remote {
             return Err(error);
         }
         // An idempotent pairing retry must never recover a revoked grant.
-        s.invitation = None;
-        s.manual = None;
         s.sealed_pairing = None;
         drop(s);
         Ok(self.status())
@@ -677,188 +522,6 @@ impl Remote {
             return Err("rate_limited");
         }
         Ok(())
-    }
-    fn valid_claim(claim_id: &str, name: &str) -> bool {
-        Uuid::parse_str(claim_id).is_ok() && !name.trim().is_empty() && name.len() <= 80
-    }
-    /// Records a new phone and returns what it needs to enter the wire. The
-    /// grant is on disk before the token leaves this function.
-    fn grant(&self, s: &mut Live, name: &str) -> Result<Value, &'static str> {
-        if s.saved.grants.len() >= 16 {
-            return Err("device_limit");
-        }
-        let token = secret();
-        let id = Uuid::new_v4().to_string();
-        let grant = Grant {
-            device: RemoteDevice {
-                id: id.clone(),
-                name: name.trim().into(),
-                paired_at: now(),
-                role: DeviceRole::Owner,
-                public_key: None,
-            },
-            token_hash: hash(&token),
-            push: None,
-        };
-        s.saved.grants.push(grant);
-        if self.save(&s.saved).is_err() {
-            s.saved.grants.pop();
-            return Err("storage_unavailable");
-        }
-        let cancellation = s.cancel.child_token();
-        s.devices.insert(id.clone(), cancellation);
-        Ok(
-            json!({"desktopId": s.saved.desktop_id, "protocolVersion": 1, "deviceId": id, "token": token}),
-        )
-    }
-    fn claim(&self, claim: Claim) -> Result<Value, &'static str> {
-        let mut s = self.state.lock().unwrap();
-        Self::throttle(&mut s)?;
-        if !Self::valid_claim(&claim.claim_id, &claim.name) {
-            return Err("invalid_claim");
-        }
-        let invitation = s.invitation.as_ref().ok_or("pairing_closed")?;
-        if s.endpoints.is_empty()
-            || invitation.value.expires_at <= now()
-            || invitation.value.invitation_id != claim.invitation_id
-            || !crate::wire::same_secret(&claim.secret, &invitation.value.secret)
-        {
-            return Err("pairing_closed");
-        }
-        if let Some((id, value)) = &invitation.claimed {
-            return if id == &claim.claim_id {
-                Ok(value.clone())
-            } else {
-                Err("pairing_claimed")
-            };
-        }
-        let answer = self.grant(&mut s, &claim.name)?;
-        s.invitation.as_mut().unwrap().claimed = Some((claim.claim_id, answer.clone()));
-        // One pairing session, two ways in: the first phone through closes both.
-        s.manual = None;
-        Ok(answer)
-    }
-    fn manual_start(&self, start: ManualStart) -> Result<Value, &'static str> {
-        let mut s = self.state.lock().unwrap();
-        Self::throttle(&mut s)?;
-        if !Self::valid_claim(&start.claim_id, &start.name)
-            || pake::decode_public(&start.phone_public).is_none()
-        {
-            return Err("invalid_claim");
-        }
-        if s.endpoints.is_empty() {
-            return Err("pairing_closed");
-        }
-        let desktop_id = s.saved.desktop_id.clone();
-        let manual = s.manual.as_mut().ok_or("pairing_closed")?;
-        if manual.claimed.is_some() {
-            return Err("pairing_closed");
-        }
-        if manual.expires_at <= now() {
-            return Err("expired");
-        }
-        let secret = pake::random_scalar();
-        let desktop_public = pake::public(&manual.code, &start.claim_id, &secret);
-        if manual.sessions.len() >= MANUAL_SESSIONS
-            && !manual.sessions.contains_key(&start.claim_id)
-        {
-            // A flood of starts is noise, not guesses; the real phone retries.
-            manual.sessions.clear();
-        }
-        manual.sessions.insert(
-            start.claim_id,
-            Session {
-                secret,
-                name: start.name,
-                phone_public: start.phone_public,
-                desktop_public: desktop_public.clone(),
-            },
-        );
-        Ok(json!({
-            "desktopId": desktop_id,
-            "name": desktop_name(),
-            "desktopPublic": desktop_public,
-            "expiresAt": manual.expires_at,
-        }))
-    }
-    fn manual_finish(&self, finish: ManualFinish) -> Result<Value, &'static str> {
-        let mut s = self.state.lock().unwrap();
-        Self::throttle(&mut s)?;
-        if Uuid::parse_str(&finish.claim_id).is_err() || finish.confirm.len() != 64 {
-            return Err("invalid_claim");
-        }
-        if s.endpoints.is_empty() {
-            return Err("pairing_closed");
-        }
-        let desktop_id = s.saved.desktop_id.clone();
-        let fingerprint = s.fingerprint.clone();
-        let manual = s.manual.as_mut().ok_or("pairing_closed")?;
-        if manual.expires_at <= now() {
-            return Err("expired");
-        }
-        if let Some((id, confirmation, answer)) = &manual.claimed {
-            return if id == &finish.claim_id && pake::same_tag(&finish.confirm, confirmation) {
-                Ok(answer.clone())
-            } else {
-                Err("pairing_closed")
-            };
-        }
-        if manual.expires_at <= now() {
-            return Err("expired");
-        }
-        let session = manual
-            .sessions
-            .get(&finish.claim_id)
-            .ok_or("pairing_closed")?;
-        let tags = pake::decode_public(&session.phone_public)
-            .and_then(|phone| {
-                pake::confirmations(
-                    &desktop_id,
-                    &finish.claim_id,
-                    &session.secret,
-                    &phone,
-                    &session.phone_public,
-                    &session.desktop_public,
-                    &fingerprint,
-                )
-            })
-            .ok_or("pairing_closed")?;
-        if !pake::same_tag(&finish.confirm, &tags.phone) {
-            manual.sessions.remove(&finish.claim_id);
-            manual.failures += 1;
-            if manual.failures >= MANUAL_ATTEMPTS {
-                s.manual = None;
-                return Err("too_many_attempts");
-            }
-            return Err("bad_code");
-        }
-        let name = session.name.clone();
-        let mut answer = self.grant(&mut s, &name)?;
-        answer["certificateSha256"] = json!(fingerprint);
-        answer["confirm"] = json!(tags.desktop);
-        let manual = s.manual.as_mut().unwrap();
-        manual.claimed = Some((finish.claim_id, finish.confirm, answer.clone()));
-        manual.sessions.clear();
-        s.invitation = None;
-        Ok(answer)
-    }
-    fn authenticate(self: &Arc<Self>, token: &str) -> Option<Phone> {
-        let s = self.state.lock().unwrap();
-        if s.endpoints.is_empty() || token.len() != 64 {
-            return None;
-        }
-        let digest = hash(token);
-        let grant = s
-            .saved
-            .grants
-            .iter()
-            .find(|g| crate::wire::same_secret(&g.token_hash, &digest))?;
-        Some(Phone {
-            remote: self.clone(),
-            id: grant.device.id.clone(),
-            role: grant.device.role,
-            cancel: s.devices.get(&grant.device.id)?.child_token(),
-        })
     }
     // The operation, who it is to, what is said and where: one message, field by field.
     #[allow(clippy::too_many_arguments)]

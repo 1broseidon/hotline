@@ -2598,7 +2598,7 @@ pub enum Command {
     VoiceHold { call_id: String, hold: bool },
     #[serde(rename = "voice.call_end")]
     VoiceCallEnd { call_id: String },
-    /// Listener and pairing controls belong to the local desk, never a remote owner.
+    /// Listener and pairing controls require an owner or the local desk.
     #[serde(rename = "remote.status")]
     RemoteStatus {},
     #[serde(rename = "remote.configure")]
@@ -2614,7 +2614,7 @@ pub enum Command {
         #[serde(default)]
         desk_id: Option<String>,
     },
-    /// Start a v2 invitation, poll/cancel its id, or explicitly request desktop legacy pairing.
+    /// Start a sealed invitation, or poll/cancel its id.
     #[serde(rename = "remote.pairing")]
     RemotePairing {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2623,8 +2623,6 @@ pub enum Command {
         id: Option<String>,
         #[serde(default)]
         cancel: bool,
-        #[serde(default)]
-        legacy: bool,
     },
     /// A paired phone supplies a stable operation id; retries never run twice.
     /// `replyTo` is the id of the message this one answers, as on

@@ -65,13 +65,10 @@ impl Proxy {
             .await
             .unwrap()
     }
-    async fn socket(&self, path: &str, bearer: &str) -> Socket {
-        let mut request = format!("wss://{}{path}", self.address)
+    async fn socket(&self, path: &str) -> Socket {
+        let request = format!("wss://{}{path}", self.address)
             .into_client_request()
             .unwrap();
-        request
-            .headers_mut()
-            .insert("authorization", format!("Bearer {bearer}").parse().unwrap());
         tokio_tungstenite::client_async(request, self.tls().await)
             .await
             .unwrap()
@@ -82,7 +79,7 @@ impl Proxy {
         private: &[u8; 32],
         public: &[u8; 32],
     ) -> (Socket, snow::TransportState) {
-        let mut socket = self.socket("/v2", "").await;
+        let mut socket = self.socket("/v2").await;
         let mut noise = sealed_network::initiator(private, public);
         let mut buffer = [0u8; 4096];
         let size = noise.write_message(&[], &mut buffer).unwrap();
@@ -307,7 +304,7 @@ async fn paired_devices_reconnect_through_a_proxy_while_anonymous_sockets_rotate
         }
         let mut stalled = Vec::new();
         for _ in 0..2 {
-            stalled.push(proxy.socket("/v2", "").await);
+            stalled.push(proxy.socket("/v2").await);
         }
         counts(&h, (4, 1)).await;
         let (mut reconnected, _) =

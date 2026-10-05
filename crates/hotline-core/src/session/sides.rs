@@ -540,8 +540,29 @@ impl Room {
         side_id: &str,
     ) -> Result<SideThreadSummary, String> {
         let _working = self.working()?;
+        self.refuse_handed_over(side_id)?;
         let side = self.wake_side(side_id, true).await?;
         Ok(self.side_summary(&side))
+    }
+
+    /// A thread a teammate handed over is the two teammates' work: the person
+    /// reads along, steers it through whoever handed it over, and answers only
+    /// what it asks them, on its card. Saying something in it, or bringing it
+    /// back once it has ended, is refused here, whatever the window shows.
+    fn refuse_handed_over(&self, side_id: &str) -> Result<(), String> {
+        let opener = match self.sides.get(side_id) {
+            Some(side) => side.opener.clone(),
+            None => self
+                .link_of(&ThreadId::side(side_id))
+                .and_then(|link| link.opener),
+        };
+        match opener {
+            Some(opener) => Err(format!(
+                "{} handed this thread over, so it is read along. Talk to {} about it, or answer what it asks you on its card.",
+                opener.name, opener.name
+            )),
+            None => Ok(()),
+        }
     }
 
     /// The agent for a thread, up and published, with its marker saying live.
@@ -683,6 +704,7 @@ impl Room {
         if text.is_empty() && attachments.is_none() {
             return Err("There is nothing to say.".to_string());
         }
+        self.refuse_handed_over(side_id)?;
         let side = match self.live_side(side_id) {
             Ok(side) => side,
             Err(_) => self.wake_side(side_id, false).await?,
@@ -1471,6 +1493,46 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         panic!("the side thread never finished its turn");
+    }
+
+    /// A handoff is read along: the person cannot type into it, live or
+    /// archived, and cannot bring it back; the desk says who to talk to.
+    #[tokio::test]
+    async fn a_handed_over_thread_refuses_the_persons_words_and_its_continuation() {
+        let agents = Fake::new(Scripted::new(vec![say("m1", "On it."), turn()]));
+        let room = room("side-handed-over", agents.clone());
+        let live = room
+            .bring_up(
+                "ada",
+                Start {
+                    side_id: new_id(),
+                    title: "Wire the gateway".to_string(),
+                    started: now_ms(),
+                    opener: Some(Opener {
+                        persona_id: "mack".to_string(),
+                        name: "Mack".to_string(),
+                    }),
+                },
+            )
+            .await
+            .unwrap();
+        let refused = room
+            .prompt_side(&live.id, "do it my way", None)
+            .await
+            .unwrap_err();
+        assert!(
+            refused.starts_with("Mack handed this thread over"),
+            "{refused}"
+        );
+        assert!(
+            !kinds(&side_stream(&room, &live.id)).contains(&"user".to_string()),
+            "a refused line is never written"
+        );
+
+        room.archive_side(&live.id, SideEnd::Person, None).unwrap();
+        let refused = room.continue_side(&live.id).await.unwrap_err();
+        assert!(refused.contains("Talk to Mack about it"), "{refused}");
+        assert!(room.prompt_side(&live.id, "and now?", None).await.is_err());
     }
 
     #[tokio::test]

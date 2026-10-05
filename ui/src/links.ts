@@ -1,4 +1,4 @@
-import type { ThreadEnd, ThreadId } from "./generated/contract";
+import type { ThreadEnd, ThreadId, TranscriptEvent } from "./generated/contract";
 import type { Person } from "./avatars";
 import type { LinkEvent } from "./dock";
 
@@ -55,6 +55,35 @@ function workWho(link: LinkEvent, owner: string, people?: ReadonlyMap<string, Pe
 	if (link.personaId === undefined || link.personaId === owner) return `From ${opener}`;
 	const taker = people?.get(link.personaId)?.name;
 	return taker === undefined ? "Handed over" : `Handed to ${taker}`;
+}
+
+/**
+ * Whether a link is work a colleague handed to the teammate whose tape this
+ * is. That is the two teammates' work: it is listed in the threads pane, and
+ * the person's conversation does not carry a line for each.
+ */
+export function handedIn(link: LinkEvent, owner: string): boolean {
+	if (link.threadKind !== "side" || link.openerId === undefined || link.openerId === link.personaId) return false;
+	return link.personaId === undefined || link.personaId === owner;
+}
+
+/**
+ * What colleagues have handed this teammate that is not finished yet, from
+ * the newest line of each, and who handed it: the one line the person's
+ * conversation keeps for all of them.
+ */
+export function handoffsUnderway(events: readonly TranscriptEvent[], owner: string): { count: number; from: string[] } {
+	const newest = new Map<string, LinkEvent>();
+	for (const event of events) if (event.kind === "link" && handedIn(event, owner)) newest.set(event.id, event);
+	const open = [...newest.values()].filter((link) => link.state !== "closed");
+	const from = [...new Set(open.map((link) => link.openerName ?? "a teammate"))];
+	return { count: open.length, from };
+}
+
+/** Names as a person lists them: "Poe", "Poe and Mack", "Poe, Mack and Ada". */
+export function namesSaid(names: readonly string[]): string {
+	if (names.length <= 1) return names[0] ?? "";
+	return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
 /**

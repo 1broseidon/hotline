@@ -8,6 +8,24 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Changed
+
+- A thread a teammate handed to another is read along. It reads like a
+  conversation between the two of them, with the brief in full in the
+  sender's voice, and in place of the composer a line saying who handed what
+  to whom, with a way to the sender's conversation to steer it. Its turn can
+  be stopped; while the teammate is waiting on you, that line is where you
+  answer. The desk turns away anything else typed into it.
+- Your conversation with a teammate other teammates keep handing work to no
+  longer carries a line for each handoff. One line says what it is working on
+  and from whom, and opens its threads.
+
+### Fixed
+
+- When a teammate stops or collaboration is revoked, whoever had messages
+  waiting on it is told once, with the teammate's name, instead of once per
+  message with its id.
+
 ## [0.33.2] - 2026-10-05
 
 ### Fixed

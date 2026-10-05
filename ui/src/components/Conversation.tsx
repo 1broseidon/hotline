@@ -473,6 +473,7 @@ export function Conversation({
 					{...(!draftHasContent ? { onRetryMessage: retryMessage } : {})}
 					{...(openScreen !== undefined ? { onOpenScreen: openScreen } : {})}
 					onOpenThread={onOpenThread}
+					onOpenThreads={onOpenThreadList}
 					onOpenWork={onOpenWork}
 					workOpen={workOpen}
 				/>

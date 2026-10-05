@@ -592,7 +592,14 @@ has one hook and one view.
 - **One view.** `Dock.tsx`'s `ThreadView` renders every kind with `Transcript`
   and `Composer`; `powersOf(kind, state)` (in `dock.ts`) is the one place that
   says what a kind allows: a work thread has the composer, Archive and Continue,
-  a pair, a run and a call are read-only. A pair keeps its two named chairs
+  a pair, a run and a call are read-only. A work thread a teammate handed over
+  is read along: it is drawn like a pair, the brief said whole in the
+  opener's voice, with a bar naming the two of them and a way to the opener's
+  conversation, where it is steered; only its turn may be stopped. While its
+  teammate waits on the person, the bar is the one field they answer in. The
+  desk refuses the rest (`refuse_handed_over`), whatever the window shows. The
+  person's conversation with the teammate that took a handoff keeps one line
+  for all the unfinished ones, not a link each (`handoffsUnderway`). A pair keeps its two named chairs
   (`speakers`) and sends `peers.mark_read` as it did; a handoff opened from its
   delivery line keeps its sender, request and reply-route note (`HandoffNote`).
   `Thread.tsx` (the peer aside) and the work card's run view (`RunWork`,

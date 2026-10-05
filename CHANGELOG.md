@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.33.3] - 2026-10-05
+
 ### Changed
 
 - A thread a teammate handed to another is read along. It reads like a

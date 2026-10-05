@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-10-05
+
 ### Fixed
 
 - A Hotline Agent reply that reached the chat just before the model's stream

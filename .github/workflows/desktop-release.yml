@@ -100,11 +100,13 @@ jobs:
           targets: ${{ matrix.target }}
 
       # A cache saved while building a tag is scoped to that tag, so no later
-      # release could restore it: only a manual run on main saves one.
+      # release could restore it. ci.yml's `release-cache` job builds each
+      # target on every push to main under this same shared key, so a tag
+      # starts from main's last release build instead of from nothing.
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          shared-key: release-${{ matrix.target }}
+          save-if: false
 
       # The window's toolkit and the tray's library, found through pkg-config
       # before the deb is written (docs/development.md).
@@ -120,19 +122,9 @@ jobs:
         working-directory: ui
         run: bun install --frozen-lockfile
 
-      # Linux and Windows ran these on the pull request (ci.yml), Windows'
-      # Credential Manager round trip included. The pull request runs the
-      # macOS tests too; the Apple silicon build runs them once more for both
-      # Macs, with the keychain round trip, rather than every build compiling
-      # everything twice.
-      - name: Check the core and window on macOS
-        if: runner.os == 'macOS' && !matrix.cross
-        shell: bash
-        run: |
-          cargo clippy --workspace --all-targets --locked -- -D warnings
-          cargo test --workspace --locked
-          cargo test --workspace native_store_roundtrip --locked -- --ignored
-          python -m unittest discover -s scripts -p 'test_updater_manifest.py'
+      # Every operating system's checks, the macOS keychain round trip
+      # included, ran on the pull request (ci.yml) for this same commit. The
+      # release only builds.
 
       # Tauri reads its signing and notarization from the environment, and
       # treats a variable that is set as one that is meant: an empty value

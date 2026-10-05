@@ -8,6 +8,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- A Hotline Agent reply that reached the chat just before the model's stream
+  dropped, or before a stop or new message cut the round short, is now kept in
+  the agent's own history. Before, the agent never saw it and could post the
+  same reply again on the retry or in its next turn, which is how a scheduled
+  standup could arrive three times.
+
 ## [0.33.0] - 2026-10-04
 
 ### Added

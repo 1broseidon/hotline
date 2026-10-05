@@ -246,6 +246,10 @@ async fn run_inner(
         };
         let mut interrupted = false;
         let mut reasoning_deltas = std::collections::HashSet::new();
+        // What this round has already put in front of the person. A round that
+        // is abandoned never reaches history, so this is what keeps the model
+        // from writing it again.
+        let mut spoken = String::new();
         loop {
             let item = tokio::select! {
                 biased;
@@ -274,6 +278,7 @@ async fn run_inner(
                     flush(sender, &mut open).await;
                     let failure = Failure::provider(error, "stream").after_tools(answered_calls);
                     stream.cancel();
+                    keep_spoken(&mut history, &mut spoken, turn).await;
                     if recover(
                         &failure,
                         &mut retries,
@@ -297,6 +302,7 @@ async fn run_inner(
             };
             match item {
                 StreamedAssistantContent::Text(chunk) => {
+                    spoken.push_str(&chunk.text);
                     chunk_into(sender, &mut open, MessageKind::Agent, &chunk.text).await;
                 }
                 StreamedAssistantContent::ReasoningDelta { id, reasoning, .. } => {
@@ -320,6 +326,9 @@ async fn run_inner(
         context_tokens = reported.input_tokens.saturating_add(reported.output_tokens);
         usage += reported;
         flush(sender, &mut open).await;
+        if stopped || interrupted || turn.steering.superseded(revision) {
+            keep_spoken(&mut history, &mut spoken, turn).await;
+        }
         if stopped {
             break;
         }
@@ -333,6 +342,7 @@ async fn run_inner(
                 "stream",
             )
             .after_tools(answered_calls);
+            keep_spoken(&mut history, &mut spoken, turn).await;
             if recover(
                 &failure,
                 &mut retries,
@@ -370,6 +380,7 @@ async fn run_inner(
                     | rig::completion::FinishReason::ContentFilter
             )
         ) {
+            keep_spoken(&mut history, &mut spoken, turn).await;
             return Err(
                 "The model response was truncated or filtered; its tool calls were not executed."
                     .into(),
@@ -549,6 +560,24 @@ async fn run_inner(
     } else {
         Err("This activity reached its model-request limit.".into())
     }
+}
+
+const KEPT: &str = "Hotline: the reply above was shown to the person before this round was cut \
+     short. It was delivered; carry on from it without repeating it.";
+
+/// A round abandoned after its text reached the person — a dropped stream, a
+/// retry, a steer or a stop — still said that text. History keeps it, so the
+/// next request knows it was delivered instead of finding the turn silent and
+/// saying it all again. Hotline's line after it keeps the history from ending
+/// on the assistant, which a retry would otherwise send as a prefill.
+async fn keep_spoken(history: &mut Vec<Message>, spoken: &mut String, turn: &Turn) {
+    let text = std::mem::take(spoken);
+    if text.trim().is_empty() {
+        return;
+    }
+    history.push(Message::assistant(text));
+    history.push(Message::user(KEPT));
+    *turn.history.lock().await = history.clone();
 }
 
 // Retrying happens before accepting another response, so no tool dispatch is replayed.
@@ -949,6 +978,8 @@ mod tests {
             next.chat_history,
             vec![
                 Message::user("first request"),
+                Message::assistant("unfinished"),
+                Message::user(KEPT),
                 Message::user("change direction")
             ]
         );
@@ -1660,12 +1691,10 @@ mod tests {
             .unwrap();
         drop(second);
         let retry = receive(&mut requests).await;
-        assert_eq!(before.chat_history, retry.chat_history);
-        assert!(
-            !serde_json::to_string(&retry.chat_history)
-                .unwrap()
-                .contains("partial response")
-        );
+        let mut expected = before.chat_history.clone();
+        expected.push(Message::assistant("partial response"));
+        expected.push(Message::user(KEPT));
+        assert_eq!(retry.chat_history, expected);
         answer(third).await;
         task.await.unwrap().unwrap();
         let mut calls = 0;
@@ -1676,6 +1705,73 @@ mod tests {
         }
         assert_eq!(calls, 1);
         assert_eq!(history.lock().await.iter().filter(|m| matches!(m, Message::User { content } if content.iter().any(|c| matches!(c, UserContent::ToolResult(_))))).count(), 1);
+    }
+
+    /// The standup that posted three times: a tool round, then the report
+    /// streams to the person and the stream ends without its terminal record.
+    /// The retry must know the report was delivered, or it writes it again.
+    #[tokio::test]
+    async fn a_report_shown_before_the_stream_dropped_is_remembered_on_retry() {
+        let (turn, request) = fixture();
+        let history = turn.history.clone();
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (first, a) = mpsc::channel(8);
+        let (second, b) = mpsc::channel(8);
+        let (third, c) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([Some(a), Some(b), Some(c)])),
+        };
+        let mut tools = ToolSet::default();
+        tools.add_tool(Nod);
+        let (updates, mut receiver) = mpsc::channel(64);
+        let task =
+            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
+        receive(&mut requests).await;
+        first
+            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
+                "schedule-1",
+                "react".into(),
+                serde_json::json!({"emoji":"👍"}),
+            ))))
+            .await
+            .unwrap();
+        first
+            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
+                "scripted",
+                Default::default(),
+            ))))
+            .await
+            .unwrap();
+        drop(first);
+        receive(&mut requests).await;
+        second
+            .send(Ok(RawStreamingChoice::Message("Today — Mon 5 Oct".into())))
+            .await
+            .unwrap();
+        drop(second);
+        let retry = receive(&mut requests).await;
+        let tail = &retry.chat_history[retry.chat_history.len() - 2..];
+        assert_eq!(
+            tail,
+            [Message::assistant("Today — Mon 5 Oct"), Message::user(KEPT)]
+        );
+        answer(third).await;
+        task.await.unwrap().unwrap();
+        assert!(
+            history
+                .lock()
+                .await
+                .contains(&Message::assistant("Today — Mon 5 Oct"))
+        );
+        let mut said = 0;
+        while let Some(update) = receiver.recv().await {
+            if matches!(&update, Update::Message { kind: MessageKind::Agent, text, .. } if text == "Today — Mon 5 Oct")
+            {
+                said += 1;
+            }
+        }
+        assert_eq!(said, 1);
     }
 
     #[tokio::test]

@@ -8,11 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.33.2] - 2026-10-05
+
 ### Fixed
 
 - A Hotline Agent teammate on GitHub Copilot now remembers what it said.
   Copilot's chat route dropped the text of the teammate's earlier replies
-  before Claude read them, so it saw only its own tool calls and could post
+  before the model read them, so it saw only its own tool calls and could post
   the same thing again on every turn, such as a scheduled standup repeated in
   each later reply.
 

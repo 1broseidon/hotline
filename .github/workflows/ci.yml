@@ -1,5 +1,11 @@
 # The checks a release runs, on every pull request, before the tag.
 #
+# A push to main runs them once more and saves the caches every pull request
+# and release restores. A pull request's own cache is scoped to that pull
+# request and useful to nothing after it, so only main saves: otherwise each
+# pull request's 1 GB caches fill the repository's 10 GB and evict the ones
+# that matter.
+#
 # Pull requests from this repository's own branches run on grizzly, the
 # self-hosted Linux box and its Windows VM, where toolchains and build output
 # stay warm between jobs. A pull request from a fork never reaches those
@@ -8,6 +14,8 @@ name: ci
 
 on:
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -51,7 +59,7 @@ jobs:
         if: runner.environment == 'github-hosted'
         with:
           key: ci-${{ matrix.os }}
-          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # grizzly's Linux image has these baked in.
       - name: Install the Linux toolkit
@@ -82,9 +90,9 @@ jobs:
         run: cargo test --workspace native_store_roundtrip --locked -- --ignored
 
   # macOS-only code (the keychain, notifications, the Finder PATH test) is
-  # compiled nowhere else before a tag: the release is the first to build it,
-  # and a slip there costs a whole release run (0.28.0 did). Clippy over every
-  # target catches it in minutes. The tests themselves run in the release.
+  # compiled nowhere else before a tag, and the release only builds: a slip
+  # there would cost a whole release run (0.28.0's did). So its clippy, its
+  # tests and the keychain round trip all run here.
   macos:
     runs-on: macos-15
     timeout-minutes: 45
@@ -98,12 +106,73 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ci-macos
-          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Compile the macOS code and its tests
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-      # The release runs these on Apple silicon; running them here too means a
-      # macOS-only test failure stops the pull request, not the release.
       - name: Test on macOS
         run: cargo test --workspace --locked
+
+      # The round trip through the login keychain, which needs a real macOS
+      # session.
+      - name: Verify native desktop credential storage
+        run: cargo test --workspace native_store_roundtrip --locked -- --ignored
+
+  # On a push to main (or a manual run), the release's own build of each target, unsigned and
+  # unbundled, saved under the key desktop-release.yml restores. A tag then
+  # compiles only what changed since main's last push, not every dependency
+  # from nothing. The repository is public, so these minutes are free.
+  release-cache:
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15
+            target: x86_64-apple-darwin
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install the Linux toolkit
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+            patchelf build-essential libssl-dev libdbus-1-dev
+
+      - name: Install the window's dependencies
+        working-directory: ui
+        run: bun install --frozen-lockfile
+
+      # The same `tauri build` tauri-action runs, so the same features and
+      # profile, without the bundle and its signing.
+      - name: Build the release
+        working-directory: crates/hotline-app
+        run: npx --yes @tauri-apps/cli@2 build --target ${{ matrix.target }} --no-bundle

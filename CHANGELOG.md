@@ -8,6 +8,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- Starting a work thread, or handing work to a teammate, no longer makes you
+  wait several seconds for anything to appear. The thread used to open only
+  after its agent was ready, which meant granting the computer, reading the
+  conversation it started beside, and starting the harness or connecting every
+  tool server. It now opens at once with your task already in it and shows as
+  working while the agent comes up, and the first turn begins the moment it is
+  ready. Lines you add meanwhile wait their turn, and an agent that cannot start
+  says why in the thread instead of leaving it hanging.
+
 ## [0.33.2] - 2026-10-05
 
 ### Fixed

@@ -271,6 +271,27 @@ Where this differs from the design above:
 - **A thread's own history is read by the builder.** A policy `seed` decides
   whether a kind has any: a side does, a run does not, though its stream already
   holds its task and marker when it starts.
+- **A work thread opens before its agent exists.** Building the agent takes
+  seconds: the computer's lease, the skills and `AGENTS.md`, reading the
+  conversation the thread was started beside, then the harness's own start-up
+  (an ACP child is spawned, initialised and given a session; Hotline Agent
+  connects each granted MCP server). `Room::bring_up` does only what must be
+  decided at once: the teammate's lease, the place under the cap, the thread's
+  own lease, publication under the lifecycle lock, and the link and marker. The
+  thread holds the claim on its queue from then on, so the task, or a line the
+  person says, or a handoff, is written to the stream at once and waits behind
+  the start. `Room::launch` builds the agent on its own task, and when it is up
+  the first turn runs (`Room::run_queue`), so the first line is delivered the
+  moment the agent is ready. Until then the thread is `working` on the roster and
+  in its summary, which is how the window and the phone show it starting. Lines
+  written meanwhile are left out of the history the agent is seeded with
+  (`Opening::heard_from`), so it hears each once. A start that fails writes an
+  error notice in the thread and puts it away: a thread that had never run is
+  closed as failed, one brought back from a park or an archive is parked, and a
+  handoff's sender is told the thread could not start. A thread ended while its
+  agent is starting stays ended: the start stops the agent it built. The
+  conversation's tape is read off the async workers, and only its last lines are
+  kept.
 - **The run's one turn is `Threads::turn`, not a loop.** A run has no queue, so
   there is one `Turns` and no second turn loop for it to use; the loop over a
   queue stays in `run_side_turns` until the DM's `run_turns` can share it.

@@ -72,7 +72,7 @@ use crate::thread::{AgentBinding, End, Link, Opener, ThreadId, ThreadKind, Threa
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// The most work threads one teammate may have live at once, whoever opened
 /// them: the person beside the DM or a colleague handing work over. It caps
@@ -153,12 +153,14 @@ pub(super) struct LiveSide {
     /// The handoff request the turn in flight is answering, until its result
     /// is saved. A work thread opened by the person has none.
     handoff: Mutex<Option<String>>,
-    driver: Arc<dyn Driver>,
+    /// The agent, once it is up. The thread is published before its agent is
+    /// built, because starting one takes seconds, so until this is set the
+    /// thread is starting: lines said in it wait in `turns`, and there is
+    /// nothing yet to cancel or answer a card.
+    up: OnceLock<Up>,
     /// The thread's own authority. Revoking it ends every tool handle the
     /// agent holds.
     capability: CapabilityLease,
-    /// What the agent holds the teammate's computer under.
-    holder: crate::computer::gate::Holder,
     turns: Mutex<Turns<Line>>,
     /// When the person last said something, or the teammate last finished.
     last_used: Mutex<i64>,
@@ -177,7 +179,19 @@ pub(super) struct LiveSide {
     saved: Mutex<Option<String>>,
 }
 
+/// What a thread holds once its agent is up.
+struct Up {
+    driver: Arc<dyn Driver>,
+    /// What the agent holds the teammate's computer under.
+    holder: crate::computer::gate::Holder,
+}
+
 impl LiveSide {
+    /// The agent, or nothing while the thread is still starting.
+    fn driver(&self) -> Option<&Arc<dyn Driver>> {
+        self.up.get().map(|up| &up.driver)
+    }
+
     /// A delivery's turn has begun: it is read, and a restart does not hand it
     /// over again.
     fn heard(&self, room: &Room, id: &str) {
@@ -242,7 +256,11 @@ impl Occupant for LiveSide {
     }
 
     fn holder(&self) -> &crate::computer::gate::Holder {
-        &self.holder
+        &self
+            .up
+            .get()
+            .expect("turns run only once the agent is up")
+            .holder
     }
 
     fn answering(self: &Arc<Self>, _room: &Room) -> bool {
@@ -289,12 +307,13 @@ impl Occupant for LiveSide {
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut WorkTurn) -> Driven {
         let thread = self.thread();
         let line = held.line.take().expect("a turn is taken once");
+        let driver = self.driver().expect("turns run only once the agent is up");
         room.threads()
             .turn(
                 Seat {
                     thread: &thread,
                     persona_id: &self.persona_id,
-                    driver: self.driver.as_ref(),
+                    driver: driver.as_ref(),
                 },
                 line,
                 room.reach_of(&self.persona_id),
@@ -490,6 +509,37 @@ pub(super) struct Start {
     pub started: i64,
     /// The teammate that handed this work over, when one did.
     pub opener: Option<Opener>,
+    /// Whether the thread has never run. A start that fails closes a new
+    /// thread, which has nothing to come back to, and parks one that ran
+    /// before, so that saying something in it tries again.
+    pub fresh: bool,
+    /// The session the thread's marker holds, for a thread being brought
+    /// back. It stays on the marker while the agent starts, and is dropped if
+    /// the harness will not reopen it.
+    pub saved: Option<AgentBinding>,
+    /// The exchange a handoff opened this thread for, whose result is a
+    /// failure if the thread cannot start.
+    pub handoff: Option<HandoffStart>,
+}
+
+/// The exchange request a work thread was opened to answer.
+pub(super) struct HandoffStart {
+    pub key: String,
+    pub request: String,
+}
+
+/// A published thread whose agent has not been built yet. [`Room::launch`]
+/// builds it, once whoever published the thread has put in it the lines that
+/// are to be heard first.
+#[must_use = "the thread's agent is not started until it is launched"]
+pub(super) struct Launch {
+    side: Arc<LiveSide>,
+    persona: Persona,
+    /// When the thread was published: what is said in it from then on is for
+    /// the agent to hear, not to be seeded with.
+    requested: i64,
+    fresh: bool,
+    handoff: Option<HandoffStart>,
 }
 
 /// How a live thread comes to an end.
@@ -503,9 +553,11 @@ pub(super) enum Ending {
 
 impl Room {
     /// Starts a side thread with this teammate about `text`, and answers its
-    /// summary. The teammate's first turn on it is already running when this
-    /// returns. Without `text` the thread opens untitled and waits for the
-    /// person's first line, which names it.
+    /// summary at once. The thread is published, with the task as its first
+    /// line, before its agent exists: the agent is brought up on its own task,
+    /// which takes seconds, and the first turn begins the moment it is ready.
+    /// Without `text` the thread opens untitled and waits for the person's
+    /// first line, which names it.
     pub async fn start_side(
         self: &Arc<Self>,
         persona_id: &str,
@@ -516,20 +568,22 @@ impl Room {
         if text.len() > super::TEAMMATE_MESSAGE_MAX {
             return Err("That task is too long for a side thread.".to_string());
         }
-        let live = self
-            .bring_up(
-                persona_id,
-                Start {
-                    side_id: new_id(),
-                    title: title_of(text),
-                    started: now_ms(),
-                    opener: None,
-                },
-            )
-            .await?;
+        let (live, launch) = self.bring_up(
+            persona_id,
+            Start {
+                side_id: new_id(),
+                title: title_of(text),
+                started: now_ms(),
+                opener: None,
+                fresh: true,
+                saved: None,
+                handoff: None,
+            },
+        )?;
         if !text.is_empty() {
             self.say_in_side(&live, text, None, None);
         }
+        self.launch(launch);
         Ok(self.side_summary(&live))
     }
 
@@ -540,23 +594,35 @@ impl Room {
         side_id: &str,
     ) -> Result<SideThreadSummary, String> {
         let _working = self.working()?;
-        let side = self.wake_side(side_id, true).await?;
+        let (side, launch) = self.wake_side(side_id, true).await?;
+        if let Some(launch) = launch {
+            self.launch(launch);
+        }
         Ok(self.side_summary(&side))
     }
 
-    /// The agent for a thread, up and published, with its marker saying live.
+    /// A thread's place, published: its link and its marker say live, and it
+    /// can be said to, before any agent exists for it.
+    ///
+    /// Building the agent is the slow part (the computer, the skills, reading
+    /// the conversation it was started beside, and then the harness's own
+    /// start-up), so it is not waited for here: [`Room::launch`] does it on
+    /// its own task. The thread holds the claim on its queue until then, so a
+    /// line said meanwhile waits behind the start, and the first turn runs
+    /// when the agent is up.
     ///
     /// A new thread has a fresh context. One that ran before reopens its own
     /// saved session when the harness can, and when it cannot (or never saved
     /// one) is given the thread's own stream: see [`Room::thread_agent`]. The
     /// main conversation's session is never touched, so it can never land
     /// there.
-    pub(super) async fn bring_up(
+    pub(super) fn bring_up(
         self: &Arc<Self>,
         persona_id: &str,
         start: Start,
-    ) -> Result<Arc<LiveSide>, String> {
+    ) -> Result<(Arc<LiveSide>, Launch), String> {
         let persona = self.persona(persona_id)?;
+        let requested = now_ms();
         let persona_lease = self.capability_lease(persona_id);
         persona_lease.check()?;
         if let Some(parked) = self.sides.reserve(persona_id)? {
@@ -570,15 +636,16 @@ impl Room {
         // The thread is its own authority, not the session's: whatever the
         // teammate is granted now is what it gets, however long ago it began.
         let lease = lease_of(ThreadKind::Side, &persona_lease);
-        let mut agent = self
-            .thread_agent(Opening {
-                thread: ThreadId::side(&start.side_id),
-                persona,
-                title: start.title.clone(),
-                opener: start.opener.clone(),
-                lease: lease.clone(),
+        // What the marker held stays on it while the agent starts, so that
+        // the start can still reopen it, but only if it is one this harness
+        // issued.
+        let kept = start
+            .saved
+            .filter(|saved| {
+                persona.backend_id != crate::driver::HOTLINE_BACKEND_ID
+                    && saved.backend_id == persona.backend_id
             })
-            .await?;
+            .map(|saved| saved.session_id);
         let live = Arc::new(LiveSide {
             id: start.side_id,
             persona_id: persona_id.to_string(),
@@ -586,17 +653,20 @@ impl Room {
             started: start.started,
             opener: start.opener,
             handoff: Mutex::new(None),
-            backend_id: agent.view.backend_id.clone(),
-            driver: agent.driver.clone(),
+            backend_id: persona.backend_id.clone(),
+            up: OnceLock::new(),
             capability: lease,
-            holder: agent.holder.clone(),
-            turns: Mutex::new(Turns::default()),
+            // Claimed for the start: a line said now is queued, not run.
+            turns: Mutex::new(Turns {
+                waiting: Default::default(),
+                running: true,
+            }),
             last_used: Mutex::new(now_ms()),
             dispatched: Mutex::new(Default::default()),
             closed: AtomicBool::new(false),
             archive_note: Mutex::new(None),
-            reported: Mutex::new(agent.reported.clone()),
-            saved: Mutex::new(agent.resumed.clone()),
+            reported: Mutex::new(None),
+            saved: Mutex::new(kept),
         });
         {
             // Publication and revocation share this lock, so a stop or policy
@@ -607,24 +677,155 @@ impl Room {
             let mut inner = lock(&self.sides.inner);
             inner.live.insert(live.id.clone(), live.clone());
         }
-        agent.keep();
 
         self.mark_side(&live, ThreadState::Live, None);
         let _ = self.info_changes.send(self.info(persona_id));
-        Ok(live)
+        let launch = Launch {
+            side: live.clone(),
+            persona,
+            requested,
+            fresh: start.fresh,
+            handoff: start.handoff,
+        };
+        Ok((live, launch))
+    }
+
+    /// Builds the agent of a published thread on a task of its own, and runs
+    /// the lines that waited for it. A start that fails says so in the thread
+    /// and puts it away: see [`Room::start_failed`].
+    pub(super) fn launch(self: &Arc<Self>, launch: Launch) {
+        let room = self.clone();
+        let Ok(working) = self.lease() else {
+            // The desk is stopping for an update: the thread keeps its place
+            // as a parked one, and saying something in it starts it after.
+            room.end_side(&launch.side, Ending::Park);
+            return;
+        };
+        tokio::spawn(async move {
+            let _working = working;
+            let side = launch.side.clone();
+            match room
+                .start_agent(&side, launch.persona.clone(), launch.requested)
+                .await
+            {
+                Ok(()) => {
+                    let first = lock(&side.turns).next_line();
+                    match first {
+                        Some(line) => room.clone().run_queue(side, line).await,
+                        None => {
+                            let _ = room.info_changes.send(room.info(&side.persona_id));
+                        }
+                    }
+                }
+                Err(error) => room.start_failed(&launch, &error),
+            }
+        });
+    }
+
+    /// The slow half of a start: the agent is built and started for a
+    /// published thread, and handed to it. Nothing here is waited for by
+    /// whoever opened the thread.
+    async fn start_agent(
+        self: &Arc<Self>,
+        side: &Arc<LiveSide>,
+        persona: Persona,
+        heard_from: i64,
+    ) -> Result<(), String> {
+        let title = lock(&side.title).clone();
+        let mut agent = self
+            .thread_agent(Opening {
+                thread: ThreadId::side(&side.id),
+                persona,
+                title,
+                opener: side.opener.clone(),
+                lease: side.capability.clone(),
+                heard_from: Some(heard_from),
+            })
+            .await?;
+        let up = Up {
+            driver: agent.driver.clone(),
+            holder: agent.holder.clone(),
+        };
+        let _ = side.up.set(up);
+        // The thread may have been ended while its agent was starting. The
+        // agent is set before this looks, and `end_side` marks the thread
+        // closed before it looks for the agent, so one of the two stops it.
+        if side.closed.load(Ordering::SeqCst) {
+            self.let_go_of_computer(&side.persona_id, &agent.holder);
+            return Err("This thread ended before its agent was ready.".to_string());
+        }
+        agent.keep();
+        *lock(&side.reported) = agent.reported.clone();
+        let changed = {
+            let mut saved = lock(&side.saved);
+            let changed = *saved != agent.resumed;
+            *saved = agent.resumed.clone();
+            changed
+        };
+        if changed {
+            self.mark_side(side, ThreadState::Live, None);
+        }
+        Ok(())
+    }
+
+    /// An agent that could not be started: the thread says so, and is put
+    /// away rather than left waiting for one. A thread that had never run is
+    /// closed as failed; one that had is parked, since its stream is whole and
+    /// the next line said in it tries again. A handoff's sender is told too,
+    /// as a handoff that could not start a thread would be.
+    fn start_failed(&self, launch: &Launch, error: &str) {
+        let side = &launch.side;
+        if side.closed.load(Ordering::SeqCst) {
+            // Ended on purpose while it started, and already put away.
+            return;
+        }
+        eprintln!("{} could not start a thread: {error}", launch.persona.name);
+        let reason = format!(
+            "{} could not start this thread: {error}",
+            launch.persona.name
+        );
+        side.say(
+            self,
+            &TranscriptEvent::Notice {
+                id: new_id(),
+                ts: now_ms(),
+                level: NoticeLevel::Error,
+                text: reason.clone(),
+            },
+        );
+        if launch.fresh {
+            self.end_side(side, Ending::Close(End::Failed, Some(reason.clone())));
+        } else {
+            self.end_side(side, Ending::Park);
+        }
+        if let Some(handoff) = &launch.handoff {
+            let _ = self.set_exchange_reply(
+                &handoff.key,
+                &handoff.request,
+                format!(
+                    "{} could not start a thread for this: {error}",
+                    launch.persona.name
+                ),
+                true,
+            );
+        }
     }
 
     /// Brings a thread whose agent is gone back from its marker. A parked
     /// thread is the one a line said to it wakes; an archived one only comes
     /// back when the person asks to continue it.
+    ///
+    /// The thread is answered as soon as it is published, still starting, with
+    /// the [`Launch`] to run once the caller has said what it came back for.
+    /// A thread that was live already has none.
     async fn wake_side(
         self: &Arc<Self>,
         side_id: &str,
         continuing: bool,
-    ) -> Result<Arc<LiveSide>, String> {
+    ) -> Result<(Arc<LiveSide>, Option<Launch>), String> {
         let _one_at_a_time = self.sides.waking.lock().await;
         if let Ok(side) = self.live_side(side_id) {
-            return Ok(side);
+            return Ok((side, None));
         }
         let link = self
             .link_of(&ThreadId::side(side_id))
@@ -642,16 +843,19 @@ impl Room {
         let Some(persona_id) = link.persona_id else {
             return Err("That side thread could not be read.".to_string());
         };
-        self.bring_up(
+        let (side, launch) = self.bring_up(
             &persona_id,
             Start {
                 side_id: side_id.to_string(),
                 title: link.title,
                 started: link.ts,
                 opener: link.opener,
+                fresh: false,
+                saved: link.binding,
+                handoff: None,
             },
-        )
-        .await
+        )?;
+        Ok((side, Some(launch)))
     }
 
     /// Says something in a side thread. Returns at once: the turn runs on its
@@ -683,11 +887,14 @@ impl Room {
         if text.is_empty() && attachments.is_none() {
             return Err("There is nothing to say.".to_string());
         }
-        let side = match self.live_side(side_id) {
-            Ok(side) => side,
+        let (side, launch) = match self.live_side(side_id) {
+            Ok(side) => (side, None),
             Err(_) => self.wake_side(side_id, false).await?,
         };
         self.say_in_side(&side, text, reply_to, attachments);
+        if let Some(launch) = launch {
+            self.launch(launch);
+        }
         Ok(())
     }
 
@@ -696,7 +903,9 @@ impl Room {
     pub fn cancel_side(&self, side_id: &str) -> Result<(), String> {
         let side = self.live_side(side_id)?;
         lock(&side.turns).clear();
-        side.driver.cancel();
+        if let Some(driver) = side.driver() {
+            driver.cancel();
+        }
         Ok(())
     }
 
@@ -762,7 +971,10 @@ impl Room {
         option_id: &str,
     ) -> Result<(), String> {
         let side = self.live_side(side_id)?;
-        if !side.driver.answer_permission(request_id, option_id) {
+        if !side
+            .driver()
+            .is_some_and(|driver| driver.answer_permission(request_id, option_id))
+        {
             return Err("That request is no longer waiting for an answer.".to_string());
         }
         let id = Value::from(format!("perm:{request_id}"));
@@ -947,7 +1159,9 @@ impl Room {
                 continue;
             }
             lock(&side.turns).clear();
-            side.driver.cancel();
+            if let Some(driver) = side.driver() {
+                driver.cancel();
+            }
             side.say(self, &TranscriptEvent::Notice {
                     id: new_id(),
                     ts: now_ms(),
@@ -1047,55 +1261,63 @@ impl Room {
         handoff: Option<HandoffLine>,
     ) -> Result<(), String> {
         let _working = self.working()?;
-        let side = match self.live_side(side_id) {
-            Ok(side) => side,
+        let (side, launch) = match self.live_side(side_id) {
+            Ok(side) => (side, None),
             Err(_) => self.wake_side(side_id, true).await?,
         };
-        let stream = StreamId::Side(side_id.to_string());
-        let existing = self
-            .log
-            .load(&stream)
-            .into_iter()
-            .find(|event| event["id"] == id);
-        if existing
-            .as_ref()
-            .is_some_and(|event| event["receipt"] == "read")
-        {
-            return Ok(());
-        }
-        if !lock(&side.dispatched).insert(id.to_string()) {
-            return Ok(());
-        }
-        let ts = existing
-            .as_ref()
-            .and_then(|event| event["ts"].as_i64())
-            .unwrap_or_else(now_ms);
-        let wire = super::peers::delivery_wire(&cause, &text);
-        *lock(&side.last_used) = now_ms();
-        if existing.is_none() {
-            side.say(
-                self,
-                &TranscriptEvent::Delivery {
-                    id: id.to_string(),
-                    ts,
-                    from: Some(from.clone()),
-                    cause,
-                    text,
-                    receipt: Some(Receipt::Sent),
+        // What came back is queued before the agent is started, so it is the
+        // first thing the agent hears however fast the start goes.
+        let delivered = (|| {
+            let stream = StreamId::Side(side_id.to_string());
+            let existing = self
+                .log
+                .load(&stream)
+                .into_iter()
+                .find(|event| event["id"] == id);
+            if existing
+                .as_ref()
+                .is_some_and(|event| event["receipt"] == "read")
+            {
+                return Ok(());
+            }
+            if !lock(&side.dispatched).insert(id.to_string()) {
+                return Ok(());
+            }
+            let ts = existing
+                .as_ref()
+                .and_then(|event| event["ts"].as_i64())
+                .unwrap_or_else(now_ms);
+            let wire = super::peers::delivery_wire(&cause, &text);
+            *lock(&side.last_used) = now_ms();
+            if existing.is_none() {
+                side.say(
+                    self,
+                    &TranscriptEvent::Delivery {
+                        id: id.to_string(),
+                        ts,
+                        from: Some(from.clone()),
+                        cause,
+                        text,
+                        receipt: Some(Receipt::Sent),
+                    },
+                );
+            }
+            self.queue_in_side(
+                &side,
+                Line {
+                    text: super::timed(ts, &wire),
+                    attachments: Vec::new(),
+                    handoff,
+                    from: Some(from),
+                    delivery: Some(id.to_string()),
                 },
             );
+            Ok(())
+        })();
+        if let Some(launch) = launch {
+            self.launch(launch);
         }
-        self.queue_in_side(
-            &side,
-            Line {
-                text: super::timed(ts, &wire),
-                attachments: Vec::new(),
-                handoff,
-                from: Some(from),
-                delivery: Some(id.to_string()),
-            },
-        );
-        Ok(())
+        delivered
     }
 
     /// The human-action cards that sit in this teammate's work threads, for the
@@ -1144,7 +1366,9 @@ impl Room {
             return;
         };
         lock(&side.turns).clear();
-        side.driver.cancel();
+        if let Some(driver) = side.driver() {
+            driver.cancel();
+        }
         self.finish_side(&side, End::Stopped, Some(outcome.to_string()));
     }
 
@@ -1160,8 +1384,12 @@ impl Room {
         self.sides.remove(&side.id);
         lock(&side.turns).clear();
         side.capability.revoke();
-        side.driver.invalidate();
-        self.let_go_of_computer(&side.persona_id, &side.holder);
+        // A thread ended while its agent is still starting has none to stop
+        // here: the start sees that it is closed and stops it itself.
+        if let Some(up) = side.up.get() {
+            up.driver.invalidate();
+            self.let_go_of_computer(&side.persona_id, &up.holder);
+        }
         let stream = StreamId::Side(side.id.clone());
         let events = self.log.load(&stream);
         for expired in crate::log::expire_orphaned_permissions(&events, now_ms()) {
@@ -1204,8 +1432,10 @@ impl Room {
     /// or archived thread reopen with real recall. A turn that failed, or a
     /// session the driver says is broken, withdraws the promise instead.
     fn remember_session(&self, side: &LiveSide, driven: &super::runner::Driven) {
-        let broken =
-            !side.driver.checkpoint_valid() || driven.stop_reason.as_deref() == Some("failed");
+        let broken = side
+            .driver()
+            .is_none_or(|driver| !driver.checkpoint_valid())
+            || driven.stop_reason.as_deref() == Some("failed");
         let next = if broken {
             None
         } else {
@@ -1480,8 +1710,11 @@ mod tests {
         let summary = room.start_side("ada", "  ").await.unwrap();
         assert_eq!(summary.title, "");
         assert_eq!(summary.status, SideStatus::Live);
-        assert!(!summary.working);
+        // Its agent is still being brought up, which is a thread at work.
+        assert!(summary.working);
         assert_eq!(kinds(&side_stream(&room, &summary.side_id)), ["side"]);
+        settled(&room, &summary.side_id).await;
+        assert!(!room.sides("ada")[0].working);
 
         room.prompt_side(&summary.side_id, "Fix the CI badge\nit is red", None)
             .await
@@ -1552,7 +1785,8 @@ mod tests {
     async fn the_brief_makes_a_thread_a_working_session_that_does_not_close_itself() {
         let agents = Fake::new(Scripted::new(vec![turn()]));
         let room = room("side-brief", agents.clone());
-        room.start_side("ada", "Triage the repos").await.unwrap();
+        let summary = room.start_side("ada", "Triage the repos").await.unwrap();
+        settled(&room, &summary.side_id).await;
         let preamble = lock(&agents.preambles).last().cloned().unwrap();
         assert!(!preamble.contains("When the task is done"), "{preamble}");
         assert!(preamble.contains("many requests"), "{preamble}");
@@ -2057,6 +2291,7 @@ mod tests {
         assert!(tape(&room)[0].get("sessionId").is_some());
         room.archive_side(&id, SideEnd::Person, None).unwrap();
         room.continue_side(&id).await.unwrap();
+        settled(&room, &id).await;
         let preamble = lock(&agents.preambles).last().cloned().unwrap();
         assert!(preamble.contains("hotline_side_transcript"), "{preamble}");
         assert!(preamble.contains("The lockfile is stale."), "{preamble}");
@@ -2169,9 +2404,11 @@ mod tests {
         ] {
             room.log.append(&tape_id, &event).unwrap();
         }
-        room.start_side("ada", "Check the tide tables")
+        let summary = room
+            .start_side("ada", "Check the tide tables")
             .await
             .unwrap();
+        settled(&room, &summary.side_id).await;
         let preamble = lock(&agents.preambles).last().cloned().unwrap();
         assert!(preamble.contains("winch oiled"), "{preamble}");
         assert!(preamble.contains("Quiet today."), "{preamble}");
@@ -2236,6 +2473,120 @@ mod tests {
                 .is_err(),
             "answerable once"
         );
+    }
+
+    /// Waits until the room's agents have heard `count` lines.
+    async fn heard(agents: &Fake, count: usize) {
+        for _ in 0..500 {
+            if agents.prompts().len() >= count {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        panic!("the agent never heard {count} lines");
+    }
+
+    #[tokio::test]
+    async fn a_thread_opens_before_its_agent_is_up_and_the_first_line_waits_for_it() {
+        let gate = Arc::new(Semaphore::new(0));
+        let agents =
+            Fake::new(Scripted::new(vec![say("m1", "On it."), turn()]).slow_to_start(gate.clone()));
+        let room = room("side-slow-start", agents.clone());
+
+        // The agent cannot start yet, and the thread is open all the same.
+        let summary = tokio::time::timeout(
+            Duration::from_secs(2),
+            room.start_side("ada", "Fix the CI badge"),
+        )
+        .await
+        .expect("opening a thread does not wait for its agent")
+        .unwrap();
+        assert_eq!(summary.status, SideStatus::Live);
+        assert!(summary.working, "a thread starting is shown at work");
+        let stream = side_stream(&room, &summary.side_id);
+        assert_eq!(kinds(&stream), ["side", "user"]);
+        assert_eq!(tape(&room)[0]["status"], "live");
+        assert!(agents.prompts().is_empty());
+
+        // A line said while it starts is written at once and waits its turn.
+        room.prompt_side(&summary.side_id, "And the README", None)
+            .await
+            .unwrap();
+        assert_eq!(
+            kinds(&side_stream(&room, &summary.side_id)),
+            ["side", "user", "user"]
+        );
+        assert!(agents.prompts().is_empty());
+
+        gate.add_permits(1);
+        heard(&agents, 2).await;
+        settled(&room, &summary.side_id).await;
+        assert_eq!(agents.prompts(), ["Fix the CI badge", "And the README"]);
+        // Neither line was also handed over as history.
+        assert!(lock(&agents.seeds).last().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_agent_that_cannot_start_says_so_in_the_thread_and_the_thread_is_put_away() {
+        let agents =
+            Fake::new(Scripted::new(vec![turn()]).failing_to_start("the harness is not installed"));
+        let room = room("side-failed-start", agents.clone());
+        let summary = room.start_side("ada", "Task").await.unwrap();
+        for _ in 0..500 {
+            if room.sides("ada").is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(room.sides("ada").is_empty(), "no agent is left behind");
+        assert!(agents.prompts().is_empty());
+
+        let stream = side_stream(&room, &summary.side_id);
+        let notice = stream
+            .iter()
+            .find(|event| event["kind"] == "notice")
+            .expect("the thread says why");
+        assert_eq!(notice["level"], "error");
+        assert!(
+            notice["text"]
+                .as_str()
+                .unwrap()
+                .contains("the harness is not installed"),
+            "{notice}"
+        );
+        let stored = room.log.load(&StreamId::Tape("ada".to_string()));
+        assert_eq!(stored.last().unwrap()["state"], "closed");
+        assert_eq!(stored.last().unwrap()["end"], "failed");
+        assert!(
+            stored.last().unwrap()["outcome"]
+                .as_str()
+                .unwrap()
+                .contains("the harness is not installed")
+        );
+        // Its place is free again.
+        assert!(room.sides.has_room("ada"));
+        assert!(!room.work_is_open(&summary.side_id));
+    }
+
+    #[tokio::test]
+    async fn a_thread_ended_while_its_agent_starts_stays_ended() {
+        let gate = Arc::new(Semaphore::new(0));
+        let agents = Fake::new(Scripted::new(vec![turn()]).slow_to_start(gate.clone()));
+        let room = room("side-ended-starting", agents.clone());
+        let summary = room.start_side("ada", "Task").await.unwrap();
+        room.archive_side(&summary.side_id, SideEnd::Person, None)
+            .unwrap();
+        gate.add_permits(1);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(room.sides("ada").is_empty());
+        assert!(agents.prompts().is_empty(), "the task is not run");
+        assert!(
+            !side_stream(&room, &summary.side_id)
+                .iter()
+                .any(|event| event["kind"] == "notice"),
+            "ending it on purpose is not a failed start"
+        );
+        assert!(!room.work_is_open(&summary.side_id));
     }
 
     #[tokio::test]

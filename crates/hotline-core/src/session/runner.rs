@@ -377,6 +377,7 @@ impl Room {
                 title: spec.title.clone(),
                 opener: None,
                 lease,
+                heard_from: None,
             }) => built?,
         };
         // The run settles its own agent, however it ends.

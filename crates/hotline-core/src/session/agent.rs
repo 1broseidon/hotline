@@ -55,6 +55,12 @@ pub(super) struct Opening {
     pub opener: Option<Opener>,
     /// The thread's authority, made by [`lease_of`] before the agent is.
     pub lease: CapabilityLease,
+    /// When the lines this agent is yet to be handed begin. A thread is
+    /// published before its agent is built, so what the person said in it
+    /// meanwhile is already on its stream; it is the agent's first turn and
+    /// not part of the history the agent is seeded with, or it would hear it
+    /// twice.
+    pub heard_from: Option<i64>,
 }
 
 /// An agent that was built and started for a thread. It is stopped when this
@@ -193,6 +199,7 @@ impl Room {
             title,
             opener,
             lease,
+            heard_from,
         } = opening;
         let policy = Policy::of(thread.kind);
         let in_process = persona.backend_id == HOTLINE_BACKEND_ID;
@@ -274,8 +281,17 @@ impl Room {
         // telling one that a path outside its directory would be refused is a
         // promise nobody here can keep.
         let reach = in_process.then(|| view.reach.unwrap_or_default());
+        // The parent's tape can be many megabytes. It is read and parsed off the
+        // async workers, so a thread starting beside a long conversation does
+        // not hold up the others the room is running.
         let context = if policy.seed.parent_tail {
-            chapters::side_context(&self.tape(&view.id), now_ms())
+            let room = self.clone();
+            let persona_id = view.id.clone();
+            tokio::task::spawn_blocking(move || {
+                chapters::side_context(&room.tape(&persona_id), now_ms())
+            })
+            .await
+            .map_err(|error| format!("The conversation could not be read: {error}"))?
         } else {
             None
         };
@@ -288,7 +304,13 @@ impl Room {
             with_note(computer_note.take(), chapters::wake_block(events, now_ms()))
         });
         let earlier = match thread.stream() {
-            Some(stream) if policy.seed.own_history => self.log.load(&stream),
+            Some(stream) if policy.seed.own_history => {
+                let mut earlier = self.log.load(&stream);
+                if let Some(from) = heard_from {
+                    earlier.retain(|event| event["ts"].as_i64().is_none_or(|ts| ts < from));
+                }
+                earlier
+            }
             _ => Vec::new(),
         };
         let has_history = !earlier.is_empty();
@@ -638,7 +660,15 @@ mod tests {
         let folder = log.root().join("not-made-yet");
         ada.cwd = folder.to_string_lossy().into_owned();
         let room = room_with(&ada, log, agents.clone());
-        room.start_side("ada", "Triage").await.unwrap();
+        let summary = room.start_side("ada", "Triage").await.unwrap();
+        // The agent is built on a task of its own: wait for its turn to end.
+        for _ in 0..500 {
+            if room.sides("ada").iter().all(|side| !side.working) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        let _ = summary;
         assert!(folder.is_dir(), "the builder makes the working directory");
         assert!(
             folder.join("AGENTS.md").is_file(),

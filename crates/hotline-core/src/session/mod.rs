@@ -884,6 +884,7 @@ impl Room {
                 title: "the main conversation".to_string(),
                 opener: None,
                 lease: capability.clone(),
+                heard_from: None,
             })
             .await?;
         let persona = agent.view.clone();

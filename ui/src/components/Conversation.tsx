@@ -7,6 +7,7 @@ import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "..
 import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
+import { peopleOf } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
@@ -55,6 +56,7 @@ export function Conversation({
 	onOpenWork,
 	workOpen,
 	threadOpen,
+	paneOpen = false,
 	dock,
 	models,
 	onSaid,
@@ -88,10 +90,13 @@ export function Conversation({
 	workOpen: string | null | undefined;
 	/** Which thread is open in the right-hand pane, if any. */
 	threadOpen: ThreadId | undefined;
+	/** The threads pane is beside the conversation, listing what the band's side-thread chips would. */
+	paneOpen?: boolean;
 	/** The work card, docked under the composer when the window is too narrow for it to float. */
 	dock?: ReactNode;
 }) {
 	const { persona, session } = entry;
+	const people = useMemo(() => peopleOf(roster), [roster]);
 	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const subagents = entry.subagents ?? [];
 	const sides = entry.sides ?? [];
@@ -366,8 +371,9 @@ export function Conversation({
 
 				{/* Side threads still live: a chip each, next to the subagents.
 				 * They leave the band when archived; the conversation's own line
-				 * keeps what came of each. */}
-				{sides.length === 1 ? (
+				 * keeps what came of each. With the pane open they are in its
+				 * list, and the band has no room to name them. */}
+				{paneOpen ? null : sides.length === 1 ? (
 					<button
 						type="button"
 						className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
@@ -455,6 +461,7 @@ export function Conversation({
 					personaId={personaId}
 					name={persona.name}
 					avatarHash={persona.avatar?.hash}
+					people={people}
 					events={shown}
 					streaming={streaming}
 					live={session.state === "thinking"}

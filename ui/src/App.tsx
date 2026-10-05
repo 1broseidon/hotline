@@ -570,6 +570,7 @@ export function App() {
 							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}
 							workOpen={workOf?.blockId}
 							threadOpen={dock?.open?.thread}
+							paneOpen={dock !== null}
 							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}
 						/>
 						{inspector && (

@@ -12,6 +12,14 @@ const readOverWire: AvatarRead = (personaId, hash, offset) => wire.command("avat
  */
 const pictures = new Map<string, Promise<string>>();
 
+/** A colleague a line names: what to call them, and their picture's hash when they have one. */
+export type Person = { name: string; hash?: string | undefined };
+
+/** Every teammate by id, for lines that name a colleague rather than the teammate whose tape it is. */
+export function peopleOf(roster: readonly { persona: { id: string; name: string; avatar?: { hash: string } | undefined } }[]): ReadonlyMap<string, Person> {
+	return new Map(roster.map((entry) => [entry.persona.id, { name: entry.persona.name, hash: entry.persona.avatar?.hash }]));
+}
+
 export function avatarUrl(personaId: string, hash: string, read: AvatarRead = readOverWire): Promise<string> {
 	const known = pictures.get(hash);
 	if (known !== undefined) return known;

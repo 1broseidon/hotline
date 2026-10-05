@@ -17,7 +17,20 @@ const link = (extra: Partial<LinkEvent> = {}): LinkEvent => ({
 describe("a work thread's line in the conversation", () => {
 	test("says it started while it runs, and whose hands it came from when a teammate opened it", () => {
 		expect(linkLine(link())).toBe("Started a side thread · Fix the CI badge");
-		expect(linkLine(link({ openerId: "mack", openerName: "Mack" }))).toBe("Mack handed this over · Fix the CI badge");
+		expect(linkLine(link({ openerId: "mack", openerName: "Mack" }), "p")).toBe("From Mack · Fix the CI badge");
+	});
+
+	test("says who a handoff went to on the hands that gave it, all the way to its result", () => {
+		const people = new Map([["p", { name: "Poe" }]]);
+		const handed = link({ openerId: "mack", openerName: "Mack" });
+		expect(linkLine(handed, "mack", people)).toBe("Handed to Poe · Fix the CI badge");
+		expect(linkLine({ ...handed, state: "closed", end: "agent", outcome: "Badge is green." }, "mack", people)).toBe(
+			"Handed to Poe · Fix the CI badge · Badge is green.",
+		);
+		expect(linkLine({ ...handed, state: "closed", end: "agent", outcome: "Badge is green." }, "p", people)).toBe(
+			"From Mack · Fix the CI badge · Badge is green.",
+		);
+		expect(linkLine(handed, "mack")).toBe("Handed over · Fix the CI badge");
 	});
 
 	test("becomes its title and a one-line result once closed, and says when nobody ended it", () => {

@@ -1,4 +1,5 @@
 import type { ThreadEnd, ThreadId } from "./generated/contract";
+import type { Person } from "./avatars";
 import type { LinkEvent } from "./dock";
 
 /** What names a thread a link stands for. */
@@ -40,30 +41,43 @@ function callWords(link: LinkEvent): string {
 /** The ways a work thread ends that nobody said were done. */
 const ENDINGS: Partial<Record<ThreadEnd, string>> = { stopped: "stopped", idle: "archived, idle" };
 
-/**
- * What a work thread's line says: while it runs, that it started, or whose
- * hands it came from; parked, that it is waiting to be picked up; once closed,
- * its title and what came of it in one line, and how it ended when nobody said
- * it was done.
- */
 /** A side thread opened without a task is untitled until its first line names it. */
 export const sideTitle = (title: string | undefined): string => (title === undefined || title === "" ? "New side thread" : title);
 
-function workWords(link: LinkEvent): string {
-	const title = sideTitle(link.title);
-	if (link.state === "live") {
-		return link.openerName !== undefined && link.openerName !== ""
-			? `${link.openerName} handed this over · ${title}`
-			: `Started a side thread · ${title}`;
-	}
-	if (link.state === "parked") return `Side thread · ${title} · parked`;
-	const ending = link.end === undefined ? undefined : ENDINGS[link.end];
-	const outcome = link.outcome !== undefined && link.outcome !== "" ? link.outcome : "archived";
-	return `Side thread · ${title} · ${outcome}${ending !== undefined && link.outcome !== undefined && link.outcome !== "" ? ` · ${ending}` : ""}`;
+/**
+ * Who a work thread is between, from the tape that holds it: handed to a
+ * colleague, on the hands that gave it; from a colleague, on the hands that
+ * took it; a side thread when nobody handed it over.
+ */
+function workWho(link: LinkEvent, owner: string, people?: ReadonlyMap<string, Person>): string {
+	const opener = link.openerName !== undefined && link.openerName !== "" ? link.openerName : undefined;
+	if (opener === undefined || link.openerId === link.personaId) return "Side thread";
+	if (link.personaId === undefined || link.personaId === owner) return `From ${opener}`;
+	const taker = people?.get(link.personaId)?.name;
+	return taker === undefined ? "Handed over" : `Handed to ${taker}`;
 }
 
-/** A thread's line in the conversation that holds it: one quiet sentence, whatever the kind. */
-export function linkLine(link: LinkEvent): string {
+/**
+ * What a work thread's line says: who it is between and its title; parked,
+ * that it is waiting to be picked up; once closed, what came of it in one
+ * line, and how it ended when nobody said it was done.
+ */
+function workWords(link: LinkEvent, owner: string, people?: ReadonlyMap<string, Person>): string {
+	const between = workWho(link, owner, people);
+	const who = `${between} · ${sideTitle(link.title)}`;
+	if (link.state === "live") return between === "Side thread" ? `Started a side thread · ${sideTitle(link.title)}` : who;
+	if (link.state === "parked") return `${who} · parked`;
+	const ending = link.end === undefined ? undefined : ENDINGS[link.end];
+	const outcome = link.outcome !== undefined && link.outcome !== "" ? link.outcome : "archived";
+	return `${who} · ${outcome}${ending !== undefined && link.outcome !== undefined && link.outcome !== "" ? ` · ${ending}` : ""}`;
+}
+
+/**
+ * A thread's line in the conversation that holds it: one quiet sentence,
+ * whatever the kind. `owner` is whose tape it is, and `people` names the
+ * colleagues a handoff is between.
+ */
+export function linkLine(link: LinkEvent, owner = "", people?: ReadonlyMap<string, Person>): string {
 	switch (link.threadKind) {
 		case "run":
 			return `Subagent · ${link.title} · ${runState(link)}`;
@@ -72,7 +86,7 @@ export function linkLine(link: LinkEvent): string {
 		case "pair":
 			return link.state === "live" ? `Talking with ${link.title}` : `Talked with ${link.title}`;
 		default:
-			return workWords(link);
+			return workWords(link, owner, people);
 	}
 }
 

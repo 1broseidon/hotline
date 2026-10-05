@@ -22,6 +22,7 @@ import {
 	threadDot,
 	withLinks,
 } from "../dock";
+import { type Person, peopleOf } from "../avatars";
 import { sideTitle } from "../links";
 import { dmOf, sameThread, useThread } from "../tape";
 import { Band } from "../ui/Band";
@@ -73,6 +74,7 @@ export function Dock({
 
 	const teammate = entry === null ? null : { id: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash };
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
+	const people = useMemo(() => peopleOf(roster), [roster]);
 	const { rows, list, reload } = useThreadRows(entry);
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
@@ -93,6 +95,7 @@ export function Dock({
 							row={rows.find((row) => sameThread(row.thread, at.thread))}
 							teammate={teammate}
 							nameOf={nameOf}
+							people={people}
 							working={entry !== null && workingNow(entry, at)}
 							onChanged={reload}
 							onOpen={(open) => onState({ open })}
@@ -311,6 +314,7 @@ function ThreadView({
 	row,
 	teammate,
 	nameOf,
+	people,
 	working,
 	onChanged,
 	onOpen,
@@ -322,6 +326,7 @@ function ThreadView({
 	row: ThreadSummary | undefined;
 	teammate: { id: string; name: string; avatarHash?: string | undefined };
 	nameOf(personaId: string): string | undefined;
+	people: ReadonlyMap<string, Person>;
 	/** A turn of this thread is running, as the roster says. */
 	working: boolean;
 	/** The thread was archived or continued: the list reads itself again. */
@@ -404,6 +409,7 @@ function ThreadView({
 					thread={id}
 					name={teammate.name}
 					avatarHash={teammate.avatarHash}
+					people={people}
 					events={lines}
 					streaming={streaming}
 					live={turning}

@@ -8,6 +8,19 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- A handoff's line in the conversation says what it is: "Handed to Mack" in
+  the sender's chat and "From Clementine" in the receiver's, where both used to
+  read "Side thread".
+- An answer's preview skips an opener like "On it." and quotes what came back.
+- Answers and handoffs from a colleague show their picture, not an initial.
+- The side-thread chip leaves the header while the threads pane is open, which
+  lists it, instead of shrinking to "Si…".
+- The permission to hand a teammate work says it arrives in a work thread of
+  their own, not their main conversation, and so does the handoff tool's own
+  description to agents.
+
 ## [0.32.0] - 2026-10-04
 
 ### Added

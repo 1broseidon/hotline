@@ -25,6 +25,7 @@ import { answerCard, dmOf, type Streaming } from "../tape";
 import { linkFailed, linkLine, threadOfLink } from "../links";
 import { type Activity, type ActivityPhase, activityOf, LANDED, RESTING } from "../activity";
 import { Glyph, LANDED_MS } from "../ui/Glyph";
+import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { Viewer } from "../ui/Viewer";
@@ -70,6 +71,7 @@ export function Transcript({
 	personaId,
 	name,
 	avatarHash,
+	people,
 	events,
 	streaming,
 	live,
@@ -92,6 +94,8 @@ export function Transcript({
 	name: string;
 	/** The teammate's picture, when it has one. */
 	avatarHash?: string | undefined;
+	/** Every teammate by id, for the colleagues a line names. */
+	people?: ReadonlyMap<string, Person> | undefined;
 	events: TranscriptEvent[];
 	streaming: Streaming[];
 	/** A turn is running: the mark is up, above the composer. */
@@ -326,6 +330,7 @@ export function Transcript({
 									top={run.top}
 									bottom={run.bottom}
 									speakers={speakers}
+									people={people}
 									{...(onRetryMessage && !speakers && block.event.kind === "notice" ? { onRetry: retryForNotice(events, block.event.id, onRetryMessage) } : {})}
 									reactions={reacted.on.get(block.event.id)}
 									{...(onReply !== undefined ? { onReply } : {})}
@@ -637,6 +642,7 @@ const Row = memo(function Row({
 	top,
 	bottom,
 	speakers,
+	people,
 	reactions,
 	onReply,
 	onReact,
@@ -655,6 +661,7 @@ const Row = memo(function Row({
 	top: boolean;
 	bottom: boolean;
 	speakers: Speakers | undefined;
+	people: ReadonlyMap<string, Person> | undefined;
 	/** Emoji the phone or this window sent as lines of their own, folded onto this one. */
 	reactions: string[] | undefined;
 	onRetry?: (() => void) | undefined;
@@ -751,7 +758,7 @@ const Row = memo(function Row({
 		case "peer":
 			return (
 				<button type="button" className="hung-line" data-missed={event.status === "failed" || undefined} onClick={() => onOpenThread?.({ thread: { kind: "pair", key: event.threadKey }, withName: event.withName })}>
-					<Avatar id={event.withPersonaId} name={event.withName} size={16} />
+					<Avatar id={event.withPersonaId} name={event.withName} size={16} hash={people?.get(event.withPersonaId)?.hash} />
 					<span className="min-w-0 truncate">{peerLine(event)}</span>
 					<ChevronRightIcon />
 				</button>
@@ -776,7 +783,7 @@ const Row = memo(function Row({
 						...(cause.kind === "handoff" ? { handoff: cause } : {}),
 					})}
 				>
-					<Avatar id={cause.personaId} name={line.name} size={16} />
+					<Avatar id={cause.personaId} name={line.name} size={16} hash={people?.get(cause.personaId)?.hash} />
 					<span className="min-w-0 truncate">
 						<span className="hung-line-name">{line.name}</span> {line.said}
 					</span>
@@ -794,10 +801,10 @@ const Row = memo(function Row({
 					type="button"
 					className="rule-line rule-line-plain w-full"
 					style={linkFailed(event) ? { color: "var(--warn)" } : undefined}
-					aria-label={`${linkLine(event)}. Open it`}
+					aria-label={`${linkLine(event, personaId, people)}. Open it`}
 					onClick={() => onOpenThread?.({ thread: threadOfLink(event), title: event.title })}
 				>
-					<span className="min-w-0 truncate">{linkLine(event)}</span>
+					<span className="min-w-0 truncate">{linkLine(event, personaId, people)}</span>
 					<span className="shrink-0">· Open</span>
 				</button>
 			);
@@ -842,10 +849,20 @@ export function deliveryLine(event: DeliveryEvent): { name: string; said: string
 	if (cause.kind === "answer") return null;
 	if (cause.kind === "peer" && cause.status === "failed")
 		return { name: cause.name, said: cause.about ? `didn't answer · ${cause.about}` : "didn't answer" };
-	const said = plain(firstLine(event.text)) || cause.about;
+	const said = plain(firstLine(withoutOpener(event.text))) || cause.about;
 	if (cause.kind !== "handoff") return { name: cause.name, said };
 	// A handoff still behind the teammate's current turn says so; once taken up it is just what was handed.
 	return { name: cause.name, said: `handed you: ${said}${event.receipt === "sent" ? " · queued" : ""}` };
+}
+
+/** A first line that only acknowledges the work, before what came of it. */
+const OPENER = /^(on it|got it|sure( thing)?|ok(ay)?|will do|alright|sounds good|here you go|here it is)[.!,:…]*$/i;
+
+/** What a colleague said, without an opener that says nothing when there is more after it. */
+function withoutOpener(text: string): string {
+	const lines = text.trim().split("\n");
+	const rest = lines.slice(1).join("\n").trim();
+	return OPENER.test(lines[0]!.trim()) && rest !== "" ? rest : text;
 }
 
 /** A quoted line reads as words, not as the markdown it was written in. */

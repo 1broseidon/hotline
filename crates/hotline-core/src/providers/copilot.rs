@@ -290,9 +290,10 @@ pub(crate) fn chat_agent(
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ChatBody(reqwest::Client);
 
-/// The body with each all-text assistant `content` list joined into one
-/// string. Anything that is not a chat request, or not text, passes as it
-/// came.
+/// The body with each assistant `content` list of bare text parts joined
+/// into one string. Anything that is not a chat request, not text, or text
+/// with more on it than its words, passes as it came; fields beside
+/// `content` on the message are never touched.
 fn flatten_assistant_text(body: Bytes) -> Bytes {
     let Ok(mut request) = serde_json::from_slice::<serde_json::Value>(&body) else {
         return body;
@@ -313,12 +314,15 @@ fn flatten_assistant_text(body: Bytes) -> Bytes {
         };
         let texts: Option<Vec<&str>> = parts
             .iter()
-            .map(
-                |part| match part.get("type").and_then(serde_json::Value::as_str) {
-                    Some("text") => part.get("text").and_then(serde_json::Value::as_str),
-                    _ => None,
-                },
-            )
+            .map(|part| {
+                // A part carrying anything besides its text would lose it in
+                // the join, so its message is left as it came.
+                let fields = part.as_object()?;
+                let bare = fields.len() == 2
+                    && fields.get("type").and_then(serde_json::Value::as_str) == Some("text");
+                bare.then(|| fields.get("text").and_then(serde_json::Value::as_str))
+                    .flatten()
+            })
             .collect();
         if let Some(texts) = texts.filter(|texts| !texts.is_empty()) {
             message["content"] = serde_json::Value::String(texts.join("\n\n"));
@@ -942,7 +946,14 @@ pub(crate) mod tests {
                 {"role": "tool", "tool_call_id": "1", "content": "(empty)"},
                 {"role": "assistant", "content": [{"type": "text", "text": "Today — Mon 5 Oct"}]},
                 {"role": "assistant", "content": [{"type": "refusal", "refusal": "no"}]},
-                {"role": "assistant", "content": "already a string"}
+                {"role": "assistant", "content": "already a string"},
+                {"role": "assistant", "content": [{"type": "text", "text": "Thought it over."}],
+                 "reasoning_text": "plan", "reasoning_opaque": "c2lnbmVk", "custom": {"kept": true}},
+                {"role": "assistant",
+                 "content": [{"type": "text", "text": "Mixed"}, {"type": "refusal", "refusal": "no"}]},
+                {"role": "assistant", "content": []},
+                {"role": "assistant",
+                 "content": [{"type": "text", "text": "Cited", "annotations": [{"url": "x"}]}]}
             ]
         });
         let out: serde_json::Value = serde_json::from_slice(&flatten_assistant_text(Bytes::from(
@@ -958,6 +969,13 @@ pub(crate) mod tests {
         assert_eq!(messages[4]["content"], "Today — Mon 5 Oct");
         assert_eq!(messages[5], body["messages"][5]);
         assert_eq!(messages[6], body["messages"][6]);
+        assert_eq!(messages[7]["content"], "Thought it over.");
+        for field in ["reasoning_text", "reasoning_opaque", "custom"] {
+            assert_eq!(messages[7][field], body["messages"][7][field]);
+        }
+        assert_eq!(messages[8], body["messages"][8]);
+        assert_eq!(messages[9], body["messages"][9]);
+        assert_eq!(messages[10], body["messages"][10]);
         let other = Bytes::from_static(b"not json");
         assert_eq!(flatten_assistant_text(other.clone()), other);
     }

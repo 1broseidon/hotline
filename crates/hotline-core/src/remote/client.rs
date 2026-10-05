@@ -100,7 +100,12 @@ impl Client {
             }
         };
         let claim = json!({"secret":payload.secret,"name":device_name.trim()});
-        let (_, reply) = handshake(&payload.url, "v2/pair", &identity, &claim.to_string()).await?;
+        let claim = claim.to_string();
+        let opened = handshake(&payload.url, "v2/pair", &identity, &claim).await;
+        let (_, reply) = match (opened, &payload.relay) {
+            (Err(_), Some(relay)) => handshake(relay, "v2/pair", &identity, &claim).await?,
+            (opened, _) => opened?,
+        };
         let reply: Value = serde_json::from_slice(&reply)
             .map_err(|_| "The desk sent an invalid pairing reply.")?;
         let desk_id = reply["deskId"]
@@ -153,6 +158,18 @@ impl Client {
         self.sealed(desk, "v2/relay", &payload).await
     }
 
+    pub(super) async fn accept_relay(
+        &self,
+        desk: &PairedDesk,
+        capability: &str,
+    ) -> Result<Socket, OpenError> {
+        let payload = json!({"purpose":"relay-accept","capability":capability}).to_string();
+        Ok(self
+            .sealed(desk, "v2/relay/accept", &payload)
+            .await?
+            .into_socket())
+    }
+
     async fn sealed(
         &self,
         desk: &PairedDesk,
@@ -180,6 +197,93 @@ impl Client {
             return Err("The desk refused this session.".into());
         }
         Ok(channel)
+    }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+
+    #[test]
+    fn relay_addresses_match_the_phones_path_and_security_rules() {
+        assert_eq!(
+            relay_endpoint(" https://RELAY.example:443/room.v2/relay/desk-1/// "),
+            Some("https://relay.example/room.v2/relay/desk-1".into())
+        );
+        for invalid in [
+            "https://desk.example",
+            "http://relay.example/relay/desk",
+            "https://user@relay.example/relay/desk",
+            "https://relay.example/relay/desk?token=t",
+            "https://relay.example/relay/desk#fragment",
+            "https://relay.example/relay/desk/v2",
+            "https://relay.example/relay/desk_1",
+            "https://relay.example//relay/desk",
+            "https://relay.example/base%20path/relay/desk",
+        ] {
+            assert_eq!(relay_endpoint(invalid), None, "{invalid}");
+        }
+    }
+
+    #[test]
+    fn discovery_requires_the_expected_v2_team_hello_and_can_clear_a_relay() {
+        let mut hello = json!({
+            "type":"hello", "protocolVersion":2, "desktopId":"desk", "mode":"team",
+            "endpoints":["https://desk.example","https://relay.example/base/relay/desk/"]
+        });
+        assert_eq!(
+            hello_relay(&hello.to_string(), "desk").unwrap().relay,
+            Some(Some("https://relay.example/base/relay/desk".into()))
+        );
+        assert!(hello_relay(&hello.to_string(), "other-desk").is_none());
+        for (field, value) in [
+            ("protocolVersion", json!(1)),
+            ("type", json!("reply")),
+            ("mode", json!("computer")),
+        ] {
+            let mut malformed = hello.clone();
+            malformed[field] = value;
+            assert!(hello_relay(&malformed.to_string(), "desk").is_none());
+        }
+        hello["endpoints"] = json!(["https://desk.example"]);
+        assert_eq!(
+            hello_relay(&hello.to_string(), "desk").unwrap().relay,
+            Some(None)
+        );
+        hello["endpoints"] = json!([]);
+        assert_eq!(
+            hello_relay(&hello.to_string(), "desk").unwrap().relay,
+            Some(None)
+        );
+    }
+
+    #[test]
+    fn malformed_or_missing_endpoints_do_not_clear_a_known_relay() {
+        let mut hello = json!({
+            "type":"hello", "protocolVersion":2, "desktopId":"desk", "mode":"team"
+        });
+        assert!(
+            hello_relay(&hello.to_string(), "desk")
+                .unwrap()
+                .relay
+                .is_none()
+        );
+        for endpoints in [
+            json!(null),
+            json!("https://relay.example/relay/desk"),
+            json!([null]),
+            json!(["https://desk.example", 42]),
+            json!(["http://relay.example/relay/desk"]),
+            json!(["https://relay.example/relay/desk?token=secret"]),
+        ] {
+            hello["endpoints"] = endpoints;
+            assert!(
+                hello_relay(&hello.to_string(), "desk")
+                    .unwrap()
+                    .relay
+                    .is_none()
+            );
+        }
     }
 }
 
@@ -243,9 +347,70 @@ fn endpoint(base: &str, path: &str) -> Result<url::Url, String> {
     Ok(url)
 }
 
+/// The same shape accepted by the phone: HTTPS, an optional base path, and
+/// `/relay/<deskId>`. Discovery comes from Noise, never from TLS or a redirect.
+fn relay_endpoint(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    if raw.len() > 512 {
+        return None;
+    }
+    endpoint(raw, "v2").ok()?;
+    let url = url::Url::parse(raw).ok()?;
+    let path = url.path().trim_end_matches('/');
+    let parts: Vec<_> = path.strip_prefix('/')?.split('/').collect();
+    let (id, base) = parts.split_last()?;
+    let (relay, prefix) = base.split_last()?;
+    if *relay != "relay"
+        || id.is_empty()
+        || id.len() > 64
+        || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        || !prefix.iter().all(|part| {
+            !part.is_empty()
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"._~-".contains(&b))
+        })
+    {
+        return None;
+    }
+    Some(format!("{}{path}", url.origin().ascii_serialization()))
+}
+
+struct Hello {
+    /// None means no valid discovery; Some(None) explicitly clears a relay.
+    relay: Option<Option<String>>,
+}
+
+fn hello_relay(text: &str, desk_id: &str) -> Option<Hello> {
+    let hello: Value = serde_json::from_str(text).ok()?;
+    if hello["type"] != "hello"
+        || hello["protocolVersion"] != 2
+        || hello["desktopId"] != desk_id
+        || hello["mode"] != "team"
+    {
+        return None;
+    }
+    let relay = hello["endpoints"]
+        .as_array()
+        .filter(|endpoints| {
+            endpoints.iter().all(|value| {
+                value
+                    .as_str()
+                    .is_some_and(|url| url.len() <= 512 && endpoint(url.trim(), "v2").is_ok())
+            })
+        })
+        .map(|endpoints| {
+            endpoints
+                .iter()
+                .filter_map(Value::as_str)
+                .find_map(relay_endpoint)
+        });
+    Some(Hello { relay })
+}
+
 /// A WebSocket to `base`/`path` over TLS that accepts any certificate: the
-/// trust is whatever travels inside it, a pinned Noise key or a capability
-/// already delivered under one.
+/// trust comes from the pinned Noise handshake inside it. Relay capabilities
+/// also travel only in an authenticated Noise claim.
 pub(super) async fn dial(base: &str, path: &str) -> Result<Socket, String> {
     let url = endpoint(base, path)?;
     let host = url.host_str().ok_or("Invalid desk URL.")?;
@@ -369,12 +534,23 @@ pub enum State {
     Revoked,
 }
 
+/// A stamp is assigned when the pinned hello is authenticated, before any
+/// bounded incoming queue or local writer can delay its bridge's publication.
+#[derive(Clone)]
+pub(super) struct Discovery {
+    pub(super) sequence: u64,
+    pub(super) relay: Option<String>,
+}
+
 /// Bounded queues apply backpressure. Only subscriptions survive a reconnect;
 /// commands interrupted by a disconnect get an uncertain-outcome error.
 pub struct Session {
     pub outgoing: tokio::sync::mpsc::Sender<String>,
     pub incoming: tokio::sync::mpsc::Receiver<String>,
     pub state: tokio::sync::watch::Receiver<State>,
+    /// The desk's latest relay, learned only from a pinned, authenticated hello.
+    pub relay: tokio::sync::watch::Receiver<Option<String>>,
+    pub(super) discovery: tokio::sync::watch::Receiver<Option<Discovery>>,
     cancel: tokio_util::sync::CancellationToken,
 }
 impl Drop for Session {
@@ -387,6 +563,8 @@ impl Client {
         let (send, outgoing) = tokio::sync::mpsc::channel(64);
         let (incoming, receive) = tokio::sync::mpsc::channel(64);
         let (state, watch) = tokio::sync::watch::channel(State::Connecting);
+        let (relay, endpoints) = tokio::sync::watch::channel(desk.relay.clone());
+        let (discovery, discovered) = tokio::sync::watch::channel(None);
         let cancel = tokio_util::sync::CancellationToken::new();
         let client = self.clone();
         let desk = desk.clone();
@@ -394,23 +572,27 @@ impl Client {
         tokio::spawn(async move {
             tokio::select! {
                 _ = stopped.cancelled() => {},
-                _ = client.reconnect(desk, outgoing, incoming, state) => {},
+                _ = client.reconnect(desk, outgoing, incoming, state, relay, discovery) => {},
             }
         });
         Session {
             outgoing: send,
             incoming: receive,
             state: watch,
+            relay: endpoints,
+            discovery: discovered,
             cancel,
         }
     }
 
     async fn reconnect(
         &self,
-        desk: PairedDesk,
+        mut desk: PairedDesk,
         mut outgoing: tokio::sync::mpsc::Receiver<String>,
         incoming: tokio::sync::mpsc::Sender<String>,
         state: tokio::sync::watch::Sender<State>,
+        relay: tokio::sync::watch::Sender<Option<String>>,
+        discovery: tokio::sync::watch::Sender<Option<Discovery>>,
     ) {
         let mut subscriptions = std::collections::BTreeMap::<i64, String>::new();
         let mut delay = Duration::from_millis(250);
@@ -426,9 +608,29 @@ impl Client {
             if let Ok(mut socket) = opened {
                 let hello = tokio::time::timeout(Duration::from_secs(5), socket.next()).await;
                 if let Ok(Some(Ok(Message::Text(text)))) = hello
-                    && serde_json::from_str::<Value>(&text)
-                        .is_ok_and(|h| h["type"] == "hello" && h["desktopId"] == desk.desk_id)
+                    && let Some(hello) = hello_relay(&text, &desk.desk_id)
                 {
+                    // This frame has passed the pinned Noise handshake and
+                    // record authentication. Keep it for this session's next
+                    // reconnect as well as for the shell's persistent registry.
+                    if let Some(discovered) = hello.relay {
+                        static SEQUENCE: std::sync::atomic::AtomicU64 =
+                            std::sync::atomic::AtomicU64::new(1);
+                        let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        desk.relay = discovered.clone();
+                        relay.send_if_modified(|known| {
+                            if *known == discovered {
+                                false
+                            } else {
+                                *known = discovered.clone();
+                                true
+                            }
+                        });
+                        discovery.send_replace(Some(Discovery {
+                            sequence,
+                            relay: discovered,
+                        }));
+                    }
                     state.send_replace(State::Open);
                     delay = Duration::from_millis(250);
                     if incoming.send(text.to_string()).await.is_err() {

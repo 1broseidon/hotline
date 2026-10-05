@@ -260,6 +260,7 @@ pub struct Remote {
     served: Option<ServeOptions>,
     admission: Arc<admission::Admission>,
     relay: Arc<relay::Hub>,
+    relayed: Arc<tokio::sync::Semaphore>,
     store: Arc<dyn SecretStore>,
     state: Mutex<Live>,
     server: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
@@ -393,6 +394,7 @@ impl Remote {
             served,
             admission: Arc::new(admission::Admission::default()),
             relay: Arc::default(),
+            relayed: Arc::new(tokio::sync::Semaphore::new(relay::RELAYED_MAX)),
             store,
             state: Mutex::new(Live {
                 saved,

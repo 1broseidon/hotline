@@ -1,6 +1,6 @@
 # ADR 0002: A served desk relays sealed records
 
-- Status: Accepted, with the hardening below still to land (BRO-210)
+- Status: Accepted
 - Date: 2026-10-04
 - Reviewed: Toad, 2026-10-04, at `6b275f1`: sound with changes
 - Design: [serve.md § Relay](../serve.md#relay)
@@ -60,13 +60,22 @@ revocation and the computer viewer are unchanged.
 
 - **On the relay:** control sockets have their own pool of 64, separate from
   the 16 authenticated admission seats, so relay hosting cannot starve
-  direct devices and is not starved by them.
+  direct devices and is not starved by them. A replaced control socket keeps
+  its pool slot until cleanup completes. At capacity, replacing a desk
+  cancels its predecessor and waits for that slot within its pending TCP
+  deadline; a new desk is refused. The pending permit is held until the
+  control slot is acquired, so replacement waits cannot grow unbounded.
   - Each desk id has a stable budget of 16 sessions (waiting or joined) that
     survives re-registration.
   - There is a relay-wide ceiling of 256 sessions and a per-desk visit rate
-    (30 a minute, burst 10).
-  - Visitor and callback sockets give up their admission permit once
-    upgraded. Forwarded-IP headers are never trusted.
+    (30 a minute, burst 10; excess visits return `429 desk_busy`).
+  - The stable budget registry holds at most 1,024 desk ids. Inactive ids
+    are discarded only when their sessions have ended and their rate burst
+    has fully replenished, so changing registrations cannot reset a limit.
+  - Visitor sockets give up their pending admission permit once upgraded;
+    callbacks do so after the sealed claim finishes. This keeps anonymous
+    claims bounded through Noise authentication. Forwarded-IP headers are
+    never trusted.
 - **On the desktop:** a stable budget of 32 relayed sessions that survives
   `stand()`. A relayed session also takes an authenticated admission seat
   once the inner Noise handshake names the device, so the per-device limit
@@ -79,8 +88,11 @@ revocation and the computer viewer are unchanged.
   relay's grant ends in-flight dials and live relayed sessions.
 - A callback from an old generation cannot finish after Remote goes off and
   on again.
-- Writes and closes on joined sockets are bounded in time, so backpressure
+- Writes and closes on joined and control sockets have a 10 s bound, so backpressure
   cannot hold cleanup.
+- Losing the control socket also cancels that generation's callbacks. The
+  inner wire receives cancellation through its own revocation cleanup,
+  rather than dropping a future that still owns writer/subscription tasks.
 - The published relay URL is cleared the moment standing in stops, before
   any reconnect.
 - Reconnect backoff resets after a successful `ready` and is jittered.

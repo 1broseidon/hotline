@@ -134,6 +134,7 @@ async fn handle(
         && (path == "/v2"
             || path == "/v2/pair"
             || path == "/v2/relay"
+            || path == "/v2/relay/accept"
             || path.starts_with("/v2/computer/"))
     {
         return Ok(sealed_door(remote, request, slot, &path).await);
@@ -399,9 +400,8 @@ async fn sealed_door(
     reply.map(|_| Full::new(Bytes::new()))
 }
 
-/// A relay's two doors: a visitor for a desk standing in here, or that desk
-/// dialing back with the capability it was handed. Neither holds an
-/// admission seat once joined; the relay bounds each desk's visits instead.
+/// A visitor waits for the registered desk's sealed callback. The upgrade
+/// releases its pending transport permit; the hub bounds visits instead.
 async fn relay_door(
     remote: Arc<Remote>,
     mut request: Request<Incoming>,
@@ -409,13 +409,12 @@ async fn relay_door(
     route: super::relay::Route,
 ) -> Response<Full<Bytes>> {
     use super::relay::{Route, Visit};
-    let visit = match &route {
-        Route::Visit { desk, .. } => match remote.relay.visit(desk) {
-            Visit::Offline => return error(StatusCode::NOT_FOUND, "desk_offline"),
-            Visit::Busy => return error(StatusCode::SERVICE_UNAVAILABLE, "desk_busy"),
-            Visit::Admitted(notify, permit) => Some((notify, permit)),
-        },
-        Route::Accept(_) => None,
+    let Route::Visit { desk, path } = route;
+    let (notify, permit) = match remote.relay.visit(&desk) {
+        Visit::Offline => return error(StatusCode::NOT_FOUND, "desk_offline"),
+        Visit::Busy => return error(StatusCode::SERVICE_UNAVAILABLE, "desk_busy"),
+        Visit::RateLimited => return error(StatusCode::TOO_MANY_REQUESTS, "desk_busy"),
+        Visit::Admitted(notify, permit) => (notify, permit),
     };
     let cancel = remote.state.lock().unwrap().cancel.clone();
     let upgraded = hyper::upgrade::on(&mut request);
@@ -439,15 +438,7 @@ async fn relay_door(
             Some(super::relay::record_config()),
         )
         .await;
-        match (route, visit) {
-            (Route::Visit { path, .. }, Some((notify, permit))) => {
-                super::relay::arrive(remote.relay.clone(), socket, notify, permit, path).await
-            }
-            (Route::Accept(capability), _) => {
-                super::relay::accept(&remote.relay, &capability, socket, cancel).await
-            }
-            _ => {}
-        }
+        super::relay::arrive(remote.relay.clone(), socket, notify, permit, path).await;
     });
     reply.map(|_| Full::new(Bytes::new()))
 }
@@ -467,6 +458,7 @@ pub(super) enum Purpose {
     Pair,
     Computer(String),
     Relay,
+    RelayAccept,
 }
 impl Purpose {
     pub(super) fn of(remote: &Remote, path: &str) -> Option<Self> {
@@ -474,6 +466,7 @@ impl Purpose {
             "/v2" => Some(Self::Wire),
             "/v2/pair" => remote.pairing_open().then_some(Self::Pair),
             "/v2/relay" => remote.served.is_some().then_some(Self::Relay),
+            "/v2/relay/accept" => remote.served.is_some().then_some(Self::RelayAccept),
             _ => path
                 .strip_prefix("/v2")
                 .and_then(computer_path)
@@ -489,19 +482,17 @@ pub(super) enum Seat {
     Direct(Arc<admission::Permit>),
     Relayed {
         _visit: tokio::sync::OwnedSemaphorePermit,
+        cancel: CancellationToken,
     },
 }
 impl Seat {
-    async fn expired(&self, deadline: tokio::time::Instant) {
+    pub(super) async fn expired(&self, deadline: tokio::time::Instant) {
         match self {
             Self::Direct(slot) => slot.expired().await,
-            Self::Relayed { .. } => tokio::time::sleep_until(deadline).await,
-        }
-    }
-    fn authenticate(&self, device: &str) -> bool {
-        match self {
-            Self::Direct(slot) => slot.authenticate(device),
-            Self::Relayed { .. } => true,
+            Self::Relayed { cancel, .. } => tokio::select! {
+                _ = cancel.cancelled() => {},
+                _ = tokio::time::sleep_until(deadline) => {},
+            },
         }
     }
 }
@@ -517,6 +508,10 @@ pub(super) async fn sealed_session<S>(
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    if matches!(purpose, Purpose::RelayAccept) {
+        super::relay::accept(remote, socket, seat).await;
+        return;
+    }
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Binding {
@@ -556,6 +551,7 @@ pub(super) async fn sealed_session<S>(
             match &purpose {
                 Purpose::Wire if size != 0 => return None,
                 Purpose::Wire | Purpose::Pair => {}
+                Purpose::RelayAccept => return None,
                 Purpose::Computer(persona) => {
                     let binding: Binding = serde_json::from_slice(&payload[..size]).ok()?;
                     if binding.purpose != "computer"
@@ -600,10 +596,26 @@ pub(super) async fn sealed_session<S>(
             .ok()?;
         let phone = phone?;
         let state = noise.into_transport_mode().ok()?;
-        if phone.cancel.is_cancelled() || !seat.authenticate(&phone.id) {
+        if phone.cancel.is_cancelled() {
             return None;
         }
-        Some((super::channel::Channel::new(socket, state), phone, desk))
+        // Hosting takes the hub's separate 64 slots, never a direct-device seat.
+        let authenticated = match (&purpose, &seat) {
+            (Purpose::Relay, _) => None,
+            (_, Seat::Direct(slot)) => {
+                if !slot.authenticate(&phone.id) {
+                    return None;
+                }
+                None
+            }
+            (_, Seat::Relayed { .. }) => Some(remote.admission.seat(&phone.id)?),
+        };
+        Some((
+            super::channel::Channel::new(socket, state),
+            phone,
+            desk,
+            authenticated,
+        ))
     };
     let established = tokio::select! {
         biased;
@@ -611,10 +623,26 @@ pub(super) async fn sealed_session<S>(
         _ = seat.expired(deadline) => return,
         result = handshake => result,
     };
-    let Some((socket, phone, desk)) = established else {
+    let Some((socket, phone, desk, _authenticated)) = established else {
         return;
     };
-    let _seat = seat;
+    // Forward standing cancellation to the wire's own cleanup path. Dropping
+    // seated_phone_v2 while it owns writer/subscription tasks would leak them.
+    let cancellation = if let Seat::Relayed { cancel, .. } = &seat {
+        let cancel = cancel.clone();
+        let phone_cancel = phone.cancel.clone();
+        Some(tokio::spawn(async move {
+            tokio::select! {
+                _ = cancel.cancelled() => phone_cancel.cancel(),
+                _ = phone_cancel.cancelled() => {},
+            }
+        }))
+    } else {
+        None
+    };
+    // Retain a control's pending permit until its relay slot is acquired,
+    // including a replacement waiting for its predecessor's bounded cleanup.
+    let mut seat = Some(seat);
     match purpose {
         Purpose::Computer(persona) => {
             let revoked = phone.cancel.clone();
@@ -626,9 +654,10 @@ pub(super) async fn sealed_session<S>(
         }
         Purpose::Relay => {
             if let Some(desk) = desk {
-                super::relay::host(remote, socket, phone, desk).await;
+                super::relay::host(remote, socket, phone, desk, seat.take().unwrap()).await;
             }
         }
+        Purpose::RelayAccept => {}
         Purpose::Wire | Purpose::Pair => {
             // The wire owns its writer and subscription tasks and must reach
             // their cleanup on revocation; dropping that future leaks them.
@@ -642,6 +671,9 @@ pub(super) async fn sealed_session<S>(
             )
             .await;
         }
+    }
+    if let Some(cancellation) = cancellation {
+        cancellation.abort();
     }
 }
 

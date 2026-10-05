@@ -1,5 +1,36 @@
 [
   {
+    "target": "remote relay (BRO-210 / BRO-212..216)",
+    "kind": "package",
+    "scope": "package",
+    "caller_profile": [
+      "sdk-client"
+    ],
+    "risk_class": [
+      "R0",
+      "R1",
+      "R2",
+      "R4"
+    ],
+    "surface_pattern": "authenticated purpose-bound sockets",
+    "obligations": [
+      "generation-bound single-use expiring capabilities",
+      "stable bounded relay and device budgets",
+      "cancellation and bounded cleanup",
+      "authenticated discovery persistence"
+    ],
+    "brief": "Replace bearer callback route with sealed IK; keep 64 hosts apart from 16 direct seats; stable 16/256 relay visits and 32 desktop callbacks; learn relay from authenticated hello through Session/Bridge into generation/pin-checked desks registry. ADR records 1024 budget-cache bound.",
+    "contracts": [
+      "docs/adr/0002-a-served-desk-relays-sealed-records.md",
+      "docs/serve.md"
+    ],
+    "verification": [
+      "RUST_MIN_STACK=33554432 CARGO_INCREMENTAL=0 cargo test -p hotline-core: 1577 passed, 3 ignored",
+      "RUST_MIN_STACK=33554432 CARGO_INCREMENTAL=0 make check: passed",
+      "full contract generation unchanged; native phone relay-path verification remains required"
+    ]
+  },
+  {
     "target": "crates/hotline-core/src/voice/speech/xai.rs",
     "kind": "package",
     "scope": "package",

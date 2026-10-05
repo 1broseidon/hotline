@@ -26,7 +26,7 @@ pub(super) struct Admission {
 
 struct Connection {
     id: Uuid,
-    ip: IpAddr,
+    ip: Option<IpAddr>,
     device: Option<String>,
     replace_after: Instant,
     evicted: CancellationToken,
@@ -58,8 +58,8 @@ impl Admission {
             let (released, ready) = {
                 let mut connections = self.connections.lock().unwrap();
                 let pending = || connections.iter().filter(|c| c.device.is_none());
-                let victim = if pending().filter(|c| c.ip == ip).count() >= PENDING_PER_IP {
-                    pending().find(|c| c.ip == ip)
+                let victim = if pending().filter(|c| c.ip == Some(ip)).count() >= PENDING_PER_IP {
+                    pending().find(|c| c.ip == Some(ip))
                 } else if pending().count() >= PENDING_MAX {
                     pending().next()
                 } else {
@@ -83,7 +83,7 @@ impl Admission {
                     });
                     connections.push_back(Connection {
                         id: permit.id,
-                        ip,
+                        ip: Some(ip),
                         device: None,
                         replace_after: Instant::now() + PRE_AUTH_GRACE,
                         evicted: permit.evicted.clone(),
@@ -103,6 +103,34 @@ impl Admission {
         }
     }
 
+    /// A relayed device has no TCP peer on this desk. Its proven identity
+    /// takes the same seats as a directly accepted connection, without
+    /// spending pending capacity against the relay's address.
+    pub fn seat(self: &Arc<Self>, device: &str) -> Option<Arc<Permit>> {
+        let mut connections = self.connections.lock().unwrap();
+        if !has_seat(&connections, device) {
+            return None;
+        }
+        let permit = Arc::new(Permit {
+            admission: self.clone(),
+            id: Uuid::new_v4(),
+            deadline: Instant::now() + PRE_AUTH_LIFETIME,
+            evicted: CancellationToken::new(),
+            authenticated: CancellationToken::new(),
+            released: CancellationToken::new(),
+        });
+        permit.authenticated.cancel();
+        connections.push_back(Connection {
+            id: permit.id,
+            ip: None,
+            device: Some(device.to_owned()),
+            replace_after: Instant::now(),
+            evicted: permit.evicted.clone(),
+            released: permit.released.clone(),
+        });
+        Some(permit)
+    }
+
     #[cfg(test)]
     pub fn counts(&self) -> (usize, usize) {
         let connections = self.connections.lock().unwrap();
@@ -111,7 +139,26 @@ impl Admission {
     }
 }
 
+fn has_seat(connections: &VecDeque<Connection>, device: &str) -> bool {
+    let authenticated = || connections.iter().filter(|c| c.device.is_some());
+    authenticated().count() < AUTHENTICATED_MAX
+        && authenticated()
+            .filter(|c| c.device.as_deref() == Some(device))
+            .count()
+            < AUTHENTICATED_PER_DEVICE
+}
+
 impl Permit {
+    /// A control registration leaves admission for its own pool. Its
+    /// mutations must still share eviction's lock and the original deadline.
+    pub fn while_pending<T>(&self, action: impl FnOnce() -> T) -> Option<T> {
+        let _connections = self.admission.connections.lock().unwrap();
+        if self.evicted.is_cancelled() || Instant::now() >= self.deadline {
+            return None;
+        }
+        Some(action())
+    }
+
     /// Called only after bearer validation or the Noise handshake. Promotion
     /// and eviction share a lock, so an evicted handshake cannot take a seat.
     pub fn authenticate(&self, device: &str) -> bool {
@@ -119,13 +166,7 @@ impl Permit {
         if self.evicted.is_cancelled() || Instant::now() >= self.deadline {
             return false;
         }
-        let authenticated = || connections.iter().filter(|c| c.device.is_some());
-        if authenticated().count() >= AUTHENTICATED_MAX
-            || authenticated()
-                .filter(|c| c.device.as_deref() == Some(device))
-                .count()
-                >= AUTHENTICATED_PER_DEVICE
-        {
+        if !has_seat(&connections, device) {
             return false;
         }
         let connection = connections.iter_mut().find(|c| c.id == self.id).unwrap();
@@ -242,6 +283,61 @@ mod tests {
         assert_eq!(admission.counts(), (15, 1));
         drop(replacement);
         drop(pending);
+        assert_eq!(admission.counts(), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn relayed_seats_share_direct_device_and_global_limits() {
+        let admission = Arc::new(Admission::default());
+        let ip = "127.0.0.1".parse().unwrap();
+        let mut held = Vec::new();
+        for device in 0..4 {
+            let device = device.to_string();
+            for _ in 0..2 {
+                held.push(admission.seat(&device).unwrap());
+                let direct = admission.accept(ip, Instant::now()).await;
+                assert!(direct.authenticate(&device));
+                held.push(direct);
+            }
+            assert!(admission.seat(&device).is_none());
+            let denied = admission.accept(ip, Instant::now()).await;
+            assert!(!denied.authenticate(&device));
+        }
+        assert_eq!(admission.counts(), (0, 16));
+        assert!(admission.seat("another-device").is_none());
+        let direct = admission.accept(ip, Instant::now()).await;
+        assert!(!direct.authenticate("another-device"));
+        held.pop();
+        assert!(direct.authenticate("another-device"));
+        assert_eq!(admission.counts(), (0, 16));
+        drop(direct);
+        let relayed = admission.seat("another-device").unwrap();
+        assert_eq!(admission.counts(), (0, 16));
+        assert!(!relayed.authenticate("other-identity"));
+        drop(relayed);
+        drop(held);
+        assert_eq!(admission.counts(), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn relayed_seats_do_not_rotate_or_wait_for_pending_connections() {
+        let admission = Arc::new(Admission::default());
+        let ip = "127.0.0.1".parse().unwrap();
+        let mut pending = Vec::new();
+        for _ in 0..PENDING_PER_IP {
+            pending.push(admission.accept(ip, Instant::now()).await);
+        }
+        let relayed = admission.seat("device").unwrap();
+        assert_eq!(admission.counts(), (4, 1));
+        assert!(!pending.iter().any(|permit| permit.evicted.is_cancelled()));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), relayed.expired())
+                .await
+                .is_err()
+        );
+        drop(pending);
+        assert_eq!(admission.counts(), (0, 1));
+        drop(relayed);
         assert_eq!(admission.counts(), (0, 0));
     }
 

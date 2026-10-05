@@ -102,7 +102,7 @@ impl Host {
     async fn start(self: &Arc<Self>, desk: &PairedDesk) {
         let generation = self.generations.fetch_add(1, Ordering::Relaxed) + 1;
         match Bridge::start(desk).await {
-            Ok(bridge) => self.install(&desk.desk_id, generation, bridge),
+            Ok(bridge) => self.install(desk, generation, bridge),
             Err(error) => {
                 eprintln!("[desks] {}: {error}", desk.name);
                 self.lock_bridges().insert(
@@ -130,11 +130,12 @@ impl Host {
             .is_some_and(|live| live.generation == generation)
     }
 
-    fn install(self: &Arc<Self>, desk_id: &str, generation: u64, bridge: Bridge) {
+    fn install(self: &Arc<Self>, desk: &PairedDesk, generation: u64, bridge: Bridge) {
         let mut watch = bridge.state.clone();
+        let mut relay = bridge.relay.clone();
         let state = *watch.borrow();
         self.lock_bridges().insert(
-            desk_id.to_string(),
+            desk.desk_id.clone(),
             Live {
                 bridge: Some(bridge),
                 state,
@@ -143,23 +144,70 @@ impl Host {
             },
         );
         let host = Arc::downgrade(self);
-        let id = desk_id.to_string();
+        let id = desk.desk_id.clone();
+        let pin = desk.desk_key.clone();
         tauri::async_runtime::spawn(async move {
-            while watch.changed().await.is_ok() {
-                let Some(host) = host.upgrade() else { return };
-                let now = *watch.borrow();
-                {
-                    let mut bridges = host.lock_bridges();
-                    // A bridge replaced by pairing again keeps reporting
-                    // until its sender closes; only this generation's counts.
-                    match bridges.get_mut(&id) {
-                        Some(live) if live.generation == generation => live.state = now,
-                        _ => return,
+            loop {
+                tokio::select! {
+                    changed = watch.changed() => {
+                        if changed.is_err() { return; }
+                        let Some(host) = host.upgrade() else { return };
+                        let now = *watch.borrow_and_update();
+                        {
+                            let mut bridges = host.lock_bridges();
+                            // A bridge replaced by pairing again keeps reporting
+                            // until its sender closes; only this generation's counts.
+                            match bridges.get_mut(&id) {
+                                Some(live) if live.generation == generation => live.state = now,
+                                _ => return,
+                            }
+                        }
+                        host.emit();
+                    }
+                    changed = relay.changed() => {
+                        if changed.is_err() { return; }
+                        let Some(host) = host.upgrade() else { return };
+                        let discovered = relay.borrow_and_update().clone();
+                        if let Err(error) = host.learn_relay(&id, &pin, generation, discovered) {
+                            eprintln!("[desks] {id}: {error}");
+                        }
                     }
                 }
-                host.emit();
             }
         });
+    }
+
+    /// Only this bridge generation's authenticated hello may update the
+    /// registry. Holding the bridge lock through save also excludes a forget
+    /// or replacement while an older watcher is persisting its discovery.
+    fn learn_relay(
+        &self,
+        desk_id: &str,
+        pin: &str,
+        generation: u64,
+        relay: Option<String>,
+    ) -> Result<(), String> {
+        let bridges = self.lock_bridges();
+        if !bridges
+            .get(desk_id)
+            .is_some_and(|live| live.generation == generation)
+        {
+            return Ok(());
+        }
+        {
+            let mut paired = self.paired.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(desk) = paired
+                .iter_mut()
+                .find(|desk| desk.desk_id == desk_id && desk.desk_key == pin)
+            else {
+                return Ok(());
+            };
+            if desk.relay == relay {
+                return Ok(());
+            }
+            desk.relay = relay;
+        }
+        self.save()
     }
 
     fn retry(self: &Arc<Self>, desk: PairedDesk, generation: u64) {
@@ -174,7 +222,7 @@ impl Host {
                 match Bridge::start(&desk).await {
                     Ok(bridge) => {
                         if host.current(&desk.desk_id, generation) {
-                            host.install(&desk.desk_id, generation, bridge);
+                            host.install(&desk, generation, bridge);
                             host.emit();
                         }
                         return;
@@ -623,6 +671,43 @@ mod tests {
         // No endpoint, so the window dials nothing until the retry lands.
         assert_eq!(entry["origin"], "");
         assert_eq!(entry["token"], "");
+    }
+
+    #[test]
+    fn authenticated_relay_discovery_survives_restart_and_ignores_replaced_bridges() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = Host::open(dir.path(), "http://127.0.0.1:1".into(), "t".into());
+        host.paired.lock().unwrap().push(desk());
+        host.lock_bridges().insert(
+            "d1".into(),
+            Live {
+                bridge: None,
+                state: State::Open,
+                error: None,
+                generation: 3,
+            },
+        );
+        host.save().unwrap();
+        let relay = Some("https://relay.example/room/relay/d1".into());
+        host.learn_relay("d1", "k", 3, relay.clone()).unwrap();
+        let reopened = Host::open(dir.path(), "http://127.0.0.1:1".into(), "t".into());
+        let saved = reopened.paired.lock().unwrap();
+        assert_eq!(saved[0].relay, relay);
+        assert_eq!(saved[0].url, desk().url);
+        assert_eq!(saved[0].desk_key, "k");
+        drop(saved);
+
+        host.learn_relay("d1", "k", 2, None).unwrap();
+        host.learn_relay("d1", "another-pin", 3, None).unwrap();
+        assert_eq!(host.paired.lock().unwrap()[0].relay, relay);
+        host.learn_relay("d1", "k", 3, None).unwrap();
+        let reopened = Host::open(dir.path(), "http://127.0.0.1:1".into(), "t".into());
+        assert!(reopened.paired.lock().unwrap()[0].relay.is_none());
+
+        host.forget("d1").unwrap();
+        host.learn_relay("d1", "k", 3, relay).unwrap();
+        let reopened = Host::open(dir.path(), "http://127.0.0.1:1".into(), "t".into());
+        assert!(reopened.paired.lock().unwrap().is_empty());
     }
 
     #[test]

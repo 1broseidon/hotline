@@ -25,6 +25,11 @@ pub(super) struct Channel<S> {
     pending: VecDeque<Vec<u8>>,
 }
 impl<S> Channel<S> {
+    /// The relay claim ends at message two; its transport state never wraps
+    /// the visitor's end-to-end records.
+    pub(super) fn into_socket(self) -> WebSocketStream<S> {
+        self.socket
+    }
     pub(super) fn new(socket: WebSocketStream<S>, state: snow::TransportState) -> Self {
         Self {
             socket,

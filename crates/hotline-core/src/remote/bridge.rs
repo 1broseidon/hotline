@@ -1,5 +1,5 @@
 //! Each bridge is a loopback capability, never the remote device's private key.
-use super::client::{Client, PairedDesk, State};
+use super::client::{Client, Discovery, PairedDesk, State};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -60,8 +60,34 @@ pub struct Bridge {
     pub origin: String,
     pub token: String,
     pub state: tokio::sync::watch::Receiver<State>,
+    /// The latest relay learned through an authenticated remote session.
+    pub relay: tokio::sync::watch::Receiver<Option<String>>,
     cancel: CancellationToken,
     viewer_tokens: Arc<Mutex<ViewerTokens>>,
+}
+
+struct Discoveries {
+    relay: tokio::sync::watch::Sender<Option<String>>,
+    latest: Mutex<u64>,
+}
+impl Discoveries {
+    fn publish(&self, discovery: &Discovery) {
+        let mut latest = self.latest.lock().unwrap();
+        if discovery.sequence <= *latest {
+            return;
+        }
+        // Even an unchanged relay advances the stamp: an older session must
+        // not overwrite a more recent hello that confirmed this address.
+        *latest = discovery.sequence;
+        self.relay.send_if_modified(|known| {
+            if *known == discovery.relay {
+                false
+            } else {
+                *known = discovery.relay.clone();
+                true
+            }
+        });
+    }
 }
 impl Drop for Bridge {
     fn drop(&mut self) {
@@ -89,6 +115,11 @@ impl Bridge {
         let cancel = CancellationToken::new();
         let stopped = cancel.clone();
         let (state, receive) = tokio::sync::watch::channel(State::Connecting);
+        let (relay, endpoints) = tokio::sync::watch::channel(desk.relay.clone());
+        let discoveries = Arc::new(Discoveries {
+            relay,
+            latest: Mutex::new(0),
+        });
         let desk = desk.clone();
         let key = token.clone();
         let viewer_tokens = Arc::new(Mutex::new(ViewerTokens::default()));
@@ -103,8 +134,11 @@ impl Bridge {
                     accepted = listener.accept() => {
                         let Ok((socket, peer)) = accepted else { break; };
                         if !peer.ip().is_loopback() || tasks.len() >= 32 { continue; }
-                        let client = client.clone(); let desk = desk.clone(); let key = key.clone(); let state = state.clone(); let viewers = viewers.clone();
-                        tasks.spawn(async move { serve(socket, client, desk, key, viewers, state).await; });
+                        let client = client.clone(); let mut desk = desk.clone(); let key = key.clone(); let state = state.clone(); let viewers = viewers.clone(); let discoveries = discoveries.clone();
+                        // New command and viewer sessions use what an earlier
+                        // authenticated hello taught this bridge.
+                        desk.relay = discoveries.relay.borrow().clone();
+                        tasks.spawn(async move { serve(socket, client, desk, key, viewers, state, discoveries).await; });
                     }
                 }
             }
@@ -115,6 +149,7 @@ impl Bridge {
             origin,
             token,
             state: receive,
+            relay: endpoints,
             cancel,
             viewer_tokens,
         })
@@ -206,6 +241,7 @@ async fn serve(
     token: String,
     viewers: Arc<Mutex<ViewerTokens>>,
     state: tokio::sync::watch::Sender<State>,
+    discoveries: Arc<Discoveries>,
 ) {
     let target = Arc::new(Mutex::new(None));
     let selected = target.clone();
@@ -250,6 +286,12 @@ async fn serve(
                 if changed.is_err() { break; }
                 state.send_replace(*remote.state.borrow_and_update());
             }
+            changed = remote.discovery.changed() => {
+                if changed.is_err() { break; }
+                if let Some(discovery) = remote.discovery.borrow_and_update().as_ref() {
+                    discoveries.publish(discovery);
+                }
+            }
             frame = local.next() => match frame {
                 Some(Ok(Message::Text(text))) => if remote.outgoing.send(text.to_string()).await.is_err() { break; },
                 Some(Ok(Message::Ping(_) | Message::Pong(_))) => {},
@@ -264,6 +306,11 @@ async fn serve(
     // The incoming queue and state watch can close together on revocation.
     // Publish the terminal state even if select! observed the queue first.
     state.send_replace(*remote.state.borrow());
+    // The state and queue can close before the watch is selected. Its final
+    // authenticated snapshot remains safe; the shared stamp rejects stale ones.
+    if let Some(discovery) = remote.discovery.borrow().as_ref() {
+        discoveries.publish(discovery);
+    }
 }
 
 async fn viewer(
@@ -296,5 +343,52 @@ async fn viewer(
                 if local.send(frame).await.is_err() { break; }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+
+    #[test]
+    fn a_delayed_session_cannot_overwrite_a_newer_authenticated_discovery() {
+        let (relay, mut watch) = tokio::sync::watch::channel(None);
+        let discoveries = Discoveries {
+            relay,
+            latest: Mutex::new(0),
+        };
+        let old = Discovery {
+            sequence: 1,
+            relay: Some("https://old.example/relay/desk".into()),
+        };
+        let new = Discovery {
+            sequence: 2,
+            relay: Some("https://new.example/relay/desk".into()),
+        };
+        discoveries.publish(&new);
+        assert_eq!(*watch.borrow_and_update(), new.relay);
+        // An older hello, delayed behind a local writer or in the final
+        // snapshot of a closing session, must not roll the bridge back.
+        discoveries.publish(&old);
+        assert_eq!(*watch.borrow(), new.relay);
+        assert!(!watch.has_changed().unwrap());
+
+        // Confirming the same relay still supersedes intervening discovery.
+        discoveries.publish(&Discovery {
+            sequence: 4,
+            relay: new.relay.clone(),
+        });
+        discoveries.publish(&Discovery {
+            sequence: 3,
+            relay: None,
+        });
+        assert_eq!(*watch.borrow(), new.relay);
+        assert!(!watch.has_changed().unwrap());
+        discoveries.publish(&Discovery {
+            sequence: 5,
+            relay: None,
+        });
+        assert_eq!(*watch.borrow(), None);
+        assert!(watch.has_changed().unwrap());
     }
 }

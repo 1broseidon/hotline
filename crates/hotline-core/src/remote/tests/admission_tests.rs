@@ -114,13 +114,142 @@ impl Drop for Proxy {
 }
 
 async fn counts(h: &Harness, expected: (usize, usize)) {
+    remote_counts(&h.remote, expected).await;
+}
+
+async fn remote_counts(remote: &Remote, expected: (usize, usize)) {
     tokio::time::timeout(Duration::from_secs(3), async {
-        while h.remote.admission.counts() != expected {
+        while remote.admission.counts() != expected {
             tokio::task::yield_now().await;
         }
     })
     .await
     .unwrap();
+}
+
+async fn relay_server() -> (tempfile::TempDir, Arc<Remote>, String) {
+    let root = tempfile::tempdir().unwrap();
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let listen = reserved.local_addr().unwrap();
+    drop(reserved);
+    let store = Arc::new(MemoryStore::default());
+    let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
+    let public_url = format!("https://{listen}/room");
+    let remote = Remote::open_served_with_store(
+        root.path(),
+        desk.log.clone(),
+        desk,
+        store,
+        ServeOptions {
+            listen,
+            public_url: public_url.clone(),
+            tls_cert: None,
+            tls_key: None,
+        },
+    )
+    .unwrap();
+    remote.restore().await;
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !remote.status().enabled {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    (root, remote, public_url)
+}
+
+async fn relay_desktop(h: &Harness, relay: &Remote) -> client::PairedDesk {
+    let invitation = relay.pairing_v2(DeviceRole::Owner).unwrap();
+    let paired = client::Client::new(h.store.clone())
+        .pair(&invitation.payload, "Relayed laptop")
+        .await
+        .unwrap();
+    fs::write(
+        h.root.path().join("desks.json"),
+        serde_json::to_vec(&vec![paired.clone()]).unwrap(),
+    )
+    .unwrap();
+    paired
+}
+
+async fn relay_url(h: &Harness) -> String {
+    tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            if let Some(url) = h.remote.status().relay.and_then(|relay| relay.url) {
+                return url;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("pending sockets must yield relay control capacity")
+}
+
+async fn relay_frame<S>(socket: &mut channel::Channel<S>) -> Value
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let Some(Ok(Message::Text(text))) = tokio::time::timeout(Duration::from_secs(3), socket.next())
+        .await
+        .expect("authenticated relay frame")
+    else {
+        panic!("expected authenticated text");
+    };
+    serde_json::from_str(&text).unwrap()
+}
+
+async fn relay_hello<S>(socket: &mut channel::Channel<S>) -> Value
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let hello = relay_frame(socket).await;
+    assert_eq!(hello["type"], "hello");
+    hello
+}
+
+async fn relay_closed<S>(socket: &mut channel::Channel<S>)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let closed = tokio::time::timeout(Duration::from_secs(3), socket.next())
+        .await
+        .expect("session over budget closes");
+    assert!(!matches!(closed, Some(Ok(Message::Text(_)))));
+}
+
+async fn relay_tls(remote: &Remote, public_url: &str) -> TlsStream<TcpStream> {
+    let identity: Identity =
+        serde_json::from_slice(&remote.identity.read().unwrap().unwrap()).unwrap();
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(rustls::pki_types::CertificateDer::from(
+            identity.certificate,
+        ))
+        .unwrap();
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    let tls = TlsConnector::from(Arc::new(config));
+    let url = url::Url::parse(public_url).unwrap();
+    let name = rustls::pki_types::ServerName::try_from(url.host_str().unwrap().to_owned()).unwrap();
+    let address = url.socket_addrs(|| None).unwrap()[0];
+    tls.connect(name, TcpStream::connect(address).await.unwrap())
+        .await
+        .unwrap()
+}
+
+async fn idle_relay_tls(remote: &Remote, public_url: &str) -> Vec<TlsStream<TcpStream>> {
+    let mut sockets = Vec::new();
+    for _ in 0..4 {
+        sockets.push(relay_tls(remote, public_url).await);
+    }
+    remote_counts(remote, (4, 0)).await;
+    sockets
 }
 
 async fn http_get(socket: &mut TlsStream<TcpStream>) -> std::io::Result<String> {
@@ -318,4 +447,223 @@ async fn authenticated_budgets_follow_devices_behind_one_proxy_address() {
     drop(sockets);
     counts(&h, (0, 0)).await;
     h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn relay_control_visitors_and_sealed_callbacks_progress_through_saturated_loopback() {
+    let (_root, relay, public_url) = relay_server().await;
+    let owner = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = relay.pairing_v2(DeviceRole::Owner).unwrap();
+    let desk = owner.pair(&invitation.payload, "Relay host").await.unwrap();
+    remote_counts(&relay, (0, 0)).await;
+
+    let idle = idle_relay_tls(&relay, &public_url).await;
+    let mut control = tokio::time::timeout(
+        Duration::from_secs(3),
+        owner.host_relay(&desk, "saturated-desk"),
+    )
+    .await
+    .expect("pending TLS sockets must yield control capacity")
+    .unwrap();
+    assert_eq!(relay_frame(&mut control).await["type"], "ready");
+    remote_counts(&relay, (3, 0)).await;
+    drop(idle);
+    remote_counts(&relay, (0, 0)).await;
+
+    let idle = idle_relay_tls(&relay, &public_url).await;
+    let mut request = format!("{public_url}/relay/saturated-desk/v2")
+        .replacen("https://", "wss://", 1)
+        .into_client_request()
+        .unwrap();
+    request
+        .headers_mut()
+        .insert("x-forwarded-for", "203.0.113.9".parse().unwrap());
+    request
+        .headers_mut()
+        .insert("cf-connecting-ip", "203.0.113.10".parse().unwrap());
+    let (mut visitor, _) = tokio::time::timeout(Duration::from_secs(3), async {
+        tokio_tungstenite::client_async(request, relay_tls(&relay, &public_url).await).await
+    })
+    .await
+    .expect("pending TLS sockets must yield visitor capacity")
+    .unwrap();
+    let notice = relay_frame(&mut control).await;
+    assert_eq!(notice["type"], "visit");
+    remote_counts(&relay, (3, 0)).await;
+    drop(idle);
+    remote_counts(&relay, (0, 0)).await;
+
+    let idle = idle_relay_tls(&relay, &public_url).await;
+    let mut callback = tokio::time::timeout(
+        Duration::from_secs(3),
+        owner.accept_relay(&desk, notice["id"].as_str().unwrap()),
+    )
+    .await
+    .expect("pending TLS sockets must yield sealed callback capacity")
+    .unwrap();
+    remote_counts(&relay, (3, 0)).await;
+    visitor
+        .send(Message::Binary(vec![1, 2, 3].into()))
+        .await
+        .unwrap();
+    let forwarded = tokio::time::timeout(Duration::from_secs(1), callback.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(forwarded, Message::Binary(vec![1, 2, 3].into()));
+    callback
+        .send(Message::Binary(vec![4, 5, 6].into()))
+        .await
+        .unwrap();
+    let forwarded = tokio::time::timeout(Duration::from_secs(1), visitor.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(forwarded, Message::Binary(vec![4, 5, 6].into()));
+    drop(idle);
+    drop(visitor);
+    drop(callback);
+    drop(control);
+    remote_counts(&relay, (0, 0)).await;
+    relay.configure(false, &relay.status().host).await.unwrap();
+}
+
+#[tokio::test]
+async fn direct_and_relayed_sessions_share_device_and_desk_budgets() {
+    let (_root, relay, _) = relay_server().await;
+    let h = Harness::new().await;
+    let server = relay_desktop(&h, &relay).await;
+    h.remote
+        .relay_through(Some(server.desk_id.clone()))
+        .unwrap();
+    let url = relay_url(&h).await;
+    remote_counts(&relay, (0, 0)).await;
+    let mut devices = Vec::new();
+    for _ in 0..5 {
+        let phone = client::Client::new(Arc::new(MemoryStore::default()));
+        let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+        let mut direct = phone
+            .pair(&invitation.payload, "Mixed phone")
+            .await
+            .unwrap();
+        direct.relay = None;
+        let mut relayed = direct.clone();
+        relayed.url = url.clone();
+        devices.push((phone, direct, relayed));
+    }
+    counts(&h, (0, 0)).await;
+    let mut sessions = Vec::new();
+    for (index, (phone, direct, relayed)) in devices.iter().take(4).enumerate() {
+        for desk in [direct, relayed, direct, relayed] {
+            let mut session = phone.open(desk, None).await.unwrap();
+            relay_hello(&mut session).await;
+            sessions.push(session);
+        }
+        if index == 0 {
+            // The device ceiling applies while the desk still has seats.
+            let mut denied = phone.open(direct, None).await.unwrap();
+            relay_closed(&mut denied).await;
+            let mut denied = phone.open(relayed, None).await.unwrap();
+            relay_closed(&mut denied).await;
+            counts(&h, (0, 4)).await;
+        }
+    }
+    counts(&h, (0, 16)).await;
+    // A fresh identity is refused by the shared desk-wide ceiling as well.
+    let (phone, direct, relayed) = &devices[4];
+    let mut denied = phone.open(direct, None).await.unwrap();
+    relay_closed(&mut denied).await;
+    let mut denied = phone.open(relayed, None).await.unwrap();
+    relay_closed(&mut denied).await;
+    counts(&h, (0, 16)).await;
+    assert_eq!(h.remote.devices().len(), 5);
+    sessions.pop();
+    counts(&h, (0, 15)).await;
+    let mut recovered = phone.open(direct, None).await.unwrap();
+    relay_hello(&mut recovered).await;
+    counts(&h, (0, 16)).await;
+    drop(recovered);
+    drop(sessions);
+    counts(&h, (0, 0)).await;
+    remote_counts(&relay, (0, 0)).await;
+    h.remote.configure(false, network::ALL).await.unwrap();
+    relay.configure(false, &relay.status().host).await.unwrap();
+}
+
+#[tokio::test]
+async fn relay_control_hosts_use_their_own_pool_when_direct_seats_are_full() {
+    let (_root, relay, _) = relay_server().await;
+    let mut owners = Vec::new();
+    for _ in 0..4 {
+        let owner = client::Client::new(Arc::new(MemoryStore::default()));
+        let invitation = relay.pairing_v2(DeviceRole::Owner).unwrap();
+        let desk = owner
+            .pair(&invitation.payload, "Direct owner")
+            .await
+            .unwrap();
+        owners.push((owner, desk));
+    }
+    let mut direct = Vec::new();
+    for (owner, desk) in &owners {
+        for _ in 0..4 {
+            let mut session = owner.open(desk, None).await.unwrap();
+            relay_hello(&mut session).await;
+            direct.push(session);
+        }
+    }
+    remote_counts(&relay, (0, 16)).await;
+    let (owner, desk) = &owners[0];
+    let mut controls = Vec::new();
+    for host in 0..64 {
+        let mut control = tokio::time::timeout(
+            Duration::from_secs(3),
+            owner.host_relay(desk, &format!("host-{host}")),
+        )
+        .await
+        .expect("relay controls have capacity separate from direct seats")
+        .unwrap();
+        assert_eq!(relay_frame(&mut control).await["type"], "ready");
+        controls.push(control);
+    }
+    assert_eq!(relay.relay.counts(), (64, 0));
+    remote_counts(&relay, (0, 16)).await;
+    // A full socket pool still lets a desk replace its older generation.
+    let mut replacement =
+        tokio::time::timeout(Duration::from_secs(3), owner.host_relay(desk, "host-0"))
+            .await
+            .expect("an existing desk can replace its full-pool control socket")
+            .unwrap();
+    assert_eq!(relay_frame(&mut replacement).await["type"], "ready");
+    relay_closed(&mut controls[0]).await;
+    controls[0] = replacement;
+    assert_eq!(relay.relay.counts(), (64, 0));
+    remote_counts(&relay, (0, 16)).await;
+    let mut overflow = tokio::time::timeout(
+        Duration::from_secs(3),
+        owner.host_relay(desk, "host-overflow"),
+    )
+    .await
+    .expect("a full control pool refuses promptly after authentication")
+    .unwrap();
+    relay_closed(&mut overflow).await;
+    assert_eq!(relay.relay.counts(), (64, 0));
+    remote_counts(&relay, (0, 16)).await;
+    // The owner already holds its four direct seats; its sixty-four relay
+    // registrations neither consume nor enlarge that authenticated budget.
+    let mut denied = owner.open(desk, None).await.unwrap();
+    relay_closed(&mut denied).await;
+    remote_counts(&relay, (0, 16)).await;
+    drop(controls);
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while relay.relay.counts() != (0, 0) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    drop(direct);
+    remote_counts(&relay, (0, 0)).await;
+    relay.configure(false, &relay.status().host).await.unwrap();
 }

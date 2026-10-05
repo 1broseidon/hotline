@@ -237,15 +237,17 @@ impl Room {
             .exchange_pair(&key)
             .ok_or("There is no exchange for this pair")?;
         if stop {
+            let mut stopped = Vec::new();
             for request in &mut pair.requests {
                 if Self::exchange_pending(request) {
                     self.cancel_handoff(request);
                     request.phase = Phase::Stopped;
                     request.failed = true;
                     request.reply = "The person stopped this exchange.".into();
-                    self.exchange_notice(request);
+                    stopped.push(request.clone());
                 }
             }
+            self.exchange_notices(&stopped);
         }
         pair.exchanges = 0;
         pair.paused = false;
@@ -309,9 +311,44 @@ impl Room {
             );
         }
     }
-    fn exchange_notice(&self, request: &Request) {
-        self.write_value(&request.from, &json!({"kind":"notice", "id":format!("exchange-ended:{}",request.id),
-            "ts":now_ms(), "level":"info", "text":format!("Message to {} ({}): {}",request.to,peers::about(&request.message),request.reply)}));
+    /// Tells each sender, once, what of theirs was stopped and why. A stop
+    /// ends every message a teammate had waiting on another at once, and a
+    /// line for each buried the sender's conversation under the same words;
+    /// so the messages one sender had to one teammate share a line, which
+    /// names that teammate rather than giving its id.
+    fn exchange_notices(&self, stopped: &[Request]) {
+        let mut groups: Vec<(&str, &str, Vec<&Request>)> = Vec::new();
+        for request in stopped {
+            match groups
+                .iter_mut()
+                .find(|(from, to, _)| *from == request.from && *to == request.to)
+            {
+                Some((_, _, requests)) => requests.push(request),
+                None => groups.push((&request.from, &request.to, vec![request])),
+            }
+        }
+        for (from, to, requests) in groups {
+            let first = requests[0];
+            let last = requests[requests.len() - 1];
+            let name = self.persona(to).map_or_else(|_| to.to_string(), |p| p.name);
+            let text = match requests.len() {
+                1 => format!(
+                    "Message to {name} ({}): {}",
+                    peers::about(&first.message),
+                    first.reply
+                ),
+                n => format!(
+                    "{n} messages to {name} stopped, the last ({}): {}",
+                    peers::about(&last.message),
+                    last.reply
+                ),
+            };
+            self.write_value(
+                from,
+                &json!({"kind":"notice", "id":format!("exchange-ended:{}",first.id),
+                "ts":now_ms(), "level":"info", "text":text}),
+            );
+        }
     }
     fn exchange_pending(request: &Request) -> bool {
         request.phase != Phase::Stopped
@@ -322,6 +359,7 @@ impl Room {
     }
     fn stop_revoked_exchanges(&self, persona: Option<&str>) {
         let _guard = lock(&self.exchange_lock);
+        let mut stopped = Vec::new();
         for mut pair in self.exchange_pairs() {
             let mut changed = false;
             for request in &mut pair.requests {
@@ -335,13 +373,14 @@ impl Room {
                 request.phase = Phase::Stopped;
                 request.failed = true;
                 request.reply = "Collaboration was revoked or a participant stopped. Send again if still needed.".into();
-                self.exchange_notice(request);
+                stopped.push(request.clone());
                 changed = true;
             }
             if changed && let Err(error) = self.save_pair(&pair) {
                 eprintln!("revoke exchange: {error}");
             }
         }
+        self.exchange_notices(&stopped);
     }
     fn exchange_lease_current(&self, id: &str) -> bool {
         lock(&self.exchange_leases)

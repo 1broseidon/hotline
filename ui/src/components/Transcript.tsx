@@ -22,7 +22,7 @@ import { type Block, type ScheduledEvent, type Step, groupScheduled } from "../s
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, CopyIcon, ReplyIcon, SmileIcon, WarningIcon } from "../icons";
 import { popupMessageMenu, writeClipboard } from "../native";
 import { answerCard, dmOf, type Streaming } from "../tape";
-import { linkFailed, linkLine, threadOfLink } from "../links";
+import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, threadOfLink } from "../links";
 import { type Activity, type ActivityPhase, activityOf, LANDED, RESTING } from "../activity";
 import { Glyph, LANDED_MS } from "../ui/Glyph";
 import type { Person } from "../avatars";
@@ -81,6 +81,7 @@ export function Transcript({
 	onReact,
 	onRetryMessage,
 	onOpenThread,
+	onOpenThreads,
 	onOpenScreen,
 	onOpenWork,
 	workOpen,
@@ -102,7 +103,7 @@ export function Transcript({
 	live: boolean;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
-	/** A peer thread names both sides; the tape with the person does not. */
+	/** A peer thread, or a handoff, names both sides; the tape with the person does not. */
 	speakers?: Speakers;
 	onReply?(target: ReplyTarget): void;
 	/** An emoji on a teammate's line, sent the way the phone sends one. */
@@ -110,6 +111,12 @@ export function Transcript({
 	onRetryMessage?(message: Extract<TranscriptEvent, { kind: "user" }>): void;
 	/** Opens a thread a line stands for in the right-hand pane: a link, a peer line or a delivery. */
 	onOpenThread?(thread: ThreadRef): void;
+	/**
+	 * Opens the teammate's threads in the pane. Given only for the person's
+	 * own conversation with it, which keeps one line for work colleagues
+	 * handed it rather than a line each.
+	 */
+	onOpenThreads?(): void;
 	/** The teammate's desktop, only while one is running: opens it in a window of its own. */
 	onOpenScreen?(): void;
 	/**
@@ -260,10 +267,12 @@ export function Transcript({
 					(hidden.has(block.event.id) ||
 						answered.has(block.event.id) ||
 						reacted.lines.has(block.event.id) ||
-						(block.event.kind === "delivery" && block.event.cause.kind === "answer"))
+						(block.event.kind === "delivery" && block.event.cause.kind === "answer") ||
+						(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
 				),
 		),
 	);
+	const underway = onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
 	// one run of speech.
@@ -343,6 +352,14 @@ export function Transcript({
 						</div>
 					);
 				})}
+				{underway.count > 0 && (
+					<button type="button" className="rule-line rule-line-plain mt-3 w-full" onClick={onOpenThreads}>
+						<span className="min-w-0 truncate">
+							Working on {underway.count === 1 ? "a handoff" : `${underway.count} handoffs`} from {namesSaid(underway.from)}
+						</span>
+						<span className="shrink-0">· Open</span>
+					</button>
+				)}
 			</div>
 		</Scroll>
 		{activity !== null && (
@@ -772,6 +789,8 @@ const Row = memo(function Row({
 			const cause = event.cause;
 			const line = deliveryLine(event);
 			if (cause.kind === "answer" || line === null) return null;
+			// Where both sides are named, a colleague's words are the conversation: said whole, in their voice.
+			if (speakers !== undefined) return <NamedSay name={cause.name} mine={false} text={event.text} />;
 			return (
 				<button
 					type="button"
@@ -1103,7 +1122,9 @@ function NamedSay({ name, mine, text }: { name: string; mine: boolean; text: str
 		return (
 			<div className="mt-3 flex flex-col items-end">
 				<p className="said-name">{name}</p>
-				<div className="speech said-me">{text}</div>
+				<div className="speech said-me">
+					<Markdown text={text} />
+				</div>
 			</div>
 		);
 	}

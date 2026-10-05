@@ -13,6 +13,7 @@ import {
 	loadDockWidth,
 	openerWords,
 	pairWith,
+	openerOf,
 	powersOf,
 	relativeTime,
 	rowOfLink,
@@ -202,16 +203,33 @@ describe("a link as a row", () => {
 });
 
 describe("what a person can do in a thread", () => {
+	const read = { say: false, close: false, resume: false, stop: false };
 	test("is speak and archive in an open work thread, and continue in a closed one", () => {
-		expect(powersOf("side", "live")).toEqual({ say: true, close: true, resume: false });
-		expect(powersOf("side", "parked")).toEqual({ say: true, close: true, resume: false });
-		expect(powersOf("side", "closed")).toEqual({ say: false, close: false, resume: true });
+		expect(powersOf("side", "live")).toEqual({ ...read, say: true, close: true });
+		expect(powersOf("side", "parked")).toEqual({ ...read, say: true, close: true });
+		expect(powersOf("side", "closed")).toEqual({ ...read, resume: true });
 	});
 
 	test("is only reading in a pair, a run and a call", () => {
 		for (const kind of ["pair", "run", "call"] as const) {
-			for (const state of ["live", "parked", "closed"] as const) expect(powersOf(kind, state)).toEqual({ say: false, close: false, resume: false });
+			for (const state of ["live", "parked", "closed"] as const) expect(powersOf(kind, state)).toEqual(read);
 		}
+	});
+
+	test("is reading along in a handoff, with only its turn to stop until it ends", () => {
+		expect(powersOf("side", "live", true)).toEqual({ ...read, stop: true });
+		expect(powersOf("side", "parked", true)).toEqual({ ...read, stop: true });
+		expect(powersOf("side", "closed", true)).toEqual(read);
+	});
+
+	test("knows a handoff by a teammate opener other than its own teammate", () => {
+		const row = (opener?: { personaId: string; name: string }, kind: "side" | "pair" = "side") =>
+			({ thread: { kind, key: "t" }, personaId: "toad", state: "live", startedAt: 0, updatedAt: 0, working: false, waiting: false, ...(opener ? { opener } : {}) }) as unknown as Parameters<typeof openerOf>[0];
+		expect(openerOf(row({ personaId: "poe", name: "Poe" }))).toEqual({ personaId: "poe", name: "Poe" });
+		expect(openerOf(row())).toBeUndefined();
+		expect(openerOf(row({ personaId: "toad", name: "Toad" }))).toBeUndefined();
+		expect(openerOf(row({ personaId: "poe", name: "Poe" }, "pair"))).toBeUndefined();
+		expect(openerOf(undefined)).toBeUndefined();
 	});
 });
 

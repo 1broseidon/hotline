@@ -8,6 +8,7 @@
 
 use crate::contract::LinkPreview;
 use futures_util::StreamExt;
+use futures_util::future::{BoxFuture, FutureExt, Shared};
 use regex::Regex;
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -20,11 +21,21 @@ const TIMEOUT: Duration = Duration::from_secs(6);
 const MAX_BYTES: usize = 2 * 1024 * 1024;
 const RETRY_EMPTY: Duration = Duration::from_secs(6 * 60 * 60);
 const KEEP: usize = 300;
+/// A name that will not resolve is no card, and nobody waits on a resolver
+/// for longer than the page itself is given.
+const RESOLVE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// When each link was read, and what it gave.
 type Known = HashMap<String, (Instant, Option<LinkPreview>)>;
 
 static KNOWN: LazyLock<Mutex<Known>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+type Reading = Shared<BoxFuture<'static, Option<LinkPreview>>>;
+
+/// The links being read right now, so a message that names one link twice, or
+/// two windows that ask at once, share one fetch.
+static READING: LazyLock<Mutex<HashMap<String, Reading>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// The card for `url`, read once and then remembered; `None` when the page
 /// has nothing to show or may not be read.
@@ -34,6 +45,24 @@ pub async fn preview(url: &str) -> Option<LinkPreview> {
     {
         return kept;
     }
+    let reading = {
+        let mut reading = READING.lock().ok()?;
+        reading
+            .entry(url.to_string())
+            .or_insert_with(|| {
+                let url = url.to_string();
+                async move { remember(&url).await }.boxed().shared()
+            })
+            .clone()
+    };
+    let found = reading.await;
+    if let Ok(mut reading) = READING.lock() {
+        reading.remove(url);
+    }
+    found
+}
+
+async fn remember(url: &str) -> Option<LinkPreview> {
     let found = read(url).await;
     if let Ok(mut known) = KNOWN.lock() {
         if known.len() >= KEEP {
@@ -130,12 +159,13 @@ async fn resolves_outside(url: &Url) -> bool {
         return false;
     };
     let host = host.trim_start_matches('[').trim_end_matches(']');
-    match tokio::net::lookup_host((host, url.port_or_known_default().unwrap_or(443))).await {
-        Ok(addresses) => {
+    let port = url.port_or_known_default().unwrap_or(443);
+    match tokio::time::timeout(RESOLVE_TIMEOUT, tokio::net::lookup_host((host, port))).await {
+        Ok(Ok(addresses)) => {
             let addresses: Vec<_> = addresses.collect();
             !addresses.is_empty() && addresses.iter().all(|address| public(address.ip()))
         }
-        Err(_) => false,
+        Ok(Err(_)) | Err(_) => false,
     }
 }
 

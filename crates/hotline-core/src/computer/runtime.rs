@@ -119,10 +119,10 @@ pub async fn detect() -> Vec<RuntimeReport> {
 }
 
 pub async fn detect_with(bins: &BinSearch) -> Vec<RuntimeReport> {
-    let mut reports = Vec::with_capacity(3);
-    for runtime in Runtime::all() {
-        reports.push(probe(*runtime, bins).await);
-    }
+    // Each probe may run its own CLI for seconds, and none waits on another.
+    let mut reports =
+        futures_util::future::join_all(Runtime::all().iter().map(|runtime| probe(*runtime, bins)))
+            .await;
     reports.sort_by(|left, right| {
         right
             .state

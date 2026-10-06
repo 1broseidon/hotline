@@ -23,7 +23,7 @@ import {
 	threadDot,
 	withLinks,
 } from "../dock";
-import { type Person, peopleOf } from "../avatars";
+import { type Person, usePeople } from "../avatars";
 import { sideTitle } from "../links";
 import { answerCard, dmOf, sameThread, useThread } from "../tape";
 import { Avatar } from "../ui/Avatar";
@@ -79,7 +79,7 @@ export function Dock({
 
 	const teammate = entry === null ? null : { id: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash };
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
-	const people = useMemo(() => peopleOf(roster), [roster]);
+	const people = usePeople(roster);
 	const { rows, list, reload } = useThreadRows(entry);
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);

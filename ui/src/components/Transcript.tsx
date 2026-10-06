@@ -138,6 +138,9 @@ export function Transcript({
 	/* Following the conversation is the default and stays true until you
 	 * scroll away from the bottom yourself. */
 	const pinned = useRef(true);
+	/* The scroll the code is about to cause by pinning, so the scrollbar does
+	 * not show itself for a move you did not make. */
+	const pinning = useRef(false);
 	/* The same fact, for the button that offers the way back down. */
 	const [following, setFollowing] = useState(true);
 	const empty = events.length === 0 && !live;
@@ -168,6 +171,18 @@ export function Transcript({
 	const reacted = useMemo(() => foldReactions(events), [events]);
 	const written = useMemo(() => toBlocks(events), [events]);
 	const onJump = useCallback((eventId: string) => setJumped({ eventId, at: Date.now() }), []);
+	/* A row is skipped while its props are the same, so the thread it is
+	 * handed is made once, not once per render. */
+	const rowThread = useMemo(() => thread ?? dmOf(personaId), [thread, personaId]);
+	/* One retry per notice for as long as the events are these; a fresh
+	 * function each render would wake the row it is given to. */
+	const retries = useMemo(() => {
+		const made = new Map<string, (() => void) | undefined>();
+		return (noticeId: string) => {
+			if (!made.has(noticeId) && onRetryMessage !== undefined) made.set(noticeId, retryForNotice(events, noticeId, onRetryMessage));
+			return made.get(noticeId);
+		};
+	}, [events, onRetryMessage]);
 
 	useScrollToEvent(scroller, pinned, landing, events);
 
@@ -226,18 +241,47 @@ export function Transcript({
 		};
 		const pin = () => {
 			seen = { height: el.scrollHeight, view: el.clientHeight };
-			if (pinned.current) el.scrollTop = el.scrollHeight;
+			if (!pinned.current) return;
+			const was = el.scrollTop;
+			el.scrollTop = el.scrollHeight;
+			// Only a scroll that really moves fires an event to be told apart.
+			if (el.scrollTop !== was) pinning.current = true;
 		};
-		el.addEventListener("scroll", measure, { passive: true });
+		// A scroll, a reflow and a resize can all land in one frame, and each
+		// would read the layout and write the position again; they are done
+		// once, on the frame.
+		let frame = 0;
+		let scrolled = false;
+		let resized = false;
+		const settle = () => {
+			frame = 0;
+			if (resized) pin();
+			if (scrolled) measure();
+			scrolled = false;
+			resized = false;
+		};
+		const ask = () => {
+			if (frame === 0) frame = requestAnimationFrame(settle);
+		};
+		const onScroll = () => {
+			scrolled = true;
+			ask();
+		};
+		const onResize = () => {
+			resized = true;
+			ask();
+		};
+		el.addEventListener("scroll", onScroll, { passive: true });
 		// Markdown lays out after the event lands, so the column's height
 		// changes without a scroll event; this is what notices.
-		const observer = new ResizeObserver(pin);
+		const observer = new ResizeObserver(onResize);
 		observer.observe(el);
 		if (el.firstElementChild) observer.observe(el.firstElementChild);
 		pin();
 		return () => {
-			el.removeEventListener("scroll", measure);
+			el.removeEventListener("scroll", onScroll);
 			observer.disconnect();
+			cancelAnimationFrame(frame);
 		};
 		// The scroll listener above is enough while the events are the same.
 	}, [empty]);
@@ -290,15 +334,16 @@ export function Transcript({
 
 	return (
 		<div className="relative flex min-h-0 flex-1 flex-col">
-		<Scroll scrollerRef={scroller}>
+		<Scroll scrollerRef={scroller} programmatic={pinning}>
 			{/* `justify-end` rests a short conversation on the composer rather
 			    than stranding it at the top of an empty pane. The room at the
 			    bottom is the mark's for as long as the mark is there — through
 			    the landing and the sleep, not just the turn — so the last bubble
 			    never slides under it. It opens before the mark rises into it
-			    (`wake` waits out this 200ms) and eases back once the mark is gone. */}
+			    (`wake` waits 200ms) and closes once the mark is gone, at once:
+			    easing it would reflow every row for the length of the ease. */}
 			<div
-				className={`mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 transition-[padding] duration-200 ${activity !== null ? "pb-14" : "pb-6"}`}
+				className={`mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${activity !== null ? "pb-14" : "pb-6"}`}
 			>
 				{/* Scrolling up loads these on its own; the key is for a window
 				    whose loaded lines are too short to scroll. */}
@@ -334,7 +379,7 @@ export function Transcript({
 							) : (
 								<Row
 									personaId={personaId}
-									thread={thread ?? dmOf(personaId)}
+									thread={rowThread}
 									ownerName={name}
 									event={block.event}
 									quote={block.event.kind === "user" && block.event.replyTo !== undefined ? said.get(block.event.replyTo) : undefined}
@@ -342,7 +387,7 @@ export function Transcript({
 									bottom={run.bottom}
 									speakers={speakers}
 									people={people}
-									{...(onRetryMessage && !speakers && block.event.kind === "notice" ? { onRetry: retryForNotice(events, block.event.id, onRetryMessage) } : {})}
+									{...(onRetryMessage && !speakers && block.event.kind === "notice" ? { onRetry: retries(block.event.id) } : {})}
 									reactions={reacted.on.get(block.event.id)}
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onReact !== undefined ? { onReact } : {})}

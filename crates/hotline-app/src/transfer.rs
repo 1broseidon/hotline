@@ -107,14 +107,26 @@ pub async fn transfer_pick(
         .collect())
 }
 
+/// Runs file work off the thread that serves the window: a command that is a
+/// plain `fn` runs there, and a half-megabyte read or write holds every other
+/// command, and the page's paint, behind it.
+async fn off_the_window<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
 /// One chunk of a file the person handed over.
 #[tauri::command]
-pub fn transfer_read(
+pub async fn transfer_read(
     transfers: tauri::State<'_, std::sync::Arc<Transfers>>,
     path: String,
     offset: u64,
 ) -> Result<LocalChunk, String> {
-    read_chunk(&transfers.handed(&path)?, offset)
+    let transfers = transfers.inner().clone();
+    off_the_window(move || read_chunk(&transfers.handed(&path)?, offset)).await
 }
 
 fn read_chunk(path: &Path, offset: u64) -> Result<LocalChunk, String> {
@@ -181,58 +193,66 @@ pub async fn transfer_begin(
 }
 
 #[tauri::command]
-pub fn transfer_write(
+pub async fn transfer_write(
     transfers: tauri::State<'_, std::sync::Arc<Transfers>>,
     id: String,
     data: String,
 ) -> Result<(), String> {
-    let bytes = STANDARD
-        .decode(data)
-        .map_err(|_| "The desk sent a damaged chunk.".to_string())?;
-    let mut writing = transfers.writing.lock().unwrap();
-    let download = writing.get_mut(&id).ok_or("That download has ended.")?;
-    download
-        .file
-        .write_all(&bytes)
-        .map_err(|error| format!("The copy could not be written: {error}"))
+    let transfers = transfers.inner().clone();
+    off_the_window(move || {
+        let bytes = STANDARD
+            .decode(data)
+            .map_err(|_| "The desk sent a damaged chunk.".to_string())?;
+        let mut writing = transfers.writing.lock().unwrap();
+        let download = writing.get_mut(&id).ok_or("That download has ended.")?;
+        download
+            .file
+            .write_all(&bytes)
+            .map_err(|error| format!("The copy could not be written: {error}"))
+    })
+    .await
 }
 
 /// Ends a download. Finished, it answers where the copy is, and opens it if
 /// that was the point; abandoned, the partial copy is removed.
 #[tauri::command]
-pub fn transfer_end(
+pub async fn transfer_end(
     app: tauri::AppHandle,
     transfers: tauri::State<'_, std::sync::Arc<Transfers>>,
     id: String,
     finished: bool,
 ) -> Result<Option<String>, String> {
-    let Some(mut download) = transfers.writing.lock().unwrap().remove(&id) else {
-        return Ok(None);
-    };
-    let flushed = download.file.flush();
-    drop(download.file);
-    if !finished || flushed.is_err() {
-        let _ = std::fs::remove_file(&download.path);
-        flushed.map_err(|error| format!("The copy could not be written: {error}"))?;
-        return Ok(None);
-    }
-    if download.open {
-        if !crate::files::openable(&download.path) {
-            return Err(
-                "Only a PDF or a picture opens from the conversation; save anything else."
-                    .to_string(),
-            );
+    let transfers = transfers.inner().clone();
+    off_the_window(move || {
+        let Some(mut download) = transfers.writing.lock().unwrap().remove(&id) else {
+            return Ok(None);
+        };
+        let flushed = download.file.flush();
+        drop(download.file);
+        if !finished || flushed.is_err() {
+            let _ = std::fs::remove_file(&download.path);
+            flushed.map_err(|error| format!("The copy could not be written: {error}"))?;
+            return Ok(None);
         }
-        app.opener()
-            .open_path(download.path.to_string_lossy(), None::<&str>)
-            .map_err(|error| format!("The file could not be opened: {error}"))?;
-        // The viewer reads it after this returns; the directory stays for
-        // the session and the system's temp cleaning takes it after.
-        if let Some(scratch) = download.scratch.take() {
-            let _ = scratch.keep();
+        if download.open {
+            if !crate::files::openable(&download.path) {
+                return Err(
+                    "Only a PDF or a picture opens from the conversation; save anything else."
+                        .to_string(),
+                );
+            }
+            app.opener()
+                .open_path(download.path.to_string_lossy(), None::<&str>)
+                .map_err(|error| format!("The file could not be opened: {error}"))?;
+            // The viewer reads it after this returns; the directory stays for
+            // the session and the system's temp cleaning takes it after.
+            if let Some(scratch) = download.scratch.take() {
+                let _ = scratch.keep();
+            }
         }
-    }
-    Ok(Some(download.path.display().to_string()))
+        Ok(Some(download.path.display().to_string()))
+    })
+    .await
 }
 
 /// A name from the desk as a single path component, never a path.

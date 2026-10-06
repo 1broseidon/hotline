@@ -126,51 +126,84 @@ function SentPicture({
 	return (
 		<>
 			<button type="button" className="sent-open picture-open" title="Open full size" onClick={onOpen}>
-				<img className="sent-picture" src={url} alt={file.name} width={file.width} height={file.height} />
+				<img className="sent-picture" decoding="async" src={url} alt={file.name} width={file.width} height={file.height} />
 			</button>
 			{viewing && <Viewer src={url} alt={file.name} onClose={onClose} actions={actions} />}
 		</>
 	);
 }
 
+/** How many pictures stay readable after their bubble leaves the screen. */
+const KEPT = 48;
+const pictures = new Map<string, Promise<string>>();
+
 /**
- * The file's bytes as a URL the page can draw, read a part at a time.
- * Undefined while it comes, null when it cannot be read.
+ * The file's bytes as a URL the page can draw, read a part at a time. A sent
+ * file never changes, so it is read once and the URL kept: switching back to a
+ * teammate draws their pictures at once, and a URL is only let go when it is
+ * the least recently asked for. A failed read is forgotten, so the next ask
+ * tries again.
  */
+function sentUrl(personaId: string, eventId: string, index: number): Promise<string> {
+	const key = `${personaId}/${eventId}/${index}`;
+	const known = pictures.get(key);
+	if (known !== undefined) {
+		pictures.delete(key);
+		pictures.set(key, known);
+		return known;
+	}
+	const fetched = readSent(personaId, eventId, index);
+	pictures.set(key, fetched);
+	fetched.catch(() => {
+		if (pictures.get(key) === fetched) pictures.delete(key);
+	});
+	if (pictures.size > KEPT) {
+		const oldest = pictures.keys().next().value as string;
+		const gone = pictures.get(oldest);
+		pictures.delete(oldest);
+		void gone?.then((url) => URL.revokeObjectURL(url), () => {});
+	}
+	return fetched;
+}
+
+async function readSent(personaId: string, eventId: string, index: number): Promise<string> {
+	const parts: Uint8Array<ArrayBuffer>[] = [];
+	let type = "";
+	let offset: number | undefined = 0;
+	while (offset !== undefined) {
+		const chunk: FileChunk = await wire.command("file.read", { personaId, eventId, index, offset });
+		type = chunk.mimeType;
+		parts.push(await bytesOf(chunk.data));
+		offset = chunk.next;
+	}
+	return URL.createObjectURL(new Blob(parts, { type }));
+}
+
 function useSentFile(personaId: string, eventId: string, index: number): string | null | undefined {
 	const [url, setUrl] = useState<string | null | undefined>(undefined);
 	useEffect(() => {
 		let gone = false;
-		let made: string | undefined;
-		void (async () => {
-			const parts: Uint8Array<ArrayBuffer>[] = [];
-			let type = "";
-			let offset: number | undefined = 0;
-			while (offset !== undefined) {
-				const chunk: FileChunk = await wire.command("file.read", { personaId, eventId, index, offset });
-				if (gone) return;
-				type = chunk.mimeType;
-				parts.push(bytesOf(chunk.data));
-				offset = chunk.next;
-			}
-			made = URL.createObjectURL(new Blob(parts, { type }));
-			setUrl(made);
-		})().catch(() => {
-			if (!gone) setUrl(null);
-		});
+		sentUrl(personaId, eventId, index).then(
+			(made) => {
+				if (!gone) setUrl(made);
+			},
+			() => {
+				if (!gone) setUrl(null);
+			},
+		);
 		return () => {
 			gone = true;
-			if (made !== undefined) URL.revokeObjectURL(made);
 		};
 	}, [personaId, eventId, index]);
 	return url;
 }
 
-function bytesOf(base64: string): Uint8Array<ArrayBuffer> {
-	const text = atob(base64);
-	const bytes = new Uint8Array(new ArrayBuffer(text.length));
-	for (let index = 0; index < text.length; index++) bytes[index] = text.charCodeAt(index);
-	return bytes;
+/** Base64 to bytes by the engine's own decoder where there is one: a loop over a megabyte of characters is its own wait. */
+async function bytesOf(base64: string): Promise<Uint8Array<ArrayBuffer>> {
+	const native = (Uint8Array as unknown as { fromBase64?: (text: string) => Uint8Array<ArrayBuffer> }).fromBase64;
+	if (native !== undefined) return native.call(Uint8Array, base64);
+	const response = await fetch(`data:application/octet-stream;base64,${base64}`);
+	return new Uint8Array(await response.arrayBuffer());
 }
 
 /** What kind of file a card names, from its name's ending. */

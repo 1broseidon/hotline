@@ -3288,7 +3288,10 @@ impl Room {
     }
 
     pub async fn computer_status(&self, persona_id: &str) -> Result<ComputerStatus, String> {
-        let settings = room::settings(&self.log);
+        // The pane polls this, so the room is read once for both the settings
+        // and the roster rather than once for each.
+        let events = self.log.load(&StreamId::Room);
+        let settings = room::settings_from_events(&events);
         let mut status = self
             .computers
             .status(persona_id, crate::computer::preferred_runtime(&settings))
@@ -3296,7 +3299,7 @@ impl Room {
         // An existing container keeps the release it was made on, so the
         // pane is told when the one it would be made on now is different.
         if let Some(release) = &status.release
-            && let Some(persona) = room::roster(&self.log)
+            && let Some(persona) = room::personas(&events)
                 .into_iter()
                 .find(|persona| persona.id == persona_id)
         {
@@ -3863,9 +3866,9 @@ impl Room {
 
     /// Closes the open chapter and writes the note the next one wakes on.
     ///
-    /// The note is a model call, so this takes as long as an answer takes, and
-    /// the close is one supersession of the marker when it comes back: the
-    /// chapter goes from open to everything it turned out to be, in one line.
+    /// The note is a model call, so it is not waited for: the marker closes at
+    /// once under the first message's title, and the note supersedes it in
+    /// place when it comes back, after a short grace for a fast answer.
     /// A chapter in which nothing was said never asks — there is nothing to
     /// write a note about — and closes untitled.
     async fn close_chapter(
@@ -3918,24 +3921,69 @@ impl Room {
             return self.chapter_summary(persona_id, &open);
         };
 
-        let note = self.note(&persona, &slice).await;
-        let missing = note.is_none();
+        // The close is written now, titled from the first message, and the
+        // note rewrites it by id when the summariser answers. A message
+        // waiting behind the start gate, or a person who asked for a fresh
+        // chapter, never waits on a model for the privilege.
         self.close_marker(
             persona_id,
             &open,
             ended_at,
-            chapters::Closing::Titled {
-                title: note.as_ref().map_or(title, |note| note.title.clone()),
-                note,
-            },
+            chapters::Closing::Titled { title, note: None },
             by,
         );
-        if missing {
+        let room = Arc::clone(self);
+        let owner = persona_id.to_string();
+        let marker = open.clone();
+        let mut noting = tokio::spawn(async move {
+            room.write_note(&owner, &persona, &marker, &slice, ended_at, by)
+                .await;
+        });
+        // A summariser that is already answering finishes inside the grace and
+        // lands in the summary this returns; a slow one does not hold anyone.
+        let _ =
+            tokio::time::timeout(Duration::from_millis(chapters::NOTE_GRACE_MS), &mut noting).await;
+        self.chapter_summary(persona_id, &open)
+    }
+
+    /// Asks for the handoff note and supersedes the close marker with it.
+    ///
+    /// The marker is only rewritten while it is still the close this note was
+    /// written for: one that already carries a note is left as it is.
+    async fn write_note(
+        &self,
+        persona_id: &str,
+        persona: &Persona,
+        open: &Value,
+        slice: &[Value],
+        ended_at: i64,
+        by: ChapterClose,
+    ) {
+        let Some(note) = self.note(persona, slice).await else {
             // The chapter closed either way; the next one starts from the
             // tape rather than a handoff. Nothing for the conversation to say.
             eprintln!("{persona_id}: a chapter closed without a handoff note: no model answered");
+            return;
+        };
+        let id = open.get("id");
+        let still_closed = self.tape(persona_id).iter().any(|event| {
+            event.get("kind").and_then(Value::as_str) == Some("chapter")
+                && event.get("id") == id
+                && event.get("endedAt").is_some_and(|ended| !ended.is_null())
+                && event.get("note").is_none_or(Value::is_null)
+        });
+        if still_closed {
+            self.close_marker(
+                persona_id,
+                open,
+                ended_at,
+                chapters::Closing::Titled {
+                    title: note.title.clone(),
+                    note: Some(note),
+                },
+                by,
+            );
         }
-        self.chapter_summary(persona_id, &open)
     }
 
     fn close_marker(

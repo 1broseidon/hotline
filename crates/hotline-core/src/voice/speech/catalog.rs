@@ -15,10 +15,15 @@ use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
-use std::time::Duration;
+use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 const CACHE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long a provider that could not be asked is left alone. The pickers ask
+/// every time settings opens, and an offline provider would otherwise cost the
+/// whole fetch timeout each time.
+const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
 /// A model list is a few hundred kilobytes at most.
 const LIST_LIMIT: usize = 8 << 20;
 
@@ -137,14 +142,41 @@ pub async fn discover_all(root: Option<&Path>, endpoints: &[Endpoint]) -> Vec<(S
     .collect()
 }
 
+/// The providers that failed to answer, and when, for [`RETRY_AFTER`].
+static FAILED: Mutex<Vec<((String, String), Instant)>> = Mutex::new(Vec::new());
+
+fn failed_key(endpoint: &Endpoint) -> (String, String) {
+    (endpoint.provider_id.clone(), endpoint.base_url.clone())
+}
+
+fn recently_failed(endpoint: &Endpoint) -> bool {
+    let key = failed_key(endpoint);
+    FAILED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .any(|(failed, at)| *failed == key && at.elapsed() < RETRY_AFTER)
+}
+
+fn remember_failure(endpoint: &Endpoint) {
+    let key = failed_key(endpoint);
+    let mut failed = FAILED.lock().unwrap_or_else(PoisonError::into_inner);
+    failed.retain(|(failed, at)| *failed != key && at.elapsed() < RETRY_AFTER);
+    failed.push((key, Instant::now()));
+}
+
 /// One provider's list: the cached copy while it is a day old, else a fresh
-/// fetch, else whatever the cache still holds.
+/// fetch, else whatever the cache still holds. A provider that just failed is
+/// not asked again for [`RETRY_AFTER`], and answers from the cache meanwhile.
 pub async fn discover(root: Option<&Path>, endpoint: &Endpoint) -> Option<Found> {
     let cached = root.and_then(|root| read(root, &endpoint.provider_id));
     if let Some(cached) = &cached
         && fresh(cached.fetched_at, now_ms())
     {
         return Some(cached.clone());
+    }
+    if recently_failed(endpoint) {
+        return cached;
     }
     match fetch(endpoint).await {
         Some(found) => {
@@ -153,7 +185,10 @@ pub async fn discover(root: Option<&Path>, endpoint: &Endpoint) -> Option<Found>
             }
             Some(found)
         }
-        None => cached,
+        None => {
+            remember_failure(endpoint);
+            cached
+        }
     }
 }
 
@@ -650,6 +685,16 @@ mod tests {
         let on_disk =
             std::fs::read_to_string(paths::speech_models_path(root.path(), "groq")).unwrap();
         assert!(!on_disk.contains("test-key"));
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn a_provider_that_failed_is_not_asked_again_straight_away() {
+        let (url, seen, server) = serve(StatusCode::INTERNAL_SERVER_ERROR, json!({})).await;
+        let groq = endpoint("groq", &url);
+        assert_eq!(discover(None, &groq).await, None);
+        assert_eq!(discover(None, &groq).await, None);
+        assert_eq!(seen.lock().unwrap().len(), 1);
         server.abort();
     }
 

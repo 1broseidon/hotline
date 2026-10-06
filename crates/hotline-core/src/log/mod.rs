@@ -56,7 +56,7 @@ use tokio::sync::broadcast;
 /// socket drains. One that falls further behind than this is told it lagged
 /// and reloads the fold; that is cheaper for everybody than a queue the log
 /// grows without bound.
-const SUBSCRIPTION_DEPTH: usize = 256;
+const SUBSCRIPTION_DEPTH: usize = 1024;
 
 /// Which stream. The room's belongs to the room, a tape's to one teammate,
 /// a pair's to two teammates — the key from [`crate::paths::thread_key`] — and a

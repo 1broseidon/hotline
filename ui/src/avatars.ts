@@ -1,3 +1,4 @@
+import { useMemo, useRef } from "react";
 import type { FileChunk } from "./generated/contract";
 import { wire } from "./wire";
 
@@ -18,6 +19,18 @@ export type Person = { name: string; hash?: string | undefined };
 /** Every teammate by id, for lines that name a colleague rather than the teammate whose tape it is. */
 export function peopleOf(roster: readonly { persona: { id: string; name: string; avatar?: { hash: string } | undefined } }[]): ReadonlyMap<string, Person> {
 	return new Map(roster.map((entry) => [entry.persona.id, { name: entry.persona.name, hash: entry.persona.avatar?.hash }]));
+}
+
+/**
+ * `peopleOf`, rebuilt only when a name or a picture changes. A roster event
+ * hands over a new array for every state flicker; keyed on what the map holds,
+ * the rows that read it are not asked to draw again.
+ */
+export function usePeople(roster: Parameters<typeof peopleOf>[0]): ReadonlyMap<string, Person> {
+	const latest = useRef(roster);
+	latest.current = roster;
+	const key = roster.map((entry) => `${entry.persona.id}\u0000${entry.persona.name}\u0000${entry.persona.avatar?.hash ?? ""}`).join("\u0001");
+	return useMemo(() => peopleOf(latest.current), [key]);
 }
 
 export function avatarUrl(personaId: string, hash: string, read: AvatarRead = readOverWire): Promise<string> {

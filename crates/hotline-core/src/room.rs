@@ -205,7 +205,7 @@ pub fn roster(log: &Log) -> Vec<Persona> {
     personas(&log.load(&StreamId::Room))
 }
 
-fn personas(events: &[Value]) -> Vec<Persona> {
+pub(crate) fn personas(events: &[Value]) -> Vec<Persona> {
     events
         .iter()
         .filter(|event| is_kind(event, "persona") && !is_deleted(event))
@@ -247,7 +247,7 @@ pub fn try_settings(log: &Log) -> Result<Map<String, Value>, String> {
     Ok(settings_from_events(&events))
 }
 
-fn settings_from_events(events: &[Value]) -> Map<String, Value> {
+pub(crate) fn settings_from_events(events: &[Value]) -> Map<String, Value> {
     let mut settings = defaults();
     for event in events {
         if !is_kind(event, "setting") || is_deleted(event) {

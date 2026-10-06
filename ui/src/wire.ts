@@ -119,6 +119,7 @@ type Results = {
 	"settings.update": Record<string, unknown>;
 	"images.status": ImagesStatus;
 	"link.preview": LinkPreview | null;
+	ping: null;
 	"capabilities.options": CapabilityOptions;
 	"credential.create": Credential;
 	"credential.login": LoginPrompt;

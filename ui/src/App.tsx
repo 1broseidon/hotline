@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type SetStateAction } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { useNarrow } from "./narrow";
 import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
@@ -29,6 +29,7 @@ import { activeDeskId, deskKey, LOCAL_DESK, setActiveDesk, useActiveDesk, useDes
 import { syncWatches, useBackgroundUnread } from "./deskWatch";
 import { AddDesk } from "./components/AddDesk";
 import { ServerFiles } from "./components/ServerFiles";
+import { useSaved } from "./useSaved";
 
 
 /* Settings is opened now and then, not at launch: it loads on first open,
@@ -111,8 +112,12 @@ export function App() {
 	 * conversation or over it in a window too narrow. */
 	const [dockWidth, setDockWidthState] = useState(loadDockWidth);
 	const setDockWidth = useCallback((width: number) => setDockWidthState(clampDock(width)), []);
-	useEffect(() => saveDockWidth(dockWidth), [dockWidth]);
-	const [mainWidth, setMainWidth] = useState(Infinity);
+	useSaved(dockWidth, saveDockWidth);
+	/* Whether the pane would leave the conversation too narrow to read beside
+	 * it. Only this fact is kept, not the width: a drag of the window edge
+	 * reports a new width every frame, and a number would draw the whole app
+	 * for each of them. */
+	const [paneOverlays, setPaneOverlays] = useState(false);
 	/* A narrow window keeps the pane and shows the rail as faces only, open
 	 * or closed from the titlebar; there is no dragging it wider there. */
 	const narrow = useNarrow();
@@ -120,16 +125,23 @@ export function App() {
 	 * words, so it docks under the composer instead. */
 	const mainRef = useRef<HTMLElement>(null);
 	const [dockWork, setDockWork] = useState(false);
+	const dockWidthRef = useRef(dockWidth);
+	dockWidthRef.current = dockWidth;
+	const measured = useRef<() => void>(() => {});
 	useLayoutEffect(() => {
 		const el = mainRef.current;
 		if (el === null) return;
-		const observer = new ResizeObserver(() => {
+		const measure = () => {
 			setDockWork(el.clientWidth < WORK_DOCK_BELOW);
-			setMainWidth(el.clientWidth);
-		});
+			setPaneOverlays(dockOverlays(el.clientWidth, dockWidthRef.current));
+		};
+		measured.current = measure;
+		const observer = new ResizeObserver(measure);
 		observer.observe(el);
 		return () => observer.disconnect();
 	}, []);
+	// The pane's own width is the other half of the sum.
+	useLayoutEffect(() => measured.current(), [dockWidth]);
 	/* The rail: how wide you dragged it, whether it is down to faces, and whether you closed it. */
 	const [railSize, setRailSize] = useRailSize();
 	const toggleRail = useCallback(() => setRailSize((was) => ({ ...was, open: !was.open })), [setRailSize]);
@@ -214,10 +226,13 @@ export function App() {
 	// The dock's badge is the rail's unread count: the rows in bold, counted,
 	// with those on the desks not on screen.
 	const elsewhere = useBackgroundUnread();
+	const badge = useMemo(
+		() => roster.filter((entry) => unreadOf(entry, selectedId, seen)).length + Object.values(elsewhere).reduce((sum, count) => sum + count, 0),
+		[roster, selectedId, seen, elsewhere],
+	);
 	useEffect(() => {
-		const others = Object.values(elsewhere).reduce((sum, count) => sum + count, 0);
-		void setBadge(roster.filter((entry) => unreadOf(entry, selectedId, seen)).length + others);
-	}, [roster, selectedId, seen, elsewhere]);
+		void setBadge(badge);
+	}, [badge]);
 
 	// In native fullscreen the traffic lights leave with the menu bar, and
 	// the rail's gutter for them goes too (index.css).
@@ -228,9 +243,10 @@ export function App() {
 		});
 	}, []);
 
+	const name = selected?.persona.name ?? null;
 	useEffect(() => {
-		setWindowTitle(selected?.persona.name ?? null);
-	}, [selected]);
+		setWindowTitle(name);
+	}, [name]);
 
 	/* A different teammate is a different conversation: the search was asking
 	 * about the one that just left, and the inspector was editing them. */
@@ -481,7 +497,7 @@ export function App() {
 	const settingsWidth = narrow ? RAIL_MIN : railSize.width;
 	/* The right-hand pane lies over the conversation once it would leave it
 	 * too narrow to read beside it. */
-	const dockOverlay = dock !== null && pane !== "settings" && dockOverlays(mainWidth, dockWidth);
+	const dockOverlay = dock !== null && pane !== "settings" && paneOverlays;
 
 
 	/* The work card shows only on its own teammate's conversation: not over

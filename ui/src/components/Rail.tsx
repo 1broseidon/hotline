@@ -9,6 +9,7 @@ import { Avatar } from "../ui/Avatar";
 import { MenuButton, Picker, type MenuEntry } from "../ui/Menu";
 import { useBackgroundUnread } from "../deskWatch";
 import { setActiveDesk, useActiveDesk, useDesks, type Desk } from "../desks";
+import { useSaved } from "../useSaved";
 
 /**
  * Each teammate carries a vital sign rather than a status pill: the rail is
@@ -480,13 +481,13 @@ const clampWidth = (width: number) => Math.round(Math.min(RAIL_MAX, Math.max(RAI
 
 export function useRailSize(): [RailSize, (next: RailSize | ((was: RailSize) => RailSize)) => void] {
 	const [size, setSize] = useState<RailSize>(loadRailSize);
-	useEffect(() => {
+	useSaved(size, (kept) => {
 		try {
-			localStorage.setItem(RAIL_KEY, JSON.stringify(size));
+			localStorage.setItem(RAIL_KEY, JSON.stringify(kept));
 		} catch {
 			// Quota, private mode: the next launch opens at the default.
 		}
-	}, [size]);
+	});
 	return [size, setSize];
 }
 

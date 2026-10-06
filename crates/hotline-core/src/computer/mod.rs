@@ -69,9 +69,16 @@ const DEFAULT_PIDS: u32 = 1024;
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_PROBE: Duration = Duration::from_secs(2);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
+/// How long `status` lets one inspect take. The panes poll it every few
+/// seconds, so a wedged daemon should read as absent rather than hold the
+/// answer for as long as a create is allowed to run.
+const STATUS_TIMEOUT: Duration = Duration::from_secs(3);
 /// How long `status` trusts its last runtime pick. The panes ask every few
 /// seconds; probing every runtime each time spawns a handful of CLIs a tick.
 const PICK_FOR_STATUS: Duration = Duration::from_secs(30);
+/// How long the list of installed runtimes is trusted. Probing runs each CLI,
+/// and the settings pane that asks is not worth that every time it opens.
+const RUNTIMES_CACHE: Duration = Duration::from_secs(30);
 const PULL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -169,6 +176,10 @@ pub fn preferred_image(settings: &serde_json::Map<String, Value>) -> Option<Stri
         .map(str::to_string)
 }
 
+/// An answer and when it was got, behind a lock that is held while the next
+/// one is fetched, so overlapping askers share the fetch.
+type Remembered<T> = tokio::sync::Mutex<Option<(Instant, T)>>;
+
 /// Every teammate computer this process has woken, keyed by persona id.
 ///
 /// The token is generated once per container and kept here. A container that
@@ -180,6 +191,12 @@ pub struct Computer {
     inner: Arc<Mutex<Inner>>,
     bins: BinSearch,
     capacity: Arc<capacity::Cache>,
+    /// The last status each teammate's computer answered, for
+    /// [`Computer::status`] to share between polls that overlap.
+    statuses: Arc<Mutex<HashMap<String, Arc<Remembered<ComputerStatus>>>>>,
+    /// The runtimes the last probe found, for [`RUNTIMES_CACHE`]. The lock is
+    /// held across the probe so overlapping asks share it.
+    runtimes: Arc<Remembered<Vec<RuntimeReport>>>,
     /// Where published releases are listed; a test points this at its own.
     releases_url: String,
 }
@@ -218,6 +235,8 @@ impl Computer {
                 picked: None,
             })),
             capacity: Arc::new(capacity::Cache::default()),
+            statuses: Arc::default(),
+            runtimes: Arc::default(),
             bins: BinSearch::from_env(),
             releases_url: releases::RELEASES_URL.to_string(),
         }
@@ -235,6 +254,8 @@ impl Computer {
                 picked: None,
             })),
             capacity: Arc::new(capacity::Cache::default()),
+            statuses: Arc::default(),
+            runtimes: Arc::default(),
             bins: BinSearch::only(path),
             releases_url: "http://127.0.0.1:1/releases".to_string(),
         }
@@ -303,7 +324,15 @@ impl Computer {
     }
 
     pub async fn runtimes(&self) -> Vec<RuntimeReport> {
-        runtime::detect_with(&self.bins).await
+        let mut last = self.runtimes.lock().await;
+        if let Some((at, reports)) = &*last
+            && at.elapsed() < RUNTIMES_CACHE
+        {
+            return reports.clone();
+        }
+        let reports = runtime::detect_with(&self.bins).await;
+        *last = Some((Instant::now(), reports.clone()));
+        reports
     }
 
     /// `pick_runtime`, remembered for [`PICK_FOR_STATUS`]. Only `status` uses
@@ -484,7 +513,34 @@ impl Computer {
         Ok(())
     }
 
+    /// A teammate's computer as it is now. Polls that overlap share one
+    /// inspect: a caller that waited behind another takes the answer that
+    /// one produced, because it was asked for after this caller did.
     pub async fn status(
+        &self,
+        persona_id: &str,
+        prefer: Option<Runtime>,
+    ) -> Result<ComputerStatus, String> {
+        let asked = Instant::now();
+        let slot = self
+            .statuses
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(persona_id.to_string())
+            .or_default()
+            .clone();
+        let mut last = slot.lock().await;
+        if let Some((at, status)) = &*last
+            && *at >= asked
+        {
+            return Ok(status.clone());
+        }
+        let status = self.inspect_status(persona_id, prefer).await?;
+        *last = Some((Instant::now(), status.clone()));
+        Ok(status)
+    }
+
+    async fn inspect_status(
         &self,
         persona_id: &str,
         prefer: Option<Runtime>,
@@ -492,19 +548,20 @@ impl Computer {
         let name = container_name(persona_id);
         let known = self.lock().containers.get(persona_id).cloned();
         if let Some(live) = known {
-            let inspection = match inspect(&live.cmd, live.runtime, &name).await {
-                Ok(seen) => seen,
-                Err(_) => {
-                    return Ok(ComputerStatus {
-                        state: ComputerState::Absent,
-                        url: None,
-                        viewer: None,
-                        release: None,
-                        available: None,
-                        update_failed: None,
-                    });
-                }
-            };
+            let inspection =
+                match inspect_within(&live.cmd, live.runtime, &name, STATUS_TIMEOUT).await {
+                    Ok(seen) => seen,
+                    Err(_) => {
+                        return Ok(ComputerStatus {
+                            state: ComputerState::Absent,
+                            url: None,
+                            viewer: None,
+                            release: None,
+                            available: None,
+                            update_failed: None,
+                        });
+                    }
+                };
             let mut status = status_of(inspection, Some((live.mcp_port, &live.token)));
             status.release = live.release.clone();
             return Ok(status);
@@ -519,7 +576,7 @@ impl Computer {
                 update_failed: None,
             });
         };
-        let inspection = match inspect(&cmd, runtime, &name).await {
+        let inspection = match inspect_within(&cmd, runtime, &name, STATUS_TIMEOUT).await {
             Ok(seen) => seen,
             Err(_) => {
                 return Ok(ComputerStatus {
@@ -1135,7 +1192,16 @@ impl PullTally {
 }
 
 async fn inspect(cmd: &Path, runtime: Runtime, name: &str) -> Result<Inspection, String> {
-    match run(cmd, &["inspect", name], COMMAND_TIMEOUT).await {
+    inspect_within(cmd, runtime, name, COMMAND_TIMEOUT).await
+}
+
+async fn inspect_within(
+    cmd: &Path,
+    runtime: Runtime,
+    name: &str,
+    timeout: Duration,
+) -> Result<Inspection, String> {
+    match run(cmd, &["inspect", name], timeout).await {
         Ok(stdout) => parse_inspect(runtime, &stdout),
         Err(error) if is_not_found(&error) => Ok(Inspection {
             exists: false,

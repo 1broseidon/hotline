@@ -7,7 +7,7 @@ import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "..
 import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
-import { peopleOf } from "../avatars";
+import { usePeople } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
@@ -96,7 +96,7 @@ export function Conversation({
 	dock?: ReactNode;
 }) {
 	const { persona, session } = entry;
-	const people = useMemo(() => peopleOf(roster), [roster]);
+	const people = usePeople(roster);
 	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const subagents = entry.subagents ?? [];
 	const sides = entry.sides ?? [];

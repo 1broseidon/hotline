@@ -209,6 +209,7 @@ export function watchWindowShape(onChange: (shape: WindowShape) => void): () => 
 	let stop: (() => void) | undefined;
 	let gone = false;
 	const current = getCurrentWindow();
+	let settle: ReturnType<typeof setTimeout> | undefined;
 	const read = () => {
 		Promise.all([current.isMaximized(), current.isFullscreen()])
 			.then(([maximized, fullscreen]) => {
@@ -217,8 +218,14 @@ export function watchWindowShape(onChange: (shape: WindowShape) => void): () => 
 			.catch(() => {});
 	};
 	read();
+	// A drag of the window edge is a resize every frame, and each read is two
+	// round trips to the shell; the shape is only asked once it holds still.
+	const later = () => {
+		clearTimeout(settle);
+		settle = setTimeout(read, 150);
+	};
 	current
-		.onResized(read)
+		.onResized(later)
 		.then((unlisten) => {
 			if (gone) unlisten();
 			else stop = unlisten;
@@ -226,6 +233,7 @@ export function watchWindowShape(onChange: (shape: WindowShape) => void): () => 
 		.catch(() => {});
 	return () => {
 		gone = true;
+		clearTimeout(settle);
 		stop?.();
 	};
 }

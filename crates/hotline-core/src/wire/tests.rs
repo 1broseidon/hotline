@@ -1534,7 +1534,7 @@ async fn room_lag_rebuilds_cached_personas_and_late_hints_cannot_restore_a_delet
         &json!({"kind": "persona", "id": ada_id, "deleted": true}),
     )
     .unwrap();
-    for n in 0..300 {
+    for n in 0..1_200 {
         log.append(
             &StreamId::Room,
             &json!({"kind": "setting", "id": "noise", "value": n}),

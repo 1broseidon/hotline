@@ -1,4 +1,4 @@
-import { isValidElement, memo, useRef, useState, type ReactNode } from "react";
+import { isValidElement, memo, type ReactElement, type ReactNode, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CheckIcon, CopyIcon } from "../icons";
@@ -23,14 +23,36 @@ import { Mermaid } from "./Mermaid";
  * typed it.
  */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
-	return (
+	return rendered(text);
+});
+
+/** How many messages' parsed trees are kept; a few hundred rows is a teammate's recent tape. */
+const KEPT = 500;
+const trees = new Map<string, ReactElement>();
+
+/**
+ * The tree for a message, parsed once. Switching teammates mounts every row
+ * again, and parsing a couple of hundred messages is the whole of the wait; a
+ * React element is immutable, so the same one can be drawn again. react-markdown
+ * is a plain function of its props, which is what lets it be called here and
+ * its answer kept. Least recently drawn goes first.
+ */
+function rendered(text: string): ReactElement {
+	const known = trees.get(text);
+	if (known !== undefined) {
+		trees.delete(text);
+		trees.set(text, known);
+		return known;
+	}
+	const tree = (
 		<div className="md">
-			<ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS} skipHtml>
-				{text}
-			</ReactMarkdown>
+			{ReactMarkdown({ remarkPlugins: [remarkGfm], components: COMPONENTS, skipHtml: true, children: text })}
 		</div>
 	);
-});
+	trees.set(text, tree);
+	if (trees.size > KEPT) trees.delete(trees.keys().next().value as string);
+	return tree;
+}
 
 const COMPONENTS: Components = {
 	/* Six sizes of heading in a chat bubble is a document pretending to be a

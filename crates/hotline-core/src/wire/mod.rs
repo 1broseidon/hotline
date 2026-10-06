@@ -1246,6 +1246,16 @@ async fn answer(
                     Refused::because(FORBIDDEN, "That seat may not run this command."),
                 );
             }
+            // A card waits on somebody else's server, and this loop answers one
+            // frame before it reads the next. Replies are matched by id, so
+            // this one may arrive after the commands that followed it.
+            Ok(Command::LinkPreview { url }) => {
+                let sender = sender.clone();
+                tokio::spawn(async move {
+                    let card = crate::link_preview::preview(&url).await;
+                    reply(&sender, id, Ok(json!(card)));
+                });
+            }
             Ok(command) => {
                 // `teammate.tools` answers JSON null when there is no ledger,
                 // and that null is a value, not a void — collapsing it would

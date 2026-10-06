@@ -30,14 +30,38 @@ export function readDraft(id: string): Draft {
 	}
 }
 
+/** How long typing must pause before the draft is written to storage. */
+const SETTLE_MS = 400;
+const dirty = new Set<string>();
+let settle: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * The words are held at once and kept in storage a pause later: a keystroke
+ * is a synchronous write otherwise. An emptied draft stays held as empty until
+ * it is written, so a read in between does not find the old words in storage.
+ * Whatever is waiting goes out as the window hides.
+ */
 export function writeDraft(id: string, draft: Draft): void {
 	const empty = draft.text === "" && draft.attachments.length === 0;
-	if (empty) held.delete(id);
-	else held.set(id, draft);
-	try {
-		if (empty) localStorage.removeItem(KEY + id);
-		else localStorage.setItem(KEY + id, JSON.stringify(draft));
-	} catch {
-		// Private mode or a full store: the draft lives as long as the window.
-	}
+	held.set(id, empty ? EMPTY : draft);
+	dirty.add(id);
+	clearTimeout(settle);
+	settle = setTimeout(flushDrafts, SETTLE_MS);
 }
+
+function flushDrafts(): void {
+	clearTimeout(settle);
+	for (const id of dirty) {
+		const draft = held.get(id) ?? EMPTY;
+		try {
+			if (draft === EMPTY) localStorage.removeItem(KEY + id);
+			else localStorage.setItem(KEY + id, JSON.stringify(draft));
+		} catch {
+			// Private mode or a full store: the draft lives as long as the window.
+		}
+	}
+	dirty.clear();
+}
+
+globalThis.addEventListener?.("pagehide", flushDrafts);
+globalThis.addEventListener?.("beforeunload", flushDrafts);

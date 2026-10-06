@@ -1471,7 +1471,9 @@
 	 * are centred and on five they stay by the last line, where the hand
 	 * is. Padding is measured against the radius, not the grid: 6px keeps
 	 * the words clear of the curve. Focus is the caret; the pill only
-	 * brightens its edge and settles deeper into its shadow. */
+	 * brightens its edge, at once: the shadow is the tight glass one, because
+	 * the conversation scrolls under the composer and a 32px blur repaints
+	 * with every frame of it, and a shadow that eased would repaint it too. */
 	.composer {
 		display: flex;
 		align-items: flex-end;
@@ -1482,14 +1484,13 @@
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line),
-			var(--shadow-float);
-		transition: box-shadow var(--dur-press) var(--ease-out);
+			var(--shadow-glass);
 	}
 	.composer:focus-within {
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line-strong),
-			0 12px 32px -8px oklch(0% 0 0 / 0.55);
+			var(--shadow-glass);
 	}
 	.composer-body {
 		display: flex;

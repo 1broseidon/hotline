@@ -327,6 +327,9 @@ pub(super) struct Fake {
     views: Arc<Mutex<Vec<Persona>>>,
     tools: Arc<Mutex<Vec<TeammateTools>>>,
     answer: Result<String, String>,
+    /// When set, the summariser does not answer until this is notified.
+    hold_note: Arc<tokio::sync::Notify>,
+    holding: std::sync::atomic::AtomicBool,
 }
 
 impl Fake {
@@ -380,6 +383,8 @@ impl Fake {
             views: Arc::new(Mutex::new(Vec::new())),
             tools: Arc::new(Mutex::new(Vec::new())),
             answer,
+            hold_note: Arc::new(tokio::sync::Notify::new()),
+            holding: std::sync::atomic::AtomicBool::new(false),
         })
     }
 }
@@ -407,6 +412,9 @@ impl Agents for Fake {
         _system: &str,
         _prompt: &str,
     ) -> Result<String, String> {
+        if self.holding.load(std::sync::atomic::Ordering::SeqCst) {
+            self.hold_note.notified().await;
+        }
         self.answer.clone()
     }
 }
@@ -4371,6 +4379,54 @@ async fn the_idle_sweep_leaves_a_chapter_to_a_message_being_written() {
     assert_eq!(markers(&room, "ada")[0]["closedBy"], "idle");
 }
 
+/// A person who asks for a fresh chapter is not kept waiting on a model: the
+/// close is on the tape under the first message's title before the summariser
+/// has said anything, and the note supersedes that marker when it lands.
+#[tokio::test]
+async fn closing_a_chapter_does_not_wait_for_its_note() {
+    let agents = Fake::answering(
+        Scripted::new(saying("one", "It jammed.")),
+        note_json("Crane jam"),
+    );
+    agents
+        .holding
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let room = room("chapter-note-later", agents.clone());
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "did the crane jam?", None, None)
+        .await
+        .unwrap();
+    settled(&room, "ada", 3).await;
+
+    let closed = tokio::time::timeout(
+        Duration::from_secs(5),
+        room.start_fresh_chapter("ada", ChapterClose::User),
+    )
+    .await
+    .expect("the close waited on the note")
+    .unwrap();
+    assert_eq!(closed.title.as_deref(), Some("did the crane jam?"));
+    assert_eq!(closed.note, None);
+    assert_eq!(markers(&room, "ada").len(), 1);
+
+    agents.hold_note.notify_waiters();
+    for _ in 0..100 {
+        if markers(&room, "ada")[0]["title"] == "Crane jam" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let marker = &markers(&room, "ada")[0];
+    assert_eq!(marker["title"], "Crane jam");
+    assert_eq!(marker["closedBy"], "user");
+    assert!(marker["note"].as_str().unwrap().contains("Get the crane"));
+    assert_eq!(
+        markers(&room, "ada").len(),
+        1,
+        "the note rewrote the marker"
+    );
+}
+
 /// A teammate nobody spoke to does not collect empty rules in its drawer.
 #[tokio::test]
 async fn a_chapter_nobody_spoke_in_closes_without_a_title() {
@@ -4462,6 +4518,30 @@ async fn opening_the_room_expires_orphaned_cards_and_indexes_the_tape() {
     assert_eq!(lines.lines().count(), 2);
     let found = crate::store::search::search(log.root(), "ada", "harbour", None).unwrap();
     assert_eq!(found["hits"].as_array().unwrap().len(), 1);
+}
+
+/// The room stream is folded at startup too: a roster entry rewritten a
+/// thousand times is one line afterwards.
+#[tokio::test(flavor = "multi_thread")]
+async fn opening_the_room_compacts_the_room_stream() {
+    let log = scratch("settle-room");
+    enrol(&log, &persona("ada"));
+    for hours in 1..=20 {
+        log.append(
+            &StreamId::Room,
+            &json!({"kind": "setting", "id": "setting-chapterIdleHours", "ts": hours, "key": "chapterIdleHours", "value": hours}),
+        )
+        .unwrap();
+    }
+    let path = crate::paths::room_path(log.root());
+    let before = std::fs::read_to_string(&path).unwrap().lines().count();
+
+    let _room = Room::new(log.clone(), Arc::new(DeskKeys));
+
+    let after = std::fs::read_to_string(&path).unwrap().lines().count();
+    assert!(after < before, "{after} lines of {before}");
+    assert_eq!(log.load(&StreamId::Room).len(), after);
+    assert_eq!(crate::room::roster(&log).len(), 1);
 }
 
 /// The card a permission writes, and the decision that supersedes it.

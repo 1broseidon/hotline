@@ -26,10 +26,13 @@ const LINGER_MS = 900;
 export function Scroll({
 	className,
 	scrollerRef,
+	programmatic,
 	children,
 }: {
 	className?: string;
 	scrollerRef?: RefObject<HTMLDivElement | null>;
+	/** Set by a caller about to move the scroll itself: the next scroll event is its own, so the bar does not show. */
+	programmatic?: RefObject<boolean>;
 	children: ReactNode;
 }) {
 	const own = useRef<HTMLDivElement>(null);
@@ -51,10 +54,14 @@ export function Scroll({
 			}
 			const height = Math.max(MIN_THUMB, (clientHeight / scrollHeight) * clientHeight);
 			const top = (scrollTop / (scrollHeight - clientHeight)) * (clientHeight - height);
-			setThumb({ top, height });
+			setThumb((was) => (was !== null && was.top === top && was.height === height ? was : { top, height }));
 		};
 		const onScroll = () => {
 			measure();
+			if (programmatic?.current) {
+				programmatic.current = false;
+				return;
+			}
 			setMoving(true);
 			window.clearTimeout(linger.current);
 			linger.current = window.setTimeout(() => setMoving(false), LINGER_MS);
@@ -71,7 +78,7 @@ export function Scroll({
 			observer.disconnect();
 			window.clearTimeout(linger.current);
 		};
-	}, [ref]);
+	}, [ref, programmatic]);
 
 	/** How far the content moves for one pixel of thumb. */
 	const ratio = (el: HTMLDivElement, height: number) =>

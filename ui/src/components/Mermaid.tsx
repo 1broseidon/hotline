@@ -28,14 +28,13 @@ export function Mermaid({ source }: { source: string }) {
 
 	useEffect(() => {
 		let gone = false;
-		let url: string | null = null;
 		// Settle first: while a message streams, the source changes every few
-		// characters and most of those prefixes are not diagrams yet.
+		// characters and most of those prefixes are not diagrams yet. One
+		// already drawn needs no settling.
 		const timer = window.setTimeout(() => {
-			void draw(source, theme).then(
-				(svg) => {
+			void drawnUrl(source, theme).then(
+				(url) => {
 					if (gone) return;
-					url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
 					setDrawn({ key, url });
 					setFailed(null);
 				},
@@ -43,11 +42,10 @@ export function Mermaid({ source }: { source: string }) {
 					if (!gone) setFailed(error instanceof Error ? error.message : String(error));
 				},
 			);
-		}, SETTLE_MS);
+		}, diagrams.has(key) ? 0 : SETTLE_MS);
 		return () => {
 			gone = true;
 			window.clearTimeout(timer);
-			if (url !== null) URL.revokeObjectURL(url);
 		};
 	}, [key, source, theme]);
 
@@ -85,6 +83,33 @@ export function Mermaid({ source }: { source: string }) {
 }
 
 const SETTLE_MS = 300;
+/** How many drawings stay as URLs after their bubble leaves the screen. */
+const KEPT = 40;
+const diagrams = new Map<string, string>();
+
+/**
+ * The URL of a diagram, drawn once per theme and source and kept, so a
+ * teammate switched back to shows theirs at once. The least recently shown is
+ * let go when there are too many.
+ */
+async function drawnUrl(source: string, palette: Palette): Promise<string> {
+	const key = `${palette}\n${source}`;
+	const known = diagrams.get(key);
+	if (known !== undefined) {
+		diagrams.delete(key);
+		diagrams.set(key, known);
+		return known;
+	}
+	const svg = await draw(source, palette);
+	const url = diagrams.get(key) ?? URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+	diagrams.set(key, url);
+	if (diagrams.size > KEPT) {
+		const oldest = diagrams.keys().next().value as string;
+		URL.revokeObjectURL(diagrams.get(oldest)!);
+		diagrams.delete(oldest);
+	}
+	return url;
+}
 
 type Palette = "light" | "dark";
 

@@ -57,6 +57,17 @@ pub(crate) fn from_voice() -> bool {
     VOICE_COMMAND.try_with(|()| ()).is_ok()
 }
 
+/// Runs work that reads or writes files or a database on the blocking pool,
+/// so a search over a large index or a whole tape does not stop the other
+/// sockets' frames from being read.
+async fn off_the_reactor<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("The work did not finish: {error}"))?
+}
+
 pub(crate) async fn run(
     command: Command,
     log: &Log,
@@ -453,8 +464,14 @@ pub(crate) async fn run(
             persona_id,
             query,
             limit,
-        } => search::search(log.root(), &persona_id, &query, limit),
-        Command::SearchAll { query, limit } => search::search_all(log.root(), &query, limit),
+        } => {
+            let root = log.root().to_path_buf();
+            off_the_reactor(move || search::search(&root, &persona_id, &query, limit)).await
+        }
+        Command::SearchAll { query, limit } => {
+            let root = log.root().to_path_buf();
+            off_the_reactor(move || search::search_all(&root, &query, limit)).await
+        }
         Command::TapePage {
             persona_id,
             before,
@@ -519,10 +536,18 @@ pub(crate) async fn run(
                 .await
                 .map(|()| Value::Null)
         }
-        Command::ChapterList { persona_id } => Ok(json!(chapters::list(log, &persona_id))),
-        Command::RoomImport { from } => room
-            .import(&home_expanded(&from))
-            .map(|report| json!(report)),
+        Command::ChapterList { persona_id } => {
+            let log = log.clone();
+            off_the_reactor(move || Ok(json!(chapters::list(&log, &persona_id)))).await
+        }
+        Command::RoomImport { from } => {
+            let room = room.clone();
+            off_the_reactor(move || {
+                room.import(&home_expanded(&from))
+                    .map(|report| json!(report))
+            })
+            .await
+        }
         Command::ChapterStartFresh { persona_id } => room
             .start_fresh_chapter(&persona_id)
             .await
@@ -1489,6 +1514,16 @@ pub(super) async fn remember_model(
     room: &Arc<dyn RoomHandle>,
     persona: &Persona,
 ) -> Result<(), String> {
+    // Every prompt comes through here, and nearly every one has nothing new to
+    // remember. The answer is read again under the lock before anything is
+    // written, so this look is only to keep the lock off the common path.
+    if room
+        .info(&persona.id)
+        .current_model_id
+        .is_none_or(|model_id| model_id.is_empty() || already_remembered(log, persona, &model_id))
+    {
+        return Ok(());
+    }
     let gate = room.policy_update_lock();
     let _held = gate.lock().await;
     let Some(model_id) = room.info(&persona.id).current_model_id else {
@@ -1504,6 +1539,18 @@ pub(super) async fn remember_model(
         return Ok(());
     }
     update_persona(log, room, &persona.id, &json!({ "modelId": model_id })).map(|_| ())
+}
+
+/// Whether `model_id` is already where [`remember_model`] would put it.
+fn already_remembered(log: &Log, persona: &Persona, model_id: &str) -> bool {
+    if persona.backend_id == HOTLINE_BACKEND_ID {
+        room::settings(log)
+            .get("lastModelId")
+            .and_then(Value::as_str)
+            == Some(model_id)
+    } else {
+        persona.model_id.as_deref() == Some(model_id)
+    }
 }
 
 fn write_last_model(log: &Log, model_id: &str) -> Result<(), String> {

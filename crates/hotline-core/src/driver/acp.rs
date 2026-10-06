@@ -1616,10 +1616,21 @@ impl ChildAgent {
             .store(capabilities.active_input, Ordering::SeqCst);
         {
             let mut session = lock(&self.live.session);
-            session.info.agent_name = initialized
-                .agent_info
-                .as_ref()
-                .map_or_else(|| self.backend_id.clone(), |info| info.name.clone());
+            // A person reads this name, so a backend Hotline lists goes by
+            // the name it is listed under, and anything else by the title it
+            // reports before its name: an adapter's name is its npm package,
+            // `@agentclientprotocol/claude-agent-acp`.
+            session.info.agent_name = registry::known(&self.root, &self.backend_id)
+                .map(|backend| backend.name)
+                .or_else(|| {
+                    initialized.agent_info.as_ref().map(|info| {
+                        info.title
+                            .clone()
+                            .filter(|title| !title.trim().is_empty())
+                            .unwrap_or_else(|| info.name.clone())
+                    })
+                })
+                .unwrap_or_else(|| self.backend_id.clone());
             session.info.agent_version = initialized
                 .agent_info
                 .as_ref()
@@ -3524,7 +3535,8 @@ mod tests {
         let mut info_updates = driver.subscribe_info().unwrap();
         let info = driver.handshake(&ada, client_transport()).await.unwrap();
         assert_eq!(*info_updates.borrow_and_update(), info);
-        assert_eq!(info.agent_name, "scripted");
+        // A listed backend goes by its listed name, not the one it reports.
+        assert_eq!(info.agent_name, "Cursor");
         assert_eq!(info.agent_version.as_deref(), Some("1.2.3"));
         assert_eq!(info.session_id.as_deref(), Some("fresh-session"));
         assert!(!info.context_restored);

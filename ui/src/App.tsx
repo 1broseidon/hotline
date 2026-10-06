@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { useNarrow } from "./narrow";
 import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
@@ -29,6 +29,7 @@ import { activeDeskId, deskKey, LOCAL_DESK, setActiveDesk, useActiveDesk, useDes
 import { syncWatches, useBackgroundUnread } from "./deskWatch";
 import { AddDesk } from "./components/AddDesk";
 import { ServerFiles } from "./components/ServerFiles";
+import { useSaved } from "./useSaved";
 
 
 /* Settings is opened now and then, not at launch: it loads on first open,
@@ -69,6 +70,32 @@ export function App() {
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelected);
+	/* What each teammate's screen has open beside the conversation: its
+	 * threads pane and the thread in it, or its own pane. Like the work card
+	 * below it belongs to them, so leaving a teammate and coming back finds
+	 * their screen as it was, and another teammate's as theirs was. */
+	const [spaces, setSpaces] = useState<Record<string, Space>>({});
+	const selectedRef = useRef(selectedId);
+	selectedRef.current = selectedId;
+	const shapeSpace = useCallback((change: (was: Space) => Partial<Space>) => {
+		const personaId = selectedRef.current;
+		if (personaId === null) return;
+		setSpaces((all) => {
+			const was = all[personaId] ?? NO_SPACE;
+			return { ...all, [personaId]: { ...was, ...change(was) } };
+		});
+	}, []);
+	const space = (selectedId !== null ? spaces[selectedId] : undefined) ?? NO_SPACE;
+	const dock = space.dock;
+	const inspector = space.inspector;
+	const setDock = useCallback(
+		(next: SetStateAction<DockState | null>) => shapeSpace((was) => ({ dock: typeof next === "function" ? next(was.dock) : next })),
+		[shapeSpace],
+	);
+	const setInspector = useCallback(
+		(next: SetStateAction<boolean>) => shapeSpace((was) => ({ inspector: typeof next === "function" ? next(was.inspector) : next })),
+		[shapeSpace],
+	);
 	/* The work card each teammate has open, by persona: it belongs to them,
 	 * so it goes when you leave them and is there again when you come back. */
 	const [works, setWorks] = useState<Record<string, OpenWork>>({});
@@ -83,11 +110,14 @@ export function App() {
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
 	/* The right-hand pane: this teammate's threads, beside the
 	 * conversation or over it in a window too narrow. */
-	const [dock, setDock] = useState<DockState | null>(null);
 	const [dockWidth, setDockWidthState] = useState(loadDockWidth);
 	const setDockWidth = useCallback((width: number) => setDockWidthState(clampDock(width)), []);
-	useEffect(() => saveDockWidth(dockWidth), [dockWidth]);
-	const [mainWidth, setMainWidth] = useState(Infinity);
+	useSaved(dockWidth, saveDockWidth);
+	/* Whether the pane would leave the conversation too narrow to read beside
+	 * it. Only this fact is kept, not the width: a drag of the window edge
+	 * reports a new width every frame, and a number would draw the whole app
+	 * for each of them. */
+	const [paneOverlays, setPaneOverlays] = useState(false);
 	/* A narrow window keeps the pane and shows the rail as faces only, open
 	 * or closed from the titlebar; there is no dragging it wider there. */
 	const narrow = useNarrow();
@@ -95,22 +125,28 @@ export function App() {
 	 * words, so it docks under the composer instead. */
 	const mainRef = useRef<HTMLElement>(null);
 	const [dockWork, setDockWork] = useState(false);
+	const dockWidthRef = useRef(dockWidth);
+	dockWidthRef.current = dockWidth;
+	const measured = useRef<() => void>(() => {});
 	useLayoutEffect(() => {
 		const el = mainRef.current;
 		if (el === null) return;
-		const observer = new ResizeObserver(() => {
+		const measure = () => {
 			setDockWork(el.clientWidth < WORK_DOCK_BELOW);
-			setMainWidth(el.clientWidth);
-		});
+			setPaneOverlays(dockOverlays(el.clientWidth, dockWidthRef.current));
+		};
+		measured.current = measure;
+		const observer = new ResizeObserver(measure);
 		observer.observe(el);
 		return () => observer.disconnect();
 	}, []);
+	// The pane's own width is the other half of the sum.
+	useLayoutEffect(() => measured.current(), [dockWidth]);
 	/* The rail: how wide you dragged it, whether it is down to faces, and whether you closed it. */
 	const [railSize, setRailSize] = useRailSize();
 	const toggleRail = useCallback(() => setRailSize((was) => ({ ...was, open: !was.open })), [setRailSize]);
 	/* The teammate's own pane sits beside the conversation, not in its place:
 	 * you edit a colleague while watching them work. */
-	const [inspector, setInspector] = useState(false);
 	const [focusSchedules, setFocusSchedules] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
 	/* What the strip's model or effort picker was refused with. The strip
@@ -190,10 +226,13 @@ export function App() {
 	// The dock's badge is the rail's unread count: the rows in bold, counted,
 	// with those on the desks not on screen.
 	const elsewhere = useBackgroundUnread();
+	const badge = useMemo(
+		() => roster.filter((entry) => unreadOf(entry, selectedId, seen)).length + Object.values(elsewhere).reduce((sum, count) => sum + count, 0),
+		[roster, selectedId, seen, elsewhere],
+	);
 	useEffect(() => {
-		const others = Object.values(elsewhere).reduce((sum, count) => sum + count, 0);
-		void setBadge(roster.filter((entry) => unreadOf(entry, selectedId, seen)).length + others);
-	}, [roster, selectedId, seen, elsewhere]);
+		void setBadge(badge);
+	}, [badge]);
 
 	// In native fullscreen the traffic lights leave with the menu bar, and
 	// the rail's gutter for them goes too (index.css).
@@ -204,17 +243,16 @@ export function App() {
 		});
 	}, []);
 
+	const name = selected?.persona.name ?? null;
 	useEffect(() => {
-		setWindowTitle(selected?.persona.name ?? null);
-	}, [selected]);
+		setWindowTitle(name);
+	}, [name]);
 
 	/* A different teammate is a different conversation: the search was asking
 	 * about the one that just left, and the inspector was editing them. */
 	useEffect(() => {
 		setSearchOpen(false);
 		setFocusSchedules(false);
-		// A thread open in the right-hand pane belongs to the teammate who left.
-		setDock((was) => (was !== null && was.open !== null ? { open: null } : was));
 		saveSelected(selectedId);
 	}, [selectedId]);
 
@@ -225,6 +263,7 @@ export function App() {
 	}, [roster, selectedId]);
 
 	const select = useCallback((personaId: string) => {
+		selectedRef.current = personaId;
 		setSelectedId(personaId);
 		setPane(null);
 	}, []);
@@ -310,10 +349,8 @@ export function App() {
 			if (!(await confirmRemove(name))) return;
 			try {
 				await wire.command("persona.delete", { id: personaId });
-				if (selectedId === personaId) {
-					setSelectedId(null);
-					setInspector(false);
-				}
+				if (selectedId === personaId) setSelectedId(null);
+				setSpaces(({ [personaId]: _, ...rest }) => rest);
 			} catch {
 				// The inspector's own Remove reports a refusal if this fails.
 			}
@@ -460,7 +497,7 @@ export function App() {
 	const settingsWidth = narrow ? RAIL_MIN : railSize.width;
 	/* The right-hand pane lies over the conversation once it would leave it
 	 * too narrow to read beside it. */
-	const dockOverlay = dock !== null && pane !== "settings" && dockOverlays(mainWidth, dockWidth);
+	const dockOverlay = dock !== null && pane !== "settings" && paneOverlays;
 
 
 	/* The work card shows only on its own teammate's conversation: not over
@@ -757,3 +794,7 @@ function DeskBand({ onAddDesk }: { onAddDesk(): void }) {
 		</p>
 	);
 }
+
+/** What a teammate's screen has open beside its conversation. */
+type Space = { dock: DockState | null; inspector: boolean };
+const NO_SPACE: Space = { dock: null, inspector: false };

@@ -338,6 +338,60 @@ pub(crate) fn read_message(
     index: u32,
     offset: i64,
 ) -> Result<FileChunk, String> {
+    let source = message_source(log, persona_id, event_id, index)?;
+    let mut chunk = read_path(&source.path, offset, source.image_only)?;
+    if let Some(name) = source.name {
+        chunk.name = name;
+    }
+    Ok(chunk)
+}
+
+/// A message's file at most `edge` px on its longer side, as a JPEG the
+/// desk keeps: what a phone draws in the conversation. Only a picture has
+/// one.
+pub(crate) async fn read_message_thumb(
+    log: &Log,
+    persona_id: &str,
+    event_id: &str,
+    index: u32,
+    offset: i64,
+    edge: u32,
+) -> Result<FileChunk, String> {
+    let source = message_source(log, persona_id, event_id, index)?;
+    let mut head = Vec::with_capacity(32);
+    File::open(&source.path)
+        .and_then(|file| file.take(32).read_to_end(&mut head))
+        .map_err(|_| "That message has no file.".to_string())?;
+    if !images::readable(&head) {
+        return Err("That file is not a picture.".to_string());
+    }
+    let copy =
+        crate::thumbs::copy_of(log.root(), &source.path, edge, crate::thumbs::Kind::Photo).await?;
+    let mut chunk = read_path(&copy, offset, true)?;
+    let name = source.name.unwrap_or_else(|| chunk.name.clone());
+    let stem = Path::new(&name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("picture");
+    chunk.name = format!("{stem}.jpg");
+    Ok(chunk)
+}
+
+/// Where a message's file is kept, what it is called, and whether it may
+/// only be a picture: one the person attached is read by its index, one a
+/// teammate sent is the message's only file.
+struct Source {
+    path: std::path::PathBuf,
+    name: Option<String>,
+    image_only: bool,
+}
+
+fn message_source(
+    log: &Log,
+    persona_id: &str,
+    event_id: &str,
+    index: u32,
+) -> Result<Source, String> {
     let missing = || "That message has no file.".to_string();
     paths::sent_file_dir(log.root(), persona_id, event_id).ok_or_else(missing)?;
     let tape = log
@@ -360,17 +414,25 @@ pub(crate) fn read_message(
             return Err(too_large(name, attachment["size"].as_u64()));
         }
         let path = user_image_path(log.root(), persona_id, event_id, index).ok_or_else(missing)?;
-        let mut chunk = read_path(&path, offset, true)?;
-        chunk.name = name.to_string();
-        return Ok(chunk);
+        return Ok(Source {
+            path,
+            name: Some(name.to_string()),
+            image_only: true,
+        });
     }
     if index != 0 {
         return Err("A teammate's file has only attachment index zero.".to_string());
     }
-    read(log.root(), persona_id, event_id, offset)
+    let path = kept(log.root(), persona_id, event_id).ok_or_else(missing)?;
+    Ok(Source {
+        path,
+        name: None,
+        image_only: false,
+    })
 }
 
 /// The existing teammate readback remains independent of the tape's age.
+#[cfg(test)]
 pub(crate) fn read(
     root: &Path,
     persona_id: &str,

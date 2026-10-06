@@ -1534,7 +1534,7 @@ async fn room_lag_rebuilds_cached_personas_and_late_hints_cannot_restore_a_delet
         &json!({"kind": "persona", "id": ada_id, "deleted": true}),
     )
     .unwrap();
-    for n in 0..300 {
+    for n in 0..1_200 {
         log.append(
             &StreamId::Room,
             &json!({"kind": "setting", "id": "noise", "value": n}),
@@ -2318,6 +2318,7 @@ fn the_phone_seat_reads_a_sent_file_by_its_message() {
         event_id: "e1".to_string(),
         index: None,
         offset: 0,
+        size: None,
     }));
 }
 
@@ -2400,6 +2401,7 @@ async fn a_teammates_picture_is_read_by_its_hash_and_by_every_seat() {
         persona_id: "ada".to_string(),
         hash: "0".repeat(64),
         offset: 0,
+        size: None,
     };
     for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
         assert!(seat.permits(&command));
@@ -2867,6 +2869,7 @@ async fn a_schedules_view_catches_up_after_falling_behind_and_ends_when_it_canno
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
+        lean: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -4083,6 +4086,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
+        lean: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,
@@ -4177,6 +4181,7 @@ async fn remote_control_answer(
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
+        lean: Arc::default(),
         sender: Outgoing::Desk(tx),
         cancel: tokio_util::sync::CancellationToken::new(),
         max: usize::MAX,

@@ -8,6 +8,39 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.33.4] - 2026-10-06
+
+### Changed
+
+- The desk now uses the phone's colours. Mint is the accent on both. Your
+  bubbles are filled with it, and on a light background, text drawn in the
+  accent is darker so it stays readable.
+- A bare https link gets a card under its message, and a code block has a copy
+  button in its corner, as on the phone.
+- Each teammate's screen keeps what you left open there: the threads pane, the
+  thread open in it, the teammate's own pane, and an unsent draft in every
+  composer.
+- While a turn runs, the bar at the top of the conversation shows only the
+  pulse, without the line naming the current tool.
+- A teammate's runtime is shown by the name Hotline lists it under, instead of
+  its npm package name.
+- The model catalogue is updated from models.dev.
+- Phones on the latest update get lighter frames: shorter history within a
+  size limit, no tool output, phone-sized pictures and faces, and a keepalive
+  that notices a dead connection.
+
+### Fixed
+
+- The window stays responsive when switching teammates. A thread list no
+  longer waits for every picture in the conversation to load. Conversations
+  and diagrams you have already viewed open from a cache. Resizing and
+  maximising no longer stutter.
+- Starting a fresh chapter no longer waits for the handoff note. The chapter
+  closes at once and the note fills in when it arrives.
+- Link cards, searches, chapter lists, computer status and checks for agents
+  and runtimes no longer hold up other commands. A provider that fails is not
+  asked again straight away.
+
 ## [0.33.3] - 2026-10-05
 
 ### Changed

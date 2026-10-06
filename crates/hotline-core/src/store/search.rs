@@ -674,6 +674,10 @@ impl Indexer {
         // read-only question path already waits the same five seconds.
         database.busy_timeout(Duration::from_secs(5))?;
         database.pragma_update(None, "journal_mode", "WAL")?;
+        // The index is a cache the tapes can rebuild, so a power cut that
+        // loses its last write costs a re-sync, and WAL does not need an fsync
+        // on every commit to stay consistent.
+        database.pragma_update(None, "synchronous", "NORMAL")?;
         let transaction = database.transaction()?;
         let has_identities: bool = transaction.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'message_ids')",

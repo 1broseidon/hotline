@@ -2294,6 +2294,19 @@ pub enum UploadDestination {
     Path { path: String },
 }
 
+/// A link's card: the page's title, a second line saying where it is or
+/// what it is about, and its picture when it has one over https.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct LinkPreview {
+    pub url: String,
+    pub title: String,
+    pub site: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -2673,6 +2686,11 @@ pub enum Command {
         index: Option<u32>,
         #[serde(default)]
         offset: i64,
+        /// A picture at most this many px on its longer side, as a JPEG the
+        /// desk keeps, rather than the file itself: what a phone draws in
+        /// the conversation. Only a picture has one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        size: Option<u32>,
     },
     /// A teammate's kept picture, named by the hash on its record. Any seat
     /// may read one. The answer is a [`FileChunk`], a part at a time from
@@ -2683,6 +2701,10 @@ pub enum Command {
         hash: String,
         #[serde(default)]
         offset: i64,
+        /// The picture at most this many px wide, still a PNG, rather than
+        /// as kept: what a list row or a bubble's face needs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        size: Option<u32>,
     },
     /// Draws a picture for a teammate from its name and goal through the
     /// room's image providers, within the spending cap, and puts it on the
@@ -2797,6 +2819,16 @@ pub enum Command {
     },
     #[serde(rename = "images.status")]
     ImagesStatus {},
+    /// The card for a link written in a message, read by the desk; `null`
+    /// when the page has none or is not one the desk will read.
+    #[serde(rename = "link.preview")]
+    LinkPreview { url: String },
+    /// Nothing but proof the link is alive both ways: answered `null`. A
+    /// phone that named `lean` sends one every so often, and a lean socket
+    /// that has heard nothing at all for [`crate::wire`]'s idle limit is
+    /// closed as gone.
+    #[serde(rename = "ping")]
+    Ping {},
     #[serde(rename = "capabilities.options")]
     CapabilitiesOptions {},
     #[serde(rename = "credential.create")]

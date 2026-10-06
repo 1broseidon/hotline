@@ -1547,7 +1547,7 @@ function ToolLedger({
 						<div key={`${row.source}-${row.origin}-${row.name}`} className={`${NESTED} items-start gap-2 py-2`}>
 							<span className="mt-px shrink-0" title={row.state}>
 								{row.state === "verified" ? (
-									<CheckIcon className="text-accent" />
+									<CheckIcon className="text-accent-ink" />
 								) : row.state === "absent" ? (
 									<WarningIcon className="text-danger" />
 								) : (

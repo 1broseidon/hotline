@@ -16,6 +16,7 @@ import type {
 	HostBrowser,
 	CapabilityOptions,
 	ImagesStatus,
+	LinkPreview,
 	LoginPrompt,
 	LoginStatus,
 	PasskeyRegistration,
@@ -117,6 +118,8 @@ type Results = {
 	"persona.pin": string[];
 	"settings.update": Record<string, unknown>;
 	"images.status": ImagesStatus;
+	"link.preview": LinkPreview | null;
+	ping: null;
 	"capabilities.options": CapabilityOptions;
 	"credential.create": Credential;
 	"credential.login": LoginPrompt;

@@ -13,8 +13,11 @@ use hotline_core::contract::{CookieSite, CookieTransfer, HostBrowser};
 use std::path::Path;
 
 #[tauri::command]
-pub fn laptop_browsers() -> Vec<HostBrowser> {
-    cookies::detect()
+pub async fn laptop_browsers() -> Result<Vec<HostBrowser>, String> {
+    // Looking for browsers walks the disk; it is not the window's thread's to do.
+    tauri::async_runtime::spawn_blocking(cookies::detect)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

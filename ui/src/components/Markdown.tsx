@@ -1,7 +1,8 @@
-import { isValidElement, memo, type ReactNode } from "react";
+import { isValidElement, memo, type ReactElement, type ReactNode, useRef, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { openLink } from "../native";
+import { CheckIcon, CopyIcon } from "../icons";
+import { openLink, writeClipboard } from "../native";
 import { Mermaid } from "./Mermaid";
 
 /**
@@ -22,14 +23,36 @@ import { Mermaid } from "./Mermaid";
  * typed it.
  */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
-	return (
+	return rendered(text);
+});
+
+/** How many messages' parsed trees are kept; a few hundred rows is a teammate's recent tape. */
+const KEPT = 500;
+const trees = new Map<string, ReactElement>();
+
+/**
+ * The tree for a message, parsed once. Switching teammates mounts every row
+ * again, and parsing a couple of hundred messages is the whole of the wait; a
+ * React element is immutable, so the same one can be drawn again. react-markdown
+ * is a plain function of its props, which is what lets it be called here and
+ * its answer kept. Least recently drawn goes first.
+ */
+function rendered(text: string): ReactElement {
+	const known = trees.get(text);
+	if (known !== undefined) {
+		trees.delete(text);
+		trees.set(text, known);
+		return known;
+	}
+	const tree = (
 		<div className="md">
-			<ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS} skipHtml>
-				{text}
-			</ReactMarkdown>
+			{ReactMarkdown({ remarkPlugins: [remarkGfm], components: COMPONENTS, skipHtml: true, children: text })}
 		</div>
 	);
-});
+	trees.set(text, tree);
+	if (trees.size > KEPT) trees.delete(trees.keys().next().value as string);
+	return tree;
+}
 
 const COMPONENTS: Components = {
 	/* Six sizes of heading in a chat bubble is a document pretending to be a
@@ -65,7 +88,7 @@ const COMPONENTS: Components = {
 	/* A fenced block tagged mermaid is a diagram; every other block is code. */
 	pre: ({ children }) => {
 		const source = mermaidSource(children);
-		return source === null ? <pre>{children}</pre> : <Mermaid source={source} />;
+		return source === null ? <CodeBlock>{children}</CodeBlock> : <Mermaid source={source} />;
 	},
 
 	table: ({ children }) => (
@@ -81,4 +104,29 @@ function mermaidSource(children: ReactNode): string | null {
 	const { className, children: text } = children.props;
 	if (!className?.split(" ").includes("language-mermaid")) return null;
 	return typeof text === "string" ? text.replace(/\n$/, "") : null;
+}
+
+/** A block of code with its copy key in the corner, as on the phone. */
+function CodeBlock({ children }: { children: ReactNode }) {
+	const pre = useRef<HTMLPreElement>(null);
+	const [copied, setCopied] = useState(false);
+	return (
+		<div className="code-block">
+			<pre ref={pre}>{children}</pre>
+			<button
+				type="button"
+				className="code-copy"
+				title={copied ? "Copied" : "Copy code"}
+				aria-label={copied ? "Copied" : "Copy code"}
+				onClick={() => {
+					void writeClipboard((pre.current?.textContent ?? "").replace(/\n$/, "")).then(() => {
+						setCopied(true);
+						setTimeout(() => setCopied(false), 1500);
+					});
+				}}
+			>
+				{copied ? <CheckIcon /> : <CopyIcon />}
+			</button>
+		</div>
+	);
 }

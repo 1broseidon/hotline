@@ -50,7 +50,7 @@ export function UpdatesSection() {
 				{available && (
 					<div className="flex flex-col gap-4 px-4 py-4">
 						{available.notes && <div className="whitespace-pre-wrap text-sm text-ink-2" aria-label="Release notes">{available.notes}</div>}
-						<button type="button" className="text-left text-sm text-accent hover:underline" onClick={() => void openLink(`https://github.com/1Broseidon/hotline/releases/tag/desktop-v${encodeURIComponent(available.version)}`)}>Full release notes ↗</button>
+						<button type="button" className="text-left text-sm text-accent-ink hover:underline" onClick={() => void openLink(`https://github.com/1Broseidon/hotline/releases/tag/desktop-v${encodeURIComponent(available.version)}`)}>Full release notes ↗</button>
 						{downloading && <div className="flex flex-col gap-2">
 							<progress className="w-full accent-[var(--accent)]" aria-label="Update download" max={status?.total ?? undefined} value={status?.total ? status.downloaded : undefined} />
 							<p className="text-sm text-ink-2" role="status">Downloading {mb(status?.downloaded ?? 0)}{status?.total ? ` of ${mb(status.total)}` : ""}…</p>
@@ -68,7 +68,7 @@ export function UpdatesSection() {
 			</div>
 			{status?.checkedAt && <p className="group-hint">Last checked {new Date(status.checkedAt * 1000).toLocaleString()}.</p>}
 			{problem && <Refusal message={problem} />}
-			{(!available || status?.disabledReason) && <button type="button" className="mt-3 text-sm text-accent hover:underline" onClick={() => void openLink(RELEASES)}>Open release page ↗</button>}
+			{(!available || status?.disabledReason) && <button type="button" className="mt-3 text-sm text-accent-ink hover:underline" onClick={() => void openLink(RELEASES)}>Open release page ↗</button>}
 		</section>
 	);
 }

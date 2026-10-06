@@ -23,7 +23,7 @@ import {
 	threadDot,
 	withLinks,
 } from "../dock";
-import { type Person, peopleOf } from "../avatars";
+import { type Person, usePeople } from "../avatars";
 import { sideTitle } from "../links";
 import { answerCard, dmOf, sameThread, useThread } from "../tape";
 import { Avatar } from "../ui/Avatar";
@@ -79,7 +79,7 @@ export function Dock({
 
 	const teammate = entry === null ? null : { id: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash };
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
-	const people = useMemo(() => peopleOf(roster), [roster]);
+	const people = usePeople(roster);
 	const { rows, list, reload } = useThreadRows(entry);
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
@@ -155,9 +155,12 @@ function useFocusOnOpen(root: RefObject<HTMLElement | null>, first: string | str
  * whenever a thread starts, ends, parks or changes hands, and brought up to
  * what the links on the conversation say in between.
  */
+/** Each teammate's last list, shown at once on the way back while it is read again. */
+const lastLists = new Map<string, ThreadSummary[]>();
+
 function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list: ThreadSummary[] | undefined; reload(): void } {
 	const personaId = entry?.persona.id;
-	const [list, setList] = useState<ThreadSummary[] | undefined>(undefined);
+	const [list, setList] = useState<ThreadSummary[] | undefined>(() => (personaId === undefined ? undefined : lastLists.get(personaId)));
 	const [revision, setRevision] = useState(0);
 	const { events } = useThread(personaId === undefined ? null : dmOf(personaId));
 	const links = useMemo(() => events.filter((event): event is LinkEvent => event.kind === "link"), [events]);
@@ -174,13 +177,21 @@ function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list
 		let cancelled = false;
 		void wire
 			.command("thread.list", { personaId })
-			.then((next) => !cancelled && setList(next))
+			.then((next) => {
+				lastLists.set(personaId, next);
+				if (!cancelled) setList(next);
+			})
 			.catch(() => !cancelled && setList((was) => was ?? []));
 		return () => {
 			cancelled = true;
 		};
 	}, [personaId, signature, revision]);
-	useEffect(() => setList(undefined), [personaId]);
+	// A different teammate starts from what was last read for them, if anything; set during render so the old list never flashes.
+	const [shownFor, setShownFor] = useState(personaId);
+	if (shownFor !== personaId) {
+		setShownFor(personaId);
+		setList(personaId === undefined ? undefined : lastLists.get(personaId));
+	}
 	const rows = useMemo(() => withLinks(list ?? [], links, personaId ?? ""), [list, links, personaId]);
 	return { rows, list, reload: useCallback(() => setRevision((one) => one + 1), []) };
 }

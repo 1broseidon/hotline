@@ -643,7 +643,7 @@
 		gap: 8px;
 		text-align: left;
 		font-weight: 500;
-		color: var(--accent);
+		color: var(--accent-ink);
 	}
 	.group-row-add:hover {
 		background: var(--fill-hover);
@@ -948,7 +948,32 @@
 	}
 	.said-me {
 		background: var(--said-me);
+		color: var(--said-me-ink);
 		white-space: pre-wrap;
+	}
+	/* What rides inside your bubble takes its ink rather than the canvas's. */
+	.said-me .quote,
+	.said-me .ticks,
+	.said-me a,
+	.said-me code {
+		color: inherit;
+	}
+	.said-me .quote {
+		border-color: currentColor;
+		opacity: 0.75;
+	}
+	.said-me .ticks {
+		opacity: 0.55;
+	}
+	.said-me .ticks-read {
+		opacity: 0.9;
+	}
+	.said-me .chip,
+	.said-me code {
+		background: oklch(0% 0 0 / 0.12);
+	}
+	.said-me .chip-name {
+		color: inherit;
 	}
 	/* Theirs is a block in a block, so it names its own width: as wide as
 	 * the words, never the column. Yours already sits in a flex row. */
@@ -992,7 +1017,7 @@
 		margin-left: -7px;
 	}
 	.ticks-read {
-		color: var(--accent);
+		color: var(--accent-ink);
 	}
 	/* An emoji the other side put on this bubble, hung off its lower corner. */
 	.reactions {
@@ -1317,7 +1342,7 @@
 		color: var(--ink-3);
 	}
 	.step-edit-add {
-		color: var(--accent);
+		color: var(--accent-ink);
 	}
 	.step-edit-del {
 		color: var(--danger);
@@ -1446,7 +1471,9 @@
 	 * are centred and on five they stay by the last line, where the hand
 	 * is. Padding is measured against the radius, not the grid: 6px keeps
 	 * the words clear of the curve. Focus is the caret; the pill only
-	 * brightens its edge and settles deeper into its shadow. */
+	 * brightens its edge, at once: the shadow is the tight glass one, because
+	 * the conversation scrolls under the composer and a 32px blur repaints
+	 * with every frame of it, and a shadow that eased would repaint it too. */
 	.composer {
 		display: flex;
 		align-items: flex-end;
@@ -1457,14 +1484,13 @@
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line),
-			var(--shadow-float);
-		transition: box-shadow var(--dur-press) var(--ease-out);
+			var(--shadow-glass);
 	}
 	.composer:focus-within {
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line-strong),
-			0 12px 32px -8px oklch(0% 0 0 / 0.55);
+			var(--shadow-glass);
 	}
 	.composer-body {
 		display: flex;
@@ -2111,7 +2137,7 @@
 		border-color: color-mix(in oklch, var(--warn) 60%, transparent);
 	}
 	.link-quiet {
-		color: var(--accent);
+		color: var(--accent-ink);
 		font-weight: 600;
 	}
 	.link-quiet:hover {
@@ -2419,6 +2445,91 @@
 		padding: 0;
 		font-size: inherit;
 	}
+	/* The copy key sits in the block's corner, shown to a pointer over it. */
+	.code-block {
+		position: relative;
+	}
+	.code-block pre {
+		padding-right: 36px;
+	}
+	.code-copy {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		display: grid;
+		place-items: center;
+		width: 24px;
+		height: 24px;
+		border-radius: var(--radius-control);
+		color: var(--ink-3);
+		opacity: 0;
+		transition: opacity var(--dur-press) var(--ease-out);
+	}
+	.code-block:hover .code-copy,
+	.code-copy:focus-visible {
+		opacity: 1;
+	}
+	.code-copy:hover {
+		background: var(--fill-hover);
+		color: var(--ink);
+	}
+	.code-copy svg {
+		width: 14px;
+		height: 14px;
+	}
+
+	/* A link's card, under the bubble that wrote the link: the page's picture,
+	 * its title and where it lives, the way the phone draws one. */
+	.link-card {
+		display: flex;
+		flex-direction: column;
+		width: 300px;
+		max-width: 78%;
+		margin-top: 4px;
+		overflow: hidden;
+		border-radius: var(--radius-bubble);
+		background: var(--said-them);
+		color: var(--ink);
+		text-decoration: none;
+		transition: background var(--dur-press) var(--ease-out);
+	}
+	.link-card:hover {
+		background: var(--pop);
+	}
+	.link-card-mine {
+		align-self: flex-end;
+	}
+	.link-card-picture {
+		display: block;
+		width: 100%;
+		aspect-ratio: 1.91;
+		object-fit: cover;
+		background: var(--raised);
+	}
+	.link-card-words {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 8px 12px 10px;
+	}
+	.link-card-title {
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		font-weight: 600;
+	}
+	.link-card-site {
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+		font-size: var(--text-xs);
+		line-height: var(--text-xs--line-height);
+		color: var(--ink-3);
+	}
 	.mermaid-block {
 		margin: 0.6em 0;
 	}
@@ -2501,13 +2612,13 @@
 		color: var(--ink-2);
 	}
 	.md a {
-		color: var(--accent);
+		color: var(--accent-ink);
 		text-decoration: underline;
 		text-decoration-color: color-mix(in oklab, var(--accent), transparent 60%);
 		text-underline-offset: 2px;
 	}
 	.md a:hover {
-		text-decoration-color: var(--accent);
+		text-decoration-color: var(--accent-ink);
 	}
 	.md table {
 		border-collapse: collapse;

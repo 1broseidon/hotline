@@ -197,11 +197,16 @@ impl Room {
             .chain(std::iter::once(crate::voice::TAPE_ID.to_string()))
             .collect();
         let mut closed = Vec::new();
-        let streams = teammates.iter().cloned().map(StreamId::Tape).chain(
-            crate::log::thread::list_all_keys(self.log.root())
-                .into_iter()
-                .map(StreamId::Pair),
-        );
+        // The room goes with them: every rewrite of a roster entry or a
+        // setting is a new line under the same id, and nothing else ever
+        // folds the file back down.
+        let streams = std::iter::once(StreamId::Room)
+            .chain(teammates.iter().cloned().map(StreamId::Tape))
+            .chain(
+                crate::log::thread::list_all_keys(self.log.root())
+                    .into_iter()
+                    .map(StreamId::Pair),
+            );
         for stream in streams {
             let events = self.log.load(&stream);
             let mut settled = crate::log::expire_orphaned_permissions(&events, now);

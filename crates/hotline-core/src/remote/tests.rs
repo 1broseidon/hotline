@@ -728,7 +728,9 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
             "schedules",
             "threads",
             "runs",
-            "threads2"
+            "threads2",
+            "lean",
+            "thumbnails"
         ])
     );
 
@@ -2902,3 +2904,92 @@ mod viewer_file_tests;
 
 mod relay_tests;
 mod viewer_token_tests;
+
+/// An owner's phone has the desk's authority but a phone's link: once it
+/// names `lean`, its history is cut the way a companion's is, its window
+/// is as short as it asks, its roster leaves out the desk's model list,
+/// and `ping` answers. Without `lean` it is sent the desk's full lines.
+#[tokio::test]
+async fn an_owner_phone_that_names_lean_is_sent_phone_sized_frames() {
+    let h = Harness::new().await;
+    let door = Door::bind(h.desk.log.clone(), "test-desk".into(), h.desk.clone()).unwrap();
+    let port = door.port();
+    let task = tokio::spawn(door.run());
+    let (mut desk, _) =
+        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/ws?token=test-desk"))
+            .await
+            .unwrap();
+    desk.send(Message::text(json!({"id":1,"cmd":"persona.create","params":{"draft":{"name":"Ada","goal":"Help","cwd":h.root.path().to_str().unwrap()}}}).to_string())).await.unwrap();
+    let created: Value =
+        serde_json::from_str(desk.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+    let persona = created["result"]["id"].as_str().unwrap().to_string();
+    let tape = crate::log::StreamId::Tape(persona.clone());
+    let long = "word ".repeat(4000);
+    for (index, event) in [
+        json!({"id":"said","kind":"agent","ts":1,"text":long}),
+        json!({"id":"tool","kind":"tool","ts":2,"toolCallId":"t","title":"Read","status":"completed","output":[{"type":"text","text":"x"}]}),
+        json!({"id":"last","kind":"agent","ts":3,"text":"short"}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let _ = index;
+        h.desk.log.append(&tape, &event).unwrap();
+    }
+
+    let grant = h.pair().await;
+    let mut phone = h.socket(&grant.private).await.unwrap();
+    let hello = read(&mut phone).await;
+    assert!(
+        hello["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("lean")),
+        "{hello}"
+    );
+
+    // Before it says so, an owner phone is sent the lines whole.
+    send(&mut phone, json!({"id":2,"sub":{"tape":persona}})).await;
+    assert_eq!(read(&mut phone).await["ok"], true);
+    let whole = read(&mut phone).await;
+    assert_eq!(whole["snapshot"][0]["text"], json!(long));
+    assert!(whole["snapshot"][1].get("output").is_some());
+
+    send(
+        &mut phone,
+        json!({"id":3,"cmd":"client.hello","params":{"capabilities":["threads2","lean"]}}),
+    )
+    .await;
+    assert_eq!(read(&mut phone).await["ok"], true);
+    send(&mut phone, json!({"id":4,"cmd":"ping","params":{}})).await;
+    assert_eq!(read(&mut phone).await["ok"], true);
+
+    send(
+        &mut phone,
+        json!({"id":5,"sub":{"tape":persona},"window":2}),
+    )
+    .await;
+    assert_eq!(read(&mut phone).await["ok"], true);
+    let lean = read(&mut phone).await;
+    let lines = lean["snapshot"].as_array().unwrap();
+    assert_eq!(lines.len(), 2, "{lean}");
+    assert_eq!(lines[0]["id"], "tool");
+    assert!(lines[0].get("output").is_none());
+    assert_eq!(lines[0]["mobileTruncated"], true);
+
+    send(
+        &mut phone,
+        json!({"id":6,"cmd":"tape.page","params":{"personaId":persona,"before":"tool"}}),
+    )
+    .await;
+    let page = read(&mut phone).await;
+    let said = &page["result"]["events"][0];
+    assert_eq!(said["mobileTruncated"], true, "{page}");
+    assert!(said["text"].as_str().unwrap().len() < 4000);
+
+    send(&mut phone, json!({"id":7,"sub":{"view":"roster"}})).await;
+    assert_eq!(read(&mut phone).await["ok"], true);
+    let roster = read(&mut phone).await;
+    assert_eq!(roster["snapshot"][0]["session"]["slashCommands"], json!([]));
+    task.abort();
+}

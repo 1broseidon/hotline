@@ -6,6 +6,7 @@ import { ArrowUpIcon, CloseIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons"
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
+import { readDraft, writeDraft } from "../drafts";
 
 /** The field stops growing here, and scrolls from then on. */
 const MAX_HEIGHT = 220;
@@ -65,8 +66,19 @@ export function Composer({
 	 */
 	embedded?: boolean;
 }) {
-	const [text, setText] = useState("");
-	const [attachments, setAttachments] = useState<Attachment[]>([]);
+	// Each conversation's draft is its own: switching teammates or threads
+	// puts this one away and takes that one's out, rather than carrying the
+	// words across or dropping them.
+	const [text, setText] = useState(() => readDraft(personaId).text);
+	const [attachments, setAttachments] = useState<Attachment[]>(() => readDraft(personaId).attachments);
+	const [draftOf, setDraftOf] = useState(personaId);
+	if (draftOf !== personaId) {
+		const draft = readDraft(personaId);
+		setDraftOf(personaId);
+		setText(draft.text);
+		setAttachments(draft.attachments);
+	}
+	useEffect(() => writeDraft(draftOf, { text, attachments }), [draftOf, text, attachments]);
 	const [pasteFailed, setPasteFailed] = useState<string | null>(null);
 	const area = useRef<HTMLTextAreaElement>(null);
 	const working = isWorking(state);

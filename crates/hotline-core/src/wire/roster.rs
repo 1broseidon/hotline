@@ -163,7 +163,7 @@ pub(super) async fn view(
                     let Some(persona) = personas.iter().find(|persona| persona.id == persona_id) else {
                         continue;
                     };
-                    let row = roster_entry(&log, &handle, persona.clone(), &pins);
+                    let row = shaped(&sender, roster_entry(&log, &handle, persona.clone(), &pins));
                     if !send(&sender, json!({ "sub": id, "event": row })) {
                         return;
                     }
@@ -189,7 +189,7 @@ fn send_snapshot(
 ) -> bool {
     let rows: Vec<_> = personas
         .iter()
-        .map(|persona| roster_entry(log, handle, persona.clone(), pins))
+        .map(|persona| shaped(sender, roster_entry(log, handle, persona.clone(), pins)))
         .collect();
     send(sender, json!({ "sub": id, "snapshot": rows }))
 }
@@ -276,6 +276,37 @@ fn changes_row(event: &Value) -> bool {
         )
     )
 }
+
+/// A roster row as a phone that asked for `lean` is sent it, since every
+/// tool call sends a teammate's whole row again. Hotline Agent's model list
+/// is every model on the desk, which the phone already has from
+/// `models.list`; slash commands and checkpoints are the desk's; the
+/// preview is a line in a list.
+fn shaped(sender: &super::Outbox, mut row: Value) -> Value {
+    if !sender.lean() {
+        return row;
+    }
+    let hotline = row["persona"]["backendId"] == crate::driver::HOTLINE_BACKEND_ID;
+    if let Some(session) = row.get_mut("session").and_then(Value::as_object_mut) {
+        if hotline {
+            session.insert("models".into(), json!([]));
+        }
+        session.insert("slashCommands".into(), json!([]));
+    }
+    if let Some(persona) = row.get_mut("persona").and_then(Value::as_object_mut) {
+        persona.insert("sessionCheckpoints".into(), json!([]));
+    }
+    if let Some(text) = row["preview"]["text"].as_str()
+        && text.chars().count() > PREVIEW_CHARS
+    {
+        let short: String = text.chars().take(PREVIEW_CHARS).collect();
+        row["preview"]["text"] = json!(short);
+    }
+    row
+}
+
+/// As much of the last message as a list row can show, with room to spare.
+const PREVIEW_CHARS: usize = 280;
 
 #[cfg(test)]
 mod tests {

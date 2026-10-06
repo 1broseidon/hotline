@@ -17,7 +17,8 @@ use crate::paths;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
-use std::time::Duration;
+use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 /// The registry's published catalogue: one request for every agent, carrying
 /// names, descriptions and launch commands. Preferred over walking the GitHub
@@ -149,13 +150,42 @@ const ADAPTED: &[Adapted] = &[
     },
 ];
 
+/// How long Hotline leaves the catalogue alone after trying for it, whether
+/// or not it got it. Without this a machine that is offline pays the whole
+/// fetch timeout on every list the picker or the welcome asks for.
+const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// When each room last went after its catalogue, for [`RETRY_AFTER`].
+static LAST_TRIED: Mutex<Vec<(PathBuf, Instant)>> = Mutex::new(Vec::new());
+
+/// Whether this room may go after the catalogue now, and if so, that it has.
+fn due_for_a_try(root: &Path) -> bool {
+    let mut tried = LAST_TRIED.lock().unwrap_or_else(PoisonError::into_inner);
+    let now = Instant::now();
+    match tried.iter_mut().find(|(path, _)| path == root) {
+        Some((_, at)) if at.elapsed() < RETRY_AFTER => false,
+        Some((_, at)) => {
+            *at = now;
+            true
+        }
+        None => {
+            tried.push((root.to_path_buf(), now));
+            true
+        }
+    }
+}
+
 /// Every agent Hotline can offer, catalogue included.
 ///
-/// This is the listing a picker draws. It refreshes the cached catalogue
-/// first, so opening the picker is where the day's fetch happens rather than
-/// somewhere a person is waiting on an agent to start.
+/// This is the listing a picker draws. It answers from the cached catalogue
+/// at once and, when that copy is a day old, refreshes it in the background
+/// for the next listing, so nobody opening the picker waits on a fetch.
 pub async fn backends(root: &Path) -> Vec<Backend> {
-    refresh_catalogue(root).await;
+    let stale = read_catalogue(root).is_none_or(|catalogue| !fresh(&catalogue, now_ms()));
+    if stale && due_for_a_try(root) {
+        let root = root.to_path_buf();
+        tokio::spawn(async move { refresh_catalogue(&root).await });
+    }
     cached_backends(root)
 }
 
@@ -729,6 +759,16 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    /// A catalogue that cannot be fetched is not asked for again on every
+    /// listing: the second ask inside the window is told to wait.
+    #[test]
+    fn a_failed_catalogue_fetch_is_not_retried_straight_away() {
+        let root = scratch("backoff");
+        assert!(due_for_a_try(&root));
+        assert!(!due_for_a_try(&root));
+        assert!(due_for_a_try(&scratch("backoff-elsewhere")));
     }
 
     fn write_catalogue(root: &Path, agents: serde_json::Value) {

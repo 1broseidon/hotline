@@ -32,6 +32,10 @@ use serde_json::{Map, Value, json};
 /// How long the summariser may take before the chapter closes without a note.
 pub(super) const ANSWER_MS: u64 = 90_000;
 
+/// How long a close waits for the note before it hands the chapter back
+/// without one. The note still lands afterwards; this only bounds who waits.
+pub(super) const NOTE_GRACE_MS: u64 = 300;
+
 /// What a chapter may be left alone for before it closes, and the two ends of
 /// what the room may be set to.
 ///

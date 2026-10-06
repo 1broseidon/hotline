@@ -7,7 +7,7 @@ import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "..
 import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
-import { peopleOf } from "../avatars";
+import { usePeople } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
@@ -17,7 +17,7 @@ import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { Search } from "./Search";
 import { Starters, untouched } from "./Starters";
-import { reactionQuote, Transcript, turnCauseLine, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
+import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
 /**
  * One teammate's conversation: the band naming them, with their model and
@@ -96,7 +96,7 @@ export function Conversation({
 	dock?: ReactNode;
 }) {
 	const { persona, session } = entry;
-	const people = useMemo(() => peopleOf(roster), [roster]);
+	const people = usePeople(roster);
 	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const subagents = entry.subagents ?? [];
 	const sides = entry.sides ?? [];
@@ -300,14 +300,11 @@ export function Conversation({
 	 * something that was asked for. Why the previous chapter cannot be
 	 * reopened is a standing fact rather than an event, so it stays on the
 	 * greyed menu item, read at the moment somebody goes looking for it. */
-	/* The band is the one place that says who this is, so it also says what
-	 * they are doing: the kind of work while a turn runs, else what they are
-	 * for. The window's title bar carries only the mark. Before the first
-	 * tool call lands there is no activity yet; if the turn began answering
-	 * a delivery rather than a fresh word from the person, that is worth
-	 * saying instead of a bare "Working". */
-	const status =
-		session.state === "thinking" ? (entry.activity ?? turnCauseLine(events) ?? "Working") : persona.goal.split("\n")[0]!.trim();
+	/* The band is the one place that says who this is, and at rest what
+	 * they are for. While a turn runs the pulse beside the name says so on
+	 * its own; what the turn is doing is in the conversation and the
+	 * terminal, not repeated here. */
+	const status = session.state === "thinking" ? "" : persona.goal.split("\n")[0]!.trim();
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
 

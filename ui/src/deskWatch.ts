@@ -31,6 +31,10 @@ function recount() {
 		// the teammate it had open: a new line from them is unread too.
 		next[deskId] = one.roster.filter((entry) => unreadOf(entry, null, seen)).length;
 	}
+	// Every roster event on a watched desk comes here; only a count that
+	// moved is news to the windows reading them.
+	const same = Object.keys(next).length === Object.keys(counts).length && Object.entries(next).every(([deskId, count]) => counts[deskId] === count);
+	if (same) return;
 	counts = next;
 	for (const listener of listeners) listener();
 }

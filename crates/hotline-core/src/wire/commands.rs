@@ -503,14 +503,20 @@ pub(crate) async fn run(
                 )
                 .await
                 .map(|chunk| json!(chunk)),
-                None => crate::sent::read_message(
-                    log,
-                    &persona_id,
-                    &event_id,
-                    index.unwrap_or(0),
-                    offset,
-                )
-                .map(|chunk| json!(chunk)),
+                None => {
+                    let log = log.clone();
+                    off_the_reactor(move || {
+                        crate::sent::read_message(
+                            &log,
+                            &persona_id,
+                            &event_id,
+                            index.unwrap_or(0),
+                            offset,
+                        )
+                        .map(|chunk| json!(chunk))
+                    })
+                    .await
+                }
             }
         }
         Command::AvatarRead {

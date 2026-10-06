@@ -1,7 +1,8 @@
-import { isValidElement, memo, type ReactNode } from "react";
+import { isValidElement, memo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { openLink } from "../native";
+import { CheckIcon, CopyIcon } from "../icons";
+import { openLink, writeClipboard } from "../native";
 import { Mermaid } from "./Mermaid";
 
 /**
@@ -65,7 +66,7 @@ const COMPONENTS: Components = {
 	/* A fenced block tagged mermaid is a diagram; every other block is code. */
 	pre: ({ children }) => {
 		const source = mermaidSource(children);
-		return source === null ? <pre>{children}</pre> : <Mermaid source={source} />;
+		return source === null ? <CodeBlock>{children}</CodeBlock> : <Mermaid source={source} />;
 	},
 
 	table: ({ children }) => (
@@ -81,4 +82,29 @@ function mermaidSource(children: ReactNode): string | null {
 	const { className, children: text } = children.props;
 	if (!className?.split(" ").includes("language-mermaid")) return null;
 	return typeof text === "string" ? text.replace(/\n$/, "") : null;
+}
+
+/** A block of code with its copy key in the corner, as on the phone. */
+function CodeBlock({ children }: { children: ReactNode }) {
+	const pre = useRef<HTMLPreElement>(null);
+	const [copied, setCopied] = useState(false);
+	return (
+		<div className="code-block">
+			<pre ref={pre}>{children}</pre>
+			<button
+				type="button"
+				className="code-copy"
+				title={copied ? "Copied" : "Copy code"}
+				aria-label={copied ? "Copied" : "Copy code"}
+				onClick={() => {
+					void writeClipboard((pre.current?.textContent ?? "").replace(/\n$/, "")).then(() => {
+						setCopied(true);
+						setTimeout(() => setCopied(false), 1500);
+					});
+				}}
+			>
+				{copied ? <CheckIcon /> : <CopyIcon />}
+			</button>
+		</div>
+	);
 }

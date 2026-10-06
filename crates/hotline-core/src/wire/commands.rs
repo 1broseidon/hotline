@@ -64,6 +64,7 @@ pub(crate) async fn run(
 ) -> Result<Value, String> {
     match command {
         Command::ImagesStatus {} => Ok(json!(room.images_status())),
+        Command::LinkPreview { url } => Ok(json!(crate::link_preview::preview(&url).await)),
         Command::CapabilitiesOptions {} => room
             .capability_options()
             .await

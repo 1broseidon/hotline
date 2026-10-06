@@ -155,7 +155,7 @@ export function RemoteSection() {
 					<img className="h-72 w-72 max-w-full rounded-lg bg-white" src={`data:image/svg+xml,${encodeURIComponent(pairing.qrSvg)}`} alt="Scan with Hotline to pair this desktop" />
 					<p className="text-sm text-ink-3">Expires in {Math.max(0, Math.ceil((expiresAt - clock) / 1000))} seconds.</p>
 				</div>}
-				{linked && <p role="status" className="mt-4 text-sm text-accent">Phone linked.</p>}
+				{linked && <p role="status" className="mt-4 text-sm text-accent-ink">Phone linked.</p>}
 				{expired && !linked && <p role="status" className="mt-4 text-sm text-ink-2">This QR expired. Link your phone again.</p>}
 				<div className="mt-5 flex flex-wrap gap-2">
 					<button type="button" className="control btn-primary" disabled={busy} onClick={() => void beginPairing()}>Link a phone</button>

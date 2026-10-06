@@ -19,6 +19,7 @@ mod fence;
 pub mod imagegen;
 mod images;
 pub mod import;
+pub mod link_preview;
 pub mod log;
 pub mod mcp;
 pub mod models;

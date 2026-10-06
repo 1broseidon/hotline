@@ -2294,6 +2294,19 @@ pub enum UploadDestination {
     Path { path: String },
 }
 
+/// A link's card: the page's title, a second line saying where it is or
+/// what it is about, and its picture when it has one over https.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct LinkPreview {
+    pub url: String,
+    pub title: String,
+    pub site: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -2797,6 +2810,10 @@ pub enum Command {
     },
     #[serde(rename = "images.status")]
     ImagesStatus {},
+    /// The card for a link written in a message, read by the desk; `null`
+    /// when the page has none or is not one the desk will read.
+    #[serde(rename = "link.preview")]
+    LinkPreview { url: String },
     #[serde(rename = "capabilities.options")]
     CapabilitiesOptions {},
     #[serde(rename = "credential.create")]

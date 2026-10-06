@@ -63,17 +63,20 @@
 	 * Wet leaf. One colour, on a budget: an agent at work, the focus ring,
 	 * the primary action, the card that is waiting on you. It is never a
 	 * background and never decoration, so it means something when it shows. */
-	--accent: oklch(76% 0.17 142);
-	--accent-hover: oklch(81% 0.17 142);
-	--on-accent: oklch(16% 0.04 142);
-	--accent-soft: oklch(76% 0.17 142 / 0.16);
+	/* Mint, the phone's accent too, so the desk and the phone are one app. */
+	--accent: oklch(78.7% 0.128 163);
+	--accent-hover: oklch(83.7% 0.101 165);
+	--on-accent: oklch(24% 0.044 165);
+	--accent-soft: oklch(78.7% 0.128 163 / 0.16);
+	/* The accent as words or a mark on the page, not a fill: a link, a tick. */
+	--accent-ink: oklch(78.7% 0.128 163);
 
-	/* Speech is bubbles on two sides, told apart by weight, never by hue.
-	 * Yours are a slate wash, the lane's own hue with a little more chroma;
-	 * theirs are the raised plane, so the words sit up off the canvas and
-	 * the accent stays out of the conversation. */
-	--said-me: oklch(30% 0.034 255);
-	--said-them: oklch(21% 0.008 250);
+	/* Speech is bubbles on two sides, as on the phone: yours are the accent
+	 * with its own dark ink, theirs the raised plane in the slate lane, so
+	 * the words sit up off the canvas and who said what reads at a glance. */
+	--said-me: oklch(78.7% 0.128 163);
+	--said-me-ink: oklch(24% 0.044 165);
+	--said-them: oklch(22% 0.008 250);
 
 	--warn: oklch(80% 0.14 80);
 	--danger: oklch(72% 0.17 25);
@@ -152,11 +155,14 @@
 	--thumb: oklch(80% 0.008 250);
 	--thumb-hover: oklch(68% 0.008 250);
 
-	--accent: oklch(54% 0.16 145);
-	--accent-hover: oklch(49% 0.16 145);
-	--on-accent: oklch(99% 0.01 145);
-	--accent-soft: oklch(54% 0.16 145 / 0.14);
-	--said-me: oklch(93.5% 0.02 255);
+	--accent: oklch(78.7% 0.128 163);
+	--accent-hover: oklch(74% 0.13 163);
+	--on-accent: oklch(24% 0.044 165);
+	--accent-soft: oklch(78.7% 0.128 163 / 0.2);
+	/* Mint as a fill reads on white; as words it fades, so text goes deeper. */
+	--accent-ink: oklch(50% 0.1 165);
+	--said-me: oklch(78.7% 0.128 163);
+	--said-me-ink: oklch(24% 0.044 165);
 	--said-them: oklch(95% 0.005 250);
 
 	--warn: oklch(64% 0.15 75);
@@ -216,6 +222,7 @@
 	--color-accent-hover: var(--accent-hover);
 	--color-on-accent: var(--on-accent);
 	--color-accent-soft: var(--accent-soft);
+	--color-accent-ink: var(--accent-ink);
 	--color-said-me: var(--said-me);
 	--color-said-them: var(--said-them);
 

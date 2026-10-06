@@ -1,4 +1,6 @@
 import { ErrorCard } from "./ErrorCard";
+import { LinkCard } from "./LinkCard";
+import { onlyLink, previewLink } from "../linkPreview";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type MouseEvent, type RefObject } from "react";
 import type {
 	Attachment,
@@ -1078,6 +1080,8 @@ function AgentSay({
 	onReact?(target: ReactTarget, emoji: string): void;
 }) {
 	const reply = () => onReply?.({ eventId: event.id, text: lineOf(event) });
+	// One card for the first link written out bare, as on the phone.
+	const link = event.attachments?.length ? null : previewLink(event.text);
 	const actions: BubbleActionsProps = {
 		copy: () => void writeClipboard(event.text.trim() !== "" ? event.text : lineOf(event)),
 		...(onReply !== undefined ? { reply } : {}),
@@ -1105,6 +1109,7 @@ function AgentSay({
 				<Reactions emoji={reactions} />
 				<BubbleActions {...actions} />
 			</div>
+			{link !== null && <LinkCard url={link} always={onlyLink(event.text, link)} />}
 		</div>
 	);
 }
@@ -1157,12 +1162,13 @@ function UserBubble({
 	const text = quote !== undefined ? unquoted(event.text) : event.text;
 	// A line still on its way has no id the desk knows, so it cannot be answered yet.
 	const sent = !event.id.startsWith("saying:");
+	const link = previewLink(text);
 	const actions: BubbleActionsProps = {
 		copy: () => void writeClipboard(text),
 		...(onReply !== undefined && sent ? { reply: () => onReply({ eventId: event.id, text: lineOf({ text }) }) } : {}),
 	};
 	return (
-		<div className={`said-group flex justify-end ${run.top ? "mt-1" : "mt-3"}`}>
+		<div className={`said-group flex flex-col items-end ${run.top ? "mt-1" : "mt-3"}`}>
 			<div className={`speech said-me ${runClass(run)}`} onContextMenu={(click) => bubbleMenu(click, actions)}>
 				{quote !== undefined && answered !== undefined && (
 					<button type="button" className="quote" title="Go to the message" onClick={() => onJump(answered)}>
@@ -1183,6 +1189,7 @@ function UserBubble({
 				<Reactions emoji={reactions} />
 				<BubbleActions {...actions} />
 			</div>
+			{link !== null && <LinkCard url={link} always={onlyLink(text, link)} mine />}
 		</div>
 	);
 }
@@ -1608,7 +1615,7 @@ function Plan({ entries }: { entries: PlanEntry[] }) {
 
 function PlanMark({ status }: { status: string }) {
 	if (status === "completed") {
-		return <CheckIcon className="mt-px shrink-0 text-accent" />;
+		return <CheckIcon className="mt-px shrink-0 text-accent-ink" />;
 	}
 	if (status === "in_progress") {
 		return (

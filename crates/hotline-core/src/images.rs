@@ -84,6 +84,13 @@ pub(crate) fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 
 /// The image as the policy wants it: an upright JPEG within the limits.
 pub(crate) fn normalize(bytes: &[u8]) -> Result<Vec<u8>, Unfit> {
+    shrink(bytes, MAX_EDGE, 85)
+}
+
+/// The same preparation at another size and quality: upright, flattened
+/// onto white, at most `edge` px on its longer side, a JPEG within the
+/// budget. A thumbnail is this at a phone's size.
+pub(crate) fn shrink(bytes: &[u8], edge: u32, quality: u8) -> Result<Vec<u8>, Unfit> {
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err(Unfit::TooLarge);
     }
@@ -106,8 +113,8 @@ pub(crate) fn normalize(bytes: &[u8]) -> Result<Vec<u8>, Unfit> {
         .unwrap_or(image::metadata::Orientation::NoTransforms);
     let mut decoded = image::DynamicImage::from_decoder(decoder).map_err(|_| Unfit::Undecodable)?;
     decoded.apply_orientation(orientation);
-    let resized = if decoded.width().max(decoded.height()) > MAX_EDGE {
-        decoded.resize(MAX_EDGE, MAX_EDGE, image::imageops::FilterType::Triangle)
+    let resized = if decoded.width().max(decoded.height()) > edge {
+        decoded.resize(edge, edge, image::imageops::FilterType::Triangle)
     } else {
         decoded
     };
@@ -123,7 +130,7 @@ pub(crate) fn normalize(bytes: &[u8]) -> Result<Vec<u8>, Unfit> {
     }
     loop {
         let mut out = Vec::new();
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85)
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality)
             .encode_image(&rgb)
             .map_err(|_| Unfit::Unencodable)?;
         if out.len() <= MAX_JPEG_BYTES {

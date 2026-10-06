@@ -684,6 +684,10 @@ impl Seat {
                     | Command::ComputerCapacity { .. }
                     | Command::ComputerStatus { .. }
                     | Command::ComputerStop { .. }
+                    // Proof the link is alive, and a card for a link already
+                    // in a conversation the phone reads.
+                    | Command::Ping { .. }
+                    | Command::LinkPreview { .. }
                     | Command::FileRead { .. }
                     // A picture is no more private than the name beside it.
                     | Command::AvatarRead { .. }
@@ -977,6 +981,11 @@ pub(super) struct Outbox {
     /// deltas. Read as each frame is made, so a declaration reaches the
     /// subscriptions already open.
     threads2: Arc<std::sync::atomic::AtomicBool>,
+    /// Whether this socket said, with `client.hello`, that it is a phone
+    /// wanting phone-sized frames (`lean`): history cut the way a
+    /// companion's is, whatever the device's role. An owner's phone is an
+    /// owner by authority and a phone by its link.
+    lean: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Clone)]
 enum Outgoing {
@@ -998,6 +1007,26 @@ impl IncomingOutput {
 impl Outbox {
     fn threads2(&self) -> bool {
         self.threads2.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn lean(&self) -> bool {
+        self.lean.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// A frame that may be lost without harm: live words the durable line
+    /// will carry anyway. A phone's queue that is full drops it rather than
+    /// the connection, so a slow link falls behind on typing, not offline.
+    fn send_droppable(&self, text: String) -> Result<(), ()> {
+        match &self.sender {
+            Outgoing::Phone(sender) if text.len() <= self.max => match sender.try_send(text) {
+                Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    self.cancel.cancel();
+                    Err(())
+                }
+            },
+            _ => self.send(text),
+        }
     }
 
     fn send(&self, text: String) -> Result<(), ()> {
@@ -1076,7 +1105,7 @@ where
     let (mut sink, mut incoming) = socket.split();
     let cancel = phone.as_ref().map(|p| p.cancel.clone()).unwrap_or_default();
     let (sender, mut outbox) = if seat.is_remote() {
-        let (tx, rx) = mpsc::channel::<String>(64);
+        let (tx, rx) = mpsc::channel::<String>(256);
         (Outgoing::Phone(tx), IncomingOutput::Phone(rx))
     } else {
         let (tx, rx) = mpsc::unbounded_channel::<String>();
@@ -1087,6 +1116,7 @@ where
         pairing: Arc::default(),
         uploads: Arc::default(),
         threads2: Arc::default(),
+        lean: Arc::default(),
         sender,
         cancel: cancel.clone(),
         max: match seat {
@@ -1107,7 +1137,22 @@ where
 
     let mut subscriptions: HashMap<i64, JoinHandle<()>> = HashMap::new();
     let result = loop {
-        let incoming = tokio::select! { biased; _ = cancel.cancelled() => break Ok(()), frame = incoming.next() => frame };
+        // A lean phone pings; one that has said nothing for this long is a
+        // link that died without closing, and its subscriptions are work
+        // for nobody.
+        let silent = async {
+            if sender.lean() {
+                tokio::time::sleep(LEAN_IDLE).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        let incoming = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => break Ok(()),
+            frame = incoming.next() => frame,
+            () = silent => break Ok(()),
+        };
         match incoming {
             None | Some(Ok(Message::Close(_))) => break Ok(()),
             Some(Err(error)) => break Err(error),
@@ -1344,6 +1389,10 @@ async fn answer(
                             capabilities.iter().any(|name| name == THREADS2),
                             std::sync::atomic::Ordering::Relaxed,
                         );
+                        sender.lean.store(
+                            seat.is_remote() && capabilities.iter().any(|name| name == LEAN),
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
                         Ok(json!({ "capabilities": seat.capabilities_for(room.as_ref()) }))
                     }
                     (Command::MobilePushRegister { token, platform }, Some(phone)) => {
@@ -1365,15 +1414,13 @@ async fn answer(
                     // A page of older lines is cut for the phone the way its
                     // snapshot is: long text shortened, frames made phone-sized.
                     (Command::TapePage { .. } | Command::ThreadPage { .. }, Some(_))
-                        if seat == Seat::Phone =>
+                        if seat == Seat::Phone || sender.lean() =>
                     {
                         commands::run(command, log, room).await.map(|mut page| {
                             if let Some(events) =
                                 page.get_mut("events").and_then(Value::as_array_mut)
                             {
-                                for event in events.iter_mut() {
-                                    *event = phone_event(std::mem::take(event));
-                                }
+                                *events = phone_budget(std::mem::take(events));
                             }
                             page
                         })
@@ -1424,7 +1471,12 @@ async fn answer(
     if let Some(target) = frame.get("sub") {
         // A subscription that opened answered itself, on its way past the
         // acknowledgement; only a refusal is left to say here.
-        if let Err(refused) = subscribe(target, seat, log, room, sender, subscriptions, id) {
+        let window = frame
+            .get("window")
+            .and_then(Value::as_u64)
+            .map(|window| (window as usize).clamp(1, PHONE_WINDOW));
+        if let Err(refused) = subscribe(target, window, seat, log, room, sender, subscriptions, id)
+        {
             decline(sender, id, refused);
         }
         return;
@@ -1498,11 +1550,19 @@ pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "threads",
     "runs",
     "threads2",
+    "lean",
+    "thumbnails",
 ];
 
 /// The capability a client names in `client.hello` to be sent `link` events
 /// and `ThreadDelta`s, and the one a hello advertises that the core can.
 const THREADS2: &str = "threads2";
+/// The capability a phone names in `client.hello` to be sent phone-sized
+/// frames whatever its role, and that a remote seat's hello advertises:
+/// see [`Outbox::lean`]. With it, a subscription may also name a `window`.
+const LEAN: &str = "lean";
+/// How long a lean phone may say nothing before its link is taken as dead.
+const LEAN_IDLE: std::time::Duration = std::time::Duration::from_secs(90);
 
 /// The seat may not do this, whoever asks and whatever the room holds.
 const FORBIDDEN: &str = "forbidden";
@@ -1551,8 +1611,10 @@ fn decline(sender: &Outbox, id: i64, refused: Refused) {
 /// otherwise be free to queue its snapshot first, and a client is promised
 /// `ok`, then one snapshot, then events. Inside that task the broadcast is
 /// subscribed to before the fold is loaded, so nothing lands in between.
+#[allow(clippy::too_many_arguments)]
 fn subscribe(
     target: &Value,
+    window: Option<usize>,
     seat: Seat,
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -1686,6 +1748,7 @@ fn subscribe(
         deltas,
         sender.clone(),
         seat,
+        window,
     );
     subscriptions.insert(id, tokio::spawn(forward));
     Ok(())
@@ -1820,9 +1883,44 @@ fn window_start(events: &[Value], len: usize) -> usize {
     events[..start].iter().rposition(said).unwrap_or(start)
 }
 
+#[cfg(test)]
 fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat, threads2: bool) -> Vec<Value> {
+    snapshot_shaped(log, stream, seat == Seat::Phone, None, threads2)
+}
+
+/// How many lines a phone's window opens with, and the most it may ask for.
+const PHONE_WINDOW: usize = 200;
+/// The most a phone's snapshot or page carries, in bytes of JSON.
+const PHONE_BYTES: usize = 512 * 1024;
+
+/// Events cut for a phone, newest kept first until the budget is spent:
+/// what a page of older lines or a window comes to on a phone's link.
+fn phone_budget(events: Vec<Value>) -> Vec<Value> {
+    let mut used = 0;
+    let mut kept = Vec::new();
+    for event in events.into_iter().rev() {
+        let event = phone_event(event);
+        used += event.to_string().len();
+        if used > PHONE_BYTES && !kept.is_empty() {
+            break;
+        }
+        kept.push(event);
+    }
+    kept.reverse();
+    kept
+}
+
+/// A stream's opening lines as this socket is sent them. A phone gets a
+/// window of `window` lines (or [`PHONE_WINDOW`]), cut and within budget.
+fn snapshot_shaped(
+    log: &Log,
+    stream: &StreamId,
+    phone: bool,
+    window: Option<usize>,
+    threads2: bool,
+) -> Vec<Value> {
     let events = public_snapshot(log, stream, threads2);
-    if seat != Seat::Phone {
+    if !phone {
         // The desk and its owner device open a tape on its last lines and
         // page back with `tape.page`; a whole tape is too much to draw.
         if matches!(stream, StreamId::Tape(_)) && events.len() > DESK_TAPE_WINDOW {
@@ -1831,23 +1929,13 @@ fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat, threads2: bool) -
         }
         return events;
     }
-    let mut used = 0;
-    let mut recent = Vec::new();
+    let window = window.unwrap_or(PHONE_WINDOW).min(PHONE_WINDOW);
     let skip = if matches!(stream, StreamId::Tape(_)) {
-        window_start(&events, 200)
+        window_start(&events, window)
     } else {
-        events.len().saturating_sub(200)
+        events.len().saturating_sub(window)
     };
-    for event in events.into_iter().skip(skip).rev() {
-        let event = phone_event(event);
-        used += event.to_string().len();
-        if used > 524_288 {
-            break;
-        }
-        recent.push(event);
-    }
-    recent.reverse();
-    recent
+    phone_budget(events.into_iter().skip(skip).collect())
 }
 
 /// The lines of a thread's stream before `before`, oldest first: a page of
@@ -1890,6 +1978,7 @@ pub(super) fn thread_page(
     json!({ "events": page, "more": start > 0 })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn stream_events(
     id: i64,
     stream: StreamId,
@@ -1898,12 +1987,15 @@ async fn stream_events(
     mut deltas: Option<broadcast::Receiver<StreamDelta>>,
     sender: Outbox,
     seat: Seat,
+    window: Option<usize>,
 ) {
     let scope = delta_scope(&stream);
-    if !send(
-        &sender,
-        json!({ "sub": id, "snapshot": snapshot_for_seat(&log, &stream, seat, sender.threads2()) }),
-    ) {
+    let phone = || seat == Seat::Phone || sender.lean();
+    let snapshot = |sender: &Outbox| {
+        let window = if phone() { window } else { None };
+        snapshot_shaped(&log, &stream, phone(), window, sender.threads2())
+    };
+    if !send(&sender, json!({ "sub": id, "snapshot": snapshot(&sender) })) {
         return;
     }
 
@@ -1918,7 +2010,7 @@ async fn stream_events(
             event = events.recv() => match event {
                 Ok(event) => {
                     let event = if stream == StreamId::Room { crate::mcp::public_room_event(event) } else { link_as_sent(event, sender.threads2()) };
-                    if !send(&sender, json!({ "sub": id, "event": if seat == Seat::Phone { phone_event(event) } else { event } })) {
+                    if !send(&sender, json!({ "sub": id, "event": if phone() { phone_event(event) } else { event } })) {
                         return;
                     }
                 }
@@ -1926,7 +2018,7 @@ async fn stream_events(
                 // everything instead: a second snapshot, which a client that
                 // folds by id absorbs the same way it absorbed the first.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
-                    if !send(&sender, json!({ "sub": id, "snapshot": snapshot_for_seat(&log, &stream, seat, sender.threads2()) })) {
+                    if !send(&sender, json!({ "sub": id, "snapshot": snapshot(&sender) })) {
                         return;
                     }
                 }
@@ -1934,11 +2026,13 @@ async fn stream_events(
             },
             delta = delta => match delta {
                 // The phone draws words; a download ring is the desk's.
-                Ok(StreamDelta::ComputerPull { .. }) if seat == Seat::Phone => {}
+                Ok(StreamDelta::ComputerPull { .. }) if phone() => {}
                 Ok(delta) => {
                     let heard = scope.as_ref().and_then(|scope| delta_for(delta, scope, sender.threads2()));
                     if let Some(heard) = heard
-                        && !send(&sender, json!({ "sub": id, "ephemeral": heard }))
+                        && sender
+                            .send_droppable(json!({ "sub": id, "ephemeral": heard }).to_string())
+                            .is_err()
                     {
                         return;
                     }

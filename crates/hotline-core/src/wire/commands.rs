@@ -64,6 +64,7 @@ pub(crate) async fn run(
 ) -> Result<Value, String> {
     match command {
         Command::ImagesStatus {} => Ok(json!(room.images_status())),
+        Command::Ping {} => Ok(Value::Null),
         Command::LinkPreview { url } => Ok(json!(crate::link_preview::preview(&url).await)),
         Command::CapabilitiesOptions {} => room
             .capability_options()
@@ -471,19 +472,46 @@ pub(crate) async fn run(
             event_id,
             index,
             offset,
+            size,
         } => {
             living(log, &persona_id)?;
-            crate::sent::read_message(log, &persona_id, &event_id, index.unwrap_or(0), offset)
-                .map(|chunk| json!(chunk))
+            match size {
+                Some(edge) => crate::sent::read_message_thumb(
+                    log,
+                    &persona_id,
+                    &event_id,
+                    index.unwrap_or(0),
+                    offset,
+                    edge,
+                )
+                .await
+                .map(|chunk| json!(chunk)),
+                None => crate::sent::read_message(
+                    log,
+                    &persona_id,
+                    &event_id,
+                    index.unwrap_or(0),
+                    offset,
+                )
+                .map(|chunk| json!(chunk)),
+            }
         }
         Command::AvatarRead {
             persona_id,
             hash,
             offset,
+            size,
         } => {
             living(log, &persona_id)?;
-            crate::session::avatar::read(log.root(), &persona_id, &hash, offset)
-                .map(|chunk| json!(chunk))
+            match size {
+                Some(edge) => {
+                    crate::session::avatar::read_thumb(log.root(), &persona_id, &hash, offset, edge)
+                        .await
+                        .map(|chunk| json!(chunk))
+                }
+                None => crate::session::avatar::read(log.root(), &persona_id, &hash, offset)
+                    .map(|chunk| json!(chunk)),
+            }
         }
         Command::AvatarGenerate { persona_id } => {
             living(log, &persona_id)?;

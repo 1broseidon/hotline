@@ -277,6 +277,23 @@ pub(crate) fn read(
     sent::read_path(&path, offset, true).map_err(|_| "That teammate has no such picture.".into())
 }
 
+/// The picture at most `edge` px wide, still transparent: what a phone
+/// draws in a list row or beside a bubble.
+pub(crate) async fn read_thumb(
+    root: &Path,
+    persona_id: &str,
+    hash: &str,
+    offset: i64,
+    edge: u32,
+) -> Result<crate::contract::FileChunk, String> {
+    let path = paths::avatar_path(root, persona_id, hash)
+        .ok_or_else(|| "A picture is named by 64 lowercase hex digits.".to_string())?;
+    let copy = crate::thumbs::copy_of(root, &path, edge, crate::thumbs::Kind::Face)
+        .await
+        .map_err(|_| "That teammate has no such picture.".to_string())?;
+    sent::read_path(&copy, offset, true).map_err(|_| "That teammate has no such picture.".into())
+}
+
 /// The picture as it is kept: the subject of a transparent image found and
 /// given a little room, then centred on a transparent square and made 512
 /// pixels wide, as a PNG.

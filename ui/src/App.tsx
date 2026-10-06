@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type SetStateAction } from "react";
 import { useNarrow } from "./narrow";
 import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
@@ -69,6 +69,32 @@ export function App() {
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const [selectedId, setSelectedId] = useState<string | null>(loadSelected);
+	/* What each teammate's screen has open beside the conversation: its
+	 * threads pane and the thread in it, or its own pane. Like the work card
+	 * below it belongs to them, so leaving a teammate and coming back finds
+	 * their screen as it was, and another teammate's as theirs was. */
+	const [spaces, setSpaces] = useState<Record<string, Space>>({});
+	const selectedRef = useRef(selectedId);
+	selectedRef.current = selectedId;
+	const shapeSpace = useCallback((change: (was: Space) => Partial<Space>) => {
+		const personaId = selectedRef.current;
+		if (personaId === null) return;
+		setSpaces((all) => {
+			const was = all[personaId] ?? NO_SPACE;
+			return { ...all, [personaId]: { ...was, ...change(was) } };
+		});
+	}, []);
+	const space = (selectedId !== null ? spaces[selectedId] : undefined) ?? NO_SPACE;
+	const dock = space.dock;
+	const inspector = space.inspector;
+	const setDock = useCallback(
+		(next: SetStateAction<DockState | null>) => shapeSpace((was) => ({ dock: typeof next === "function" ? next(was.dock) : next })),
+		[shapeSpace],
+	);
+	const setInspector = useCallback(
+		(next: SetStateAction<boolean>) => shapeSpace((was) => ({ inspector: typeof next === "function" ? next(was.inspector) : next })),
+		[shapeSpace],
+	);
 	/* The work card each teammate has open, by persona: it belongs to them,
 	 * so it goes when you leave them and is there again when you come back. */
 	const [works, setWorks] = useState<Record<string, OpenWork>>({});
@@ -83,7 +109,6 @@ export function App() {
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
 	/* The right-hand pane: this teammate's threads, beside the
 	 * conversation or over it in a window too narrow. */
-	const [dock, setDock] = useState<DockState | null>(null);
 	const [dockWidth, setDockWidthState] = useState(loadDockWidth);
 	const setDockWidth = useCallback((width: number) => setDockWidthState(clampDock(width)), []);
 	useEffect(() => saveDockWidth(dockWidth), [dockWidth]);
@@ -110,7 +135,6 @@ export function App() {
 	const toggleRail = useCallback(() => setRailSize((was) => ({ ...was, open: !was.open })), [setRailSize]);
 	/* The teammate's own pane sits beside the conversation, not in its place:
 	 * you edit a colleague while watching them work. */
-	const [inspector, setInspector] = useState(false);
 	const [focusSchedules, setFocusSchedules] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
 	/* What the strip's model or effort picker was refused with. The strip
@@ -213,8 +237,6 @@ export function App() {
 	useEffect(() => {
 		setSearchOpen(false);
 		setFocusSchedules(false);
-		// A thread open in the right-hand pane belongs to the teammate who left.
-		setDock((was) => (was !== null && was.open !== null ? { open: null } : was));
 		saveSelected(selectedId);
 	}, [selectedId]);
 
@@ -225,6 +247,7 @@ export function App() {
 	}, [roster, selectedId]);
 
 	const select = useCallback((personaId: string) => {
+		selectedRef.current = personaId;
 		setSelectedId(personaId);
 		setPane(null);
 	}, []);
@@ -310,10 +333,8 @@ export function App() {
 			if (!(await confirmRemove(name))) return;
 			try {
 				await wire.command("persona.delete", { id: personaId });
-				if (selectedId === personaId) {
-					setSelectedId(null);
-					setInspector(false);
-				}
+				if (selectedId === personaId) setSelectedId(null);
+				setSpaces(({ [personaId]: _, ...rest }) => rest);
 			} catch {
 				// The inspector's own Remove reports a refusal if this fails.
 			}
@@ -757,3 +778,7 @@ function DeskBand({ onAddDesk }: { onAddDesk(): void }) {
 		</p>
 	);
 }
+
+/** What a teammate's screen has open beside its conversation. */
+type Space = { dock: DockState | null; inspector: boolean };
+const NO_SPACE: Space = { dock: null, inspector: false };

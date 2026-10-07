@@ -8,6 +8,7 @@ fn hit(title: &str, url: &str, snippet: &str) -> Hit {
         title: title.into(),
         url: url.into(),
         snippet: snippet.into(),
+        ..Default::default()
     }
 }
 
@@ -498,9 +499,7 @@ fn a_distinctive_word_no_result_carries_is_said() {
     );
     assert_eq!(
         ranked.note.as_deref(),
-        Some(
-            "No result mentions \"xqzflarnib\" or \"98421\"; these are matches for the other words only."
-        )
+        Some("No result mentions \"xqzflarnib\" or \"98421\"; these match only the other words.")
     );
     let found = run(
         "rust protocol",
@@ -510,4 +509,305 @@ fn a_distinctive_word_no_result_carries_is_said() {
         )],
     );
     assert_eq!(found.note, None);
+}
+
+// Round 3: news, snippets, and the miss warning ----------------------------------
+
+fn on(text: &str) -> Query {
+    Query::parse_on(text, chrono::NaiveDate::from_ymd_opt(2026, 10, 7).unwrap())
+}
+
+fn dated(title: &str, url: &str, snippet: &str, published: Option<&str>) -> Hit {
+    Hit {
+        published: published.map(str::to_string),
+        ..hit(title, url, snippet)
+    }
+}
+
+fn news(query: &str, list: Vec<Hit>) -> Vec<String> {
+    let ranked = rank(&on(query), vec![src(P::Parallel, list)], 10);
+    ranked.hits.into_iter().map(|h| h.url).collect()
+}
+
+const STORY: &str =
+    "Officials said on Tuesday that talks continued through the night in the capital.";
+
+#[test]
+fn a_story_dated_in_the_window_beats_one_a_year_older() {
+    // The older page is first from the provider; the date moves it down.
+    let order = news(
+        "latest world news October 7 2026",
+        vec![
+            dated(
+                "Old",
+                "https://a.example/news/old-story-from-2023",
+                STORY,
+                Some("2023-10-07"),
+            ),
+            dated(
+                "New",
+                "https://b.example/news/new-story-from-today",
+                STORY,
+                Some("2026-10-07T05:00:00Z"),
+            ),
+        ],
+    );
+    assert_eq!(order[0], "https://b.example/news/new-story-from-today");
+}
+
+#[test]
+fn a_date_in_the_snippet_or_a_relative_time_counts_when_no_provider_gave_one() {
+    let order = news(
+        "latest world news",
+        vec![
+            plain("Old", "https://a.example/news/an-older-page-here"),
+            hit(
+                "Recent",
+                "https://b.example/news/a-recent-page-here",
+                "34 min ago Officials said talks continued through the night.",
+            ),
+        ],
+    );
+    assert_eq!(order[0], "https://b.example/news/a-recent-page-here");
+    let order = news(
+        "latest world news",
+        vec![
+            hit(
+                "Anniversary",
+                "https://a.example/news/the-anniversary-page",
+                "On October 7, 2023 militants crossed the border in a surprise assault.",
+            ),
+            plain("Fresh", "https://b.example/news/a-fresh-page-here"),
+        ],
+    );
+    assert_eq!(order[0], "https://b.example/news/a-fresh-page-here");
+}
+
+#[test]
+fn an_events_name_is_not_a_date_and_does_not_make_a_window() {
+    assert!(on("what caused the October 7 attack").window.is_none());
+    assert!(on("October 7 2026 news").window.is_some());
+}
+
+#[test]
+fn section_tag_and_home_pages_rank_below_stories_for_a_news_query() {
+    let order = news(
+        "latest world news",
+        vec![
+            hit(
+                "Sanctions: Latest News, Top Stories & Analysis - POLITICO",
+                "https://www.politico.com/news/sanctions",
+                STORY,
+            ),
+            hit("Argentina", "https://www.politico.com/tag/argentina", STORY),
+            hit("Home", "https://example.com/", STORY),
+            hit(
+                "House passes sanctions bill",
+                "https://www.politico.com/news/2026/09/16/house-passes-russia-sanctions-bill-123",
+                STORY,
+            ),
+        ],
+    );
+    assert_eq!(
+        order[0],
+        "https://www.politico.com/news/2026/09/16/house-passes-russia-sanctions-bill-123"
+    );
+}
+
+#[test]
+fn video_pages_rank_below_articles_for_news_unless_video_was_asked_for() {
+    let list = || {
+        vec![
+            plain(
+                "ABC World News Tonight",
+                "https://www.youtube.com/watch?v=rXWqS9yNg7Y",
+            ),
+            plain(
+                "Strikes continue overnight",
+                "https://example.org/world/strikes-continue-overnight",
+            ),
+        ]
+    };
+    assert_eq!(
+        news("latest world news", list())[0],
+        "https://example.org/world/strikes-continue-overnight"
+    );
+    assert_eq!(
+        news("latest world news video", list())[0],
+        "https://www.youtube.com/watch?v=rXWqS9yNg7Y"
+    );
+}
+
+#[test]
+fn an_established_outlet_gets_a_small_prior_on_news() {
+    let order = news(
+        "latest world news",
+        vec![
+            plain(
+                "Strikes continue in the north",
+                "https://a.example/world/strikes-continue-overnight",
+            ),
+            hit(
+                "Talks resume in the capital",
+                "https://www.reuters.com/world/strikes-continue-overnight-2026-10-07/",
+                "Negotiators returned to the table on Tuesday after a pause of several days.",
+            ),
+        ],
+    );
+    assert!(order[0].contains("reuters"));
+}
+
+#[test]
+fn a_sitemap_and_a_page_of_only_chrome_rank_down() {
+    let ranked = run(
+        "apple support",
+        vec![src(
+            P::Parallel,
+            vec![
+                hit("Site Map", "https://apple.com/find", "- Contact Support"),
+                plain("Apple Support", "https://support.apple.com/"),
+            ],
+        )],
+    );
+    assert_eq!(ranked.hits[0].url, "https://support.apple.com/");
+}
+
+#[test]
+fn an_empty_snippet_takes_the_readable_one_another_provider_had() {
+    let ranked = run(
+        "hotline install",
+        vec![
+            src(
+                P::Parallel,
+                vec![hit(
+                    "Install | Hotline",
+                    "https://hotline.dev/docs/install/",
+                    "Published: N/A",
+                )],
+            ),
+            src(
+                P::Keenable,
+                vec![hit(
+                    "Install | Hotline",
+                    "https://hotline.dev/docs/install/",
+                    "Run the install script and open the desk.",
+                )],
+            ),
+        ],
+    );
+    assert_eq!(ranked.hits.len(), 1);
+    assert_eq!(
+        ranked.hits[0].snippet,
+        "Run the install script and open the desk."
+    );
+}
+
+#[test]
+fn a_bare_ip_host_is_not_a_result() {
+    let ranked = run(
+        "rustc E0502",
+        vec![src(
+            P::Parallel,
+            vec![
+                hit("ovdxkvngzvchdlk", "https://142.249.174.17/x", SENTENCE),
+                plain(
+                    "Error codes",
+                    "https://doc.rust-lang.org/error_codes/E0502.html",
+                ),
+            ],
+        )],
+    );
+    assert_eq!(
+        urls(&ranked),
+        vec!["https://doc.rust-lang.org/error_codes/E0502.html"]
+    );
+}
+
+#[test]
+fn an_ordinary_modifier_does_not_raise_the_miss_warning_and_a_made_up_word_does() {
+    let page = vec![src(
+        P::Parallel,
+        vec![hit(
+            "Everest",
+            "https://fr.wikipedia.org/wiki/Everest",
+            "Le mont Everest culmine a 8849 metres d'altitude.",
+        )],
+    )];
+    assert_eq!(run("Mont Everest hauteur officielle", page).note, None);
+    let page = vec![src(
+        P::Parallel,
+        vec![hit(
+            "Everest",
+            "https://fr.wikipedia.org/wiki/Everest",
+            "Le mont Everest culmine a 8849 metres d'altitude.",
+        )],
+    )];
+    assert!(
+        run("Mont Everest zxqvbnk", page)
+            .note
+            .unwrap()
+            .contains("zxqvbnk")
+    );
+}
+
+#[test]
+fn a_number_is_met_only_as_a_whole_number() {
+    let page = |text: &str| {
+        vec![src(
+            P::Parallel,
+            vec![hit("Page", "https://x.example/p", text)],
+        )]
+    };
+    for text in [
+        "RFC 9842 defines it",
+        "catalogue 98421-4-RR antibody",
+        "id 198421 and 98421x",
+    ] {
+        let note = run("xqzflarnib 98421", page(text)).note.unwrap_or_default();
+        assert!(note.contains("98421"), "{text}: {note}");
+    }
+    let note = run("xqzflarnib 98421", page("code 98421 listed"))
+        .note
+        .unwrap_or_default();
+    assert!(
+        note.contains("xqzflarnib") && !note.contains("98421"),
+        "{note}"
+    );
+}
+
+#[test]
+fn a_result_with_none_of_the_distinctive_words_ranks_below_one_that_has_them() {
+    let ranked = run(
+        "rustc E0502",
+        vec![src(
+            P::Parallel,
+            vec![
+                plain("Rust compiler overview", "https://a.example/rustc"),
+                hit(
+                    "E0502",
+                    "https://b.example/e0502",
+                    "The E0502 error is a borrow conflict in rustc.",
+                ),
+            ],
+        )],
+    );
+    assert_eq!(ranked.hits[0].url, "https://b.example/e0502");
+}
+
+#[test]
+fn date_and_recency_words_are_not_the_subject() {
+    let q = on("latest world news October 7 2026");
+    assert_eq!(q.content_tokens(), Vec::<&str>::new());
+    let ranked = rank(
+        &q,
+        vec![src(
+            P::Parallel,
+            vec![plain(
+                "Talks",
+                "https://a.example/world/talks-continue-tonight",
+            )],
+        )],
+        5,
+    );
+    assert_eq!(ranked.note, None);
 }

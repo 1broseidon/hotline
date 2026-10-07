@@ -158,7 +158,8 @@ async fn parallel_sends_the_search_call_and_maps_its_results() {
         Hit {
             title: "Go Concurrency Patterns".into(),
             url: "https://go.dev/blog/context".into(),
-            snippet: "First excerpt.".into()
+            snippet: "First excerpt.".into(),
+            ..Default::default()
         }
     );
     assert_eq!(hits[1].snippet, "");
@@ -241,12 +242,14 @@ async fn exa_sends_the_call_keyless_and_parses_its_text_blocks_from_sse() {
             Hit {
                 title: "First".into(),
                 url: "https://example.com/one".into(),
-                snippet: "A summary.".into()
+                snippet: "A summary.".into(),
+                ..Default::default()
             },
             Hit {
                 title: "Second".into(),
                 url: "https://example.com/two".into(),
-                snippet: "Another summary.".into()
+                snippet: "Another summary.".into(),
+                ..Default::default()
             },
         ]
     );
@@ -402,12 +405,14 @@ async fn firecrawl_keyless_posts_the_v2_search_with_no_authorization() {
             Hit {
                 title: "Go Docs".into(),
                 url: "https://go.dev/doc/".into(),
-                snippet: "The Go Programming Language".into()
+                snippet: "The Go Programming Language".into(),
+                ..Default::default()
             },
             Hit {
                 title: "Go Blog".into(),
                 url: "https://go.dev/blog/".into(),
-                snippet: "The Go Blog".into()
+                snippet: "The Go Blog".into(),
+                ..Default::default()
             },
         ]
     );
@@ -474,7 +479,11 @@ fn french_news() -> Request {
         query: "actualités".into(),
         depth: 10,
         language: query::language_by_code("fr"),
-        recency: true,
+        window: Some(when::Window {
+            from: NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(),
+            to: NaiveDate::from_ymd_opt(2026, 10, 7).unwrap(),
+        }),
+        today: NaiveDate::from_ymd_opt(2026, 10, 7).unwrap(),
     }
 }
 
@@ -490,7 +499,10 @@ async fn parallel_and_exa_carry_language_and_recency_in_their_objective_sentence
         .to_string();
     assert!(objective.starts_with("actualités"), "{objective}");
     assert!(objective.contains("written in French"), "{objective}");
-    assert!(objective.contains("recent news"), "{objective}");
+    assert!(
+        objective.contains("published on or after 2026-09-30"),
+        "{objective}"
+    );
     let exa = mock(Reply::sse(Reply::tool_text(EXA_TEXT))).await;
     let _ = Exa::at(http(), exa.mcp(), None)
         .search(&french_news())
@@ -544,7 +556,7 @@ async fn keenable_takes_a_depth_and_a_publication_date_and_no_language() {
         .unwrap();
     let sent = server.only().json();
     assert_eq!(sent["max_results"], 10);
-    assert!(sent["published_after"].as_str().unwrap().len() == 10);
+    assert_eq!(sent["published_after"], "2026-09-30");
     assert!(sent.get("language").is_none() && sent.get("lang").is_none());
     let plain = mock(Reply::json(keenable_body())).await;
     Keenable::at(http(), plain.base.clone(), None)
@@ -565,6 +577,223 @@ async fn keenable_prefers_its_short_description_to_page_text() {
         .await
         .unwrap();
     assert_eq!(hits[0].snippet, "A real summary of the page.");
+}
+
+// Time windows, where each provider takes them ---------------------------------
+
+fn day(y: i32, m: u32, d: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(y, m, d).unwrap()
+}
+
+#[test]
+fn firecrawl_gets_a_relative_bound_up_to_now_and_a_date_range_for_the_past() {
+    let today = day(2026, 10, 7);
+    let w = |from, to| when::Window { from, to };
+    assert_eq!(firecrawl::tbs(w(today, today), today), "qdr:d");
+    assert_eq!(firecrawl::tbs(w(day(2026, 10, 6), today), today), "qdr:d");
+    assert_eq!(firecrawl::tbs(w(day(2026, 9, 30), today), today), "qdr:w");
+    assert_eq!(firecrawl::tbs(w(day(2026, 9, 10), today), today), "qdr:m");
+    assert_eq!(firecrawl::tbs(w(day(2025, 1, 1), today), today), "qdr:y");
+    assert_eq!(
+        firecrawl::tbs(w(day(2023, 10, 7), day(2023, 10, 8)), today),
+        "cdr:1,cd_min:10/7/2023,cd_max:10/8/2023"
+    );
+}
+
+#[test]
+fn the_objective_for_parallel_and_exa_names_the_day_to_publish_on_or_after() {
+    let request = Request::new(
+        &Query::parse_on("latest world news October 7 2026", day(2026, 10, 7)),
+        5,
+    );
+    let objective = request.objective();
+    assert!(
+        objective.contains("published on or after 2026-10-07"),
+        "{objective}"
+    );
+    assert!(objective.contains("Today is 2026-10-07"), "{objective}");
+}
+
+#[tokio::test]
+async fn publication_dates_are_read_from_each_provider() {
+    let parallel = json!({"results":[{"url":"https://a.example/x","title":"A","publish_date":"2026-10-05","excerpts":["text"]},
+        {"url":"https://b.example/y","title":"B","publish_date":null,"excerpts":["text"]}]});
+    let server = mock(Reply::json(Reply::tool_text(&parallel.to_string()))).await;
+    let hits = Parallel::at(http(), server.mcp(), None)
+        .search(&Request::plain("q", 5))
+        .await
+        .unwrap();
+    assert_eq!(hits[0].published.as_deref(), Some("2026-10-05"));
+    assert_eq!(hits[1].published, None);
+
+    let exa = "Title: T\nURL: https://a.example/x\nPublished: 2026-10-07T00:00:00.000Z\nAuthor: Someone\nHighlights:\nThe story text.";
+    let hits = exa::parse_content(exa, 5);
+    assert_eq!(
+        hits[0].published.as_deref(),
+        Some("2026-10-07T00:00:00.000Z")
+    );
+    assert_eq!(hits[0].snippet, "The story text.");
+
+    let keenable = json!({"results":[{"title":"A","url":"https://a.example","snippet":"text","published_at":"2026-10-05T12:00:24Z"}]});
+    let server = mock(Reply::json(keenable.to_string())).await;
+    let hits = Keenable::at(http(), server.base.clone(), None)
+        .search(&Request::plain("q", 5))
+        .await
+        .unwrap();
+    assert_eq!(hits[0].published.as_deref(), Some("2026-10-05T12:00:24Z"));
+
+    let firecrawl = json!({"success":true,"data":{"news":[{"title":"N","url":"https://n.example","snippet":"story","date":"2 hours ago"}]}});
+    let server = mock(Reply::json(firecrawl.to_string())).await;
+    let hits = Firecrawl::at(http(), server.base.clone(), None)
+        .search(&Request::plain("q", 5))
+        .await
+        .unwrap();
+    assert_eq!(hits[0].published.as_deref(), Some("2 hours ago"));
+}
+
+// Cooling down and remembering ---------------------------------------------------
+
+#[test]
+fn a_rate_limit_rests_a_provider_a_minute_or_what_it_asked_and_a_timeout_a_little() {
+    let limited = Failure::status("firecrawl", 429, "", false);
+    assert_eq!(limited.cooldown(), Some(Duration::from_secs(60)));
+    let asked = Failure::status("firecrawl", 429, "", false).after(Some(Duration::from_secs(90)));
+    assert_eq!(asked.cooldown(), Some(Duration::from_secs(90)));
+    // Firecrawl says it in the body, and no one is left alone for a day.
+    let body = Failure::status("firecrawl", 429, r#"{"retry_after_seconds":76207}"#, false);
+    assert_eq!(body.cooldown(), Some(Duration::from_secs(15 * 60)));
+    assert_eq!(
+        Failure::status("exa", 503, "", false).cooldown(),
+        Some(Duration::from_secs(20))
+    );
+    assert_eq!(
+        Failure::new("keenable: request failed: timed out").cooldown(),
+        Some(Duration::from_secs(20))
+    );
+    assert_eq!(Failure::status("exa", 401, "", true).cooldown(), None);
+    assert_eq!(
+        Failure::new("failed to decode exa response").cooldown(),
+        None
+    );
+}
+
+#[tokio::test]
+async fn a_provider_that_was_rate_limited_is_skipped_and_the_footer_says_so() {
+    let asked = Asked::default();
+    let state = Arc::new(State::default());
+    let build = || {
+        Search::new(vec![
+            scripted(P::Parallel, Ok(vec![hit("alpha")]), Duration::ZERO, &asked),
+            scripted(
+                P::Firecrawl,
+                Err("firecrawl: rate limited"),
+                Duration::ZERO,
+                &asked,
+            ),
+        ])
+        .with_state(state.clone())
+    };
+    let first = build().run(&Query::parse("one"), 5).await.unwrap();
+    assert_eq!(
+        render(&first).lines().last().unwrap(),
+        "Searched with Parallel (Firecrawl rate limited)."
+    );
+    let second = build().run(&Query::parse("two"), 5).await.unwrap();
+    assert_eq!(
+        render(&second).lines().last().unwrap(),
+        "Searched with Parallel (Firecrawl cooling down)."
+    );
+    let who = asked.lock().unwrap().clone();
+    assert_eq!(
+        who.iter().filter(|w| **w == "firecrawl").count(),
+        1,
+        "{who:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_repeated_question_is_answered_from_memory_and_the_same_way() {
+    let asked = Asked::default();
+    let state = Arc::new(State::default());
+    let build = || {
+        Search::new(vec![
+            scripted(
+                P::Parallel,
+                Ok(vec![hit("alpha"), hit("beta")]),
+                Duration::ZERO,
+                &asked,
+            ),
+            scripted(
+                P::Exa,
+                Ok(vec![hit("beta"), hit("gamma")]),
+                Duration::ZERO,
+                &asked,
+            ),
+        ])
+        .with_state(state.clone())
+    };
+    let first = build()
+        .run(&Query::parse("Some  Question"), 5)
+        .await
+        .unwrap();
+    let again = build()
+        .run(&Query::parse("some question"), 5)
+        .await
+        .unwrap();
+    assert_eq!(render(&first), render(&again));
+    assert_eq!(asked.lock().unwrap().len(), 2, "asked once each");
+    // Another limit is another question.
+    build()
+        .run(&Query::parse("some question"), 3)
+        .await
+        .unwrap();
+    assert_eq!(asked.lock().unwrap().len(), 4);
+}
+
+#[tokio::test]
+async fn memory_expires_and_is_bounded() {
+    let asked = Asked::default();
+    let state = Arc::new(State::with_ttl(Duration::ZERO));
+    let build = |state: &Arc<State>| {
+        Search::new(vec![scripted(
+            P::Parallel,
+            Ok(vec![hit("alpha")]),
+            Duration::ZERO,
+            &asked,
+        )])
+        .with_state(state.clone())
+    };
+    build(&state).run(&Query::parse("q one"), 5).await.unwrap();
+    build(&state).run(&Query::parse("q one"), 5).await.unwrap();
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        2,
+        "a zero ttl remembers nothing"
+    );
+
+    let state = Arc::new(State::default());
+    for n in 0..(CACHE_ENTRIES + 20) {
+        build(&state)
+            .run(&Query::parse(&format!("question {n}")), 5)
+            .await
+            .unwrap();
+    }
+    assert!(state.cache.lock().unwrap().len() <= CACHE_ENTRIES);
+}
+
+#[test]
+fn a_result_without_a_preview_says_so() {
+    let answered = Answered {
+        hits: vec![Hit {
+            title: "Install".into(),
+            url: "https://hotline.dev/docs/install/".into(),
+            ..Default::default()
+        }],
+        note: None,
+        answered: vec![P::Parallel],
+        failed: Vec::new(),
+    };
+    assert!(render(&answered).contains("   (no preview)\n"));
 }
 
 // The fan-out ---------------------------------------------------------------
@@ -591,6 +820,7 @@ fn hit(title: &str) -> Hit {
         title: title.into(),
         url: format!("https://{title}.example/page"),
         snippet: format!("{title} is a page with a sentence long enough to read as real text."),
+        ..Default::default()
     }
 }
 
@@ -981,11 +1211,13 @@ fn the_answer_is_title_link_snippet_and_who_answered() {
                 title: "One".into(),
                 url: "https://one.example".into(),
                 snippet: format!("  line\none   {} ", "x".repeat(400)),
+                ..Default::default()
             },
             Hit {
                 title: "two".into(),
                 url: "https://two.example".into(),
                 snippet: String::new(),
+                ..Default::default()
             },
         ],
         note: None,
@@ -1055,6 +1287,7 @@ async fn websearch_quality_live() {
     let client = client();
     let endpoints = Endpoints::default();
     let mut problems: Vec<String> = Vec::new();
+    let state = Arc::new(State::default());
     for text in [
         "Mount Everest",
         "Mont Everest altitude",
@@ -1065,6 +1298,12 @@ async fn websearch_quality_live() {
         "why is the sky blue",
         "RFC 9110 HTTP semantics",
         "xqzflarnib 98421 protocol",
+        "latest world news",
+        "latest world news October 7 2026",
+        "météo Paris",
+        "rustc E0502",
+        "site:en.wikipedia.org Mount Everest height",
+        "Mont Everest hauteur officielle",
     ] {
         let query = Query::parse(text);
         let search = Search::new(
@@ -1072,7 +1311,8 @@ async fn websearch_quality_live() {
                 .into_iter()
                 .map(|provider| attempt(provider, &client, None, &endpoints))
                 .collect(),
-        );
+        )
+        .with_state(state.clone());
         let started = Instant::now();
         let answered = match search.run(&query, 5).await {
             Ok(answered) => answered,
@@ -1083,11 +1323,20 @@ async fn websearch_quality_live() {
             }
         };
         println!(
-            "\n== {text}  [{:?}, language {:?}]\n{}",
+            "\n== {text}  [{:?}, language {:?}, window {:?}]",
             started.elapsed(),
             query.language.map(|l| l.code),
-            render(&answered)
+            query.window.map(|w| (w.from.to_string(), w.to.to_string()))
         );
+        if let Some(note) = &answered.note {
+            println!("   NOTE {note}");
+        }
+        for (index, hit) in answered.hits.iter().enumerate() {
+            let host = canonical::host_of(&hit.url).unwrap_or_default();
+            let preview: String = hit.snippet.chars().take(80).collect();
+            println!("{}. {} | {host} | {preview}", index + 1, hit.title);
+        }
+        println!("{}", render(&answered).lines().last().unwrap_or_default());
         problems.extend(quality_problems(text, &answered));
     }
     assert!(problems.is_empty(), "{problems:#?}");
@@ -1111,7 +1360,59 @@ fn quality_problems(text: &str, answered: &Answered) -> Vec<String> {
     if distinct.len() < mirrors.iter().flatten().count() {
         problems.push(format!("{text}: a mirror pair in the top 5"));
     }
+    for hit in &answered.hits {
+        let snippet = &hit.snippet;
+        if ["Skip to", "Loading", "XXXX"]
+            .iter()
+            .any(|bad| snippet.contains(bad))
+        {
+            problems.push(format!("{text}: chrome in the snippet of {}", hit.url));
+        }
+        if snippet.trim().is_empty() {
+            problems.push(format!("{text}: empty snippet on {}", hit.url));
+        }
+    }
+    let today = chrono::Utc::now().date_naive();
+    if text.starts_with("latest world news") {
+        match answered.hits.first() {
+            Some(first) => {
+                if !rank::is_story(first) || host_has(first, "youtube") {
+                    problems.push(format!(
+                        "{text}: first result is not a story: {}",
+                        first.url
+                    ));
+                }
+            }
+            None => problems.push(format!("{text}: no results")),
+        }
+        for hit in top(3) {
+            let date = when::result_date(hit.published.as_deref(), &hit.title, &hit.snippet, today);
+            if date.is_some_and(|d| chrono::Datelike::year(&d) < 2026) {
+                problems.push(format!("{text}: top 3 holds a pre-2026 page: {}", hit.url));
+            }
+        }
+    }
     match text {
+        "Mont Everest hauteur officielle" if answered.note.is_some() => {
+            problems.push(format!("{text}: a miss warning: {:?}", answered.note));
+        }
+        "rustc E0502"
+            if !top(5).iter().any(|h| {
+                format!("{} {}", h.title, h.snippet)
+                    .to_lowercase()
+                    .contains("e0502")
+            }) =>
+        {
+            problems.push(format!("{text}: no E0502 page in the top 5"));
+        }
+        "site:en.wikipedia.org Mount Everest height"
+            if !answered
+                .hits
+                .first()
+                .is_some_and(|h| host_has(h, "en.wikipedia.org")) =>
+        {
+            problems.push(format!("{text}: en.wikipedia.org is not first"));
+        }
         "Mount Everest" => {
             if !top(3)
                 .iter()
@@ -1151,11 +1452,16 @@ fn quality_problems(text: &str, answered: &Answered) -> Vec<String> {
         {
             problems.push(format!("{text}: hotline.dev is not first"));
         }
+        // 98421 is a common enough number that a live page may carry it; the
+        // note owes it only when no shown result does.
         "xqzflarnib 98421 protocol"
-            if !answered
-                .note
-                .as_deref()
-                .is_some_and(|n| n.contains("xqzflarnib")) =>
+            if !answered.note.as_deref().is_some_and(|n| {
+                n.contains("xqzflarnib")
+                    && (n.contains("98421")
+                        || top(5).iter().any(|h| {
+                            format!("{} {} {}", h.title, h.url, h.snippet).contains("98421")
+                        }))
+            }) =>
         {
             problems.push(format!("{text}: no missed-word note"));
         }

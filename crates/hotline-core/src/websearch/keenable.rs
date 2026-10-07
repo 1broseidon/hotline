@@ -51,6 +51,8 @@ struct Raw {
     snippet: String,
     #[serde(default)]
     description: String,
+    #[serde(default)]
+    published_at: Option<String>,
 }
 
 /// The request body: Keenable takes a result count and a publication date,
@@ -61,9 +63,8 @@ fn body(request: &Request) -> serde_json::Value {
         "mode": "pro",
         "max_results": request.depth.clamp(1, 50),
     });
-    if request.recency {
-        let week_ago = chrono::Utc::now() - chrono::Duration::days(7);
-        body["published_after"] = json!(week_ago.format("%Y-%m-%d").to_string());
+    if let Some(window) = request.window {
+        body["published_after"] = json!(window.from.format("%Y-%m-%d").to_string());
     }
     body
 }
@@ -100,14 +101,12 @@ impl Searcher for Keenable {
             .await
             .map_err(|error| Failure::transport("keenable", &error))?;
         let status = response.status();
+        let wait = mcp::retry_after(&response);
         let raw = mcp::read_capped(response, "keenable").await?;
         if !status.is_success() {
-            return Err(Failure::status(
-                "keenable",
-                status.as_u16(),
-                &raw,
-                key.is_some(),
-            ));
+            return Err(
+                Failure::status("keenable", status.as_u16(), &raw, key.is_some()).after(wait),
+            );
         }
         let parsed: Response = serde_json::from_str(&raw)
             .map_err(|_| Failure::new("failed to decode keenable response"))?;
@@ -127,6 +126,7 @@ impl Searcher for Keenable {
                     title: raw.title,
                     url: raw.url,
                     snippet: one_line(&text).chars().take(SNIPPET_MAX_CHARS).collect(),
+                    published: raw.published_at.filter(|at| !at.trim().is_empty()),
                 }
             })
             .collect())

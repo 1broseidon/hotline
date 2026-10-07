@@ -1,8 +1,10 @@
 //! Firecrawl's v2 search API. Keyless against the hosted endpoint; a key goes
 //! as a bearer header.
 
+use super::when::Window;
 use super::{Failure, Hit, Request, Searcher, mcp};
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -53,6 +55,9 @@ struct Raw {
     /// News results carry page text here instead.
     #[serde(default)]
     snippet: String,
+    /// News results say when: "2 hours ago", or a date.
+    #[serde(default)]
+    date: Option<String>,
 }
 
 /// The request body. Firecrawl's v2 search takes `lang`, and for the news
@@ -66,11 +71,29 @@ fn body(request: &Request) -> serde_json::Value {
     if let Some(language) = request.language {
         body["lang"] = json!(language.code);
     }
-    if request.recency {
+    if let Some(window) = request.window {
         body["sources"] = json!(["web", "news"]);
-        body["tbs"] = json!("qdr:w");
+        body["tbs"] = json!(tbs(window, request.today));
     }
     body
+}
+
+/// Firecrawl's `tbs` for a window: Google's `qdr` (past day, week, month,
+/// year) when the window runs up to now, an explicit `cdr` range when it is
+/// in the past.
+pub(super) fn tbs(window: Window, today: NaiveDate) -> String {
+    if (today - window.to).num_days() <= 1 {
+        let days = (today - window.from).num_days();
+        let span = match days {
+            ..=1 => "d",
+            2..=7 => "w",
+            8..=31 => "m",
+            _ => "y",
+        };
+        return format!("qdr:{span}");
+    }
+    let us = |d: NaiveDate| d.format("%-m/%-d/%Y").to_string();
+    format!("cdr:1,cd_min:{},cd_max:{}", us(window.from), us(window.to))
 }
 
 #[async_trait]
@@ -98,14 +121,12 @@ impl Searcher for Firecrawl {
             .await
             .map_err(|error| Failure::transport("firecrawl", &error))?;
         let status = response.status();
+        let wait = mcp::retry_after(&response);
         let raw = mcp::read_capped(response, "firecrawl").await?;
         if !status.is_success() {
-            return Err(Failure::status(
-                "firecrawl",
-                status.as_u16(),
-                &raw,
-                key.is_some(),
-            ));
+            return Err(
+                Failure::status("firecrawl", status.as_u16(), &raw, key.is_some()).after(wait),
+            );
         }
         let parsed: Response = serde_json::from_str(&raw)
             .map_err(|_| Failure::new("failed to decode firecrawl response"))?;
@@ -124,6 +145,7 @@ impl Searcher for Firecrawl {
                 } else {
                     raw.description
                 },
+                published: raw.date.filter(|date| !date.trim().is_empty()),
             })
             .collect())
     }

@@ -44,6 +44,8 @@ struct Raw {
     title: String,
     #[serde(default)]
     excerpts: Vec<String>,
+    #[serde(default)]
+    publish_date: Option<String>,
 }
 
 #[async_trait]
@@ -89,6 +91,7 @@ impl Searcher for Parallel {
                     title: one_line(&raw.title),
                     url: raw.url,
                     snippet: bounded(&one_line(excerpt), DESCRIPTION_MAX_CHARS),
+                    published: raw.publish_date.filter(|at| !at.trim().is_empty()),
                 });
             }
             if hits.len() >= limit {

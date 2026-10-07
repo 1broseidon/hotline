@@ -59,6 +59,7 @@ impl Room {
             })
             .collect();
         let answered = Search::new(attempts)
+            .with_state(self.web_search_state.clone())
             .run(&Query::parse(query), limit)
             .await
             .map_err(|error| format!("Web search failed: {error}."))?;

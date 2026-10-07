@@ -2,7 +2,11 @@
 //! whether it compares two things or asks for the news, and which of its
 //! distinctive words no result carried.
 
+use super::lexical::looks_lexical;
+use super::when::{Window, query_window};
+use chrono::NaiveDate;
 use regex::Regex;
+use std::collections::HashSet;
 use std::sync::LazyLock;
 
 /// A language as the providers and the ranking know it.
@@ -390,26 +394,8 @@ pub fn tokens(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Words that tell the query wants what is new.
-const RECENCY_WORDS: [&str; 7] = [
-    "latest",
-    "news",
-    "today",
-    "breaking",
-    "recent",
-    "yesterday",
-    "tonight",
-];
-
 static DOMAIN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^(?:[a-z0-9-]+\.)+[a-z]{2,24}$").expect("a fixed pattern"));
-
-static DATE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)\b(20\d\d-\d\d-\d\d|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?\b|\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*)",
-    )
-    .expect("a fixed pattern")
-});
 
 static COMPARISON: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)^(.+?)\s+(?:vs\.?|versus|or)\s+(.+)$").expect("a fixed pattern")
@@ -428,10 +414,22 @@ pub struct Query {
     pub comparison: Option<(String, String)>,
     /// Asks for the news, or for now.
     pub recency: bool,
+    /// The days it asks about, when it asks: a date, "today", or the past week
+    /// for "latest" and "news".
+    pub window: Option<Window>,
+    /// The day the query was read, which relative words and dates measure from.
+    pub today: NaiveDate,
+    /// Words that said when, not what: they are not the subject.
+    temporal: Vec<String>,
 }
 
 impl Query {
     pub fn parse(text: &str) -> Self {
+        Self::parse_on(text, chrono::Utc::now().date_naive())
+    }
+
+    /// Reads a query as of a day.
+    pub fn parse_on(text: &str, today: NaiveDate) -> Self {
         let text = text.trim().to_string();
         let tokens = tokens(&text);
         let domains: Vec<String> = tokens
@@ -459,15 +457,17 @@ impl Query {
                 .or_else(|| rest.split_once(" with "))?;
             Some((a.trim().to_string(), b.trim().to_string()))
         });
-        let recency =
-            tokens.iter().any(|t| RECENCY_WORDS.contains(&t.as_str())) || DATE.is_match(&text);
+        let (window, temporal) = query_window(&text, today);
         Self {
             language: query_language(&text),
             text,
             tokens,
             domains,
             comparison,
-            recency,
+            recency: window.is_some(),
+            window,
+            today,
+            temporal,
         }
     }
 
@@ -489,21 +489,27 @@ impl Query {
             .iter()
             .map(String::as_str)
             .filter(|t| t.chars().count() >= 2 && !COMMON.contains(t))
+            .filter(|t| !self.temporal.iter().any(|word| word == t))
             .collect()
     }
 
-    /// The words a result is expected to carry, and which are rare enough that
-    /// their absence means something: those with a digit, or of five letters
-    /// or more that are not ordinary words. A bare year is not one.
+    /// The words a result is expected to carry, and which are clearly
+    /// distinctive, so their absence means something: a token with a digit
+    /// (an id, a number, an error code), or a word that is not a word in any
+    /// language the table knows. An ordinary word never is, however rare. A
+    /// bare year is not one either.
     pub fn distinctive(&self) -> Vec<&str> {
         self.content_tokens()
             .into_iter()
             .filter(|t| !is_year(t))
-            .filter(|t| {
-                t.chars().any(|c| c.is_ascii_digit()) && t.chars().count() >= 3
-                    || t.chars().count() >= 5
-            })
             .filter(|t| !t.contains('.'))
+            .filter(|t| {
+                if t.chars().any(|c| c.is_ascii_digit()) {
+                    t.chars().count() >= 3
+                } else {
+                    !looks_lexical(t)
+                }
+            })
             .collect()
     }
 }
@@ -514,24 +520,85 @@ fn is_year(token: &str) -> bool {
         && (token.starts_with("19") || token.starts_with("20"))
 }
 
-/// A line to say when distinctive words of the query matched nothing.
-/// `haystack` is every result's title, snippet and URL, lowercase.
-pub fn missed_line(query: &Query, haystack: &str) -> Option<String> {
-    let distinctive = query.distinctive();
-    if distinctive.is_empty() {
-        return None;
+/// What a result is searched for words in: its text lowercase, and its whole
+/// words.
+pub struct Haystack {
+    text: String,
+    words: HashSet<String>,
+}
+
+impl Haystack {
+    pub fn new(text: &str) -> Self {
+        let text = text.to_lowercase();
+        let words = text
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .map(str::to_string)
+            .collect();
+        Self { text, words }
     }
-    let missed: Vec<&str> = distinctive
-        .iter()
-        .copied()
-        .filter(|token| {
-            let stem = token
-                .strip_suffix('s')
-                .filter(|s| s.len() >= 4)
-                .unwrap_or(token);
-            !haystack.contains(stem)
+
+    /// Whether every part of `token` is a whole word here, a plural allowed.
+    /// A number is mentioned only as a number of its own: 98421 is not in
+    /// 9842, in 198421, or in the catalogue id 98421-4-RR.
+    pub fn has(&self, token: &str) -> bool {
+        if token.chars().any(|c| c.is_ascii_digit()) {
+            return self.has_number(token);
+        }
+        let parts: Vec<&str> = token
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|part| !part.is_empty())
+            .collect();
+        !parts.is_empty()
+            && parts.iter().all(|part| {
+                self.words.contains(*part)
+                    || self.words.contains(&format!("{part}s"))
+                    || part
+                        .strip_suffix('s')
+                        .is_some_and(|stem| stem.len() >= 3 && self.words.contains(stem))
+            })
+    }
+
+    fn has_number(&self, token: &str) -> bool {
+        let chars: Vec<char> = self.text.chars().collect();
+        let needle: Vec<char> = token.chars().collect();
+        let joins = |c: char| matches!(c, '-' | '.' | '/' | ',' | ':' | '_');
+        (0..chars.len().saturating_sub(needle.len() - 1)).any(|at| {
+            if chars[at..at + needle.len()] != needle[..] {
+                return false;
+            }
+            let before = at.checked_sub(1).map(|i| chars[i]);
+            let after = chars.get(at + needle.len()).copied();
+            if before.is_some_and(char::is_alphanumeric) || after.is_some_and(char::is_alphanumeric)
+            {
+                return false;
+            }
+            // Part of a longer number or id: a join with a digit beyond it.
+            let digit_beyond_before =
+                at >= 2 && before.is_some_and(joins) && chars[at - 2].is_ascii_digit();
+            let digit_beyond_after = after.is_some_and(joins)
+                && chars
+                    .get(at + needle.len() + 1)
+                    .is_some_and(char::is_ascii_digit);
+            !(digit_beyond_before || digit_beyond_after)
         })
-        .collect();
+    }
+}
+
+/// The distinctive words of the query that no result carries.
+pub fn missed<'a>(query: &'a Query, words: &Haystack) -> Vec<&'a str> {
+    query
+        .distinctive()
+        .into_iter()
+        .filter(|token| !words.has(token))
+        .collect()
+}
+
+/// A line to say when distinctive words of the query matched nothing.
+/// `haystack` is every result's title, snippet and URL.
+pub fn missed_line(query: &Query, haystack: &str) -> Option<String> {
+    let words = Haystack::new(haystack);
+    let missed = missed(query, &words);
     if missed.is_empty() {
         return None;
     }
@@ -541,17 +608,11 @@ pub fn missed_line(query: &Query, haystack: &str) -> Option<String> {
         [init @ .., last] => format!("{} or {last}", init.join(", ")),
         [] => return None,
     };
-    let all_missed = query.content_tokens().iter().all(|token| {
-        let stem = token
-            .strip_suffix('s')
-            .filter(|s| s.len() >= 4)
-            .unwrap_or(token);
-        !haystack.contains(stem)
-    });
+    let all_missed = query.content_tokens().iter().all(|token| !words.has(token));
     Some(if all_missed {
         format!("No real matches: no result mentions {listed}.")
     } else {
-        format!("No result mentions {listed}; these are matches for the other words only.")
+        format!("No result mentions {listed}; these match only the other words.")
     })
 }
 
@@ -628,7 +689,7 @@ mod tests {
     #[test]
     fn distinctive_words_have_a_digit_or_are_long_and_not_ordinary() {
         let q = Query::parse("xqzflarnib 98421 protocol");
-        assert_eq!(q.distinctive(), vec!["xqzflarnib", "98421", "protocol"]);
+        assert_eq!(q.distinctive(), vec!["xqzflarnib", "98421"]);
         let q = Query::parse("latest world news October 6 2026");
         assert!(q.distinctive().is_empty(), "{:?}", q.distinctive());
         assert!(Query::parse("why is the sky blue").distinctive().is_empty());
@@ -640,12 +701,12 @@ mod tests {
         let haystack = "clinical trial protocol for adults https://trials.example/protocol";
         assert_eq!(
             missed_line(&q, haystack).unwrap(),
-            "No result mentions \"xqzflarnib\" or \"98421\"; these are matches for the other words only."
+            "No result mentions \"xqzflarnib\" or \"98421\"; these match only the other words."
         );
         let none = "something unrelated";
         assert_eq!(
             missed_line(&q, none).unwrap(),
-            "No real matches: no result mentions \"xqzflarnib\", \"98421\" or \"protocol\"."
+            "No real matches: no result mentions \"xqzflarnib\" or \"98421\"."
         );
         let all = "xqzflarnib 98421 protocol";
         assert_eq!(missed_line(&q, all), None);

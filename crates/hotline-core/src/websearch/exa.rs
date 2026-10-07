@@ -86,6 +86,7 @@ fn known_prefix(line: &str) -> bool {
         "URL:",
         "Highlights:",
         "Published date:",
+        "Published:",
         "Author:",
         "Score:",
     ]
@@ -108,6 +109,8 @@ pub(super) fn parse_content(raw: &str, limit: usize) -> Vec<Hit> {
                 hit.title = title.trim().to_string();
             } else if let Some(url) = line.strip_prefix("URL:") {
                 hit.url = url.trim().to_string();
+            } else if let Some(at) = line.strip_prefix("Published:") {
+                hit.published = Some(at.trim().to_string()).filter(|at| !at.is_empty());
             } else if !line.is_empty() && !known_prefix(line) && hit.snippet.is_empty() {
                 hit.snippet = line.to_string();
             }

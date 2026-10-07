@@ -61,7 +61,15 @@ pub fn is_junk(title: &str, snippet: &str) -> bool {
 }
 
 /// Words that mark a line as site furniture.
-const NAV_WORDS: [&str; 30] = [
+const NAV_WORDS: [&str; 38] = [
+    "support",
+    "help",
+    "faq",
+    "careers",
+    "jobs",
+    "press",
+    "sitemap",
+    "legal",
     "home",
     "menu",
     "subscribe",
@@ -172,12 +180,34 @@ fn strip_markdown(text: &str) -> String {
         Regex::new(r"(?im)^\s*(published|updated|date|author)\s*:\s*(n/?a|none|unknown)\s*$")
             .expect("a fixed pattern")
     });
+    // Player and page controls that come through as text, and the placeholder
+    // an extractor leaves for a value it could not read.
+    // An extractor that drops the space between a page's last word and the
+    // skip link leaves "RustSkip to main content"; part them first.
+    static GLUED_SKIP: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"([a-z0-9])(Skip to )").expect("a fixed pattern"));
+    static CONTROLS: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?i)\b(skip to (?:the )?(?:main |primary )?(?:content|navigation|footer|search)|watch later|copy link|tap to unmute|unmute|sign in|log in|subscribe(?: now| today)?|loading\.{0,3}|iview|\d+:\d\d\s*/\s*\d+:\d\d|x{3,}|up next|autoplay|show more|read more|view all)\b",
+        )
+        .expect("a fixed pattern")
+    });
+    // Social share buttons: two or more network names in a row.
+    static SHARE_ROW: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?:\b(?:Facebook|Twitter|LinkedIn|Instagram|WhatsApp|Email|Reddit|Pinterest|Telegram|Share|X)\b[\s,|·•]*){2,}",
+        )
+        .expect("a fixed pattern")
+    });
     let text = IMAGE.replace_all(text, "");
     let text = FOOTNOTE.replace_all(&text, "");
     let text = LINK.replace_all(&text, "$1");
     let text = BARE_URL.replace_all(&text, "");
     let text = BREAK.replace_all(&text, " ");
     let text = PLACEHOLDER.replace_all(&text, "");
+    let text = GLUED_SKIP.replace_all(&text, "$1 $2");
+    let text = CONTROLS.replace_all(&text, " ");
+    let text = SHARE_ROW.replace_all(&text, " ");
     text.lines()
         .map(|line| CELLS.replace_all(line, " · ").to_string())
         .map(|line| line.trim().trim_matches(['·', ' ']).to_string())
@@ -188,6 +218,7 @@ fn strip_markdown(text: &str) -> String {
                 .to_string()
         })
         .map(|line| line.replace(['*', '`'], ""))
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -374,5 +405,46 @@ mod tests {
     fn a_decimal_does_not_end_a_sentence() {
         let (cleaned, _) = clean_snippet("The peak is 8.8 km high. The peak is 8.8 km high.");
         assert_eq!(cleaned, "The peak is 8.8 km high.");
+    }
+
+    #[test]
+    fn player_and_page_controls_are_stripped_and_placeholders_vanish() {
+        for (raw, kept) in [
+            (
+                "Skip to main content Sanctions bill passes the House after a long debate",
+                "Sanctions bill passes the House after a long debate",
+            ),
+            (
+                "E0502 in rustc_errors::codes - RustSkip to main content A variable already borrowed here",
+                "E0502 in rustc_errors::codes - Rust A variable already borrowed here",
+            ),
+            (
+                "Watch later Copy link Tap to unmute 0:00 / 0:00 Strikes continue in the north",
+                "Strikes continue in the north",
+            ),
+            (
+                "Mount Everest 8848 XXXX km2 height of the mountain",
+                "Mount Everest 8848 km2 height of the mountain",
+            ),
+            (
+                "Facebook X Volodymyr Zelenskyy speaks to reporters at the Capitol",
+                "Volodymyr Zelenskyy speaks to reporters at the Capitol",
+            ),
+        ] {
+            let (clean, _) = clean_snippet(raw);
+            assert_eq!(clean, kept, "{raw}");
+        }
+        let (clean, thin) = clean_snippet("- Contact Support");
+        assert!(clean.is_empty() && thin, "{clean:?}");
+        for chrome in [
+            "news iview listen Loading",
+            "Skip to content",
+            "Loading...",
+            "Subscribe Sign in",
+            "Share",
+        ] {
+            let (clean, thin) = clean_snippet(chrome);
+            assert!(thin, "{chrome} -> {clean:?}");
+        }
     }
 }

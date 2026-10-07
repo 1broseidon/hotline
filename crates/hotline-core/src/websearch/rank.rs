@@ -9,7 +9,8 @@
 use super::Hit;
 use super::canonical::{brand_label, canonical_url, host_of, registrable};
 use super::clean::{clean_snippet, is_junk};
-use super::query::{Language, Query, missed_line, text_language};
+use super::query::{Haystack, Language, Query, missed, missed_line, text_language};
+use super::when::result_date;
 use crate::contract::WebSearchProvider;
 use std::collections::HashMap;
 
@@ -45,6 +46,24 @@ const COMPARISON_PACKAGE: f64 = 0.4;
 const COMPARISON_BOTH: f64 = 1.4;
 /// A news query landing on a tag or index page rather than a story.
 const INDEX_PAGE: f64 = 0.5;
+/// A news query landing on a section front ("/news/sanctions", a site's home):
+/// a page that changes by the hour, whose snippet is a menu and a stale story.
+const SECTION_PAGE: f64 = 0.45;
+/// A news query's result dated inside the days asked about.
+const IN_WINDOW: f64 = 1.6;
+/// A news query's result dated a month or more before them: not news.
+const OLD_DATED: f64 = 0.4;
+/// Video hosts for a news query that did not ask for video: a clip's page has
+/// a title and a player, not the story.
+const VIDEO_FOR_NEWS: f64 = 0.6;
+/// A small prior for established news outlets on a news query.
+const NEWS_OUTLET: f64 = 1.3;
+/// A sitemap page is a list of links, never what was looked for.
+const SITEMAP: f64 = 0.3;
+/// Nothing readable at all under the title.
+const EMPTY_SNIPPET: f64 = 0.8;
+/// A result that mentions none of the query's distinctive words, when others do.
+const GENERIC_ONLY: f64 = 0.6;
 
 /// Hosts that are social networks or video sites, by registrable label.
 const SOCIAL: [&str; 9] = [
@@ -71,6 +90,32 @@ const PACKAGE_HOSTS: [&str; 9] = [
     "packagist.org",
     "mvnrepository.com",
 ];
+
+/// Established news outlets, by the first label of their registrable domain.
+const NEWS_OUTLETS: [&str; 19] = [
+    "reuters",
+    "apnews",
+    "bbc",
+    "theguardian",
+    "guardian",
+    "nytimes",
+    "cnbc",
+    "aljazeera",
+    "npr",
+    "ft",
+    "bloomberg",
+    "washingtonpost",
+    "cnn",
+    "abcnews",
+    "cbsnews",
+    "nbcnews",
+    "france24",
+    "dw",
+    "politico",
+];
+
+/// Video hosts.
+const VIDEO_HOSTS: [&str; 4] = ["youtube", "youtu", "vimeo", "dailymotion"];
 
 const INDEX_PATHS: [&str; 6] = [
     "/tag/",
@@ -113,6 +158,11 @@ impl Item {
         if is_junk(&hit.title, &hit.snippet) {
             return None;
         }
+        // A bare IP address is never a page worth a model's reading: it is
+        // spam that has learned to look like a result.
+        if host_of(&hit.url).is_some_and(|host| host.parse::<std::net::IpAddr>().is_ok()) {
+            return None;
+        }
         let (snippet, thin) = clean_snippet(&hit.snippet);
         let mut title = hit.title.split_whitespace().collect::<Vec<_>>().join(" ");
         // A placeholder title reads as the page's address instead.
@@ -129,6 +179,7 @@ impl Item {
                 title,
                 url: hit.url,
                 snippet,
+                published: hit.published,
             },
             thin,
             language,
@@ -221,12 +272,42 @@ pub fn rank(query: &Query, sources: Vec<Source>, limit: usize) -> Ranked {
         let best = pick_snippet(query, doc);
         doc.item.hit.snippet = best.hit.snippet;
         doc.item.thin = best.thin;
-        doc.score *= adjust(query, &doc.item);
+        if doc.item.hit.published.is_none() {
+            doc.item.hit.published = doc
+                .others
+                .iter()
+                .find_map(|other| other.hit.published.clone());
+        }
+    }
+    // Which of the query's distinctive words any result carries at all.
+    let everything: String = merged
+        .iter()
+        .map(|doc| {
+            format!(
+                "{} {} {}\n",
+                doc.item.hit.title, doc.item.hit.snippet, doc.item.hit.url
+            )
+        })
+        .collect();
+    let distinctive = query.distinctive();
+    let found_somewhere = missed(query, &Haystack::new(&everything)).len() < distinctive.len();
+    for doc in &mut merged {
+        let words = Haystack::new(&format!(
+            "{} {} {}",
+            doc.item.hit.title, doc.item.hit.snippet, doc.item.hit.url
+        ));
+        let generic_only = found_somewhere
+            && !distinctive.is_empty()
+            && !distinctive.iter().any(|token| words.has(token));
+        doc.score *= adjust(query, &doc.item, generic_only);
     }
     merged.sort_by(by_score);
 
+    // The note speaks for the results shown: a distinctive word found only on
+    // a page cut from the list is still missing from what the reader sees.
     let haystack: String = merged
         .iter()
+        .take(limit)
         .map(|doc| {
             format!(
                 "{} {} {}\n",
@@ -248,6 +329,15 @@ pub fn rank(query: &Query, sources: Vec<Source>, limit: usize) -> Ranked {
             .collect(),
         note,
     }
+}
+
+/// Whether a result looks like a story rather than a section front.
+#[cfg(test)]
+pub(crate) fn is_story(hit: &Hit) -> bool {
+    let path = url::Url::parse(&hit.url)
+        .map(|u| u.path().to_lowercase())
+        .unwrap_or_default();
+    is_article_path(&path) && !SECTION_TITLE.is_match(&hit.title)
 }
 
 /// Score, then agreement, then best rank, then key: a total order.
@@ -314,7 +404,7 @@ fn normalize_title(title: &str) -> String {
         .join(" ")
 }
 
-fn word_set(text: &str) -> std::collections::HashSet<String> {
+fn long_words(text: &str) -> std::collections::HashSet<String> {
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
         .filter(|word| word.len() > 2)
@@ -324,7 +414,7 @@ fn word_set(text: &str) -> std::collections::HashSet<String> {
 
 /// Whether two snippets are the same words, to within a few.
 fn near_identical(a: &str, b: &str) -> bool {
-    let (a, b) = (word_set(a), word_set(b));
+    let (a, b) = (long_words(a), long_words(b));
     if a.len() < 8 || b.len() < 8 {
         return false;
     }
@@ -387,7 +477,7 @@ fn merge_duplicates(query: &Query, fused: Vec<Doc>) -> Vec<Doc> {
 // Intent ------------------------------------------------------------------------
 
 /// The factor a result's score is multiplied by for what the query asked for.
-fn adjust(query: &Query, item: &Item) -> f64 {
+fn adjust(query: &Query, item: &Item, generic_only: bool) -> f64 {
     let mut factor = 1.0;
     let url = &item.hit.url;
     let host = host_of(url).unwrap_or_default();
@@ -401,6 +491,26 @@ fn adjust(query: &Query, item: &Item) -> f64 {
 
     if item.thin {
         factor *= THIN_SNIPPET;
+    }
+    if item.hit.snippet.trim().is_empty() {
+        factor *= EMPTY_SNIPPET;
+    }
+    // A result that says nothing of the words that made the query particular
+    // is a match for the generic ones, and others do better.
+    if generic_only {
+        factor *= GENERIC_ONLY;
+    }
+    // A sitemap is a list of links.
+    if item
+        .hit
+        .title
+        .trim()
+        .to_lowercase()
+        .replace(' ', "")
+        .starts_with("sitemap")
+        || path.contains("sitemap")
+    {
+        factor *= SITEMAP;
     }
     // A host the query wrote out is what was asked for.
     if query
@@ -438,14 +548,105 @@ fn adjust(query: &Query, item: &Item) -> f64 {
             factor *= COMPARISON_BOTH;
         }
     }
-    if query.recency
-        && INDEX_PATHS
-            .iter()
-            .any(|p| path.contains(p) || path.ends_with(p.trim_end_matches('/')))
-    {
-        factor *= INDEX_PAGE;
+    if query.recency {
+        factor *= news_factor(query, item, &host, &path);
     }
     factor
+}
+
+/// What a news query makes of a result: where it sits in time and what kind of
+/// page it is. Only the days asked about, and what a story page looks like.
+fn news_factor(query: &Query, item: &Item, host: &str, path: &str) -> f64 {
+    let mut factor = 1.0;
+    let bare = host.strip_prefix("www.").unwrap_or(host);
+    let first_label = registrable(bare)
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_string();
+    let hit = &item.hit;
+
+    // Dated in the window is news; dated a month before it is not. The date is
+    // the provider's, else one the page's own words give ("34 min ago",
+    // "Oct 6, 2026").
+    if let Some(window) = query.window
+        && let Some(date) = result_date(
+            hit.published.as_deref(),
+            &hit.title,
+            &hit.snippet,
+            query.today,
+        )
+    {
+        if window.near(date) {
+            factor *= IN_WINDOW;
+        } else if window.long_before(date) {
+            factor *= OLD_DATED;
+        }
+    }
+    // A tag, topic or section front is a list that changes by the hour, not a
+    // story: its snippet is a menu and whatever was top when it was crawled.
+    let named_video = query.tokens.iter().any(|t| {
+        matches!(
+            t.as_str(),
+            "video" | "videos" | "youtube" | "watch" | "clip"
+        )
+    });
+    if INDEX_PATHS
+        .iter()
+        .any(|p| path.contains(p) || path.ends_with(p.trim_end_matches('/')))
+        || (!is_article_path(path) && shallow(path) && !VIDEO_HOSTS.contains(&first_label.as_str()))
+        || SECTION_TITLE.is_match(&hit.title)
+    {
+        factor *= if INDEX_PATHS.iter().any(|p| path.contains(p)) {
+            INDEX_PAGE
+        } else {
+            SECTION_PAGE
+        };
+    }
+    if VIDEO_HOSTS.contains(&first_label.as_str()) && !named_video {
+        factor *= VIDEO_FOR_NEWS;
+    }
+    if NEWS_OUTLETS.contains(&first_label.as_str()) {
+        factor *= NEWS_OUTLET;
+    }
+    factor
+}
+
+/// "Latest X news", "X: Latest News, Top Stories & Analysis", "Topics".
+static SECTION_TITLE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(latest|top|breaking)\b.{0,30}\b(news|stories|headlines|updates)\b|^\s*(topics?|archive|sections?)\s*([|\-:]|$)|\bnews, analysis\b",
+    )
+    .expect("a fixed pattern")
+});
+
+/// The path's segments, without a trailing page number.
+fn segments(path: &str) -> Vec<&str> {
+    let mut parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts
+        .last()
+        .is_some_and(|last| last.len() <= 3 && last.chars().all(|c| c.is_ascii_digit()))
+    {
+        parts.pop();
+    }
+    parts
+}
+
+/// Two segments deep or less: a front, not a story.
+fn shallow(path: &str) -> bool {
+    segments(path).len() <= 2
+}
+
+/// A path that names a story: a slug of three words or more, a long id, or a
+/// date in the path.
+fn is_article_path(path: &str) -> bool {
+    segments(path).iter().any(|segment| {
+        let words = segment.split(['-', '_']).filter(|w| !w.is_empty()).count();
+        let digits = segment.chars().filter(char::is_ascii_digit).count();
+        words >= 3
+            || digits >= 6
+            || (segment.len() == 4 && segment.starts_with("20") && digits == 4)
+    })
 }
 
 fn compact(text: &str) -> String {

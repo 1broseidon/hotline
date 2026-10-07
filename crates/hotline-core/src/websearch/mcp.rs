@@ -78,11 +78,25 @@ pub(super) async fn call(
         .await
         .map_err(|error| Failure::transport(name, &error))?;
     let status = response.status();
+    let wait = retry_after(&response);
     let raw = read_capped(response, name).await?;
     if !status.is_success() {
-        return Err(Failure::status(name, status.as_u16(), &raw, keyed));
+        return Err(Failure::status(name, status.as_u16(), &raw, keyed).after(wait));
     }
     decode(name, &raw)
+}
+
+/// The `Retry-After` header in seconds, when there is one.
+pub(super) fn retry_after(response: &reqwest::Response) -> Option<std::time::Duration> {
+    response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(std::time::Duration::from_secs)
 }
 
 pub(super) async fn read_capped(

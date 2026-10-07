@@ -19,18 +19,23 @@ pub mod clean;
 mod exa;
 mod firecrawl;
 mod keenable;
+pub mod lexical;
 mod mcp;
 mod parallel;
 pub mod query;
 pub mod rank;
+pub mod when;
 
 use crate::contract::{PolicyMode, WebSearchPolicy, WebSearchProvider};
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use query::{Language, Query};
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use when::Window;
 
 pub use exa::Exa;
 pub use firecrawl::Firecrawl;
@@ -92,6 +97,9 @@ pub struct Hit {
     pub title: String,
     pub url: String,
     pub snippet: String,
+    /// When the page was published, as the provider said it: a date, a time,
+    /// or "2 hours ago". Not every provider says.
+    pub published: Option<String>,
 }
 
 /// Why one provider did not answer. The text never holds a key: transport
@@ -99,13 +107,22 @@ pub struct Hit {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
     pub message: String,
+    /// How long the provider asked to be left alone, when it said.
+    pub retry_after: Option<Duration>,
 }
 
 impl Failure {
     pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            retry_after: None,
         }
+    }
+
+    /// The wait the provider asked for, from its `Retry-After` header.
+    pub(crate) fn after(mut self, wait: Option<Duration>) -> Self {
+        self.retry_after = self.retry_after.or(wait);
+        self
     }
 
     /// A transport error, reduced to a reason: `reqwest` puts the request URL
@@ -120,6 +137,11 @@ impl Failure {
 
     /// An HTTP status that was not a success, in words a person can act on.
     pub(crate) fn status(name: &str, status: u16, body: &str, keyed: bool) -> Self {
+        // Firecrawl says how long in its body: `retry_after_seconds`.
+        let wait = serde_json::from_str::<serde_json::Value>(body)
+            .ok()
+            .and_then(|value| value.get("retry_after_seconds")?.as_u64())
+            .map(Duration::from_secs);
         Self::new(match status {
             401 | 403 if keyed => {
                 format!("{name}: invalid API key (check it in Settings, Tools)")
@@ -136,6 +158,16 @@ impl Failure {
                 }
             }
         })
+        .after(wait)
+    }
+
+    /// How long to leave the provider alone after this failure, if at all: a
+    /// rate limit for what it asked or a minute, a timeout or a server error
+    /// for a short while. Other failures (a bad key, a changed API) are not
+    /// helped by waiting.
+    #[cfg(test)]
+    pub(crate) fn cooldown(&self) -> Option<Duration> {
+        cooldown_for(&self.message, self.retry_after)
     }
 
     /// A server's own words, on one line and bounded.
@@ -149,6 +181,30 @@ impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message)
     }
+}
+
+/// Waits after a rate limit, and after a timeout or a server error.
+const RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(60);
+const SLOW_COOLDOWN: Duration = Duration::from_secs(20);
+/// No provider is left alone longer than this, whatever it asks.
+const LONGEST_COOLDOWN: Duration = Duration::from_secs(15 * 60);
+
+fn cooldown_for(message: &str, retry_after: Option<Duration>) -> Option<Duration> {
+    if message.contains("cooling down") {
+        return None;
+    }
+    if message.contains("rate limited") || message.contains("credits exhausted") {
+        return Some(
+            retry_after
+                .unwrap_or(RATE_LIMIT_COOLDOWN)
+                .min(LONGEST_COOLDOWN),
+        );
+    }
+    let server_error = message
+        .split(" returned status ")
+        .nth(1)
+        .is_some_and(|rest| rest.starts_with('5'));
+    (message.contains("timed out") || server_error).then_some(SLOW_COOLDOWN)
 }
 
 /// `text` cut to at most `max` characters, ending in an ellipsis when it was cut.
@@ -174,8 +230,10 @@ pub struct Request {
     /// The query's language, when it is detected with confidence and is not
     /// English. Only passed where a provider's API takes it.
     pub language: Option<Language>,
-    /// The query asks for the news or for now.
-    pub recency: bool,
+    /// The days the query is about, when it is about news or a date.
+    pub window: Option<Window>,
+    /// The day the query was made.
+    pub today: NaiveDate,
 }
 
 impl Request {
@@ -184,7 +242,8 @@ impl Request {
             query: query.text.clone(),
             depth: depth_for(limit),
             language: query.non_english(),
-            recency: query.recency,
+            window: query.window,
+            today: query.today,
         }
     }
 
@@ -194,7 +253,8 @@ impl Request {
             query: query.to_string(),
             depth,
             language: None,
-            recency: false,
+            window: None,
+            today: chrono::Utc::now().date_naive(),
         }
     }
 
@@ -205,8 +265,12 @@ impl Request {
         if let Some(language) = self.language {
             text.push_str(&format!(" Prefer pages written in {}.", language.name));
         }
-        if self.recency {
-            text.push_str(" Prefer recent news from the past week over index and tag pages.");
+        if let Some(window) = self.window {
+            // Neither API has a date field, so the sentence is the only way.
+            text.push_str(&format!(
+                " Today is {}. Only pages published on or after {}, and stories rather than index, tag or section pages.",
+                self.today, window.from
+            ));
         }
         text
     }
@@ -340,7 +404,7 @@ pub fn effective_chain(
 }
 
 /// A search that was answered: the results, who answered, and who did not.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Answered {
     pub hits: Vec<Hit>,
     /// Said when the query's rare words matched no result.
@@ -349,17 +413,96 @@ pub struct Answered {
     pub failed: Vec<(WebSearchProvider, String)>,
 }
 
+/// How long a fused answer is kept for the same question.
+const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
+/// How many answers are kept.
+const CACHE_ENTRIES: usize = 100;
+
+/// What a room remembers between searches: which providers are resting, and
+/// the answers it gave lately, so a repeated question is steady and instant.
+pub struct State {
+    cooling: std::sync::Mutex<HashMap<WebSearchProvider, (Instant, String)>>,
+    cache: std::sync::Mutex<HashMap<String, (Instant, Answered)>>,
+    ttl: Duration,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self::with_ttl(CACHE_TTL)
+    }
+}
+
+impl State {
+    pub fn with_ttl(ttl: Duration) -> Self {
+        Self {
+            cooling: Default::default(),
+            cache: Default::default(),
+            ttl,
+        }
+    }
+
+    /// Why a provider is resting, if it is.
+    fn resting(&self, provider: WebSearchProvider) -> Option<String> {
+        let mut cooling = self.cooling.lock().unwrap_or_else(|e| e.into_inner());
+        match cooling.get(&provider) {
+            Some((until, why)) if *until > Instant::now() => Some(why.clone()),
+            Some(_) => {
+                cooling.remove(&provider);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn rest(&self, provider: WebSearchProvider, wait: Duration, why: &str) {
+        self.cooling
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(provider, (Instant::now() + wait, why.to_string()));
+    }
+
+    fn recall(&self, key: &str) -> Option<Answered> {
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        match cache.get(key) {
+            Some((at, answered)) if at.elapsed() < self.ttl => Some(answered.clone()),
+            Some(_) => {
+                cache.remove(key);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn remember(&self, key: String, answered: &Answered) {
+        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let ttl = self.ttl;
+        cache.retain(|_, (at, _)| at.elapsed() < ttl);
+        while cache.len() >= CACHE_ENTRIES {
+            let oldest = cache
+                .iter()
+                .min_by_key(|(_, (at, _))| *at)
+                .map(|(key, _)| key.clone());
+            match oldest {
+                Some(oldest) => cache.remove(&oldest),
+                None => break,
+            };
+        }
+        cache.insert(key, (Instant::now(), answered.clone()));
+    }
+}
+
 /// The fan-out: every provider at once, each bounded by its own timeout, the
 /// whole by a budget, and what arrived fused.
 pub struct Search {
     attempts: Vec<Attempt>,
     timeout: Duration,
     budget: Duration,
+    state: Arc<State>,
 }
 
 enum Outcome {
     Hits(Vec<Hit>),
-    Failed(String),
+    Failed(String, Option<Duration>),
 }
 
 impl Search {
@@ -368,6 +511,7 @@ impl Search {
             attempts,
             timeout: ATTEMPT_TIMEOUT,
             budget: TOTAL_BUDGET,
+            state: Arc::default(),
         }
     }
 
@@ -378,14 +522,43 @@ impl Search {
         self
     }
 
+    /// Shares a room's memory of resting providers and recent answers.
+    pub fn with_state(mut self, state: Arc<State>) -> Self {
+        self.state = state;
+        self
+    }
+
+    /// What makes two searches the same question.
+    fn cache_key(&self, query: &Query, limit: usize) -> String {
+        let words = query.text.to_lowercase();
+        let words = words.split_whitespace().collect::<Vec<_>>().join(" ");
+        let providers: Vec<&str> = self.attempts.iter().map(|a| id(a.provider)).collect();
+        format!("{words}\u{1f}{limit}\u{1f}{}", providers.join(","))
+    }
+
     /// Asks every provider and fuses the answers. A response with no results
     /// is an answer. The error, when none answered, names each provider and why.
     pub async fn run(&self, query: &Query, limit: usize) -> Result<Answered, String> {
+        let key = self.cache_key(query, limit);
+        if let Some(answered) = self.state.recall(&key) {
+            return Ok(answered);
+        }
         let request = Request::new(query, limit);
+        let mut outcomes: Vec<Option<Outcome>> = self.attempts.iter().map(|_| None).collect();
+        // A provider that was rate limited or fell over is left alone a while.
+        for (index, attempt) in self.attempts.iter().enumerate() {
+            if let Some(why) = self.state.resting(attempt.provider) {
+                outcomes[index] = Some(Outcome::Failed(
+                    format!("{}: cooling down ({why})", id(attempt.provider)),
+                    None,
+                ));
+            }
+        }
         let mut pending: FuturesUnordered<_> = self
             .attempts
             .iter()
             .enumerate()
+            .filter(|(index, _)| outcomes[*index].is_none())
             .map(|(index, attempt)| {
                 let request = &request;
                 async move {
@@ -393,20 +566,23 @@ impl Search {
                         tokio::time::timeout(self.timeout, attempt.searcher.search(request)).await;
                     let outcome = match outcome {
                         Ok(Ok(hits)) => Outcome::Hits(hits),
-                        Ok(Err(failure)) => {
-                            Outcome::Failed(scrub(&failure.message, attempt.key.as_deref()))
-                        }
-                        Err(_) => Outcome::Failed(format!(
-                            "{}: timed out after {:?}",
-                            id(attempt.provider),
-                            self.timeout
-                        )),
+                        Ok(Err(failure)) => Outcome::Failed(
+                            scrub(&failure.message, attempt.key.as_deref()),
+                            failure.retry_after,
+                        ),
+                        Err(_) => Outcome::Failed(
+                            format!(
+                                "{}: timed out after {:?}",
+                                id(attempt.provider),
+                                self.timeout
+                            ),
+                            None,
+                        ),
                     };
                     (index, outcome)
                 }
             })
             .collect();
-        let mut outcomes: Vec<Option<Outcome>> = self.attempts.iter().map(|_| None).collect();
         let deadline = tokio::time::sleep(self.budget);
         tokio::pin!(deadline);
         let mut over_budget = false;
@@ -428,7 +604,7 @@ impl Search {
         let mut answered = Vec::new();
         let mut failed = Vec::new();
         for (attempt, outcome) in self.attempts.iter().zip(outcomes) {
-            match outcome {
+            let (reason, retry) = match outcome {
                 Some(Outcome::Hits(hits)) => {
                     answered.push(attempt.provider);
                     sources.push(rank::Source {
@@ -436,17 +612,22 @@ impl Search {
                         keyed: attempt.key.is_some(),
                         hits,
                     });
+                    continue;
                 }
-                Some(Outcome::Failed(reason)) => failed.push((attempt.provider, reason)),
-                None => failed.push((
-                    attempt.provider,
+                Some(Outcome::Failed(reason, retry)) => (reason, retry),
+                None => (
                     format!(
                         "{}: timed out after {:?}",
                         id(attempt.provider),
                         self.budget
                     ),
-                )),
+                    None,
+                ),
+            };
+            if let Some(wait) = cooldown_for(&reason, retry) {
+                self.state.rest(attempt.provider, wait, why(&reason));
             }
+            failed.push((attempt.provider, reason));
         }
         if answered.is_empty() {
             return Err(if over_budget {
@@ -464,12 +645,16 @@ impl Search {
             });
         }
         let ranked = rank::rank(query, sources, limit);
-        Ok(Answered {
+        let result = Answered {
             hits: ranked.hits,
             note: ranked.note,
             answered,
             failed,
-        })
+        };
+        if !result.hits.is_empty() {
+            self.state.remember(key, &result);
+        }
+        Ok(result)
     }
 }
 
@@ -500,7 +685,9 @@ fn scrub(text: &str, key: Option<&str>) -> String {
 
 /// A provider's failure in a word, for the line that says who was left out.
 fn why(reason: &str) -> &'static str {
-    if reason.contains("timed out") {
+    if reason.contains("cooling down") {
+        "cooling down"
+    } else if reason.contains("timed out") {
         "timed out"
     } else if reason.contains("rate limited") {
         "rate limited"
@@ -523,7 +710,9 @@ pub fn render(answered: &Answered) -> String {
     for (index, hit) in answered.hits.iter().enumerate() {
         out.push_str(&format!("{}. {}\n   {}\n", index + 1, hit.title, hit.url));
         let snippet = bounded(&one_line(&hit.snippet), SNIPPET_CHARS);
-        if !snippet.is_empty() {
+        if snippet.is_empty() {
+            out.push_str("   (no preview)\n");
+        } else {
             out.push_str(&format!("   {snippet}\n"));
         }
         out.push('\n');

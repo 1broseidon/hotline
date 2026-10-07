@@ -549,6 +549,8 @@ pub struct Room {
     /// Where a test points web search: mock servers on localhost.
     #[cfg(test)]
     web_search_endpoints: Mutex<Option<crate::websearch::Endpoints>>,
+    /// Which web providers are resting and the answers lately given.
+    web_search_state: Arc<crate::websearch::State>,
     /// Pictures `generate_image` posted lately, per teammate, by content and
     /// when: `send_file` of the same picture soon after is a repeat.
     drawn: Mutex<HashMap<String, Vec<files::Drawn>>>,
@@ -708,6 +710,7 @@ impl Room {
             image_generators: Mutex::new(None),
             #[cfg(test)]
             web_search_endpoints: Mutex::new(None),
+            web_search_state: Arc::default(),
             drawn: Mutex::default(),
             voice: Mutex::new(std::sync::Weak::new()),
             me: Mutex::new(Weak::new()),

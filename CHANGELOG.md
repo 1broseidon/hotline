@@ -17,7 +17,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   answers, so one weak provider no longer decides the result. Duplicates and
   mirrors are merged, error pages and page chrome are dropped, results in the
   query's language and from authoritative sites rank higher, and the answer
-  says when no result mentions a distinctive word you searched for. Settings,
+  says when no result mentions a distinctive word you searched for. News
+  queries favour recent stories from news sites, and a date in the query
+  keeps results to that window. A provider that rate-limits or times out is
+  left alone for a while, and a repeated search is answered from a short
+  cache. Settings,
   Tools has a switch for each provider and an optional key, kept in the
   keychain; a provider with a key counts for more.
 

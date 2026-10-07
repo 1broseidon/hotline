@@ -43,6 +43,7 @@ import type {
 	Welcome,
 	VoiceCall,
 	VoiceStatus,
+	WebSearchStatus,
 } from "./generated/contract";
 import { activeDeskId, allDesks, wireFor } from "./desks";
 
@@ -118,6 +119,10 @@ type Results = {
 	"persona.pin": string[];
 	"settings.update": Record<string, unknown>;
 	"images.status": ImagesStatus;
+	/** Each web search provider, on or off at the desk and whether a key is saved; never the key. */
+	"websearch.status": WebSearchStatus;
+	"websearch.set_enabled": WebSearchStatus;
+	"websearch.set_key": WebSearchStatus;
 	"link.preview": LinkPreview | null;
 	ping: null;
 	"capabilities.options": CapabilityOptions;

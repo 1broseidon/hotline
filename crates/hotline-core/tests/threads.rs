@@ -363,7 +363,25 @@ impl Client {
         loop {
             let frame = tokio::time::timeout_at(deadline, self.read())
                 .await
-                .unwrap_or_else(|_| panic!("nothing wanted arrived within {patience:?}"));
+                .unwrap_or_else(|_| {
+                    // What did arrive, newest last, so a timeout on a slow
+                    // runner says which step stalled.
+                    let seen: Vec<String> = self
+                        .inbox
+                        .iter()
+                        .rev()
+                        .take(12)
+                        .rev()
+                        .map(|frame| {
+                            let text = frame.to_string();
+                            text.chars().take(240).collect()
+                        })
+                        .collect();
+                    panic!(
+                        "nothing wanted arrived within {patience:?}; the inbox held:\n{}",
+                        seen.join("\n")
+                    )
+                });
             if wanted(&frame) {
                 return frame;
             }

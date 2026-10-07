@@ -496,6 +496,19 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Browser cookie import is unavailable on this room.".to_string())
     }
 
+    /// The web search providers that have a key saved. Never a key.
+    fn websearch_keyed(&self) -> std::collections::HashSet<crate::contract::WebSearchProvider> {
+        std::collections::HashSet::new()
+    }
+    /// Saves a web search provider's key in the vault, or forgets it.
+    fn websearch_set_key(
+        &self,
+        _provider: crate::contract::WebSearchProvider,
+        _key: Option<&str>,
+    ) -> Result<(), String> {
+        Err("Web search keys are unavailable on this room.".to_string())
+    }
+
     /// The secrets the operator keeps for teammates: names and when each
     /// changed, never a value. Defaults to none: a room without a vault
     /// under it stores nothing.

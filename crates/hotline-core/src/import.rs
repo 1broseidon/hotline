@@ -1138,6 +1138,24 @@ mod tests {
         assert_eq!(fingerprint(&from), before);
     }
 
+    /// A provider this build lacks (`youcom`). A teammate imported with it in
+    /// its web search policy keeps the rest of the policy, not a stripped one.
+    #[test]
+    fn an_imported_policy_keeps_the_providers_this_build_has() {
+        let legacy = json!({
+            "id": "ada", "name": "Ada", "goal": "g", "backendId": "hotline",
+            "cwd": "/tmp/ada", "createdAt": 1, "updatedAt": 1,
+            "mcpPolicy": { "mode": "none", "serverIds": [] },
+            "backgroundWork": false, "sessionCheckpoints": [],
+            "webSearchPolicy": { "mode": "some", "providers": ["youcom", "keenable"] },
+        });
+        let persona = persona_from_legacy(legacy).unwrap();
+        assert_eq!(
+            serde_json::to_value(persona.web_search_policy.unwrap()).unwrap(),
+            json!({ "mode": "some", "providers": ["keenable"] })
+        );
+    }
+
     /// A roster row is written after its tape, so a row with no tape here is
     /// an import that was cut short. The next run owes the tape and says so,
     /// and a staging directory the cut left behind is not a tape.

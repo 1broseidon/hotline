@@ -6487,3 +6487,129 @@ async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription
         "{}"
     );
 }
+
+/// The Tools pane's web search commands are the desk's: a keys-and-switches
+/// surface a companion phone must not reach, and a key is never answered.
+#[test]
+fn only_the_desk_and_owner_seats_may_touch_web_search_settings() {
+    use crate::contract::WebSearchProvider;
+    let status = Command::WebsearchStatus {};
+    let enable = Command::WebsearchSetEnabled {
+        provider: WebSearchProvider::Exa,
+        enabled: false,
+    };
+    let key = Command::WebsearchSetKey {
+        provider: WebSearchProvider::Exa,
+        key: Some("exa-key-0123456789".to_string()),
+    };
+    for command in [&status, &enable, &key] {
+        assert!(Seat::Desk.permits(command), "{command:?}");
+        assert!(Seat::Owner.permits(command), "{command:?}");
+        assert!(!Seat::Phone.permits(command), "{command:?}");
+    }
+}
+
+#[tokio::test]
+async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let log = &desk.log;
+    let ask = |cmd: &str, params: Value| json!({"id": 1, "cmd": cmd, "params": params});
+    let key = "exa-private-key-0123456789";
+
+    let fresh =
+        remote_control_answer(Seat::Desk, &handle, log, ask("websearch.status", json!({}))).await;
+    assert_eq!(fresh["ok"], true, "{fresh}");
+    assert_eq!(
+        fresh["result"]["providers"],
+        json!([
+            {"provider": "parallel", "name": "Parallel", "enabled": true, "hasKey": false},
+            {"provider": "exa", "name": "Exa", "enabled": true, "hasKey": false},
+            {"provider": "keenable", "name": "Keenable", "enabled": true, "hasKey": false},
+            {"provider": "firecrawl", "name": "Firecrawl", "enabled": true, "hasKey": false},
+        ])
+    );
+
+    let off = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        log,
+        ask(
+            "websearch.set_enabled",
+            json!({"provider": "keenable", "enabled": false}),
+        ),
+    )
+    .await;
+    assert_eq!(off["result"]["providers"][2]["enabled"], false, "{off}");
+    assert_eq!(
+        crate::room::settings(log)["webSearch"],
+        json!({"disabled": ["keenable"]})
+    );
+
+    let saved = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        log,
+        ask("websearch.set_key", json!({"provider": "exa", "key": key})),
+    )
+    .await;
+    assert_eq!(saved["result"]["providers"][1]["hasKey"], true, "{saved}");
+    assert!(!saved.to_string().contains(key));
+    assert_eq!(
+        desk.saved_web_search_key(crate::contract::WebSearchProvider::Exa),
+        Some(key.to_string())
+    );
+    assert!(!format!("{:?}", log.load(&StreamId::Room)).contains(key));
+
+    let on = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        log,
+        ask(
+            "websearch.set_enabled",
+            json!({"provider": "keenable", "enabled": true}),
+        ),
+    )
+    .await;
+    assert_eq!(on["result"]["providers"][2]["enabled"], true);
+    assert_eq!(
+        crate::room::settings(log)["webSearch"],
+        json!({"disabled": []})
+    );
+
+    let cleared = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        log,
+        ask("websearch.set_key", json!({"provider": "exa", "key": null})),
+    )
+    .await;
+    assert_eq!(
+        cleared["result"]["providers"][1]["hasKey"], false,
+        "{cleared}"
+    );
+
+    let refused = remote_control_answer(
+        Seat::Phone,
+        &handle,
+        log,
+        ask("websearch.status", json!({})),
+    )
+    .await;
+    assert_eq!(refused["code"], FORBIDDEN, "{refused}");
+    let bad = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        log,
+        ask(
+            "websearch.set_key",
+            json!({"provider": "brave", "key": key}),
+        ),
+    )
+    .await;
+    assert_eq!(bad["ok"], false, "{bad}");
+}

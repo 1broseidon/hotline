@@ -75,12 +75,13 @@ const LOOP: &str = "loop";
 const LIST_SCHEDULES: &str = "list_schedules";
 const CANCEL_SCHEDULE: &str = "cancel_schedule";
 const COMPUTER_STATUS: &str = "computer_status";
+const WEB_SEARCH: &str = "web_search";
 const ARCHIVE_THREAD: &str = "archive_thread";
 /// The longest `computer_status` waits for a download in one call.
 const MAX_COMPUTER_WAIT_SECONDS: u64 = 300;
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 17] = [
+pub const TOOL_NAMES: [&str; 18] = [
     SEARCH_THREAD,
     LIST_CHAPTERS,
     RESUME_CHAPTER,
@@ -98,12 +99,17 @@ pub const TOOL_NAMES: [&str; 17] = [
     LIST_SCHEDULES,
     CANCEL_SCHEDULE,
     COMPUTER_STATUS,
+    WEB_SEARCH,
 ];
 
 /// What a subagent run is given of these: its teammate's conversation, to
-/// read. A run speaks to nobody, so nothing that asks the person, reacts,
-/// messages a colleague, schedules or moves a chapter is on its list.
-const RUN_TOOLS: [&str; 2] = [SEARCH_THREAD, LIST_CHAPTERS];
+/// read, and the web, to read. A run speaks to nobody, so nothing that asks
+/// the person, reacts, messages a colleague, schedules or moves a chapter is
+/// on its list. `web_search` is there because it only reads: it changes
+/// nothing, reaches nobody, and a run sent off to research something is the
+/// likeliest to need it. It gives the run nothing its teammate lacks, since it
+/// follows the same desk switches and the teammate's own policy.
+const RUN_TOOLS: [&str; 3] = [SEARCH_THREAD, LIST_CHAPTERS, WEB_SEARCH];
 
 /// What a work thread is not given of these: the chapter moves. Chapters
 /// belong to the DM, so a thread that rotated one would close the person's main
@@ -125,7 +131,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and returns at once; their answer, and whatever they type with it, arrives later as its own message. You are not the only teammate here: `list_teammates` says who else is in this room by public name, each one's state (idle, working, waiting on the person, or stopped) and what it is working on, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Choose intent ask for a bounded answer or review, handoff to implement or continue work in their own context. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `open_link` opens a link in the person's own browser on this computer, only while they are here at the desktop app. `generate_image` makes an image in your workspace and posts it here itself, so never `send_file` it as well; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options. For a default avatar request, use `generate_image` with style `avatar` for the mature matte desk-collectible crew; for a specific custom subject/theme, omit style, or use an operator-provided photo directly. `set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. A granted server's tools are named `<server>__<tool>`.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and returns at once; their answer, and whatever they type with it, arrives later as its own message. You are not the only teammate here: `list_teammates` says who else is in this room by public name, each one's state (idle, working, waiting on the person, or stopped) and what it is working on, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Choose intent ask for a bounded answer or review, handoff to implement or continue work in their own context. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `open_link` opens a link in the person's own browser on this computer, only while they are here at the desktop app. `generate_image` makes an image in your workspace and posts it here itself, so never `send_file` it as well; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options. For a default avatar request, use `generate_image` with style `avatar` for the mature matte desk-collectible crew; for a specific custom subject/theme, omit style, or use an operator-provided photo directly. `set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. `web_search` searches the web for current information and returns each result's title, link and a snippet; read a page itself with your own tools, and rephrase and search again if the first try misses. A granted server's tools are named `<server>__<tool>`.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -406,6 +412,19 @@ fn descriptors() -> Vec<Tool> {
                 "properties": {
                     "wait_seconds": { "type": "integer", "minimum": 0, "maximum": 300 },
                 },
+                "additionalProperties": false,
+            })),
+        ),
+        Tool::new(
+            WEB_SEARCH,
+            "Search the web for current information you do not already have: news, documentation, prices, anything that may have changed since you were trained. It returns up to `limit` results, each with a title, a link and a snippet, then a last line saying which search provider answered. The snippet is a lead, not the page: open the link with your own tools when the answer matters. Describe what you want to find rather than pasting a long question, and rephrase and search again if the first try misses. Nothing is sent but the query.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "minLength": 2, "maxLength": crate::websearch::MAX_QUERY_CHARS },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": crate::websearch::MAX_LIMIT, "default": crate::websearch::DEFAULT_LIMIT },
+                },
+                "required": ["query"],
                 "additionalProperties": false,
             })),
         ),
@@ -844,6 +863,7 @@ impl TeammateTools {
                 room.schedule_cancel(id)?;
                 Ok(json!({ "cancelled": true }).to_string())
             }
+            WEB_SEARCH => room.web_search(&self.persona_id, arguments).await,
             other => Err(format!("This room has no tool called '{other}'.")),
         }
     }
@@ -1891,6 +1911,331 @@ mod tests {
                 .call(SEARCH_THREAD, &json!({ "query": "crane" }))
                 .await
                 .is_err()
+        );
+    }
+    // web_search ------------------------------------------------------------
+
+    use crate::contract::{WebSearchPolicy, WebSearchProvider};
+    use crate::websearch::Endpoints;
+    use crate::websearch::tests::{Mock, Reply, mock};
+
+    const EXA_KEY: &str = "exa-key-never-shown-0123";
+
+    /// A desk whose vault holds an Exa key.
+    struct KeyedExa;
+
+    impl ProviderKeys for KeyedExa {
+        fn provider_auth(&self) -> HashMap<String, crate::session::ProviderAuth> {
+            HashMap::new()
+        }
+
+        fn web_search_keys(&self) -> crate::websearch::Keys {
+            HashMap::from([(WebSearchProvider::Exa, EXA_KEY.to_string())])
+        }
+    }
+
+    /// One mock per provider, each answering with a result titled for it.
+    struct Providers {
+        parallel: Mock,
+        exa: Mock,
+        keenable: Mock,
+        firecrawl: Mock,
+    }
+
+    impl Providers {
+        async fn new() -> Self {
+            let parallel = json!({"results":[{"url":"https://parallel.example","title":"from parallel","excerpts":["A readable sentence from parallel about the subject."]}]});
+            let exa = "Title: from exa\nURL: https://exa.example\nA readable sentence from exa about the subject.";
+            let keenable = json!({"results":[{"title":"from keenable","url":"https://keenable.example","snippet":"A readable sentence from keenable about the subject."}]});
+            let firecrawl = json!({"success":true,"data":{"web":[{"title":"from firecrawl","url":"https://firecrawl.example","description":"A readable sentence from firecrawl about the subject."}]}});
+            Self {
+                parallel: mock(Reply::json(Reply::tool_text(&parallel.to_string()))).await,
+                exa: mock(Reply::sse(Reply::tool_text(exa))).await,
+                keenable: mock(Reply::json(keenable.to_string())).await,
+                firecrawl: mock(Reply::json(firecrawl.to_string())).await,
+            }
+        }
+
+        fn endpoints(&self) -> Endpoints {
+            Endpoints {
+                parallel: self.parallel.mcp(),
+                exa: self.exa.mcp(),
+                keenable: self.keenable.base.clone(),
+                firecrawl: self.firecrawl.base.clone(),
+            }
+        }
+
+        fn asked(&self) -> [usize; 4] {
+            [
+                self.parallel.seen.lock().unwrap().len(),
+                self.exa.seen.lock().unwrap().len(),
+                self.keenable.seen.lock().unwrap().len(),
+                self.firecrawl.seen.lock().unwrap().len(),
+            ]
+        }
+    }
+
+    fn search_room(
+        name: &str,
+        keys: Arc<dyn ProviderKeys>,
+        policy: Option<WebSearchPolicy>,
+        desk_disabled: &[&str],
+        providers: &Providers,
+    ) -> Arc<Room> {
+        let log = Log::open(scratch(name));
+        write_persona(
+            &log,
+            Persona {
+                web_search_policy: policy,
+                ..ada()
+            },
+        );
+        if !desk_disabled.is_empty() {
+            log.append(
+                &StreamId::Room,
+                &json!({ "kind": "setting", "id": "webSearch", "value": { "disabled": desk_disabled } }),
+            )
+            .unwrap();
+        }
+        let room = Room::new(log, keys);
+        room.set_web_search_endpoints(providers.endpoints());
+        room
+    }
+
+    #[test]
+    fn web_search_is_listed_with_its_arguments_and_every_kind_of_session_has_it() {
+        let listed = listing().tools;
+        let tool = listed.iter().find(|tool| tool.name == WEB_SEARCH).unwrap();
+        assert!(
+            tool.description
+                .as_deref()
+                .unwrap()
+                .contains("title, a link and a snippet")
+        );
+        assert_eq!(tool.input_schema["required"], json!(["query"]));
+        let properties = &tool.input_schema["properties"];
+        assert_eq!(properties["limit"]["default"], json!(8));
+        assert_eq!(properties["limit"]["maximum"], json!(20));
+        assert_eq!(
+            properties["query"]["maxLength"],
+            json!(crate::websearch::MAX_QUERY_CHARS)
+        );
+        assert!(HOW_TO_USE.contains("`web_search`"));
+        // A work thread keeps it: only the chapter moves are the DM's.
+        assert!(
+            work_descriptors()
+                .iter()
+                .any(|tool| tool.name == WEB_SEARCH)
+        );
+        // A subagent run reads the web as it reads the tape.
+        assert!(RUN_TOOLS.contains(&WEB_SEARCH));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_search_answers_with_results_and_the_provider_and_asks_for_the_limit() {
+        let providers = Providers::new().await;
+        let room = search_room("ws-basic", Arc::new(NoKeys), None, &[], &providers);
+        let answered = through_rig(
+            &tools(&room),
+            WEB_SEARCH,
+            json!({ "query": "rust", "limit": 4 }),
+        )
+        .await;
+        for title in [
+            "from parallel",
+            "from exa",
+            "from keenable",
+            "from firecrawl",
+        ] {
+            assert!(answered.contains(title), "{title} missing from {answered}");
+        }
+        assert!(
+            answered.ends_with("Searched with Parallel, Exa, Keenable, Firecrawl."),
+            "{answered}"
+        );
+        assert_eq!(providers.asked(), [1, 1, 1, 1]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_arguments_are_checked_before_anything_is_sent() {
+        let providers = Providers::new().await;
+        let room = search_room("ws-args", Arc::new(NoKeys), None, &[], &providers);
+        let tools = tools(&room);
+        for arguments in [
+            json!({}),
+            json!({ "query": " a " }),
+            json!({ "query": 7 }),
+            json!({ "query": "x".repeat(crate::websearch::MAX_QUERY_CHARS + 1) }),
+            json!({ "query": "fine", "limit": "many" }),
+        ] {
+            assert!(
+                tools.call(WEB_SEARCH, &arguments).await.is_err(),
+                "{arguments}"
+            );
+        }
+        assert_eq!(providers.asked(), [0, 0, 0, 0]);
+        // A limit out of range is brought into it rather than refused.
+        tools
+            .call(WEB_SEARCH, &json!({ "query": "fine", "limit": 500 }))
+            .await
+            .unwrap();
+        let sent = providers.parallel.seen.lock().unwrap().len();
+        assert_eq!(sent, 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_provider_switched_off_on_the_desk_is_skipped() {
+        let providers = Providers::new().await;
+        let room = search_room("ws-desk", Arc::new(NoKeys), None, &["parallel"], &providers);
+        let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
+        assert!(
+            answered.ends_with("Searched with Exa, Keenable, Firecrawl."),
+            "{answered}"
+        );
+        assert_eq!(providers.asked(), [0, 1, 1, 1]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_teammates_some_policy_narrows_the_chain_and_the_desk_still_wins() {
+        let providers = Providers::new().await;
+        let policy = WebSearchPolicy {
+            mode: PolicyMode::Some,
+            providers: vec![WebSearchProvider::Keenable, WebSearchProvider::Firecrawl],
+        };
+        let room = search_room(
+            "ws-some",
+            Arc::new(NoKeys),
+            Some(policy.clone()),
+            &[],
+            &providers,
+        );
+        let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
+        assert!(
+            answered.ends_with("Searched with Keenable, Firecrawl."),
+            "{answered}"
+        );
+        assert_eq!(providers.asked(), [0, 0, 1, 1]);
+
+        let providers = Providers::new().await;
+        let room = search_room(
+            "ws-some-desk",
+            Arc::new(NoKeys),
+            Some(policy),
+            &["keenable"],
+            &providers,
+        );
+        let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
+        assert!(answered.ends_with("Searched with Firecrawl."), "{answered}");
+        assert_eq!(providers.asked(), [0, 0, 0, 1]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_empty_chain_says_web_search_is_switched_off() {
+        let providers = Providers::new().await;
+        let room = search_room(
+            "ws-off",
+            Arc::new(NoKeys),
+            Some(WebSearchPolicy {
+                mode: PolicyMode::None,
+                providers: Vec::new(),
+            }),
+            &[],
+            &providers,
+        );
+        let refusal = tools(&room)
+            .call(WEB_SEARCH, &json!({ "query": "rust" }))
+            .await
+            .unwrap_err();
+        assert!(
+            refusal.starts_with("Web search is switched off"),
+            "{refusal}"
+        );
+
+        let room = search_room(
+            "ws-all-off",
+            Arc::new(NoKeys),
+            None,
+            &["parallel", "exa", "keenable", "firecrawl"],
+            &providers,
+        );
+        let refusal = tools(&room)
+            .call(WEB_SEARCH, &json!({ "query": "rust" }))
+            .await
+            .unwrap_err();
+        assert!(
+            refusal.starts_with("Web search is switched off"),
+            "{refusal}"
+        );
+        assert_eq!(providers.asked(), [0, 0, 0, 0]);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_key_reaches_its_provider_and_never_the_model() {
+        let providers = Providers::new().await;
+        let room = search_room("ws-key", Arc::new(KeyedExa), None, &[], &providers);
+        let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
+        assert!(
+            answered.ends_with("Searched with Parallel, Exa, Keenable, Firecrawl."),
+            "{answered}"
+        );
+        assert!(!answered.contains(EXA_KEY));
+        assert_eq!(providers.asked(), [1, 1, 1, 1]);
+        let sent = providers.exa.seen.lock().unwrap().remove(0);
+        assert_eq!(sent.path, format!("/mcp?exaApiKey={EXA_KEY}"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn when_every_provider_fails_the_error_names_each_and_holds_no_key() {
+        let broken = |body: String| mock(Reply::status(500, &body));
+        let echo = format!("echoing {EXA_KEY}");
+        let providers = Providers {
+            parallel: broken("down".into()).await,
+            exa: broken(echo).await,
+            keenable: broken("down".into()).await,
+            firecrawl: mock(Reply::status(429, "")).await,
+        };
+        let room = search_room("ws-fail", Arc::new(KeyedExa), None, &[], &providers);
+        let error = tools(&room)
+            .call(WEB_SEARCH, &json!({ "query": "rust" }))
+            .await
+            .unwrap_err();
+        assert!(
+            error.starts_with("Web search failed: all 4 providers failed ("),
+            "{error}"
+        );
+        for name in [
+            "parallel returned status 500",
+            "exa returned status 500",
+            "keenable returned status 500",
+            "firecrawl: rate limited",
+        ] {
+            assert!(error.contains(name), "{name} missing from {error}");
+        }
+        assert!(!error.contains(EXA_KEY), "{error}");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_run_gets_web_search_and_a_work_thread_does_too() {
+        let providers = Providers::new().await;
+        let room = search_room("ws-run", Arc::new(NoKeys), None, &[], &providers);
+        let run = tools(&room).for_run();
+        let names: Vec<String> = run
+            .as_dynamic()
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect();
+        assert!(names.contains(&WEB_SEARCH.to_string()), "{names:?}");
+        assert!(!names.contains(&SCHEDULE.to_string()));
+        assert!(
+            run.call(WEB_SEARCH, &json!({ "query": "rust" }))
+                .await
+                .is_ok()
+        );
+        let work = tools(&room).for_work("thread-1");
+        assert!(
+            work.call(WEB_SEARCH, &json!({ "query": "rust" }))
+                .await
+                .is_ok()
         );
     }
 }

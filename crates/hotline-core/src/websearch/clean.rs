@@ -158,11 +158,35 @@ fn strip_markdown(text: &str) -> String {
         LazyLock::new(|| Regex::new(r"\[([^\]]*)\]\([^)]*\)").expect("a fixed pattern"));
     static BARE_URL: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"https?://\S+").expect("a fixed pattern"));
+    // A wiki infobox comes through as a table: footnote marks such as
+    // `[[note 2]](` (often cut off before their target), `<br>` inside cells,
+    // and runs of `|` between them. The cells read fine with a dot between.
+    static FOOTNOTE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\[\[[^\]]*\]\](\([^)\s]*\)?)?").expect("a fixed pattern"));
+    static BREAK: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?i)<br\s*/?>").expect("a fixed pattern"));
+    static CELLS: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\s*\|(\s*\|)*\s*").expect("a fixed pattern"));
+    // An extractor's placeholder for a field it could not find says nothing.
+    static PLACEHOLDER: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?im)^\s*(published|updated|date|author)\s*:\s*(n/?a|none|unknown)\s*$")
+            .expect("a fixed pattern")
+    });
     let text = IMAGE.replace_all(text, "");
+    let text = FOOTNOTE.replace_all(&text, "");
     let text = LINK.replace_all(&text, "$1");
     let text = BARE_URL.replace_all(&text, "");
+    let text = BREAK.replace_all(&text, " ");
+    let text = PLACEHOLDER.replace_all(&text, "");
     text.lines()
-        .map(|line| line.trim().trim_start_matches(['#', '>', '-', '*']).trim())
+        .map(|line| CELLS.replace_all(line, " · ").to_string())
+        .map(|line| line.trim().trim_matches(['·', ' ']).to_string())
+        .map(|line| {
+            line.trim()
+                .trim_start_matches(['#', '>', '-', '*'])
+                .trim()
+                .to_string()
+        })
         .map(|line| line.replace(['*', '`'], ""))
         .collect::<Vec<_>>()
         .join("\n")
@@ -241,6 +265,21 @@ fn collapse_doubled(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_infobox_reads_as_cells_and_placeholders_say_nothing() {
+        let (text, thin) = clean_snippet(
+            "| Mount Everest | | Elevation | 8,848.86m (29,031.7ft)[[note 2]]( 1st | Location<br>Nepal |",
+        );
+        assert!(!thin);
+        assert!(
+            !text.contains('|') && !text.contains("[[") && !text.contains("<br>"),
+            "{text}"
+        );
+        assert!(text.contains("Elevation · 8,848.86m"), "{text}");
+        let (text, thin) = clean_snippet("Published: N/A");
+        assert!(text.is_empty() && thin, "{text}");
+    }
 
     #[test]
     fn error_and_interstitial_pages_are_junk() {

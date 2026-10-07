@@ -114,7 +114,14 @@ impl Item {
             return None;
         }
         let (snippet, thin) = clean_snippet(&hit.snippet);
-        let title = hit.title.split_whitespace().collect::<Vec<_>>().join(" ");
+        let mut title = hit.title.split_whitespace().collect::<Vec<_>>().join(" ");
+        // A placeholder title reads as the page's address instead.
+        if matches!(
+            title.to_ascii_lowercase().as_str(),
+            "n/a" | "na" | "none" | "untitled"
+        ) {
+            title = page_name(&hit.url);
+        }
         let language =
             host_language(&hit.url).or_else(|| text_language(&format!("{title}. {snippet}")));
         Some(Self {
@@ -470,6 +477,14 @@ fn mentions(text: &str, term: &str) -> bool {
         let after = text[at + found.len()..].chars().next();
         before.is_none_or(|c| !c.is_alphanumeric()) && after.is_none_or(|c| !c.is_alphanumeric())
     })
+}
+
+/// What to call a page whose title is missing: its host and path, as written.
+fn page_name(url: &str) -> String {
+    url.split_once("://")
+        .map_or(url, |(_, rest)| rest)
+        .trim_end_matches('/')
+        .to_string()
 }
 
 #[cfg(test)]

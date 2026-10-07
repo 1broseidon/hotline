@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-10-07
+
 ### Added
 
 - Every teammate can search the web with a new `web_search` tool, with no
@@ -18,6 +20,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   says when no result mentions a distinctive word you searched for. Settings,
   Tools has a switch for each provider and an optional key, kept in the
   keychain; a provider with a key counts for more.
+
+### Changed
+
+- The server picker at the top of the sidebar is a compact account button:
+  the server's tile and short name, with a dot on the tile while a remote
+  server connects, can't be reached or is no longer paired. In the narrow,
+  faces-only sidebar it is the tile alone, and its menu ends with "Add a
+  server…".
 
 ## [0.33.4] - 2026-10-06
 

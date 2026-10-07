@@ -1,12 +1,12 @@
 import { type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, railOrder } from "../pins";
-import { SettingsIcon, MoreIcon, PlusIcon } from "../icons";
+import { ChevronDownIcon, ComputerIcon, SettingsIcon, MoreIcon, PlusIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
-import { Avatar } from "../ui/Avatar";
-import { MenuButton, Picker, type MenuEntry } from "../ui/Menu";
+import { Avatar, faceOf, initialOf } from "../ui/Avatar";
+import { MenuButton, type MenuEntry } from "../ui/Menu";
 import { useBackgroundUnread } from "../deskWatch";
 import { setActiveDesk, useActiveDesk, useDesks, type Desk } from "../desks";
 import { useSaved } from "../useSaved";
@@ -90,7 +90,7 @@ export function Rail({
 			className={`rail flex flex-col ${compact ? "rail-compact" : ""}`}
 			style={width !== undefined ? { width } : undefined}
 		>
-			{!compact && <DeskSwitcher />}
+			<DeskSwitcher compact={compact} onAdd={() => onHelp("add-desk")} />
 			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
 				{entries.length === 0 ? (
 					compact || !loaded ? null :
@@ -585,31 +585,66 @@ export function RailEdge({ size, onSize }: { size: RailSize; onSize(next: RailSi
 
 /**
  * Which desk the window shows, when it holds more than one: this computer's
- * and the remote desks it is paired with (BRO-145). Picking one switches the
+ * and the remote desks it is paired with (BRO-145). An account button: the
+ * desk's tile and short name, as wide as they are. Picking one switches the
  * whole window to it.
  */
-function DeskSwitcher() {
+function DeskSwitcher({ compact = false, onAdd }: { compact?: boolean | undefined; onAdd(): void }) {
 	const desks = useDesks();
 	const active = useActiveDesk();
 	const unread = useBackgroundUnread();
 	if (desks.length < 2 || active === null) return null;
+	const elsewhere = desks.some((desk) => desk.id !== active.id && (unread[desk.id] ?? 0) > 0);
+	const entries: MenuEntry[] = [];
+	let group: string | undefined;
+	for (const desk of desks) {
+		const here = desk.kind === "local" ? "On this computer" : "Remote";
+		if (here !== group) {
+			if (entries.length > 0) entries.push({ kind: "rule" });
+			entries.push({ kind: "heading", text: here });
+			group = here;
+		}
+		entries.push({
+			kind: "item",
+			id: desk.id,
+			text: desk.name,
+			detail: [unread[desk.id] ? `${unread[desk.id]} unread` : undefined, deskDetail(desk)].filter(Boolean).join(" · "),
+			checked: desk.id === active.id,
+			onSelect: () => setActiveDesk(desk.id),
+		});
+	}
+	entries.push({ kind: "rule" }, { kind: "item", id: "add-desk", text: "Add a server…", onSelect: onAdd });
 	return (
-		<div className="shrink-0 px-2.5 pt-2">
-			<Picker
-				field
-				value={active.id}
-				label="Desk"
-				placeholder={active.name}
-				choices={desks.map((desk) => ({
-					id: desk.id,
-					name: desk.name,
-					detail: [unread[desk.id] ? `${unread[desk.id]} unread` : undefined, deskDetail(desk)].filter(Boolean).join(" · "),
-					group: desk.kind === "local" ? "On this computer" : "Remote",
-				}))}
-				onChange={setActiveDesk}
-			/>
+		<div className={`shrink-0 pt-2 ${compact ? "flex justify-center" : "px-2"}`}>
+			<MenuButton
+				className={compact ? "account account-compact" : "account"}
+				align="start"
+				label={`Server: ${active.name}`}
+				title={`${active.name} · ${deskDetail(active)}`}
+				entries={entries}
+			>
+				<DeskTile desk={active} />
+				{!compact && <span className="account-name">{shortName(active.name)}</span>}
+				{elsewhere && <span className="account-unread" aria-label="Unread on another server" />}
+				{!compact && <ChevronDownIcon className="account-chevron" />}
+			</MenuButton>
 		</div>
 	);
+}
+
+/** A desk's face: this computer's is the screen, a remote one its initial, on a rounded square so it never reads as a teammate. */
+function DeskTile({ desk }: { desk: Desk }) {
+	return (
+		<span aria-hidden="true" className="account-tile" style={{ background: desk.kind === "local" ? undefined : faceOf(desk.id) }} data-local={desk.kind === "local" || undefined}>
+			{desk.kind === "local" ? <ComputerIcon /> : initialOf(desk.name)}
+			{desk.state !== undefined && desk.state !== "open" && <span className="account-state" data-state={desk.state} />}
+		</span>
+	);
+}
+
+/** A host name reads by its first label: s223265.example.net is s223265. */
+function shortName(name: string): string {
+	return /^[\w-]+(\.[\w-]+)+$/.test(name) ? (name.split(".")[0] ?? name) : name;
 }
 
 function deskDetail(desk: Desk): string {

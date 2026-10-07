@@ -55,6 +55,9 @@ fn defaults() -> Map<String, Value> {
 }
 
 pub(crate) fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
+    if key == "webSearch" {
+        return crate::websearch::normalize_setting(value);
+    }
     if matches!(key, "images" | "spending") && !value.is_object() {
         return Err(format!("The {key} setting must be an object."));
     }
@@ -643,6 +646,37 @@ mod tests {
         let fields = event.as_object_mut().unwrap();
         fields.insert("kind".into(), Value::from("persona"));
         event
+    }
+
+    /// A teammate saved while Firecrawl was a provider still reads: the
+    /// provider is dropped from its policy, not the teammate from the room.
+    #[test]
+    fn a_teammate_whose_policy_names_a_provider_that_is_gone_still_loads() {
+        let log = scratch("firecrawl-policy");
+        let mut event = persona_event(&persona("ada", "Ada"));
+        event["webSearchPolicy"] = json!({
+            "mode": "some",
+            "providers": ["firecrawl", "exa", "brave", "youcom"],
+        });
+        append(&log, &event);
+        let ada = roster(&log)
+            .into_iter()
+            .next()
+            .expect("ada is still on the roster");
+        let policy = ada.web_search_policy.expect("the policy survived");
+        assert_eq!(policy.mode, PolicyMode::Some);
+        assert_eq!(
+            policy.providers,
+            vec![
+                crate::contract::WebSearchProvider::Exa,
+                crate::contract::WebSearchProvider::Youcom
+            ]
+        );
+        // Written back, it is in the new vocabulary only.
+        assert_eq!(
+            serde_json::to_value(&policy).unwrap(),
+            json!({"mode": "some", "providers": ["exa", "youcom"]})
+        );
     }
 
     fn setting(key: &str, value: Value) -> Value {

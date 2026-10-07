@@ -289,21 +289,68 @@ pub struct TeammateToolLedger {
 /// teammate means `all`: inherit whatever the app's Tools pane has on. `some`
 /// intersects with the app's choices — a provider the desk switched off stays
 /// off for everyone.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
 #[ts(export, export_to = "contract.ts")]
 pub struct WebSearchPolicy {
     pub mode: PolicyMode,
     pub providers: Vec<WebSearchProvider>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+impl<'de> Deserialize<'de> for WebSearchPolicy {
+    /// Reads the providers it knows. A record written by an older build may
+    /// name one that is gone (`firecrawl`); it is left out rather than taking
+    /// the whole teammate with it.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Raw {
+            mode: PolicyMode,
+            providers: Vec<Value>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        Ok(Self {
+            mode: raw.mode,
+            providers: raw
+                .providers
+                .into_iter()
+                .filter_map(|value| serde_json::from_value(value).ok())
+                .collect(),
+        })
+    }
+}
+
+/// The four providers web search has, in the order the chain tries them
+/// before any key promotes one. A record written by an older build may name
+/// one that is gone (`firecrawl`); it is left out on read rather than taking
+/// the whole teammate with it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum WebSearchProvider {
     Parallel,
     Exa,
-    Firecrawl,
     Keenable,
+    Youcom,
+}
+
+/// One provider as the Tools pane shows it: whether the desk has it on, and
+/// whether a key is saved for it. Never the key.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct WebSearchProviderStatus {
+    pub provider: WebSearchProvider,
+    pub name: String,
+    pub enabled: bool,
+    pub has_key: bool,
+}
+
+/// What `websearch.status` answers: the providers in the order a search with
+/// no keys tries them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct WebSearchStatus {
+    pub providers: Vec<WebSearchProviderStatus>,
 }
 
 /// A teammate's computer settings.
@@ -2819,6 +2866,26 @@ pub enum Command {
     },
     #[serde(rename = "images.status")]
     ImagesStatus {},
+    /// Each web search provider: whether the desk has it on and whether a key
+    /// is saved for it, never the key. Owner or local desk only.
+    #[serde(rename = "websearch.status")]
+    WebsearchStatus {},
+    /// Switches one provider on or off for the whole desk. Off stays off for
+    /// every teammate. Answers the status. Owner or local desk only.
+    #[serde(rename = "websearch.set_enabled")]
+    WebsearchSetEnabled {
+        provider: WebSearchProvider,
+        enabled: bool,
+    },
+    /// Saves a provider's API key in the vault, or forgets it when `key` is
+    /// absent or blank. A key moves its provider ahead of the keyless ones.
+    /// The key is never answered back. Owner or local desk only.
+    #[serde(rename = "websearch.set_key")]
+    WebsearchSetKey {
+        provider: WebSearchProvider,
+        #[serde(default)]
+        key: Option<String>,
+    },
     /// The card for a link written in a message, read by the desk; `null`
     /// when the page has none or is not one the desk will read.
     #[serde(rename = "link.preview")]

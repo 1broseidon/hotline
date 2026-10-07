@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { BackendChoice, CapabilityOptions, CatalogModel, ComputerReleases, ComputerRuntime, ConfigChoice, Credential, Provider, Report, RuntimeReport, RuntimeState } from "../generated/contract";
+import type { BackendChoice, CapabilityOptions, CatalogModel, ComputerReleases, ComputerRuntime, ConfigChoice, Credential, Provider, Report, RuntimeReport, RuntimeState, WebSearchProviderStatus } from "../generated/contract";
 import { openLink, pinnedComputerImage } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
@@ -1206,9 +1206,127 @@ function ToolsSection({
 						</div>
 						<p className="group-hint">Grant servers per teammate, in its pane.</p>
 					</section>
+					<WebSearchGroup />
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>
+		</div>
+	);
+}
+
+/**
+ * Web search: every teammate has it, keyless. A row per provider, tried in
+ * this order: the switch is the desk's (off stays off for every teammate), and
+ * the optional key is kept in the keychain, never shown again. A provider with
+ * a key is tried first.
+ */
+function WebSearchGroup() {
+	const [providers, setProviders] = useState<WebSearchProviderStatus[] | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [refusal, setRefusal] = useState<string | null>(null);
+
+	useEffect(() => {
+		void wire
+			.command("websearch.status", {})
+			.then((status) => setProviders(status.providers))
+			.catch((error: Error) => setRefusal(error.message));
+	}, []);
+
+	const apply = async (run: () => Promise<{ providers: WebSearchProviderStatus[] }>): Promise<boolean> => {
+		setBusy(true);
+		setRefusal(null);
+		try {
+			setProviders((await run()).providers);
+			return true;
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+			return false;
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	return (
+		<section>
+			<h3 className="group-title">Web search</h3>
+			<div className="grouped">
+				{providers === null ? (
+					<p className="group-row text-sm text-ink-3">{refusal === null ? "…" : "Not available."}</p>
+				) : (
+					providers.map((one) => (
+						<Fragment key={one.provider}>
+							<label className="group-row group-row-choice">
+								<span className="group-row-text">
+									<span className="group-row-title">{one.name}</span>
+									<span className="group-row-detail">{one.hasKey ? "Key set" : "Keyless"}</span>
+								</span>
+								<input
+									type="checkbox"
+									role="switch"
+									className="switch"
+									aria-label={`Search with ${one.name}`}
+									checked={one.enabled}
+									disabled={busy}
+									onChange={(event) => void apply(() => wire.command("websearch.set_enabled", { provider: one.provider, enabled: event.target.checked }))}
+								/>
+							</label>
+							<WebSearchKey
+								provider={one}
+								busy={busy}
+								onSave={(key) => apply(() => wire.command("websearch.set_key", key === null ? { provider: one.provider } : { provider: one.provider, key }))}
+							/>
+						</Fragment>
+					))
+				)}
+			</div>
+			<p className="group-hint">Tried in this order, the next when one fails. A provider with a key goes first. One switched off here is off for every teammate.</p>
+			{refusal !== null && <Refusal message={refusal} />}
+		</section>
+	);
+}
+
+/** One provider's optional key: saved on Enter or when the field is left, then never shown again. */
+function WebSearchKey({
+	provider,
+	busy,
+	onSave,
+}: {
+	provider: WebSearchProviderStatus;
+	busy: boolean;
+	onSave(key: string | null): Promise<boolean>;
+}) {
+	const [draft, setDraft] = useState("");
+
+	const save = () => {
+		const key = draft.trim();
+		if (key === "") return;
+		void onSave(key).then((saved) => saved && setDraft(""));
+	};
+
+	return (
+		<div className="group-row pl-7 gap-2">
+			<input
+				type="password"
+				className="field min-w-0 flex-1 font-mono text-sm"
+				aria-label={`${provider.name} API key`}
+				placeholder={provider.hasKey ? "Paste a new key to replace it" : "API key (optional)"}
+				autoComplete="new-password"
+				spellCheck={false}
+				value={draft}
+				disabled={busy}
+				onChange={(event) => setDraft(event.target.value)}
+				onBlur={save}
+				onKeyDown={(event) => {
+					if (event.key !== "Enter") return;
+					event.preventDefault();
+					save();
+				}}
+			/>
+			{provider.hasKey && (
+				<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void onSave(null)}>
+					Clear
+				</button>
+			)}
 		</div>
 	);
 }

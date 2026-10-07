@@ -56,6 +56,7 @@ pub(crate) use sides::preview_line;
 mod stopping;
 mod threads;
 mod turns;
+mod web_search;
 pub use stopping::Stopped;
 
 pub use peers::{DeliverResult, Sent, TEAMMATE_MESSAGE_MAX};
@@ -193,6 +194,13 @@ pub trait ProviderKeys: Send + Sync {
     /// absent provider uses bundled fallback choices; a present empty list
     /// remains empty. Test doubles leave the map empty.
     fn account_models(&self) -> HashMap<String, Vec<String>> {
+        HashMap::new()
+    }
+
+    /// The API key saved for each web search provider that has one. The desk
+    /// reads them from the vault each time, so a key saved in Settings is in
+    /// force on the next search. Test doubles have none: every provider keyless.
+    fn web_search_keys(&self) -> crate::websearch::Keys {
         HashMap::new()
     }
 }
@@ -538,6 +546,9 @@ pub struct Room {
     spending: crate::spending::SpendLedger,
     #[cfg(test)]
     image_generators: Mutex<Option<crate::imagegen::ImageSet>>,
+    /// Where a test points web search: mock servers on localhost.
+    #[cfg(test)]
+    web_search_endpoints: Mutex<Option<crate::websearch::Endpoints>>,
     /// Pictures `generate_image` posted lately, per teammate, by content and
     /// when: `send_file` of the same picture soon after is a repeat.
     drawn: Mutex<HashMap<String, Vec<files::Drawn>>>,
@@ -695,6 +706,8 @@ impl Room {
             spending: crate::spending::SpendLedger::new(log.root().to_path_buf()),
             #[cfg(test)]
             image_generators: Mutex::new(None),
+            #[cfg(test)]
+            web_search_endpoints: Mutex::new(None),
             drawn: Mutex::default(),
             voice: Mutex::new(std::sync::Weak::new()),
             me: Mutex::new(Weak::new()),

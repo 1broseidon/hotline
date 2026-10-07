@@ -41,4 +41,5 @@ mod thumbs;
 pub mod tools;
 pub mod vault;
 pub mod voice;
+pub mod websearch;
 pub mod wire;

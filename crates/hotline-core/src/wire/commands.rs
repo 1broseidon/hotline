@@ -75,6 +75,30 @@ pub(crate) async fn run(
 ) -> Result<Value, String> {
     match command {
         Command::ImagesStatus {} => Ok(json!(room.images_status())),
+        Command::WebsearchStatus {} => web_search_status(log, room),
+        Command::WebsearchSetEnabled { provider, enabled } => {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            let mut disabled = crate::websearch::disabled_on_desk(&room::try_settings(log)?);
+            if enabled {
+                disabled.remove(&provider);
+            } else {
+                disabled.insert(provider);
+            }
+            let names: Vec<&str> = crate::websearch::ORDER
+                .into_iter()
+                .filter(|provider| disabled.contains(provider))
+                .map(crate::websearch::id)
+                .collect();
+            let mut patch = Map::new();
+            patch.insert("webSearch".into(), json!({ "disabled": names }));
+            update_settings(log, patch)?;
+            web_search_status(log, room)
+        }
+        Command::WebsearchSetKey { provider, key } => {
+            room.websearch_set_key(provider, key.as_deref())?;
+            web_search_status(log, room)
+        }
         Command::Ping {} => Ok(Value::Null),
         Command::LinkPreview { url } => Ok(json!(crate::link_preview::preview(&url).await)),
         Command::CapabilitiesOptions {} => room
@@ -1303,6 +1327,24 @@ fn write_pins(log: &Log, pins: &[String]) -> Result<(), String> {
 /// One event per key, and `null` clears a key rather than setting it to
 /// nothing — which puts the room's default back, because a deleted setting is
 /// not an override.
+/// Each web search provider as the Tools pane lists it: on or off at the
+/// desk, and whether a key is saved. Never a key.
+fn web_search_status(log: &Log, room: &Arc<dyn RoomHandle>) -> Result<Value, String> {
+    let disabled = crate::websearch::disabled_on_desk(&room::try_settings(log)?);
+    let keyed = room.websearch_keyed();
+    Ok(json!(crate::contract::WebSearchStatus {
+        providers: crate::websearch::ORDER
+            .into_iter()
+            .map(|provider| crate::contract::WebSearchProviderStatus {
+                provider,
+                name: crate::websearch::display_name(provider).to_string(),
+                enabled: !disabled.contains(&provider),
+                has_key: keyed.contains(&provider),
+            })
+            .collect(),
+    }))
+}
+
 fn update_settings(log: &Log, patch: Map<String, Value>) -> Result<Value, String> {
     for (key, value) in patch {
         // MCP entries are a settings boundary. Canonicalise them before the

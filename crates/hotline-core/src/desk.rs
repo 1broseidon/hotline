@@ -60,6 +60,10 @@ impl ProviderKeys for DeskCredentials {
     fn account_models(&self) -> HashMap<String, Vec<String>> {
         self.vault.account_models()
     }
+
+    fn web_search_keys(&self) -> crate::websearch::Keys {
+        self.vault.web_search_keys()
+    }
 }
 
 /// How far an in-flight device-code login has got. Lives only in this
@@ -82,6 +86,16 @@ pub struct Desk {
 }
 
 impl Desk {
+    /// What the vault holds for a web search provider, for a test to check
+    /// that the key went to the vault and nowhere else.
+    #[cfg(test)]
+    pub(crate) fn saved_web_search_key(
+        &self,
+        provider: crate::contract::WebSearchProvider,
+    ) -> Option<String> {
+        self.vault.web_search_key(provider).unwrap()
+    }
+
     /// Remote holds this desk strongly; the controls must not keep it alive in return.
     pub fn set_remote(&self, remote: &Arc<crate::remote::Remote>) {
         *self.remote.lock().unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(remote);
@@ -1023,6 +1037,23 @@ impl RoomHandle for Desk {
         self.room
             .computer_cookies_forget(persona_id, browser_id, profile_id, domain)
             .await
+    }
+
+    fn websearch_keyed(&self) -> std::collections::HashSet<crate::contract::WebSearchProvider> {
+        crate::websearch::ORDER
+            .into_iter()
+            .filter(|provider| self.vault.has_web_search_key(*provider))
+            .collect()
+    }
+
+    fn websearch_set_key(
+        &self,
+        provider: crate::contract::WebSearchProvider,
+        key: Option<&str>,
+    ) -> Result<(), String> {
+        self.vault
+            .set_web_search_key(provider, key)
+            .map_err(|error| error.to_string())
     }
 
     fn secrets_list(&self) -> Result<Vec<crate::contract::SharedSecret>, String> {

@@ -21,6 +21,7 @@ use tokio::sync::Mutex as AsyncMutex;
 
 mod launch;
 mod shared;
+mod web_search;
 
 pub use shared::{StoredSecret, check_rp_id, check_secret_name, check_site};
 
@@ -830,6 +831,15 @@ impl Vault {
             return Err(io::Error::other(format!(
                 "{} must be a real directory owned by this user",
                 shared.display()
+            )));
+        }
+        let web_search = self.web_search_dir();
+        if let Ok(entry) = web_search.symlink_metadata()
+            && !entry.is_dir()
+        {
+            return Err(io::Error::other(format!(
+                "{} must be a real directory owned by this user",
+                web_search.display()
             )));
         }
         Ok(())

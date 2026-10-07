@@ -8,6 +8,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Every teammate can search the web with a new `web_search` tool, with no
+  setup. It tries Parallel, Exa, Keenable and You.com in turn and returns the
+  first that answers. Settings, Tools has a switch for each provider and an
+  optional key, kept in the keychain; a provider with a key is tried first.
+
 ## [0.33.4] - 2026-10-06
 
 ### Changed

@@ -11,9 +11,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 ### Added
 
 - Every teammate can search the web with a new `web_search` tool, with no
-  setup. It tries Parallel, Exa, Keenable and Firecrawl in turn and returns the
-  first that answers. Settings, Tools has a switch for each provider and an
-  optional key, kept in the keychain; a provider with a key is tried first.
+  setup. It asks Parallel, Exa, Keenable and Firecrawl at once and fuses their
+  answers, so one weak provider no longer decides the result. Duplicates and
+  mirrors are merged, error pages and page chrome are dropped, results in the
+  query's language and from authoritative sites rank higher, and the answer
+  says when no result mentions a distinctive word you searched for. Settings,
+  Tools has a switch for each provider and an optional key, kept in the
+  keychain; a provider with a key counts for more.
 
 ## [0.33.4] - 2026-10-06
 

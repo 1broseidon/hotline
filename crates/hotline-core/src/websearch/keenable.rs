@@ -2,7 +2,7 @@
 //! the public endpoint, rate-limited by the hour; with a key it posts to the
 //! authenticated one with `X-API-Key`.
 
-use super::{Failure, Hit, Searcher, mcp, one_line};
+use super::{Failure, Hit, Request, Searcher, mcp, one_line};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
@@ -53,9 +53,25 @@ struct Raw {
     description: String,
 }
 
+/// The request body: Keenable takes a result count and a publication date,
+/// and no language, so only those are sent.
+fn body(request: &Request) -> serde_json::Value {
+    let mut body = json!({
+        "query": request.query,
+        "mode": "pro",
+        "max_results": request.depth.clamp(1, 50),
+    });
+    if request.recency {
+        let week_ago = chrono::Utc::now() - chrono::Duration::days(7);
+        body["published_after"] = json!(week_ago.format("%Y-%m-%d").to_string());
+    }
+    body
+}
+
 #[async_trait]
 impl Searcher for Keenable {
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>, Failure> {
+    async fn search(&self, request: &Request) -> Result<Vec<Hit>, Failure> {
+        let limit = request.depth;
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -75,7 +91,7 @@ impl Searcher for Keenable {
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
             .header("X-Keenable-Title", "Hotline")
-            .body(json!({ "query": query, "mode": "pro" }).to_string());
+            .body(body(request).to_string());
         if let Some(key) = key {
             request = request.header("X-API-Key", key);
         }
@@ -100,10 +116,12 @@ impl Searcher for Keenable {
             .into_iter()
             .take(limit)
             .map(|raw| {
-                let text = if raw.snippet.is_empty() {
-                    raw.description
-                } else {
+                // The description is a short summary; the snippet is page text,
+                // chrome and all, so it is the fallback.
+                let text = if raw.description.trim().is_empty() {
                     raw.snippet
+                } else {
+                    raw.description
                 };
                 Hit {
                     title: raw.title,

@@ -1,7 +1,7 @@
 //! Firecrawl's v2 search API. Keyless against the hosted endpoint; a key goes
 //! as a bearer header.
 
-use super::{Failure, Hit, Searcher, mcp};
+use super::{Failure, Hit, Request, Searcher, mcp};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
@@ -38,6 +38,8 @@ struct Response {
 struct Data {
     #[serde(default)]
     web: Vec<Raw>,
+    #[serde(default)]
+    news: Vec<Raw>,
 }
 
 #[derive(Deserialize)]
@@ -48,11 +50,33 @@ struct Raw {
     url: String,
     #[serde(default)]
     description: String,
+    /// News results carry page text here instead.
+    #[serde(default)]
+    snippet: String,
+}
+
+/// The request body. Firecrawl's v2 search takes `lang`, and for the news
+/// `sources` and a time bound (`tbs`, here the past week).
+fn body(request: &Request) -> serde_json::Value {
+    let mut body = json!({
+        "query": request.query,
+        "limit": request.depth,
+        "integration": "_hotline",
+    });
+    if let Some(language) = request.language {
+        body["lang"] = json!(language.code);
+    }
+    if request.recency {
+        body["sources"] = json!(["web", "news"]);
+        body["tbs"] = json!("qdr:w");
+    }
+    body
 }
 
 #[async_trait]
 impl Searcher for Firecrawl {
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>, Failure> {
+    async fn search(&self, request: &Request) -> Result<Vec<Hit>, Failure> {
+        let limit = request.depth;
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -65,7 +89,7 @@ impl Searcher for Firecrawl {
             .client
             .post(format!("{}/v2/search", self.base.trim_end_matches('/')))
             .header("Content-Type", "application/json")
-            .body(json!({ "query": query, "limit": limit, "integration": "_hotline" }).to_string());
+            .body(body(request).to_string());
         if let Some(key) = key {
             request = request.bearer_auth(key);
         }
@@ -89,12 +113,17 @@ impl Searcher for Firecrawl {
             .data
             .web
             .into_iter()
+            .chain(parsed.data.news)
             .filter(|raw| !raw.url.is_empty())
             .take(limit)
             .map(|raw| Hit {
                 title: raw.title,
                 url: raw.url,
-                snippet: raw.description,
+                snippet: if raw.description.is_empty() {
+                    raw.snippet
+                } else {
+                    raw.description
+                },
             })
             .collect())
     }

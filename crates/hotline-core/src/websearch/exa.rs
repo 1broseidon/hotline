@@ -2,7 +2,7 @@
 //! `exaApiKey` query parameter, which is how Exa takes it. That puts the key
 //! in a URL, so no error here is built from the URL: see [`Failure::transport`].
 
-use super::{Failure, Hit, Searcher, mcp};
+use super::{Failure, Hit, Request, Searcher, mcp};
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -48,7 +48,8 @@ impl Exa {
 
 #[async_trait]
 impl Searcher for Exa {
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>, Failure> {
+    async fn search(&self, request: &Request) -> Result<Vec<Hit>, Failure> {
+        let limit = request.depth;
         let answer = mcp::call(
             &self.client,
             "exa",
@@ -56,12 +57,13 @@ impl Searcher for Exa {
             None,
             self.key.is_some(),
             "web_search_exa",
+            // The server's own schema: `query`, `numResults` and `objective`
+            // (required), nothing else. `objective` is a sentence it reads, so
+            // a language or a wish for recent news goes there.
             json!({
-                "query": query,
+                "query": request.query,
                 "numResults": limit,
-                "type": "auto",
-                "livecrawl": "fallback",
-                "contextMaxCharacters": 3000,
+                "objective": request.objective(),
             }),
         )
         .await?;

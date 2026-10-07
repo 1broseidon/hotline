@@ -1944,10 +1944,10 @@ mod tests {
 
     impl Providers {
         async fn new() -> Self {
-            let parallel = json!({"results":[{"url":"https://parallel.example","title":"from parallel","excerpts":["p"]}]});
-            let exa = "Title: from exa\nURL: https://exa.example\nsnippet";
-            let keenable = json!({"results":[{"title":"from keenable","url":"https://keenable.example","snippet":"k"}]});
-            let firecrawl = json!({"success":true,"data":{"web":[{"title":"from firecrawl","url":"https://firecrawl.example","description":"f"}]}});
+            let parallel = json!({"results":[{"url":"https://parallel.example","title":"from parallel","excerpts":["A readable sentence from parallel about the subject."]}]});
+            let exa = "Title: from exa\nURL: https://exa.example\nA readable sentence from exa about the subject.";
+            let keenable = json!({"results":[{"title":"from keenable","url":"https://keenable.example","snippet":"A readable sentence from keenable about the subject."}]});
+            let firecrawl = json!({"success":true,"data":{"web":[{"title":"from firecrawl","url":"https://firecrawl.example","description":"A readable sentence from firecrawl about the subject."}]}});
             Self {
                 parallel: mock(Reply::json(Reply::tool_text(&parallel.to_string()))).await,
                 exa: mock(Reply::sse(Reply::tool_text(exa))).await,
@@ -2038,14 +2038,22 @@ mod tests {
         let answered = through_rig(
             &tools(&room),
             WEB_SEARCH,
-            json!({ "query": "rust", "limit": 3 }),
+            json!({ "query": "rust", "limit": 4 }),
         )
         .await;
-        assert_eq!(
-            answered,
-            "1. from parallel\n   https://parallel.example\n   p\n\nSearched with Parallel."
+        for title in [
+            "from parallel",
+            "from exa",
+            "from keenable",
+            "from firecrawl",
+        ] {
+            assert!(answered.contains(title), "{title} missing from {answered}");
+        }
+        assert!(
+            answered.ends_with("Searched with Parallel, Exa, Keenable, Firecrawl."),
+            "{answered}"
         );
-        assert_eq!(providers.asked(), [1, 0, 0, 0]);
+        assert_eq!(providers.asked(), [1, 1, 1, 1]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2080,8 +2088,11 @@ mod tests {
         let providers = Providers::new().await;
         let room = search_room("ws-desk", Arc::new(NoKeys), None, &["parallel"], &providers);
         let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
-        assert!(answered.ends_with("Searched with Exa."), "{answered}");
-        assert_eq!(providers.asked(), [0, 1, 0, 0]);
+        assert!(
+            answered.ends_with("Searched with Exa, Keenable, Firecrawl."),
+            "{answered}"
+        );
+        assert_eq!(providers.asked(), [0, 1, 1, 1]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2099,8 +2110,11 @@ mod tests {
             &providers,
         );
         let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
-        assert!(answered.ends_with("Searched with Keenable."), "{answered}");
-        assert_eq!(providers.asked(), [0, 0, 1, 0]);
+        assert!(
+            answered.ends_with("Searched with Keenable, Firecrawl."),
+            "{answered}"
+        );
+        assert_eq!(providers.asked(), [0, 0, 1, 1]);
 
         let providers = Providers::new().await;
         let room = search_room(
@@ -2112,6 +2126,7 @@ mod tests {
         );
         let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
         assert!(answered.ends_with("Searched with Firecrawl."), "{answered}");
+        assert_eq!(providers.asked(), [0, 0, 0, 1]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2155,13 +2170,16 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_key_promotes_its_provider_and_never_reaches_the_model() {
+    async fn a_key_reaches_its_provider_and_never_the_model() {
         let providers = Providers::new().await;
         let room = search_room("ws-key", Arc::new(KeyedExa), None, &[], &providers);
         let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
-        assert!(answered.ends_with("Searched with Exa."), "{answered}");
+        assert!(
+            answered.ends_with("Searched with Parallel, Exa, Keenable, Firecrawl."),
+            "{answered}"
+        );
         assert!(!answered.contains(EXA_KEY));
-        assert_eq!(providers.asked(), [0, 1, 0, 0]);
+        assert_eq!(providers.asked(), [1, 1, 1, 1]);
         let sent = providers.exa.seen.lock().unwrap().remove(0);
         assert_eq!(sent.path, format!("/mcp?exaApiKey={EXA_KEY}"));
     }

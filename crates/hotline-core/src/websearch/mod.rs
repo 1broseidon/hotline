@@ -1,40 +1,48 @@
 //! Web search for every teammate, keyless by default.
 //!
 //! Four providers answer, each a port of ketch's: Parallel, Exa, Keenable and
-//! Firecrawl. A search tries them in a fixed order and returns the first that
-//! answers, so a rate-limited or broken one falls through to the next instead
-//! of failing the tool. An optional key per provider lifts its limits and
-//! moves it ahead of the keyless ones. Which providers a teammate's chain
-//! holds is the desk's switches intersected with the teammate's own policy;
-//! see [`effective_chain`].
+//! Firecrawl. A search asks every one that is switched on at once, as ketch's
+//! `multi.go` does, and fuses what comes back by Reciprocal Rank Fusion; a
+//! slow or broken provider costs its list, not the search. An optional key per
+//! provider gives its list a little more weight. Which providers a teammate
+//! searches with is the desk's switches intersected with the teammate's own
+//! policy; see [`effective_chain`].
 //!
-//! The room asks for one search and gets text. Nothing here holds a secret
-//! longer than a call: keys come in with the chain and are scrubbed from every
-//! error before it leaves.
+//! The results are then made fit to read, by `clean`, `rank` and `query`:
+//! error pages and page chrome out, duplicates and language mirrors merged,
+//! and a few small rules about what the query asked for. The room asks for one
+//! search and gets text. Nothing here holds a secret longer than a call: keys
+//! come in with the providers and are scrubbed from every error.
 
+pub mod canonical;
+pub mod clean;
 mod exa;
 mod firecrawl;
 mod keenable;
 mod mcp;
 mod parallel;
+pub mod query;
+pub mod rank;
 
 use crate::contract::{PolicyMode, WebSearchPolicy, WebSearchProvider};
 use async_trait::async_trait;
+use futures_util::StreamExt;
+use futures_util::stream::FuturesUnordered;
+use query::{Language, Query};
 use std::collections::{HashMap, HashSet};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub use exa::Exa;
 pub use firecrawl::Firecrawl;
 pub use keenable::Keenable;
 pub use parallel::Parallel;
 
-/// How long one provider may take. Ketch's multi-backend timeout: it clears
-/// a provider's slow path and still bounds the call.
-pub const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long one provider may take. Fan-out is parallel, so the search takes
+/// about the slowest provider, and this is what bounds it.
+pub const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// How long the whole chain may take. Attempts are sequential, so without it
-/// four slow providers would hold a search for forty seconds.
-pub const TOTAL_BUDGET: Duration = Duration::from_secs(30);
+/// How long the whole search may take. Whatever arrived by then is used.
+pub const TOTAL_BUDGET: Duration = Duration::from_secs(6);
 
 pub const DEFAULT_LIMIT: usize = 8;
 pub const MAX_LIMIT: usize = 20;
@@ -43,8 +51,14 @@ pub const MAX_QUERY_CHARS: usize = 400;
 /// The most of one snippet a model is shown.
 const SNIPPET_CHARS: usize = 300;
 
-/// The providers in the order they are tried when no key promotes one: ketch's
-/// rank order.
+/// How many results each provider is asked for: more than the limit, so fusion
+/// has overlap to work with, and no more than a provider's useful depth.
+pub fn depth_for(limit: usize) -> usize {
+    (limit * 2).clamp(10, 20)
+}
+
+/// The providers in ketch's AutoRank order: Parallel 70, Exa 80, Keenable 90,
+/// Firecrawl 110. Fusion does not depend on it beyond breaking ties.
 pub const ORDER: [WebSearchProvider; 4] = [
     WebSearchProvider::Parallel,
     WebSearchProvider::Exa,
@@ -151,13 +165,60 @@ pub(crate) fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// What a provider is asked.
+#[derive(Clone, Debug)]
+pub struct Request {
+    pub query: String,
+    /// How many results to ask for.
+    pub depth: usize,
+    /// The query's language, when it is detected with confidence and is not
+    /// English. Only passed where a provider's API takes it.
+    pub language: Option<Language>,
+    /// The query asks for the news or for now.
+    pub recency: bool,
+}
+
+impl Request {
+    pub fn new(query: &Query, limit: usize) -> Self {
+        Self {
+            query: query.text.clone(),
+            depth: depth_for(limit),
+            language: query.non_english(),
+            recency: query.recency,
+        }
+    }
+
+    /// A plain query at a depth, for a test or a smoke run.
+    pub fn plain(query: &str, depth: usize) -> Self {
+        Self {
+            query: query.to_string(),
+            depth,
+            language: None,
+            recency: false,
+        }
+    }
+
+    /// What to add to a natural-language `objective` for the providers whose
+    /// API takes the goal as a sentence and has no language or date field.
+    pub(crate) fn objective(&self) -> String {
+        let mut text = self.query.clone();
+        if let Some(language) = self.language {
+            text.push_str(&format!(" Prefer pages written in {}.", language.name));
+        }
+        if self.recency {
+            text.push_str(" Prefer recent news from the past week over index and tag pages.");
+        }
+        text
+    }
+}
+
 /// One provider, asked one question.
 #[async_trait]
 pub trait Searcher: Send + Sync {
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>, Failure>;
+    async fn search(&self, request: &Request) -> Result<Vec<Hit>, Failure>;
 }
 
-/// A built searcher for a provider, and the key it holds, so the chain can
+/// A built searcher for a provider, and the key it holds, so the search can
 /// scrub it from whatever goes wrong.
 pub struct Attempt {
     pub provider: WebSearchProvider,
@@ -254,19 +315,17 @@ pub fn normalize_setting(value: &serde_json::Value) -> Result<serde_json::Value,
     Ok(serde_json::json!({ "disabled": disabled }))
 }
 
-/// The providers a teammate's search tries, in order.
+/// The providers a teammate's search asks, in [`ORDER`].
 ///
 /// The desk's switches decide what exists: a provider switched off there is
-/// off for everyone. The teammate's policy then narrows it — absent or `all`
+/// off for everyone. The teammate's policy then narrows it: absent or `all`
 /// inherits whatever the desk has on, `none` leaves nothing, `some` keeps only
-/// what it names. A provider with a key moves ahead of the keyless ones, each
-/// group in [`ORDER`], as ketch's `autoPromoted` does.
+/// what it names.
 pub fn effective_chain(
     disabled_on_desk: &HashSet<WebSearchProvider>,
     policy: Option<&WebSearchPolicy>,
-    keyed: &HashSet<WebSearchProvider>,
 ) -> Vec<WebSearchProvider> {
-    let mut chain: Vec<WebSearchProvider> = ORDER
+    ORDER
         .into_iter()
         .filter(|provider| !disabled_on_desk.contains(provider))
         .filter(|provider| match policy {
@@ -277,29 +336,33 @@ pub fn effective_chain(
                 PolicyMode::Some => policy.providers.contains(provider),
             },
         })
-        .collect();
-    chain.sort_by_key(|provider| !keyed.contains(provider));
-    chain
+        .collect()
 }
 
-/// A search that tried the chain: who answered, what they said, and who
-/// failed first.
+/// A search that was answered: the results, who answered, and who did not.
 #[derive(Debug)]
 pub struct Answered {
-    pub provider: WebSearchProvider,
     pub hits: Vec<Hit>,
+    /// Said when the query's rare words matched no result.
+    pub note: Option<String>,
+    pub answered: Vec<WebSearchProvider>,
     pub failed: Vec<(WebSearchProvider, String)>,
 }
 
-/// The fallback chain: each attempt in order, each bounded by its own timeout,
-/// the whole bounded by a budget.
-pub struct Chain {
+/// The fan-out: every provider at once, each bounded by its own timeout, the
+/// whole by a budget, and what arrived fused.
+pub struct Search {
     attempts: Vec<Attempt>,
     timeout: Duration,
     budget: Duration,
 }
 
-impl Chain {
+enum Outcome {
+    Hits(Vec<Hit>),
+    Failed(String),
+}
+
+impl Search {
     pub fn new(attempts: Vec<Attempt>) -> Self {
         Self {
             attempts,
@@ -308,64 +371,105 @@ impl Chain {
         }
     }
 
-    /// Tighter bounds, so a test of the fallback does not take ten seconds.
+    /// Tighter bounds, so a test of the timeouts does not take seconds.
     pub fn with_bounds(mut self, timeout: Duration, budget: Duration) -> Self {
         self.timeout = timeout;
         self.budget = budget;
         self
     }
 
-    /// The first success. A response with no results is a success: falling
-    /// through on an empty set would turn every query nothing matches into a
-    /// sweep of every provider. The error names each provider tried and why.
-    pub async fn search(&self, query: &str, limit: usize) -> Result<Answered, String> {
-        let deadline = Instant::now() + self.budget;
-        let mut failed: Vec<(WebSearchProvider, String)> = Vec::new();
-        for attempt in &self.attempts {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(self.over_budget(&failed));
+    /// Asks every provider and fuses the answers. A response with no results
+    /// is an answer. The error, when none answered, names each provider and why.
+    pub async fn run(&self, query: &Query, limit: usize) -> Result<Answered, String> {
+        let request = Request::new(query, limit);
+        let mut pending: FuturesUnordered<_> = self
+            .attempts
+            .iter()
+            .enumerate()
+            .map(|(index, attempt)| {
+                let request = &request;
+                async move {
+                    let outcome =
+                        tokio::time::timeout(self.timeout, attempt.searcher.search(request)).await;
+                    let outcome = match outcome {
+                        Ok(Ok(hits)) => Outcome::Hits(hits),
+                        Ok(Err(failure)) => {
+                            Outcome::Failed(scrub(&failure.message, attempt.key.as_deref()))
+                        }
+                        Err(_) => Outcome::Failed(format!(
+                            "{}: timed out after {:?}",
+                            id(attempt.provider),
+                            self.timeout
+                        )),
+                    };
+                    (index, outcome)
+                }
+            })
+            .collect();
+        let mut outcomes: Vec<Option<Outcome>> = self.attempts.iter().map(|_| None).collect();
+        let deadline = tokio::time::sleep(self.budget);
+        tokio::pin!(deadline);
+        let mut over_budget = false;
+        loop {
+            tokio::select! {
+                next = pending.next() => match next {
+                    Some((index, outcome)) => outcomes[index] = Some(outcome),
+                    None => break,
+                },
+                () = &mut deadline => {
+                    over_budget = true;
+                    break;
+                }
             }
-            let allowed = remaining.min(self.timeout);
-            let outcome =
-                tokio::time::timeout(allowed, attempt.searcher.search(query, limit)).await;
-            let reason = match outcome {
-                Ok(Ok(hits)) => {
-                    return Ok(Answered {
+        }
+        drop(pending);
+
+        let mut sources = Vec::new();
+        let mut answered = Vec::new();
+        let mut failed = Vec::new();
+        for (attempt, outcome) in self.attempts.iter().zip(outcomes) {
+            match outcome {
+                Some(Outcome::Hits(hits)) => {
+                    answered.push(attempt.provider);
+                    sources.push(rank::Source {
                         provider: attempt.provider,
+                        keyed: attempt.key.is_some(),
                         hits,
-                        failed,
                     });
                 }
-                Ok(Err(failure)) => scrub(&failure.message, attempt.key.as_deref()),
-                Err(_) => format!("{}: timed out after {allowed:?}", id(attempt.provider)),
-            };
-            failed.push((attempt.provider, reason));
-            if Instant::now() >= deadline {
-                return Err(self.over_budget(&failed));
+                Some(Outcome::Failed(reason)) => failed.push((attempt.provider, reason)),
+                None => failed.push((
+                    attempt.provider,
+                    format!(
+                        "{}: timed out after {:?}",
+                        id(attempt.provider),
+                        self.budget
+                    ),
+                )),
             }
         }
-        Err(format!(
-            "all {} providers failed ({})",
-            self.attempts.len(),
-            reasons(&failed)
-        ))
-    }
-
-    fn over_budget(&self, failed: &[(WebSearchProvider, String)]) -> String {
-        if failed.is_empty() {
-            format!(
-                "web search exceeded its {:?} budget before any provider answered",
-                self.budget
-            )
-        } else {
-            format!(
-                "web search exceeded its {:?} budget after {} provider failures ({})",
-                self.budget,
-                failed.len(),
-                reasons(failed)
-            )
+        if answered.is_empty() {
+            return Err(if over_budget {
+                format!(
+                    "web search exceeded its {:?} budget before any provider answered ({})",
+                    self.budget,
+                    reasons(&failed)
+                )
+            } else {
+                format!(
+                    "all {} providers failed ({})",
+                    self.attempts.len(),
+                    reasons(&failed)
+                )
+            });
         }
+        let ranked = rank::rank(query, sources, limit);
+        Ok(Answered {
+            hits: ranked.hits,
+            note: ranked.note,
+            answered,
+            failed,
+        })
     }
 }
 
@@ -394,12 +498,27 @@ fn scrub(text: &str, key: Option<&str>) -> String {
     }
 }
 
-/// What the model reads: each result's title, URL and a trimmed snippet, then
-/// the provider that answered.
+/// A provider's failure in a word, for the line that says who was left out.
+fn why(reason: &str) -> &'static str {
+    if reason.contains("timed out") {
+        "timed out"
+    } else if reason.contains("rate limited") {
+        "rate limited"
+    } else {
+        "failed"
+    }
+}
+
+/// What the model reads: a note when the query's rare words matched nothing,
+/// each result's title, URL and a trimmed snippet, then who answered.
 pub fn render(answered: &Answered) -> String {
     let mut out = String::new();
+    if let Some(note) = &answered.note {
+        out.push_str(note);
+        out.push_str("\n\n");
+    }
     if answered.hits.is_empty() {
-        out.push_str("No results.\n");
+        out.push_str("No results.\n\n");
     }
     for (index, hit) in answered.hits.iter().enumerate() {
         out.push_str(&format!("{}. {}\n   {}\n", index + 1, hit.title, hit.url));
@@ -409,10 +528,17 @@ pub fn render(answered: &Answered) -> String {
         }
         out.push('\n');
     }
-    out.push_str(&format!(
-        "Searched with {}.",
-        display_name(answered.provider)
-    ));
+    let names: Vec<&str> = answered.answered.iter().map(|p| display_name(*p)).collect();
+    out.push_str(&format!("Searched with {}", names.join(", ")));
+    if !answered.failed.is_empty() {
+        let left: Vec<String> = answered
+            .failed
+            .iter()
+            .map(|(provider, reason)| format!("{} {}", display_name(*provider), why(reason)))
+            .collect();
+        out.push_str(&format!(" ({})", left.join(", ")));
+    }
+    out.push('.');
     out
 }
 

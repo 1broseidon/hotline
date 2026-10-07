@@ -2,7 +2,7 @@
 //! Keyless; a key, when there is one, goes as a bearer header for the higher
 //! limits Parallel gives a keyed caller.
 
-use super::{Failure, Hit, Searcher, bounded, mcp, one_line};
+use super::{Failure, Hit, Request, Searcher, bounded, mcp, one_line};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::json;
@@ -48,8 +48,11 @@ struct Raw {
 
 #[async_trait]
 impl Searcher for Parallel {
-    /// Parallel has no result-limit argument, so the limit is applied here.
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<Hit>, Failure> {
+    /// Parallel has no result-limit argument, so the depth is applied here. It has
+    /// no language or date field either, but `objective` is a sentence it reads,
+    /// so a language or a wish for recent news goes there.
+    async fn search(&self, request: &Request) -> Result<Vec<Hit>, Failure> {
+        let limit = request.depth;
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -60,7 +63,7 @@ impl Searcher for Parallel {
             self.key.as_deref(),
             self.key.is_some(),
             "web_search",
-            json!({ "objective": query, "search_queries": [query] }),
+            json!({ "objective": request.objective(), "search_queries": [request.query] }),
         )
         .await?;
         let mut hits = Vec::new();

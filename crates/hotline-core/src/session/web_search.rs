@@ -5,7 +5,7 @@
 //! hands them over.
 
 use super::Room;
-use crate::websearch::{self, Chain};
+use crate::websearch::{self, Search, query::Query};
 use serde_json::Value;
 
 impl Room {
@@ -37,11 +37,9 @@ impl Room {
         let settings = crate::room::try_settings(self.log())?;
         let persona = self.persona(persona_id)?;
         let keys = self.keys.web_search_keys();
-        let keyed = keys.keys().copied().collect();
         let providers = websearch::effective_chain(
             &websearch::disabled_on_desk(&settings),
             persona.web_search_policy.as_ref(),
-            &keyed,
         );
         if providers.is_empty() {
             return Err("Web search is switched off for you. The person can turn it on in Settings, Tools, or in your own tools.".to_string());
@@ -60,8 +58,8 @@ impl Room {
                 websearch::attempt(provider, &client, keys.get(&provider).cloned(), &endpoints)
             })
             .collect();
-        let answered = Chain::new(attempts)
-            .search(query, limit)
+        let answered = Search::new(attempts)
+            .run(&Query::parse(query), limit)
             .await
             .map_err(|error| format!("Web search failed: {error}."))?;
         Ok(websearch::render(&answered))

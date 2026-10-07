@@ -1,7 +1,7 @@
 //! Web search for every teammate, keyless by default.
 //!
 //! Four providers answer, each a port of ketch's: Parallel, Exa, Keenable and
-//! You.com. A search tries them in a fixed order and returns the first that
+//! Firecrawl. A search tries them in a fixed order and returns the first that
 //! answers, so a rate-limited or broken one falls through to the next instead
 //! of failing the tool. An optional key per provider lifts its limits and
 //! moves it ahead of the keyless ones. Which providers a teammate's chain
@@ -13,10 +13,10 @@
 //! error before it leaves.
 
 mod exa;
+mod firecrawl;
 mod keenable;
 mod mcp;
 mod parallel;
-mod youcom;
 
 use crate::contract::{PolicyMode, WebSearchPolicy, WebSearchProvider};
 use async_trait::async_trait;
@@ -24,9 +24,9 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 pub use exa::Exa;
+pub use firecrawl::Firecrawl;
 pub use keenable::Keenable;
 pub use parallel::Parallel;
-pub use youcom::Youcom;
 
 /// How long one provider may take. Ketch's multi-backend timeout: it clears
 /// a provider's slow path and still bounds the call.
@@ -49,7 +49,7 @@ pub const ORDER: [WebSearchProvider; 4] = [
     WebSearchProvider::Parallel,
     WebSearchProvider::Exa,
     WebSearchProvider::Keenable,
-    WebSearchProvider::Youcom,
+    WebSearchProvider::Firecrawl,
 ];
 
 /// The name a person reads for a provider.
@@ -58,7 +58,7 @@ pub fn display_name(provider: WebSearchProvider) -> &'static str {
         WebSearchProvider::Parallel => "Parallel",
         WebSearchProvider::Exa => "Exa",
         WebSearchProvider::Keenable => "Keenable",
-        WebSearchProvider::Youcom => "You.com",
+        WebSearchProvider::Firecrawl => "Firecrawl",
     }
 }
 
@@ -68,7 +68,7 @@ pub fn id(provider: WebSearchProvider) -> &'static str {
         WebSearchProvider::Parallel => "parallel",
         WebSearchProvider::Exa => "exa",
         WebSearchProvider::Keenable => "keenable",
-        WebSearchProvider::Youcom => "youcom",
+        WebSearchProvider::Firecrawl => "firecrawl",
     }
 }
 
@@ -85,16 +85,12 @@ pub struct Hit {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
     pub message: String,
-    /// The provider said the key it was given is no good, in a body it sent
-    /// with a success status.
-    pub(crate) rejected_key: bool,
 }
 
 impl Failure {
     pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            rejected_key: false,
         }
     }
 
@@ -176,7 +172,7 @@ pub struct Endpoints {
     pub parallel: String,
     pub exa: String,
     pub keenable: String,
-    pub youcom: String,
+    pub firecrawl: String,
 }
 
 impl Default for Endpoints {
@@ -185,7 +181,7 @@ impl Default for Endpoints {
             parallel: parallel::ENDPOINT.into(),
             exa: exa::ENDPOINT.into(),
             keenable: keenable::BASE.into(),
-            youcom: youcom::ENDPOINT.into(),
+            firecrawl: firecrawl::BASE.into(),
         }
     }
 }
@@ -206,7 +202,9 @@ pub fn attempt(
         WebSearchProvider::Keenable => {
             Box::new(Keenable::at(client, &endpoints.keenable, key.clone()))
         }
-        WebSearchProvider::Youcom => Box::new(Youcom::at(client, &endpoints.youcom, key.clone())),
+        WebSearchProvider::Firecrawl => {
+            Box::new(Firecrawl::at(client, &endpoints.firecrawl, key.clone()))
+        }
     };
     Attempt {
         provider,
@@ -233,7 +231,7 @@ pub fn disabled_on_desk(
 /// Checks a `webSearch` setting and writes it back in its one shape.
 pub fn normalize_setting(value: &serde_json::Value) -> Result<serde_json::Value, String> {
     let wrong = || {
-        "The webSearch setting must be an object whose disabled list names providers: parallel, exa, keenable or youcom."
+        "The webSearch setting must be an object whose disabled list names providers: parallel, exa, keenable or firecrawl."
             .to_string()
     };
     let object = value.as_object().ok_or_else(wrong)?;

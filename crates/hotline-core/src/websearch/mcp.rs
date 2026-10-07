@@ -1,7 +1,7 @@
 //! One session-less MCP `tools/call` over HTTP, as the hosted search servers
 //! take it.
 //!
-//! Parallel, Exa and You.com each answer a single JSON-RPC `tools/call` POST
+//! Parallel and Exa each answer a single JSON-RPC `tools/call` POST
 //! with either a JSON body or one SSE frame, with no `initialize` handshake
 //! first. That is simpler and faster than a full rmcp session for one call
 //! and it is what ketch does against the same endpoints, so it is the port.
@@ -144,7 +144,7 @@ fn decode(name: &str, raw: &str) -> Result<Answer, Failure> {
             .map(|block| block.text.trim())
             .find(|text| !text.is_empty())
             .unwrap_or("");
-        let mut failure = if detail.is_empty() {
+        let failure = if detail.is_empty() {
             Failure::new(format!("{name} search tool returned an error"))
         } else {
             Failure::new(format!(
@@ -152,7 +152,6 @@ fn decode(name: &str, raw: &str) -> Result<Answer, Failure> {
                 Failure::detail(detail)
             ))
         };
-        failure.rejected_key = detail.contains("401");
         return Err(failure);
     }
     Ok(Answer {

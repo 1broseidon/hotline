@@ -648,15 +648,15 @@ mod tests {
         event
     }
 
-    /// A teammate saved while Firecrawl was a provider still reads: the
-    /// provider is dropped from its policy, not the teammate from the room.
+    /// A teammate whose policy names a provider this build does not have
+    /// still reads: the provider is dropped from its policy, not the teammate from the room.
     #[test]
     fn a_teammate_whose_policy_names_a_provider_that_is_gone_still_loads() {
         let log = scratch("firecrawl-policy");
         let mut event = persona_event(&persona("ada", "Ada"));
         event["webSearchPolicy"] = json!({
             "mode": "some",
-            "providers": ["firecrawl", "exa", "brave", "youcom"],
+            "providers": ["youcom", "exa", "brave", "firecrawl"],
         });
         append(&log, &event);
         let ada = roster(&log)
@@ -669,13 +669,13 @@ mod tests {
             policy.providers,
             vec![
                 crate::contract::WebSearchProvider::Exa,
-                crate::contract::WebSearchProvider::Youcom
+                crate::contract::WebSearchProvider::Firecrawl
             ]
         );
         // Written back, it is in the new vocabulary only.
         assert_eq!(
             serde_json::to_value(&policy).unwrap(),
-            json!({"mode": "some", "providers": ["exa", "youcom"]})
+            json!({"mode": "some", "providers": ["exa", "firecrawl"]})
         );
     }
 

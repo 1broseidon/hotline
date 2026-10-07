@@ -297,9 +297,8 @@ pub struct WebSearchPolicy {
 }
 
 impl<'de> Deserialize<'de> for WebSearchPolicy {
-    /// Reads the providers it knows. A record written by an older build may
-    /// name one that is gone (`firecrawl`); it is left out rather than taking
-    /// the whole teammate with it.
+    /// Reads the providers it knows. One this build does not have is left out
+    /// rather than taking the whole teammate with it.
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct Raw {
@@ -318,18 +317,18 @@ impl<'de> Deserialize<'de> for WebSearchPolicy {
     }
 }
 
-/// The four providers web search has, in the order the chain tries them
-/// before any key promotes one. A record written by an older build may name
-/// one that is gone (`firecrawl`); it is left out on read rather than taking
-/// the whole teammate with it.
+/// The four providers web search has. The chain tries them Parallel, Exa,
+/// Keenable, Firecrawl before any key promotes one. A record may name one
+/// this build does not have; it is left out on read rather than taking the
+/// whole teammate with it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "lowercase")]
 #[ts(export, export_to = "contract.ts")]
 pub enum WebSearchProvider {
     Parallel,
     Exa,
+    Firecrawl,
     Keenable,
-    Youcom,
 }
 
 /// One provider as the Tools pane shows it: whether the desk has it on, and

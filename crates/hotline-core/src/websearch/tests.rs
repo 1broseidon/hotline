@@ -368,49 +368,56 @@ async fn keenable_rate_limit_tells_a_keyless_caller_a_key_lifts_it() {
     assert!(error.message.contains("add a key"));
 }
 
-// You.com -------------------------------------------------------------------
+// Firecrawl -----------------------------------------------------------------
 
-fn youcom_text() -> String {
-    json!({"results":{"web":[
-        {"title":"Go Docs","url":"https://go.dev/doc/","description":"The Go Programming Language","snippets":["Go is open source"]},
-        {"title":"Go Blog","url":"https://go.dev/blog/","description":"","snippets":["The Go Blog","Second"]},
-        {"title":"no url","url":"","description":"x","snippets":[]},
+fn firecrawl_body() -> String {
+    json!({"success":true,"data":{"web":[
+        {"title":"Go Docs","url":"https://go.dev/doc/","description":"The Go Programming Language"},
+        {"title":"no url","url":"","description":"x"},
+        {"title":"Go Blog","url":"https://go.dev/blog/","description":"The Go Blog"},
     ]}})
     .to_string()
 }
 
 #[tokio::test]
-async fn youcom_keyless_uses_the_free_profile_and_no_authorization() {
-    let server = mock(Reply::sse(Reply::tool_text(&youcom_text()))).await;
-    let hits = Youcom::at(http(), server.mcp(), None)
+async fn firecrawl_keyless_posts_the_v2_search_with_no_authorization() {
+    let server = mock(Reply::json(firecrawl_body())).await;
+    let hits = Firecrawl::at(http(), server.base.clone(), None)
         .search("golang", 5)
         .await
         .unwrap();
-    assert_eq!(hits.len(), 2);
-    assert_eq!(hits[0].snippet, "The Go Programming Language");
     assert_eq!(
-        hits[1].snippet, "The Go Blog",
-        "the first snippet stands in for a description"
+        hits,
+        vec![
+            Hit {
+                title: "Go Docs".into(),
+                url: "https://go.dev/doc/".into(),
+                snippet: "The Go Programming Language".into()
+            },
+            Hit {
+                title: "Go Blog".into(),
+                url: "https://go.dev/blog/".into(),
+                snippet: "The Go Blog".into()
+            },
+        ]
     );
     let seen = server.only();
-    assert_eq!(seen.path, "/mcp?profile=free");
+    assert_eq!(seen.path, "/v2/search");
     assert!(seen.header("authorization").is_none());
     let body = seen.json();
-    assert_eq!(body["params"]["name"], "you-search");
-    assert_eq!(body["params"]["arguments"]["query"], "golang");
-    assert_eq!(body["params"]["arguments"]["count"], 5);
-    assert_eq!(body["params"]["arguments"]["extraction"], "none");
+    assert_eq!(body["query"], "golang");
+    assert_eq!(body["limit"], 5);
 }
 
 #[tokio::test]
-async fn youcom_with_a_key_uses_the_keyed_endpoint_and_a_bearer() {
-    let server = mock(Reply::sse(Reply::tool_text(&youcom_text()))).await;
-    Youcom::at(http(), server.mcp(), Some(KEY.into()))
-        .search("golang", 5)
+async fn firecrawl_with_a_key_sends_a_bearer_and_respects_the_limit() {
+    let server = mock(Reply::json(firecrawl_body())).await;
+    let hits = Firecrawl::at(http(), server.base.clone(), Some(KEY.into()))
+        .search("golang", 1)
         .await
         .unwrap();
+    assert_eq!(hits.len(), 1);
     let seen = server.only();
-    assert_eq!(seen.path, "/mcp");
     assert_eq!(
         seen.header("authorization"),
         Some(format!("Bearer {KEY}").as_str())
@@ -418,36 +425,36 @@ async fn youcom_with_a_key_uses_the_keyed_endpoint_and_a_bearer() {
 }
 
 #[tokio::test]
-async fn youcom_reports_a_rejected_key_that_came_back_as_a_tool_error() {
-    let rpc = json!({"result":{"isError":true,"content":[{"type":"text","text":"HTTP 401 unauthorized"}]}});
-    let server = mock(Reply::sse(rpc.to_string())).await;
-    let error = Youcom::at(http(), server.mcp(), Some(KEY.into()))
-        .search("q", 5)
-        .await
-        .unwrap_err();
-    assert_eq!(
-        error.message,
-        "youcom: API key rejected (check it in Settings, Tools)"
-    );
-}
-
-#[tokio::test]
-async fn youcom_statuses_name_credits_and_limits() {
+async fn firecrawl_statuses_name_credits_limits_and_bad_keys() {
     let spent = mock(Reply::status(402, "")).await;
-    let error = Youcom::at(http(), spent.mcp(), Some(KEY.into()))
+    let error = Firecrawl::at(http(), spent.base.clone(), Some(KEY.into()))
         .search("q", 5)
         .await
         .unwrap_err();
     assert!(
-        error.message.starts_with("youcom: credits exhausted"),
+        error.message.starts_with("firecrawl: credits exhausted"),
         "{error}"
     );
     let limited = mock(Reply::status(429, "")).await;
-    let error = Youcom::at(http(), limited.mcp(), None)
+    let error = Firecrawl::at(http(), limited.base.clone(), None)
         .search("q", 5)
         .await
         .unwrap_err();
     assert!(error.message.contains("rate limited"), "{error}");
+    assert!(error.message.contains("add a key"), "{error}");
+    let denied = mock(Reply::status(401, "")).await;
+    let error = Firecrawl::at(http(), denied.base.clone(), Some(KEY.into()))
+        .search("q", 5)
+        .await
+        .unwrap_err();
+    assert!(error.message.contains("invalid API key"), "{error}");
+    assert!(!error.message.contains(KEY));
+    let broken = mock(Reply::status(500, "boom")).await;
+    let error = Firecrawl::at(http(), broken.base.clone(), None)
+        .search("q", 5)
+        .await
+        .unwrap_err();
+    assert_eq!(error.message, "firecrawl returned status 500: boom");
 }
 
 // The chain -----------------------------------------------------------------
@@ -572,8 +579,8 @@ async fn the_error_names_every_provider_tried_and_why() {
             &asked,
         ),
         scripted(
-            P::Youcom,
-            Err("youcom returned status 500"),
+            P::Firecrawl,
+            Err("firecrawl returned status 500"),
             Duration::ZERO,
             &asked,
         ),
@@ -581,7 +588,7 @@ async fn the_error_names_every_provider_tried_and_why() {
     let error = chain.search("q", 5).await.unwrap_err();
     assert_eq!(
         error,
-        "all 4 providers failed (parallel returned status 503; exa: rate limited; keenable: request failed: timed out; youcom returned status 500)"
+        "all 4 providers failed (parallel returned status 503; exa: rate limited; keenable: request failed: timed out; firecrawl returned status 500)"
     );
 }
 
@@ -598,7 +605,7 @@ async fn the_total_budget_stops_the_chain_and_names_who_failed_before_it() {
         ),
         scripted(P::Exa, Ok(vec![hit("x")]), slow, &asked),
         scripted(P::Keenable, Ok(vec![hit("y")]), slow, &asked),
-        scripted(P::Youcom, Ok(vec![hit("z")]), slow, &asked),
+        scripted(P::Firecrawl, Ok(vec![hit("z")]), slow, &asked),
     ])
     .with_bounds(Duration::from_millis(100), Duration::from_millis(150));
     let started = Instant::now();
@@ -612,7 +619,7 @@ async fn the_total_budget_stops_the_chain_and_names_who_failed_before_it() {
     assert!(error.contains("parallel returned status 500"), "{error}");
     assert!(error.contains("exa: timed out"), "{error}");
     assert!(
-        !asked.lock().unwrap().contains(&"youcom"),
+        !asked.lock().unwrap().contains(&"firecrawl"),
         "the budget spent, nothing else is tried"
     );
 }
@@ -638,9 +645,9 @@ async fn the_chain_falls_through_429_5xx_and_a_hang_to_the_provider_that_answers
     let limited = mock(Reply::status(429, "")).await;
     let broken = mock(Reply::status(503, "unavailable")).await;
     let hung = mock(Reply::json("{}").after(Duration::from_secs(5))).await;
-    let youcom_payload =
-        json!({"results":{"web":[{"title":"T","url":"https://t.example","description":"d"}]}});
-    let good = mock(Reply::sse(Reply::tool_text(&youcom_payload.to_string()))).await;
+    let payload =
+        json!({"data":{"web":[{"title":"T","url":"https://t.example","description":"d"}]}});
+    let good = mock(Reply::json(payload.to_string())).await;
     let client = http();
     let chain = Chain::new(vec![
         attempt(
@@ -671,18 +678,18 @@ async fn the_chain_falls_through_429_5xx_and_a_hang_to_the_provider_that_answers
             },
         ),
         attempt(
-            P::Youcom,
+            P::Firecrawl,
             &client,
             None,
             &Endpoints {
-                youcom: good.mcp(),
+                firecrawl: good.base.clone(),
                 ..Endpoints::default()
             },
         ),
     ])
     .with_bounds(Duration::from_millis(300), Duration::from_secs(5));
     let answered = chain.search("q", 5).await.unwrap();
-    assert_eq!(answered.provider, P::Youcom);
+    assert_eq!(answered.provider, P::Firecrawl);
     let reasons: Vec<&str> = answered
         .failed
         .iter()
@@ -699,7 +706,7 @@ async fn the_chain_falls_through_429_5xx_and_a_hang_to_the_provider_that_answers
     assert!(reasons[2].contains("timed out"), "{reasons:?}");
     assert_eq!(
         render(&answered),
-        "1. T\n   https://t.example\n   d\n\nSearched with You.com."
+        "1. T\n   https://t.example\n   d\n\nSearched with Firecrawl."
     );
 }
 
@@ -720,15 +727,15 @@ fn policy(mode: PolicyMode, providers: &[P]) -> WebSearchPolicy {
 fn every_provider_is_on_by_default_in_ketchs_order() {
     assert_eq!(
         effective_chain(&set(&[]), None, &set(&[])),
-        vec![P::Parallel, P::Exa, P::Keenable, P::Youcom]
+        vec![P::Parallel, P::Exa, P::Keenable, P::Firecrawl]
     );
 }
 
 #[test]
 fn a_key_moves_a_provider_ahead_of_the_keyless_ones() {
     assert_eq!(
-        effective_chain(&set(&[]), None, &set(&[P::Youcom, P::Exa])),
-        vec![P::Exa, P::Youcom, P::Parallel, P::Keenable]
+        effective_chain(&set(&[]), None, &set(&[P::Firecrawl, P::Exa])),
+        vec![P::Exa, P::Firecrawl, P::Parallel, P::Keenable]
     );
 }
 
@@ -737,7 +744,7 @@ fn the_desk_switch_wins_over_a_teammates_policy_and_a_key() {
     let all = policy(PolicyMode::All, &[]);
     assert_eq!(
         effective_chain(&set(&[P::Exa]), Some(&all), &set(&[P::Exa])),
-        vec![P::Parallel, P::Keenable, P::Youcom]
+        vec![P::Parallel, P::Keenable, P::Firecrawl]
     );
     let wants_exa = policy(PolicyMode::Some, &[P::Exa, P::Keenable]);
     assert_eq!(
@@ -748,10 +755,10 @@ fn the_desk_switch_wins_over_a_teammates_policy_and_a_key() {
 
 #[test]
 fn a_teammates_some_narrows_the_chain_and_none_empties_it() {
-    let some = policy(PolicyMode::Some, &[P::Youcom, P::Parallel]);
+    let some = policy(PolicyMode::Some, &[P::Firecrawl, P::Parallel]);
     assert_eq!(
         effective_chain(&set(&[]), Some(&some), &set(&[])),
-        vec![P::Parallel, P::Youcom]
+        vec![P::Parallel, P::Firecrawl]
     );
     let none = policy(PolicyMode::None, &[P::Exa]);
     assert!(effective_chain(&set(&[]), Some(&none), &set(&[])).is_empty());
@@ -761,7 +768,7 @@ fn a_teammates_some_narrows_the_chain_and_none_empties_it() {
 
 #[test]
 fn the_desk_setting_reads_leniently_and_is_written_in_one_shape() {
-    let settings = json!({"webSearch": {"disabled": ["exa", "firecrawl", 7]}});
+    let settings = json!({"webSearch": {"disabled": ["exa", "youcom", 7]}});
     assert_eq!(
         disabled_on_desk(settings.as_object().unwrap()),
         set(&[P::Exa])
@@ -769,8 +776,8 @@ fn the_desk_setting_reads_leniently_and_is_written_in_one_shape() {
     assert!(disabled_on_desk(&serde_json::Map::new()).is_empty());
 
     assert_eq!(
-        normalize_setting(&json!({"disabled": ["youcom", "parallel", "youcom"]})).unwrap(),
-        json!({"disabled": ["parallel", "youcom"]})
+        normalize_setting(&json!({"disabled": ["firecrawl", "parallel", "firecrawl"]})).unwrap(),
+        json!({"disabled": ["parallel", "firecrawl"]})
     );
     assert_eq!(
         normalize_setting(&json!({})).unwrap(),

@@ -1939,7 +1939,7 @@ mod tests {
         parallel: Mock,
         exa: Mock,
         keenable: Mock,
-        youcom: Mock,
+        firecrawl: Mock,
     }
 
     impl Providers {
@@ -1947,12 +1947,12 @@ mod tests {
             let parallel = json!({"results":[{"url":"https://parallel.example","title":"from parallel","excerpts":["p"]}]});
             let exa = "Title: from exa\nURL: https://exa.example\nsnippet";
             let keenable = json!({"results":[{"title":"from keenable","url":"https://keenable.example","snippet":"k"}]});
-            let youcom = json!({"results":{"web":[{"title":"from youcom","url":"https://youcom.example","description":"y"}]}});
+            let firecrawl = json!({"success":true,"data":{"web":[{"title":"from firecrawl","url":"https://firecrawl.example","description":"f"}]}});
             Self {
                 parallel: mock(Reply::json(Reply::tool_text(&parallel.to_string()))).await,
                 exa: mock(Reply::sse(Reply::tool_text(exa))).await,
                 keenable: mock(Reply::json(keenable.to_string())).await,
-                youcom: mock(Reply::sse(Reply::tool_text(&youcom.to_string()))).await,
+                firecrawl: mock(Reply::json(firecrawl.to_string())).await,
             }
         }
 
@@ -1961,7 +1961,7 @@ mod tests {
                 parallel: self.parallel.mcp(),
                 exa: self.exa.mcp(),
                 keenable: self.keenable.base.clone(),
-                youcom: self.youcom.mcp(),
+                firecrawl: self.firecrawl.base.clone(),
             }
         }
 
@@ -1970,7 +1970,7 @@ mod tests {
                 self.parallel.seen.lock().unwrap().len(),
                 self.exa.seen.lock().unwrap().len(),
                 self.keenable.seen.lock().unwrap().len(),
-                self.youcom.seen.lock().unwrap().len(),
+                self.firecrawl.seen.lock().unwrap().len(),
             ]
         }
     }
@@ -2089,7 +2089,7 @@ mod tests {
         let providers = Providers::new().await;
         let policy = WebSearchPolicy {
             mode: PolicyMode::Some,
-            providers: vec![WebSearchProvider::Keenable, WebSearchProvider::Youcom],
+            providers: vec![WebSearchProvider::Keenable, WebSearchProvider::Firecrawl],
         };
         let room = search_room(
             "ws-some",
@@ -2111,7 +2111,7 @@ mod tests {
             &providers,
         );
         let answered = through_rig(&tools(&room), WEB_SEARCH, json!({ "query": "rust" })).await;
-        assert!(answered.ends_with("Searched with You.com."), "{answered}");
+        assert!(answered.ends_with("Searched with Firecrawl."), "{answered}");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2140,7 +2140,7 @@ mod tests {
             "ws-all-off",
             Arc::new(NoKeys),
             None,
-            &["parallel", "exa", "keenable", "youcom"],
+            &["parallel", "exa", "keenable", "firecrawl"],
             &providers,
         );
         let refusal = tools(&room)
@@ -2174,7 +2174,7 @@ mod tests {
             parallel: broken("down".into()).await,
             exa: broken(echo).await,
             keenable: broken("down".into()).await,
-            youcom: mock(Reply::status(429, "")).await,
+            firecrawl: mock(Reply::status(429, "")).await,
         };
         let room = search_room("ws-fail", Arc::new(KeyedExa), None, &[], &providers);
         let error = tools(&room)
@@ -2189,7 +2189,7 @@ mod tests {
             "parallel returned status 500",
             "exa returned status 500",
             "keenable returned status 500",
-            "youcom: rate limited",
+            "firecrawl: rate limited",
         ] {
             assert!(error.contains(name), "{name} missing from {error}");
         }

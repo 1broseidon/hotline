@@ -6530,7 +6530,7 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
             {"provider": "parallel", "name": "Parallel", "enabled": true, "hasKey": false},
             {"provider": "exa", "name": "Exa", "enabled": true, "hasKey": false},
             {"provider": "keenable", "name": "Keenable", "enabled": true, "hasKey": false},
-            {"provider": "youcom", "name": "You.com", "enabled": true, "hasKey": false},
+            {"provider": "firecrawl", "name": "Firecrawl", "enabled": true, "hasKey": false},
         ])
     );
 
@@ -6607,7 +6607,7 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
         log,
         ask(
             "websearch.set_key",
-            json!({"provider": "firecrawl", "key": key}),
+            json!({"provider": "brave", "key": key}),
         ),
     )
     .await;

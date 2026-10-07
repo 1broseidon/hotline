@@ -1691,12 +1691,12 @@ directAvailable?: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceMo
 export type WebSearchPolicy = { mode: PolicyMode, providers: Array<WebSearchProvider>, };
 
 /**
- * The four providers web search has, in the order the chain tries them
- * before any key promotes one. A record written by an older build may name
- * one that is gone (`firecrawl`); it is left out on read rather than taking
- * the whole teammate with it.
+ * The four providers web search has. The chain tries them Parallel, Exa,
+ * Keenable, Firecrawl before any key promotes one. A record may name one
+ * this build does not have; it is left out on read rather than taking the
+ * whole teammate with it.
  */
-export type WebSearchProvider = "parallel" | "exa" | "keenable" | "youcom";
+export type WebSearchProvider = "parallel" | "exa" | "firecrawl" | "keenable";
 
 /**
  * One provider as the Tools pane shows it: whether the desk has it on, and

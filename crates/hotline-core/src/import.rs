@@ -1138,7 +1138,7 @@ mod tests {
         assert_eq!(fingerprint(&from), before);
     }
 
-    /// Firecrawl is not a provider any more. A teammate imported with it in
+    /// A provider this build lacks (`youcom`). A teammate imported with it in
     /// its web search policy keeps the rest of the policy, not a stripped one.
     #[test]
     fn an_imported_policy_keeps_the_providers_this_build_has() {
@@ -1147,7 +1147,7 @@ mod tests {
             "cwd": "/tmp/ada", "createdAt": 1, "updatedAt": 1,
             "mcpPolicy": { "mode": "none", "serverIds": [] },
             "backgroundWork": false, "sessionCheckpoints": [],
-            "webSearchPolicy": { "mode": "some", "providers": ["firecrawl", "keenable"] },
+            "webSearchPolicy": { "mode": "some", "providers": ["youcom", "keenable"] },
         });
         let persona = persona_from_legacy(legacy).unwrap();
         assert_eq!(

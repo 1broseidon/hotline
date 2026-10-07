@@ -857,6 +857,100 @@
 	}
 
 	/* ------------------------------------------------------------- avatar */
+	/* The rail's account button: which desk the window shows. As wide as
+	 * its tile and name, flat until hovered, like an account switcher. */
+	.account {
+		display: inline-flex;
+		max-width: 100%;
+		height: 30px;
+		align-items: center;
+		gap: 8px;
+		padding: 0 6px 0 3px;
+		border-radius: var(--radius-card);
+		color: var(--ink);
+		font-size: var(--text-md);
+		font-weight: 600;
+		transition: background-color var(--dur-press) var(--ease-out);
+	}
+	.account:hover,
+	.account[aria-expanded="true"] {
+		background: var(--fill-hover);
+	}
+	/* Faces only: the tile alone, a teammate face's width; unread elsewhere
+	 * is a dot on its corner. */
+	.account-compact {
+		position: relative;
+		width: 36px;
+		height: 36px;
+		justify-content: center;
+		padding: 0;
+	}
+	.account-compact .account-tile {
+		width: 28px;
+		height: 28px;
+		border-radius: 8px;
+	}
+	.account-compact .account-unread {
+		position: absolute;
+		top: 3px;
+		right: 3px;
+		box-shadow: 0 0 0 2px var(--well);
+	}
+	.account-tile {
+		position: relative;
+		display: inline-grid;
+		width: 24px;
+		height: 24px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 7px;
+		color: var(--face-ink);
+		font-size: 12px;
+		font-weight: 700;
+		box-shadow: inset 0 0 0 var(--hairline) oklch(100% 0 0 / 0.12);
+	}
+	.account-tile[data-local] {
+		background: var(--accent-soft);
+		color: var(--accent-ink);
+	}
+	.account-tile svg {
+		width: 14px;
+		height: 14px;
+	}
+	/* A remote desk that is not open says so on its tile's corner. */
+	.account-state {
+		position: absolute;
+		right: -2px;
+		bottom: -2px;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--warn);
+		box-shadow: 0 0 0 2px var(--well);
+	}
+	.account-state[data-state="unreachable"] {
+		background: var(--danger);
+	}
+	.account-state[data-state="revoked"] {
+		background: var(--ink-4);
+	}
+	.account-name {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.account-unread {
+		width: 6px;
+		height: 6px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: var(--accent);
+	}
+	.account-chevron {
+		flex-shrink: 0;
+		color: var(--ink-3);
+	}
 	.avatar {
 		display: inline-grid;
 		flex-shrink: 0;

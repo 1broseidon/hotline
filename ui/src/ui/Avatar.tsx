@@ -70,7 +70,7 @@ function usePicture(personaId: string, hash: string | undefined, read?: AvatarRe
 	return hash !== undefined && loaded?.hash === hash ? loaded.url : undefined;
 }
 
-function faceOf(personaId: string): string {
+export function faceOf(personaId: string): string {
 	let hash = 0;
 	for (let index = 0; index < personaId.length; index++) {
 		hash = (hash * 31 + personaId.charCodeAt(index)) % 1_000_003;
@@ -79,6 +79,6 @@ function faceOf(personaId: string): string {
 }
 
 /** The first letter that is one, so "⌘kill bill" and " Ada" both read right. */
-function initialOf(name: string): string {
+export function initialOf(name: string): string {
 	return (name.match(/\p{L}|\p{N}/u)?.[0] ?? "?").toUpperCase();
 }

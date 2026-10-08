@@ -181,7 +181,7 @@ export function Welcome({
 			<Stage page={page}>
 				<div className="welcome-hero">
 					<span className="welcome-mark">
-						<HotlineMark width={112} />
+						<HotlineMark width={112} plain />
 					</span>
 					<h1 className="welcome-title">Welcome to Hotline</h1>
 					<p className="welcome-lead">

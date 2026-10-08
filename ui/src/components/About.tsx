@@ -33,7 +33,7 @@ export function About({ onClose }: { onClose(): void }) {
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
 					<section className="flex items-start gap-4">
-						<HotlineMark className="mt-1 shrink-0 text-ink-3" width={44} />
+						<HotlineMark className="mt-1 shrink-0 text-ink-3" width={44} plain />
 						<div>
 							<h3 className="text-xl font-semibold">Hotline</h3>
 							<p className="mt-1 text-ink-2">{WHAT}</p>

@@ -74,7 +74,7 @@ export function CallFloat({
 					if (speaking) call.interrupt();
 				}}
 			>
-				{call.target === undefined ? <HotlineMark width={44} /> :
+				{call.target === undefined ? <HotlineMark width={44} plain /> :
 					<Avatar id={call.target.personaId} name={call.target.name} hash={call.target.avatarHash} size={44} read={call.readAvatar} />}
 			</button>
 

@@ -38,12 +38,13 @@ One family, **Workbench**, for every screen:
   desk phone's handset sits in the cradle, cut from them by a gap. At
   24px and under, and on the mark that moves, it draws the brow: a slim,
   straight handset whose wider cut survives as a pixel
-  (`ui/src/ui/receiver.ts` holds both). The titlebar and the tray wear
-  the toad alone; the handset is what the mark does, and chrome is at
-  rest. In chrome it is ink-3, the colour of a reading, never the accent:
-  the accent is for what is happening, and the mark is furniture. The app
-  tile is the drawing with its handset in the accent on a dark rounded
-  square (`assets/hotline-tile.svg`).
+  (`ui/src/ui/receiver.ts` holds both). The handset is what the mark
+  does, at work; the logo is at rest. So the toad alone is the logo and
+  the app icon: the titlebar, the tray, the welcome, About, a call to the
+  desk, and the app tile, the toad in the accent on a dark rounded square
+  (`assets/hotline-tile.svg`). In chrome it is ink-3, the colour of a
+  reading, never the accent: the accent is for what is happening, and the
+  mark is furniture.
 - The **well** is the window's ground. The rail stands directly in it.
 - A **pane** is a rounded canvas set 8px into the well with one hairline
   at its edge and a 1px light along its top: the conversation, the

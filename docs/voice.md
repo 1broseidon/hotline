@@ -540,5 +540,22 @@ and through `resolve`, on a scratch data directory:
 OPENAI_API_KEY=... GEMINI_API_KEY=... cargo run -p hotline-core --example speech_check
 ```
 
+`local_speech_check` downloads one of the desk's own models from its pinned
+release, verifies and unpacks it through the desk's own code, and hears the
+speech fixtures with it, on a scratch data directory, printing how long each
+step took. It is the check that the pinned archive is still there and the
+engine links and runs on the machine at hand:
+
+```sh
+cargo run --release -p hotline-core --example local_speech_check -- parakeet-tdt-110m-en
+```
+
+On an M5 Max over a home line the English model took 5 seconds to fetch,
+check and unpack and Parakeet 24; the first clip after that took 0.5 and 1.8
+seconds (loading, and the run's one hash check), and each clip after it 40
+and 150 ms.
+
 The tests in `voice/speech/` use mock servers on localhost and never reach the
-network.
+network. `tests/local_speech.rs` serves small fake archives on localhost, and
+runs a real model only when `HOTLINE_TEST_SPEECH_MODEL` names a directory
+holding one.

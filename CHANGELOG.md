@@ -8,7 +8,36 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-10-08
+
 ### Added
+
+- A new room opens on a welcome that fills the window and walks you through
+  setup in plain words: what Hotline is, four things that set it apart
+  (it runs on your computer, you bring your own AI, a teammate can have a
+  computer of its own, and you can check in from your phone), how
+  teammates think — Hotline Agent, recommended, or an AI coding tool you
+  already have — then connecting an AI service from six popular cards
+  (Anthropic, ChatGPT, OpenRouter, xAI, Ollama, Copilot, with the rest a
+  click away), and your first teammate. Once a service is connected the
+  page folds to one card and Continue.
+- On a Mac, a call hears you on the Mac itself, free and private, with
+  Apple's on-device speech recognition (SpeechAnalyzer on macOS 26 and
+  later). Calls then need a voice but no transcription provider, and
+  Hearing offers On this Mac beside the desk's choices, kept per computer.
+- The composer's microphone dictates: tap to start and stop, or hold to
+  talk, and your words fill the field for you to review. Settings ›
+  General › Shortcuts has Dictate (⌃⌥H by default) and Conversation, which
+  work from any app, and After you stop talking can send the words itself
+  after a second and a half, with Esc to cancel. Calling a teammate is the
+  phone key in the conversation's band.
+- A call shows the phone's animation: the desk's toad opens its mouth with
+  the reply, bars round the mark follow the voice, and an arc runs while
+  the teammate works.
+- New teammate is one card for the name and the job, with goals to start
+  from and a die that suggests a name, and every other choice folded to a
+  good default.
+- Skills can be offered to teammates all at once.
 
 - A teammate can be given extra folders besides its own: a repository it
   should read, or a second project it may edit, without Whole machine. In
@@ -22,7 +51,6 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   teammate, and its computer, so a folder taken away is gone at the next
   step. The home folder, `/`, Hotline's own data and the teammate's own
   workspace cannot be added.
-
 - The desk can hear you itself, free and private, on macOS, Windows, Linux
   and a headless server. Settings › Providers › Use for › Voice › Hearing
   lists two speech models to download once: Parakeet, 25 European languages
@@ -37,6 +65,26 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   hear you through the desk, with the meter following your voice and the
   words filling in about once a second. A Mac uses the desk too when its
   Hearing is set to something other than On this Mac.
+
+### Changed
+
+- The agent picker shows Hotline Agent on its own, with a link to
+  Settings › Providers and the providers it can run on now, and the agents
+  you already use (Codex, Claude Code, Cursor and others) as a second list.
+- The app icon and the logo are the toad alone, and the titlebar's mark sits
+  at the window's centre.
+- A Mac's release is built with Xcode 26, and the desk's speech engine is
+  linked only from an archive whose checksum matches the one pinned in the
+  repository.
+
+### Fixed
+
+- Calling the desk is offered as soon as a provider can hear and speak,
+  without restarting Hotline.
+- A Grok sign-in shows Voice among what it can do.
+- A spending limit of zero turns paid voice off but leaves a subscription's
+  free voice working, and the call assistant no longer counts a sign-in or a
+  local model against the limit.
 
 ## [0.34.0] - 2026-10-07
 

@@ -8,16 +8,27 @@ use tokio::process::Command;
 
 const UNAVAILABLE: &str = "The protected shell needs working macOS Seatbelt enforcement, but its isolation probe failed. Restart Hotline after checking macOS support, or explicitly enable Whole machine to use an unrestricted shell.";
 
-pub(super) fn command(command: &str, workspace: &Path) -> Result<Command, String> {
+pub(super) fn command(
+    command: &str,
+    workspace: &Path,
+    folders: &[(PathBuf, bool)],
+) -> Result<Command, String> {
     let workspace = workspace
         .canonicalize()
         .map_err(|error| format!("Cannot open the shell workspace: {error}"))?;
     if workspace.to_str().is_none() {
         return Err("Protected shell workspace paths must be UTF-8.".into());
     }
+    // A Seatbelt string cannot spell a non-UTF-8 path, and an empty rule
+    // would grant nothing it names; leave such a folder out of the shell.
+    let folders: Vec<(PathBuf, bool)> = folders
+        .iter()
+        .filter(|(path, _)| path.to_str().is_some())
+        .cloned()
+        .collect();
     let host_home = std::env::var_os("HOME").map(PathBuf::from);
     let runtimes = runtimes(host_home.as_deref());
-    let mut process = launcher(&workspace, &runtimes);
+    let mut process = launcher(&workspace, &runtimes, &folders);
     let home = workspace.join(".hotline-home");
     let mut env = vec![
         ("PATH", sandbox_path(&runtimes, &home)?),
@@ -101,7 +112,7 @@ fn probe(executable: &Path) -> Result<(), String> {
     let mut process = std::process::Command::new(executable);
     process
         .env_clear()
-        .args(["-p", &profile(&workspace, &runtimes(None))]);
+        .args(["-p", &profile(&workspace, &runtimes(None), &[])]);
     process.current_dir(&workspace).args([
         "/bin/sh", "-c",
         "echo probe > allowed && /bin/cat allowed >/dev/null && ! /bin/cat ../denied >/dev/null 2>&1 && ! /bin/sh -c 'echo changed > ../denied' 2>/dev/null",
@@ -133,12 +144,12 @@ fn probe(executable: &Path) -> Result<(), String> {
     }
 }
 
-fn launcher(workspace: &Path, runtimes: &[PathBuf]) -> Command {
+fn launcher(workspace: &Path, runtimes: &[PathBuf], folders: &[(PathBuf, bool)]) -> Command {
     // Never resolve the unsandboxed launcher through a project-controlled PATH.
     let mut process = Command::new("/usr/bin/sandbox-exec");
     process
         .env_clear()
-        .args(["-p", &profile(workspace, runtimes)]);
+        .args(["-p", &profile(workspace, runtimes, folders)]);
     process.current_dir(workspace);
     process
 }
@@ -261,7 +272,10 @@ fn quote(path: &Path) -> String {
         .replace('"', "\\\"")
 }
 
-fn profile(workspace: &Path, runtimes: &[PathBuf]) -> String {
+/// The policy: runtimes read-only, each granted folder read-only or
+/// read-write, the workspace read-write. Seatbelt checks the resolved path,
+/// so a symlink inside a folder that points elsewhere opens nothing.
+fn profile(workspace: &Path, runtimes: &[PathBuf], folders: &[(PathBuf, bool)]) -> String {
     let mut policy = String::from(
         r#"(version 1)
 (deny default)
@@ -305,12 +319,28 @@ fn profile(workspace: &Path, runtimes: &[PathBuf]) -> String {
             quote(path)
         ));
     }
+    for (path, writable) in folders {
+        let operations = if *writable {
+            "file-read* file-write* file-map-executable"
+        } else {
+            "file-read* file-map-executable"
+        };
+        policy.push_str(&format!(
+            "(allow {operations} (subpath \"{}\"))\n",
+            quote(path)
+        ));
+    }
     policy.push_str(&format!(
         "(allow file-read* file-write* file-map-executable (subpath \"{}\"))\n",
         quote(workspace)
     ));
     // getcwd and runtime path resolution need ancestor metadata, never data.
-    for path in runtimes.iter().map(PathBuf::as_path).chain([workspace]) {
+    for path in runtimes
+        .iter()
+        .chain(folders.iter().map(|(path, _)| path))
+        .map(PathBuf::as_path)
+        .chain([workspace])
+    {
         for ancestor in path.ancestors().skip(1) {
             policy.push_str(&format!(
                 "(allow file-read-metadata (literal \"{}\"))\n",
@@ -327,7 +357,11 @@ mod tests {
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     async fn output(workspace: &Path, script: &str) -> std::process::Output {
-        command(script, workspace).unwrap().output().await.unwrap()
+        command(script, workspace, &[])
+            .unwrap()
+            .output()
+            .await
+            .unwrap()
     }
 
     #[test]
@@ -532,12 +566,90 @@ mod tests {
             "project/.env",
             ".cargo/bin/redirect/.env",
         ] {
-            let mut process = launcher(&work, &runtimes);
+            let mut process = launcher(&work, &runtimes, &[]);
             process.arg("/bin/cat").arg(host_home.join(relative));
             let result = process.output().await.unwrap();
             assert!(!result.status.success(), "{result:?}");
             assert!(!String::from_utf8_lossy(&result.stdout).contains("host-canary"));
         }
+    }
+
+    #[test]
+    fn granted_folders_are_in_the_profile_with_their_modes() {
+        let policy = profile(
+            Path::new("/work"),
+            &[],
+            &[
+                (PathBuf::from("/granted/read"), false),
+                (PathBuf::from("/granted/write \"quoted\""), true),
+            ],
+        );
+        assert!(
+            policy.contains("(allow file-read* file-map-executable (subpath \"/granted/read\"))"),
+            "{policy}"
+        );
+        assert!(
+            policy.contains(
+                "(allow file-read* file-write* file-map-executable (subpath \"/granted/write \\\"quoted\\\"\"))"
+            ),
+            "{policy}"
+        );
+        assert!(!policy.contains("file-write* file-map-executable (subpath \"/granted/read\")"));
+        assert!(policy.contains("(allow file-read-metadata (literal \"/granted\"))"));
+    }
+
+    /// Through the real launcher: a read-only folder is read and not
+    /// changed, a writable one is changed, and a link out of either opens
+    /// nothing, because Seatbelt checks where a path resolves.
+    #[tokio::test]
+    async fn granted_folders_are_open_to_the_shell_as_granted() {
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path().canonicalize().unwrap();
+        let [work, read_only, writable, outside] =
+            ["work", "read", "write", "outside"].map(|name| root.join(name));
+        for directory in [&work, &read_only, &writable, &outside] {
+            std::fs::create_dir(directory).unwrap();
+        }
+        std::fs::write(read_only.join("notes.txt"), "granted").unwrap();
+        std::fs::write(outside.join("secret.txt"), "host-canary").unwrap();
+        symlink(outside.join("secret.txt"), read_only.join("escape")).unwrap();
+        let folders = [(read_only.clone(), false), (writable.clone(), true)];
+        let run = |script: String| {
+            let folders = folders.clone();
+            let work = work.clone();
+            async move {
+                command(&script, &work, &folders)
+                    .unwrap()
+                    .output()
+                    .await
+                    .unwrap()
+            }
+        };
+        let read = run(format!("cat '{}'", read_only.join("notes.txt").display())).await;
+        assert!(read.status.success(), "{read:?}");
+        assert_eq!(read.stdout, b"granted");
+        let changed = run(format!(
+            "echo x > '{}'",
+            writable.join("made.txt").display()
+        ))
+        .await;
+        assert!(changed.status.success(), "{changed:?}");
+        assert!(writable.join("made.txt").exists());
+        for script in [
+            format!("echo x > '{}'", read_only.join("made.txt").display()),
+            format!("echo x > '{}'", read_only.join("notes.txt").display()),
+            format!("cat '{}'", read_only.join("escape").display()),
+            format!("cat '{}'", outside.join("secret.txt").display()),
+        ] {
+            let result = run(script.clone()).await;
+            assert!(!result.status.success(), "{script}: {result:?}");
+            assert!(!String::from_utf8_lossy(&result.stdout).contains("host-canary"));
+        }
+        assert!(!read_only.join("made.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(read_only.join("notes.txt")).unwrap(),
+            "granted"
+        );
     }
 
     #[test]

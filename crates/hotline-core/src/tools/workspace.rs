@@ -1,5 +1,5 @@
 use super::ToolError;
-use crate::contract::Reach;
+use crate::contract::{FolderGrant, Reach};
 use crate::driver::CapabilityLease;
 use cap_std::{
     ambient_authority,
@@ -56,7 +56,28 @@ struct WorkspaceInner {
     /// writes may not. The first overflow creates it, so it may be
     /// missing when the turn starts.
     overflow: PathBuf,
+    /// The person's extra folders, opened once. Only workspace reach has
+    /// them: whole-machine reach already opens everything from the root.
+    folders: Vec<Folder>,
     capability: Option<CapabilityLease>,
+}
+
+/// One granted folder, held as its own cap-std handle so a path resolved in
+/// it is confined to it exactly as a workspace path is to the workspace.
+struct Folder {
+    /// Its canonical path: an absolute request reaches the folder only by
+    /// naming this.
+    path: PathBuf,
+    dir: Dir,
+    writable: bool,
+}
+
+/// Which handle a resolved path is inside: the working directory (or, with
+/// whole-machine reach, the root), or one granted folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Place {
+    Root,
+    Folder(usize),
 }
 
 #[derive(Clone)]
@@ -66,13 +87,14 @@ pub struct Workspace {
 
 impl Workspace {
     pub fn open(cwd: PathBuf, reach: Reach, overflow: PathBuf) -> Result<Self, ToolError> {
-        Self::open_with_capability(cwd, reach, overflow, None)
+        Self::open_with_capability(cwd, reach, overflow, &[], None)
     }
 
     pub(crate) fn open_with_capability(
         cwd: PathBuf,
         reach: Reach,
         overflow: PathBuf,
+        folders: &[FolderGrant],
         capability: Option<CapabilityLease>,
     ) -> Result<Self, ToolError> {
         let callback_cwd = if cwd.is_absolute() {
@@ -102,6 +124,10 @@ impl Workspace {
                 root.display()
             ))
         })?;
+        let folders = match reach {
+            Reach::Workspace => open_folders(folders, &cwd),
+            Reach::Machine => Vec::new(),
+        };
         Ok(Self {
             inner: Arc::new(WorkspaceInner {
                 cwd,
@@ -110,9 +136,20 @@ impl Workspace {
                 dir,
                 reach,
                 overflow,
+                folders,
                 capability,
             }),
         })
+    }
+
+    /// The folders this handle opened, with whether each may be changed, for
+    /// the shell to grant the same set.
+    pub(crate) fn folders(&self) -> Vec<(PathBuf, bool)> {
+        self.inner
+            .folders
+            .iter()
+            .map(|folder| (folder.path.clone(), folder.writable))
+            .collect()
     }
 
     /// Checks the authority immediately before a built-in operation starts.
@@ -149,14 +186,8 @@ impl Workspace {
         // Protocol callbacks have no overflow namespace: they are the
         // harness's view of the workspace itself, never a way to reach a
         // result spill directory owned by Hotline.
-        let relative = self.canonical_subpath(&requested, false)?;
-        let dir = self.inner.dir.try_clone().map_err(|error| {
-            ToolError::new(format!(
-                "The Hotline workspace {} could not be opened: {error}",
-                self.inner.root.display()
-            ))
-        })?;
-        let file = dir.open(&relative)?;
+        let (place, relative) = self.canonical_subpath(&requested, false)?;
+        let file = self.dir(place).open(&relative)?;
         let mut bytes = Vec::new();
         file.take(MAX_WRITE_BYTES as u64 + 1)
             .read_to_end(&mut bytes)?;
@@ -189,8 +220,8 @@ impl Workspace {
     ) -> Result<Option<String>, ToolError> {
         self.check_capability()?;
         let requested = self.callback_path(path)?;
-        let relative = self.requested_relative(&requested, false)?;
-        let Some(bytes) = self.read_optional(&relative)? else {
+        let (place, relative) = self.locate(&requested, false)?;
+        let Some(bytes) = self.read_optional(place, &relative)? else {
             return Ok(None);
         };
         let text = String::from_utf8(bytes)
@@ -210,9 +241,12 @@ impl Workspace {
             )));
         }
         let requested = self.callback_path(path)?;
-        let relative = self.requested_relative(&requested, false)?;
+        let (place, relative) = self.locate(&requested, false)?;
+        // Refused before a parent directory is made, so a read-only folder
+        // never gains an empty directory from a write it then refuses.
+        self.require_writable(place, &requested)?;
         if let Some(parent) = relative.parent() {
-            self.ensure_parent(parent)?;
+            self.ensure_parent(place, parent)?;
         }
         let mutation = self.prepare_write(WriteFileArgs {
             path: requested,
@@ -226,15 +260,22 @@ impl Workspace {
     /// Workspace's relative vocabulary. A Workspace never accepts a path
     /// that is merely lexically outside and hopes canonicalization will bring
     /// it back; callers have to name a path under the captured root.
+    /// An absolute path in a granted folder is kept absolute, which is how
+    /// [`Self::locate`] tells it is the folder's.
     fn callback_path(&self, path: &Path) -> Result<String, ToolError> {
         let relative = if self.inner.reach == Reach::Workspace && path.is_absolute() {
-            path.strip_prefix(&self.inner.cwd)
+            match path
+                .strip_prefix(&self.inner.cwd)
                 .or_else(|_| path.strip_prefix(&self.inner.callback_cwd))
-                .map_err(|_| {
-                    ToolError::permission_denied(
-                        "The ACP file callback may only access the teammate's workspace.",
-                    )
-                })?
+            {
+                Ok(relative) => relative,
+                Err(_) if self.folder_of(path).is_some() => path,
+                Err(_) => {
+                    return Err(ToolError::permission_denied(
+                        "The ACP file callback may only access the teammate's workspace and the folders granted to it.",
+                    ));
+                }
+            }
         } else {
             path
         };
@@ -247,7 +288,8 @@ impl Workspace {
         Ok(relative.to_string())
     }
 
-    fn ensure_parent(&self, parent: &Path) -> Result<(), ToolError> {
+    fn ensure_parent(&self, place: Place, parent: &Path) -> Result<(), ToolError> {
+        let dir = self.dir(place);
         let mut current = PathBuf::new();
         for component in parent.components() {
             let Component::Normal(part) = component else {
@@ -255,7 +297,7 @@ impl Workspace {
             };
             validate_platform_component(part.to_string_lossy().as_ref())?;
             current.push(part);
-            match self.inner.dir.symlink_metadata(&current) {
+            match dir.symlink_metadata(&current) {
                 Ok(metadata) if metadata.file_type().is_symlink() => {
                     return Err(ToolError::new(
                         "Creating files through symbolic links is not allowed.",
@@ -269,7 +311,7 @@ impl Workspace {
                 }
                 Ok(_) => {}
                 Err(error) if error.kind() == ErrorKind::NotFound => {
-                    self.inner.dir.create_dir(&current)?;
+                    dir.create_dir(&current)?;
                 }
                 Err(error) => return Err(error.into()),
             }
@@ -284,6 +326,29 @@ impl Workspace {
     /// thing, including that a long tool result lives there.
     fn paths_reach(&self) -> String {
         match self.inner.reach {
+            Reach::Workspace if !self.inner.folders.is_empty() => {
+                let folders: Vec<String> = self
+                    .inner
+                    .folders
+                    .iter()
+                    .map(|folder| {
+                        format!(
+                            "{} ({})",
+                            folder.path.display(),
+                            if folder.writable {
+                                "read and change"
+                            } else {
+                                "read only"
+                            }
+                        )
+                    })
+                    .collect();
+                format!(
+                    "Paths are relative to the working directory and may not leave it, except by absolute path into these granted folders: {}; and to read a long tool result written under {}.",
+                    folders.join(", "),
+                    self.inner.overflow.display()
+                )
+            }
             Reach::Workspace => format!(
                 "Paths are relative to the working directory and may not leave it, except to read a long tool result written under {}.",
                 self.inner.overflow.display()
@@ -328,33 +393,116 @@ impl Workspace {
         Ok(resolved)
     }
 
-    fn canonical_subpath(&self, requested: &str, allow_root: bool) -> Result<PathBuf, ToolError> {
-        let relative = self.requested_relative(requested, allow_root)?;
-        let canonical = self
-            .inner
-            .dir
-            .canonicalize(&relative)
-            .map_err(|error| ToolError::new(format!("Cannot access {requested}: {error}")))?;
-        normalize_relative_path(canonical.to_string_lossy().as_ref(), allow_root)
+    /// A requested path as the handle it is inside and a path within that
+    /// handle, before anything on disk is followed. Under workspace reach an
+    /// absolute path inside a granted folder is the folder's, and the rest of
+    /// it obeys the workspace's rules: relative, and no `..`. Every other
+    /// request is resolved as it always was.
+    fn locate(&self, requested: &str, allow_root: bool) -> Result<(Place, PathBuf), ToolError> {
+        if self.inner.reach == Reach::Workspace
+            && let Some((index, rest)) = self.folder_of(Path::new(requested))
+        {
+            let rest = rest
+                .to_str()
+                .ok_or_else(|| ToolError::new("Paths must be valid UTF-8."))?;
+            return Ok((
+                Place::Folder(index),
+                normalize_relative_path(rest, allow_root)?,
+            ));
+        }
+        Ok((Place::Root, self.requested_relative(requested, allow_root)?))
     }
 
-    /// A path a read-only tool may open: the working directory first, then
-    /// the overflow directory. Writes never call this, so they cannot land
-    /// there. Machine reach never looks at overflow; it has no wall.
+    /// The granted folder an absolute path is lexically inside, and the
+    /// path within it. Folders never nest, so at most one matches.
+    fn folder_of<'a>(&self, path: &'a Path) -> Option<(usize, &'a Path)> {
+        if !path.is_absolute() {
+            return None;
+        }
+        self.inner
+            .folders
+            .iter()
+            .enumerate()
+            .find_map(|(index, folder)| {
+                path.strip_prefix(&folder.path)
+                    .ok()
+                    .map(|rest| (index, rest))
+            })
+    }
+
+    fn dir(&self, place: Place) -> &Dir {
+        match place {
+            Place::Root => &self.inner.dir,
+            Place::Folder(index) => &self.inner.folders[index].dir,
+        }
+    }
+
+    fn root_of(&self, place: Place) -> &Path {
+        match place {
+            Place::Root => &self.inner.root,
+            Place::Folder(index) => &self.inner.folders[index].path,
+        }
+    }
+
+    /// Refuses a change inside a folder granted read-only. The workspace,
+    /// and everything under whole-machine reach, may be changed.
+    fn require_writable(&self, place: Place, requested: &str) -> Result<(), ToolError> {
+        match place {
+            Place::Folder(index) if !self.inner.folders[index].writable => {
+                Err(ToolError::permission_denied(format!(
+                    "{requested} is in {}, a folder this teammate may read but not change.",
+                    self.inner.folders[index].path.display()
+                )))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// A path as a read tool shows it: relative inside the working directory
+    /// (or from the root under whole-machine reach), and absolute anywhere
+    /// else, because that is how it can be asked for again.
+    fn shown(&self, root: &Path, relative: &Path) -> String {
+        if root == self.inner.root {
+            display_relative(relative)
+        } else {
+            display_relative(&root.join(relative.strip_prefix(".").unwrap_or(relative)))
+        }
+    }
+
+    fn canonical_subpath(
+        &self,
+        requested: &str,
+        allow_root: bool,
+    ) -> Result<(Place, PathBuf), ToolError> {
+        let (place, relative) = self.locate(requested, allow_root)?;
+        // cap-std resolves inside the handle and refuses a symlink or `..`
+        // that would leave it, for a folder exactly as for the workspace.
+        let canonical = self
+            .dir(place)
+            .canonicalize(&relative)
+            .map_err(|error| ToolError::new(format!("Cannot access {requested}: {error}")))?;
+        Ok((
+            place,
+            normalize_relative_path(canonical.to_string_lossy().as_ref(), allow_root)?,
+        ))
+    }
+
+    /// A path a read-only tool may open: the working directory or a granted
+    /// folder first, then the overflow directory. Writes never call this, so
+    /// they cannot land in overflow. Machine reach never looks at overflow;
+    /// it has no wall.
     fn resolve_readable(
         &self,
         requested: &str,
         allow_root: bool,
     ) -> Result<(Dir, PathBuf, PathBuf), ToolError> {
         match self.canonical_subpath(requested, allow_root) {
-            Ok(relative) => {
-                let dir = self.inner.dir.try_clone().map_err(|error| {
-                    ToolError::new(format!(
-                        "The Hotline workspace {} could not be opened: {error}",
-                        self.inner.root.display()
-                    ))
+            Ok((place, relative)) => {
+                let root = self.root_of(place);
+                let dir = self.dir(place).try_clone().map_err(|error| {
+                    ToolError::new(format!("{} could not be opened: {error}", root.display()))
                 })?;
-                Ok((dir, relative, self.inner.root.clone()))
+                Ok((dir, relative, root.to_path_buf()))
             }
             Err(error) => {
                 if self.inner.reach != Reach::Workspace {
@@ -499,17 +647,17 @@ impl Workspace {
         if bytes.len() > MAX_WRITE_BYTES {
             return Err(ToolError::new("The file is too large to write."));
         }
-        let relative = self.writable_path(requested)?;
+        let (place, relative) = self.writable_path(requested)?;
+        let dir = self.dir(place);
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
-        let mut file = self.inner.dir.open_with(&relative, &options)?;
+        let mut file = dir.open_with(&relative, &options)?;
         if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
-            let _ = self.inner.dir.remove_file(&relative);
+            let _ = dir.remove_file(&relative);
             return Err(error.into());
         }
         Ok(self
-            .inner
-            .root
+            .root_of(place)
             .join(relative.strip_prefix(".").unwrap_or(&relative)))
     }
 
@@ -591,7 +739,7 @@ impl Workspace {
                 Ok(file) => file,
                 Err(_) => continue,
             };
-            let shown_path = display_relative(relative);
+            let shown_path = self.shown(&root, relative);
             let mut searcher = SearcherBuilder::new()
                 .line_number(true)
                 .binary_detection(BinaryDetection::quit(b'\0'))
@@ -651,10 +799,12 @@ impl Workspace {
                 Ok(path) if !path.as_os_str().is_empty() => path,
                 _ => continue,
             };
-            let shown = display_relative(relative);
-            if !matcher.is_match(&shown) {
+            // The pattern matches the path within the searched tree, as it
+            // always has; the answer names it where it can be read again.
+            if !matcher.is_match(display_relative(relative)) {
                 continue;
             }
+            let shown = self.shown(&root, relative);
             let result = if entry.file_type().is_some_and(|kind| kind.is_dir()) {
                 format!("{shown}/")
             } else {
@@ -683,8 +833,8 @@ impl Workspace {
                 "Writes are limited to {MAX_WRITE_BYTES} bytes."
             )));
         }
-        let relative = self.writable_path(&args.path)?;
-        let before = self.read_optional(&relative)?;
+        let (place, relative) = self.writable_path(&args.path)?;
+        let before = self.read_optional(place, &relative)?;
         if before.is_some() && !args.overwrite.unwrap_or(true) {
             return Err(ToolError::new(format!(
                 "{} already exists and overwrite is false.",
@@ -693,6 +843,7 @@ impl Workspace {
         }
         Ok(PreparedMutation {
             requested: args.path,
+            place,
             relative,
             before,
             after: args.content.into_bytes(),
@@ -704,9 +855,9 @@ impl Workspace {
         if args.old_text.is_empty() {
             return Err(ToolError::new("old_text may not be empty."));
         }
-        let relative = self.writable_path(&args.path)?;
+        let (place, relative) = self.writable_path(&args.path)?;
         let before = self
-            .read_optional(&relative)?
+            .read_optional(place, &relative)?
             .ok_or_else(|| ToolError::new(format!("{} does not exist.", args.path)))?;
         let content = String::from_utf8(before.clone())
             .map_err(|_| ToolError::new(format!("{} is not a UTF-8 text file.", args.path)))?;
@@ -737,6 +888,7 @@ impl Workspace {
         let after = edited.into_bytes();
         Ok(PreparedMutation {
             requested: args.path,
+            place,
             relative,
             before: Some(before),
             after,
@@ -745,7 +897,7 @@ impl Workspace {
 
     fn commit_mutation(&self, mutation: PreparedMutation) -> Result<String, ToolError> {
         self.check_capability()?;
-        let current = self.read_optional(&mutation.relative)?;
+        let current = self.read_optional(mutation.place, &mutation.relative)?;
         if current != mutation.before {
             return Err(ToolError::new(format!(
                 "{} changed while the edit was being prepared; inspect it again before retrying.",
@@ -754,15 +906,16 @@ impl Workspace {
         }
         let bytes = mutation.after.len();
         let lines = String::from_utf8_lossy(&mutation.after).lines().count();
-        self.atomic_write(&mutation.relative, &mutation.after)?;
+        self.atomic_write(mutation.place, &mutation.relative, &mutation.after)?;
         Ok(format!(
             "Wrote {bytes} bytes ({lines} lines) to {}.",
-            display_relative(&mutation.relative)
+            self.shown(self.root_of(mutation.place), &mutation.relative)
         ))
     }
 
-    fn writable_path(&self, requested: &str) -> Result<PathBuf, ToolError> {
-        let normalized = self.requested_relative(requested, false)?;
+    fn writable_path(&self, requested: &str) -> Result<(Place, PathBuf), ToolError> {
+        let (place, normalized) = self.locate(requested, false)?;
+        self.require_writable(place, requested)?;
         let file_name = normalized
             .file_name()
             .ok_or_else(|| ToolError::new("Name a file inside the workspace."))?;
@@ -770,16 +923,17 @@ impl Workspace {
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        let canonical_parent = self.inner.dir.canonicalize(parent).map_err(|error| {
+        let canonical_parent = self.dir(place).canonicalize(parent).map_err(|error| {
             ToolError::new(format!("Cannot access the parent of {requested}: {error}"))
         })?;
         let canonical_parent =
             normalize_relative_path(canonical_parent.to_string_lossy().as_ref(), true)?;
-        Ok(canonical_parent.join(file_name))
+        Ok((place, canonical_parent.join(file_name)))
     }
 
-    fn read_optional(&self, relative: &Path) -> Result<Option<Vec<u8>>, ToolError> {
-        let metadata = match self.inner.dir.symlink_metadata(relative) {
+    fn read_optional(&self, place: Place, relative: &Path) -> Result<Option<Vec<u8>>, ToolError> {
+        let dir = self.dir(place);
+        let metadata = match dir.symlink_metadata(relative) {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
             Err(error) => return Err(error.into()),
@@ -796,7 +950,7 @@ impl Workspace {
             )));
         }
 
-        let mut file = self.inner.dir.open(relative)?;
+        let mut file = dir.open(relative)?;
         let mut bytes = Vec::new();
         Read::by_ref(&mut file)
             .take(MAX_WRITE_BYTES as u64 + 1)
@@ -810,7 +964,7 @@ impl Workspace {
         Ok(Some(bytes))
     }
 
-    fn atomic_write(&self, relative: &Path, content: &[u8]) -> Result<(), ToolError> {
+    fn atomic_write(&self, place: Place, relative: &Path, content: &[u8]) -> Result<(), ToolError> {
         self.check_capability()?;
         let parent = relative
             .parent()
@@ -819,7 +973,7 @@ impl Workspace {
         let file_name = relative
             .file_name()
             .ok_or_else(|| ToolError::new("Name a file inside the workspace."))?;
-        let parent_dir = self.inner.dir.open_dir(parent)?;
+        let parent_dir = self.dir(place).open_dir(parent)?;
         let permissions = parent_dir
             .symlink_metadata(file_name)
             .ok()
@@ -872,9 +1026,33 @@ impl Workspace {
 #[derive(Debug)]
 struct PreparedMutation {
     requested: String,
+    place: Place,
     relative: PathBuf,
     before: Option<Vec<u8>>,
     after: Vec<u8>,
+}
+
+/// The granted folders this session may open. Each was canonical when the
+/// person granted it; one whose name now resolves somewhere else (a symlink
+/// put in its place) or that is gone is left out rather than followed, and
+/// one inside the working directory is already the workspace's.
+fn open_folders(grants: &[FolderGrant], cwd: &Path) -> Vec<Folder> {
+    grants
+        .iter()
+        .filter_map(|grant| {
+            let path = PathBuf::from(&grant.path);
+            let canonical = dunce::canonicalize(&path).ok()?;
+            if canonical != path || canonical.starts_with(cwd) {
+                return None;
+            }
+            let dir = Dir::open_ambient_dir(&canonical, ambient_authority()).ok()?;
+            Some(Folder {
+                path: canonical,
+                dir,
+                writable: grant.writable,
+            })
+        })
+        .collect()
 }
 
 fn normalize_relative_path(requested: &str, allow_root: bool) -> Result<PathBuf, ToolError> {
@@ -1481,9 +1659,9 @@ impl Tool for EditFile {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_READ_LINES, EditFile, EditFileArgs, FindFiles, FindFilesArgs, ListDirectory, Reach,
-        ReadFile, ReadFileArgs, SearchFiles, SearchFilesArgs, Workspace, WriteFile, WriteFileArgs,
-        normalize_relative_path,
+        DEFAULT_READ_LINES, EditFile, EditFileArgs, FindFiles, FindFilesArgs, FolderGrant,
+        ListDirectory, ListDirectoryArgs, Reach, ReadFile, ReadFileArgs, SearchFiles,
+        SearchFilesArgs, Workspace, WriteFile, WriteFileArgs, normalize_relative_path,
     };
     use crate::driver::CapabilityEpoch;
     use crate::tools::RunCommand;
@@ -1741,6 +1919,7 @@ mod tests {
             directory.path().to_path_buf(),
             Reach::Workspace,
             directory.path().join("overflow"),
+            &[],
             Some(epoch.lease()),
         )
         .unwrap();
@@ -1768,6 +1947,250 @@ mod tests {
                 .contains("capabilities have been revoked")
         );
         assert!(!directory.path().join("new.txt").exists());
+    }
+
+    /// A workspace with one read-only and one writable folder beside it,
+    /// and a file outside every grant that a link in the read-only one names.
+    #[cfg(unix)]
+    struct Granted {
+        _scratch: TestDirectory,
+        workspace: PathBuf,
+        read_only: PathBuf,
+        writable: PathBuf,
+        outside: PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl Granted {
+        fn new() -> Self {
+            let scratch = TestDirectory::new();
+            let base = scratch.path().canonicalize().unwrap();
+            let [workspace, read_only, writable, outside] =
+                ["workspace", "read-only", "writable", "outside"].map(|name| base.join(name));
+            for directory in [&workspace, &read_only, &writable, &outside] {
+                fs::create_dir(directory).unwrap();
+            }
+            fs::write(read_only.join("notes.txt"), "granted needle\n").unwrap();
+            fs::write(outside.join("secret.txt"), "outside needle\n").unwrap();
+            std::os::unix::fs::symlink(outside.join("secret.txt"), read_only.join("escape.txt"))
+                .unwrap();
+            std::os::unix::fs::symlink(&outside, read_only.join("away")).unwrap();
+            Self {
+                _scratch: scratch,
+                workspace,
+                read_only,
+                writable,
+                outside,
+            }
+        }
+
+        fn grants(&self) -> Vec<FolderGrant> {
+            vec![
+                FolderGrant {
+                    path: self.read_only.to_string_lossy().into_owned(),
+                    writable: false,
+                },
+                FolderGrant {
+                    path: self.writable.to_string_lossy().into_owned(),
+                    writable: true,
+                },
+            ]
+        }
+
+        fn open(
+            &self,
+            reach: Reach,
+            capability: Option<crate::driver::CapabilityLease>,
+        ) -> Workspace {
+            Workspace::open_with_capability(
+                self.workspace.clone(),
+                reach,
+                self.workspace.with_extension("overflow-unused"),
+                &self.grants(),
+                capability,
+            )
+            .unwrap()
+        }
+    }
+
+    fn read(workspace: &Workspace, path: &Path) -> Result<String, super::ToolError> {
+        workspace.read_file(ReadFileArgs {
+            path: path.to_string_lossy().into_owned(),
+            start_line: None,
+            max_lines: None,
+        })
+    }
+
+    fn write(workspace: &Workspace, path: &Path) -> Result<String, super::ToolError> {
+        workspace
+            .prepare_write(WriteFileArgs {
+                path: path.to_string_lossy().into_owned(),
+                content: "written\n".to_string(),
+                overwrite: None,
+            })
+            .and_then(|mutation| workspace.commit_mutation(mutation))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_granted_folder_is_read_by_absolute_path_and_changed_only_when_writable() {
+        let granted = Granted::new();
+        let workspace = granted.open(Reach::Workspace, None);
+
+        assert!(
+            read(&workspace, &granted.read_only.join("notes.txt"))
+                .unwrap()
+                .contains("granted")
+        );
+        let listed = workspace
+            .list_directory(ListDirectoryArgs {
+                path: Some(granted.read_only.to_string_lossy().into_owned()),
+            })
+            .unwrap();
+        assert!(listed.contains("notes.txt"), "{listed}");
+        let searched = workspace
+            .search_files(SearchFilesArgs {
+                pattern: "needle".to_string(),
+                path: Some(granted.read_only.to_string_lossy().into_owned()),
+                glob: None,
+                case_insensitive: None,
+                literal: Some(true),
+                max_results: None,
+                include_hidden: None,
+            })
+            .unwrap();
+        // Named where it can be read again, and never through the link out.
+        assert!(
+            searched.contains(&format!(
+                "{}:1:",
+                granted.read_only.join("notes.txt").display()
+            )),
+            "{searched}"
+        );
+        assert!(!searched.contains("outside needle"), "{searched}");
+
+        let refused = write(&workspace, &granted.read_only.join("new.txt")).unwrap_err();
+        assert!(
+            refused.to_string().contains("read but not change"),
+            "{refused}"
+        );
+        assert!(!granted.read_only.join("new.txt").exists());
+        let edit = workspace.prepare_edit(EditFileArgs {
+            path: granted
+                .read_only
+                .join("notes.txt")
+                .to_string_lossy()
+                .into_owned(),
+            old_text: "granted".to_string(),
+            new_text: "changed".to_string(),
+            replace_all: None,
+        });
+        assert!(edit.is_err());
+        assert_eq!(
+            fs::read_to_string(granted.read_only.join("notes.txt")).unwrap(),
+            "granted needle\n"
+        );
+
+        let wrote = write(&workspace, &granted.writable.join("new.txt")).unwrap();
+        assert!(
+            wrote.contains(&granted.writable.join("new.txt").display().to_string()),
+            "{wrote}"
+        );
+        assert_eq!(
+            fs::read_to_string(granted.writable.join("new.txt")).unwrap(),
+            "written\n"
+        );
+        // The workspace itself is as it was.
+        write(&workspace, Path::new("own.txt")).unwrap();
+        assert!(granted.workspace.join("own.txt").exists());
+
+        let description = ReadFile::new(workspace).description();
+        assert!(
+            description.contains(&format!("{} (read only)", granted.read_only.display()))
+                && description
+                    .contains(&format!("{} (read and change)", granted.writable.display())),
+            "{description}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_path_outside_every_grant_or_out_through_a_link_is_refused() {
+        let granted = Granted::new();
+        let workspace = granted.open(Reach::Workspace, None);
+        for path in [
+            granted.outside.join("secret.txt"),
+            granted.read_only.join("escape.txt"),
+            granted.read_only.join("away/secret.txt"),
+            granted.read_only.join("../outside/secret.txt"),
+            granted.writable.join("../outside/secret.txt"),
+        ] {
+            assert!(read(&workspace, &path).is_err(), "{}", path.display());
+        }
+        for path in [
+            granted.outside.join("new.txt"),
+            granted.read_only.join("away/new.txt"),
+            granted.writable.join("../outside/new.txt"),
+        ] {
+            assert!(write(&workspace, &path).is_err(), "{}", path.display());
+        }
+        assert!(!granted.outside.join("new.txt").exists());
+        assert_eq!(fs::read_dir(&granted.outside).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_swapped_for_a_link_or_never_granted_opens_nothing() {
+        let granted = Granted::new();
+        // No grants: the record from before the field.
+        let without = Workspace::open(
+            granted.workspace.clone(),
+            Reach::Workspace,
+            granted.workspace.with_extension("overflow-unused"),
+        )
+        .unwrap();
+        assert!(read(&without, &granted.read_only.join("notes.txt")).is_err());
+
+        // A granted folder whose name now leads elsewhere is not followed.
+        fs::remove_dir_all(&granted.writable).unwrap();
+        std::os::unix::fs::symlink(&granted.outside, &granted.writable).unwrap();
+        let workspace = granted.open(Reach::Workspace, None);
+        assert!(read(&workspace, &granted.writable.join("secret.txt")).is_err());
+        assert!(write(&workspace, &granted.writable.join("new.txt")).is_err());
+        assert!(!granted.outside.join("new.txt").exists());
+        assert_eq!(workspace.folders().len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_revoked_handle_refuses_its_folders_too() {
+        let granted = Granted::new();
+        let epoch = CapabilityEpoch::default();
+        let workspace = granted.open(Reach::Workspace, Some(epoch.lease()));
+        assert!(read(&workspace, &granted.read_only.join("notes.txt")).is_ok());
+        epoch.invalidate();
+        for result in [
+            read(&workspace, &granted.read_only.join("notes.txt")),
+            write(&workspace, &granted.writable.join("late.txt")),
+        ] {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("capabilities have been revoked")
+            );
+        }
+        assert!(!granted.writable.join("late.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn whole_machine_reach_keeps_no_folder_wall() {
+        let granted = Granted::new();
+        let workspace = granted.open(Reach::Machine, None);
+        assert!(workspace.folders().is_empty());
+        write(&workspace, &granted.read_only.join("machine.txt")).unwrap();
+        assert!(granted.read_only.join("machine.txt").exists());
     }
 
     #[test]

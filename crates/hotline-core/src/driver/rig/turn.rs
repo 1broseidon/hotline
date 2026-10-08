@@ -857,6 +857,7 @@ mod tests {
             effort: None,
             preamble: "Follow the operator".into(),
             cwd: PathBuf::new(),
+            folders: Vec::new(),
             reach: Reach::Machine,
             history: Arc::new(AsyncMutex::new(vec![Message::user("first request")])),
             stop: Arc::new(Stop::default()),

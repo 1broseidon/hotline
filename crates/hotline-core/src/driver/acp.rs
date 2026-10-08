@@ -170,6 +170,7 @@ pub(crate) fn materialize_agents_md_with_capability(
         directory.to_path_buf(),
         Reach::Workspace,
         directory.join(".hotline-tool-output"),
+        &[],
         capability,
     )
     .map_err(|error| std::io::Error::other(error.to_string()))?;
@@ -1669,9 +1670,10 @@ impl ChildAgent {
     }
 
     /// Builds the client side of ACP's file callback boundary. The harness is
-    /// externally trusted, but Hotline's own callbacks stay in the workspace for
-    /// every ACP persona, including records that still carry the old machine
-    /// reach value. Runtime ACP mode names never affect this choice.
+    /// externally trusted, but Hotline's own callbacks stay in the workspace and
+    /// the folders the person granted, read-only unless a grant says it may be
+    /// changed, for every ACP persona, including records that still carry the
+    /// old machine reach value. Runtime ACP mode names never affect this choice.
     fn callback_workspace(
         persona: &Persona,
         capability: Option<CapabilityLease>,
@@ -1680,6 +1682,7 @@ impl ChildAgent {
             PathBuf::from(&persona.cwd),
             Reach::Workspace,
             PathBuf::from(&persona.cwd).join(".hotline-tool-output"),
+            persona.folders.as_deref().unwrap_or_default(),
             capability,
         )
         .map_err(|error| format!("The ACP callback workspace could not be opened: {error}"))
@@ -1698,6 +1701,14 @@ impl ChildAgent {
         capabilities: SessionCapabilities,
     ) -> Result<(), String> {
         let cwd = PathBuf::from(&persona.cwd);
+        // The person's extra folders, handed to a harness that says it takes
+        // them. Hotline does not enforce what the harness does with them; it
+        // enforces only its own file callbacks (see `callback_workspace`).
+        let folders = if capabilities.additional_directories {
+            granted_directories(persona)
+        } else {
+            Vec::new()
+        };
         let previous = persona
             .session_checkpoints
             .iter()
@@ -1710,6 +1721,7 @@ impl ChildAgent {
                 let resumed = connection
                     .send_request(
                         ResumeSessionRequest::new(id.clone(), cwd.clone())
+                            .additional_directories(folders.clone())
                             .mcp_servers(self.declared_servers()),
                     )
                     .block_task()
@@ -1726,6 +1738,7 @@ impl ChildAgent {
                 let loaded = connection
                     .send_request(
                         LoadSessionRequest::new(id.clone(), cwd.clone())
+                            .additional_directories(folders.clone())
                             .mcp_servers(self.declared_servers()),
                     )
                     .block_task()
@@ -1741,7 +1754,11 @@ impl ChildAgent {
         }
 
         let opened = connection
-            .send_request(NewSessionRequest::new(cwd).mcp_servers(self.declared_servers()))
+            .send_request(
+                NewSessionRequest::new(cwd)
+                    .additional_directories(folders)
+                    .mcp_servers(self.declared_servers()),
+            )
             .block_task()
             .await
             .map_err(|error| format!("The agent would not open a session: {error}"))?;
@@ -2606,6 +2623,19 @@ fn usage_of(usage: Option<&acp::Usage>) -> Option<TokenUsage> {
     })
 }
 
+/// The teammate's granted folders as ACP `additionalDirectories`: absolute
+/// paths, in the order the person granted them. Whether each may be changed
+/// is not something the protocol can say; the harness's own permissions
+/// decide, and Hotline's callbacks refuse a write to a read-only one.
+fn granted_directories(persona: &Persona) -> Vec<PathBuf> {
+    persona
+        .folders
+        .iter()
+        .flatten()
+        .map(|folder| PathBuf::from(&folder.path))
+        .collect()
+}
+
 /// What the agent said it can do. Taking a line into a running turn is not an
 /// ACP capability yet; it rides in `initialize`'s `_meta`, where the steering
 /// extension puts it.
@@ -2624,6 +2654,10 @@ fn capabilities_of(initialized: &acp::InitializeResponse) -> SessionCapabilities
         fork: capabilities.session_capabilities.fork.is_some(),
         mcp_http: capabilities.mcp_capabilities.http,
         image: capabilities.prompt_capabilities.image,
+        additional_directories: capabilities
+            .session_capabilities
+            .additional_directories
+            .is_some(),
     }
 }
 
@@ -3091,6 +3125,7 @@ mod tests {
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,
+            folders: None,
             computer: None,
             voice: None,
             session_checkpoints: checkpoints,
@@ -3120,6 +3155,10 @@ mod tests {
         /// The MCP servers the session was opened with, which is the only
         /// place a child ever hears about them.
         servers: Arc<Mutex<Vec<acp::McpServer>>>,
+        /// Whether this agent says it takes `additionalDirectories`, and
+        /// the ones its session was opened with.
+        takes_directories: bool,
+        directories: Arc<Mutex<Vec<PathBuf>>>,
     }
 
     /// The agent half of an in-memory duplex, with the client half left where
@@ -3153,14 +3192,24 @@ mod tests {
             let loaded = heard.opened.clone();
             let prompted = heard.prompted.clone();
             let servers = heard.servers.clone();
+            let directories = heard.directories.clone();
+            let takes_directories = heard.takes_directories;
             let running = agent_client_protocol::Agent
                 .builder()
                 .name("scripted")
                 .on_receive_request(
                     async move |request: InitializeRequest, responder, _cx| {
+                        let mut capabilities = AgentCapabilities::new().load_session(loadable);
+                        if takes_directories {
+                            capabilities = capabilities.session_capabilities(
+                                acp::SessionCapabilities::new().additional_directories(
+                                    acp::SessionAdditionalDirectoriesCapabilities::new(),
+                                ),
+                            );
+                        }
                         responder.respond(
                             InitializeResponse::new(request.protocol_version)
-                                .agent_capabilities(AgentCapabilities::new().load_session(loadable))
+                                .agent_capabilities(capabilities)
                                 .agent_info(Implementation::new("scripted", "1.2.3")),
                         )
                     },
@@ -3172,9 +3221,11 @@ mod tests {
                           _cx| {
                         let opened = opened.clone();
                         let servers = servers.clone();
+                        let directories = directories.clone();
                         async move {
                             opened.lock().unwrap().push("session/new".to_string());
                             *servers.lock().unwrap() = request.mcp_servers.clone();
+                            *directories.lock().unwrap() = request.additional_directories.clone();
                             responder.respond(
                                 NewSessionResponse::new(SessionId::new("fresh-session")).modes(
                                     SessionModeState::new(
@@ -4661,6 +4712,106 @@ mod tests {
             WriteTextFileRequest::new(SessionId::new("s"), outside_file.clone(), "nope\n");
         assert!(write_text_file(&workspace, &outside_write).is_err());
         assert_eq!(std::fs::read_to_string(&outside_file).unwrap(), "secret\n");
+    }
+
+    /// Hotline's callbacks for a harness honour the person's folders as the
+    /// built-in tools do: a read anywhere in a granted folder, a write only
+    /// in one that may be changed, and nothing through a link out of one.
+    #[cfg(unix)]
+    #[test]
+    fn acp_callbacks_honour_granted_folders() {
+        use std::os::unix::fs::symlink;
+
+        let root = scratch("callbacks-folders-root");
+        let read_only = scratch("callbacks-folders-read").canonicalize().unwrap();
+        let writable = scratch("callbacks-folders-write").canonicalize().unwrap();
+        let outside = scratch("callbacks-folders-outside");
+        std::fs::write(read_only.join("notes.txt"), "granted\n").unwrap();
+        std::fs::write(outside.join("secret.txt"), "secret\n").unwrap();
+        symlink(outside.join("secret.txt"), read_only.join("escape.txt")).unwrap();
+        let mut ada = persona(&root.to_string_lossy(), Vec::new());
+
+        // No field, no folders: the record from before the field reaches
+        // only its workspace.
+        let without = ChildAgent::callback_workspace(&ada, None).unwrap();
+        let notes = ReadTextFileRequest::new(SessionId::new("s"), read_only.join("notes.txt"));
+        assert!(read_text_file(&without, &notes).is_err());
+
+        ada.folders = Some(vec![
+            crate::contract::FolderGrant {
+                path: read_only.to_string_lossy().into_owned(),
+                writable: false,
+            },
+            crate::contract::FolderGrant {
+                path: writable.to_string_lossy().into_owned(),
+                writable: true,
+            },
+        ]);
+        let workspace = ChildAgent::callback_workspace(&ada, None).unwrap();
+        assert_eq!(read_text_file(&workspace, &notes).unwrap(), "granted\n");
+        let escape = ReadTextFileRequest::new(SessionId::new("s"), read_only.join("escape.txt"));
+        assert!(read_text_file(&workspace, &escape).is_err());
+        let elsewhere = ReadTextFileRequest::new(SessionId::new("s"), outside.join("secret.txt"));
+        assert!(read_text_file(&workspace, &elsewhere).is_err());
+
+        let refused = WriteTextFileRequest::new(
+            SessionId::new("s"),
+            read_only.join("new").join("file.txt"),
+            "nope\n",
+        );
+        let error = write_text_file(&workspace, &refused).unwrap_err();
+        assert!(error.to_string().contains("read but not change"), "{error}");
+        assert!(
+            !read_only.join("new").exists(),
+            "no directory is made for a refused write"
+        );
+
+        let allowed = WriteTextFileRequest::new(
+            SessionId::new("s"),
+            writable.join("new").join("file.txt"),
+            "written\n",
+        );
+        write_text_file(&workspace, &allowed).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(writable.join("new/file.txt")).unwrap(),
+            "written\n"
+        );
+    }
+
+    /// A harness that says it takes extra roots is opened with the granted
+    /// folders, and the session says so; one that does not is not sent them.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn session_new_hands_the_granted_folders_to_a_harness_that_takes_them() {
+        let folder = scratch("directories-folder").canonicalize().unwrap();
+        for takes in [true, false] {
+            let held = room("directories-room");
+            let heard = Heard {
+                takes_directories: takes,
+                ..Heard::default()
+            };
+            let agent = scripted_agent(heard.clone(), false);
+            let driver = ChildAgent::new(
+                scratch("directories"),
+                "cursor".to_string(),
+                "you are Ada".to_string(),
+                TeammateTools::new(&held, "directories"),
+            );
+            tokio::spawn(agent);
+            let mut ada = persona(&scratch_cwd(), Vec::new());
+            ada.id = "directories".to_string();
+            ada.folders = Some(vec![crate::contract::FolderGrant {
+                path: folder.to_string_lossy().into_owned(),
+                writable: false,
+            }]);
+            let info = driver.handshake(&ada, client_transport()).await.unwrap();
+            assert_eq!(info.capabilities.additional_directories, takes);
+            let sent = heard.directories.lock().unwrap().clone();
+            if takes {
+                assert_eq!(sent, vec![folder.clone()]);
+            } else {
+                assert!(sent.is_empty(), "{sent:?}");
+            }
+        }
     }
 
     #[cfg(unix)]

@@ -452,6 +452,24 @@ export type FileChunk = { name: string, mimeType: string,
 size: number, offset: number, data: string, next?: number, };
 
 /**
+ * One folder a teammate may reach besides its workspace.
+ *
+ * The path is stored as it was checked when granted: absolute, an existing
+ * directory, canonical (so no symlink in it points somewhere else), not the
+ * workspace or inside it, not inside another granted folder, and not `/`,
+ * the home directory or anything holding it, or Hotline's data directory
+ * or anything holding it (another teammate's workspace there is allowed).
+ * A folder that later stops being that same directory is left out when a
+ * session opens it rather than followed.
+ */
+export type FolderGrant = { path: string, 
+/**
+ * Whether the teammate may create, change and delete files in it.
+ * Absent is false: a grant is read-only unless the person said more.
+ */
+writable: boolean, };
+
+/**
  * A search hit that names whose conversation it came from.
  */
 export type GlobalSearchHit = { "kind": "chapter", personaId: string, chapterId: string, ts: number, title: string, excerpt: string, status?: string, } | { "kind": "message", personaId: string, eventId: string, chapterId?: string, ts: number, from: Side, excerpt: string, };
@@ -705,7 +723,18 @@ team?: string, backendId: string, cwd: string,
 /**
  * How far Hotline Agent's tools reach. Absent means the working directory.
  */
-reach?: Reach, modelId?: string, modeId?: string, 
+reach?: Reach, 
+/**
+ * Folders besides the workspace this teammate may read, and change where
+ * a grant is `writable`. Absent means none, including on every record
+ * from before the field: no older reach or mount is translated into a
+ * grant. Set only by the person through `persona.update` or
+ * `persona.create`, which check each path (see [`FolderGrant`]).
+ * Under workspace reach Hotline Agent's file tools and confined shell
+ * enforce it; Hotline's ACP file callbacks honour it for a harness; a
+ * computer mounts it; whole-machine reach makes it moot but keeps it.
+ */
+folders?: Array<FolderGrant>, modelId?: string, modeId?: string, 
 /**
  * The effort a Hotline Agent teammate runs at, when its model offers one.
  * Absent means the model's default. An ACP teammate does not store this:
@@ -827,7 +856,12 @@ export type PersonaDraft = { name: string, goal?: string,
 /**
  * Initial roster section. Empty and omitted both mean the default team.
  */
-team?: string, backendId?: string, cwd?: string, reach?: Reach, modelId?: string, effortId?: string, computer?: PersonaComputer, 
+team?: string, backendId?: string, cwd?: string, reach?: Reach, 
+/**
+ * Extra folders from the start, checked as `persona.update` checks
+ * them. Absent or empty is none.
+ */
+folders?: Array<FolderGrant>, modelId?: string, effortId?: string, computer?: PersonaComputer, 
 /**
  * Whether the teammate may keep its own schedules from the start. Absent
  * is off, as on the pane.
@@ -1088,7 +1122,13 @@ export type SessionCapabilities = {
 /**
  * The driver admits operator input during its active conversation.
  */
-activeInput: boolean, loadSession: boolean, resume: boolean, fork: boolean, mcpHttp: boolean, image: boolean, };
+activeInput: boolean, loadSession: boolean, resume: boolean, fork: boolean, mcpHttp: boolean, image: boolean, 
+/**
+ * The harness takes ACP's `additionalDirectories`, so a teammate's extra
+ * folders are handed to it when a session opens. False means the
+ * harness was not told of them; its own reach is still its own.
+ */
+additionalDirectories: boolean, };
 
 /**
  * One backend's durable session id for one teammate.

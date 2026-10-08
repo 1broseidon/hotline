@@ -347,6 +347,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
             fork: false,
             mcp_http: false,
             image: false,
+            additional_directories: false,
         },
         error: None,
     }
@@ -4952,7 +4953,11 @@ pub(crate) fn preamble(
     wake: Option<String>,
     stored: &[SharedSecret],
 ) -> String {
-    let reach_sentence = reach_sentence(reach);
+    let reach_sentence = format!(
+        "{}{}",
+        reach_sentence(reach),
+        folders_sentence(persona, reach)
+    );
     // A computer is granted at start, outside the policy, so the agent is told
     // here rather than by a tool listing: what the desktop is, that the person
     // can watch it and take it over, and what to do when a page wants
@@ -5054,6 +5059,60 @@ fn reach_sentence(reach: Option<Reach>) -> &'static str {
             " Your harness manages the permissions of its own tools. File operations delegated to Hotline through ACP stay inside your working directory."
         }
     }
+}
+
+/// The folders the person granted besides the working directory, said the
+/// way the code holds the teammate to them: enforced for Hotline Agent's
+/// tools under workspace reach and for an ACP harness's delegated file
+/// operations, not under whole-machine reach, and mounted on a computer.
+fn folders_sentence(persona: &Persona, reach: Option<Reach>) -> String {
+    let Some(folders) = persona
+        .folders
+        .as_deref()
+        .filter(|folders| !folders.is_empty())
+    else {
+        return String::new();
+    };
+    let mode = |writable: bool| {
+        if writable {
+            "you may change it"
+        } else {
+            "read only"
+        }
+    };
+    let listed: Vec<String> = folders
+        .iter()
+        .map(|folder| format!("{} ({})", folder.path, mode(folder.writable)))
+        .collect();
+    let listed = listed.join(", ");
+    let mut sentence = match reach {
+        Some(Reach::Workspace) => format!(
+            " The person also granted you these folders, which your file tools and shell reach by absolute path: {listed}. A change inside a read-only one is refused."
+        ),
+        Some(Reach::Machine) => format!(
+            " The person also pointed you at these folders: {listed}. Your tools already reach the whole machine, so this is not enforced; change only the ones you may."
+        ),
+        None => format!(
+            " The person also granted you these folders: {listed}. File operations delegated to Hotline through ACP may use them, and a change inside a read-only one is refused; your harness's own tools keep their own permissions."
+        ),
+    };
+    if persona
+        .computer
+        .as_ref()
+        .is_some_and(|computer| computer.enabled)
+    {
+        let mounted: Vec<String> = crate::computer::folder_mounts(persona)
+            .into_iter()
+            .map(|(folder, path)| format!("{} at {path}", folder.path))
+            .collect();
+        if !mounted.is_empty() {
+            sentence.push_str(&format!(
+                " Your computer has them too, the same way: {}.",
+                mounted.join(", ")
+            ));
+        }
+    }
+    sentence
 }
 
 /// The skills in a teammate's workspace, a line each. The computer's guide

@@ -25,7 +25,7 @@ use crate::contract::Reach;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command;
@@ -149,7 +149,29 @@ pub(crate) struct CommandOutcome {
 pub(crate) const STDERR_LINE: &str = "\n[stderr]\n";
 
 impl RunCommand {
-    pub(crate) fn boundary(&self) -> &'static str {
+    pub(crate) fn boundary(&self) -> String {
+        let folders = self.workspace.folders();
+        if self.workspace.reach() == Reach::Workspace && !folders.is_empty() {
+            let named: Vec<String> = folders
+                .iter()
+                .map(|(path, writable)| {
+                    format!(
+                        "{} ({})",
+                        path.display(),
+                        if *writable { "read-write" } else { "read-only" }
+                    )
+                })
+                .collect();
+            return format!(
+                "{} These granted folders are also open to it at their own paths: {}.",
+                self.wall(),
+                named.join(", ")
+            );
+        }
+        self.wall().to_string()
+    }
+
+    fn wall(&self) -> &'static str {
         match self.workspace.reach() {
             Reach::Workspace if cfg!(target_os = "linux") => {
                 "The shell can access the workspace, selected read-only installed tools, and private /tmp. Other host files are hidden. HOME is .hotline-home inside the workspace; use it for persistent caches and user installs. Host credentials and environment variables are not inherited. Network access remains available."
@@ -176,7 +198,9 @@ impl RunCommand {
         let cwd = self.workspace.display_root();
         let mut process = match self.workspace.reach() {
             Reach::Machine => unconfined(&command, cwd),
-            Reach::Workspace => confined(&command, cwd).map_err(ToolError::other)?,
+            Reach::Workspace => {
+                confined(&command, cwd, &self.workspace.folders()).map_err(ToolError::other)?
+            }
         };
         process
             .stdin(Stdio::null())
@@ -319,25 +343,42 @@ fn unconfined(command: &str, workspace: &Path) -> Command {
     process
 }
 
-/// The sandboxed command. No `current_dir` on Linux: `bwrap --chdir` does it.
-/// macOS sets cwd because `sandbox-exec` does not.
+/// The sandboxed command, given the workspace and each granted folder with
+/// whether it may be changed. No `current_dir` on Linux: `bwrap --chdir` does
+/// it. macOS sets cwd because `sandbox-exec` does not.
 #[cfg(target_os = "linux")]
-fn confined(command: &str, workspace: &Path) -> Result<Command, String> {
-    linux::command(command, workspace)
+fn confined(
+    command: &str,
+    workspace: &Path,
+    folders: &[(PathBuf, bool)],
+) -> Result<Command, String> {
+    linux::command(command, workspace, folders)
 }
 
 #[cfg(target_os = "macos")]
-fn confined(command: &str, workspace: &Path) -> Result<Command, String> {
-    macos::command(command, workspace)
+fn confined(
+    command: &str,
+    workspace: &Path,
+    folders: &[(PathBuf, bool)],
+) -> Result<Command, String> {
+    macos::command(command, workspace, folders)
 }
 
 #[cfg(target_os = "windows")]
-fn confined(_command: &str, _workspace: &Path) -> Result<Command, String> {
+fn confined(
+    _command: &str,
+    _workspace: &Path,
+    _folders: &[(PathBuf, bool)],
+) -> Result<Command, String> {
     Err(WINDOWS_UNCONFINED.to_string())
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-fn confined(_command: &str, _workspace: &Path) -> Result<Command, String> {
+fn confined(
+    _command: &str,
+    _workspace: &Path,
+    _folders: &[(PathBuf, bool)],
+) -> Result<Command, String> {
     Err(
         "The shell is not confined to the workspace on this operating system; give the teammate machine reach."
             .to_string(),
@@ -768,6 +809,7 @@ mod tests {
         let mut command = confined(
             "test -z \"$HOTLINE_TEST_SECRET\" && echo saved > \"$HOME/marker\"",
             root.path(),
+            &[],
         )
         .unwrap();
         // Even variables accidentally added by a caller must not reach the shell.

@@ -290,7 +290,7 @@ On each turn it is given:
 
 | kind | what | how |
 | --- | --- | --- |
-| workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory |
+| workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
 | Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `react`, `send_file`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp/mod.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
@@ -366,8 +366,8 @@ puts in that workspace.
 
 | OS | workspace reach |
 | --- | --- |
-| Linux | System `bwrap` starts from an empty filesystem. System binary, library, header, and shared-runtime directories are mounted read-only, including their `/usr/local` counterparts and Go/Swift installations. Other system trees such as `/usr/local/src` stay hidden. Selected toolchain installations and public configuration are added, then the writable workspace. `/tmp`, `/dev`, and `/proc` are private; PID and IPC namespaces isolate host processes. A missing or unusable sandbox omits the tool and the ledger says why. |
-| macOS | System `/usr/bin/sandbox-exec` applies a default-deny Seatbelt policy. The workspace is writable; selected runtimes are read-only. Other host files and workspaces are inaccessible. HOME and TMPDIR are private workspace directories. An enforcement probe must demonstrate allowed workspace access and denied outside reads/writes before the ledger offers the shell. |
+| Linux | System `bwrap` starts from an empty filesystem. System binary, library, header, and shared-runtime directories are mounted read-only, including their `/usr/local` counterparts and Go/Swift installations. Other system trees such as `/usr/local/src` stay hidden. Selected toolchain installations and public configuration are added, then each granted folder (`--ro-bind`, or `--bind` when writable), then the writable workspace. `/tmp`, `/dev`, and `/proc` are private; PID and IPC namespaces isolate host processes. A missing or unusable sandbox omits the tool and the ledger says why. |
+| macOS | System `/usr/bin/sandbox-exec` applies a default-deny Seatbelt policy. The workspace is writable; selected runtimes are read-only; each granted folder is readable, and writable when the grant says so. Other host files and workspaces are inaccessible. HOME and TMPDIR are private workspace directories. An enforcement probe must demonstrate allowed workspace access and denied outside reads/writes before the ledger offers the shell. |
 | Windows | No confinement Hotline can ship, so the tool is not offered; the ledger reason says to give the teammate machine reach. Machine reach keeps `cmd /C`. |
 
 On Windows, shell commands, ACP agents and stdio MCP servers start suspended,
@@ -831,9 +831,16 @@ through a remote it cannot sign in to. Each is `{ host, path, readonly }`:
 an absolute host path (`~` expands) that must be a folder that exists,
 because a runtime creates a missing one as root; an absolute container
 path that may not equal, contain, or sit inside `/home/agent/workspace`,
-`/home/agent/src` or `/nix` (a path inside `/home/agent` is fine, one that
+`/home/agent/src`, `/home/agent/folders` or `/nix` (a path inside `/home/agent` is fine, one that
 covers it is not); and `readonly`, which defaults to false in the JSON and to true in the window,
 where a teammate tests a checkout rather than edits it in place.
+
+The teammate's granted `folders` are bound too, whatever its reach, each at
+`/home/agent/folders/<its name>` (made path-safe, numbered when two share a
+name), `:ro` unless the grant is `writable`; one gone from the host is left
+out. The container is created with `HOTLINE_FOLDERS` naming those binds, and
+a start that finds a container made with other folders removes it and makes
+it again, so a folder taken away is never still mounted.
 
 In the window, Settings › Computer writes `computerRuntime` (blank is
 automatic) and `computerImage`; the teammate's pane writes
@@ -1414,7 +1421,7 @@ when that previous chapter ran on a different agent.
 
 ### Reattaching
 
-A change to reach, workspace, tools, background work, goal, or harness
+A change to reach, workspace, folders, tools, background work, goal, or harness
 revokes existing execution before the new record is written. Policy updates
 from separate clients are serialized through persistence and reattachment.
 New starts cannot acquire usable authority during that interval. A driver

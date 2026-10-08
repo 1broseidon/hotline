@@ -304,7 +304,7 @@ the deadline passed, the session stopped, the room restarted, or somebody
 else answered first. The tape still writes `dismissed` for a
 decline, which is the previous edition's word for that afterlife.
 
-`PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,
+`PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?, folders?,
 modelId?, effortId?, computer?, backgroundWork?}`. Create fills what the draft leaves blank: a fresh
 uuid, name `"Untitled"` if blank, empty goal, `backendId` from the room's
 `defaultBackendId` or `"hotline"`, a workspace under the data directory,
@@ -313,11 +313,26 @@ draft asked for `"machine"`. Background work is off unless the draft turned
 it on, and `allowedSenders` defaults to an empty list. The whole teammate is written as one room
 event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
-teammate. A patch that names `cwd`, `reach`, `goal`, `mcpPolicy`,
+teammate. A patch that names `cwd`, `reach`, `folders`, `goal`, `mcpPolicy`,
 `backgroundWork`, `allowedSenders`, `backendId` or `harnessOverride` invalidates
 current main and peer execution before writing the record, clears queued
 turns, and then reattaches a live main session. The old driver cannot keep
 using the previous grant while the new one is being installed.
+
+`folders` is the teammate's extra folders, `[{path, writable?}]`, on the
+persona and the draft. Absent means none, and so does an empty list, which
+is how a patch clears them. `writable` absent is `false`: read-only. Create
+and a patch naming `folders` check every entry before anything is revoked
+or written, and refuse the whole list with a sentence when one is not an
+absolute path (`~` expands) to an existing directory, is `/`, the home
+directory or a folder holding it, Hotline's data directory, a folder
+holding it or a folder inside it other than a teammate's workspace there,
+is this teammate's workspace or inside it, overlaps another entry, or when
+there are more than 16. What is stored, and answered, is each path as the
+directory it resolves to (`/tmp/x` is `/private/tmp/x` on macOS); the same
+folder twice is one entry, writable if either said so. A teammate's
+`SessionCapabilities.additionalDirectories` says whether its harness took
+them when its session opened; Hotline Agent's is `false` and means nothing.
 
 `pinnedTeammates` is the desk's pinned teammates: a list of up to three
 persona ids, in the order they sit at the top of the team. `persona.pin` is

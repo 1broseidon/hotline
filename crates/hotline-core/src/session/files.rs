@@ -232,6 +232,7 @@ async fn from_workspace(
         PathBuf::from(&persona.cwd),
         persona.reach.unwrap_or_default(),
         root.join("tool-output").join(&persona.id),
+        persona.folders.as_deref().unwrap_or_default(),
         capability,
     )
     .map_err(|error| error.to_string())?;

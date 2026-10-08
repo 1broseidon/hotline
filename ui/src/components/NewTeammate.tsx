@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { BackendChoice, ConfigChoice, PersonaDraft } from "../generated/contract";
+import type { BackendChoice, ConfigChoice, FolderGrant, PersonaDraft } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { CloseIcon } from "../icons";
 import { useRoomSettings } from "../room";
@@ -10,7 +10,7 @@ import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
 import { suggestName } from "../names";
-import { BACKGROUND_ABOUT, COMPUTER_ABOUT, MACHINE_ABOUT, SwitchRow } from "./Teammate";
+import { BACKGROUND_ABOUT, COMPUTER_ABOUT, FolderRows, MACHINE_ABOUT, SwitchRow, foldersNote } from "./Teammate";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
 const HOTLINE_AGENT = "hotline";
@@ -23,8 +23,9 @@ const HOTLINE_AGENT = "hotline";
  * a name. The harness defaults to the room's `defaultBackendId`. An ACP
  * harness brings its own models once the session is up, so that field is
  * not asked here. The access choices people most often decide up front —
- * the whole machine, background work, a computer — are asked too, with the
- * pane's own words; MCP and skill grants stay on the pane.
+ * the whole machine, background work, a computer, the folders it may also
+ * read — are asked too, with the pane's own words; MCP and skill grants stay
+ * on the pane.
  *
  * Created, the teammate is started at once and opened — nobody adds a
  * colleague in order to look at them in a list.
@@ -92,6 +93,7 @@ export function NewTeammateForm({
 	const [machine, setMachine] = useState(false);
 	const [backgroundWork, setBackgroundWork] = useState(false);
 	const [computer, setComputer] = useState(false);
+	const [folders, setFolders] = useState<FolderGrant[]>([]);
 	// A computer is offered only where one can start.
 	const [computerReady, setComputerReady] = useState(false);
 	// A picture is offered only where the room can draw one: the provider that would.
@@ -139,6 +141,7 @@ export function NewTeammateForm({
 		if (onHotline && machine) draft.reach = "machine";
 		if (backgroundWork) draft.backgroundWork = true;
 		if (computerReady && computer) draft.computer = { enabled: true };
+		if (folders.length > 0) draft.folders = folders;
 		try {
 			const persona = await wire.command("persona.create", { draft });
 			await wire.command("session.start", { personaId: persona.id });
@@ -164,6 +167,12 @@ export function NewTeammateForm({
 	]
 		.filter(Boolean)
 		.join(" · ");
+	const editable = folders.filter((folder) => folder.writable).length;
+	const where = [
+		cwd.trim() || "A new folder of its own",
+		folders.length > 0 ? ` + ${folders.length} more` : "",
+		editable > 0 ? ` (${editable} can edit)` : "",
+	].join("");
 	const [open, setOpen] = useState<"thinks" | "folder" | "abilities" | null>(null);
 	const fold = (which: "thinks" | "folder" | "abilities") => setOpen((was) => (was === which ? null : which));
 
@@ -281,14 +290,29 @@ export function NewTeammateForm({
 						</div>
 					)}
 				</Fold>
-				<Fold title="Folder" value={cwd.trim() || "A new folder of its own"} open={open === "folder"} onToggle={() => fold("folder")}>
+				<Fold title="Folders" value={where} open={open === "folder"} onToggle={() => fold("folder")}>
 					<PathField
 						id="new-cwd"
 						value={cwd}
 						placeholder={simple ? "A new folder of its own, unless you pick one" : "A folder under the data directory, unless you pick one"}
 						onChange={setCwd}
 					/>
-					<p className="hint">Where it keeps its work. It only touches files here unless you give it the whole machine.</p>
+					<p className="hint">
+						{simple
+							? "Where it keeps its work. It only touches files here unless you give it the whole machine."
+							: "Where it keeps its work. It only touches files here and in the folders below, unless you give it the whole machine."}
+					</p>
+					{!simple && (
+						<div>
+							<p className="label">Also let it read</p>
+							<div className="grouped">
+								<FolderRows folders={folders} disabled={busy} onChange={setFolders} />
+							</div>
+							{folders.length > 0 && (
+								<p className="hint">{foldersNote({ hotline: onHotline, machine, takesFolders: true, computer: computerReady && computer })}</p>
+							)}
+						</div>
+					)}
 				</Fold>
 				{!simple && (
 					<Fold title="Abilities" value={abilities} open={open === "abilities"} onToggle={() => fold("abilities")}>

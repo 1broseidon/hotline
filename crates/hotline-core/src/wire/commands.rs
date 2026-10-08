@@ -8,8 +8,8 @@
 
 use super::{RoomHandle, threads};
 use crate::contract::{
-    Command, McpPolicy, Persona, PersonaComputer, PersonaDraft, PolicyMode, Reach, SessionInfo,
-    SessionState, ThreadAnswer,
+    Command, FolderGrant, McpPolicy, Persona, PersonaComputer, PersonaDraft, PolicyMode, Reach,
+    SessionInfo, SessionState, ThreadAnswer,
 };
 use crate::driver::HOTLINE_BACKEND_ID;
 use crate::log::{Log, StreamId};
@@ -17,6 +17,7 @@ use crate::store::{chapters, search};
 use crate::thread::ThreadId;
 use crate::{paths, room};
 use serde_json::{Map, Value, json};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -898,6 +899,12 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         }
         crate::models::preferred_model(&room::settings(log))
     });
+    let cwd = given(draft.cwd).unwrap_or_else(|| {
+        paths::default_workspace(log.root(), &id)
+            .to_string_lossy()
+            .into_owned()
+    });
+    let folders = checked_folders(draft.folders, &cwd, log.root())?;
     let persona = Persona {
         node: None,
         id: id.clone(),
@@ -906,15 +913,12 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         avatar: None,
         team: given(draft.team),
         backend_id,
-        cwd: given(draft.cwd).unwrap_or_else(|| {
-            paths::default_workspace(log.root(), &id)
-                .to_string_lossy()
-                .into_owned()
-        }),
+        cwd,
         // The workspace is the wall unless the draft asked for the machine,
         // and an absent reach is the workspace, so only the wider one is
         // written down.
         reach: draft.reach.filter(|reach| *reach == Reach::Machine),
+        folders,
         model_id,
         mode_id: None,
         effort_id: given(draft.effort_id),
@@ -992,6 +996,7 @@ async fn mobile_persona_create(
         backend_id: Some(backend_id),
         cwd: None,
         reach: None,
+        folders: None,
         model_id,
         effort_id,
         computer: None,
@@ -1238,8 +1243,13 @@ fn update_persona(
     fields.insert("id".into(), Value::from(id));
     fields.insert("updatedAt".into(), Value::from(now()));
 
-    let updated: Persona = serde_json::from_value(record)
+    let mut updated: Persona = serde_json::from_value(record)
         .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
+    // Checked here, before anything is revoked or written, so a refused
+    // folder leaves the teammate exactly as it was.
+    if patch.get("folders").is_some() {
+        updated.folders = checked_folders(updated.folders.take(), &updated.cwd, log.root())?;
+    }
     let reattaches = persona_update_reattaches(patch, &previous, &updated);
     if reattaches {
         room.invalidate(id)?;
@@ -1272,11 +1282,14 @@ fn persona_update_reattaches(patch: &Value, previous: &Persona, updated: &Person
 /// A patch of these fields rebuilds the driver, so a live session has to
 /// restart for the new tools to take effect. `name`, `team`, `avatar`,
 /// `modelId`, `modeId` and `effortId` do not: model, mode and effort already
-/// switch live.
+/// switch live. `folders` does because every handle holds the folders it was
+/// opened with: the restart revokes those handles, and the computer is made
+/// again with the new set when the session starts it.
 fn persona_patch_reattaches(patch: &Value) -> bool {
-    const KEYS: [&str; 10] = [
+    const KEYS: [&str; 11] = [
         "cwd",
         "reach",
+        "folders",
         "goal",
         "mcpPolicy",
         "skillPolicy",
@@ -1289,6 +1302,110 @@ fn persona_patch_reattaches(patch: &Value) -> bool {
     patch
         .as_object()
         .is_some_and(|fields| KEYS.iter().any(|key| fields.contains_key(*key)))
+}
+
+/// The most extra folders one teammate has. A list longer than this is not
+/// a few repositories beside the work; it is a wish for whole-machine reach.
+const MAX_FOLDERS: usize = 16;
+
+/// A teammate's extra folders, each checked and spelled as the directory it
+/// is, or the first reason one cannot be granted. Empty is none. A folder is
+/// refused when it is not an absolute path to an existing directory, when it
+/// is `/`, the home directory or holds it, Hotline's data directory or holds
+/// it or is inside it (except another teammate's workspace there), or when it
+/// is this teammate's workspace or inside it. Two folders may not nest; the
+/// same folder named twice is one grant, which may be changed if either said
+/// so.
+fn checked_folders(
+    grants: Option<Vec<FolderGrant>>,
+    cwd: &str,
+    data: &Path,
+) -> Result<Option<Vec<FolderGrant>>, String> {
+    let Some(grants) = grants.filter(|grants| !grants.is_empty()) else {
+        return Ok(None);
+    };
+    let resolved = |path: &Path| dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(|home| resolved(Path::new(&home)));
+    let data = resolved(data);
+    let workspaces = resolved(&paths::workspaces_dir(&data));
+    // A teammate's workspace is made when its session first starts, so a
+    // new one may not be on disk yet; its spelling is then what it will be.
+    let workspace = resolved(Path::new(&expand_home(cwd)));
+    let mut checked: Vec<FolderGrant> = Vec::new();
+    for grant in grants {
+        let asked = grant.path.trim();
+        let expanded = PathBuf::from(expand_home(asked));
+        if !expanded.is_absolute() {
+            return Err(format!("{asked} is not an absolute path to a folder."));
+        }
+        let path = dunce::canonicalize(&expanded)
+            .ok()
+            .filter(|path| path.is_dir())
+            .ok_or_else(|| format!("{asked} is not a folder on this machine."))?;
+        let Some(spelled) = path.to_str().map(str::to_string) else {
+            return Err(format!("{asked} is not a path Hotline can spell."));
+        };
+        if path.parent().is_none() {
+            return Err(format!(
+                "{asked} is the whole disk; Whole machine is the switch for that."
+            ));
+        }
+        if home.as_ref().is_some_and(|home| home.starts_with(&path)) {
+            return Err(format!(
+                "{asked} is the home folder or holds it; choose a folder inside it."
+            ));
+        }
+        if data.starts_with(&path) {
+            return Err(format!(
+                "{asked} holds Hotline's own data; choose a folder that does not."
+            ));
+        }
+        if path.starts_with(&data) && !(path.starts_with(&workspaces) && path != workspaces) {
+            return Err(format!(
+                "{asked} is inside Hotline's own data; only a teammate's workspace there can be granted."
+            ));
+        }
+        if path.starts_with(&workspace) {
+            return Err(format!(
+                "{asked} is this teammate's own workspace or inside it, which it already has."
+            ));
+        }
+        if let Some(same) = checked.iter_mut().find(|folder| folder.path == spelled) {
+            same.writable |= grant.writable;
+            continue;
+        }
+        if let Some(other) = checked.iter().find(|folder| {
+            let other = Path::new(&folder.path);
+            other.starts_with(&path) || path.starts_with(other)
+        }) {
+            return Err(format!(
+                "{asked} and {} overlap; grant one of them.",
+                other.path
+            ));
+        }
+        checked.push(FolderGrant {
+            path: spelled,
+            writable: grant.writable,
+        });
+    }
+    if checked.len() > MAX_FOLDERS {
+        return Err(format!(
+            "A teammate can have up to {MAX_FOLDERS} extra folders."
+        ));
+    }
+    Ok(Some(checked))
+}
+
+/// `~` and `~/…` as the home directory, as a person types a folder.
+fn expand_home(path: &str) -> String {
+    if (path == "~" || path.starts_with("~/"))
+        && let Some(home) = std::env::var_os("HOME")
+    {
+        return format!("{}{}", home.to_string_lossy(), &path[1..]);
+    }
+    path.to_string()
 }
 
 /// The tombstone is the same kind and id again, so the fold finds it instead

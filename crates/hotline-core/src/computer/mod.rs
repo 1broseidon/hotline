@@ -11,8 +11,8 @@ mod capacity;
 pub mod runtime;
 
 use crate::contract::{
-    ComputerCapacity, ComputerReleases, ComputerState, ComputerStatus, Persona, RuntimeReport,
-    RuntimeState,
+    ComputerCapacity, ComputerReleases, ComputerState, ComputerStatus, FolderGrant, Persona,
+    RuntimeReport, RuntimeState,
 };
 use crate::mcp::{HttpAuth, McpServer, McpTransport};
 use runtime::{BinSearch, Runtime};
@@ -61,6 +61,12 @@ const SCRATCH_MOUNT: &str = "/home/agent/src";
 /// use. Only `nix-collect-garbage` is a hazard across containers, since a
 /// path in use by a process one container cannot see looks unused.
 const NIX_MOUNT: &str = "/nix";
+/// Where the teammate's granted folders appear, one directory each, named
+/// after the folder. Reserved, so a declared mount cannot cover one.
+pub(crate) const FOLDERS_MOUNT: &str = "/home/agent/folders";
+/// The environment entry that records which folders a container was made
+/// with, so a container made with others is made again rather than kept.
+const FOLDERS_ENV: &str = "HOTLINE_FOLDERS";
 /// The glibc image seeds a writable store; old Alpine volumes remain available.
 const NIX_VOLUME: &str = "hotline-nix-glibc";
 const DEFAULT_MEMORY: &str = "4g";
@@ -406,6 +412,16 @@ impl Computer {
             inspection.running = false;
         }
 
+        // The folders a container can see are fixed when it is made, so one
+        // made with other folders than the teammate has now is made again:
+        // a folder taken away must not stay mounted. Named volumes keep the
+        // home, the store and scratch; the container's own layer goes.
+        let folders = folder_mount_args(persona)?.join("\n");
+        if inspection.exists && inspection.folders != folders {
+            run(&cmd, &["rm", "-f", &name], COMMAND_TIMEOUT).await?;
+            inspection.exists = false;
+            inspection.running = false;
+        }
         let token = known_token.clone().unwrap_or_else(new_token);
         if !inspection.exists {
             // A computer made now is made on the newest release, so a desk
@@ -638,6 +654,9 @@ struct Inspection {
     running: bool,
     mcp_port: Option<u16>,
     token: Option<String>,
+    /// The folder mounts it was made with; empty for one made before
+    /// folders, which had none.
+    folders: String,
 }
 
 /// The private runtime metadata preserves the bearer across app restarts.
@@ -844,6 +863,10 @@ fn create_args(
     for mount in mount_args(persona)? {
         args.extend(["-v".into(), mount]);
     }
+    let folders = folder_mount_args(persona)?;
+    for mount in &folders {
+        args.extend(["-v".into(), mount.clone()]);
+    }
     let mcp_bind = if runtime == Runtime::AppleContainer {
         format!("127.0.0.1:{}:{MCP_PORT}", free_loopback_port()?)
     } else {
@@ -856,6 +879,8 @@ fn create_args(
         format!("HOTLINE_COMPUTER_TOKEN={token}"),
         "-e".into(),
         format!("TZ={}", host_time_zone()),
+        "-e".into(),
+        format!("{FOLDERS_ENV}={}", folders.join("\n")),
         "-v".into(),
         format!("{cwd}:{WORKSPACE_MOUNT}"),
         image.into(),
@@ -942,7 +967,7 @@ fn mount_args(persona: &Persona) -> Result<Vec<String>, String> {
     let Some(computer) = persona.computer.as_ref() else {
         return Ok(Vec::new());
     };
-    let reserved = [WORKSPACE_MOUNT, SCRATCH_MOUNT, NIX_MOUNT];
+    let reserved = [WORKSPACE_MOUNT, SCRATCH_MOUNT, NIX_MOUNT, FOLDERS_MOUNT];
     let mut args = Vec::new();
     for mount in computer.mounts.iter().flatten() {
         let host = expand_home(mount.host.trim());
@@ -985,6 +1010,73 @@ fn mount_args(persona: &Persona) -> Result<Vec<String>, String> {
         });
     }
     Ok(args)
+}
+
+/// Each granted folder that is still a folder here, with the path the
+/// computer shows it at: `/home/agent/folders/<its name>`, the name made
+/// safe for a path and numbered when two folders share one. Every teammate
+/// with a computer gets them, whatever its reach: a container only ever
+/// sees what is bound into it.
+pub(crate) fn folder_mounts(persona: &Persona) -> Vec<(&FolderGrant, String)> {
+    let mut taken: Vec<String> = Vec::new();
+    persona
+        .folders
+        .iter()
+        .flatten()
+        .filter(|folder| Path::new(&folder.path).is_dir())
+        .map(|folder| {
+            let base: String = Path::new(&folder.path)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
+                .collect();
+            let base = if base.trim_matches('.').is_empty() {
+                "folder".to_string()
+            } else {
+                base
+            };
+            let mut name = base.clone();
+            let mut n = 2;
+            while taken.contains(&name) {
+                name = format!("{base}-{n}");
+                n += 1;
+            }
+            taken.push(name.clone());
+            (folder, format!("{FOLDERS_MOUNT}/{name}"))
+        })
+        .collect()
+}
+
+/// The granted folders as `host:path[:ro]`, read-only unless the grant
+/// says the teammate may change it. A folder gone from this machine is left
+/// out, because the runtime would otherwise make it, as root.
+fn folder_mount_args(persona: &Persona) -> Result<Vec<String>, String> {
+    folder_mounts(persona)
+        .into_iter()
+        .map(|(folder, path)| {
+            // `-v` separates its fields with `:`, so a host path holding one
+            // would be read as other fields.
+            if folder.path.contains(':') {
+                return Err(format!(
+                    "The folder {} has a colon in its path, which a computer cannot mount.",
+                    folder.path
+                ));
+            }
+            Ok(if folder.writable {
+                format!("{}:{path}", folder.path)
+            } else {
+                format!("{}:{path}:ro", folder.path)
+            })
+        })
+        .collect()
 }
 
 fn expand_home(path: &str) -> String {
@@ -1208,6 +1300,7 @@ async fn inspect_within(
             running: false,
             mcp_port: None,
             token: None,
+            folders: String::new(),
         }),
         Err(error) => Err(error),
     }
@@ -1238,18 +1331,23 @@ fn parse_docker(object: &Value) -> Result<Inspection, String> {
         running,
         mcp_port: docker_host_port(object, MCP_PORT),
         token: token_from_environment(object.pointer("/Config/Env")),
+        folders: from_environment(object.pointer("/Config/Env"), FOLDERS_ENV).unwrap_or_default(),
     })
 }
 
 fn token_from_environment(environment: Option<&Value>) -> Option<String> {
+    from_environment(environment, "HOTLINE_COMPUTER_TOKEN").filter(|token| !token.is_empty())
+}
+
+fn from_environment(environment: Option<&Value>, name: &str) -> Option<String> {
     environment?
         .as_array()?
         .iter()
         .filter_map(Value::as_str)
         .find_map(|entry| {
             entry
-                .strip_prefix("HOTLINE_COMPUTER_TOKEN=")
-                .filter(|token| !token.is_empty())
+                .strip_prefix(name)
+                .and_then(|rest| rest.strip_prefix('='))
                 .map(str::to_owned)
         })
 }
@@ -1312,6 +1410,11 @@ fn parse_apple(object: &Value) -> Result<Inspection, String> {
         running,
         mcp_port,
         token: token_from_environment(object.pointer("/configuration/initProcess/environment")),
+        folders: from_environment(
+            object.pointer("/configuration/initProcess/environment"),
+            FOLDERS_ENV,
+        )
+        .unwrap_or_default(),
     })
 }
 
@@ -1492,10 +1595,16 @@ case "$cmd" in
     [ "$state" = running ] && running=true
     environment='[]'
     if [ -f "${STATE}.token" ]; then environment='["HOTLINE_COMPUTER_TOKEN=fixture-persisted-token"]'; fi
+    if [ -f "${STATE}.folders" ]; then environment="[\"$(cat "${STATE}.folders")\"]"; fi
     printf '[{"Config":{"Env":%s},"State":{"Running":%s},"NetworkSettings":{"Ports":{"8787/tcp":[{"HostPort":"%s"}]}}}]\n' "$environment" "$running" "$MCP"
     exit 0
     ;;
-  create) echo stopped > "$STATE"; exit 0 ;;
+  create)
+    rm -f "${STATE}.folders"
+    for a in "$@"; do
+      case "$a" in HOTLINE_FOLDERS=?*) printf '%s' "$a" > "${STATE}.folders" ;; esac
+    done
+    echo stopped > "$STATE"; exit 0 ;;
   start) echo running > "$STATE"; exit 0 ;;
   stop) echo stopped > "$STATE"; exit 0 ;;
   rm) echo absent > "$STATE"; exit 0 ;;
@@ -1511,7 +1620,7 @@ esac
 mod tests {
     use super::fixtures::*;
     use super::*;
-    use crate::contract::{ComputerMount, McpPolicy, PersonaComputer, PolicyMode};
+    use crate::contract::{ComputerMount, FolderGrant, McpPolicy, PersonaComputer, PolicyMode};
     use std::fs;
     use std::path::Path;
 
@@ -1587,6 +1696,7 @@ mod tests {
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,
+            folders: None,
             computer: Some(PersonaComputer {
                 enabled: true,
                 image: Some("hotline-computer:test".into()),
@@ -1808,6 +1918,121 @@ mod tests {
             readonly: true,
         }]);
         assert!(mount_args(&ada).is_err());
+    }
+
+    #[test]
+    fn granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered() {
+        let root = scratch("folders");
+        let read_only = root.join("read").join("app");
+        let writable = root.join("write").join("app");
+        fs::create_dir_all(&read_only).unwrap();
+        fs::create_dir_all(&writable).unwrap();
+        let mut ada = persona("ada", "/tmp");
+        ada.folders = Some(vec![
+            FolderGrant {
+                path: read_only.to_string_lossy().into_owned(),
+                writable: false,
+            },
+            FolderGrant {
+                path: writable.to_string_lossy().into_owned(),
+                writable: true,
+            },
+            FolderGrant {
+                path: root.join("gone").to_string_lossy().into_owned(),
+                writable: true,
+            },
+        ]);
+        let args = create_args(Runtime::Docker, "test", "image", "token", "/tmp", &ada).unwrap();
+        let read_mount = format!("{}:/home/agent/folders/app:ro", read_only.display());
+        let write_mount = format!("{}:/home/agent/folders/app-2", writable.display());
+        assert!(args.contains(&read_mount), "{args:?}");
+        assert!(args.contains(&write_mount), "{args:?}");
+        assert!(
+            args.contains(&format!("HOTLINE_FOLDERS={read_mount}\n{write_mount}")),
+            "{args:?}"
+        );
+        assert!(!args.iter().any(|arg| arg.contains("gone")), "{args:?}");
+
+        ada.computer.as_mut().unwrap().mounts = Some(vec![ComputerMount {
+            host: read_only.to_string_lossy().into_owned(),
+            path: "/home/agent/folders/app".into(),
+            readonly: true,
+        }]);
+        assert!(mount_args(&ada).is_err());
+    }
+
+    /// A container sees the folders it was made with, so one made with
+    /// other folders is made again at the next start and one made with the
+    /// same is kept.
+    #[tokio::test]
+    async fn a_computer_made_with_other_folders_is_made_again() {
+        let root = scratch("folders-remade");
+        let cwd = root.join("work");
+        let folder = root.join("granted");
+        fs::create_dir_all(&cwd).unwrap();
+        fs::create_dir_all(&folder).unwrap();
+        let port = health_on().await;
+        fake_runtime(&root, port);
+        let log = root.join("argv.log");
+        fs::write(root.join("state"), "absent").unwrap();
+        let computers = Computer::with_path(root.as_os_str());
+        let mut ada = persona("ada", cwd.to_str().unwrap());
+        ada.folders = Some(vec![FolderGrant {
+            path: folder.to_string_lossy().into_owned(),
+            writable: false,
+        }]);
+        let cwd = cwd.to_str().unwrap();
+        computers
+            .ensure_running(&ada, cwd, None, None, |_| {})
+            .await
+            .expect("first");
+        computers.stop("ada", None).await.expect("stop");
+        fs::write(&log, "").unwrap();
+        computers
+            .ensure_running(&ada, cwd, None, None, |_| {})
+            .await
+            .expect("same folders");
+        let kept = log_text(&log);
+        assert!(
+            !kept.lines().any(|line| line.starts_with("create ")),
+            "{kept}"
+        );
+
+        ada.folders.as_mut().unwrap()[0].writable = true;
+        fs::write(&log, "").unwrap();
+        computers
+            .ensure_running(&ada, cwd, None, None, |_| {})
+            .await
+            .expect("changed folders");
+        let remade = log_text(&log);
+        assert!(
+            remade.lines().any(|line| line.starts_with("rm -f ")),
+            "{remade}"
+        );
+        let create = remade
+            .lines()
+            .find(|line| line.starts_with("create "))
+            .unwrap_or_else(|| panic!("{remade}"));
+        assert!(
+            create.contains(&format!(
+                "{}:/home/agent/folders/granted ",
+                folder.display()
+            )),
+            "{create}"
+        );
+
+        ada.folders = None;
+        fs::write(&log, "").unwrap();
+        computers
+            .ensure_running(&ada, cwd, None, None, |_| {})
+            .await
+            .expect("no folders");
+        let emptied = log_text(&log);
+        let create = emptied
+            .lines()
+            .find(|line| line.starts_with("create "))
+            .unwrap_or_else(|| panic!("a removed folder stayed mounted: {emptied}"));
+        assert!(!create.contains("/home/agent/folders"), "{create}");
     }
 
     #[tokio::test]

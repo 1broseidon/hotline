@@ -89,6 +89,16 @@ pub struct Persona {
     /// How far Hotline Agent's tools reach. Absent means the working directory.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reach: Option<Reach>,
+    /// Folders besides the workspace this teammate may read, and change where
+    /// a grant is `writable`. Absent means none, including on every record
+    /// from before the field: no older reach or mount is translated into a
+    /// grant. Set only by the person through `persona.update` or
+    /// `persona.create`, which check each path (see [`FolderGrant`]).
+    /// Under workspace reach Hotline Agent's file tools and confined shell
+    /// enforce it; Hotline's ACP file callbacks honour it for a harness; a
+    /// computer mounts it; whole-machine reach makes it moot but keeps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folders: Option<Vec<FolderGrant>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -182,6 +192,25 @@ pub enum Reach {
     #[default]
     Workspace,
     Machine,
+}
+
+/// One folder a teammate may reach besides its workspace.
+///
+/// The path is stored as it was checked when granted: absolute, an existing
+/// directory, canonical (so no symlink in it points somewhere else), not the
+/// workspace or inside it, not inside another granted folder, and not `/`,
+/// the home directory or anything holding it, or Hotline's data directory
+/// or anything holding it (another teammate's workspace there is allowed).
+/// A folder that later stops being that same directory is left out when a
+/// session opens it rather than followed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts")]
+pub struct FolderGrant {
+    pub path: String,
+    /// Whether the teammate may create, change and delete files in it.
+    /// Absent is false: a grant is read-only unless the person said more.
+    #[serde(default)]
+    pub writable: bool,
 }
 
 /// Inherit everything, inherit nothing, or name what is inherited. `Some` is
@@ -728,6 +757,10 @@ pub struct PersonaDraft {
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reach: Option<Reach>,
+    /// Extra folders from the start, checked as `persona.update` checks
+    /// them. Absent or empty is none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folders: Option<Vec<FolderGrant>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -966,6 +999,11 @@ pub struct SessionCapabilities {
     pub fork: bool,
     pub mcp_http: bool,
     pub image: bool,
+    /// The harness takes ACP's `additionalDirectories`, so a teammate's extra
+    /// folders are handed to it when a session opens. False means the
+    /// harness was not told of them; its own reach is still its own.
+    #[serde(default)]
+    pub additional_directories: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]

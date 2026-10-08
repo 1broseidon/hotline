@@ -78,6 +78,7 @@ impl Room {
                     PathBuf::from(&persona.cwd),
                     persona.reach.unwrap_or_default(),
                     self.log.root().join("tool-output").join(persona_id),
+                    persona.folders.as_deref().unwrap_or_default(),
                     capability.clone(),
                 )
                 .map_err(|error| error.to_string())?;

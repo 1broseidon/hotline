@@ -10,6 +10,19 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Added
 
+- A teammate can be given extra folders besides its own: a repository it
+  should read, or a second project it may edit, without Whole machine. In
+  New teammate and on the teammate's pane they sit with its working
+  directory under Folders: Also let it read, with Add folder and a Can edit
+  switch for each. Hotline Agent's file tools and protected shell open each
+  one read-only unless Can edit is on, and nothing outside them; a harness
+  is passed them when it takes extra folders and keeps its own permissions,
+  while Hotline's own file help for it honours them; a teammate's computer
+  sees them under /home/agent/folders. Changing them restarts a running
+  teammate, and its computer, so a folder taken away is gone at the next
+  step. The home folder, `/`, Hotline's own data and the teammate's own
+  workspace cannot be added.
+
 - The desk can hear you itself, free and private, on macOS, Windows, Linux
   and a headless server. Settings › Providers › Use for › Voice › Hearing
   lists two speech models to download once: Parakeet, 25 European languages

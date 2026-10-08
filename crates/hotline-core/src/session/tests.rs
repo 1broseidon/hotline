@@ -478,6 +478,7 @@ pub(super) fn persona(id: &str) -> Persona {
         background_work: true,
         allowed_senders: Vec::new(),
         web_search_policy: None,
+        folders: None,
         computer: None,
         voice: None,
         session_checkpoints: Vec::new(),
@@ -1384,6 +1385,63 @@ async fn a_computer_that_cannot_start_leaves_the_teammate_answering_without_one(
             .computer
             .is_some_and(|computer| computer.enabled),
         "the grant is kept, so the next start tries the computer again"
+    );
+}
+
+/// A teammate is told which extra folders it has, which it may change, and
+/// who holds it to them; one with none is told nothing about folders.
+#[test]
+fn the_preamble_names_the_granted_folders_and_who_enforces_them() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("app");
+    std::fs::create_dir(&path).unwrap();
+    let mut ada = persona("ada");
+    assert!(
+        !preamble(&ada, Some(Reach::Workspace), None, &[]).contains("granted you these folders")
+    );
+    ada.folders = Some(vec![
+        crate::contract::FolderGrant {
+            path: path.to_string_lossy().into_owned(),
+            writable: false,
+        },
+        crate::contract::FolderGrant {
+            path: "/srv/shared".to_string(),
+            writable: true,
+        },
+    ]);
+    let walled = preamble(&ada, Some(Reach::Workspace), None, &[]);
+    assert!(
+        walled.contains(&format!(
+            "{} (read only), /srv/shared (you may change it)",
+            path.display()
+        )),
+        "{walled}"
+    );
+    assert!(walled.contains("your file tools and shell reach by absolute path"));
+    assert!(walled.contains("A change inside a read-only one is refused."));
+    let open = preamble(&ada, Some(Reach::Machine), None, &[]);
+    assert!(open.contains("so this is not enforced"), "{open}");
+    let child = preamble(&ada, None, None, &[]);
+    assert!(child.contains("File operations delegated to Hotline through ACP may use them"));
+    assert!(child.contains("your harness's own tools keep their own permissions"));
+    assert!(!child.contains("Your computer has them"));
+    ada.computer = Some(PersonaComputer {
+        cpus: None,
+        enabled: true,
+        image: None,
+        memory: None,
+        pids: None,
+        mounts: None,
+        secrets: None,
+    });
+    let desk = preamble(&ada, Some(Reach::Workspace), None, &[]);
+    // Only a folder still on this machine is mounted, so only it is named.
+    assert!(
+        desk.contains(&format!(
+            "Your computer has them too, the same way: {} at /home/agent/folders/app.",
+            path.display()
+        )),
+        "{desk}"
     );
 }
 

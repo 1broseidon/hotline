@@ -45,6 +45,16 @@ These come over as ideas and, where the code was already Rust, as code.
   Reach, the gateway, collaboration, background work and the computer are
   independent standing grants, revoked through one capability lease; the
   method and the regression matrix are [security.md](security.md).
+- **Extra folders widen the wall without removing it.** A teammate keeps one
+  working directory and may be given a short list of other folders, each
+  read-only unless the person said it may be changed. Under workspace reach
+  they are holes in the wall cut by the person, enforced by the same cap-std
+  handles and shell sandbox as the workspace; they are not a second policy
+  axis to tune per tool, and there is no per-path ACL beyond read or change.
+  Whole-machine reach makes them moot. A harness is handed them as ACP
+  `additionalDirectories` when it says it takes them and enforces its own
+  reach; Hotline's callbacks for it honour them. A computer mounts them.
+  Old records carry none; nothing older is translated into one.
 - **Collaboration crosses a capability boundary by explicit direction.** A
   Whole machine Hotline Agent may ask a colleague without another card. A
   workspace caller first asks the operator for a recipient-specific session
@@ -72,7 +82,8 @@ These come over as ideas and, where the code was already Rust, as code.
 - **External harnesses own their permissions.** Choosing ACP is explicit
   trust in that harness. Its runtime mode lives in the Reach card, while
   model and effort stay in the chat header. Hotline-mediated file callbacks
-  remain confined to the workspace; a harness mode does not widen them.
+  remain confined to the workspace and the teammate's granted folders; a
+  harness mode does not widen them.
 - **The house discipline.** Headless harnesses drive the real thing end to
   end; commits are one line stating an invariant; delete, don't disable;
   fewer moving parts beats fewer lines; write for the next reader.

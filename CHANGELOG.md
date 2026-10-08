@@ -19,6 +19,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   before it is used. Once one is installed, calls hear with it first, on
   every device that calls this desk, and it costs nothing against the
   spending limit. About credits the models and the engine.
+- Dictation works on Windows and Linux once the desk has a speech model:
+  the composer's microphone, hold or tap to talk, and the Dictate shortcut
+  hear you through the desk, with the meter following your voice and the
+  words filling in about once a second. A Mac uses the desk too when its
+  Hearing is set to something other than On this Mac.
 
 ## [0.34.0] - 2026-10-07
 

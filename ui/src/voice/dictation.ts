@@ -1,4 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { deskEngine, deskHears, useDeskHears } from "./desk";
+import { hearOnThisMac } from "./hearing";
 import { type DeviceTranscription, deviceTranscription, hearsOnThisMac, rawEquivalentDb } from "./transcription";
 
 /**
@@ -9,10 +11,11 @@ import { type DeviceTranscription, deviceTranscription, hearsOnThisMac, rawEquiv
  * ones, until the person stops. Kept out of React so the merging and the
  * engine's order of events can be tested without a window.
  *
- * Today the one engine is this Mac's (`macEngine`, over transcription.ts).
- * Any other source of words and loudness, such as one running in the desk
- * and reporting over the wire, plugs in as another `DictationEngine`; the
- * controller, the composer and the meter do not change.
+ * There are two engines: this Mac's (`macEngine`, over transcription.ts),
+ * and the desk's own model, heard over the wire (`deskEngine`, desk.ts).
+ * A Mac uses its own unless the person picked something else for hearing
+ * and the desk has a model; every other window uses the desk's. The
+ * controller, the composer and the meter do not change with the engine.
  */
 
 /** What dictation needs from a speech engine. */
@@ -64,7 +67,7 @@ type DictationField = {
 	done?(heard: string): void;
 };
 
-export const DICTATION_UNAVAILABLE = "Dictation isn't available on this Mac.";
+export const DICTATION_UNAVAILABLE = "Dictation isn't available yet. Download a speech model for the desk in Settings › Providers.";
 export const DICTATION_DENIED =
 	"Hotline can't hear you. Allow Hotline under Speech Recognition and Microphone in System Settings › Privacy & Security, then try again.";
 const DICTATION_NOT_STARTED = "Dictation couldn't start. Try again.";
@@ -96,7 +99,7 @@ export function followLevel(shown: number, target: number, elapsedMs: number): n
 	return shown + (target - shown) * (1 - Math.exp(-Math.max(0, elapsedMs) / time));
 }
 
-export const NOT_DICTATING: DictationView = { phase: "idle", error: null };
+const NOT_DICTATING: DictationView = { phase: "idle", error: null };
 
 /** Engines whose permission was granted while the app runs; `permit` may download a model, so it is asked once. */
 const permitted = new WeakSet<DictationEngine>();
@@ -298,12 +301,40 @@ export class Dictation {
 	}
 }
 
-/** The window's one engine for dictation, or none where this machine cannot hear. */
-let engine: DictationEngine | undefined | null = null;
-export function dictationEngine(): DictationEngine | undefined {
+/**
+ * This Mac's engine or the desk's, chosen again for every session by
+ * `preferDesk`, so a change of hearing in Settings takes effect at the next
+ * dictation. Each engine is asked for its permission the first time it is
+ * chosen, since the controller asks the pair only once.
+ */
+export function eitherEngine(mac: DictationEngine, desk: DictationEngine, preferDesk: () => boolean): DictationEngine {
+	let current = mac;
+	const permitted = new WeakSet<DictationEngine>();
+	const choose = async () => (preferDesk() && (await desk.capability()).available ? desk : mac);
+	return {
+		capability: async () => ((await mac.capability()).available ? { available: true } : desk.capability()),
+		permit: async () => true,
+		async start(onEvent) {
+			const chosen = await choose();
+			if (!permitted.has(chosen)) {
+				if (!(await chosen.permit())) throw new Error(chosen === mac ? DICTATION_DENIED : DICTATION_NOT_STARTED);
+				permitted.add(chosen);
+			}
+			current = chosen;
+			return chosen.start(onEvent);
+		},
+		stop: () => current.stop(),
+		cancel: () => current.cancel(),
+	};
+}
+
+/** The window's one engine for dictation: the desk's, and on a Mac that hears, the Mac's beside it. */
+let engine: DictationEngine | null = null;
+export function dictationEngine(): DictationEngine {
 	if (engine === null) {
 		const speech = deviceTranscription();
-		engine = speech === undefined ? undefined : macEngine(speech);
+		const desk = deskEngine(levelFromDbfs);
+		engine = speech === undefined ? desk : eitherEngine(macEngine(speech), desk, () => !hearOnThisMac() && deskHears());
 	}
 	return engine;
 }
@@ -311,20 +342,21 @@ export function dictationEngine(): DictationEngine | undefined {
 /** The answer once it came, so a composer mounted later draws its key right the first time. */
 let hears: boolean | undefined;
 
-/** Whether this machine can dictate; false until asked, and on any machine but a Mac that hears. */
+/** Whether this window can dictate: this Mac hears, or the desk has a model; false until asked. */
 export function useDictationAvailable(): boolean {
-	const [available, setAvailable] = useState(hears ?? false);
+	const desk = useDeskHears();
+	const [mac, setMac] = useState(hears ?? false);
 	useEffect(() => {
 		let live = true;
 		void hearsOnThisMac().then((here) => {
 			hears = here;
-			if (live) setAvailable(here);
+			if (live) setMac(here);
 		});
 		return () => {
 			live = false;
 		};
 	}, []);
-	return available;
+	return mac || desk;
 }
 
 // ------------------------------------------------------------- tap or hold

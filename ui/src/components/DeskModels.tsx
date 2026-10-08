@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SpeechModel } from "../generated/contract";
 import { openLink } from "../native";
 import { Refusal } from "../ui/Refusal";
+import { noteDeskModels } from "../voice/desk";
 import { busy, installedChanged, megabytes, modelLine, progress } from "../voice/deskModels";
 import { wire } from "../wire";
 
@@ -22,6 +23,7 @@ export function DeskModels({ onInstalledChanged }: { onInstalledChanged(): void 
 	changed.current = onInstalledChanged;
 
 	const take = (next: SpeechModel[]) => {
+		noteDeskModels(next);
 		if (shown.current !== null && installedChanged(shown.current, next)) changed.current();
 		shown.current = next;
 		setModels(next);

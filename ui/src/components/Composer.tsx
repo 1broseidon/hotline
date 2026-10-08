@@ -12,7 +12,6 @@ import { hotkeyLabel, useHotkeys } from "../hotkeys";
 import { useCall, useCallSnapshot } from "../voice/call";
 import {
 	Dictation,
-	NOT_DICTATING,
 	SEND_AFTER_MS,
 	SendCountdown,
 	TapOrHold,
@@ -42,8 +41,8 @@ export function isDown(state: SessionState): boolean {
  * a session is up behind them is plumbing: a message typed at one that is
  * not running starts it and then says the message, and nothing on screen
  * asks the person to know the difference. An empty field offers voice:
- * dictation where this Mac hears speech itself, the words landing in the
- * field to be read and sent by hand, and a call elsewhere. Words or files
+ * dictation where this Mac or the desk hears speech itself, the words
+ * landing in the field to be read and sent by hand, and a call elsewhere. Words or files
  * replace it with Send. Stop stays separate while the teammate is
  * working, so a correction never needs an interruption first. Attach is the
  * plus at the left end. A reply being composed is a one-line quote at the
@@ -108,27 +107,25 @@ export function Composer({
 	const submitNow = useRef(() => {});
 	const [countdown] = useState(() => new SendCountdown(() => submitNow.current()));
 	const sendingSince = useSyncExternalStore(countdown.watch, () => countdown.counting);
-	const [dictation] = useState(() => {
-		const engine = dictationEngine();
-		return engine === undefined
-			? null
-			: new Dictation(engine, {
-					read: () => textNow.current,
-					write: (next) => {
-						textNow.current = next;
-						setText(next);
-					},
-					done: (words) => {
-						if (afterDictation() === "send") countdown.start(words);
-					},
-				});
-	});
-	const heard = useSyncExternalStore(dictation?.watch ?? noWatch, () => dictation?.view ?? NOT_DICTATING);
+	const [dictation] = useState(
+		() =>
+			new Dictation(dictationEngine(), {
+				read: () => textNow.current,
+				write: (next) => {
+					textNow.current = next;
+					setText(next);
+				},
+				done: (words) => {
+					if (afterDictation() === "send") countdown.start(words);
+				},
+			}),
+	);
+	const heard = useSyncExternalStore(dictation.watch, () => dictation.view);
 	// A key or the button tells a tap (start, and stop on the next) from a hold (talk while held).
 	const keyPress = useRef(new TapOrHold());
 	const pointerPress = useRef(new TapOrHold());
 	const act = (action: "start" | "stop" | null) => {
-		if (dictation === null || action === null) return;
+		if (action === null) return;
 		if (action === "stop") {
 			void dictation.stop();
 			return;
@@ -136,7 +133,7 @@ export function Composer({
 		countdown.cancel();
 		void dictation.start();
 	};
-	const dictationHere = useDictationAvailable() && dictation !== null;
+	const dictationHere = useDictationAvailable();
 	// A call has the microphone, so there is no dictating over one.
 	const callLive = useCallSnapshot(useCall()).phase !== "ended";
 	const canDictate = dictationHere && !callLive;
@@ -153,11 +150,11 @@ export function Composer({
 	// What was heard stays in the field when a call takes the microphone,
 	// the draft is put away, or the composer goes.
 	useEffect(() => {
-		if (callLive) dictation?.release();
+		if (callLive) dictation.release();
 	}, [callLive, dictation]);
 	useEffect(
 		() => () => {
-			dictation?.release();
+			dictation.release();
 			countdown.cancel();
 		},
 		[dictation, countdown, draftOf],
@@ -167,7 +164,7 @@ export function Composer({
 	const actNow = useRef(act);
 	actNow.current = act;
 	useEffect(() => {
-		if (embedded || dictation === null || !canDictate) return;
+		if (embedded || !canDictate) return;
 		return takeDictationRequests((edge, at) => {
 			const listening = dictation.view.phase !== "idle";
 			const action = edge === "down" ? keyPress.current.down(at, listening) : keyPress.current.up(at);
@@ -194,7 +191,7 @@ export function Composer({
 
 	/** The button: down starts or stops at once, and the release ends a hold, wherever the pointer is by then. */
 	const pressKey = (event: ButtonPointerEvent) => {
-		if (event.button !== 0 || dictation === null) return;
+		if (event.button !== 0) return;
 		act(pointerPress.current.down(event.timeStamp, dictating));
 		const release = (up: PointerEvent) => {
 			window.removeEventListener("pointerup", release);
@@ -208,7 +205,7 @@ export function Composer({
 	// Escape gives up a dictation wherever focus is, before anything else
 	// on the window hears it.
 	useEffect(() => {
-		if (!dictating || dictation === null) return;
+		if (!dictating) return;
 		const onKey = (event: KeyboardEvent) => {
 			if (event.key !== "Escape" || (event.target as Element | null)?.closest("[data-private-terminal]")) return;
 			event.preventDefault();
@@ -381,7 +378,7 @@ export function Composer({
 						readOnly={heard.phase === "listening" || heard.phase === "finishing"}
 						onChange={(event) => {
 							setText(event.target.value);
-							dictation?.clearError();
+							dictation.clearError();
 							countdown.cancel();
 						}}
 						onPointerDown={() => countdown.cancel()}
@@ -402,7 +399,7 @@ export function Composer({
 							// While dictating, Enter stops, as a tap would.
 							if (dictating && event.key === "Enter") {
 								event.preventDefault();
-								if (heard.phase === "listening") void dictation?.stop();
+								if (heard.phase === "listening") void dictation.stop();
 								return;
 							}
 							if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -433,7 +430,7 @@ export function Composer({
 						<StopIcon />
 					</button>
 				)}
-				{dictating && dictation !== null ? (
+				{dictating ? (
 					<button
 						type="button"
 						className="composer-key composer-send composer-dictating"
@@ -465,7 +462,7 @@ export function Composer({
 						disabled={!voice && !mic && !hasContent}
 						onPointerDown={mic ? pressKey : undefined}
 						onClick={mic ? (event) => {
-							if (event.detail === 0) dictation?.toggle();
+							if (event.detail === 0) dictation.toggle();
 						} : voice ? onCall : submit}
 					>
 						{mic ? <MicIcon /> : voice ? <VoiceIcon /> : <ArrowUpIcon />}
@@ -476,7 +473,6 @@ export function Composer({
 	);
 }
 
-const noWatch = () => () => {};
 
 /** "Dictate (⌃⌥H)", or the bare words when the shortcut is off. */
 function withKeys(words: string, keys: string): string {

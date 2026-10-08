@@ -5,7 +5,8 @@ import { useSyncExternalStore } from "react";
  * audio to the desk's transcription, as every other device does. It is this
  * computer's choice, not the room's, so it is kept here rather than in the
  * room's settings; on unless the person picked a provider instead.
- * Dictation always hears here: it has no other way yet.
+ * Dictation hears here too, unless the person picked something else and
+ * the desk has a model of its own to hear with (dictation.ts).
  */
 const KEY = "hotline.hearOnThisMac";
 const listeners = new Set<() => void>();

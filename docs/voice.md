@@ -89,22 +89,25 @@ final sends nothing. Settings › Providers › Use for describes Hearing as
 
 ## Three ways to talk
 
-On a Mac that hears speech itself there are three: a **conversation**,
-which is the hands-free call; **hold to talk**, dictation for as long as a
-key or the microphone is held down; and **toggle to talk**, dictation
-started by one tap and stopped by the next. Dictation puts words in the
-field. Elsewhere there is only the conversation.
+Where the window can dictate there are three: a **conversation**, which is
+the hands-free call; **hold to talk**, dictation for as long as a key or
+the microphone is held down; and **toggle to talk**, dictation started by
+one tap and stopped by the next. Dictation puts words in the field. A
+window dictates where its Mac hears speech itself, or where the desk has a
+speech model of its own; elsewhere there is only the conversation.
 
-## Dictation on a Mac
+## Dictation
 
-Where `speech_capability` says this Mac can hear, the composer's key on an
-empty field is a microphone, Dictate, and the words go into the field
-rather than to anyone (`ui/src/voice/dictation.ts`). A call is the phone
-key in the conversation's band, Call <name>, shown when the desk can put a
-call through to the teammate; it turns into End the call while one with
-that teammate is live. Where this Mac cannot hear, and on Linux and
-Windows, there is no dictation and the empty composer's key starts the
-call, as the band's does.
+Where `speech_capability` says this Mac can hear, or `voice.models` says
+the desk has a model installed, the composer's key on an empty field is a
+microphone, Dictate, and the words go into the field rather than to anyone
+(`ui/src/voice/dictation.ts`). A call is the phone key in the
+conversation's band, Call <name>, shown when the desk can put a call
+through to the teammate; it turns into End the call while one with that
+teammate is live. Where neither can hear, there is no dictation and the
+empty composer's key starts the call, as the band's does. The window asks
+`voice.models` again whenever a composer mounts, and hears it from Settings
+when a model is installed or removed.
 
 A press of the microphone or the Dictate shortcut starts listening at
 once. Its release tells the two apart (`TapOrHold`): held for 300 ms or
@@ -116,9 +119,12 @@ cannot wedge the key. The microphone hears the pointer go down on it and
 up anywhere; Enter or Space on it starts or stops as a tap does, and
 Enter in the field stops.
 
-The first dictation of a run asks `speech_permit`; a refusal says to allow
-Hotline under Speech Recognition and Microphone in System Settings ›
-Privacy & Security. Listening starts a recognition session. The field
+The first dictation of a run on this Mac's engine asks `speech_permit`; a
+refusal says to allow Hotline under Speech Recognition and Microphone in
+System Settings › Privacy & Security. The desk's engine asks for the
+microphone when it opens it, and a refusal says to allow the microphone
+for Hotline. With neither engine able to hear, the dictation says to
+download a speech model for the desk. Listening starts a recognition session. The field
 keeps whatever was typed before dictation began, and each partial replaces
 the dictated words after it, separated by one space. While listening, the
 placeholder reads "Listening…", the field cannot be typed in, and the key
@@ -157,15 +163,29 @@ The controller knows an engine only as a `DictationEngine`: capability,
 permit, start with a callback for events, stop for the final text, and
 cancel, where events are whole-utterance text, a level already in 0 to 1,
 an error, or the session's end. This Mac's engine is one adapter
-(`macEngine`), which turns its dBFS into a level. The meter reads any
-stream of 0 to 1 levels (`LevelSource`), so it does not depend on
-dictation.
+(`macEngine`), which turns its dBFS into a level. The desk's is another
+(`deskEngine`, `ui/src/voice/desk.ts`): the window opens the microphone
+through the call's audio (`ui/src/voice/audio.ts`), meters each block's
+RMS in dBFS onto the same 0 to 1 scale, and keeps the samples at 16 kHz.
+The desk's model hears whole clips, so about once a second, while no
+answer is outstanding and something new was said, the window sends the
+clip so far to `voice.transcribe` and shows the words as the session's
+partial text; stopping sends the whole clip and waits up to twenty
+seconds for its words. A session ends itself after thirty seconds, as a
+pause ends one on a Mac: its words are final and a fresh session listens
+on, so no clip is longer than the desk takes. A microphone that goes away
+ends the dictation with an error. On a Mac whose engine hears, each
+session is this Mac's unless the person picked something other than On
+this Mac for hearing and the desk has a model; each engine is asked its
+permission the first time it is chosen (`eitherEngine`). Every other
+window uses the desk's. The meter reads any stream of 0 to 1 levels
+(`LevelSource`), so it does not depend on dictation.
 
 ## Shortcuts from any app
 
 Two shortcuts work while Hotline is in the background, through the
 `global-shortcut` plugin (`ui/src/hotkeys.ts`): Dictate, `Control+Option+H`
-(⌃⌥H) unless changed, offered only where this Mac can dictate; and
+(⌃⌥H) unless changed, offered only where the window can dictate; and
 Conversation, off until set. Both are this computer's, kept in the
 window's `localStorage` under `hotline.hotkeys` (Conversation read from
 `call` where it was stored under that name), and set in Settings ›

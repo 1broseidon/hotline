@@ -24,10 +24,10 @@ type Page = "where" | "how" | "engine" | "providers" | "harness" | "teammate";
 
 /** The steps the progress line names, and which pages belong to each. */
 const STEPS: { title: string; pages: Page[] }[] = [
-	{ title: "How it works", pages: ["how"] },
-	{ title: "What runs it", pages: ["engine"] },
+	{ title: "Welcome", pages: ["how"] },
+	{ title: "How they think", pages: ["engine"] },
 	{ title: "Connect", pages: ["providers", "harness"] },
-	{ title: "First teammate", pages: ["teammate"] },
+	{ title: "Your teammate", pages: ["teammate"] },
 ];
 
 /**
@@ -152,7 +152,7 @@ export function Welcome({
 	if (page === "where" && onConnectServer !== null) {
 		return (
 			<Frame onConnectServer={null}>
-				<Lead title="Welcome to Hotline" text="A room for a team of agents, on your machine. First, where should they live?" />
+				<Lead title="Welcome to Hotline" text="Your own team of AI helpers. First, where should they run?" />
 				<Choice onHere={() => setPage("how")} onServer={onConnectServer} />
 				{refusal !== null && <Refusal message={refusal} />}
 			</Frame>
@@ -165,20 +165,20 @@ export function Welcome({
 
 			{page === "how" && (
 				<>
-					<Lead title="How Hotline works" text="Three words, and you know your way around." />
+					<Lead title="How Hotline works" text="Hotline gives you a small team of AI helpers that get things done for you." />
 					<Concepts
 						rows={[
 							{
 								title: "Teammates",
-								text: "Each is an agent with a name, a goal and a folder of its own. Talking to one is a conversation in the rail, like a chat.",
+								text: "Each teammate is an AI helper with a name and a job. You chat with it the way you'd message a colleague.",
 							},
 							{
-								title: "The room",
-								text: "Where your teammates live together. They can ask each other for help and hand work over, and you see all of it.",
+								title: "They work together",
+								text: "Teammates can ask each other for help and pass work along. You can see everything they do.",
 							},
 							{
-								title: "The desk",
-								text: "The computer that runs the room — this one, or a server. It keeps the keys, the files and the history, and your phone can join it later.",
+								title: "It stays with you",
+								text: "Your teammates, their files and your chats live on this computer. You can check in from your phone too.",
 							},
 						]}
 					/>
@@ -187,30 +187,28 @@ export function Welcome({
 
 			{page === "engine" && (
 				<>
-					<Lead
-						title="What your teammates run on"
-						text="Every teammate runs on an agent: the program that reads, writes and runs things for it. There are two kinds."
-					/>
-					<div role="radiogroup" aria-label="What new teammates run on" className="grouped">
+					<Lead title="How your teammates think" text="Teammates need an AI to think with. Pick whichever is easiest for you." />
+					<div role="radiogroup" aria-label="How new teammates think" className="grouped">
 						<EngineChoice
 							checked={kind === "hotline"}
 							title="Hotline Agent"
-							text="Hotline's own agent. You pick the model, from any provider you connect: an API key, or a subscription you already pay for. It stays inside its folder unless you give it more."
+							badge="Recommended"
+							text="Hotline's built-in helper. Connect an AI service you already use, like ChatGPT, Claude or Grok, and it does the rest."
 							onPick={() => setKind("hotline")}
 						/>
 						<EngineChoice
 							checked={kind === "harness"}
 							disabled={harnesses.length === 0}
-							title="An agent you already use"
+							title="An AI coding tool you already have"
 							text={
 								harnesses.length === 0
-									? "Codex, Claude Code, Cursor and others. None is installed here yet; one you install shows up in Settings later."
-									: `Runs ${listOf(harnesses.map((one) => one.name))} through its own CLI, with its own login, models and permissions.`
+									? "For people who use tools like Codex, Claude Code or Cursor. None is on this computer."
+									: `Use ${listOf(harnesses.map((one) => one.name))}, signed in with your own account.`
 							}
 							onPick={() => setKind("harness")}
 						/>
 					</div>
-					<p className="group-hint">This is only the default. Each teammate can run on either, and you can mix them in one room.</p>
+					<p className="group-hint">Not sure? Pick Hotline Agent. You can change this for any teammate later.</p>
 				</>
 			)}
 
@@ -232,8 +230,8 @@ export function Welcome({
 				) : (
 					<>
 						<Lead
-							title="Connect a provider"
-							text="A provider is where Hotline Agent's models come from. Connect one with an API key, or sign in with a subscription. Keys stay in your OS keychain, and a provider can draw pictures and power voice calls too."
+							title="Connect an AI service"
+							text="This is where your teammates' thinking comes from. Sign in with an account you already have, or paste a key. It's kept safe in your computer's keychain."
 						/>
 						{providersReady && (
 							<div className="flex flex-wrap items-center gap-1.5">
@@ -255,7 +253,7 @@ export function Welcome({
 									))
 								)}
 							</div>
-							<p className="group-hint">One is enough to start. Add more any time in Settings › Providers.</p>
+							<p className="group-hint">One is enough to start. You can add more later in Settings.</p>
 						</section>
 					</>
 				))}
@@ -263,8 +261,8 @@ export function Welcome({
 			{page === "harness" && (
 				<>
 					<Lead
-						title="Pick the agent"
-						text="Hotline starts the agent's own CLI for each teammate. It signs in, picks its models and decides what it may touch the way it always does; the first start may ask you to sign in."
+						title="Pick your tool"
+						text="Your teammates will use it with your own account. The first time, it may ask you to sign in."
 					/>
 					<div role="radiogroup" aria-label="The agent new teammates run on" className="grouped">
 						{harnesses.map((one) => (
@@ -283,15 +281,15 @@ export function Welcome({
 
 			{page === "teammate" && (
 				<>
-					<Lead title="Your first teammate" text="Give it a name and a job. It starts as soon as you add it, and the conversation opens with a few things to try." />
+					<Lead title="Meet your first teammate" text="Give it a name and say what it should help with. Then say hello." />
 					<Concepts
 						rows={[
-							{ title: "Goal", text: "Written into its folder as AGENTS.md, so it reads it every time it starts." },
+							{ title: "Goal", text: "What this teammate is for, in your own words. It reads this every time it starts." },
 							{
 								title: "Working directory",
-								text: "Its own folder. Hotline Agent works inside it; Whole machine lets it reach everything else.",
+								text: "The folder it works in. It only touches files there unless you allow more.",
 							},
-							{ title: "Agent", text: "Already set to what you picked. Change it here for this teammate only." },
+							{ title: "Agent", text: "Already set from the last step." },
 						]}
 					/>
 					<NewTeammateForm models={models} goal={FIRST_GOAL} submitLabel="Add teammate" onCreated={onCreated} />
@@ -395,12 +393,14 @@ function EngineChoice({
 	checked,
 	disabled,
 	title,
+	badge,
 	text,
 	onPick,
 }: {
 	checked: boolean;
 	disabled?: boolean;
 	title: string;
+	badge?: string;
 	text: string;
 	onPick(): void;
 }) {
@@ -408,7 +408,10 @@ function EngineChoice({
 		<label className="group-row group-row-choice" data-off={disabled ? "true" : undefined}>
 			<input type="radio" className="radio" checked={checked} disabled={disabled} onChange={onPick} />
 			<span className="group-row-text">
-				<span className="group-row-title">{title}</span>
+				<span className="group-row-title">
+					{title}
+					{badge !== undefined && <span className="provider-chip ml-2 align-middle">{badge}</span>}
+				</span>
 				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
 					{text}
 				</span>
@@ -430,14 +433,14 @@ function Choice({ onHere, onServer }: { onHere(): void; onServer(): void }) {
 				<button type="button" className="group-row group-row-choice w-full text-left" onClick={onHere}>
 					<span className="group-row-text">
 						<span className="group-row-title">On this computer</span>
-						<span className="group-row-detail">Set up a first teammate here.</span>
+						<span className="group-row-detail">Best for most people.</span>
 					</span>
 					<ChevronRightIcon className="shrink-0 text-ink-3" />
 				</button>
 				<button type="button" className="group-row group-row-choice w-full text-left" onClick={onServer}>
 					<span className="group-row-text">
 						<span className="group-row-title">On a server you run</span>
-						<span className="group-row-detail">Connect to a Hotline server and use its teammates.</span>
+						<span className="group-row-detail">If you already set up Hotline on a server.</span>
 					</span>
 					<ChevronRightIcon className="shrink-0 text-ink-3" />
 				</button>

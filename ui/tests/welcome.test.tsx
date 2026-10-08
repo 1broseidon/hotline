@@ -108,7 +108,7 @@ describe("the setup screen on this computer's own desk", () => {
 		await mount(connect);
 		await click("On this computer");
 		expect(text()).toContain("How Hotline works");
-		for (const step of ["How it works", "What runs it", "Connect", "First teammate"]) expect(text()).toContain(step);
+		for (const step of ["Welcome", "How they think", "Connect", "Your teammate"]) expect(text()).toContain(step);
 		expect(text()).not.toContain("Where your teammates run");
 		expect(connected).toBe(0);
 		await click("Connect to a server");
@@ -121,16 +121,16 @@ describe("the setup screen on this computer's own desk", () => {
 describe("the wizard", () => {
 	test("teaches the three words before anything is asked", async () => {
 		await mount(null);
-		for (const word of ["Teammates", "The room", "The desk"]) expect(text()).toContain(word);
+		for (const word of ["Teammates", "They work together", "It stays with you"]) expect(text()).toContain(word);
 		expect(primary()?.disabled).toBe(false);
 	});
 
 	test("names the two kinds of agent and waits for one before going on", async () => {
 		await mount(null);
 		await click("Next");
-		expect(text()).toContain("What your teammates run on");
+		expect(text()).toContain("How your teammates think");
 		expect(text()).toContain("Hotline Agent");
-		expect(text()).toContain("An agent you already use");
+		expect(text()).toContain("An AI coding tool you already have");
 		expect(primary()?.disabled).toBe(true);
 		await pick("Hotline Agent");
 		expect(primary()?.disabled).toBe(false);
@@ -141,9 +141,9 @@ describe("the wizard", () => {
 	test("cannot pick an agent this machine does not have", async () => {
 		await mount(null);
 		await click("Next");
-		const already = [...container.querySelectorAll("label")].find((node) => node.textContent?.startsWith("An agent you already use"));
+		const already = [...container.querySelectorAll("label")].find((node) => node.textContent?.startsWith("An AI coding tool you already have"));
 		expect(already?.querySelector("input")?.disabled).toBe(true);
-		expect(text()).toContain("None is installed here yet");
+		expect(text()).toContain("None is on this computer");
 	});
 });
 

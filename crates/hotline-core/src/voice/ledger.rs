@@ -369,6 +369,11 @@ fn price(provider_id: &str) -> (f64, f64) {
 }
 
 /// The cost of transcribing a clip of this many seconds.
+/// Whether a provider's voice costs nothing: a subscription's, or the desk's own.
+pub fn is_free(provider_id: &str) -> bool {
+    price(provider_id) == (0.0, 0.0)
+}
+
 pub fn stt_usd(provider_id: &str, seconds: f64) -> f64 {
     price(provider_id).0 * seconds.max(0.0) / 60.0
 }

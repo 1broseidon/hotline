@@ -57,7 +57,30 @@ struct CallSpeech {
     fallback_tts: Option<Arc<dyn speech::Speech>>,
 }
 
+/**
+ * A cap with nothing left turns paid voice off. A call that would hear or
+ * speak through a provider that charges cannot run then: it would be
+ * refused at its first reservation. One heard and spoken for free — a
+ * subscription, or the desk's own engine — runs whatever the caps say.
+ */
+fn paid_voice_off(budget: &ledger::Budget, speech: Option<&CallSpeech>) -> Option<String> {
+    let speech = speech?;
+    let none_left =
+        budget.spent_day_usd >= budget.day_usd || budget.spent_month_usd >= budget.month_usd;
+    (none_left && !speech.free()).then(|| {
+        "Paid voice is off: there is no spending limit left. Raise the limit, or use a free voice.".to_string()
+    })
+}
+
 impl CallSpeech {
+    /** Whether hearing and speaking both cost nothing; a paid fallback voice is never used for a free one. */
+    fn free(&self) -> bool {
+        self.stt
+            .as_ref()
+            .is_none_or(|stt| ledger::is_free(&stt.id().provider_id))
+            && ledger::is_free(&self.tts.id().provider_id)
+    }
+
     fn audio(speech: SpeechSet) -> Self {
         Self {
             stt: Some(speech.stt),
@@ -403,7 +426,12 @@ impl Calls {
         let budget = self.ledger.balance();
         let speech = self.resolve_speech(input_mode, None);
         let dispatcher = self.dispatcher();
-        let budget_error = self.ledger.check().err().map(|e| e.to_string());
+        let budget_error = self
+            .ledger
+            .check()
+            .err()
+            .map(|e| e.to_string())
+            .or_else(|| paid_voice_off(&budget, speech.as_ref().ok()));
         let direct_available = speech.is_ok() && budget_error.is_none();
         let unavailable = speech
             .as_ref()
@@ -484,6 +512,9 @@ impl Calls {
                 self.dispatcher()?;
             }
             self.ledger.check().map_err(|e| e.to_string())?;
+            if let Some(off) = paid_voice_off(&self.ledger.balance(), Some(&speech_services)) {
+                return Err(off);
+            }
             for call in calls
                 .iter_mut()
                 .filter(|call| call.state != VoiceState::Ended)

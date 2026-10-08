@@ -494,6 +494,23 @@ describe("a call heard by this Mac", () => {
 		expect(r.speech.counts.starts).toBe(1);
 	});
 
+	test("the first sentence of a call, at a normal voice in a quiet room, is heard and sent", async () => {
+		const r = textRig();
+		await r.call.start();
+		// Measured on a Mac with voice processing: the room near -74 dBFS, speech near -46.
+		r.levels(-74, 1_000, 1_600);
+		r.at(1_620);
+		r.speech.emit({ type: "partial", text: "can" });
+		r.levels(-46, 1_650, 1_750);
+		r.speech.emit({ type: "partial", text: "can you hear" });
+		r.levels(-44, 1_800, 2_300);
+		r.speech.emit({ type: "partial", text: "can you hear me" });
+		r.speech.finalize("Can you hear me?");
+		r.levels(-74, 2_350, 3_800);
+		await tick();
+		expect(r.sentText().map((one) => one.text)).toEqual(["Can you hear me?"]);
+	});
+
 	test("a finished utterance is stopped for its whole text and sent with a rising seq", async () => {
 		const r = textRig();
 		await r.call.start();

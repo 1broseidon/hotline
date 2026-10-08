@@ -506,7 +506,7 @@ describe("a call heard by this Mac", () => {
 		r.speech.emit({ type: "partial", text: "call mack" });
 		expect(r.call.current.lines).toEqual([{ kind: "you", id: "heard-1", text: "call mack" }]);
 		r.speech.finalize("Call Mack and ask about the build.");
-		r.levels(-60, 1_450, 2_700);
+		r.levels(-74, 1_450, 2_700);
 		expect(r.call.current.phase).toBe("thinking");
 		await tick();
 		expect(r.sentText()).toEqual([{ callId: r.call.id, seq: 1, text: "Call Mack and ask about the build." }]);
@@ -518,7 +518,7 @@ describe("a call heard by this Mac", () => {
 		expect(r.speech.counts.starts).toBe(2);
 		r.speech.finalize("Thanks.");
 		r.levels(-20, 3_000, 3_300);
-		r.levels(-60, 3_350, 4_600);
+		r.levels(-74, 3_350, 4_600);
 		await tick();
 		expect(r.sentText().map((one) => one.seq)).toEqual([1, 2]);
 	});
@@ -528,12 +528,12 @@ describe("a call heard by this Mac", () => {
 		await r.call.start();
 		r.at(1_200);
 		r.speech.emit({ type: "partial", text: "the radio says" });
-		r.levels(-60, 1_250, 2_000);
+		r.levels(-74, 1_250, 2_000);
 		r.levels(-20, 2_050, 2_300);
 		r.speech.emit({ type: "partial", text: "the radio says call Mack" });
 		expect(r.call.current.lines).toEqual([{ kind: "you", id: "heard-1", text: "call Mack" }]);
 		r.speech.finalize("The radio says call Mack.");
-		r.levels(-60, 2_350, 3_600);
+		r.levels(-74, 2_350, 3_600);
 		await tick();
 		expect(r.sentText().map((one) => one.text)).toEqual(["call Mack."]);
 	});
@@ -542,7 +542,7 @@ describe("a call heard by this Mac", () => {
 		const r = textRig();
 		await r.call.start();
 		r.levels(-20, 1_200, 1_400);
-		r.levels(-60, 1_450, 2_700);
+		r.levels(-74, 1_450, 2_700);
 		await tick();
 		expect(r.sentText()).toEqual([]);
 		expect(r.call.current.phase).toBe("listening");
@@ -573,7 +573,7 @@ describe("a call heard by this Mac", () => {
 		r.speech.stopWith(() => new Promise((resolve) => (finish = resolve)));
 		r.levels(-20, 1_200, 1_400);
 		r.speech.emit({ type: "partial", text: "never mind" });
-		r.levels(-60, 1_450, 2_700);
+		r.levels(-74, 1_450, 2_700);
 		await r.call.hold(true);
 		expect(r.call.current.phase).toBe("held");
 		expect(r.call.current.lines).toEqual([]);
@@ -606,7 +606,7 @@ describe("a call heard by this Mac", () => {
 		r.speech.emit({ type: "partial", text: "about the build" });
 		expect(r.call.current.lines).toEqual([{ kind: "you", id: "heard-1", text: "Call Mack about the build" }]);
 		r.speech.finalize("about the build.");
-		r.levels(-60, 1_450, 2_700);
+		r.levels(-74, 1_450, 2_700);
 		await tick();
 		expect(r.sentText().map((one) => one.text)).toEqual(["Call Mack about the build."]);
 	});

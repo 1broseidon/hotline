@@ -4,7 +4,7 @@ import { type Target, wire } from "../wire";
 import type { FileChunk, VoiceEndReason, VoiceEvent } from "../generated/contract";
 import { type CallAudio, webAudio } from "./audio";
 import { TurnDetector, levelFromDb } from "./turn";
-import { type DeviceTranscription, type TranscriptionEvent, deviceTranscription, hearsOnThisMac } from "./transcription";
+import { type DeviceTranscription, type TranscriptionEvent, deviceTranscription, hearsOnThisMac, rawEquivalentDb } from "./transcription";
 import { hearOnThisMac, subscribeHearing } from "./hearing";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 import { PcmTurn } from "./stream";
@@ -661,7 +661,7 @@ export class Call {
 			case "level": {
 				const now = this.now();
 				if (now < this.quietUntil) return;
-				const level = levelFromDb(event.levelDb);
+				const level = levelFromDb(rawEquivalentDb(event.levelDb));
 				this.level = level;
 				for (const turn of this.detector.push(level, now)) {
 					switch (turn.kind) {

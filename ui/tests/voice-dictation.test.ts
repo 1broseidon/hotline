@@ -120,8 +120,8 @@ describe("dictation into the composer", () => {
 
 	test("decibels become a level evenly from a quiet room to a raised voice", () => {
 		expect(levelFromDbfs(-80)).toBe(0);
-		expect(levelFromDbfs(-60)).toBe(0);
-		expect(levelFromDbfs(-35)).toBeCloseTo(0.5);
+		expect(levelFromDbfs(-48)).toBe(0);
+		expect(levelFromDbfs(-29)).toBeCloseTo(0.5);
 		expect(levelFromDbfs(-10)).toBe(1);
 		expect(levelFromDbfs(0)).toBe(1);
 		expect(levelFromDbfs(Number.NaN)).toBe(0);
@@ -152,7 +152,8 @@ describe("dictation into the composer", () => {
 		};
 		const heard: DictationEvent[] = [];
 		await macEngine(speech).start((event) => heard.push(event));
-		send({ type: "level", levelDb: -35, at: 1, unit: "dbfs" });
+		// The engine meters after voice processing: -53 dBFS there is a raw -29, half the meter.
+		send({ type: "level", levelDb: -53, at: 1, unit: "dbfs" });
 		send({ type: "partial", text: "hi" });
 		expect(heard).toEqual([{ type: "level", level: 0.5 }, { type: "partial", text: "hi" }]);
 	});

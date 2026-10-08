@@ -167,3 +167,17 @@ export function hearsOnThisMac(): Promise<boolean> {
 	hearing ??= (async () => (await deviceTranscription()?.capability())?.available === true)().catch(() => false);
 	return hearing;
 }
+
+/**
+ * This Mac's engine meters its microphone after voice processing, which
+ * cancels echo and lowers everything with it: a quiet room measured about
+ * -74 dBFS and normal speech -50 to -40, where a raw microphone puts speech
+ * near -30. Raised by this much, the call's speech thresholds and the
+ * dictation meter, tuned for a raw microphone, hear normal speech again.
+ */
+export const PROCESSED_GAIN_DB = 24;
+
+/** A level from this Mac's engine as a raw microphone would read it, in dBFS. */
+export function rawEquivalentDb(db: number): number {
+	return db + PROCESSED_GAIN_DB;
+}

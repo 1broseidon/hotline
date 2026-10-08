@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { type DeviceTranscription, deviceTranscription, hearsOnThisMac } from "./transcription";
+import { type DeviceTranscription, deviceTranscription, hearsOnThisMac, rawEquivalentDb } from "./transcription";
 
 /**
  * Dictation into the composer: an engine hears the person and the words go
@@ -41,7 +41,8 @@ export function macEngine(speech: DeviceTranscription): DictationEngine {
 	return {
 		capability: () => speech.capability(),
 		permit: () => speech.permit(),
-		start: (onEvent) => speech.start((event) => onEvent(event.type === "level" ? { type: "level", level: levelFromDbfs(event.levelDb) } : event)),
+		start: (onEvent) =>
+			speech.start((event) => onEvent(event.type === "level" ? { type: "level", level: levelFromDbfs(rawEquivalentDb(event.levelDb)) } : event)),
 		stop: () => speech.stop(),
 		cancel: () => speech.cancel(),
 	};
@@ -70,7 +71,7 @@ const DICTATION_NOT_STARTED = "Dictation couldn't start. Try again.";
 const DICTATION_STOPPED = "Dictation stopped. What it heard is in the field.";
 
 /** The microphone's loudness in dBFS from a quiet room to a raised voice, which a level spreads across 0 to 1. */
-const QUIET_DB = -60;
+const QUIET_DB = -48;
 const LOUD_DB = -10;
 
 /**

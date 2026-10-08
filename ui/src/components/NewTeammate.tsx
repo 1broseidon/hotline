@@ -185,15 +185,26 @@ export function NewTeammateForm({
 						<label className="label" htmlFor="new-name">
 							Name
 						</label>
-						<input
-							id="new-name"
-							className="field"
-							value={name}
-							autoFocus
-							autoComplete="off"
-							placeholder="Like Ada, Scout or Penny"
-							onChange={(event) => setName(event.target.value)}
-						/>
+						<div className="relative">
+							<input
+								id="new-name"
+								className="field pr-9"
+								value={name}
+								autoFocus
+								autoComplete="off"
+								placeholder="Name your teammate"
+								onChange={(event) => setName(event.target.value)}
+							/>
+							<button
+								type="button"
+								className="nt-dice"
+								title="Suggest a name"
+								aria-label="Suggest a name"
+								onClick={() => setName((was) => suggestName(was))}
+							>
+								<DiceGlyph />
+							</button>
+						</div>
 					</div>
 				</div>
 				<div>
@@ -314,6 +325,34 @@ export function NewTeammateForm({
 				</button>
 			</div>
 		</form>
+	);
+}
+
+/**
+ * Names to suggest: short, friendly, easy to say out loud on a call, and
+ * none of them a product. One is drawn at random, never the one showing.
+ */
+const NAMES = [
+	"Ada", "Scout", "Penny", "Milo", "Juno", "Otto", "Iris", "Felix", "Nova", "Rosa",
+	"Theo", "Luna", "Gus", "Hazel", "Remy", "Ivy", "Max", "Wren", "Leo", "Mabel",
+	"Finn", "Clara", "Ozzy", "Bea", "Sage", "Hugo", "Pip", "Nell", "Kit", "Arlo",
+];
+
+function suggestName(current: string): string {
+	const others = NAMES.filter((one) => one !== current.trim());
+	return others[Math.floor(Math.random() * others.length)] ?? NAMES[0]!;
+}
+
+function DiceGlyph() {
+	return (
+		<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" aria-hidden="true">
+			<rect x="2.25" y="2.25" width="11.5" height="11.5" rx="2.5" />
+			<circle cx="5.5" cy="5.5" r="0.9" fill="currentColor" stroke="none" />
+			<circle cx="10.5" cy="5.5" r="0.9" fill="currentColor" stroke="none" />
+			<circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none" />
+			<circle cx="5.5" cy="10.5" r="0.9" fill="currentColor" stroke="none" />
+			<circle cx="10.5" cy="10.5" r="0.9" fill="currentColor" stroke="none" />
+		</svg>
 	);
 }
 

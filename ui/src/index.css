@@ -1998,6 +1998,26 @@
 		font-size: 20px;
 		font-weight: 700;
 	}
+	.nt-dice {
+		position: absolute;
+		top: 50%;
+		right: 4px;
+		display: inline-grid;
+		width: 26px;
+		height: 26px;
+		place-items: center;
+		transform: translateY(-50%);
+		border-radius: var(--radius-control);
+		color: var(--ink-3);
+		transition: color var(--dur-press) var(--ease-out), background-color var(--dur-press) var(--ease-out);
+	}
+	.nt-dice:hover {
+		background: var(--fill-hover);
+		color: var(--accent-ink);
+	}
+	.nt-dice:active {
+		transform: translateY(-50%) rotate(-12deg);
+	}
 	.nt-chip {
 		height: 24px;
 		padding: 0 10px;

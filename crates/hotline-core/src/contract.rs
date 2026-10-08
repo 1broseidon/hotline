@@ -2230,9 +2230,9 @@ pub struct BackendChoice {
 
 /// Where a fresh room stands on its way to a first turn, as the welcome
 /// pane reads it. Derived from what the room already knows — its credentials,
-/// the harnesses this machine can start, its default backend and its roster —
-/// never from a stored "seen" flag: the pane is on screen exactly as long as
-/// there is nothing else to show.
+/// the harnesses this machine can start, its default backend and its roster,
+/// tombstones included — never from a stored "seen" flag: the pane is on
+/// screen exactly while no teammate has ever been made here.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -2249,6 +2249,10 @@ pub struct Welcome {
     pub can_run: bool,
     /// How many teammates the room has. Past zero the pane is gone.
     pub teammates: usize,
+    /// A teammate has been made in this room, whether or not one is left.
+    /// A room that is set up and empty opens on New teammate, not on the
+    /// welcome: it has been through setup once already.
+    pub set_up: bool,
 }
 
 // ---------------------------------------------------------------------------

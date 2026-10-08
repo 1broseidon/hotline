@@ -16,7 +16,7 @@ import { Teammate } from "./components/Teammate";
 import { Shortcuts } from "./components/Shortcuts";
 import { sameWork, Work, type OpenWork } from "./components/Work";
 import type { ThreadRef } from "./components/Transcript";
-import { Welcome } from "./components/Welcome";
+import { EmptyRoom, Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
 import { hotkeyRegistrar, onHotkey, useHotkeys, useRecording, type HotkeyId, type KeyState } from "./hotkeys";
 import { requestDictation, useDictationAvailable } from "./voice/dictation";
@@ -486,7 +486,35 @@ export function App() {
 		return () => document.removeEventListener("contextmenu", suppress);
 	}, []);
 
-	const welcome = rosterLoaded && roster.length === 0;
+	/* Whether a teammate has ever been made in this room, as `welcome`'s
+	 * setUp reads it off the room's stream. A room with a teammate is set up
+	 * by definition, so the core is asked only while the roster is empty —
+	 * on the first snapshot, after the last teammate is deleted, after a
+	 * reconnect — and the answer before stands while the next is on its way.
+	 * Null until there is one, so neither screen flashes in ahead of it. */
+	const [setUp, setSetUp] = useState<boolean | null>(null);
+	const empty = rosterLoaded && roster.length === 0;
+	useEffect(() => {
+		if (!rosterLoaded) return;
+		if (!empty) {
+			setSetUp(true);
+			return;
+		}
+		if (connection !== "open") return;
+		let current = true;
+		wire
+			.command("welcome", {})
+			.then((state) => current && setSetUp(state.setUp))
+			// The welcome reads the same command and says what went wrong.
+			.catch(() => current && setSetUp(false));
+		return () => {
+			current = false;
+		};
+	}, [rosterLoaded, empty, connection]);
+	/* An empty room nobody has set up is the welcome alone, in a bare
+	 * window; until the core has said which room this is, it is that bare
+	 * window with nothing in it yet. */
+	const welcome = empty && setUp !== true;
 	const call = useCall();
 	const callPhase = useCallSnapshot(call).phase;
 	const calling = call !== null && callPhase !== "ended";
@@ -571,9 +599,11 @@ export function App() {
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />
 			{welcome && pane === null ? (
-				// An empty room is the welcome alone: no rail, nothing to pick in it yet.
+				// A room never set up is the welcome alone: no rail, nothing to pick in it yet.
 				<div className="flex min-h-0 flex-1 p-2 pt-0">
-					<Welcome models={models} onCreated={select} onConnectServer={desk?.kind === "local" ? () => togglePane("add-desk") : null} />
+					{setUp === false && (
+						<Welcome models={models} onCreated={select} onConnectServer={desk?.kind === "local" ? () => togglePane("add-desk") : null} />
+					)}
 				</div>
 			) : (
 			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
@@ -679,6 +709,8 @@ export function App() {
 							/>
 						)}
 					</>
+				) : empty ? (
+					<EmptyRoom onNew={() => togglePane("new-teammate")} />
 				) : (
 					<div className="pane">
 						<Band>

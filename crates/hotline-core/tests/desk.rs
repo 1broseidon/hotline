@@ -625,7 +625,8 @@ async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() 
 
 /// The welcome pane's state, walked over the wire from a fresh data
 /// directory: nothing to run on, then a key, then a harness made the room's
-/// default, then a teammate. Each step is derived from what the room knows,
+/// default, then a teammate, then that teammate deleted, which leaves the
+/// room empty but still set up. Each step is derived from what the room knows,
 /// so there is no flag to reset and nothing to have seen. The first turn
 /// itself needs a real key and is proved by the keyed harness below; here the
 /// tape is empty after the start, which is what the starter card reads.
@@ -639,6 +640,7 @@ async fn the_welcome_state_derives_from_a_fresh_room_to_a_first_teammate() {
     assert_eq!(fresh["result"]["canRun"], false);
     assert_eq!(fresh["result"]["providers"], json!([]));
     assert_eq!(fresh["result"]["teammates"], 0);
+    assert_eq!(fresh["result"]["setUp"], false);
     assert_eq!(fresh["result"]["defaultBackendId"], "hotline");
     let harnesses = fresh["result"]["harnesses"].as_array().unwrap().clone();
     assert!(
@@ -698,6 +700,7 @@ async fn the_welcome_state_derives_from_a_fresh_room_to_a_first_teammate() {
     let persona_id = created["result"]["id"].as_str().unwrap().to_string();
     let with_teammate = client.call("welcome", json!({})).await;
     assert_eq!(with_teammate["result"]["teammates"], 1, "{with_teammate}");
+    assert_eq!(with_teammate["result"]["setUp"], true);
     assert_eq!(with_teammate["result"]["canRun"], true);
 
     // Started, the tape carries the chapter marker and nothing said: the
@@ -735,6 +738,17 @@ async fn the_welcome_state_derives_from_a_fresh_room_to_a_first_teammate() {
     let after = client.call("welcome", json!({})).await;
     assert_eq!(after["result"]["canRun"], false, "{after}");
     assert_eq!(after["result"]["providers"], json!([]));
+
+    // Deleting the last teammate empties the room but does not unmake it:
+    // the tombstone says a teammate was here, so the window opens on New
+    // teammate rather than walking setup again.
+    let deleted = client
+        .call("persona.delete", json!({ "id": persona_id }))
+        .await;
+    assert_eq!(deleted["ok"], true, "{deleted}");
+    let emptied = client.call("welcome", json!({})).await;
+    assert_eq!(emptied["result"]["teammates"], 0, "{emptied}");
+    assert_eq!(emptied["result"]["setUp"], true);
 }
 
 /// A subscription's account list cannot be refreshed without a login. The

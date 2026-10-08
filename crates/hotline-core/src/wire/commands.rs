@@ -729,10 +729,11 @@ pub(crate) async fn run(
             Ok(serde_json::to_value(room.computer_releases_check().await).unwrap_or(Value::Null))
         }
         Command::Welcome {} => {
-            let settings = room::settings(log);
+            let events = log.load(&StreamId::Room);
             let welcome = welcome(
-                &settings,
-                room::roster(log).len(),
+                &room::settings_from_events(&events),
+                room::personas(&events).len(),
+                room::has_had_a_teammate(&events),
                 &room.credentials(),
                 room.backends().await,
             );
@@ -1540,6 +1541,7 @@ fn forget_removed_servers(log: &Log) -> Result<(), String> {
 pub(crate) fn welcome(
     settings: &Map<String, Value>,
     teammates: usize,
+    set_up: bool,
     credentials: &[crate::contract::Credential],
     backends: Vec<crate::contract::BackendChoice>,
 ) -> crate::contract::Welcome {
@@ -1578,6 +1580,7 @@ pub(crate) fn welcome(
         default_backend_id,
         can_run,
         teammates,
+        set_up,
     }
 }
 
@@ -1822,7 +1825,13 @@ mod welcome_tests {
 
     #[test]
     fn a_fresh_room_cannot_run_and_a_live_key_is_the_way_in() {
-        let fresh = welcome(&settings("hotline"), 0, &[], vec![backend("hotline", None)]);
+        let fresh = welcome(
+            &settings("hotline"),
+            0,
+            false,
+            &[],
+            vec![backend("hotline", None)],
+        );
         assert!(!fresh.can_run);
         assert!(fresh.providers.is_empty());
         assert!(fresh.harnesses.is_empty(), "Hotline Agent is not a harness");
@@ -1831,6 +1840,7 @@ mod welcome_tests {
         let revoked = welcome(
             &settings("hotline"),
             0,
+            false,
             &[credential("anthropic", true)],
             vec![backend("hotline", None)],
         );
@@ -1839,6 +1849,7 @@ mod welcome_tests {
         let keyed = welcome(
             &settings("hotline"),
             0,
+            false,
             &[
                 credential("anthropic", false),
                 credential("anthropic", false),
@@ -1862,7 +1873,7 @@ mod welcome_tests {
                 backend("gemini", Some("Not installed")),
             ]
         };
-        let installed = welcome(&settings("hotline"), 0, &[], backends());
+        let installed = welcome(&settings("hotline"), 0, false, &[], backends());
         assert!(
             !installed.can_run,
             "a harness on the machine is not yet the room's"
@@ -1870,11 +1881,11 @@ mod welcome_tests {
         assert_eq!(installed.harnesses.len(), 1);
         assert_eq!(installed.harnesses[0].id, "cursor");
 
-        let chosen = welcome(&settings("cursor"), 0, &[], backends());
+        let chosen = welcome(&settings("cursor"), 0, false, &[], backends());
         assert!(chosen.can_run);
         assert_eq!(chosen.default_backend_id, "cursor");
 
-        let missing = welcome(&settings("gemini"), 2, &[], backends());
+        let missing = welcome(&settings("gemini"), 2, true, &[], backends());
         assert!(
             !missing.can_run,
             "a default this machine cannot start is no way in"

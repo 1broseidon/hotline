@@ -458,7 +458,8 @@ size: number, offset: number, data: string, next?: number, };
  * directory, canonical (so no symlink in it points somewhere else), not the
  * workspace or inside it, not inside another granted folder, and not `/`,
  * the home directory or anything holding it, or Hotline's data directory
- * or anything holding it (another teammate's workspace there is allowed).
+ * or anything holding it or inside it, another teammate's workspace there
+ * included.
  * A folder that later stops being that same directory is left out when a
  * session opens it rather than followed.
  */
@@ -1789,9 +1790,9 @@ export type WebSearchStatus = { providers: Array<WebSearchProviderStatus>, };
 /**
  * Where a fresh room stands on its way to a first turn, as the welcome
  * pane reads it. Derived from what the room already knows — its credentials,
- * the harnesses this machine can start, its default backend and its roster —
- * never from a stored "seen" flag: the pane is on screen exactly as long as
- * there is nothing else to show.
+ * the harnesses this machine can start, its default backend and its roster,
+ * tombstones included — never from a stored "seen" flag: the pane is on
+ * screen exactly while no teammate has ever been made here.
  */
 export type Welcome = { 
 /**
@@ -1815,4 +1816,10 @@ canRun: boolean,
 /**
  * How many teammates the room has. Past zero the pane is gone.
  */
-teammates: number, };
+teammates: number, 
+/**
+ * A teammate has been made in this room, whether or not one is left.
+ * A room that is set up and empty opens on New teammate, not on the
+ * welcome: it has been through setup once already.
+ */
+setUp: boolean, };

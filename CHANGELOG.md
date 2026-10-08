@@ -85,6 +85,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - A spending limit of zero turns paid voice off but leaves a subscription's
   free voice working, and the call assistant no longer counts a sign-in or a
   local model against the limit.
+- Deleting your last teammate opens an empty room with New teammate, not the
+  setup welcome.
 
 ## [0.34.0] - 2026-10-07
 

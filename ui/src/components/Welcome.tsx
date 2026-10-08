@@ -66,8 +66,11 @@ const PILLARS: { title: string; text: string; icon: ReactNode }[] = [
  *
  * What is done is still derived from what the room knows — `welcome`'s
  * credentials, harnesses and roster — never from a stored flag: this screen
- * exists exactly as long as there is no teammate, and a room with one never
- * sees it. Only which page is in front is the window's own, so Back always
+ * exists exactly as long as no teammate has ever been made in the room.
+ * `setUp` reads that off the room's own stream, where a deleted teammate
+ * leaves its tombstone, so a room whose last teammate is deleted opens on
+ * `EmptyRoom` below instead of walking setup again. Only which page is in
+ * front is the window's own, so Back always
  * works; a room that can already run opens on the first teammate, the
  * earlier pages a Back away. The connect page renders the same forms as
  * Settings › Providers and the last page is the same form as the plus, so
@@ -438,6 +441,30 @@ function knownTools(names: string[]): string {
 	if (rest > 0) return `${shown.join(", ")} or ${rest} more`;
 	if (shown.length <= 1) return shown[0] ?? "";
 	return `${shown.slice(0, -1).join(", ")} or ${shown[shown.length - 1]}`;
+}
+
+/**
+ * A room that has been set up and has no teammate left: the window keeps its
+ * rail and tools, and the conversation's place offers the next one. Setup is
+ * not asked again, because it is done; this is the welcome's look, smaller.
+ */
+export function EmptyRoom({ onNew }: { onNew(): void }) {
+	return (
+		<Stage page="empty">
+			<div className="welcome-hero">
+				<span className="welcome-mark">
+					<HotlineMark width={72} plain />
+				</span>
+				<h2 className="welcome-heading">No teammates yet</h2>
+				<p className="welcome-lead">Add one to start a conversation.</p>
+			</div>
+			<div className="welcome-actions">
+				<button type="button" className="control btn btn-primary welcome-cta" onClick={onNew}>
+					<PlusIcon /> New teammate
+				</button>
+			</div>
+		</Stage>
+	);
 }
 
 /** The whole window, the content centred on it; a new page fades in rather than cutting. */

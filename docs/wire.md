@@ -263,11 +263,17 @@ desk-seat only.
 `welcome` is what the window's welcome pane reads in place of an empty
 room: the providers with a live credential, by name; the ACP harnesses this
 machine can start; the room's default backend; `canRun`, true once a
-teammate could run on a provider or on a harness that is the default; and
-the number of teammates. It is derived from the credentials, `backends.list`
-and the roster every time it is asked, never stored, so there is no "seen"
-flag to reset: the pane is on screen exactly while the room has no teammate,
-and opens on the step that is still to do.
+teammate could run on a provider or on a harness that is the default; the
+number of teammates; and `setUp`, true once a teammate has been made in the
+room, whether or not one is left. It is derived from the credentials,
+`backends.list` and the room stream every time it is asked, never stored, so
+there is no "seen" flag to reset. `setUp` reads the stream's `persona`
+events with their tombstones: a delete leaves one in the teammate's place, so
+a room keeps having been set up through deletes and compactions, and a room
+imported with teammates is set up from its first open. The pane is on screen
+exactly while the room is not set up, and opens on the step that is still to
+do; a room that is set up and empty keeps the window and offers New teammate
+instead.
 
 `session.answer_permission` is refused when nothing is waiting behind that
 request any more — the turn ended, the session stopped, or somebody else

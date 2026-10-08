@@ -12,7 +12,7 @@ check: ui-check speech-engine
 	cargo test --workspace
 
 # The desk's speech engine is linked from a prebuilt archive the build never
-# downloads itself: this puts it in target/speech-engine, checked against its
+# downloads itself: this puts it in .speech-engine, checked against its
 # pinned SHA-256 (scripts/speech-engine.sha256).
 speech-engine:
 	python3 scripts/fetch-speech-engine

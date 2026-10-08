@@ -3,7 +3,7 @@
 
 The desk's local speech-to-text (hotline-core, `voice/speech/local`) links
 sherpa-onnx statically, and its build script would otherwise download a
-prebuilt archive over TLS alone. Cargo is pointed at `target/speech-engine`
+prebuilt archive over TLS alone. Cargo is pointed at `.speech-engine`
 instead (`.cargo/config.toml`, SHERPA_ONNX_ARCHIVE_DIR), and this script is
 the only thing that fills it: it fetches the archive for one target from
 the sherpa-onnx release and keeps it only if its SHA-256 matches the one
@@ -27,7 +27,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PINS = ROOT / "scripts" / "speech-engine.sha256"
-DESTINATION = ROOT / "target" / "speech-engine"
+# Outside target/: CI restores its build cache over target/ after this runs.
+DESTINATION = ROOT / ".speech-engine"
 
 # Each Rust target's archive, as sherpa-onnx-sys names it for static linking.
 ARCHIVES = {

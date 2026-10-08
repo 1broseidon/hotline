@@ -22,7 +22,7 @@ code implements them, are [wire.md](wire.md), [log.md](log.md) and
   ([voice.md](voice.md#device-text-on-a-mac)).
 - Python 3 and network access once per target, for the speech engine:
   `hotline-core` links sherpa-onnx's prebuilt static library, which the
-  build takes only from `target/speech-engine`
+  build takes only from `.speech-engine`
   (`SHERPA_ONNX_ARCHIVE_DIR` in `.cargo/config.toml`).
   `scripts/fetch-speech-engine` puts it there after checking its SHA-256
   against `scripts/speech-engine.sha256`; `make dev`, `check`, `build` and

@@ -629,6 +629,18 @@ describe("a call heard by this Mac", () => {
 		});
 	}
 
+	test("asks the desk about a text call, which needs a voice but no transcription provider", async () => {
+		const r = textRig();
+		await r.call.start();
+		expect(r.sent.find((one) => one.cmd === "voice.status")?.params).toEqual({ inputMode: "text" });
+	});
+
+	test("a Mac that cannot hear asks about an audio call, as before", async () => {
+		const r = textRig(fakeSpeech({ available: false, reason: "No speech here" }), { input: ["audio/wav"] });
+		await r.call.start();
+		expect(r.sent.find((one) => one.cmd === "voice.status")?.params).toEqual({});
+	});
+
 	test("the permission is not asked when the desk takes no text", async () => {
 		const speech = fakeSpeech();
 		const r = textRig(speech, null, ["voice", "voiceDirectCalls"]);

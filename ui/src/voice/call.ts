@@ -256,9 +256,13 @@ export class Call {
 		if (this.ended) return;
 		try {
 			let status: unknown = null;
-			if (this.target !== undefined) status = await this.transport.command("voice.status", {});
+			// Where this Mac can hear the words, the desk is asked about a text call: it then needs
+			// a voice, not a transcription provider of its own.
+			const asked = this.transcription !== undefined && (await this.transcription.capability()).available ? { inputMode: "text" as const } : {};
+			if (this.ended) return;
+			if (this.target !== undefined) status = await this.transport.command("voice.status", asked);
 			// A desk call asks only to learn whether the desk takes text; not knowing keeps it on audio.
-			else if (this.transcription !== undefined) status = await this.transport.command("voice.status", {}).catch(() => null);
+			else if (this.transcription !== undefined) status = await this.transport.command("voice.status", asked).catch(() => null);
 			if (this.ended) return;
 			if (this.target !== undefined && !supportsDirectCalls(status)) throw new Error(
 				(status as { unavailable?: string } | null)?.unavailable ?? "This desk needs an update before it can call a teammate directly.",
@@ -891,6 +895,13 @@ export function useCallSnapshot(call: Call | null): CallSnapshot {
 
 const supportChecks = new Set<() => void>();
 
+/** Whether this machine transcribes calls itself; asked once, since it does not change while the app runs. */
+let hearing: Promise<boolean> | null = null;
+function hearsHere(): Promise<boolean> {
+	hearing ??= (async () => (await deviceTranscription()?.capability())?.available === true)().catch(() => false);
+	return hearing;
+}
+
 /**
  * Ask every open voice check to look again. Connecting or removing a
  * provider changes whether the desk can take a call, and the desk does not
@@ -923,8 +934,9 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 	useEffect(() => {
 		if (connection !== "open") { setSupport({ available: false, directCalls: false }); return; }
 		let current = true;
-		wireTransport
-			.command("voice.status", {})
+		// A Mac that hears on its own asks about a text call, which needs no transcription provider.
+		void hearsHere()
+			.then((here) => wireTransport.command("voice.status", here ? { inputMode: "text" } : {}))
 			.then((status) => {
 				if (current) setSupport({ available: (status as { available?: boolean } | null)?.available === true, directCalls: supportsDirectCalls(status) });
 			})

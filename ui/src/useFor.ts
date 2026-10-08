@@ -170,9 +170,16 @@ export function voicePatch(current: unknown, job: "stt" | "tts" | "dispatcher", 
 	return Object.keys(voice).length === 0 ? null : voice;
 }
 
+/**
+ * Speech a sign-in pays for is listed under an id of its own, so voice can
+ * say which it is using, but it comes from that provider's one connection.
+ */
+const SPEECH_FROM: Record<string, string> = { "xai-subscription": "xai" };
+
 /** Whether a provider offers anything in any job, for the tags on its connection. */
 export function tagsFor(options: CapabilityOptions, providerId: string): string[] {
-	const offers = (providers: CapabilityProvider[]) => providers.some((one) => one.providerId === providerId);
+	const offers = (providers: CapabilityProvider[]) =>
+		providers.some((one) => (SPEECH_FROM[one.providerId] ?? one.providerId) === providerId);
 	const tags: string[] = [];
 	if (offers(options.dispatcher.options)) tags.push("Chat");
 	if (offers(options.images.options)) tags.push("Images");

@@ -8,6 +8,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- The desk can hear you itself, free and private, on macOS, Windows, Linux
+  and a headless server. Settings › Providers › Use for › Voice › Hearing
+  lists two speech models to download once: Parakeet, 25 European languages
+  and the most accurate (487 MB), and Parakeet English, small and quick
+  (108 MB). Each shows its size, its progress while it downloads, and can be
+  cancelled or removed; it is checked against the copy Hotline expects
+  before it is used. Once one is installed, calls hear with it first, on
+  every device that calls this desk, and it costs nothing against the
+  spending limit. About credits the models and the engine.
+
 ## [0.34.0] - 2026-10-07
 
 ### Added

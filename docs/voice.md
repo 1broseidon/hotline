@@ -250,6 +250,19 @@ so a phone that streams its microphone keeps streaming it. It takes at most a
 minute at a time and never speaks. Its price is zero, so a zero spending
 limit never stops it.
 
+In the window the models are rows under Hearing, in Settings › Providers ›
+Use for › Voice's More (`ui/src/components/DeskModels.tsx`), which opens even
+when nothing can speak yet. A row says what the model hears and its download
+size, and its Download button names the size; while it downloads the row
+shows how much has arrived over a bar and offers Cancel, and once installed
+it shows its size on the desk and offers Remove. The window asks
+`voice.models` every half second while anything is downloading or unpacking,
+and asks for the options again when what is installed changes, so the
+Hearing picker gains or loses On the desk. A failed download's sentence takes
+the row's second line until the next try. Under the rows each model's credit
+links its licence, and About credits the models, sherpa-onnx, ONNX Runtime
+and Symphonia.
+
 `voice.transcribe` hears one clip outside any call, for dictation: with the
 model picked for hearing when that is one of the desk's, else the first
 installed. It asks no budget and keeps nothing.

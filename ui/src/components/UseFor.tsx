@@ -6,9 +6,12 @@ import { wire } from "../wire";
 import { ChevronDownIcon } from "../icons";
 import { deviceTranscription } from "../voice/transcription";
 import { setHearOnThisMac, useHearOnThisMac } from "../voice/hearing";
+import { DeskModels } from "./DeskModels";
 
 /** The Hearing picker's own choice: this Mac, not a provider. Provider ids never start with a bar. */
 const ON_THIS_MAC = "|this-mac";
+/** The desk's own models, as the core names their provider. */
+const ON_THE_DESK = "local";
 import {
 	AUTOMATIC,
 	carriedEffort,
@@ -74,6 +77,7 @@ export function UseFor({
 	const speaking = options.tts;
 	const speakingNow = speaking.selected ?? speaking.automatic;
 	const hearingNow = options.stt.selected ?? options.stt.automatic;
+	const hearsOnDesk = hearingNow?.providerId === ON_THE_DESK;
 
 	// One voice pick sets who speaks and, when that provider can also hear,
 	// who listens: a call is one provider unless the owner splits it below.
@@ -107,10 +111,26 @@ export function UseFor({
 						speakingNow === undefined
 							? "Talk to the desk"
 							: `${voiceName(speakingNow.voice) ?? "Default voice"} on ${speakingNow.providerName}${
-									hearingNow !== undefined && hearingNow.providerId !== speakingNow.providerId ? `, hearing through ${hearingNow.providerName}` : ""
+									hearsOnDesk
+										? ", hearing on the desk"
+										: hearingNow !== undefined && hearingNow.providerId !== speakingNow.providerId
+											? `, hearing through ${hearingNow.providerName}`
+											: ""
 								}`
 					}
 					job={speaking}
+					always={
+						<button
+							type="button"
+							className="control btn-icon"
+							aria-expanded={more}
+							aria-label="More voice settings"
+							title="Hearing and call assistant"
+							onClick={() => setMore((was) => !was)}
+						>
+							<ChevronDownIcon className={more ? "rotate-180" : ""} />
+						</button>
+					}
 				>
 					<Picker
 						value={currentVoiceId(speaking)}
@@ -119,16 +139,6 @@ export function UseFor({
 						label="Voice"
 						onChange={pickVoice}
 					/>
-					<button
-						type="button"
-						className="control btn-icon"
-						aria-expanded={more}
-						aria-label="More voice settings"
-						title="Hearing and call assistant"
-						onClick={() => setMore((was) => !was)}
-					>
-						<ChevronDownIcon className={more ? "rotate-180" : ""} />
-					</button>
 				</JobRow>
 				{more && (
 					<>
@@ -138,8 +148,10 @@ export function UseFor({
 									<span className="group-row-title">Hearing</span>
 									<span className="group-row-detail">
 										{hearHere
-											? `Free and private on calls from this Mac${hearingNow !== undefined ? `; other devices use ${hearingNow.providerName}` : ""}`
-											: "Turns what you say into text"}
+											? `Free and private on calls from this Mac${hearingNow !== undefined ? `; other devices use ${hearsOnDesk ? "the desk" : hearingNow.providerName}` : ""}`
+											: hearsOnDesk
+												? "Free and private, on the desk"
+												: "Turns what you say into text"}
 									</span>
 								</span>
 								<span className="flex shrink-0 items-center gap-1">
@@ -157,7 +169,7 @@ export function UseFor({
 								</span>
 							</div>
 						) : (
-							<JobRow title="Hearing" detail="Turns what you say into text" job={options.stt} nested>
+							<JobRow title="Hearing" detail={hearsOnDesk ? "Free and private, on the desk" : "Turns what you say into text"} job={options.stt} nested>
 								<Picker
 									value={currentId(options.stt)}
 									choices={shortChoices(options.stt)}
@@ -167,6 +179,7 @@ export function UseFor({
 								/>
 							</JobRow>
 						)}
+						<DeskModels onInstalledChanged={onChanged} />
 						<JobRow title="Call assistant" detail="Answers while you talk and hands work to teammates" job={options.dispatcher} nested>
 							<Picker
 								value={currentId(options.dispatcher)}
@@ -196,7 +209,7 @@ export function UseFor({
 				)}
 				<SpendingRow spending={options.spending} onWrite={write} />
 			</div>
-			<p className="group-hint">Automatic picks the first eligible connected provider, subscriptions before paid keys. Dollar limits cover paid images and voice; zero disables paid usage. Subscription limits apply separately.</p>
+			<p className="group-hint">Automatic picks the first eligible connected provider, subscriptions before paid keys; hearing uses a model on the desk first when one is downloaded. Dollar limits cover paid images and voice; zero disables paid usage. Subscription limits apply separately.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
@@ -271,18 +284,24 @@ function currentVoiceId(job: CapabilityJob): string {
 	return model === undefined || voice === undefined ? AUTOMATIC : voiceId(selected.providerId, model.id, voice);
 }
 
-/** A job's row: its name and what it is for, then its pickers, or the sentence that says what to connect. */
+/**
+ * A job's row: its name and what it is for, then its pickers, or the
+ * sentence that says what to connect. `always` stays when there is nothing
+ * to pick, so what is under the row can still be opened.
+ */
 function JobRow({
 	title,
 	detail,
 	job,
 	nested = false,
+	always,
 	children,
 }: {
 	title: string;
 	detail: string;
 	job: CapabilityJob;
 	nested?: boolean;
+	always?: React.ReactNode;
 	children: React.ReactNode;
 }) {
 	const nothing = job.options.length === 0;
@@ -294,7 +313,12 @@ function JobRow({
 					{nothing ? (job.unavailable ?? detail) : detail}
 				</span>
 			</span>
-			{!nothing && <span className="flex shrink-0 items-center gap-1">{children}</span>}
+			{(!nothing || always !== undefined) && (
+				<span className="flex shrink-0 items-center gap-1">
+					{!nothing && children}
+					{always}
+				</span>
+			)}
 		</div>
 	);
 }

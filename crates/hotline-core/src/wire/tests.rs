@@ -5072,13 +5072,15 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
     let empty = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
     assert_eq!(empty["ok"], true, "{empty}");
     let result = &empty["result"];
-    for job in ["images", "stt", "tts"] {
+    for (job, says) in [
+        ("images", "Connect"),
+        ("stt", "Download a speech model for the desk, or connect"),
+        ("tts", "Connect"),
+    ] {
         assert_eq!(result[job]["options"], json!([]), "{job}");
         assert!(
-            result[job]["unavailable"]
-                .as_str()
-                .unwrap()
-                .contains("Connect")
+            result[job]["unavailable"].as_str().unwrap().contains(says),
+            "{job}"
         );
         assert!(result[job].get("automatic").is_none());
         assert!(result[job].get("selected").is_none());

@@ -122,8 +122,10 @@ Enter in the field stops.
 The first dictation of a run on this Mac's engine asks `speech_permit`; a
 refusal says to allow Hotline under Speech Recognition and Microphone in
 System Settings › Privacy & Security. The desk's engine asks for the
-microphone when it opens it, and a refusal says to allow the microphone
-for Hotline. With neither engine able to hear, the dictation says to
+microphone when it opens it. A refusal says to allow the microphone for
+Hotline, no microphone at all says to connect one or pick it in the
+computer's sound settings, and one that is busy or failing says to close
+other apps using it (`microphoneTrouble`). With neither engine able to hear, the dictation says to
 download a speech model for the desk. Listening starts a recognition session. The field
 keeps whatever was typed before dictation began, and each partial replaces
 the dictated words after it, separated by one space. While listening, the
@@ -272,7 +274,9 @@ limit never stops it.
 
 In the window the models are rows under Hearing, in Settings › Providers ›
 Use for › Voice's More (`ui/src/components/DeskModels.tsx`), which opens even
-when nothing can speak yet. A row says what the model hears and its download
+when nothing can speak yet. While nothing can hear and More is folded, a
+line under Voice says "To talk without a key, download a free speech
+model" and unfolds it. A row says what the model hears and its download
 size, and its Download button names the size; while it downloads the row
 shows how much has arrived over a bar and offers Cancel, and once installed
 it shows its size on the desk and offers Remove. The window asks

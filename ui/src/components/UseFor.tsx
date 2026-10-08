@@ -140,6 +140,18 @@ export function UseFor({
 						onChange={pickVoice}
 					/>
 				</JobRow>
+				{!more && hearingNow === undefined && !hearsHere && (
+					// Nothing hears yet: the free models on the desk are folded below, so point at them.
+					<div className="group-row use-for-nested">
+						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+							To talk without a key,{" "}
+							<button type="button" className="link-quiet" onClick={() => setMore(true)}>
+								download a free speech model
+							</button>
+							.
+						</span>
+					</div>
+				)}
 				{more && (
 					<>
 						{hearsHere ? (

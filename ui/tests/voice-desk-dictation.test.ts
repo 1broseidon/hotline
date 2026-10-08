@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DESK_MICROPHONE_DENIED, type DeskSeams, PARTIAL_EVERY_MS, SESSION_SECONDS, blockDbfs, deskEngine } from "../src/voice/desk";
+import { DESK_MICROPHONE_BUSY, DESK_MICROPHONE_DENIED, DESK_NO_MICROPHONE, type DeskSeams, PARTIAL_EVERY_MS, SESSION_SECONDS, blockDbfs, deskEngine, microphoneTrouble } from "../src/voice/desk";
 import { DICTATION_DENIED, Dictation, type DictationEngine, type DictationEvent, eitherEngine, levelFromDbfs } from "../src/voice/dictation";
 import { fromBase64 } from "../src/voice/wav";
 
@@ -147,6 +147,15 @@ describe("dictation heard by the desk", () => {
 		expect(w.asked.length).toBe(1);
 		w.answer("all of it");
 		expect(await stopped).toBe("all of it");
+	});
+
+	test("a microphone that won't open says whether it is missing, busy or refused", () => {
+		const named = (name: string) => Object.assign(new Error(name), { name });
+		expect(microphoneTrouble(named("NotFoundError"))).toBe(DESK_NO_MICROPHONE);
+		expect(microphoneTrouble(named("OverconstrainedError"))).toBe(DESK_NO_MICROPHONE);
+		expect(microphoneTrouble(named("NotReadableError"))).toBe(DESK_MICROPHONE_BUSY);
+		expect(microphoneTrouble(named("NotAllowedError"))).toBe(DESK_MICROPHONE_DENIED);
+		expect(microphoneTrouble("anything else")).toBe(DESK_MICROPHONE_DENIED);
 	});
 
 	test("a microphone refused is a sentence, and a cancelled session's late words are dropped", async () => {

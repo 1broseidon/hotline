@@ -5,5 +5,7 @@
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Hotline listens while you are on a call with your desk, and only then.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Hotline turns what you say on a call into text on this Mac, and only then.</string>
 </dict>
 </plist>

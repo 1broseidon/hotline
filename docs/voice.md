@@ -34,6 +34,38 @@ Each clip carries its own type: `audio/wav` where the provider can make one,
 A speech error carries the provider and an HTTP status and never a response
 body, because a provider's error text can echo what was said.
 
+## Device text on a Mac
+
+The macOS desktop shell can hear an utterance on the machine itself, the
+same way the phone does. The Swift in `crates/hotline-app/macos/speech/` is
+a port of the phone's HotlineSpeech module; `build.rs` compiles it with
+`swiftc` into a static library, and `src/speech.rs` exposes it to the main
+window only, as `speech_capability`, `speech_permit`, `speech_start`,
+`speech_stop` and `speech_cancel`, with recognition events arriving as
+`speech-event`. Other platforms report it unavailable.
+
+On macOS 26 it uses `SpeechAnalyzer` with a `SpeechTranscriber`; that path
+is compiled only by a Swift 6.2 or newer compiler (Xcode 26). Without it, or
+without the language's model, it uses `SFSpeechRecognizer` with
+`requiresOnDeviceRecognition`, and only where the recognizer supports
+on-device recognition; no network recognizer is ever made. `speech_capability`
+reads support without prompting, downloading or opening the microphone.
+`speech_permit` asks for speech recognition and the microphone (both usage
+descriptions are in `Info.plist`; the signed build's hardened runtime also
+needs the `audio-input` entitlement), then installs the analyzer's language
+model through `AssetInventory`, giving up after 60 seconds. The download is
+the only network use; recognition is not.
+
+Each start is a fresh utterance from the default input device through
+`AVAudioEngine`, with voice processing on where the device allows it and
+other audio ducked as little as it permits. Every text event is the whole
+utterance so far. Level events are the dBFS of each microphone buffer.
+`speech_stop` closes the microphone and waits up to five seconds for the
+final text, failing rather than returning a partial. A changed input device
+ends the utterance with an error. Cancelling with an empty id cancels
+whatever is current, a model download included, and a reload of the window
+does that too.
+
 ## Providers
 
 These are the defaults, what a provider uses when the owner picks nothing and

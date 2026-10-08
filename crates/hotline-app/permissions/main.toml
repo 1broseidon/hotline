@@ -1,6 +1,6 @@
 [[set]]
 identifier = "main-commands"
-description = "The trusted main window can administer desks and the desktop shell."
+description = "The trusted main window can administer desks and the desktop shell, and hear its person through on-device speech."
 permissions = [
   "allow-notify",
   "allow-desk-pair-link",
@@ -22,4 +22,9 @@ permissions = [
   "allow-check-update",
   "allow-install-update",
   "allow-cancel-update",
+  "allow-speech-capability",
+  "allow-speech-permit",
+  "allow-speech-start",
+  "allow-speech-stop",
+  "allow-speech-cancel",
 ]

@@ -15,6 +15,11 @@ code implements them, are [wire.md](wire.md), [log.md](log.md) and
 - Python 3, for release manifest validation in `make check`.
 - [Bun](https://bun.sh), for the window's install, typecheck, Vite, and
   production build.
+- On macOS, Xcode or its Command Line Tools: `build.rs` compiles the
+  shell's on-device speech (`crates/hotline-app/macos/speech/`) with
+  `xcrun swiftc`. Its `SpeechAnalyzer` path needs Swift 6.2 or newer
+  (Xcode 26); an older compiler builds only the `SFSpeechRecognizer` path
+  ([voice.md](voice.md#device-text-on-a-mac)).
 - On Linux, `libayatana-appindicator3` at runtime, for the tray, and its
   dev package (`libayatana-appindicator3-dev`) to bundle: the Tauri CLI
   finds the library through pkg-config before it writes the deb. A

@@ -156,6 +156,21 @@ pub(crate) async fn run(
             voice(room)?.end(&call_id)?;
             Ok(Value::Null)
         }
+        Command::VoiceModels {} => Ok(json!(voice(room)?.speech_models())),
+        Command::VoiceModelInstall { model_id } => {
+            Ok(json!(voice(room)?.install_speech_model(&model_id)?))
+        }
+        Command::VoiceModelCancel { model_id } => {
+            Ok(json!(voice(room)?.cancel_speech_model(&model_id)))
+        }
+        Command::VoiceModelRemove { model_id } => {
+            Ok(json!(voice(room)?.remove_speech_model(&model_id)?))
+        }
+        Command::VoiceTranscribe { mime_type, data } => {
+            Ok(json!(crate::contract::VoiceTranscript {
+                text: voice(room)?.transcribe(&mime_type, &data).await?,
+            }))
+        }
         Command::FilesBrowse { path } => {
             tokio::task::spawn_blocking(move || super::files::browse(&path))
                 .await

@@ -140,6 +140,50 @@ cancellation and streaming failure tests in `voice::tests` and
 `session::tests`. Provider adapter tests use local HTTP/WebSocket fixtures;
 live provider and iPhone compatibility still require device verification.
 
+## The desk's own speech models
+
+The desk can hear with a speech model on its own machine (`voice.md`, Hearing
+on the desk). It is an operator action on the desk, not a capability of any
+teammate: no tool, prompt or driver path reaches it, and it hears only audio
+the owner's own clients send to calls and to `voice.transcribe`.
+
+- **Default.** Nothing is installed, offered or loaded. A room from before
+  the models has none.
+- **Grant source.** The owner's `voice.model_install`, over the local desk or
+  an owner seat. `voice.models`, `voice.model_install`, `voice.model_cancel`,
+  `voice.model_remove` and `voice.transcribe` are absent from the companion
+  allowlist in `wire::Seat::permits`, so a phone companion is refused all of
+  them; no agent tool names them.
+- **Enforcement.** The core downloads only the archives in its catalogue,
+  each pinned by size and SHA-256 in `local/install.rs`; an archive is hashed
+  as it arrives and deleted unread unless it matches. Only the four file
+  names a model is made of are taken from it, into a directory of Hotline's
+  choosing, so no path, link or extra entry in an archive chooses where a
+  byte lands. A model appears by renaming a complete directory into place.
+  Before a model's first load in a run each file is hashed against what was
+  recorded when it was unpacked, because the engine's C++ exceptions cannot
+  be caught and a damaged file would stop the desk; audio under a tenth of a
+  second, which also throws, never reaches it.
+- **What it changes for spending.** Its price is zero and `voice.transcribe`
+  asks no budget, so a zero limit never stops it and it never spends.
+- **Residual risk.** The pin trusts what NVIDIA trained and sherpa-onnx
+  converted on the day it was pinned; a model is data that onnxruntime
+  parses, so a hostile one could attack the parser, which is why only pinned
+  archives are fetched. The engine's static library is downloaded by
+  `sherpa-onnx-sys`'s build script from that project's GitHub release for
+  the exact crate version in `Cargo.lock`; TLS is the only check on the
+  archive itself. Anyone who can write the data directory can replace a
+  model's files and its record together, as they can every other file there.
+  Audio sent to `voice.transcribe` is decoded in the desk's process, AAC by
+  symphonia, which is pure Rust.
+
+Proofs: `wire::tests::the_desks_speech_models_are_the_owners_through_the_real_handler`;
+the headless `tests/local_speech.rs::a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`;
+`voice::speech::local::tests` for what counts as installed, a damaged model
+refused before loading and a click heard as nothing; `voice::ledger::tests::the_desks_own_hearing_costs_nothing_batch_or_live`.
+`a_real_model_installs_and_hears_what_was_said` runs a real model when
+`HOTLINE_TEST_SPEECH_MODEL` names one.
+
 ## Generated images (BRO-174)
 
 `generate_image` is available to teammate sessions on Hotline Agent and ACP,
@@ -517,6 +561,7 @@ extend; when a change adds a boundary, it adds a row.
 | Must hold | Proof | Needs |
 | --- | --- | --- |
 | Finalized device text uses the existing owner/local desk call authority; companions cannot start, commit or subscribe; duplicate commits and mixed input modes are refused; disconnect cancels further input; direct replies retain the actual agent session and core-assigned call/turn origin, with no new grants or remote STT spend | `wire/tests.rs` `voice_is_owner_only_through_the_real_handler`; `tests/voice.rs` `device_text_reuses_the_direct_agent_session_and_call_origin`; `voice/tests.rs` `finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn`, `text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds`, `canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call`, `text_input_keeps_budget_gating_before_dispatch` | — |
+| The desk's speech models are installed only when an owner or the desk asks: a companion can neither list, fetch, cancel, remove nor transcribe; an archive that is not the pinned one is deleted before it is unpacked; only a model's own files are taken, whatever paths and links the archive holds; a cancelled download leaves nothing; an installed model is offered and chosen for hearing, a removed one is not; a damaged model is refused before the engine loads it | `wire/tests.rs` `the_desks_speech_models_are_the_owners_through_the_real_handler`; `tests/local_speech.rs` `a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`; `voice/speech/local/tests.rs` `a_damaged_model_is_refused_before_the_engine_could_throw_on_it`, `a_model_is_installed_only_whole_and_under_its_own_name` | — |
 | Workspace reach keeps another project's `.env` out of the read tool and the shell, over the wire, and the ledger says what is offered | `tests/desk.rs` `workspace_reach_keeps_another_projects_env_out_of_the_tools` | Linux with bubblewrap |
 | Workspace tools refuse parent paths and a path outside the wall; machine reach resolves them; the overflow directory is the one read outside | `tools/workspace.rs` `parent_paths_are_rejected`, `reaching_the_machine_resolves_absolute_paths_and_parents`, `workspace_reach_can_read_the_teammates_overflow_directory`, `machine_reach_ignores_the_overflow_root` | — |
 | A revoked workspace handle refuses reads and writes | `tools/workspace.rs` `a_revoked_workspace_handle_refuses_reads_and_writes` | — |

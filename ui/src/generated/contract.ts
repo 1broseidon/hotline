@@ -208,7 +208,7 @@ export type Client = "desktop" | "phone";
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
+export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
 /**
  * A picture at most this many px on its longer side, as a JPEG the
  * desk keeps, rather than the file itself: what a phone draws in
@@ -1268,6 +1268,37 @@ export type Skipped = { item: string, reason: string, };
 
 export type SlashCommand = { name: string, description?: string, hint?: string, };
 
+/**
+ * A model the desk can turn speech into text with on its own machine, which
+ * the owner downloads once. Nothing is installed until they ask.
+ */
+export type SpeechModel = { id: string, name: string, 
+/**
+ * What it hears and how it trades accuracy for speed, in a few words.
+ */
+detail: string, downloadBytes: number, 
+/**
+ * What it takes on disk once installed.
+ */
+diskBytes: number, 
+/**
+ * The model's maker and licence, as the licence asks to be credited.
+ */
+credit: string, licenceUrl: string, state: SpeechModelState, 
+/**
+ * How much has arrived, while it downloads.
+ */
+receivedBytes?: number, 
+/**
+ * Why the last download failed, until the next one starts.
+ */
+error?: string, };
+
+/**
+ * Where one of the desk's own speech models stands.
+ */
+export type SpeechModelState = "available" | "downloading" | "unpacking" | "installed";
+
 export type SpendingSettings = { dayUsd: number, monthUsd: number, };
 
 export type SpendingSummary = { dayUsd: number, monthUsd: number, };
@@ -1680,6 +1711,11 @@ export type VoiceStatus = { capabilities: Array<string>, available: boolean,
  * Direct teammate calls need speech and budget, but no desk dispatcher.
  */
 directAvailable?: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceModel, fallbackTts?: VoiceModel, dispatcher?: VoiceModel, budget: VoiceBudget, };
+
+/**
+ * What the desk's own model heard in one clip.
+ */
+export type VoiceTranscript = { text: string, };
 
 /**
  * Which of the desk's web search a teammate gets — the same

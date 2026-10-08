@@ -35,3 +35,16 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.moxcms]
 opt-level = 3
+
+# The desk's speech models are half a gigabyte: a download is hashed and
+# unpacked as it arrives, and each file is hashed again the first time it
+# loads. Unoptimised, that is a minute where it should be seconds; the AAC
+# decoder is the same story for a phone's clip.
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.libbz2-rs-sys]
+opt-level = 3
+[profile.dev.package.symphonia-core]
+opt-level = 3
+[profile.dev.package.symphonia-codec-aac]
+opt-level = 3

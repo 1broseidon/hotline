@@ -2510,6 +2510,50 @@ pub struct CapabilityOptions {
     pub spending: CapabilitySpending,
 }
 
+/// Where one of the desk's own speech models stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SpeechModelState {
+    Available,
+    Downloading,
+    Unpacking,
+    Installed,
+}
+
+/// A model the desk can turn speech into text with on its own machine, which
+/// the owner downloads once. Nothing is installed until they ask.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct SpeechModel {
+    pub id: String,
+    pub name: String,
+    /// What it hears and how it trades accuracy for speed, in a few words.
+    pub detail: String,
+    pub download_bytes: u64,
+    /// What it takes on disk once installed.
+    pub disk_bytes: u64,
+    /// The model's maker and licence, as the licence asks to be credited.
+    pub credit: String,
+    pub licence_url: String,
+    pub state: SpeechModelState,
+    /// How much has arrived, while it downloads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received_bytes: Option<u64>,
+    /// Why the last download failed, until the next one starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// What the desk's own model heard in one clip.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceTranscript {
+    pub text: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -2657,6 +2701,22 @@ pub enum Command {
     VoiceHold { call_id: String, hold: bool },
     #[serde(rename = "voice.call_end")]
     VoiceCallEnd { call_id: String },
+    /// The desk's own speech models and where each stands. Owner only, like
+    /// the rest of `voice.*`; a download in progress is polled here.
+    #[serde(rename = "voice.models")]
+    VoiceModels {},
+    /// Starts downloading a model. The download is checked against the hash
+    /// Hotline pins for it before anything of it is unpacked.
+    #[serde(rename = "voice.model_install")]
+    VoiceModelInstall { model_id: String },
+    #[serde(rename = "voice.model_cancel")]
+    VoiceModelCancel { model_id: String },
+    #[serde(rename = "voice.model_remove")]
+    VoiceModelRemove { model_id: String },
+    /// One clip heard by the desk's own model, outside any call: a 16 kHz
+    /// mono PCM16 WAV or AAC in MP4, at most two minutes.
+    #[serde(rename = "voice.transcribe")]
+    VoiceTranscribe { mime_type: String, data: String },
     /// Listener and pairing controls require an owner or the local desk.
     #[serde(rename = "remote.status")]
     RemoteStatus {},

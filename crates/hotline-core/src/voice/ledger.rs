@@ -354,6 +354,8 @@ const PRICES: &[(&str, f64, f64)] = &[
     ("xai", 0.10 / 60.0, 0.015),
     // The subscription adapter uses the owner's existing plan, never the paid API.
     ("xai-subscription", 0.0, 0.0),
+    // The desk's own model runs on the desk and costs nothing.
+    ("local", 0.0, 0.0),
 ];
 
 /// Whisper's price, and a premium voice's, for a provider not in the table.
@@ -395,6 +397,12 @@ mod tests {
         assert_eq!(super::tts_usd("xai-subscription", 8_000), 0.0);
         assert!(super::stt_usd("xai", 20.0) > 0.0);
         assert!(super::tts_usd("xai", 8_000) > 0.0);
+    }
+
+    #[test]
+    fn the_desks_own_hearing_costs_nothing_batch_or_live() {
+        assert_eq!(super::stt_usd("local", 120.0), 0.0);
+        assert_eq!(super::stt_live_usd("local", 120.0), 0.0);
     }
     use super::*;
 

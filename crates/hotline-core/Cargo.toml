@@ -91,6 +91,12 @@ hex = "0.4"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 roxmltree = "0.20"
 whatlang = "0.18.0"
+# The desk's own speech to text. Pinned exactly: the build downloads that
+# release's prebuilt static library (onnxruntime inside, so nothing is needed
+# on the host), and the C API under the wrapper moves between releases.
+sherpa-onnx = { version = "=1.13.8", default-features = false, features = ["static"] }
+# A phone's utterance is AAC in MP4; the local engine needs its samples.
+symphonia = { version = "0.6", default-features = false, features = ["aac", "isomp4"] }
 
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.

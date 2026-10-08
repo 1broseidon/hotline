@@ -426,8 +426,9 @@ so unrelated work or an old reply never speaks on a direct call. Hold, hangup,
 interrupt and connection revocation cancel voice input and output; an agent
 instruction already accepted by the session keeps working.
 
-Audio remains the default input for existing clients. It requires a remote
-transcription provider and accepts whole WAV/AAC clips, or negotiated PCM.
+Audio remains the default input for existing clients. It requires a
+transcription provider, a connected one or a model on the desk, and accepts
+whole WAV/AAC clips, or negotiated PCM.
 An owner with `voiceTextInput` may request `inputMode: "text"` on `voice.status`
 and `voice.call_start`; the latter echoes that mode and advertises only
 `text/plain`. This mode resolves speaking independently of transcription.
@@ -444,6 +445,17 @@ avoid a tiny hallucinated farewell. Replies use progressive independently
 playable clips when negotiated, with ordinary whole-clip output preserved.
 Clients cannot silently switch a text call to a paid audio provider; input
 mode stays fixed for that call and a fallback requires an explicit new call.
+
+The desk can also hear on its own, so a person on Windows, Linux or a
+headless server, or a phone calling it, need not send what they say to a
+provider. It is sherpa-onnx with NVIDIA's Parakeet transducers: one C library
+with onnxruntime linked in statically, prebuilt for every platform Hotline
+ships, where whisper.cpp would mean building C++ in every job and a model that
+is slower on a CPU for the same accuracy. A model is half a gigabyte, so it is
+never bundled: the owner downloads it once, the archive is pinned by hash, and
+until then nothing is installed. An installed model is automatic's first
+choice for hearing, before any paid key, because it is free and private and
+was the owner's own act; it costs zero in the ledger.
 
 Grok subscription speech is a separate, explicit provider choice backed by the
 stored xAI login. Automatic speech keeps selecting API providers. A missing

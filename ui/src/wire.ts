@@ -34,6 +34,7 @@ import type {
 	SharedSecret,
 	SideThreadSummary,
 	SkillEntry,
+	SpeechModel,
 	StreamDelta,
 	Target,
 	TeammateToolLedger,
@@ -43,6 +44,7 @@ import type {
 	Welcome,
 	VoiceCall,
 	VoiceStatus,
+	VoiceTranscript,
 	WebSearchStatus,
 } from "./generated/contract";
 import { activeDeskId, allDesks, wireFor } from "./desks";
@@ -103,6 +105,11 @@ type Results = {
 	"voice.interrupt": null;
 	"voice.hold": null;
 	"voice.call_end": null;
+	"voice.models": SpeechModel[];
+	"voice.model_install": SpeechModel[];
+	"voice.model_cancel": SpeechModel[];
+	"voice.model_remove": SpeechModel[];
+	"voice.transcribe": VoiceTranscript;
     "remote.status": RemoteStatus;
     "remote.configure": RemoteStatus;
     "remote.devices": RemoteDevice[];

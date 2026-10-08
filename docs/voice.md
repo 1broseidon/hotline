@@ -1,8 +1,8 @@
 # Voice: hearing, speaking, and what it costs
 
 The desk turns a spoken clip into words and words into a spoken clip through
-a provider the owner has already connected. Voice never asks for a key of its
-own. The call, the dispatcher and the wire commands are in
+a provider the owner has already connected, or hears with a model of its own
+that the owner downloaded. Voice never asks for a key of its own. The call, the dispatcher and the wire commands are in
 [wire.md](wire.md); this page is the speech layer under them and the ledger
 beside them (`crates/hotline-core/src/voice/`).
 
@@ -191,6 +191,69 @@ previous load held. Only the main window may register shortcuts. Help ›
 Keyboard shortcuts lists both, with their current keys, under Anywhere on
 this computer.
 
+## Hearing on the desk
+
+The desk can turn speech into text itself, with no provider and no network
+(`voice/speech/local.rs`). The engine is sherpa-onnx 1.13.8, whose build
+links that release's prebuilt static library, onnxruntime inside, so it runs
+wherever the desk does (macOS arm64 and x86_64, Windows x64, Linux x64 and
+arm64) with nothing installed beside it. It adds about 18 MB to a stripped binary
+on a Mac and 26 to 30 MB on Linux. The models are NVIDIA's Parakeet transducers as sherpa-onnx exports
+them, quantized to eight bits, most accurate first:
+
+| Model | id | Hears | Download | On disk |
+| -- | -- | -- | -- | -- |
+| Parakeet | `parakeet-tdt-0.6b-v3` | 25 European languages | 487 MB | 670 MB |
+| Parakeet English | `parakeet-tdt-110m-en` | English | 108 MB | 136 MB |
+
+Both are CC BY 4.0, which asks for credit: each model's card in Settings
+names NVIDIA, the licence and sherpa-onnx's quantization, and links the
+licence.
+
+Nothing is installed until the owner asks. `voice.model_install` downloads
+the model's one archive from sherpa-onnx's `asr-models` release into
+`<data dir>/speech-models/<id>.download`, hashing it as it arrives; an archive
+that is not the size and SHA-256 pinned in `local/install.rs` is deleted
+before any of it is read. From a verified archive only the model's four files
+are taken, by name (`encoder.int8.onnx`, `decoder.int8.onnx`,
+`joiner.int8.onnx`, `tokens.txt`), whatever path the archive gives them; links
+and every other entry are skipped. They go into `<id>.unpacking/` beside a
+`model.json` recording each file's size and SHA-256, and the directory is
+renamed to `<id>/` once it is whole, so a model is all there or not there.
+What a run left half done is deleted when the desk starts; nothing resumes.
+`voice.models` reports each model as `available`, `downloading` (with
+`receivedBytes`), `unpacking` or `installed`, with the last failure; the
+window asks again while a download runs. `voice.model_cancel` stops a
+download and throws away what arrived; `voice.model_remove` takes a model off
+the disk, and a call hearing with it finds it gone at its next utterance.
+
+An installed model is a directory named for its id whose `model.json` lists
+every file at its size, so hearing never reads the download catalogue and a
+model the catalogue later drops still hears and can be removed. The engine is
+C++ behind a C API, and an exception it throws cannot be caught in Rust: it
+would stop the desk. Two inputs make it throw, and neither reaches it. Each
+file is hashed against its record the first time the model loads in a run,
+and a damaged model is refused with a sentence; and audio shorter than a
+tenth of a second is heard as nothing without running the model.
+
+One model is in memory at a time. It loads in about half a second (the first
+load of a run also hashes it: about a second more for Parakeet), holds about
+0.4 GB (English) or 1.2 GB (Parakeet), and is let go after five minutes
+unused. Decoding takes up to four threads and one utterance at a time. On an
+M5 Max, 2.4 seconds of speech is heard in about 40 ms by the English model
+and 155 ms by Parakeet.
+
+The adapter is provider `local`, named On the desk, and hears `audio/wav`
+(mono PCM16 at any rate, which the engine resamples), `audio/mp4` (AAC,
+decoded with symphonia) and live PCM, which it gathers until the turn ends,
+so a phone that streams its microphone keeps streaming it. It takes at most a
+minute at a time and never speaks. Its price is zero, so a zero spending
+limit never stops it.
+
+`voice.transcribe` hears one clip outside any call, for dictation: with the
+model picked for hearing when that is one of the desk's, else the first
+installed. It asks no budget and keeps nothing.
+
 ## Providers
 
 These are the defaults, what a provider uses when the owner picks nothing and
@@ -240,7 +303,8 @@ when the completion frame omits text, without dispatching interim recognition.
 ### What the picker offers
 
 Settings › Providers › Use for lists every speech model the owner's connected
-providers offer, not just the defaults. `capabilities.options` asks each
+providers offer, not just the defaults, after the desk's own installed models
+under On the desk. `capabilities.options` asks each
 built-in provider for its model list and sorts it into hearing and speaking
 models: OpenAI (`transcribe` and `whisper` ids, and `tts` ids, without dated
 snapshots or the diarizing model), Google (Gemini flash text models for
@@ -270,7 +334,11 @@ of the API-key connection.
 
 Each job goes to the first connected provider that can do it, in the order the
 credentials were created; the fallback is the next connected provider that can
-speak. Subscription speech is selected explicitly and has no paid fallback.
+speak. Hearing goes first to a model installed on the desk, the most accurate
+one, because it costs nothing, nothing said leaves the machine, and
+installing it was the owner's own act; the order among paid keys is
+unchanged. Subscription speech is selected explicitly and has no paid
+fallback.
 `settings.voice` overrides any of it:
 
 ```json
@@ -284,7 +352,9 @@ speak. Subscription speech is selected explicitly and has no paid fallback.
 Every key is optional and a value that cannot be read costs only itself. A
 `stt` or `tts` that names a provider that is not connected, or cannot do the
 job, is an error, not a quiet switch: the audio would go to a provider the
-owner did not choose. A `fallbackTts` that cannot be used is no fallback.
+owner did not choose. `"stt": {"provider": "local", "model": "parakeet-tdt-110m-en"}`
+hears with that model on the desk, and naming one that is not installed is
+the same error. A `fallbackTts` that cannot be used is no fallback.
 When nothing can hear or speak, `resolve` returns a sentence for a person.
 
 `dispatcher` names the chat model that routes what was said. Without it the
@@ -421,7 +491,8 @@ they do not hold a runtime worker.
 
 Prices in the ledger module are rounded up, since they are a guard and not an
 invoice: speech to text per minute and text to speech per 1,000 characters by
-provider, one high price for a provider not in the table. The dispatcher is not
+provider, one high price for a provider not in the table, and zero for the
+desk's own model (`local`). The dispatcher is not
 in that table: `voice/dispatcher.rs` reserves each call from its model's own
 price, the vault's model metadata first, then the bundled catalogue, and $5 per
 million input tokens and $25 per million output tokens when neither has one.

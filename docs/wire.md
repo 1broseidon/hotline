@@ -1099,6 +1099,21 @@ No extra speech credential is created.
 | `voice.interrupt` | `{callId}` | void |
 | `voice.hold` | `{callId,hold}` | void |
 | `voice.call_end` | `{callId}` | void |
+| `voice.models` | `{}` | `SpeechModel[]`: each of the desk's own speech models, its sizes, credit and licence, and `state`: `available`, `downloading` (with `receivedBytes`), `unpacking` or `installed`, with `error` after a failed download |
+| `voice.model_install` | `{modelId}` | `SpeechModel[]`; starts the download in the background |
+| `voice.model_cancel` | `{modelId}` | `SpeechModel[]` |
+| `voice.model_remove` | `{modelId}` | `SpeechModel[]`; also stops a download under way |
+| `voice.transcribe` | `{mimeType,data}` | `VoiceTranscript`: `{text}` |
+
+The `voice.model_*` commands and `voice.transcribe` are the desk's own
+hearing ([Hearing on the desk](voice.md#hearing-on-the-desk)). Nothing is
+installed until an owner or the desk asks; a download is checked against the
+size and SHA-256 Hotline pins for it before anything is unpacked, and a client
+follows it by asking `voice.models` again (the window does every half second).
+`voice.transcribe` hears one clip outside any call with an installed model:
+standard base64 of a mono PCM16 WAV or AAC in MP4, at most a minute. It needs
+no provider and no budget, and is refused with a sentence when nothing is
+installed. Like every `voice.*` command these are refused to a companion.
 
 `callId` is a client-generated UUID. Omitting `personaId` calls the desk;
 including it calls that teammate's existing session, chapter and harness.

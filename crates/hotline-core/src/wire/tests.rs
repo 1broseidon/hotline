@@ -4775,6 +4775,78 @@ async fn voice_is_owner_only_through_the_real_handler() {
 }
 
 #[tokio::test]
+async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    let model = "parakeet-tdt-110m-en";
+    // A companion can neither see, fetch, remove nor hear with them. None of
+    // these is answered, so nothing here reaches the network.
+    for (command, params) in [
+        ("voice.models", json!({})),
+        ("voice.model_install", json!({"modelId":model})),
+        ("voice.model_cancel", json!({"modelId":model})),
+        ("voice.model_remove", json!({"modelId":model})),
+        (
+            "voice.transcribe",
+            json!({"mimeType":"audio/wav","data":"UklGRg=="}),
+        ),
+    ] {
+        let denied = remote_control_answer(
+            Seat::Phone,
+            &room,
+            &desk.log,
+            json!({"id":1,"cmd":command,"params":params}),
+        )
+        .await;
+        assert_eq!(denied["code"], FORBIDDEN, "{command}: {denied}");
+    }
+    for seat in [Seat::Desk, Seat::Owner] {
+        let listed = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            json!({"id":2,"cmd":"voice.models","params":{}}),
+        )
+        .await;
+        assert_eq!(listed["ok"], true, "{listed}");
+        // Nothing is installed until the owner asks.
+        let states: Vec<&str> = listed["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["state"].as_str().unwrap())
+            .collect();
+        assert_eq!(states, ["available", "available"]);
+        let unknown = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            json!({"id":3,"cmd":"voice.model_install","params":{"modelId":"../../vault"}}),
+        )
+        .await;
+        assert_eq!(unknown["ok"], false, "{unknown}");
+        let unheard = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            json!({"id":4,"cmd":"voice.transcribe","params":{"mimeType":"audio/wav","data":"UklGRg=="}}),
+        )
+        .await;
+        assert_eq!(unheard["ok"], false, "{unheard}");
+        assert!(
+            unheard["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("Download a speech model")),
+            "{unheard}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speech_and_budget() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();

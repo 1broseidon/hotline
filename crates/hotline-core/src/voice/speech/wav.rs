@@ -1,5 +1,6 @@
-//! Just enough WAV for speech: wrap what a provider returns as bare PCM, and
-//! join the pieces of a sentence that had to be spoken in parts.
+//! Just enough WAV for speech: wrap what a provider returns as bare PCM, join
+//! the pieces of a sentence that had to be spoken in parts, and read back the
+//! samples of a clip a person spoke.
 
 const HEADER_BYTES: usize = 44;
 
@@ -60,13 +61,27 @@ pub(crate) fn join(wavs: &[Vec<u8>]) -> Option<Vec<u8>> {
         }
         samples.extend_from_slice(more);
     }
-    let rate = u32::from_le_bytes(format.get(4..8)?.try_into().ok()?);
     // The pieces are all the mono 16-bit PCM this module writes, or they are
     // not something it should be rewrapping.
+    let rate = mono_pcm16_rate(format)?;
+    Some(pcm16_wav(&samples, rate))
+}
+
+/// The sample rate and samples of a mono 16-bit PCM WAV; `None` for any
+/// other WAV, or for something that is not one.
+pub(crate) fn mono_pcm16(wav: &[u8]) -> Option<(u32, &[u8])> {
+    let (format, samples) = parts(wav)?;
+    // A sample is two bytes; a torn last one is not a sample.
+    Some((mono_pcm16_rate(format)?, &samples[..samples.len() & !1]))
+}
+
+/// The rate of a `fmt ` chunk that says mono 16-bit PCM.
+fn mono_pcm16_rate(format: &[u8]) -> Option<u32> {
     let pcm = format.get(..2)? == 1u16.to_le_bytes();
     let mono = format.get(2..4)? == 1u16.to_le_bytes();
     let sixteen_bit = format.get(14..16)? == 16u16.to_le_bytes();
-    (pcm && mono && sixteen_bit).then(|| pcm16_wav(&samples, rate))
+    let rate = u32::from_le_bytes(format.get(4..8)?.try_into().ok()?);
+    (pcm && mono && sixteen_bit && rate > 0).then_some(rate)
 }
 
 #[cfg(test)]
@@ -100,6 +115,18 @@ mod tests {
             join(&[wav, pcm16_wav(&[3, 0], 24_000)]).unwrap(),
             pcm16_wav(&[1, 0, 2, 0, 3, 0], 24_000)
         );
+    }
+
+    #[test]
+    fn a_spoken_clip_reads_back_as_its_rate_and_samples() {
+        assert_eq!(
+            mono_pcm16(&pcm16_wav(&[1, 0, 2, 0, 3], 16_000)),
+            Some((16_000, &[1u8, 0, 2, 0][..]))
+        );
+        let mut stereo = pcm16_wav(&[1, 0, 2, 0], 16_000);
+        stereo[22..24].copy_from_slice(&2u16.to_le_bytes());
+        assert_eq!(mono_pcm16(&stereo), None);
+        assert_eq!(mono_pcm16(b"RIFF....WAVEnot a format"), None);
     }
 
     #[test]

@@ -1,9 +1,11 @@
 //! Which of the owner's connected providers can hear and speak, and with what
 //! by default. There is never a new key: a provider counts only if the owner
-//! has already connected it.
+//! has already connected it. The desk's own models (`local.rs`) hear beside
+//! them once the owner has downloaded one.
 
 use super::catalog::{self, Found};
 use super::google::{self, Google};
+use super::local::{self, Installed, Local};
 use super::xai::{self, Xai};
 use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechOutput, SpeechSet, TurnClock};
 use crate::contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
@@ -256,7 +258,7 @@ pub async fn options(vault: &Vault) -> Options {
         .await
         .into_iter()
         .collect();
-    options_from(&connections, &found)
+    options_from(&local::installed(vault.root()), &connections, &found)
 }
 
 /// The default first, so the picker leads with what automatic would use.
@@ -268,7 +270,11 @@ fn default_first<T>(mut models: Vec<T>, default: &str, id: impl Fn(&T) -> &str) 
     models
 }
 
-fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> Options {
+fn options_from(
+    local: &[Installed],
+    connections: &[Connection],
+    found: &HashMap<String, Found>,
+) -> Options {
     let provider = |connection: &Connection, models: Vec<CapabilityModel>| CapabilityProvider {
         provider_id: connection.provider_id.clone(),
         provider_name: connection.name.clone(),
@@ -282,6 +288,21 @@ fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> O
     };
     let mut stt = Vec::new();
     let mut tts = Vec::new();
+    if !local.is_empty() {
+        stt.push(CapabilityProvider {
+            provider_id: local::PROVIDER_ID.into(),
+            provider_name: local::PROVIDER_NAME.into(),
+            models: local
+                .iter()
+                .map(|model| CapabilityModel {
+                    id: model.id.clone(),
+                    label: Some(model.name.clone()),
+                    voices: None,
+                    efforts: None,
+                })
+                .collect(),
+        });
+    }
     for connection in connections {
         let offered = found.get(&connection.provider_id);
         let hears: Vec<CapabilityModel> = match row(&connection.provider_id) {
@@ -359,20 +380,29 @@ fn options_from(connections: &[Connection], found: &HashMap<String, Found>) -> O
             tts.push(provider(connection, speaks));
         }
     }
+    let automatic_local = local.first().map(|model| CapabilityPick {
+        provider_id: local::PROVIDER_ID.into(),
+        provider_name: local::PROVIDER_NAME.into(),
+        model_id: Some(model.id.clone()),
+        voice: None,
+        effort: None,
+    });
     Options {
         stt,
         tts,
-        automatic_stt: connections.iter().find_map(|connection| {
-            if connection.login.is_some() {
-                return None;
-            }
-            let model = listening(connection, None)?;
-            Some(CapabilityPick {
-                provider_id: connection.provider_id.clone(),
-                provider_name: connection.name.clone(),
-                model_id: Some(model),
-                voice: None,
-                effort: None,
+        automatic_stt: automatic_local.or_else(|| {
+            connections.iter().find_map(|connection| {
+                if connection.login.is_some() {
+                    return None;
+                }
+                let model = listening(connection, None)?;
+                Some(CapabilityPick {
+                    provider_id: connection.provider_id.clone(),
+                    provider_name: connection.name.clone(),
+                    model_id: Some(model),
+                    voice: None,
+                    effort: None,
+                })
             })
         }),
         automatic_tts: connections.iter().find_map(|connection| {
@@ -475,7 +505,11 @@ fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Con
 /// owner did not choose, because the audio would go there. The error is a
 /// sentence for a person.
 pub fn resolve(vault: &Vault, settings: &VoiceSettings) -> Result<SpeechSet, String> {
-    resolve_from(&connections(vault), settings)
+    resolve_from(
+        &local::installed(vault.root()),
+        &connections(vault),
+        settings,
+    )
 }
 
 /// A text call needs a voice, with no speech-input provider or credential.
@@ -544,29 +578,67 @@ fn output_for(
     })
 }
 
-fn resolve_from(connections: &[Connection], settings: &VoiceSettings) -> Result<SpeechSet, String> {
-    let hearing = match &settings.stt {
+/// What hears: a model installed on the desk, or a connected provider's.
+enum Hearing<'a> {
+    Local(&'a Installed),
+    Provider(&'a Connection, String),
+}
+
+/// The owner's pick for hearing, or else the first that can: an installed
+/// model before any provider, because it is free, nothing said leaves the
+/// machine, and installing it was the owner's own act.
+fn hearing<'a>(
+    local: &'a [Installed],
+    connections: &'a [Connection],
+    settings: &VoiceSettings,
+) -> Result<Option<Hearing<'a>>, String> {
+    Ok(match &settings.stt {
+        Some(pick) if pick.provider_id == local::PROVIDER_ID => {
+            let model = match &pick.model_id {
+                Some(id) => local.iter().find(|model| model.id == *id),
+                None => local.first(),
+            };
+            Some(Hearing::Local(model.ok_or(
+                "Voice is set to hear with a speech model on the desk that is not installed. Download it in Settings, or pick another.",
+            )?))
+        }
         Some(pick) => {
             let connection = named(connections, pick)?;
             let model = listening(connection, Some(pick))
                 .ok_or_else(|| cannot(connection, "turn speech into text"))?;
-            Some((connection, model))
+            Some(Hearing::Provider(connection, model))
         }
-        None => connections
-            .iter()
-            .filter(|connection| connection.login.is_none())
-            .find_map(|connection| Some((connection, listening(connection, None)?))),
-    };
+        None => local.first().map(Hearing::Local).or_else(|| {
+            connections
+                .iter()
+                .filter(|connection| connection.login.is_none())
+                .find_map(|connection| {
+                    Some(Hearing::Provider(connection, listening(connection, None)?))
+                })
+        }),
+    })
+}
+
+fn resolve_from(
+    local: &[Installed],
+    connections: &[Connection],
+    settings: &VoiceSettings,
+) -> Result<SpeechSet, String> {
+    let hearing = hearing(local, connections, settings)?;
     let voice = chosen_voice(connections, settings)?;
-    let (Some((hear_from, model)), Some((speak_from, voice))) = (&hearing, &voice) else {
+    let (Some(hear_from), Some((speak_from, voice))) = (&hearing, &voice) else {
         return Err(nothing_can(hearing.is_some(), voice.is_some()));
     };
 
     // One stopwatch for the set: the ears start it and the voices stop it.
     let clock = TurnClock::default();
     let output = output_for(connections, settings, speak_from, voice, &clock)?;
+    let stt: Arc<dyn Speech> = match hear_from {
+        Hearing::Local(model) => Arc::new(Local::new((*model).clone()).with_clock(&clock)),
+        Hearing::Provider(connection, model) => listener(connection, model, &clock)?,
+    };
     Ok(SpeechSet {
-        stt: listener(hear_from, model, &clock)?,
+        stt,
         tts: output.tts,
         fallback_tts: output.fallback_tts,
     })
@@ -656,7 +728,7 @@ fn cannot(connection: &Connection, job: &str) -> String {
 fn nothing_can(hears: bool, speaks: bool) -> String {
     match (hears, speaks) {
         (false, false) => "None of your connected providers can hear or speak yet. Connect OpenAI, Google, Groq, OpenRouter or xAI in Settings and voice will use it, with no new key.".into(),
-        (false, true) => "None of your connected providers can turn speech into text. Connect OpenAI, Google, Groq, OpenRouter, xAI or Mistral in Settings.".into(),
+        (false, true) => "Nothing can turn speech into text yet. Download a speech model for the desk in Settings, or connect OpenAI, Google, Groq, OpenRouter, xAI or Mistral.".into(),
         _ => "Your connected providers can hear but not speak. Connect OpenAI, Google, Groq, OpenRouter or xAI in Settings.".into(),
     }
 }
@@ -722,6 +794,7 @@ mod tests {
     #[test]
     fn the_first_connected_provider_speaks_and_the_next_is_the_fallback() {
         let set = resolve_from(
+            &[],
             &[connected("groq"), connected("openai"), connected("google")],
             &VoiceSettings::default(),
         )
@@ -739,6 +812,7 @@ mod tests {
     #[test]
     fn a_provider_that_only_listens_hears_and_the_next_one_speaks() {
         let set = resolve_from(
+            &[],
             &[connected("mistral"), connected("google")],
             &VoiceSettings::default(),
         )
@@ -755,14 +829,14 @@ mod tests {
 
     #[test]
     fn one_connected_provider_has_no_fallback() {
-        let set = resolve_from(&[connected("openai")], &VoiceSettings::default()).unwrap();
+        let set = resolve_from(&[], &[connected("openai")], &VoiceSettings::default()).unwrap();
         assert!(set.fallback_tts.is_none());
         assert_eq!(set.stt.id().model_id, "gpt-4o-mini-transcribe");
     }
 
     #[test]
     fn native_xai_listens_live_and_speaks_wav_with_the_connected_api_key() {
-        let set = resolve_from(&[connected("xai")], &VoiceSettings::default()).unwrap();
+        let set = resolve_from(&[], &[connected("xai")], &VoiceSettings::default()).unwrap();
         assert_eq!(
             ids(&set),
             (
@@ -807,12 +881,12 @@ mod tests {
     fn subscription_voice_is_offered_but_requires_an_explicit_choice() {
         let dir = tempfile::tempdir().unwrap();
         let connections = [subscription(dir.path())];
-        let options = options_from(&connections, &HashMap::new());
+        let options = options_from(&[], &connections, &HashMap::new());
         assert_eq!(options.stt[0].provider_id, xai::SUBSCRIPTION_PROVIDER_ID);
         assert_eq!(options.tts[0].provider_name, "Grok subscription");
         assert!(options.automatic_stt.is_none());
         assert!(options.automatic_tts.is_none());
-        assert!(resolve_from(&connections, &VoiceSettings::default()).is_err());
+        assert!(resolve_from(&[], &connections, &VoiceSettings::default()).is_err());
         assert!(
             output_from(
                 &connections,
@@ -826,7 +900,7 @@ mod tests {
             tts: Some(pick(xai::SUBSCRIPTION_PROVIDER_ID, None, Some("ara"))),
             ..VoiceSettings::default()
         };
-        let set = resolve_from(&connections, &settings).unwrap();
+        let set = resolve_from(&[], &connections, &settings).unwrap();
         assert!(set.stt.is_subscription());
         assert!(set.stt.supports_live_input());
         assert!(set.tts.is_subscription());
@@ -838,9 +912,9 @@ mod tests {
     fn explicit_subscription_never_uses_a_paid_fallback_or_changes_automatic() {
         let dir = tempfile::tempdir().unwrap();
         let connections = [subscription(dir.path()), connected("openai")];
-        let options = options_from(&connections, &HashMap::new());
+        let options = options_from(&[], &connections, &HashMap::new());
         assert_eq!(options.automatic_tts.unwrap().provider_id, "openai");
-        let automatic = resolve_from(&connections, &VoiceSettings::default()).unwrap();
+        let automatic = resolve_from(&[], &connections, &VoiceSettings::default()).unwrap();
         assert_eq!(automatic.tts.id().provider_id, "openai");
         assert!(automatic.fallback_tts.is_none());
         let settings = VoiceSettings {
@@ -853,7 +927,7 @@ mod tests {
         let output = output_from(&connections, &settings, &TurnClock::default()).unwrap();
         assert!(output.tts.is_subscription());
         assert!(output.fallback_tts.is_none());
-        assert!(resolve_from(&connections, &settings).is_err());
+        assert!(resolve_from(&[], &connections, &settings).is_err());
     }
 
     #[test]
@@ -862,7 +936,7 @@ mod tests {
             tts: Some(pick("xai", Some("another-model"), None)),
             ..VoiceSettings::default()
         };
-        assert!(resolve_from(&[connected("xai")], &settings).is_err());
+        assert!(resolve_from(&[], &[connected("xai")], &settings).is_err());
     }
 
     #[test]
@@ -874,6 +948,7 @@ mod tests {
             ..VoiceSettings::default()
         };
         let set = resolve_from(
+            &[],
             &[connected("openai"), connected("google"), connected("groq")],
             &settings,
         )
@@ -894,7 +969,7 @@ mod tests {
             tts: Some(pick("groq", None, None)),
             ..VoiceSettings::default()
         };
-        let error = match resolve_from(&[connected("openai")], &settings) {
+        let error = match resolve_from(&[], &[connected("openai")], &settings) {
             Ok(_) => panic!("resolved to something else"),
             Err(error) => error,
         };
@@ -906,7 +981,8 @@ mod tests {
             tts: Some(pick("mistral", None, None)),
             ..VoiceSettings::default()
         };
-        let error = match resolve_from(&[connected("openai"), connected("mistral")], &settings) {
+        let error = match resolve_from(&[], &[connected("openai"), connected("mistral")], &settings)
+        {
             Ok(_) => panic!("mistral cannot speak"),
             Err(error) => error,
         };
@@ -919,23 +995,27 @@ mod tests {
             fallback_tts: Some(pick("groq", None, None)),
             ..VoiceSettings::default()
         };
-        let set = resolve_from(&[connected("openai")], &settings).unwrap();
+        let set = resolve_from(&[], &[connected("openai")], &settings).unwrap();
         assert!(set.fallback_tts.is_none());
     }
 
     #[test]
     fn nothing_connected_says_so_in_a_sentence() {
-        let error = match resolve_from(&[], &VoiceSettings::default()) {
+        let error = match resolve_from(&[], &[], &VoiceSettings::default()) {
             Ok(_) => panic!("resolved with nothing connected"),
             Err(error) => error,
         };
         assert!(error.starts_with("None of your connected providers can hear or speak yet."));
-        let error = match resolve_from(&[connected("mistral")], &VoiceSettings::default()) {
+        let error = match resolve_from(&[], &[connected("mistral")], &VoiceSettings::default()) {
             Ok(_) => panic!("resolved with no voice"),
             Err(error) => error,
         };
         assert!(error.starts_with("Your connected providers can hear but not speak."));
-        let error = match resolve_from(&[custom(&["some-chat-model"])], &VoiceSettings::default()) {
+        let error = match resolve_from(
+            &[],
+            &[custom(&["some-chat-model"])],
+            &VoiceSettings::default(),
+        ) {
             Ok(_) => panic!("resolved with a chat-only custom connection"),
             Err(error) => error,
         };
@@ -945,8 +1025,12 @@ mod tests {
     #[test]
     fn a_custom_connection_counts_only_for_the_speech_models_it_lists() {
         let cloudflare = custom(&["llama-chat", "whisper-large-v3-turbo", "aura-tts"]);
-        let set =
-            resolve_from(std::slice::from_ref(&cloudflare), &VoiceSettings::default()).unwrap();
+        let set = resolve_from(
+            &[],
+            std::slice::from_ref(&cloudflare),
+            &VoiceSettings::default(),
+        )
+        .unwrap();
         assert_eq!(
             ids(&set),
             (
@@ -965,7 +1049,7 @@ mod tests {
             tts: Some(pick(&cloudflare.provider_id, Some("tts-1"), Some("echo"))),
             ..VoiceSettings::default()
         };
-        let set = resolve_from(std::slice::from_ref(&cloudflare), &settings).unwrap();
+        let set = resolve_from(&[], std::slice::from_ref(&cloudflare), &settings).unwrap();
         assert_eq!(set.stt.id(), id(&cloudflare.provider_id, "whisper-1", None));
         assert_eq!(
             set.tts.id(),
@@ -1024,6 +1108,7 @@ mod tests {
     #[test]
     fn the_options_are_what_the_connected_providers_can_do() {
         let options = options_from(
+            &[],
             &[
                 connected("mistral"),
                 connected("openai"),
@@ -1057,9 +1142,98 @@ mod tests {
             ),
             ("openai", Some("gpt-4o-mini-tts"), Some("marin"))
         );
-        let none = options_from(&[], &HashMap::new());
+        let none = options_from(&[], &[], &HashMap::new());
         assert!(none.stt.is_empty() && none.tts.is_empty());
         assert!(none.automatic_stt.is_none() && none.automatic_tts.is_none());
+    }
+
+    #[test]
+    fn an_installed_model_hears_first_and_a_connected_provider_still_speaks() {
+        let models = [
+            local::listed("parakeet-tdt-0.6b-v3", "Parakeet"),
+            local::listed("parakeet-tdt-110m-en", "Parakeet English"),
+        ];
+        let set = resolve_from(&models, &[connected("openai")], &VoiceSettings::default()).unwrap();
+        assert_eq!(
+            ids(&set),
+            (
+                id(local::PROVIDER_ID, "parakeet-tdt-0.6b-v3", None),
+                id("openai", "gpt-4o-mini-tts", Some("marin")),
+                None,
+            )
+        );
+        assert!(set.stt.supports_live_input());
+
+        let options = options_from(&models, &[connected("openai")], &HashMap::new());
+        assert_eq!(options.stt[0].provider_name, local::PROVIDER_NAME);
+        assert_eq!(
+            options.stt[0]
+                .models
+                .iter()
+                .map(|model| (model.id.as_str(), model.label.as_deref()))
+                .collect::<Vec<_>>(),
+            [
+                ("parakeet-tdt-0.6b-v3", Some("Parakeet")),
+                ("parakeet-tdt-110m-en", Some("Parakeet English"))
+            ]
+        );
+        assert_eq!(options.stt[1].provider_id, "openai");
+        let automatic = options.automatic_stt.unwrap();
+        assert_eq!(
+            (
+                automatic.provider_id.as_str(),
+                automatic.model_id.as_deref()
+            ),
+            (local::PROVIDER_ID, Some("parakeet-tdt-0.6b-v3"))
+        );
+
+        // The owner can still pick a provider, or the smaller model.
+        let settings = VoiceSettings {
+            stt: Some(pick("openai", None, None)),
+            ..VoiceSettings::default()
+        };
+        let set = resolve_from(&models, &[connected("openai")], &settings).unwrap();
+        assert_eq!(set.stt.id().provider_id, "openai");
+        let settings = VoiceSettings {
+            stt: Some(pick(local::PROVIDER_ID, Some("parakeet-tdt-110m-en"), None)),
+            ..VoiceSettings::default()
+        };
+        let set = resolve_from(&models, &[connected("openai")], &settings).unwrap();
+        assert_eq!(set.stt.id().model_id, "parakeet-tdt-110m-en");
+    }
+
+    #[test]
+    fn nothing_installed_offers_no_desk_model_and_a_pick_of_one_is_an_error_not_a_switch() {
+        let options = options_from(&[], &[connected("openai")], &HashMap::new());
+        assert!(
+            options
+                .stt
+                .iter()
+                .all(|one| one.provider_id != local::PROVIDER_ID)
+        );
+        assert_eq!(options.automatic_stt.unwrap().provider_id, "openai");
+
+        let settings = VoiceSettings {
+            stt: Some(pick(local::PROVIDER_ID, Some("parakeet-tdt-0.6b-v3"), None)),
+            ..VoiceSettings::default()
+        };
+        let installed_other = [local::listed("parakeet-tdt-110m-en", "Parakeet English")];
+        for models in [&[][..], &installed_other[..]] {
+            let error = match resolve_from(models, &[connected("openai")], &settings) {
+                Ok(_) => panic!("heard with something the owner did not pick"),
+                Err(error) => error,
+            };
+            assert!(error.contains("not installed"), "{error}");
+        }
+        // Hearing on the desk with nothing to speak says what to connect.
+        let error = match resolve_from(&installed_other, &[], &VoiceSettings::default()) {
+            Ok(_) => panic!("spoke with nothing connected"),
+            Err(error) => error,
+        };
+        assert!(
+            error.starts_with("Your connected providers can hear but not speak."),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1114,7 +1288,11 @@ mod tests {
             ),
         )]);
         // Groq is connected too but nothing was discovered for it.
-        let options = options_from(&[connected("openrouter"), connected("groq")], &discovered);
+        let options = options_from(
+            &[],
+            &[connected("openrouter"), connected("groq")],
+            &discovered,
+        );
         let stt: Vec<_> = options.stt[0]
             .models
             .iter()
@@ -1141,7 +1319,7 @@ mod tests {
             ),
             ("groq".to_string(), found(&["whisper-large-v3"], &[])),
         ]);
-        let options = options_from(&[connected("groq")], &discovered);
+        let options = options_from(&[], &[connected("groq")], &discovered);
         assert_eq!(options.stt.len(), 1);
         assert_eq!(options.stt[0].provider_id, "groq");
         assert!(options.tts[0].provider_id == "groq");
@@ -1158,7 +1336,7 @@ mod tests {
             )),
             ..VoiceSettings::default()
         };
-        let set = resolve_from(&[connected("openrouter")], &settings).unwrap();
+        let set = resolve_from(&[], &[connected("openrouter")], &settings).unwrap();
         assert_eq!(
             ids(&set),
             (
@@ -1184,7 +1362,7 @@ mod tests {
             tts: Some(pick("openrouter", Some("hexgrad/kokoro-82m"), None)),
             ..VoiceSettings::default()
         };
-        let set = resolve_from(&[openrouter], &settings).unwrap();
+        let set = resolve_from(&[], &[openrouter], &settings).unwrap();
         assert_eq!(
             set.tts.id(),
             id("openrouter", "hexgrad/kokoro-82m", Some("af_heart"))
@@ -1194,7 +1372,7 @@ mod tests {
             tts: Some(pick("groq", Some("canopylabs/orpheus-arabic-saudi"), None)),
             ..VoiceSettings::default()
         };
-        let set = resolve_from(&[connected("groq")], &settings).unwrap();
+        let set = resolve_from(&[], &[connected("groq")], &settings).unwrap();
         assert_eq!(set.tts.id().voice.as_deref(), Some("abdullah"));
     }
 }

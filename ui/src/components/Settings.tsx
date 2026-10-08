@@ -250,7 +250,7 @@ function GeneralSection({
 			</section>
 			<section>
 				<h3 className="group-title" id="setting-backend">
-					New teammates run on
+					New teammates use
 				</h3>
 				{backends.length > 0 ? (
 					<BackendPicker

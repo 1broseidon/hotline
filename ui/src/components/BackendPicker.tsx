@@ -70,46 +70,50 @@ export function BackendPicker({
 		}
 	};
 
+	const choice = (backend: BackendChoice) => (
+		<Choice
+			key={backend.id}
+			backend={backend}
+			detail={backend.unavailable ?? backend.description}
+			off={backend.unavailable !== undefined}
+			name={name}
+			selected={selected}
+			tabIndex={stop === backend.id ? 0 : -1}
+			onSelect={onSelect}
+		/>
+	);
+	const builtIn = ready.filter((one) => one.id === HOTLINE_AGENT);
+	const external = ready.filter((one) => one.id !== HOTLINE_AGENT);
+
+	// Two lists, not one: Hotline Agent is the agent and any model, the rest
+	// are someone else's agent with its own login. In one list the two read
+	// as the same kind of choice.
 	return (
-		<div role="radiogroup" aria-labelledby={labelledBy} className="grouped" onKeyDown={onKey}>
-			{ready.map((backend) => (
-				<Choice
-					key={backend.id}
-					backend={backend}
-					detail={backend.unavailable ?? backend.description}
-					off={backend.unavailable !== undefined}
-					name={name}
-					selected={selected}
-					tabIndex={stop === backend.id ? 0 : -1}
-					onSelect={onSelect}
-				/>
-			))}
-			{more.length > 0 && (
-				<button
-					type="button"
-					data-picker-row=""
-					tabIndex={stop === "" ? 0 : -1}
-					className="group-row group-row-choice w-full text-left"
-					aria-expanded={open}
-					onClick={() => setOpen((was) => !was)}
-				>
-					{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
-					<span className="text-sm text-ink-3">More harnesses ({more.length})</span>
-				</button>
+		<div role="radiogroup" aria-labelledby={labelledBy} className="flex flex-col" onKeyDown={onKey}>
+			{builtIn.length > 0 && <div className="grouped">{builtIn.map(choice)}</div>}
+			{(external.length > 0 || more.length > 0) && (
+				<>
+					<p className="group-title mt-4">Or an agent you already use</p>
+					<div className="grouped">
+						{external.map(choice)}
+						{more.length > 0 && (
+							<button
+								type="button"
+								data-picker-row=""
+								tabIndex={stop === "" ? 0 : -1}
+								className="group-row group-row-choice w-full text-left"
+								aria-expanded={open}
+								onClick={() => setOpen((was) => !was)}
+							>
+								{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
+								<span className="text-sm text-ink-3">More agents ({more.length})</span>
+							</button>
+						)}
+						{open && more.map(choice)}
+					</div>
+					<p className="group-hint">Hotline starts that agent's own CLI. It signs in, picks its models and runs its tools its own way.</p>
+				</>
 			)}
-			{open &&
-				more.map((backend) => (
-					<Choice
-						key={backend.id}
-						backend={backend}
-						detail={backend.unavailable ?? backend.description}
-						off={backend.unavailable !== undefined}
-						name={name}
-						selected={selected}
-						tabIndex={stop === backend.id ? 0 : -1}
-						onSelect={onSelect}
-					/>
-				))}
 		</div>
 	);
 }

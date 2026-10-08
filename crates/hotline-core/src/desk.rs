@@ -732,7 +732,7 @@ impl RoomHandle for Desk {
         let mut choices = vec![BackendChoice {
             id: HOTLINE_BACKEND_ID.to_string(),
             name: "Hotline Agent".to_string(),
-            description: "Built in: runs on the desk's provider keys.".to_string(),
+            description: "Hotline's own agent. Runs any model you connect in Settings › Providers: an API key, or a ChatGPT or Copilot sign-in.".to_string(),
             unavailable: None,
         }];
         for backend in acp::registry::backends(self.log.root()).await {

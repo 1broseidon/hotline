@@ -193,7 +193,7 @@ export function NewTeammateForm({
 			{backends.length > 0 && (
 				<div>
 					<p className="label" id="new-backend">
-						Runs on
+						Agent
 					</p>
 					<BackendPicker
 						backends={backends}

@@ -517,6 +517,7 @@ export function App() {
 	return (
 		<div className="flex h-full flex-col">
 			<Titlebar
+				bare={welcome && pane === null}
 				searchable={pane === null && selected !== null}
 				searchOpen={searchOpen}
 				onToggleSearch={() => setSearchOpen((open) => !open)}

@@ -265,9 +265,12 @@
 		align-items: center;
 	}
 	/* The mark alone on the window's centre line: the app's name. */
+	/* Centred on the window, not on the strip: the strip's padding is
+	 * lopsided where macOS keeps its traffic lights. */
 	.titlebar-title {
-		position: relative;
-		grid-column: 2;
+		position: absolute;
+		left: 50%;
+		transform: translateX(-50%);
 		display: flex;
 		align-items: center;
 		min-width: 0;

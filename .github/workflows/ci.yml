@@ -94,7 +94,7 @@ jobs:
   # there would cost a whole release run (0.28.0's did). So its clippy, its
   # tests and the keychain round trip all run here.
   macos:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
@@ -129,9 +129,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
+          - runner: macos-26
             target: aarch64-apple-darwin
-          - runner: macos-15
+          - runner: macos-26
             target: x86_64-apple-darwin
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu

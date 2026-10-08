@@ -3,6 +3,7 @@
 // SpeechAnalyzer (macOS 26), the fallback SFSpeechRecognizer with on-device
 // recognition required, and no network recognizer is ever constructed.
 import AVFoundation
+import CoreAudio
 import Foundation
 import Speech
 
@@ -196,6 +197,8 @@ final class SpeechMicrophone {
   private var tapped = false
   private var configurationChange: NSObjectProtocol?
   private var inputPrepared = false
+  /** The system's input device when the utterance began. */
+  private var device: AudioDeviceID?
 
   var format: AVAudioFormat { engine.inputNode.outputFormat(forBus: 0) }
 
@@ -244,12 +247,27 @@ final class SpeechMicrophone {
     }
     input.installTap(onBus: 0, bufferSize: 1024, format: format, block: tap)
     tapped = true
-    // A changed input device stops the engine, and the converter's format is
-    // already fixed, so the utterance ends rather than going quietly deaf.
+    device = Self.defaultInputDevice()
+    // The engine reports a configuration change for its own voice processing
+    // settling as well as for a new device. Same device and format: start it
+    // again and keep listening. A different device stops the engine with a
+    // converter already fixed to the old format, so the utterance ends rather
+    // than going quietly deaf.
     configurationChange = NotificationCenter.default.addObserver(
       forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-    ) { _ in
-      Task { @MainActor in interrupted() }
+    ) { [weak self] _ in
+      Task { @MainActor in
+        guard let self else { return }
+        let now = self.engine.inputNode.outputFormat(forBus: 0)
+        let same = Self.defaultInputDevice() == self.device && now.isEqual(format)
+        NSLog("[hotline-speech] configuration change: same device and format %@, running %@",
+          same ? "yes" : "no", self.engine.isRunning ? "yes" : "no")
+        if same {
+          if self.engine.isRunning { return }
+          do { try self.engine.start(); return } catch {}
+        }
+        interrupted()
+      }
     }
     engine.prepare()
     do { try engine.start() } catch { stop(); throw error }
@@ -260,6 +278,18 @@ final class SpeechMicrophone {
     configurationChange = nil
     engine.stop()
     if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false }
+  }
+
+  /** The device macOS records from now, or nil if it cannot say. */
+  nonisolated private static func defaultInputDevice() -> AudioDeviceID? {
+    var id = AudioDeviceID(0)
+    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    var address = AudioObjectPropertyAddress(
+      mSelector: kAudioHardwarePropertyDefaultInputDevice,
+      mScope: kAudioObjectPropertyScopeGlobal,
+      mElement: kAudioObjectPropertyElementMain)
+    let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &id)
+    return status == noErr ? id : nil
   }
 
   nonisolated private static func level(_ buffer: AVAudioPCMBuffer) -> Double? {

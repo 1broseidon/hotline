@@ -5,6 +5,7 @@ import type { FileChunk, VoiceEndReason, VoiceEvent } from "../generated/contrac
 import { type CallAudio, webAudio } from "./audio";
 import { TurnDetector, levelFromDb } from "./turn";
 import { type DeviceTranscription, type TranscriptionEvent, deviceTranscription, hearsOnThisMac } from "./transcription";
+import { hearOnThisMac, subscribeHearing } from "./hearing";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 import { PcmTurn } from "./stream";
 import { useRawSetting } from "../room";
@@ -268,7 +269,8 @@ export class Call {
 			let status: unknown = null;
 			// Where this Mac can hear the words, the desk is asked about a text call: it then needs
 			// a voice, not a transcription provider of its own.
-			const asked = this.transcription !== undefined && (await this.transcription.capability()).available ? { inputMode: "text" as const } : {};
+			const asked =
+				this.transcription !== undefined && hearOnThisMac() && (await this.transcription.capability()).available ? { inputMode: "text" as const } : {};
 			if (this.ended) return;
 			if (this.target !== undefined) status = await this.transport.command("voice.status", asked);
 			// A desk call asks only to learn whether the desk takes text; not knowing keeps it on audio.
@@ -347,7 +349,7 @@ export class Call {
 	 */
 	private async transcribes(status: unknown): Promise<boolean> {
 		const transcription = this.transcription;
-		if (transcription === undefined) return false;
+		if (transcription === undefined || !hearOnThisMac()) return false;
 		const capabilities = (status as { capabilities?: unknown } | null)?.capabilities;
 		if (!Array.isArray(capabilities) || !capabilities.includes("voiceTextInput")) return false;
 		const capability = await transcription.capability();
@@ -928,9 +930,11 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 	useEffect(() => {
 		const again = () => setAsked((n) => n + 1);
 		supportChecks.add(again);
+		const unhear = subscribeHearing(again);
 		window.addEventListener("focus", again);
 		return () => {
 			supportChecks.delete(again);
+			unhear();
 			window.removeEventListener("focus", again);
 		};
 	}, []);
@@ -939,7 +943,7 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 		let current = true;
 		// A Mac that hears on its own asks about a text call, which needs no transcription provider.
 		void hearsOnThisMac()
-			.then((here) => wireTransport.command("voice.status", here ? { inputMode: "text" } : {}))
+			.then((here) => wireTransport.command("voice.status", here && hearOnThisMac() ? { inputMode: "text" } : {}))
 			.then((status) => {
 				if (current) setSupport({ available: (status as { available?: boolean } | null)?.available === true, directCalls: supportsDirectCalls(status) });
 			})

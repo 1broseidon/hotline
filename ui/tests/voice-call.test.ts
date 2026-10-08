@@ -641,6 +641,27 @@ describe("a call heard by this Mac", () => {
 		expect(r.sent.find((one) => one.cmd === "voice.status")?.params).toEqual({});
 	});
 
+	test("a person who picked a provider for this Mac keeps calls on audio, and is never asked for speech", async () => {
+		const stored = new Map<string, string>([["hotline.hearOnThisMac", "off"]]);
+		const before = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+		Object.defineProperty(globalThis, "localStorage", {
+			value: { getItem: (key: string) => stored.get(key) ?? null, setItem: (key: string, value: string) => stored.set(key, value) },
+			configurable: true,
+		});
+		try {
+			const speech = fakeSpeech();
+			const r = textRig(speech, { input: ["audio/wav"] });
+			await r.call.start();
+			expect(r.sent.find((one) => one.cmd === "voice.status")?.params).toEqual({});
+			expect(r.sent.find((one) => one.cmd === "voice.call_start")?.params.inputMode).toBeUndefined();
+			expect(speech.counts.permits).toBe(0);
+			expect(r.mic.opened).toBe(1);
+		} finally {
+			if (before) Object.defineProperty(globalThis, "localStorage", before);
+			else Reflect.deleteProperty(globalThis, "localStorage");
+		}
+	});
+
 	test("the permission is not asked when the desk takes no text", async () => {
 		const speech = fakeSpeech();
 		const r = textRig(speech, null, ["voice", "voiceDirectCalls"]);

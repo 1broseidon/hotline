@@ -5,6 +5,10 @@ import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { ChevronDownIcon } from "../icons";
 import { deviceTranscription } from "../voice/transcription";
+import { setHearOnThisMac, useHearOnThisMac } from "../voice/hearing";
+
+/** The Hearing picker's own choice: this Mac, not a provider. Provider ids never start with a bar. */
+const ON_THIS_MAC = "|this-mac";
 import {
 	AUTOMATIC,
 	carriedEffort,
@@ -66,6 +70,7 @@ export function UseFor({
 
 	const [more, setMore] = useState(false);
 	const hearsHere = useSpeechOnThisMac();
+	const hearHere = useHearOnThisMac();
 	const speaking = options.tts;
 	const speakingNow = speaking.selected ?? speaking.automatic;
 	const hearingNow = options.stt.selected ?? options.stt.automatic;
@@ -127,15 +132,41 @@ export function UseFor({
 				</JobRow>
 				{more && (
 					<>
-						<JobRow title="Hearing" detail={hearsHere ? "On this Mac when you call from here" : "Turns what you say into text"} job={options.stt} nested>
-							<Picker
-								value={currentId(options.stt)}
-								choices={shortChoices(options.stt)}
-								placeholder="Automatic"
-								label="Model for hearing you"
-								onChange={(id) => setVoice("stt", pickModel(id))}
-							/>
-						</JobRow>
+						{hearsHere ? (
+							<div className="group-row use-for-nested">
+								<span className="group-row-text">
+									<span className="group-row-title">Hearing</span>
+									<span className="group-row-detail">
+										{hearHere
+											? `Free and private on calls from this Mac${hearingNow !== undefined ? `; other devices use ${hearingNow.providerName}` : ""}`
+											: "Turns what you say into text"}
+									</span>
+								</span>
+								<span className="flex shrink-0 items-center gap-1">
+									<Picker
+										value={hearHere ? ON_THIS_MAC : currentId(options.stt)}
+										choices={[{ id: ON_THIS_MAC, name: "On this Mac", group: "This Mac" }, ...shortChoices(options.stt)]}
+										placeholder="Automatic"
+										label="How calls from this Mac hear you"
+										onChange={(id) => {
+											if (id === ON_THIS_MAC) return setHearOnThisMac(true);
+											setHearOnThisMac(false);
+											setVoice("stt", pickModel(id));
+										}}
+									/>
+								</span>
+							</div>
+						) : (
+							<JobRow title="Hearing" detail="Turns what you say into text" job={options.stt} nested>
+								<Picker
+									value={currentId(options.stt)}
+									choices={shortChoices(options.stt)}
+									placeholder="Automatic"
+									label="Model for hearing you"
+									onChange={(id) => setVoice("stt", pickModel(id))}
+								/>
+							</JobRow>
+						)}
 						<JobRow title="Call assistant" detail="Answers while you talk and hands work to teammates" job={options.dispatcher} nested>
 							<Picker
 								value={currentId(options.dispatcher)}

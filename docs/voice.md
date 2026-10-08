@@ -241,7 +241,9 @@ Neither is called by the speech layer; the desk asks them beside its own.
 `<data dir>/voice-ledger.json`, split into speech to text, text to speech and
 dispatcher. `check(settings)` returns `Err(Exhausted)` once either cap is spent
 and `charge(kind, usd)` records a cost. The caps are `settings.voice.dayUsd`
-and `monthUsd`, $2 and $20 by default; zero turns voice off. Once the owner
+and `monthUsd`, $2 and $20 by default. Zero turns paid voice off: a cap
+only counts as spent once something was spent against it, so a subscription's
+free voice still runs and any reservation that costs is refused. Once the owner
 has set `settings.spending`, its `dayUsd` and `monthUsd` govern voice instead,
 so one cap covers images and voice. Voice's ledger and the image ledger are
 still separate tallies; Settings shows their sum.

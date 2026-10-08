@@ -85,4 +85,23 @@ mod tests {
         assert_eq!(allowed, 2);
         assert_eq!(budget.balance().spent_day_usd, 1.5);
     }
+
+    #[test]
+    fn zero_limits_refuse_paid_voice_and_let_free_voice_through() {
+        let root = tempfile::tempdir().unwrap();
+        let log = Log::open(root.path());
+        log.append(
+            &crate::log::StreamId::Room,
+            &crate::room::room_event(
+                "setting",
+                serde_json::json!({"id": "spending", "value": {"dayUsd": 0, "monthUsd": 0}}),
+            ),
+        )
+        .unwrap();
+        let budget = Budget::open(log);
+        assert!(budget.check().is_ok());
+        assert_eq!(budget.reserve(Kind::Tts, 0.0), Ok(()));
+        assert_eq!(budget.reserve(Kind::Tts, 0.01), Err(Exhausted::Month));
+        assert_eq!(budget.balance().spent_day_usd, 0.0);
+    }
 }

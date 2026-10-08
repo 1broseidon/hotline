@@ -460,6 +460,8 @@ async fn text_input_keeps_budget_gating_before_dispatch() {
         .start_with_input(&id, None, false, VoiceInputMode::Text, desk.clone())
         .unwrap();
     let (_, mut rx) = calls.subscribe(&id).unwrap();
+    // A cent spent, then the caps lowered to nothing: today's budget is gone.
+    calls.ledger.charge(Kind::Dispatcher, 0.01);
     desk.log
         .append(
             &StreamId::Room,

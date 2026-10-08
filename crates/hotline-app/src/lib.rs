@@ -11,8 +11,10 @@
 //! teammate sent, and refuse any other path (`files`); a few more carry
 //! files to and from a desk on a server, touching only what the person
 //! picked, dropped or chose to save (`transfer`). On macOS what the person
-//! says on a call can become text on the machine itself (`speech`). The
-//! judgement for all of it lives in the page, not here. The page draws the window's top strip on
+//! says on a call or dictates can become text on the machine itself
+//! (`speech`). The page registers the person's global shortcuts, and any
+//! of them pressed anywhere brings the window forward before the page acts
+//! on it. The judgement for all of it lives in the page, not here. The page draws the window's top strip on
 //! every platform. On macOS the menu bar is this process's, and its items
 //! emit an event the window handles. On Linux and Windows there is no menu
 //! bar and no system frame: the strip carries the window's controls too,
@@ -378,7 +380,19 @@ pub fn run() {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_clipboard_manager::init());
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    // Every shortcut the page registers acts in the window,
+                    // so the window comes forward first, from wherever the
+                    // person was.
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        show_main_window(app);
+                    }
+                })
+                .build(),
+        );
     #[cfg(not(target_os = "macos"))]
     let builder = builder.plugin(tauri_plugin_notification::init());
     #[cfg(target_os = "macos")]

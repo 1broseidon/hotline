@@ -205,6 +205,7 @@ Capabilities for the main window are
 | `opener` | open a link, reveal a path in the file manager |
 | `clipboard-manager` | write the clipboard |
 | `updater` | signed updates, through desktop commands with an idle-room guard |
+| `global-shortcut` | Dictate and Call from any app, set in Settings › General ([voice.md](voice.md#shortcuts-from-any-app)) |
 
 Closing the window hides it; the process, the teammates and the schedules
 stay. The tray is how the person gets the window back and how they actually
@@ -219,13 +220,15 @@ window back; the App menu's Quit still exits. Linux needs
 `libayatana-appindicator3` at runtime. macOS and Windows are built,
 unproven until run there.
 
-The macOS menu (Ctrl, not Cmd — the window's own listener is Ctrl on
-every platform): Settings `Ctrl+,`, Search `Ctrl+F`, New Teammate
-`Ctrl+N`, Teammate `Ctrl+I`, Teammate 1–9 `Ctrl+1`…`Ctrl+9`. The App
+The macOS menu (Cmd, as the window's own listener is on a Mac; Ctrl
+elsewhere): Settings `Cmd+,`, Search `Cmd+F`, New Teammate `Cmd+N`, Team
+`Cmd+B`, Teammate `Cmd+I`, Teammate 1–9 `Cmd+1`…`Cmd+9`. The App
 menu is Settings, About, Quit. Help opens Keyboard shortcuts, About Hotline,
 and Hotline on GitHub. Where there is no menu bar, the same three help items
 sit under the More button beside Settings at the foot of the rail, and
-the chords are the window's own.
+the chords are the window's own. Keyboard shortcuts lists every chord in
+`ui/src/chords.ts`, and with them the two shortcuts that work from any app,
+Dictate and Call, at the keys set for them in Settings › General.
 
 The app icon is `assets/hotline-tile.svg`: the mark from `assets/hotline-mark.svg`
 on a dark rounded tile, in the page's own colours. `make icons` runs

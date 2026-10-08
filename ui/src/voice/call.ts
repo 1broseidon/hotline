@@ -4,7 +4,7 @@ import { type Target, wire } from "../wire";
 import type { FileChunk, VoiceEndReason, VoiceEvent } from "../generated/contract";
 import { type CallAudio, webAudio } from "./audio";
 import { TurnDetector, levelFromDb } from "./turn";
-import { type DeviceTranscription, type TranscriptionEvent, deviceTranscription } from "./transcription";
+import { type DeviceTranscription, type TranscriptionEvent, deviceTranscription, hearsOnThisMac } from "./transcription";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 import { PcmTurn } from "./stream";
 import { useRawSetting } from "../room";
@@ -895,13 +895,6 @@ export function useCallSnapshot(call: Call | null): CallSnapshot {
 
 const supportChecks = new Set<() => void>();
 
-/** Whether this machine transcribes calls itself; asked once, since it does not change while the app runs. */
-let hearing: Promise<boolean> | null = null;
-function hearsHere(): Promise<boolean> {
-	hearing ??= (async () => (await deviceTranscription()?.capability())?.available === true)().catch(() => false);
-	return hearing;
-}
-
 /**
  * Ask every open voice check to look again. Connecting or removing a
  * provider changes whether the desk can take a call, and the desk does not
@@ -935,7 +928,7 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 		if (connection !== "open") { setSupport({ available: false, directCalls: false }); return; }
 		let current = true;
 		// A Mac that hears on its own asks about a text call, which needs no transcription provider.
-		void hearsHere()
+		void hearsOnThisMac()
 			.then((here) => wireTransport.command("voice.status", here ? { inputMode: "text" } : {}))
 			.then((status) => {
 				if (current) setSupport({ available: (status as { available?: boolean } | null)?.available === true, directCalls: supportsDirectCalls(status) });

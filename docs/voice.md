@@ -87,6 +87,78 @@ sends it once with `voice.text` under the next sequence number; an empty
 final sends nothing. Settings › Providers › Use for describes Hearing as
 "On this Mac when you call from here" while this Mac can hear.
 
+## Dictation on a Mac
+
+Where `speech_capability` says this Mac can hear, the composer's key on an
+empty field is a microphone, Dictate, and the words go into the field
+rather than to anyone (`ui/src/voice/dictation.ts`). A call is the phone
+key in the conversation's band, Call <name>, shown when the desk can put a
+call through to the teammate; it turns into End the call while one with
+that teammate is live. Where this Mac cannot hear, and on Linux and
+Windows, there is no dictation and the empty composer's key starts the
+call, as the band's does.
+
+The first dictation of a run asks `speech_permit`; a refusal says to allow
+Hotline under Speech Recognition and Microphone in System Settings ›
+Privacy & Security. Listening starts a recognition session. The field
+keeps whatever was typed before dictation began, and each partial replaces
+the dictated words after it, separated by one space. While listening, the
+placeholder reads "Listening…", the field cannot be typed in, and the key
+holds a voice meter (`ui/src/components/VoiceMeter.tsx`) and shows a stop
+glyph when pointed at or focused. The meter is five bars that rise with
+the level, which spreads -60 dBFS to -10 dBFS evenly over 0 to 1 and is
+smoothed each frame, rising with a 40 ms time constant and falling with
+260 ms; they breathe on the 1800 ms beat while it is quiet and shimmer in
+turn while the final text is awaited. With reduced motion they only
+follow the level. When the engine ends a session on a pause (`ended`
+with `final` or `no-speech`), its words are kept and a fresh session
+starts, so a pause does not end the dictation. Pressing the key again,
+Enter, or the Dictate shortcut stops: the window waits for the engine's
+complete final text and puts it in the field. Nothing is ever sent by
+dictation. Escape cancels and puts the field back as it was before
+listening began. An engine error, or a stop that does not finish, ends the
+dictation with the words heard so far left in the field and one sentence
+under it. One dictation listens at a time: starting another cancels the
+first, and a call that starts lets the dictation go, keeping its words.
+The empty composer offers no Dictate while a call is live.
+
+The side thread's composer dictates the same way; the Dictate shortcut
+reaches only the conversation's.
+
+The controller knows an engine only as a `DictationEngine`: capability,
+permit, start with a callback for events, stop for the final text, and
+cancel, where events are whole-utterance text, a level already in 0 to 1,
+an error, or the session's end. This Mac's engine is one adapter
+(`macEngine`), which turns its dBFS into a level. The meter reads any
+stream of 0 to 1 levels (`LevelSource`), so it does not depend on
+dictation.
+
+## Shortcuts from any app
+
+Two shortcuts work while Hotline is in the background, through the
+`global-shortcut` plugin (`ui/src/hotkeys.ts`): Dictate, `Control+Option+H`
+(⌃⌥H) unless changed, offered only where this Mac can dictate; and Call,
+off until set. Both are this computer's, kept in the window's
+`localStorage` under `hotline.hotkeys`, and set in Settings › General ›
+Shortcuts, where a row records new keys (at least one of Control, Option
+or Command, or Ctrl or Alt elsewhere, with a key; Escape gives up), turns
+the shortcut off, and says when the system would not give Hotline the
+keys. Keys another shortcut, or one of the window's own chords, already
+uses are refused there. While keys are being recorded, every shortcut is
+let go so the recorder hears them.
+
+Any press brings the main window forward (the shell's handler in
+`hotline-app`). Dictate then starts or stops dictation in the open
+conversation's composer; with a pane open in its place, the pane closes
+and the last teammate's conversation opens and starts listening; with no
+teammate selected it does nothing. Call ends a live call, or else calls
+the open teammate when the desk can. The window registers them on
+startup, again whenever they change, and lets them go when they are
+turned off; a reloaded page first lets go of the ones its previous load
+held. Only the main window may register shortcuts. Help › Keyboard
+shortcuts lists both, with their current keys, under Anywhere on this
+computer.
+
 ## Providers
 
 These are the defaults, what a provider uses when the owner picks nothing and

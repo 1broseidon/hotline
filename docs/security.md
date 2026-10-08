@@ -1057,8 +1057,10 @@ made it so.
   covers viewer-token forwarding and remote revocation.
   `hotline-app/tests/window_capabilities.rs` uses Tauri's real IPC dispatcher
   with the shipping generated ACL to prove main-command access, the viewer's
-  four-command limit, denied plugin access, and refusal from unrelated windows
-  and remote origins. It also keeps both platform handler lists, the manifest
+  four-command limit, denied plugin access, that only the main window may
+  register, unregister and unregister all global shortcuts (and may not ask
+  which are registered), and refusal from unrelated windows and remote
+  origins. It also keeps both platform handler lists, the manifest
   and the main permission set synchronized.
 - **Residual risk:** a stolen unspent token can win the upgrade race for its one
   persona and access that computer's screen, controls and files. The header can

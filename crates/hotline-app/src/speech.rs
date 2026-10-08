@@ -1,5 +1,5 @@
-//! On-device speech for a call: what the person says becomes text on this
-//! machine and nowhere else. On macOS the Swift in `macos/speech` does the
+//! On-device speech for a call or dictation: what the person says becomes
+//! text on this machine and nowhere else. On macOS the Swift in `macos/speech` does the
 //! hearing (SpeechAnalyzer, or SFSpeechRecognizer held to on-device
 //! recognition; see docs/voice.md), compiled in by `build.rs`. Elsewhere
 //! every command answers that speech is not built here.

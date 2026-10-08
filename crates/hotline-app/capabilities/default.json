@@ -29,6 +29,9 @@
     "opener:allow-reveal-item-in-dir",
     "opener:allow-default-urls",
     "clipboard-manager:allow-write-text",
-    "clipboard-manager:allow-read-image"
+    "clipboard-manager:allow-read-image",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-unregister-all"
   ]
 }

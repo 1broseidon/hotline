@@ -22,6 +22,7 @@ import { SkillsSection } from "./Skills";
 import { UseFor } from "./UseFor";
 import { tagsFor } from "../useFor";
 
+import { HotkeysSection } from "./HotkeysSection";
 import { UpdatesSection } from "./UpdatesSection";
 import { RemoteSection } from "./RemoteSection";
 import { onServer } from "../serverFiles";
@@ -238,6 +239,7 @@ function GeneralSection({
 	return (
 		<>
 			<AppearanceSection />
+			<HotkeysSection />
 			<section>
 				<h3 className="group-title">Chapters</h3>
 				<div className="grouped">

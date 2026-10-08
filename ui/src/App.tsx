@@ -18,6 +18,8 @@ import { sameWork, Work, type OpenWork } from "./components/Work";
 import type { ThreadRef } from "./components/Transcript";
 import { Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
+import { hotkeyRegistrar, onHotkey, useHotkeys, useRecording, type HotkeyId } from "./hotkeys";
+import { requestDictation, useDictationAvailable } from "./voice/dictation";
 import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, watchWindowShape } from "./native";
 import { watchLooking } from "./looking";
 import { noticeRoster, setWindowTitle, toastTarget } from "./notify";
@@ -490,6 +492,34 @@ export function App() {
 	const calling = call !== null && callPhase !== "ended";
 	const { available: voice, directCalls } = useVoiceSupport(connection);
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
+	const callTeammate = useCallback(
+		(entry: RosterEntry) =>
+			void startCall(nameOf, { personaId: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash }),
+		[nameOf],
+	);
+
+	/* The shortcuts heard anywhere on this computer (hotkeys.ts). The shell
+	 * has already brought the window forward; Dictate goes to the open
+	 * conversation's composer, or the last teammate's when a pane stands in
+	 * its place, and Call rings the open teammate or hangs up. */
+	const hotkeyPressed = useRef<(id: HotkeyId) => void>(() => {});
+	hotkeyPressed.current = (id) => {
+		if (id === "dictate") {
+			if (selected === null) return;
+			setPane(null);
+			requestDictation();
+			return;
+		}
+		if (calling) closeCall();
+		else if (selected !== null && directCalls) callTeammate(selected);
+	};
+	useEffect(() => onHotkey((id) => hotkeyPressed.current(id)), []);
+	const bindings = useHotkeys();
+	const recordingKeys = useRecording();
+	const dictationHere = useDictationAvailable();
+	useEffect(() => {
+		void hotkeyRegistrar()?.sync(recordingKeys ? {} : { dictate: dictationHere ? bindings.dictate : "", call: bindings.call });
+	}, [bindings, recordingKeys, dictationHere]);
 	/* A narrow window has room for faces beside the pane and no more. */
 	const faces = narrow || railSize.compact;
 	/* Settings' sections have no faces to fall back to: they stand at the
@@ -597,9 +627,8 @@ export function App() {
 							entry={selected}
 							models={models}
 							onSaid={setSaid}
-							onCall={directCalls ? () => void startCall(nameOf, {
-								personaId: selected.persona.id, name: selected.persona.name, avatarHash: selected.persona.avatar?.hash,
-							}) : undefined}
+							onCall={directCalls ? () => callTeammate(selected) : undefined}
+							onHangUp={calling && call?.target?.personaId === selected.persona.id ? closeCall : undefined}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}

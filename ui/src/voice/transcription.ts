@@ -160,3 +160,10 @@ export function deviceTranscription(
 		cancel,
 	};
 }
+
+/** Whether this machine hears speech itself; asked once, since it does not change while the app runs. */
+let hearing: Promise<boolean> | null = null;
+export function hearsOnThisMac(): Promise<boolean> {
+	hearing ??= (async () => (await deviceTranscription()?.capability())?.available === true)().catch(() => false);
+	return hearing;
+}

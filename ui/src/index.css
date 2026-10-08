@@ -1663,6 +1663,63 @@
 		background: var(--fill-active);
 		color: var(--ink-3);
 	}
+	/* While dictating the key holds the voice meter, and is the way to stop:
+	 * pointing at it or focusing it shows the stop it is. */
+	.composer-dictating {
+		background: var(--accent-soft);
+		color: var(--accent-ink);
+	}
+	.composer-dictating:hover:not(:disabled),
+	.composer-dictating:focus-visible {
+		background: var(--accent);
+		color: var(--on-accent);
+	}
+	.composer-dictating:disabled {
+		background: var(--accent-soft);
+		color: var(--accent-ink);
+	}
+	.composer-dictating-stop {
+		display: none;
+	}
+	.composer-dictating:hover:not(:disabled) .composer-dictating-stop,
+	.composer-dictating:focus-visible .composer-dictating-stop {
+		display: block;
+	}
+	.composer-dictating:hover:not(:disabled) .voice-meter,
+	.composer-dictating:focus-visible .voice-meter {
+		display: none;
+	}
+
+	/* A voice as a few rounded bars (VoiceMeter.tsx): each is scaled by
+	 * --bar, 0 to 1, from its middle. Waiting for the final words, they
+	 * shimmer one after another instead. */
+	.voice-meter {
+		display: inline-flex;
+		height: 14px;
+		align-items: center;
+		gap: 2px;
+	}
+	.voice-meter-bar {
+		width: 2px;
+		height: 100%;
+		border-radius: 1px;
+		background: currentColor;
+		transform: scaleY(var(--bar, 0.2));
+	}
+	.voice-meter[data-state="finishing"] .voice-meter-bar {
+		animation: voice-shimmer 900ms var(--ease-out) infinite;
+	}
+	@keyframes voice-shimmer {
+		0%,
+		100% {
+			opacity: 0.4;
+			transform: scaleY(0.25);
+		}
+		40% {
+			opacity: 1;
+			transform: scaleY(0.6);
+		}
+	}
 	.composer-stop {
 		background: var(--fill-active);
 		color: var(--ink);
@@ -3175,6 +3232,11 @@
 	.row-lit,
 	.avatar-ring {
 		animation: none;
+	}
+	.voice-meter[data-state="finishing"] .voice-meter-bar {
+		animation: none;
+		opacity: 0.6;
+		transform: scaleY(0.45);
 	}
 	.row-lit {
 		background-color: var(--accent-soft);

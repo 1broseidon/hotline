@@ -9,6 +9,7 @@ import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
+import { suggestName } from "../names";
 import { BACKGROUND_ABOUT, COMPUTER_ABOUT, MACHINE_ABOUT, SwitchRow } from "./Teammate";
 
 /** Hotline Agent's stored backend id. Any other id is an ACP harness. */
@@ -326,21 +327,6 @@ export function NewTeammateForm({
 			</div>
 		</form>
 	);
-}
-
-/**
- * Names to suggest: short, friendly, easy to say out loud on a call, and
- * none of them a product. One is drawn at random, never the one showing.
- */
-const NAMES = [
-	"Ada", "Scout", "Penny", "Milo", "Juno", "Otto", "Iris", "Felix", "Nova", "Rosa",
-	"Theo", "Luna", "Gus", "Hazel", "Remy", "Ivy", "Max", "Wren", "Leo", "Mabel",
-	"Finn", "Clara", "Ozzy", "Bea", "Sage", "Hugo", "Pip", "Nell", "Kit", "Arlo",
-];
-
-function suggestName(current: string): string {
-	const others = NAMES.filter((one) => one !== current.trim());
-	return others[Math.floor(Math.random() * others.length)] ?? NAMES[0]!;
 }
 
 function DiceGlyph() {

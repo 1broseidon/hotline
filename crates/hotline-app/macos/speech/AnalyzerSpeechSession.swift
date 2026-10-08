@@ -9,7 +9,7 @@ import Speech
 final class AnalyzerSpeechSession: LocalSpeechSession {
   private let locale: Locale
   private let emit: SpeechEmit
-  private let microphone = SpeechMicrophone()
+  private let microphone: SpeechMicrophone
   private var analyzer: SpeechAnalyzer?
   private var input: AsyncStream<AnalyzerInput>.Continuation?
   private var audio: AnalyzerAudioSink?
@@ -21,9 +21,10 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
   private var committed: [(range: CMTimeRange, text: String)] = []
   private var volatile = ""
 
-  init(locale: Locale, emit: @escaping SpeechEmit) {
+  init(locale: Locale, emit: @escaping SpeechEmit, microphone: SpeechMicrophone) {
     self.locale = locale
     self.emit = emit
+    self.microphone = microphone
   }
 
   nonisolated static func installedLocale(equivalentTo locale: Locale) async -> Locale? {
@@ -87,6 +88,7 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
     }
     self.audio = audio
     try microphone.start(
+      owner: ObjectIdentifier(self),
       consume: { buffer in audio.append(buffer) },
       level: { [weak self] db in
         guard let self, !self.cancelled, self.finishing == nil else { return }
@@ -102,7 +104,7 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
     if let failure { throw failure }
     if let finishing { return try await finishing.value }
     guard !cancelled, let analyzer else { throw CancellationError() }
-    microphone.stop()
+    microphone.stop(owner: ObjectIdentifier(self))
     audio?.finish()
     audio = nil
     input = nil
@@ -135,7 +137,7 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
   private func fail(_ error: Error) {
     guard !cancelled, failure == nil, completed == nil else { return }
     failure = error
-    microphone.stop()
+    microphone.stop(owner: ObjectIdentifier(self))
     audio?.finish()
     audio = nil
     input?.finish()
@@ -149,7 +151,7 @@ final class AnalyzerSpeechSession: LocalSpeechSession {
   func cancel() {
     guard !cancelled else { return }
     cancelled = true
-    microphone.stop()
+    microphone.stop(owner: ObjectIdentifier(self))
     audio?.finish()
     audio = nil
     input?.finish()

@@ -23,6 +23,7 @@ import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 
@@ -82,12 +83,18 @@ def main(argv):
         split = rest.index("--")
         flags, app_args = rest[:split], rest[split + 1:]
     executable = build(flags)
-    if executable:
-        sign(executable)
     if command == "run":
         if not executable:
             sys.exit("cargo-dev-sign: cargo build produced no executable to run")
-        exec_responsible(executable, [executable, *app_args])
+        # Run a signed copy: another cargo build (a test run, an editor's
+        # check) can relink the original between signing and exec, and the
+        # app would start unsigned, a stranger to the keychain.
+        running = executable + "-dev"
+        shutil.copy2(executable, running)
+        sign(running)
+        exec_responsible(running, [running, *app_args])
+    elif executable:
+        sign(executable)
 
 
 def exec_responsible(executable, args):

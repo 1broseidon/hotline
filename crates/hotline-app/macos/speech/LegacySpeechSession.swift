@@ -6,7 +6,7 @@ import Speech
 final class LegacySpeechSession: LocalSpeechSession {
   private let recognizer: SFSpeechRecognizer
   private let emit: SpeechEmit
-  private let microphone = SpeechMicrophone()
+  private let microphone: SpeechMicrophone
   private var request: SFSpeechAudioBufferRecognitionRequest?
   private var audio: LegacyAudioSink?
   private var task: SFSpeechRecognitionTask?
@@ -16,7 +16,8 @@ final class LegacySpeechSession: LocalSpeechSession {
   private var cancelled = false
   private var text = ""
 
-  init(locale: Locale, emit: @escaping SpeechEmit) throws {
+  init(locale: Locale, emit: @escaping SpeechEmit, microphone: SpeechMicrophone) throws {
+    self.microphone = microphone
     guard let recognizer = SFSpeechRecognizer(locale: locale),
       recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
       throw LocalSpeechError(message: "On-device speech is unavailable for this language.")
@@ -53,6 +54,7 @@ final class LegacySpeechSession: LocalSpeechSession {
     }
     task = recognizer.recognitionTask(with: request, resultHandler: onResult)
     try microphone.start(
+      owner: ObjectIdentifier(self),
       consume: { buffer in audio.append(buffer) },
       level: { [weak self] db in self?.level(db) },
       interrupted: { [weak self] in
@@ -68,7 +70,7 @@ final class LegacySpeechSession: LocalSpeechSession {
   func stop() async throws -> String {
     if let result { return try result.get() }
     guard !cancelled else { throw CancellationError() }
-    microphone.stop()
+    microphone.stop(owner: ObjectIdentifier(self))
     audio?.finish()
     return try await withCheckedThrowingContinuation { continuation in
       waiter = continuation
@@ -83,7 +85,7 @@ final class LegacySpeechSession: LocalSpeechSession {
   private func complete(_ value: Result<String, Error>) {
     guard !cancelled, result == nil else { return }
     result = value
-    microphone.stop()
+    microphone.stop(owner: ObjectIdentifier(self))
     timeout?.cancel()
     timeout = nil
     request = nil
@@ -106,7 +108,7 @@ final class LegacySpeechSession: LocalSpeechSession {
   func cancel() {
     guard !cancelled else { return }
     cancelled = true
-    microphone.stop()
+    microphone.stop(owner: ObjectIdentifier(self))
     timeout?.cancel()
     timeout = nil
     audio?.finish()

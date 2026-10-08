@@ -28,6 +28,13 @@ final class SpeechController {
   private var session: (any LocalSpeechSession)?
   private var generation = 0
   private var cancelPreparation: (@MainActor () -> Void)?
+  /**
+   * One microphone for every utterance. A fresh engine per utterance turned
+   * voice processing on each time, and the engine's own reconfiguration
+   * stopped it for a moment just as the person began: a first sentence
+   * could be lost. Now processing is set up once and settled in `permit`.
+   */
+  private let microphone = SpeechMicrophone()
 
   nonisolated init() {}
 
@@ -67,6 +74,8 @@ final class SpeechController {
       }
     }
     guard microphoneAllowed, token == generation else { return false }
+    await microphone.warmUp()
+    guard token == generation else { return false }
     #if compiler(>=6.2)
     if #available(macOS 26.0, *),
       let locale = await AnalyzerSpeechSession.supportedLocale(equivalentTo: .current)
@@ -145,12 +154,12 @@ final class SpeechController {
       let installed = await AnalyzerSpeechSession.installedLocale(equivalentTo: locale)
     {
       guard token == generation else { return false }
-      next = AnalyzerSpeechSession(locale: installed, emit: event)
+      next = AnalyzerSpeechSession(locale: installed, emit: event, microphone: microphone)
     } else {
-      next = try LegacySpeechSession(locale: locale, emit: event)
+      next = try LegacySpeechSession(locale: locale, emit: event, microphone: microphone)
     }
     #else
-    next = try LegacySpeechSession(locale: locale, emit: event)
+    next = try LegacySpeechSession(locale: locale, emit: event, microphone: microphone)
     #endif
     session = next
     do {
@@ -199,6 +208,23 @@ final class SpeechMicrophone {
   private var inputPrepared = false
   /** The system's input device when the utterance began. */
   private var device: AudioDeviceID?
+  /** The utterance listening now; a stop from any other is late and changes nothing. */
+  private var owner: ObjectIdentifier?
+  private var warmed = false
+
+  /**
+   * Turns processing on and runs the engine once, so its reconfiguration
+   * settles before anyone speaks rather than during their first words.
+   */
+  func warmUp() async {
+    guard !warmed, owner == nil else { return }
+    warmed = true
+    prepare()
+    engine.prepare()
+    guard (try? engine.start()) != nil else { return }
+    try? await Task.sleep(nanoseconds: 400_000_000)
+    if owner == nil { engine.stop() }
+  }
 
   var format: AVAudioFormat { engine.inputNode.outputFormat(forBus: 0) }
 
@@ -228,11 +254,15 @@ final class SpeechMicrophone {
   }
 
   func start(
+    owner: ObjectIdentifier,
     consume: @escaping @Sendable (AVAudioPCMBuffer) -> Void,
     level: @escaping @MainActor @Sendable (Double) -> Void,
     interrupted: @escaping @MainActor @Sendable () -> Void
   ) throws {
     prepare()
+    // A previous utterance's tap or observer must not outlive it here.
+    release()
+    self.owner = owner
     let input = engine.inputNode
     let format = input.outputFormat(forBus: 0)
     guard format.sampleRate > 0, format.channelCount > 0 else {
@@ -270,10 +300,17 @@ final class SpeechMicrophone {
       }
     }
     engine.prepare()
-    do { try engine.start() } catch { stop(); throw error }
+    do { try engine.start() } catch { stop(owner: owner); throw error }
   }
 
-  func stop() {
+  /** Stops listening for `owner`; a later utterance already listening is left alone. */
+  func stop(owner: ObjectIdentifier) {
+    guard self.owner == owner else { return }
+    self.owner = nil
+    release()
+  }
+
+  private func release() {
     if let configurationChange { NotificationCenter.default.removeObserver(configurationChange) }
     configurationChange = nil
     engine.stop()

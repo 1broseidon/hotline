@@ -200,7 +200,8 @@ pub enum Reach {
 /// directory, canonical (so no symlink in it points somewhere else), not the
 /// workspace or inside it, not inside another granted folder, and not `/`,
 /// the home directory or anything holding it, or Hotline's data directory
-/// or anything holding it (another teammate's workspace there is allowed).
+/// or anything holding it or inside it, another teammate's workspace there
+/// included.
 /// A folder that later stops being that same directory is left out when a
 /// session opens it rather than followed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

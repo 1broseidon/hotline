@@ -1312,8 +1312,9 @@ const MAX_FOLDERS: usize = 16;
 /// is, or the first reason one cannot be granted. Empty is none. A folder is
 /// refused when it is not an absolute path to an existing directory, when it
 /// is `/`, the home directory or holds it, Hotline's data directory or holds
-/// it or is inside it (except another teammate's workspace there), or when it
-/// is this teammate's workspace or inside it. Two folders may not nest; the
+/// it or is inside it — another teammate's workspace there included, whose
+/// `.hotline-home` is that teammate's own — or when it is this teammate's
+/// workspace or inside it. Two folders may not nest; the
 /// same folder named twice is one grant, which may be changed if either said
 /// so.
 fn checked_folders(
@@ -1329,7 +1330,6 @@ fn checked_folders(
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(|home| resolved(Path::new(&home)));
     let data = resolved(data);
-    let workspaces = resolved(&paths::workspaces_dir(&data));
     // A teammate's workspace is made when its session first starts, so a
     // new one may not be on disk yet; its spelling is then what it will be.
     let workspace = resolved(Path::new(&expand_home(cwd)));
@@ -1362,9 +1362,9 @@ fn checked_folders(
                 "{asked} holds Hotline's own data; choose a folder that does not."
             ));
         }
-        if path.starts_with(&data) && !(path.starts_with(&workspaces) && path != workspaces) {
+        if path.starts_with(&data) {
             return Err(format!(
-                "{asked} is inside Hotline's own data; only a teammate's workspace there can be granted."
+                "{asked} is inside Hotline's own data, where each teammate's workspace is its own; choose a folder outside it."
             ));
         }
         if path.starts_with(&workspace) {

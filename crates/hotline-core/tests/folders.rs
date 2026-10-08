@@ -400,13 +400,20 @@ async fn a_folder_that_cannot_be_granted_is_refused_and_changes_nothing() {
         json!([{"path": path(&place.read_only), "writable": false}])
     );
 
-    // Another teammate's workspace in the data directory may be granted, and
-    // the same folder twice is one grant, editable if either said so.
+    // Another teammate's workspace in the data directory is that teammate's
+    // own: refused, and the record is left as it was.
+    let refused = client
+        .call(
+            "persona.update",
+            json!({"id": persona, "patch": {"folders": [{"path": path(&other_workspace)}]}}),
+        )
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    // The same folder twice is one grant, editable if either said so.
     let granted = client
         .call(
             "persona.update",
             json!({"id": persona, "patch": {"folders": [
-                {"path": path(&other_workspace)},
                 {"path": path(&place.outside)},
                 {"path": path(&place.outside), "writable": true},
             ]}}),
@@ -415,10 +422,7 @@ async fn a_folder_that_cannot_be_granted_is_refused_and_changes_nothing() {
     assert_eq!(granted["ok"], true, "{granted}");
     assert_eq!(
         granted["result"]["folders"],
-        json!([
-            {"path": path(&other_workspace.canonicalize().unwrap()), "writable": false},
-            {"path": path(&place.outside), "writable": true},
-        ])
+        json!([{"path": path(&place.outside), "writable": true}])
     );
     drop(client);
     door_task.abort();

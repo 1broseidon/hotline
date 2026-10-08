@@ -326,7 +326,7 @@ and a patch naming `folders` check every entry before anything is revoked
 or written, and refuse the whole list with a sentence when one is not an
 absolute path (`~` expands) to an existing directory, is `/`, the home
 directory or a folder holding it, Hotline's data directory, a folder
-holding it or a folder inside it other than a teammate's workspace there,
+holding it or a folder inside it (another teammate's workspace there too),
 is this teammate's workspace or inside it, overlaps another entry, or when
 there are more than 16. What is stored, and answered, is each path as the
 directory it resolves to (`/tmp/x` is `/private/tmp/x` on macOS); the same

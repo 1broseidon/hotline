@@ -86,9 +86,10 @@ computer counts as `machine` reach for collaboration.
   is read-only, so only Hotline's callbacks hold it to that.
 - **Residual risk:** a writable folder is the agent's to change as much as
   its workspace is, including any secret in it; a read-only one can still
-  be read whole and what is read can leave over the network. Granting a
-  folder that holds another teammate's workspace shares that teammate's
-  `.hotline-home` with it. Remaking a computer when its folders change keeps
+  be read whole and what is read can leave over the network. A workspace
+  Hotline made, in its data directory, cannot be granted, so its
+  `.hotline-home` stays its teammate's; a folder the person chose as two
+  teammates' workspace is theirs to share. Remaking a computer when its folders change keeps
   its named volumes (home, store, scratch) on Docker and Podman, but Apple
   container keeps nothing but the rw layer, so its desktop starts over.
   A file already written before the change stays written.

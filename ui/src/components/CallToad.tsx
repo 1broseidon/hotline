@@ -64,7 +64,7 @@ function draw(svg: SVGSVGElement, pose: ToadPose): void {
  * to whatever it sits on. It moves outside React's renders, by attributes,
  * and with reduced motion it holds still.
  */
-export function CallToad({ call, phase, width = 48 }: { call: Call; phase: CallPhase; width?: number }) {
+export function CallToad({ call, phase, width = 56 }: { call: Call; phase: CallPhase; width?: number }) {
 	const svg = useRef<SVGSVGElement>(null);
 	const speech = useRef(0);
 

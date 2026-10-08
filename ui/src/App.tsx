@@ -706,7 +706,7 @@ export function App() {
 				{(floatWork !== null || call !== null) && (
 					<div className="float-stack" style={dock !== null && pane !== "settings" && !dockOverlay ? { right: dockWidth + 24 } : undefined}>
 						{floatWork}
-						{call !== null && <CallFloat call={call} names={nameOf} onOpenTeammate={(personaId) => {
+						{call !== null && <CallFloat call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => {
 							if (call.deskId == null || call.deskId === activeDeskId()) { select(personaId); return; }
 							try { localStorage.setItem(deskKey(SELECTED_KEY, call.deskId), personaId); } catch { /* Private mode. */ }
 							setActiveDesk(call.deskId);

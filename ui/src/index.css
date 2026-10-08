@@ -3303,11 +3303,13 @@
 	 * A call with the desk floats in the window's bottom-right corner, over
 	 * whatever is open, so the conversation and its composer stay usable.
 	 * Voice only: the mark, the state and the controls. The mark is the
-	 * call: it swells with whoever is talking (--level, 0..1, set from the
-	 * audio, not from React), in ink while you speak and in the accent
-	 * while the desk does, because the accent is an agent at work. The
-	 * desk's toad shows its own thinking (CallToad.tsx); a teammate's face
-	 * breathes instead. */
+	 * call, drawn as the phone draws it: the disc swells with your voice
+	 * (--level, 0..1, set from the audio, not from React); bars round the
+	 * mark follow the reply's audio, and an arc runs round it while the
+	 * teammate works off the call (CallStage.tsx), both in the accent
+	 * because the accent is an agent at work. The mark is in ink while you
+	 * speak and in the accent while the desk does. The desk's toad shows
+	 * its own thinking (CallToad.tsx); a teammate's face breathes instead. */
 	/* What floats over the window, down its right edge: a turn's work hangs
 	 * from under the header, where it covers the older conversation rather
 	 * than the newest, and the call keeps the bottom corner by the composer,
@@ -3368,10 +3370,11 @@
 	}
 	.call-mark {
 		--level: 0;
+		position: relative;
 		display: grid;
 		place-items: center;
-		width: 88px;
-		height: 88px;
+		width: 104px;
+		height: 104px;
 		border-radius: 50%;
 		color: var(--ink-3);
 		background: var(--raised);
@@ -3388,8 +3391,26 @@
 		color: var(--accent);
 		cursor: pointer;
 	}
+	/* The reply is the bars, not the disc. */
+	.call-mark[data-phase="speaking"] {
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
 	.call-mark-face[data-phase="thinking"] {
 		animation: call-breathe 1800ms var(--ease-out) infinite;
+	}
+	.call-bars,
+	.call-working {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		color: var(--accent);
+		pointer-events: none;
+	}
+	.call-working {
+		animation: avatar-spin 1100ms linear infinite;
 	}
 	.call-mark[data-phase="held"],
 	.call-mark[data-phase="ended"] {
@@ -3467,7 +3488,8 @@
 		filter: brightness(1.1);
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.call-mark {
+		.call-mark,
+		.call-working {
 			animation: none;
 		}
 	}

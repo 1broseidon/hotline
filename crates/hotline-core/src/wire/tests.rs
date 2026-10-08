@@ -687,7 +687,8 @@ impl RoomHandle for Quiet {
             crate::contract::BackendChoice {
                 id: "hotline".to_string(),
                 name: "Hotline Agent".to_string(),
-                description: "Hotline's own agent. Runs any model you connect in Settings › Providers: an API key, or a ChatGPT or Copilot sign-in.".to_string(),
+                description: "Hotline's own agent. Runs any model from the providers you connect."
+                    .to_string(),
                 unavailable: None,
             },
             crate::contract::BackendChoice {

@@ -32,10 +32,12 @@ export function NewTeammate({
 	models,
 	onCreated,
 	onClose,
+	onProviders,
 }: {
 	models: ConfigChoice[];
 	onCreated(personaId: string): void;
 	onClose(): void;
+	onProviders?: (() => void) | undefined;
 }) {
 	return (
 		<div className="pane">
@@ -46,7 +48,7 @@ export function NewTeammate({
 				</button>
 			</Band>
 			<Scroll>
-				<NewTeammateForm className="pane-column" models={models} onCreated={onCreated} onCancel={onClose} />
+				<NewTeammateForm className="pane-column" models={models} onCreated={onCreated} onCancel={onClose} onProviders={onProviders} />
 			</Scroll>
 		</div>
 	);
@@ -66,6 +68,7 @@ export function NewTeammateForm({
 	className,
 	onCreated,
 	onCancel,
+	onProviders,
 }: {
 	models: ConfigChoice[];
 	goal?: string;
@@ -73,6 +76,7 @@ export function NewTeammateForm({
 	className?: string;
 	onCreated(personaId: string): void;
 	onCancel?: () => void;
+	onProviders?: (() => void) | undefined;
 }) {
 	const { defaultBackendId, defaultModelId, lastModelId } = useRoomSettings();
 	const [name, setName] = useState("");
@@ -201,6 +205,7 @@ export function NewTeammateForm({
 						name="new-backend"
 						labelledBy="new-backend"
 						onSelect={setPicked}
+						onProviders={onProviders}
 					/>
 					{!onHotline && (
 						<p className="hint">Permissions are managed by this external harness. Selecting it trusts its tools and configuration; Hotline's shell sandbox does not confine it.</p>

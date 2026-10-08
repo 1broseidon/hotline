@@ -1677,6 +1677,18 @@
 		padding: 0;
 	}
 
+	/* A provider Hotline Agent can run on now, under its row in the agent picker. */
+	.provider-chip {
+		display: inline-flex;
+		height: 20px;
+		align-items: center;
+		padding: 0 7px;
+		border-radius: var(--radius-chip);
+		background: var(--fill-hover);
+		color: var(--ink-2);
+		font-size: var(--text-xs);
+		line-height: 1;
+	}
 	/* A file waiting to be sent, and a file that was. */
 	.chip {
 		display: inline-flex;

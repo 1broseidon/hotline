@@ -565,7 +565,7 @@ export function App() {
 				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
-						<Settings section={settingsSection} onAddDesk={() => togglePane("add-desk")} />
+						<Settings section={settingsSection} onSection={setSettingsSection} onAddDesk={() => togglePane("add-desk")} />
 					</Suspense>
 				) : pane === "shortcuts" ? (
 					<Shortcuts onClose={closePane} />
@@ -574,7 +574,15 @@ export function App() {
 				) : pane === "add-desk" ? (
 					<AddDesk onClose={closePane} />
 				) : pane === "new-teammate" ? (
-					<NewTeammate models={models} onCreated={select} onClose={closePane} />
+					<NewTeammate
+							models={models}
+							onCreated={select}
+							onClose={closePane}
+							onProviders={() => {
+								setSettingsSection("providers");
+								setPane("settings");
+							}}
+						/>
 				) : welcome ? (
 					<Welcome models={models} onCreated={select} onConnectServer={desk?.kind === "local" ? () => togglePane("add-desk") : null} />
 				) : selected ? (

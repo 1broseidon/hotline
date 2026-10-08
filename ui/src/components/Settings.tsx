@@ -99,7 +99,17 @@ export function SettingsRail({
  * at a time, chosen in the rail, each a column of grouped rows. What a
  * teammate is, is not here; that is the teammate's own pane.
  */
-export function Settings({ section, onBack, onAddDesk }: { section: SettingsSection; onBack?: () => void; onAddDesk?: () => void }) {
+export function Settings({
+	section,
+	onSection,
+	onBack,
+	onAddDesk,
+}: {
+	section: SettingsSection;
+	onSection?: (section: SettingsSection) => void;
+	onBack?: () => void;
+	onAddDesk?: () => void;
+}) {
 	const settings = useRoomSettings();
 	const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -133,6 +143,7 @@ export function Settings({ section, onBack, onAddDesk }: { section: SettingsSect
 							onIdleHours={(hours) => patch({ chapterIdleHours: hours })}
 							onBackend={(id) => patch({ defaultBackendId: id })}
 							onDefaultModel={(id) => patch({ defaultModelId: id })}
+							onProviders={onSection === undefined ? undefined : () => onSection("providers")}
 						/>
 					)}
 					{section === "computer" && (
@@ -179,6 +190,7 @@ function GeneralSection({
 	onIdleHours,
 	onBackend,
 	onDefaultModel,
+	onProviders,
 }: {
 	idleHours: number;
 	defaultBackendId: string;
@@ -186,6 +198,7 @@ function GeneralSection({
 	onIdleHours(hours: number): void;
 	onBackend(id: string): void;
 	onDefaultModel(id: string | null): void;
+	onProviders: (() => void) | undefined;
 }) {
 	const [hours, setHours] = useState(String(idleHours));
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
@@ -260,6 +273,7 @@ function GeneralSection({
 						name="setting-backend"
 						labelledBy="setting-backend"
 						onSelect={onBackend}
+						onProviders={onProviders}
 					/>
 				) : (
 					<div className="grouped">

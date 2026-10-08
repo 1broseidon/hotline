@@ -152,8 +152,8 @@ describe("dictation into the composer", () => {
 		};
 		const heard: DictationEvent[] = [];
 		await macEngine(speech).start((event) => heard.push(event));
-		// The engine meters after voice processing: -53 dBFS there is a raw -29, half the meter.
-		send({ type: "level", levelDb: -53, at: 1, unit: "dbfs" });
+		// The engine meters after voice processing: -47 dBFS there is a raw -29, half the meter.
+		send({ type: "level", levelDb: -47, at: 1, unit: "dbfs" });
 		send({ type: "partial", text: "hi" });
 		expect(heard).toEqual([{ type: "level", level: 0.5 }, { type: "partial", text: "hi" }]);
 	});

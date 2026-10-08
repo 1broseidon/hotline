@@ -1906,6 +1906,25 @@
 		font-size: var(--text-xs);
 		font-weight: 600;
 	}
+	.welcome-connected {
+		display: flex;
+		align-items: center;
+		gap: 14px;
+		padding: 16px 18px;
+		border-radius: 14px;
+		background: color-mix(in oklch, var(--raised), var(--accent) 7%);
+		box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--accent) 55%, transparent);
+	}
+	.welcome-connected-tick {
+		display: inline-grid;
+		width: 34px;
+		height: 34px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 50%;
+		background: var(--accent);
+		color: var(--well);
+	}
 	.welcome-panel {
 		padding: 20px;
 		border-radius: 14px;

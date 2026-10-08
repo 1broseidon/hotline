@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ConfigChoice, Provider, Welcome as WelcomeState } from "../generated/contract";
-import { CheckIcon } from "../icons";
+import { CheckIcon, PlusIcon } from "../icons";
 import { useRoomSettings } from "../room";
 import { HotlineMark } from "../ui/HotlineMark";
 import { Refusal } from "../ui/Refusal";
@@ -92,6 +92,8 @@ export function Welcome({
 	const [state, setState] = useState<WelcomeState | null>(null);
 	const [providers, setProviders] = useState<Provider[]>([]);
 	const [connecting, setConnecting] = useState<Provider | null>(null);
+	// With one service connected the list folds away; this opens it for another.
+	const [adding, setAdding] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [connection, setConnection] = useState<Connection>("connecting");
@@ -255,6 +257,7 @@ export function Welcome({
 						provider={connecting}
 						onConnected={() => {
 							setConnecting(null);
+							setAdding(false);
 							read();
 						}}
 						onCancel={() => {
@@ -270,26 +273,47 @@ export function Welcome({
 							text="This is where your teammates' thinking comes from. Sign in with an account you already have, or paste a key. It's kept safe in your computer's keychain."
 						/>
 						{connected.length > 0 && (
-							<div className="flex flex-wrap items-center justify-center gap-1.5">
-								<CheckIcon className="text-accent" />
-								<span className="text-sm text-ink-2">Connected</span>
-								{connected.map((one) => (
-									<span key={one} className="provider-chip">
-										{one}
+							<div className="welcome-connected">
+								<span className="welcome-connected-tick">
+									<CheckIcon />
+								</span>
+								<span className="flex min-w-0 flex-1 flex-col gap-1.5">
+									<span className="welcome-card-title">You're connected</span>
+									<span className="flex flex-wrap gap-1">
+										{connected.map((one) => (
+											<span key={one} className="provider-chip">
+												{one}
+											</span>
+										))}
 									</span>
-								))}
+								</span>
+								<button type="button" className="control btn-quiet shrink-0" aria-expanded={adding} onClick={() => setAdding((was) => !was)}>
+									{adding ? (
+										"Hide"
+									) : (
+										<span className="flex items-center gap-1.5">
+											<PlusIcon /> Add another
+										</span>
+									)}
+								</button>
 							</div>
 						)}
-						<div className="grouped welcome-list">
-							{providers.length === 0 ? (
-								<p className="group-row text-sm text-ink-3">Reading…</p>
-							) : (
-								providers.map((provider) => (
-									<ProviderRow key={provider.id} provider={provider} disabled={busy} onPick={() => setConnecting(provider)} />
-								))
-							)}
-						</div>
-						<p className="welcome-note">One is enough to start. You can add more later in Settings.</p>
+						{(connected.length === 0 || adding) && (
+							<div className="grouped welcome-list">
+								{providers.length === 0 ? (
+									<p className="group-row text-sm text-ink-3">Reading…</p>
+								) : (
+									providers
+										.filter((provider) => !connected.includes(provider.name))
+										.map((provider) => (
+											<ProviderRow key={provider.id} provider={provider} disabled={busy} onPick={() => setConnecting(provider)} />
+										))
+								)}
+							</div>
+						)}
+						<p className="welcome-note">
+							{connected.length === 0 ? "One is enough to start. You can add more later in Settings." : "That's all you need. You can add more any time in Settings."}
+						</p>
 					</>
 				))}
 
@@ -323,7 +347,17 @@ export function Welcome({
 
 			{refusal !== null && <Refusal message={refusal} />}
 
-			{connecting === null && (
+			{connecting === null && page === "providers" && connected.length > 0 && !adding ? (
+				// Connected and nothing more to do here: going on is the one thing to press.
+				<div className="welcome-actions">
+					<button type="button" className="control btn btn-primary welcome-cta" onClick={() => void next()}>
+						Continue
+					</button>
+					<button type="button" className="control btn-quiet" onClick={back}>
+						Back
+					</button>
+				</div>
+			) : connecting === null && (
 				<div className="welcome-nav">
 					<button type="button" className="control btn-quiet" onClick={back}>
 						Back

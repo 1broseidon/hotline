@@ -73,46 +73,86 @@ const connect = () => {
 	connected += 1;
 };
 
+function primary() {
+	return container.querySelector<HTMLButtonElement>(".btn-primary");
+}
+async function pick(title: string) {
+	const row = [...container.querySelectorAll("label")].find((node) => node.textContent?.startsWith(title));
+	if (!row) throw new Error(`Missing choice ${title}: ${text()}`);
+	await act(async () => {
+		row.querySelector("input")!.click();
+	});
+}
+
 describe("the setup screen on this computer's own desk", () => {
-	test("offers creating a first teammate and connecting to a server as two equal choices, one line each", async () => {
+	test("offers this computer and a server as two equal choices, one line each", async () => {
 		await mount(connect);
 		expect(text()).toContain("Where your teammates run");
-		expect(text()).toContain("Create a first teammate");
-		expect(text()).toContain("Teammates on this computer.");
-		expect(text()).toContain("Connect to a server");
-		expect(text()).toContain("Teammates on a server you run.");
-		// The steps wait for the choice, and neither choice is the screen's primary.
-		expect(text()).not.toContain("A way to run agents");
-		expect(container.querySelector(".btn-primary")).toBeNull();
+		expect(text()).toContain("On this computer");
+		expect(text()).toContain("On a server you run");
+		// The wizard waits for the choice, and neither choice is the screen's primary.
+		expect(text()).not.toContain("How Hotline works");
+		expect(primary()).toBeNull();
 		const rows = [...container.querySelectorAll("button")];
 		expect(rows.map((row) => row.className)).toEqual([rows[0]!.className, rows[0]!.className]);
 	});
 
-	test("Connect to a server opens the Add a server pane and keeps the choice on screen", async () => {
+	test("On a server you run opens the Add a server pane and keeps the choice on screen", async () => {
 		await mount(connect);
-		await click("Connect to a server");
+		await click("On a server you run");
 		expect(connected).toBe(1);
 		expect(text()).toContain("Where your teammates run");
 	});
 
-	test("Create a first teammate goes on to the steps, and Connect to a server stays one press away", async () => {
+	test("On this computer starts the wizard, and Connect to a server stays one press away", async () => {
 		await mount(connect);
-		await click("Create a first teammate");
-		expect(text()).toContain("A way to run agents");
-		expect(text()).toContain("Your first teammate");
-		expect(text()).toContain("Say hello");
+		await click("On this computer");
+		expect(text()).toContain("How Hotline works");
+		for (const step of ["How it works", "What runs it", "Connect", "First teammate"]) expect(text()).toContain(step);
 		expect(text()).not.toContain("Where your teammates run");
 		expect(connected).toBe(0);
 		await click("Connect to a server");
 		expect(connected).toBe(1);
+		await click("Back");
+		expect(text()).toContain("Where your teammates run");
+	});
+});
+
+describe("the wizard", () => {
+	test("teaches the three words before anything is asked", async () => {
+		await mount(null);
+		for (const word of ["Teammates", "The room", "The desk"]) expect(text()).toContain(word);
+		expect(primary()?.disabled).toBe(false);
+	});
+
+	test("names the two kinds of agent and waits for one before going on", async () => {
+		await mount(null);
+		await click("Next");
+		expect(text()).toContain("What your teammates run on");
+		expect(text()).toContain("Hotline Agent");
+		expect(text()).toContain("An agent you already use");
+		expect(primary()?.disabled).toBe(true);
+		await pick("Hotline Agent");
+		expect(primary()?.disabled).toBe(false);
+		await click("Back");
+		expect(text()).toContain("How Hotline works");
+	});
+
+	test("cannot pick an agent this machine does not have", async () => {
+		await mount(null);
+		await click("Next");
+		const already = [...container.querySelectorAll("label")].find((node) => node.textContent?.startsWith("An agent you already use"));
+		expect(already?.querySelector("input")?.disabled).toBe(true);
+		expect(text()).toContain("None is installed here yet");
 	});
 });
 
 describe("the setup screen on a server's own desk", () => {
-	test("goes straight to the steps: there is nothing to choose between", async () => {
+	test("goes straight to the wizard: there is nothing to choose between", async () => {
 		await mount(null);
-		expect(text()).toContain("A way to run agents");
+		expect(text()).toContain("How Hotline works");
 		expect(text()).not.toContain("Where your teammates run");
 		expect(text()).not.toContain("Connect to a server");
+		expect([...container.querySelectorAll("button")].some((node) => node.textContent === "Back")).toBe(false);
 	});
 });

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { CloseIcon, HangUpIcon, PauseIcon, PhoneIcon, PlayIcon } from "../icons";
-import { HotlineMark } from "../ui/HotlineMark";
 import { Avatar } from "../ui/Avatar";
+import { CallToad } from "./CallToad";
 import { type Call as CallSession, type CallPhase, closeCall, restartCall, useCallSnapshot } from "../voice/call";
 
 const WORDS: Record<CallPhase, string> = {
@@ -17,8 +17,9 @@ const WORDS: Record<CallPhase, string> = {
 
 /**
  * The chosen desk or teammate stays on the line while the window moves
- * between conversations. Pressing the face while they speak cuts in;
- * work and the transcript stay in the teammate's own conversation.
+ * between conversations. The desk is the toad, whose mouth the reply's
+ * audio opens; a teammate is their face. Pressing either while they speak
+ * cuts in; work and the transcript stay in the teammate's own conversation.
  */
 export function CallFloat({
 	call,
@@ -64,7 +65,7 @@ export function CallFloat({
 			<button
 				ref={stage}
 				type="button"
-				className="call-mark"
+				className={call.target === undefined ? "call-mark" : "call-mark call-mark-face"}
 				data-phase={state.phase}
 				title={speaking ? "Press to cut in" : undefined}
 				aria-label={speaking ? "Cut in" : WORDS[state.phase]}
@@ -74,7 +75,7 @@ export function CallFloat({
 					if (speaking) call.interrupt();
 				}}
 			>
-				{call.target === undefined ? <HotlineMark width={44} plain /> :
+				{call.target === undefined ? <CallToad call={call} phase={state.phase} /> :
 					<Avatar id={call.target.personaId} name={call.target.name} hash={call.target.avatarHash} size={44} read={call.readAvatar} />}
 			</button>
 

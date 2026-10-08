@@ -62,6 +62,7 @@ describe("the floating call's identity", () => {
 		await act(async () => root.render(<CallFloat call={call} names={() => "Mack"} onOpenTeammate={() => {}} />));
 		expect(container.querySelector("aside")?.getAttribute("aria-label")).toBe("Call with the desk");
 		expect(container.querySelector(".avatar")).toBeNull();
+		expect(container.querySelector(".call-toad")).not.toBeNull();
 		expect(container.textContent).not.toContain("Mack");
 	});
 });

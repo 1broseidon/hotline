@@ -10,10 +10,11 @@ import { RECEIVER, RECEIVER_SMALL, receiverBox, receiverPath } from "./receiver"
  * pixel and whose handset is slim and straight, the same drawing the working glyph
  * rests in. `plain` is the toad alone, off the hook: it is the logo, worn
  * wherever the mark is the app's name rather than a teammate at work — the
- * titlebar, the tray from assets/hotline-mark-plain.svg, the welcome, About,
- * a call to the desk — and the app tile is that drawing. The source of
- * truth is assets/hotline-mark.svg (and -small) for the mark with its
- * handset, and assets/hotline-mark-plain.svg for the logo.
+ * titlebar, the tray from assets/hotline-mark-plain.svg, the welcome, About
+ * — and the app tile is that drawing. A call to the desk draws the same
+ * toad with a mouth (components/CallToad.tsx). The source of truth is
+ * assets/hotline-mark.svg (and -small) for the mark with its handset, and
+ * assets/hotline-mark-plain.svg for the logo.
  *
  * Decorative by default. It takes a label only where it is the only thing
  * naming the app on screen; beside a title that already says Hotline, a second

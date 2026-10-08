@@ -140,6 +140,16 @@ function afterRecognizedPrefix(text: string, prefix: string): string {
 	return words.slice(before.length).join(" ");
 }
 
+/**
+ * How loud the reply draws, 0..1, from the RMS of what is playing: the
+ * phone's curve for the reply's audio, so the desk's mouth opens as far on
+ * both. It is gentler than the curve for your voice, which would hold the
+ * mouth wide open through a whole sentence.
+ */
+export function speechLevel(rms: number): number {
+	return Math.min(1, Math.pow(rms * 5, 0.65));
+}
+
 export function supportsDirectCalls(status: unknown): boolean {
 	if (typeof status !== "object" || status === null) return false;
 	const value = status as { capabilities?: unknown; directAvailable?: unknown; available?: unknown };
@@ -764,11 +774,11 @@ export class Call {
 
 	private tick = (): void => {
 		if (this.ended) return;
-		let raw = 0;
-		if (this.snapshot.phase === "speaking") raw = this.audio.outputLevel();
-		else if (this.snapshot.phase === "listening" || this.snapshot.phase === "hearing") raw = this.level;
-		// Perceptual curve, fast attack and slow release, as Spark drew it.
-		const target = Math.min(1, Math.pow(raw * 9, 0.6));
+		let target = 0;
+		// The reply on the phone's curve; your voice on a perceptual curve, as Spark drew it.
+		if (this.snapshot.phase === "speaking") target = speechLevel(this.audio.outputLevel());
+		else if (this.snapshot.phase === "listening" || this.snapshot.phase === "hearing") target = Math.min(1, Math.pow(this.level * 9, 0.6));
+		// Fast attack and slow release.
 		this.shown += (target - this.shown) * (target > this.shown ? 0.5 : 0.12);
 		for (const listener of this.levels) listener(this.shown);
 		this.raf = requestAnimationFrame(this.tick);

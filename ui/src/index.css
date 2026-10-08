@@ -3305,7 +3305,9 @@
 	 * Voice only: the mark, the state and the controls. The mark is the
 	 * call: it swells with whoever is talking (--level, 0..1, set from the
 	 * audio, not from React), in ink while you speak and in the accent
-	 * while the desk does, because the accent is an agent at work. */
+	 * while the desk does, because the accent is an agent at work. The
+	 * desk's toad shows its own thinking (CallToad.tsx); a teammate's face
+	 * breathes instead. */
 	/* What floats over the window, down its right edge: a turn's work hangs
 	 * from under the header, where it covers the older conversation rather
 	 * than the newest, and the call keeps the bottom corner by the composer,
@@ -3386,7 +3388,7 @@
 		color: var(--accent);
 		cursor: pointer;
 	}
-	.call-mark[data-phase="thinking"] {
+	.call-mark-face[data-phase="thinking"] {
 		animation: call-breathe 1800ms var(--ease-out) infinite;
 	}
 	.call-mark[data-phase="held"],

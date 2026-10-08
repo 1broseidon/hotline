@@ -529,6 +529,12 @@ export function App() {
 			/>
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />
+			{welcome && pane === null ? (
+				// An empty room is the welcome alone: no rail, nothing to pick in it yet.
+				<div className="flex min-h-0 flex-1 p-2 pt-0">
+					<Welcome models={models} onCreated={select} onConnectServer={desk?.kind === "local" ? () => togglePane("add-desk") : null} />
+				</div>
+			) : (
 			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
 			{!railSize.open ? null : pane === "settings" ? (
 				<Suspense fallback={null}>
@@ -583,8 +589,6 @@ export function App() {
 								setPane("settings");
 							}}
 						/>
-				) : welcome ? (
-					<Welcome models={models} onCreated={select} onConnectServer={desk?.kind === "local" ? () => togglePane("add-desk") : null} />
 				) : selected ? (
 					<>
 						<Conversation
@@ -672,6 +676,7 @@ export function App() {
 				</div>
 			</main>
 			</div>
+			)}
 		</div>
 	);
 }

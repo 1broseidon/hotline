@@ -69,6 +69,7 @@ export function NewTeammateForm({
 	onCreated,
 	onCancel,
 	onProviders,
+	simple = false,
 }: {
 	models: ConfigChoice[];
 	goal?: string;
@@ -77,6 +78,8 @@ export function NewTeammateForm({
 	onCreated(personaId: string): void;
 	onCancel?: () => void;
 	onProviders?: (() => void) | undefined;
+	/** The welcome's first teammate: what it runs on was just chosen, and access keeps its safe defaults, so neither is asked again. */
+	simple?: boolean;
 }) {
 	const { defaultBackendId, defaultModelId, lastModelId } = useRoomSettings();
 	const [name, setName] = useState("");
@@ -184,17 +187,27 @@ export function NewTeammateForm({
 					value={goal}
 					onChange={(event) => setGoal(event.target.value)}
 				/>
-				<p className="hint">Written into the working directory as AGENTS.md, so the agent reads it on every start.</p>
+				<p className="hint">
+					{simple
+						? "Its job, in your own words. It reads this every time it starts."
+						: "Written into the working directory as AGENTS.md, so the agent reads it on every start."}
+				</p>
 			</div>
 
 			<div>
 				<label className="label" htmlFor="new-cwd">
-					Working directory
+					{simple ? "Folder" : "Working directory"}
 				</label>
-				<PathField id="new-cwd" value={cwd} placeholder="A folder under the data directory, unless you pick one" onChange={setCwd} />
+				<PathField
+					id="new-cwd"
+					value={cwd}
+					placeholder={simple ? "A new folder of its own, unless you pick one" : "A folder under the data directory, unless you pick one"}
+					onChange={setCwd}
+				/>
+				{simple && <p className="hint">Where it keeps its work. It only touches files here.</p>}
 			</div>
 
-			{backends.length > 0 && (
+			{backends.length > 0 && !simple && (
 				<div>
 					<p className="label" id="new-backend">
 						Agent
@@ -221,7 +234,7 @@ export function NewTeammateForm({
 					<Picker
 						field
 						value={modelId}
-						choices={[{ id: "", name: fallback === undefined ? "Whichever a key unlocks" : `${fallback.name} — the default` }, ...models]}
+						choices={[{ id: "", name: fallback === undefined ? (simple ? "The best one available" : "Whichever a key unlocks") : `${fallback.name} — the default` }, ...models]}
 						placeholder="Model"
 						label="Model"
 						onChange={setPickedModel}
@@ -244,31 +257,33 @@ export function NewTeammateForm({
 				</div>
 			)}
 
-			<div>
-				<p className="label">Access</p>
-				<div className="grouped">
-					{onHotline && (
+			{!simple && (
+				<div>
+					<p className="label">Access</p>
+					<div className="grouped">
+						{onHotline && (
+							<SwitchRow
+								title="Whole machine"
+								about={MACHINE_ABOUT}
+								checked={machine}
+								disabled={busy}
+								onChange={setMachine}
+							/>
+						)}
 						<SwitchRow
-							title="Whole machine"
-							about={MACHINE_ABOUT}
-							checked={machine}
+							title="Background work"
+							about={BACKGROUND_ABOUT}
+							checked={backgroundWork}
 							disabled={busy}
-							onChange={setMachine}
+							onChange={setBackgroundWork}
 						/>
-					)}
-					<SwitchRow
-						title="Background work"
-						about={BACKGROUND_ABOUT}
-						checked={backgroundWork}
-						disabled={busy}
-						onChange={setBackgroundWork}
-					/>
-					{computerReady && (
-						<SwitchRow title="Computer" about={COMPUTER_ABOUT} checked={computer} disabled={busy} onChange={setComputer} />
-					)}
+						{computerReady && (
+							<SwitchRow title="Computer" about={COMPUTER_ABOUT} checked={computer} disabled={busy} onChange={setComputer} />
+						)}
+					</div>
+					<p className="hint">These can always be changed later on the teammate's pane.</p>
 				</div>
-				<p className="hint">These can always be changed later on the teammate's pane.</p>
-			</div>
+			)}
 
 			{refusal !== null && (
 				<p role="status" className="selectable text-sm text-danger">

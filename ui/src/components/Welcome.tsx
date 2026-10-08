@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { ConfigChoice, Provider, Welcome as WelcomeState } from "../generated/contract";
-import { CheckIcon, ChevronRightIcon } from "../icons";
+import { CheckIcon } from "../icons";
 import { useRoomSettings } from "../room";
-import { Band } from "../ui/Band";
+import { HotlineMark } from "../ui/HotlineMark";
 import { Refusal } from "../ui/Refusal";
-import { Scroll } from "../ui/Scroll";
 import { wire, type Connection } from "../wire";
 import { ConnectProvider, ProviderRow } from "./ConnectProvider";
 import { NewTeammateForm } from "./NewTeammate";
@@ -19,26 +18,54 @@ const FIRST_GOAL =
 
 const HOTLINE_AGENT = "hotline";
 
-/** The pages, in order. `where` is only on this computer's own desk; `providers` and `harness` are the two forks of one step. */
-type Page = "where" | "how" | "engine" | "providers" | "harness" | "teammate";
+/** The pages, in order. `providers` and `harness` are the two forks of one step. */
+type Page = "hello" | "why" | "engine" | "providers" | "harness" | "teammate";
 
-/** The steps the progress line names, and which pages belong to each. */
+/** The steps the progress line names, and which pages belong to each. The greeting is not a step. */
 const STEPS: { title: string; pages: Page[] }[] = [
-	{ title: "Welcome", pages: ["how"] },
+	{ title: "Why Hotline", pages: ["why"] },
 	{ title: "How they think", pages: ["engine"] },
 	{ title: "Connect", pages: ["providers", "harness"] },
 	{ title: "Your teammate", pages: ["teammate"] },
 ];
 
 /**
- * The room before anyone is in it, as a short wizard that teaches while it
- * sets up: what a teammate, the room and the desk are; the two kinds of
- * agent a teammate can run on; connecting what that needs; then the first
- * teammate, with each field said in a sentence. A person who finishes it
- * has met every word the rest of the window uses.
+ * What Hotline is, in four lines anyone can read: where it runs, whose AI
+ * it uses, the computer a teammate can have, and reaching it from anywhere.
+ * Each is a promise the product keeps today.
+ */
+const PILLARS: { title: string; text: string; icon: ReactNode }[] = [
+	{
+		title: "Runs on your computer",
+		text: "Your teammates, their files and your chats stay here, not in someone else's cloud. Run it on this computer or on a server of your own.",
+		icon: <HomeGlyph />,
+	},
+	{
+		title: "Bring your own AI",
+		text: "Use ChatGPT, Claude, Grok, Gemini, or a model running on your own machine. Sign in with a plan you already pay for, and switch any time.",
+		icon: <SparkGlyph />,
+	},
+	{
+		title: "A computer of their own",
+		text: "Give a teammate its own private computer with a browser, so it can do real work without touching yours.",
+		icon: <ScreenGlyph />,
+	},
+	{
+		title: "With you anywhere",
+		text: "Check in from your phone wherever you are. Your team keeps working on your computer while you're away.",
+		icon: <PhoneGlyph />,
+	},
+];
+
+/**
+ * The room before anyone is in it, as a short full-window wizard that
+ * teaches while it sets up: a greeting, what makes Hotline Hotline, the two
+ * ways a teammate can think, connecting what that needs, then the first
+ * teammate. A person who finishes it has met every word the rest of the
+ * window uses.
  *
  * What is done is still derived from what the room knows — `welcome`'s
- * credentials, harnesses and roster — never from a stored flag: this pane
+ * credentials, harnesses and roster — never from a stored flag: this screen
  * exists exactly as long as there is no teammate, and a room with one never
  * sees it. Only which page is in front is the window's own, so Back always
  * works; a room that can already run opens on the first teammate, the
@@ -46,10 +73,10 @@ const STEPS: { title: string; pages: Page[] }[] = [
  * Settings › Providers and the last page is the same form as the plus, so
  * nothing is learned twice.
  *
- * On this computer's own desk the pages wait behind one choice, of two
- * equals: teammates here, or teammates on a server the person runs
- * (BRO-151). `onConnectServer` opens that pane; it is null on a server's own
- * desk, which has nothing to choose between.
+ * On this computer's own desk the greeting also offers a server the person
+ * runs (BRO-151), as the quieter of two ways in. `onConnectServer` opens
+ * that pane; it is null on a server's own desk, which has nothing to choose
+ * between.
  */
 export function Welcome({
 	models,
@@ -60,7 +87,7 @@ export function Welcome({
 	onCreated(personaId: string): void;
 	onConnectServer: (() => void) | null;
 }) {
-	const [page, setPage] = useState<Page>(onConnectServer === null ? "how" : "where");
+	const [page, setPage] = useState<Page>("hello");
 	const [kind, setKind] = useState<"hotline" | "harness" | null>(null);
 	const [state, setState] = useState<WelcomeState | null>(null);
 	const [providers, setProviders] = useState<Provider[]>([]);
@@ -81,7 +108,7 @@ export function Welcome({
 			.catch((error: Error) => setRefusal(error.message));
 	}, []);
 
-	/* Read once the socket is up, and again after a reconnect: the pane
+	/* Read once the socket is up, and again after a reconnect: the screen
 	 * mounts with the window, before the wire has dialled. A default set
 	 * on another seat, or in Settings, changes what is done. */
 	useEffect(() => {
@@ -103,7 +130,7 @@ export function Welcome({
 		placed.current = true;
 		if (state.canRun) {
 			setKind(state.defaultBackendId === HOTLINE_AGENT ? "hotline" : "harness");
-			setPage((was) => (was === "where" ? was : "teammate"));
+			setPage("teammate");
 		}
 	}, [state]);
 
@@ -124,11 +151,11 @@ export function Welcome({
 	const connected = state?.providers ?? [];
 	const harnesses = state?.harnesses ?? [];
 	const harnessChosen = harnesses.find((one) => one.id === state?.defaultBackendId);
-	const providersReady = connected.length > 0;
 
 	/** Going forward from the engine page also makes the choice the room's default, so the first teammate lands on it. */
 	const next = async () => {
-		if (page === "how") setPage("engine");
+		if (page === "hello") setPage("why");
+		else if (page === "why") setPage("engine");
 		else if (page === "engine") {
 			if (kind === "hotline") {
 				if (state?.defaultBackendId !== HOTLINE_AGENT) await setDefault(HOTLINE_AGENT);
@@ -138,77 +165,86 @@ export function Welcome({
 	};
 	const back = () => {
 		setConnecting(null);
-		if (page === "engine") setPage("how");
+		if (page === "why") setPage("hello");
+		else if (page === "engine") setPage("why");
 		else if (page === "providers" || page === "harness") setPage("engine");
 		else if (page === "teammate") setPage(kind === "harness" ? "harness" : kind === "hotline" ? "providers" : "engine");
-		else if (page === "how" && onConnectServer !== null) setPage("where");
 	};
 	const canNext =
-		page === "how" ||
+		page === "why" ||
 		(page === "engine" && kind !== null && !busy) ||
-		(page === "providers" && providersReady && connecting === null) ||
+		(page === "providers" && connected.length > 0 && connecting === null) ||
 		(page === "harness" && harnessChosen !== undefined);
 
-	if (page === "where" && onConnectServer !== null) {
+	if (page === "hello") {
 		return (
-			<Frame onConnectServer={null}>
-				<Lead title="Welcome to Hotline" text="Your own team of AI helpers. First, where should they run?" />
-				<Choice onHere={() => setPage("how")} onServer={onConnectServer} />
-				{refusal !== null && <Refusal message={refusal} />}
-			</Frame>
+			<Stage page={page}>
+				<div className="welcome-hero">
+					<span className="welcome-mark">
+						<HotlineMark width={112} />
+					</span>
+					<h1 className="welcome-title">Welcome to Hotline</h1>
+					<p className="welcome-lead">
+						A team of AI helpers that work together for you. You chat with them like colleagues, and they get things done.
+					</p>
+				</div>
+				<div className="welcome-actions">
+					<button type="button" className="control btn btn-primary welcome-cta" onClick={() => void next()}>
+						Get started
+					</button>
+					{onConnectServer !== null && (
+						<button type="button" className="control btn-quiet" onClick={onConnectServer}>
+							Connect to a server instead
+						</button>
+					)}
+				</div>
+			</Stage>
 		);
 	}
 
 	return (
-		<Frame onConnectServer={onConnectServer}>
+		<Stage page={connecting === null ? page : `${page}-${connecting.id}`}>
 			<Progress page={page} />
 
-			{page === "how" && (
+			{page === "why" && (
 				<>
-					<Lead title="How Hotline works" text="Hotline gives you a small team of AI helpers that get things done for you." />
-					<Concepts
-						rows={[
-							{
-								title: "Teammates",
-								text: "Each teammate is an AI helper with a name and a job. You chat with it the way you'd message a colleague.",
-							},
-							{
-								title: "They work together",
-								text: "Teammates can ask each other for help and pass work along. You can see everything they do.",
-							},
-							{
-								title: "It stays with you",
-								text: "Your teammates, their files and your chats live on this computer. You can check in from your phone too.",
-							},
-						]}
-					/>
+					<Lead title="Why Hotline" text="Other AI helpers live in someone else's cloud. Yours live with you." />
+					<div className="welcome-pillars">
+						{PILLARS.map((pillar) => (
+							<div key={pillar.title} className="welcome-pillar">
+								<span className="welcome-pillar-icon">{pillar.icon}</span>
+								<span className="welcome-pillar-title">{pillar.title}</span>
+								<span className="welcome-pillar-text">{pillar.text}</span>
+							</div>
+						))}
+					</div>
 				</>
 			)}
 
 			{page === "engine" && (
 				<>
 					<Lead title="How your teammates think" text="Teammates need an AI to think with. Pick whichever is easiest for you." />
-					<div role="radiogroup" aria-label="How new teammates think" className="grouped">
-						<EngineChoice
+					<div role="radiogroup" aria-label="How new teammates think" className="flex flex-col gap-2.5">
+						<Card
 							checked={kind === "hotline"}
 							title="Hotline Agent"
 							badge="Recommended"
 							text="Hotline's built-in helper. Connect an AI service you already use, like ChatGPT, Claude or Grok, and it does the rest."
 							onPick={() => setKind("hotline")}
 						/>
-						<EngineChoice
+						<Card
 							checked={kind === "harness"}
 							disabled={harnesses.length === 0}
 							title="An AI coding tool you already have"
 							text={
 								harnesses.length === 0
 									? "For people who use tools like Codex, Claude Code or Cursor. None is on this computer."
-									: `Use ${listOf(harnesses.map((one) => one.name))}, signed in with your own account.`
+									: `Use ${knownTools(harnesses.map((one) => one.name))}, signed in with your own account.`
 							}
 							onPick={() => setKind("harness")}
 						/>
 					</div>
-					<p className="group-hint">Not sure? Pick Hotline Agent. You can change this for any teammate later.</p>
+					<p className="welcome-note">Not sure? Pick Hotline Agent. You can change this for any teammate later.</p>
 				</>
 			)}
 
@@ -233,9 +269,10 @@ export function Welcome({
 							title="Connect an AI service"
 							text="This is where your teammates' thinking comes from. Sign in with an account you already have, or paste a key. It's kept safe in your computer's keychain."
 						/>
-						{providersReady && (
-							<div className="flex flex-wrap items-center gap-1.5">
-								<span className="text-sm text-ink-2">Connected:</span>
+						{connected.length > 0 && (
+							<div className="flex flex-wrap items-center justify-center gap-1.5">
+								<CheckIcon className="text-accent" />
+								<span className="text-sm text-ink-2">Connected</span>
 								{connected.map((one) => (
 									<span key={one} className="provider-chip">
 										{one}
@@ -243,30 +280,25 @@ export function Welcome({
 								))}
 							</div>
 						)}
-						<section>
-							<div className="grouped">
-								{providers.length === 0 ? (
-									<p className="group-row text-sm text-ink-3">Reading…</p>
-								) : (
-									providers.map((provider) => (
-										<ProviderRow key={provider.id} provider={provider} disabled={busy} onPick={() => setConnecting(provider)} />
-									))
-								)}
-							</div>
-							<p className="group-hint">One is enough to start. You can add more later in Settings.</p>
-						</section>
+						<div className="grouped welcome-list">
+							{providers.length === 0 ? (
+								<p className="group-row text-sm text-ink-3">Reading…</p>
+							) : (
+								providers.map((provider) => (
+									<ProviderRow key={provider.id} provider={provider} disabled={busy} onPick={() => setConnecting(provider)} />
+								))
+							)}
+						</div>
+						<p className="welcome-note">One is enough to start. You can add more later in Settings.</p>
 					</>
 				))}
 
 			{page === "harness" && (
 				<>
-					<Lead
-						title="Pick your tool"
-						text="Your teammates will use it with your own account. The first time, it may ask you to sign in."
-					/>
-					<div role="radiogroup" aria-label="The agent new teammates run on" className="grouped">
+					<Lead title="Pick your tool" text="Your teammates will use it with your own account. The first time, it may ask you to sign in." />
+					<div role="radiogroup" aria-label="The tool new teammates use" className="flex flex-col gap-2.5">
 						{harnesses.map((one) => (
-							<EngineChoice
+							<Card
 								key={one.id}
 								checked={state?.defaultBackendId === one.id}
 								disabled={busy}
@@ -282,86 +314,59 @@ export function Welcome({
 			{page === "teammate" && (
 				<>
 					<Lead title="Meet your first teammate" text="Give it a name and say what it should help with. Then say hello." />
-					<Concepts
-						rows={[
-							{ title: "Goal", text: "What this teammate is for, in your own words. It reads this every time it starts." },
-							{
-								title: "Working directory",
-								text: "The folder it works in. It only touches files there unless you allow more.",
-							},
-							{ title: "Agent", text: "Already set from the last step." },
-						]}
-					/>
-					<NewTeammateForm models={models} goal={FIRST_GOAL} submitLabel="Add teammate" onCreated={onCreated} />
+					<div className="welcome-panel">
+						<NewTeammateForm models={models} goal={FIRST_GOAL} submitLabel="Add teammate" onCreated={onCreated} simple />
+					</div>
+					<p className="welcome-note">You can give it more abilities later, like its own computer or work it does while you're away.</p>
 				</>
 			)}
 
 			{refusal !== null && <Refusal message={refusal} />}
 
-			<div className="flex items-center justify-between gap-2 pt-2">
-				{page !== "how" || onConnectServer !== null ? (
+			{connecting === null && (
+				<div className="welcome-nav">
 					<button type="button" className="control btn-quiet" onClick={back}>
 						Back
 					</button>
-				) : (
-					<span />
-				)}
-				{page !== "teammate" && connecting === null && (
-					<button type="button" className="control btn btn-primary" disabled={!canNext} onClick={() => void next()}>
-						Next
-					</button>
-				)}
-			</div>
-		</Frame>
+					{page !== "teammate" && (
+						<button type="button" className="control btn btn-primary welcome-next" disabled={!canNext} onClick={() => void next()}>
+							Continue
+						</button>
+					)}
+				</div>
+			)}
+		</Stage>
 	);
 }
 
-function listOf(names: string[]): string {
-	if (names.length <= 1) return names[0] ?? "";
-	return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+/** The tools people know by name, in this order, when this machine has them; the rest are counted, not listed. */
+const KNOWN_TOOLS = ["Claude Code", "Codex", "Cursor", "Gemini CLI", "Grok Build", "GitHub Copilot"];
+
+function knownTools(names: string[]): string {
+	const known = KNOWN_TOOLS.filter((one) => names.includes(one)).slice(0, 3);
+	const shown = known.length > 0 ? known : names.slice(0, 3);
+	const rest = names.length - shown.length;
+	if (rest > 0) return `${shown.join(", ")} or ${rest} more`;
+	if (shown.length <= 1) return shown[0] ?? "";
+	return `${shown.slice(0, -1).join(", ")} or ${shown[shown.length - 1]}`;
 }
 
-function Frame({ onConnectServer, children }: { onConnectServer: (() => void) | null; children: React.ReactNode }) {
+/** The whole window, the content centred on it; a new page fades in rather than cutting. */
+function Stage({ page, children }: { page: string; children: ReactNode }) {
 	return (
-		<div className="pane">
-			<Band>
-				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">Welcome</h2>
-				{onConnectServer !== null && (
-					<button type="button" className="control btn-quiet" onClick={onConnectServer}>
-						Connect to a server
-					</button>
-				)}
-			</Band>
-			<Scroll>
-				<div className="pane-column flex flex-col gap-5">{children}</div>
-			</Scroll>
+		<div className="welcome">
+			<div key={page} className="welcome-stage">
+				{children}
+			</div>
 		</div>
 	);
 }
 
 function Lead({ title, text }: { title: string; text: string }) {
 	return (
-		<div className="flex flex-col gap-1">
-			<h3 className="text-xl font-semibold text-ink">{title}</h3>
-			<p className="text-ink-2">{text}</p>
-		</div>
-	);
-}
-
-/** A few words, each with what it means, as one list. */
-function Concepts({ rows }: { rows: { title: string; text: string }[] }) {
-	return (
-		<div className="grouped">
-			{rows.map((row) => (
-				<div key={row.title} className="group-row">
-					<span className="group-row-text">
-						<span className="group-row-title">{row.title}</span>
-						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-							{row.text}
-						</span>
-					</span>
-				</div>
-			))}
+		<div className="flex flex-col items-center gap-2 text-center">
+			<h2 className="welcome-heading">{title}</h2>
+			<p className="welcome-lead">{text}</p>
 		</div>
 	);
 }
@@ -370,26 +375,21 @@ function Concepts({ rows }: { rows: { title: string; text: string }[] }) {
 function Progress({ page }: { page: Page }) {
 	const at = STEPS.findIndex((step) => step.pages.includes(page));
 	return (
-		<ol className="flex items-center gap-2" aria-label="Setup steps">
+		<ol className="welcome-progress" aria-label="Setup steps">
 			{STEPS.map((step, index) => (
-				<li key={step.title} className="flex min-w-0 items-center gap-2" aria-current={index === at ? "step" : undefined}>
-					<span
-						aria-hidden="true"
-						className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
-							index < at ? "bg-accent text-white" : index === at ? "bg-ink text-well" : "bg-fill text-ink-3"
-						}`}
-					>
+				<li key={step.title} data-state={index < at ? "done" : index === at ? "now" : "later"} aria-current={index === at ? "step" : undefined}>
+					<span aria-hidden="true" className="welcome-progress-dot">
 						{index < at ? <CheckIcon /> : index + 1}
 					</span>
-					<span className={`truncate text-sm ${index === at ? "text-ink" : "text-ink-3"}`}>{step.title}</span>
-					{index < STEPS.length - 1 && <span aria-hidden="true" className="h-px w-4 shrink-0 bg-line" />}
+					<span className="welcome-progress-label">{step.title}</span>
 				</li>
 			))}
 		</ol>
 	);
 }
 
-function EngineChoice({
+/** One choice as a card: the whole card is the control, and the chosen one wears the accent. */
+function Card({
 	checked,
 	disabled,
 	title,
@@ -405,46 +405,62 @@ function EngineChoice({
 	onPick(): void;
 }) {
 	return (
-		<label className="group-row group-row-choice" data-off={disabled ? "true" : undefined}>
+		<label className="welcome-card" data-checked={checked ? "" : undefined} data-off={disabled ? "true" : undefined}>
 			<input type="radio" className="radio" checked={checked} disabled={disabled} onChange={onPick} />
-			<span className="group-row-text">
-				<span className="group-row-title">
+			<span className="flex min-w-0 flex-col gap-1">
+				<span className="welcome-card-title">
 					{title}
-					{badge !== undefined && <span className="provider-chip ml-2 align-middle">{badge}</span>}
+					{badge !== undefined && <span className="welcome-badge">{badge}</span>}
 				</span>
-				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-					{text}
-				</span>
+				<span className="welcome-card-text">{text}</span>
 			</span>
 		</label>
 	);
 }
 
-/**
- * Where the first teammates run, as two rows of one list: neither is the
- * primary, because neither is the right answer for everyone. Each says in one
- * line what it means.
- */
-function Choice({ onHere, onServer }: { onHere(): void; onServer(): void }) {
+const glyph = {
+	width: 20,
+	height: 20,
+	viewBox: "0 0 20 20",
+	fill: "none",
+	stroke: "currentColor",
+	strokeWidth: 1.6,
+	strokeLinecap: "round" as const,
+	strokeLinejoin: "round" as const,
+	"aria-hidden": true as const,
+};
+
+function HomeGlyph() {
 	return (
-		<section>
-			<h3 className="group-title">Where your teammates run</h3>
-			<div className="grouped">
-				<button type="button" className="group-row group-row-choice w-full text-left" onClick={onHere}>
-					<span className="group-row-text">
-						<span className="group-row-title">On this computer</span>
-						<span className="group-row-detail">Best for most people.</span>
-					</span>
-					<ChevronRightIcon className="shrink-0 text-ink-3" />
-				</button>
-				<button type="button" className="group-row group-row-choice w-full text-left" onClick={onServer}>
-					<span className="group-row-text">
-						<span className="group-row-title">On a server you run</span>
-						<span className="group-row-detail">If you already set up Hotline on a server.</span>
-					</span>
-					<ChevronRightIcon className="shrink-0 text-ink-3" />
-				</button>
-			</div>
-		</section>
+		<svg {...glyph}>
+			<path d="M3.5 9 10 3.5 16.5 9v7a1 1 0 0 1-1 1h-3.5v-5h-4v5H4.5a1 1 0 0 1-1-1V9Z" />
+		</svg>
+	);
+}
+
+function SparkGlyph() {
+	return (
+		<svg {...glyph}>
+			<path d="M10 2.5c.6 3.6 1.9 4.9 5.5 5.5-3.6.6-4.9 1.9-5.5 5.5-.6-3.6-1.9-4.9-5.5-5.5 3.6-.6 4.9-1.9 5.5-5.5Z" />
+			<path d="M15.5 13.5c.2 1.3.7 1.8 2 2-1.3.2-1.8.7-2 2-.2-1.3-.7-1.8-2-2 1.3-.2 1.8-.7 2-2Z" />
+		</svg>
+	);
+}
+
+function ScreenGlyph() {
+	return (
+		<svg {...glyph}>
+			<rect x="2.75" y="3.5" width="14.5" height="10" rx="1.5" />
+			<path d="M7.5 16.75h5M10 13.5v3.25" />
+		</svg>
+	);
+}
+
+function PhoneGlyph() {
+	return (
+		<svg {...glyph}>
+			<rect x="5.75" y="2.25" width="8.5" height="15.5" rx="2" />
+			<path d="M9 14.75h2" />
+		</svg>
 	);
 }

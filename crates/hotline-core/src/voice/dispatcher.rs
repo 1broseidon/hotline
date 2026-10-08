@@ -1048,7 +1048,8 @@ mod tests {
                     base_url: url,
                     api: crate::contract::OpenAiApi::ChatCompletions,
                     models: vec!["slow-large".into(), "fast-mini".into()],
-                    secret: None,
+                    // A key, so the fixture bills per token as a paid provider does.
+                    secret: Some("fixture-key".into()),
                 },
             )
             .unwrap();
@@ -1134,7 +1135,8 @@ mod tests {
                     base_url: url,
                     api: crate::contract::OpenAiApi::ChatCompletions,
                     models: vec!["fast-mini".into()],
-                    secret: None,
+                    // A key, so the fixture bills per token as a paid provider does.
+                    secret: Some("fixture-key".into()),
                 },
             )
             .unwrap();
@@ -1230,7 +1232,8 @@ mod tests {
                         base_url: "http://127.0.0.1:9/v1".into(),
                         api: crate::contract::OpenAiApi::ChatCompletions,
                         models: models.iter().map(|model| model.to_string()).collect(),
-                        secret: None,
+                        // A key, so the fixture bills per token as a paid provider does.
+                        secret: Some("fixture-key".into()),
                     },
                 )
                 .unwrap()

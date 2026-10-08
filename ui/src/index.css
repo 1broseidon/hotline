@@ -1975,6 +1975,106 @@
 	.welcome-list {
 		border-radius: 14px;
 	}
+	/* New teammate: who it is in one card, then each choice folded to its default. */
+	.nt-card {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+		padding: 18px;
+		border-radius: 14px;
+		background: var(--raised);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+	}
+	.nt-avatar {
+		display: inline-grid;
+		width: 48px;
+		height: 48px;
+		flex-shrink: 0;
+		place-items: center;
+		align-self: flex-end;
+		border-radius: 50%;
+		background: var(--accent-soft);
+		color: var(--accent-ink);
+		font-size: 20px;
+		font-weight: 700;
+	}
+	.nt-chip {
+		height: 24px;
+		padding: 0 10px;
+		border-radius: 999px;
+		background: var(--fill-hover);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+		color: var(--ink-2);
+		font-size: var(--text-sm);
+		transition: background-color var(--dur-press) var(--ease-out);
+	}
+	.nt-chip:hover {
+		background: var(--fill-active);
+	}
+	.nt-chip[data-on] {
+		background: var(--accent-soft);
+		box-shadow: inset 0 0 0 var(--hairline) color-mix(in oklch, var(--accent) 60%, transparent);
+		color: var(--accent-ink);
+	}
+	.nt-folds {
+		overflow: hidden;
+		border-radius: 14px;
+		background: var(--raised);
+		box-shadow: inset 0 0 0 var(--hairline) var(--line);
+	}
+	.nt-fold + .nt-fold,
+	.nt-fold + .nt-fold-row {
+		border-top: var(--hairline) solid var(--line);
+	}
+	.nt-fold-row {
+		display: flex;
+		width: 100%;
+		min-height: 48px;
+		align-items: center;
+		gap: 12px;
+		padding: 10px 16px;
+		text-align: left;
+	}
+	.nt-fold-head:hover {
+		background: var(--fill-hover);
+	}
+	.nt-fold-title {
+		width: 96px;
+		flex-shrink: 0;
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--ink);
+	}
+	.nt-fold-value {
+		min-width: 0;
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+	}
+	.nt-fold-action {
+		flex-shrink: 0;
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--accent-ink);
+	}
+	.nt-fold-body {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		padding: 4px 16px 16px;
+	}
+	.nt-fold[data-open] .nt-fold-head {
+		background: var(--fill-hover);
+	}
+	.nt-submit {
+		height: 38px;
+		min-width: 150px;
+		border-radius: 999px;
+		font-weight: 600;
+	}
 	/* A provider Hotline Agent can run on now, under its row in the agent picker. */
 	.provider-chip {
 		display: inline-flex;

@@ -153,137 +153,149 @@ export function NewTeammateForm({
 		}
 	};
 
+	const modelName = models.find((one) => one.id === modelId)?.name ?? fallback?.name ?? "The best one available";
+	const backendName = backends.find((one) => one.id === backendId)?.name ?? "Hotline Agent";
+	const thinks = onHotline ? `Hotline Agent · ${modelName}` : backendName;
+	const abilities = [
+		onHotline && machine ? "Whole machine" : "Its folder only",
+		backgroundWork ? "Works while you're away" : null,
+		computerReady && computer ? "Own computer" : null,
+	]
+		.filter(Boolean)
+		.join(" · ");
+	const [open, setOpen] = useState<"thinks" | "folder" | "abilities" | null>(null);
+	const fold = (which: "thinks" | "folder" | "abilities") => setOpen((was) => (was === which ? null : which));
+
 	return (
 		<form
-			className={`${className ?? ""} flex flex-col gap-5`}
+			className={`${className ?? ""} new-teammate flex flex-col gap-4`}
 			onSubmit={(event) => {
 				event.preventDefault();
 				void submit();
 			}}
 		>
-			<div>
-				<label className="label" htmlFor="new-name">
-					Name
-				</label>
-				<input
-					id="new-name"
-					className="field"
-					value={name}
-					autoFocus
-					autoComplete="off"
-					onChange={(event) => setName(event.target.value)}
-				/>
-			</div>
+			{!simple && <p className="text-ink-2">An AI helper with a name and a job. Everything else starts with a good default.</p>}
 
-			<div>
-				<label className="label" htmlFor="new-goal">
-					Goal
-				</label>
-				<textarea
-					id="new-goal"
-					className="field"
-					rows={3}
-					placeholder="What this teammate is for."
-					value={goal}
-					onChange={(event) => setGoal(event.target.value)}
-				/>
-				<p className="hint">
-					{simple
-						? "Its job, in your own words. It reads this every time it starts."
-						: "Written into the working directory as AGENTS.md, so the agent reads it on every start."}
-				</p>
-			</div>
-
-			<div>
-				<label className="label" htmlFor="new-cwd">
-					{simple ? "Folder" : "Working directory"}
-				</label>
-				<PathField
-					id="new-cwd"
-					value={cwd}
-					placeholder={simple ? "A new folder of its own, unless you pick one" : "A folder under the data directory, unless you pick one"}
-					onChange={setCwd}
-				/>
-				{simple && <p className="hint">Where it keeps its work. It only touches files here.</p>}
-			</div>
-
-			{backends.length > 0 && !simple && (
-				<div>
-					<p className="label" id="new-backend">
-						Agent
-					</p>
-					<BackendPicker
-						backends={backends}
-						selected={backendId}
-						name="new-backend"
-						labelledBy="new-backend"
-						onSelect={setPicked}
-						onProviders={onProviders}
-					/>
-					{!onHotline && (
-						<p className="hint">Permissions are managed by this external harness. Selecting it trusts its tools and configuration; Hotline's shell sandbox does not confine it.</p>
-					)}
-				</div>
-			)}
-
-			{onHotline && (
-				<div>
-					<p className="label" id="new-model">
-						Model
-					</p>
-					<Picker
-						field
-						value={modelId}
-						choices={[{ id: "", name: fallback === undefined ? (simple ? "The best one available" : "Whichever a key unlocks") : `${fallback.name} — the default` }, ...models]}
-						placeholder="Model"
-						label="Model"
-						onChange={setPickedModel}
-					/>
-				</div>
-			)}
-
-			{imagesBy !== null && (
-				<div>
-					<p className="label">Picture</p>
-					<div className="grouped">
-						<SwitchRow
-							title="Make a picture"
-							value={`Drawn from the name and goal with ${imagesBy}`}
-							checked={picture}
-							disabled={busy}
-							onChange={setPicture}
+			<section className="nt-card">
+				<div className="flex items-center gap-3">
+					<span className="nt-avatar" aria-hidden="true">
+						{name.trim().charAt(0).toUpperCase() || "?"}
+					</span>
+					<div className="min-w-0 flex-1">
+						<label className="label" htmlFor="new-name">
+							Name
+						</label>
+						<input
+							id="new-name"
+							className="field"
+							value={name}
+							autoFocus
+							autoComplete="off"
+							placeholder="Like Ada, Scout or Penny"
+							onChange={(event) => setName(event.target.value)}
 						/>
 					</div>
 				</div>
-			)}
-
-			{!simple && (
 				<div>
-					<p className="label">Access</p>
-					<div className="grouped">
-						{onHotline && (
-							<SwitchRow
-								title="Whole machine"
-								about={MACHINE_ABOUT}
-								checked={machine}
-								disabled={busy}
-								onChange={setMachine}
+					<label className="label" htmlFor="new-goal">
+						Goal
+					</label>
+					<textarea
+						id="new-goal"
+						className="field"
+						rows={3}
+						placeholder="What this teammate is for."
+						value={goal}
+						onChange={(event) => setGoal(event.target.value)}
+					/>
+					<div className="mt-2 flex flex-wrap items-center gap-1.5">
+						<span className="text-sm text-ink-3">Start from</span>
+						{GOALS.map((one) => (
+							<button
+								key={one.label}
+								type="button"
+								className="nt-chip"
+								data-on={goal === one.goal ? "" : undefined}
+								onClick={() => setGoal(one.goal)}
+							>
+								{one.label}
+							</button>
+						))}
+					</div>
+					<p className="hint">
+						{simple
+							? "Its job, in your own words. It reads this every time it starts."
+							: "Its job description, written into its folder as AGENTS.md. It reads it every time it starts."}
+					</p>
+				</div>
+			</section>
+
+			<section className="nt-folds">
+				<Fold title="Thinks with" value={thinks} open={open === "thinks"} onToggle={() => fold("thinks")}>
+					{backends.length > 0 && !simple && (
+						<div>
+							<p className="label" id="new-backend">
+								Agent
+							</p>
+							<BackendPicker
+								backends={backends}
+								selected={backendId}
+								name="new-backend"
+								labelledBy="new-backend"
+								onSelect={setPicked}
+								onProviders={onProviders}
 							/>
-						)}
-						<SwitchRow
-							title="Background work"
-							about={BACKGROUND_ABOUT}
-							checked={backgroundWork}
-							disabled={busy}
-							onChange={setBackgroundWork}
-						/>
-						{computerReady && (
-							<SwitchRow title="Computer" about={COMPUTER_ABOUT} checked={computer} disabled={busy} onChange={setComputer} />
-						)}
-					</div>
-					<p className="hint">These can always be changed later on the teammate's pane.</p>
-				</div>
-			)}
+							{!onHotline && (
+								<p className="hint">
+									Permissions are managed by this external harness. Selecting it trusts its tools and configuration; Hotline's shell sandbox does not
+									confine it.
+								</p>
+							)}
+						</div>
+					)}
+					{onHotline && (
+						<div>
+							<p className="label" id="new-model">
+								Model
+							</p>
+							<Picker
+								field
+								value={modelId}
+								choices={[{ id: "", name: fallback === undefined ? "The best one available" : `${fallback.name} — the default` }, ...models]}
+								placeholder="Model"
+								label="Model"
+								onChange={setPickedModel}
+							/>
+						</div>
+					)}
+				</Fold>
+				<Fold title="Folder" value={cwd.trim() || "A new folder of its own"} open={open === "folder"} onToggle={() => fold("folder")}>
+					<PathField
+						id="new-cwd"
+						value={cwd}
+						placeholder={simple ? "A new folder of its own, unless you pick one" : "A folder under the data directory, unless you pick one"}
+						onChange={setCwd}
+					/>
+					<p className="hint">Where it keeps its work. It only touches files here unless you give it the whole machine.</p>
+				</Fold>
+				{!simple && (
+					<Fold title="Abilities" value={abilities} open={open === "abilities"} onToggle={() => fold("abilities")}>
+						<div className="grouped">
+							{onHotline && <SwitchRow title="Whole machine" about={MACHINE_ABOUT} checked={machine} disabled={busy} onChange={setMachine} />}
+							<SwitchRow title="Background work" about={BACKGROUND_ABOUT} checked={backgroundWork} disabled={busy} onChange={setBackgroundWork} />
+							{computerReady && <SwitchRow title="Computer" about={COMPUTER_ABOUT} checked={computer} disabled={busy} onChange={setComputer} />}
+						</div>
+						<p className="hint">These can always be changed later on the teammate's pane.</p>
+					</Fold>
+				)}
+				{imagesBy !== null && (
+					<label className="nt-fold-row nt-fold-head">
+						<span className="nt-fold-title">Picture</span>
+						<span className="nt-fold-value">{picture ? `Drawn from its name and goal with ${imagesBy}` : "Its initial"}</span>
+						<input type="checkbox" className="switch" checked={picture} disabled={busy} onChange={(event) => setPicture(event.target.checked)} />
+					</label>
+				)}
+			</section>
 
 			{refusal !== null && (
 				<p role="status" className="selectable text-sm text-danger">
@@ -291,16 +303,62 @@ export function NewTeammateForm({
 				</p>
 			)}
 
-			<div className="mt-1 flex justify-end gap-2">
+			<div className="flex items-center justify-end gap-2">
 				{onCancel !== undefined && (
-					<button type="button" className="control btn" onClick={onCancel}>
+					<button type="button" className="control btn-quiet" onClick={onCancel}>
 						Cancel
 					</button>
 				)}
-				<button type="submit" className="control btn-primary" disabled={busy || name.trim() === ""}>
+				<button type="submit" className="control btn btn-primary nt-submit" disabled={busy || name.trim() === ""}>
 					{busy ? "Setting up…" : submitLabel}
 				</button>
 			</div>
 		</form>
+	);
+}
+
+/** Goals to start from, for a person who has not written one for an agent before. Each is a whole job, in plain words. */
+const GOALS: { label: string; goal: string }[] = [
+	{
+		label: "Anything",
+		goal: "Help me with whatever I bring you. Ask when something is unclear, and say what you did when you are done.",
+	},
+	{
+		label: "Code",
+		goal: "Build and fix code in this folder. Run the tests before saying something works, and explain what you changed.",
+	},
+	{
+		label: "Research",
+		goal: "Research what I ask about. Find good sources, compare them, and give me a short answer with links.",
+	},
+	{
+		label: "Writing",
+		goal: "Help me write and edit. Keep my voice, make it clear and short, and suggest what to cut.",
+	},
+];
+
+/** A choice that has a good default: one line saying what it is now, opened only to change it. */
+function Fold({
+	title,
+	value,
+	open,
+	onToggle,
+	children,
+}: {
+	title: string;
+	value: string;
+	open: boolean;
+	onToggle(): void;
+	children: React.ReactNode;
+}) {
+	return (
+		<div className="nt-fold" data-open={open ? "" : undefined}>
+			<button type="button" className="nt-fold-row nt-fold-head" aria-expanded={open} onClick={onToggle}>
+				<span className="nt-fold-title">{title}</span>
+				<span className="nt-fold-value">{value}</span>
+				<span className="nt-fold-action">{open ? "Done" : "Change"}</span>
+			</button>
+			{open && <div className="nt-fold-body">{children}</div>}
+		</div>
 	);
 }

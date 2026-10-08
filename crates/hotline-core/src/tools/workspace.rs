@@ -1659,10 +1659,13 @@ impl Tool for EditFile {
 #[cfg(test)]
 mod tests {
     use super::{
-        DEFAULT_READ_LINES, EditFile, EditFileArgs, FindFiles, FindFilesArgs, FolderGrant,
-        ListDirectory, ListDirectoryArgs, Reach, ReadFile, ReadFileArgs, SearchFiles,
-        SearchFilesArgs, Workspace, WriteFile, WriteFileArgs, normalize_relative_path,
+        DEFAULT_READ_LINES, EditFile, EditFileArgs, FindFiles, FindFilesArgs, ListDirectory, Reach,
+        ReadFile, ReadFileArgs, SearchFiles, SearchFilesArgs, Workspace, WriteFile, WriteFileArgs,
+        normalize_relative_path,
     };
+    // The extra-folder tests build their fixture with symlinks, so they run where those do.
+    #[cfg(unix)]
+    use super::{FolderGrant, ListDirectoryArgs};
     use crate::driver::CapabilityEpoch;
     use crate::tools::RunCommand;
     use rig::tool::Tool;
@@ -2013,6 +2016,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn read(workspace: &Workspace, path: &Path) -> Result<String, super::ToolError> {
         workspace.read_file(ReadFileArgs {
             path: path.to_string_lossy().into_owned(),
@@ -2021,6 +2025,7 @@ mod tests {
         })
     }
 
+    #[cfg(unix)]
     fn write(workspace: &Workspace, path: &Path) -> Result<String, super::ToolError> {
         workspace
             .prepare_write(WriteFileArgs {

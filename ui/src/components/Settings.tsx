@@ -6,6 +6,7 @@ import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import type { McpOAuthStatus } from "../wire";
 import { DEFAULT_IDLE_HOURS, useModelsRevision, useRawSetting, useRoomSettings } from "../room";
+import { recheckVoiceSupport } from "../voice/call";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
@@ -640,7 +641,10 @@ function ProvidersSection({
 	const reload = () =>
 		wire
 			.command("credential.list", {})
-			.then(setHeld)
+			.then((credentials) => {
+				setHeld(credentials);
+				recheckVoiceSupport();
+			})
 			.catch((error: Error) => {
 				setHeld([]);
 				setRefusal(error.message);

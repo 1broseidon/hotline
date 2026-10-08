@@ -6,6 +6,7 @@ import { type CallAudio, webAudio } from "./audio";
 import { TurnDetector } from "./turn";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 import { PcmTurn } from "./stream";
+import { useRawSetting } from "../room";
 
 /**
  * A call belongs to its chosen desk and optional teammate. It lives outside
@@ -659,13 +660,37 @@ export function useCallSnapshot(call: Call | null): CallSnapshot {
 	);
 }
 
+const supportChecks = new Set<() => void>();
+
+/**
+ * Ask every open voice check to look again. Connecting or removing a
+ * provider changes whether the desk can take a call, and the desk does not
+ * announce it, so whoever changed one says so.
+ */
+export function recheckVoiceSupport(): void {
+	for (const check of supportChecks) check();
+}
+
 /**
  * Whether the open desk can take a call: it answers `voice.status` with a
  * speech provider it can use. A desk from before voice refuses the command,
- * and that is a no, not an error.
+ * and that is a no, not an error. Asked again when a provider changes here,
+ * when the voice settings change, and when the window comes back, which is
+ * when a change made from the phone shows.
  */
 export function useVoiceSupport(connection: string): { available: boolean; directCalls: boolean } {
 	const [support, setSupport] = useState({ available: false, directCalls: false });
+	const [asked, setAsked] = useState(0);
+	const voiceSettings = useRawSetting("voice");
+	useEffect(() => {
+		const again = () => setAsked((n) => n + 1);
+		supportChecks.add(again);
+		window.addEventListener("focus", again);
+		return () => {
+			supportChecks.delete(again);
+			window.removeEventListener("focus", again);
+		};
+	}, []);
 	useEffect(() => {
 		if (connection !== "open") { setSupport({ available: false, directCalls: false }); return; }
 		let current = true;
@@ -680,6 +705,6 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 		return () => {
 			current = false;
 		};
-	}, [connection]);
+	}, [connection, asked, voiceSettings]);
 	return support;
 }

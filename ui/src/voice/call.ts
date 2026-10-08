@@ -3,7 +3,8 @@ import { activeDeskId, allDesks, watchDesks, wireFor } from "../desks";
 import { type Target, wire } from "../wire";
 import type { FileChunk, VoiceEndReason, VoiceEvent } from "../generated/contract";
 import { type CallAudio, webAudio } from "./audio";
-import { TurnDetector } from "./turn";
+import { TurnDetector, levelFromDb } from "./turn";
+import { type DeviceTranscription, type TranscriptionEvent, deviceTranscription } from "./transcription";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 import { PcmTurn } from "./stream";
 import { useRawSetting } from "../room";
@@ -108,16 +109,36 @@ const ENDED_WORDS: Record<EndReason, string | undefined> = {
 
 const LOST = "Lost the connection to the desk.";
 
+const NO_MIC = "Hotline can't hear the microphone. Allow it in your system settings, then call again.";
+
+const NO_TRANSCRIPTION = "Speech recognition on this Mac could not start. Check speech access in your system settings, then call again.";
+
 /** How much audio before the detector is sure it heard speech is kept, so a word's first sound is not clipped. */
 const PREROLL_MS = 400;
 
 /** How often the blip-blip repeats while the desk works and says nothing. */
 const WORKING_EVERY_MS = 1800;
 
+/** Recognized words corroborate a short answer such as "yes", so a text call's onset can be shorter than a clip's. */
+const TEXT_MIN_SPEECH_MS = 100;
+
+/** Words recognized this long before the speaker's onset were the room's, not theirs. */
+const TEXT_ONSET_PREROLL_MS = 500;
+
 type Names = (personaId: string) => string | undefined;
 
 export type CallTarget = { personaId: string; name: string; avatarHash?: string | undefined };
 export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined };
+
+/** Remove only a stable recognized prefix known to predate the speaker's onset. */
+function afterRecognizedPrefix(text: string, prefix: string): string {
+	if (prefix === "") return text.trim();
+	const words = text.trim().split(/\s+/);
+	const before = prefix.trim().split(/\s+/);
+	const spoken = (word: string) => word.toLowerCase().replace(/[\p{P}\p{S}]/gu, "");
+	if (before.some((word, index) => spoken(word) !== spoken(words[index] ?? ""))) return text.trim();
+	return words.slice(before.length).join(" ");
+}
 
 export function supportsDirectCalls(status: unknown): boolean {
 	if (typeof status !== "object" || status === null) return false;
@@ -166,12 +187,33 @@ export class Call {
 	/** While the desk works, a blip-blip every so often says it still is. */
 	private working: ReturnType<typeof setInterval> | null = null;
 
+	/**
+	 * A text call: this Mac recognizes the speech and the desk gets finished
+	 * words (`voice.text`). The engine has the microphone, one utterance per
+	 * session, and only while the call listens, so it never hears the desk.
+	 */
+	private textInput = false;
+	/** Which session's events count; bumped whenever one is let go. */
+	private textSession = 0;
+	/** A session is open and its words are the live line. */
+	private recognizing = false;
+	/** Words from earlier sessions of this turn, when the engine ended one on its own. */
+	private textPrefix = "";
+	/** The open session's words so far: each event is the whole of them. */
+	private textPart = "";
+	/** The session's words from before the speaker's onset, which are the room's. */
+	private textIgnored = "";
+	private textSnapshots: { text: string; at: number }[] = [];
+	/** The connect chime is not the speaker. */
+	private quietUntil = 0;
+
 	constructor(
 		private readonly transport: CallTransport = wireTransport,
 		private readonly names: Names = () => undefined,
 		audio?: CallAudio,
 		private readonly now: () => number = () => performance.now(),
 		private readonly options: CallOptions = {},
+		private readonly transcription: DeviceTranscription | undefined = deviceTranscription(),
 	) {
 		this.audio = audio ?? webAudio({ onIdle: () => this.settle(), onLost: () => void this.micLost(), onStarted: () => this.audible() });
 		this.detector = new TurnDetector(this.now());
@@ -188,7 +230,7 @@ export class Call {
 	nameOf(personaId: string): string | undefined { return this.names(personaId); }
 	readonly readAvatar = (personaId: string, hash: string, offset: number): Promise<FileChunk> =>
 		this.transport.command("avatar.read", { personaId, hash, offset }) as Promise<FileChunk>;
-	redial(): Call { return new Call(this.transport, this.names, undefined, undefined, this.options); }
+	redial(): Call { return new Call(this.transport, this.names, undefined, undefined, this.options, this.transcription); }
 
 	watch(listener: () => void): () => void {
 		this.listeners.add(listener);
@@ -208,29 +250,51 @@ export class Call {
 		try {
 			await this.audio.open((block, rate) => this.hear(block, rate));
 		} catch {
-			this.fail("Hotline can't hear the microphone. Allow it in your system settings, then call again.");
+			this.fail(NO_MIC);
 			return;
 		}
 		if (this.ended) return;
+		try {
+			let status: unknown = null;
+			if (this.target !== undefined) status = await this.transport.command("voice.status", {});
+			// A desk call asks only to learn whether the desk takes text; not knowing keeps it on audio.
+			else if (this.transcription !== undefined) status = await this.transport.command("voice.status", {}).catch(() => null);
+			if (this.ended) return;
+			if (this.target !== undefined && !supportsDirectCalls(status)) throw new Error(
+				(status as { unavailable?: string } | null)?.unavailable ?? "This desk needs an update before it can call a teammate directly.",
+			);
+			this.textInput = await this.transcribes(status);
+			if (this.ended) return;
+		} catch (error) {
+			this.fail(error instanceof Error ? error.message : String(error));
+			return;
+		}
+		if (this.textInput) this.detector = new TurnDetector(this.now(), TEXT_MIN_SPEECH_MS);
+		else {
+			try {
+				await this.audio.openMic();
+			} catch {
+				this.fail(NO_MIC);
+				return;
+			}
+			if (this.ended) return;
+		}
 		// The call exists once the desk has answered call_start; only then can it be watched.
 		try {
-			if (this.target !== undefined) {
-				const status = await this.transport.command("voice.status", {});
-				if (this.ended) return;
-				if (!supportsDirectCalls(status)) throw new Error(
-					(status as { unavailable?: string } | null)?.unavailable ?? "This desk needs an update before it can call a teammate directly.",
-				);
-			}
 			const response = await this.transport.command("voice.call_start", {
 				callId: this.id,
 				streamAudio: true,
 				...(this.target !== undefined ? { personaId: this.target.personaId } : {}),
+				...(this.textInput ? { inputMode: "text" } : {}),
 			}) as { input?: string[]; personaId?: string } | null;
 			this.started = true;
 			if (this.target !== undefined && response?.personaId !== this.target.personaId) {
 				throw new Error("The desk did not connect the call to the chosen teammate.");
 			}
-			this.pcm = response?.input?.includes("audio/pcm") === true;
+			if (this.textInput && response?.input?.includes("text/plain") !== true) {
+				throw new Error("The desk did not accept on-device transcription. Update it and call again.");
+			}
+			this.pcm = !this.textInput && response?.input?.includes("audio/pcm") === true;
 		} catch (error) {
 			this.fail(error instanceof Error ? error.message : String(error));
 			return;
@@ -256,9 +320,25 @@ export class Call {
 		if (this.ended) { unwatch?.(); return; }
 		this.unwatch = unwatch;
 		this.set({ clock: { base: 0, since: Date.now() } });
-		this.audio.chime("connect");
+		const tone = this.audio.chime("connect");
+		this.quietUntil = this.now() + tone * 1000 + 120;
 		this.settle();
 		this.tick();
+	}
+
+	/**
+	 * Whether this call hears through this Mac's own speech recognition:
+	 * the desk takes text, the engine is here, and the person allows it.
+	 * Anything short of that keeps the call on audio, as before.
+	 */
+	private async transcribes(status: unknown): Promise<boolean> {
+		const transcription = this.transcription;
+		if (transcription === undefined) return false;
+		const capabilities = (status as { capabilities?: unknown } | null)?.capabilities;
+		if (!Array.isArray(capabilities) || !capabilities.includes("voiceTextInput")) return false;
+		const capability = await transcription.capability();
+		if (!capability.available || this.ended) return false;
+		return transcription.permit();
 	}
 
 	hangUp(): void {
@@ -287,11 +367,14 @@ export class Call {
 			return;
 		}
 		const generation = ++this.holdGeneration;
-		try {
-			await this.audio.reopenMic();
-		} catch {
-			this.fail("Hotline can't hear the microphone any more. Call again when it's back.");
-			return;
+		// A text call's engine takes the microphone again when the call listens.
+		if (!this.textInput) {
+			try {
+				await this.audio.openMic();
+			} catch {
+				this.fail("Hotline can't hear the microphone any more. Call again when it's back.");
+				return;
+			}
 		}
 		if (this.ended || generation !== this.holdGeneration) return;
 		this.held = false;
@@ -399,6 +482,7 @@ export class Call {
 		this.cancelInput();
 		this.detector.reset(this.now());
 		this.set({ phase: "listening" });
+		if (this.textInput) this.listen();
 	}
 
 	private connection(state: Reach): void {
@@ -412,7 +496,7 @@ export class Call {
 	private async micLost(): Promise<void> {
 		if (this.ended || this.held) return;
 		try {
-			await this.audio.reopenMic();
+			await this.audio.openMic();
 		} catch {
 			this.fail("Hotline can't hear the microphone any more. Call again when it's back.");
 		}
@@ -500,16 +584,20 @@ export class Call {
 				data: toBase64(clip),
 				durationMs: Math.round((total / rate) * 1000),
 			})
-			.then(() => {
-				if (this.snapshot.trouble !== undefined) this.set({ trouble: undefined });
-			})
-			.catch((error: unknown) => {
-				if (this.ended || this.held) return;
-				this.endpoint = null;
-				this.awaiting = false;
-				this.set({ trouble: error instanceof Error ? error.message : String(error) });
-				this.settle();
-			});
+			.then(() => this.delivered(), (error: unknown) => this.refused(error));
+	}
+
+	private delivered(): void {
+		if (this.snapshot.trouble !== undefined) this.set({ trouble: undefined });
+	}
+
+	/** The desk turned an utterance down: say why, and listen again. */
+	private refused(error: unknown): void {
+		if (this.ended || this.held) return;
+		this.endpoint = null;
+		this.awaiting = false;
+		this.set({ trouble: error instanceof Error ? error.message : String(error) });
+		this.settle();
 	}
 
 	private cancelInput(): void {
@@ -517,6 +605,139 @@ export class Call {
 		this.input = null;
 		this.frames = [];
 		this.heard = false;
+		if (this.textInput) this.stopListening();
+	}
+
+	// ------------------------------------------------------------- hearing on this Mac
+
+	/** A fresh recognition session; the words of a turn the engine split are kept. */
+	private listen(): void {
+		const session = ++this.textSession;
+		this.recognizing = true;
+		this.textPart = "";
+		this.textIgnored = "";
+		this.textSnapshots = [];
+		const failed = () => {
+			if (session === this.textSession && !this.ended) this.fail(NO_TRANSCRIPTION);
+		};
+		this.transcription!.start((event) => {
+			if (session === this.textSession && this.recognizing && !this.ended) this.transcribed(event);
+		}).then((started) => {
+			if (!started) failed();
+		}, failed);
+	}
+
+	/** Lets the session go, unsent: the call holds, the desk has the floor, or nobody spoke. */
+	private stopListening(): void {
+		this.textSession++;
+		this.recognizing = false;
+		this.textPrefix = "";
+		this.textPart = "";
+		this.textIgnored = "";
+		this.textSnapshots = [];
+		this.level = 0;
+		this.removeLine(`heard-${this.seq + 1}`);
+		void this.transcription?.cancel().catch(() => {});
+	}
+
+	private transcribed(event: TranscriptionEvent): void {
+		switch (event.type) {
+			case "level": {
+				const now = this.now();
+				if (now < this.quietUntil) return;
+				const level = levelFromDb(event.levelDb);
+				this.level = level;
+				for (const turn of this.detector.push(level, now)) {
+					switch (turn.kind) {
+						case "start":
+							this.heard = true;
+							// Words the engine had before the onset were the room's, not the speaker's.
+							for (const snapshot of this.textSnapshots) {
+								if (snapshot.at < turn.at - TEXT_ONSET_PREROLL_MS) this.textIgnored = snapshot.text;
+							}
+							this.textSnapshots = [];
+							this.set({ phase: "hearing" });
+							this.showDraft();
+							break;
+						case "drop":
+							// Nobody spoke: a fresh session, so the room's noise never piles up in one.
+							this.cancelInput();
+							this.listen();
+							return;
+						case "end":
+							void this.sendText();
+							return;
+					}
+				}
+				return;
+			}
+			case "partial":
+			case "final": {
+				const text = event.text.trim();
+				if (!this.heard) {
+					this.textSnapshots.push({ text, at: this.now() });
+					if (this.textSnapshots.length > 64) this.textSnapshots.shift();
+				}
+				this.textPart = text;
+				this.showDraft();
+				return;
+			}
+			case "error":
+				this.fail(event.message || NO_TRANSCRIPTION);
+				return;
+			case "ended":
+				if (event.reason === "error") return this.fail("Speech recognition on this Mac stopped. Call again.");
+				if (event.reason === "cancelled") return;
+				// The engine ended a session on its own: keep its words and listen on, so a pause does not split the turn.
+				this.textPrefix = this.spoken(this.textPart);
+				this.listen();
+				return;
+		}
+	}
+
+	/** What the speaker has said this turn: nothing until the meter heard a voice, so the room's words are never sent. */
+	private spoken(part: string): string {
+		if (!this.heard) return "";
+		return [this.textPrefix, afterRecognizedPrefix(part, this.textIgnored)].filter((one) => one !== "").join(" ").trim();
+	}
+
+	/** The words so far are the live line, under the id the desk's own `heard` will replace. */
+	private showDraft(): void {
+		const text = this.spoken(this.textPart);
+		if (text === "") this.removeLine(`heard-${this.seq + 1}`);
+		else this.line({ kind: "you", id: `heard-${this.seq + 1}`, text });
+	}
+
+	/** The turn has ended: the engine finishes the utterance, and its complete words go to the desk. */
+	private async sendText(): Promise<void> {
+		const session = this.textSession;
+		this.recognizing = false;
+		this.endpoint = { at: this.now(), seq: this.seq + 1 };
+		this.awaiting = true;
+		this.settle();
+		let text: string;
+		try {
+			text = this.spoken(await this.transcription!.stop());
+		} catch (error) {
+			if (session === this.textSession && !this.ended && !this.held) this.fail(error instanceof Error ? error.message : String(error));
+			return;
+		}
+		// Held, cut in on or hung up while the engine finished: those words are not sent.
+		if (session !== this.textSession || this.ended || this.held) return;
+		if (text === "") {
+			// A cough or a tap: nothing to say.
+			this.endpoint = null;
+			this.awaiting = false;
+			this.settle();
+			return;
+		}
+		const seq = ++this.seq;
+		this.line({ kind: "you", id: `heard-${seq}`, text });
+		// After the engine let the microphone go, so the blip-blip is never transcribed.
+		this.audio.chime("think");
+		this.transport
+			.command("voice.text", { callId: this.id, seq, text })
+			.then(() => this.delivered(), (error: unknown) => this.refused(error));
 	}
 
 	private streamFailed(error: unknown): void {
@@ -563,6 +784,10 @@ export class Call {
 		this.set({ lines: [...lines, line].slice(-60) });
 	}
 
+	private removeLine(id: string): void {
+		if (this.snapshot.lines.some((one) => one.id === id)) this.set({ lines: this.snapshot.lines.filter((one) => one.id !== id) });
+	}
+
 	private fail(trouble: string): void {
 		if (this.ended) return;
 		if (this.started) void this.transport.command("voice.call_end", { callId: this.id }).catch(() => {});
@@ -574,6 +799,8 @@ export class Call {
 		if (this.ended) return;
 		this.holdGeneration++;
 		this.cancelInput();
+		// Before the call settles on text, this stops a language download that asking permission started.
+		if (!this.textInput) void this.transcription?.cancel().catch(() => {});
 		this.outputLines.clear();
 		this.endpoint = null;
 		this.audio.closeMic();
@@ -593,6 +820,8 @@ export class Call {
 
 	private set(patch: Partial<CallSnapshot>): void {
 		this.snapshot = { ...this.snapshot, ...patch };
+		// The desk has the floor or the call is held: the engine lets the microphone go, so it never hears the desk.
+		if (this.recognizing && this.snapshot.phase !== "listening" && this.snapshot.phase !== "hearing") this.stopListening();
 		// The first blip-blip goes with the utterance; these repeat it while the desk is quiet and busy.
 		if (this.snapshot.phase === "thinking" && this.working === null) {
 			this.working = setInterval(() => this.audio.chime("think"), WORKING_EVERY_MS);

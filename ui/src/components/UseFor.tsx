@@ -4,6 +4,7 @@ import { Refusal } from "../ui/Refusal";
 import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { ChevronDownIcon } from "../icons";
+import { deviceTranscription } from "../voice/transcription";
 import {
 	AUTOMATIC,
 	carriedEffort,
@@ -64,6 +65,7 @@ export function UseFor({
 	};
 
 	const [more, setMore] = useState(false);
+	const hearsHere = useSpeechOnThisMac();
 	const speaking = options.tts;
 	const speakingNow = speaking.selected ?? speaking.automatic;
 	const hearingNow = options.stt.selected ?? options.stt.automatic;
@@ -125,7 +127,7 @@ export function UseFor({
 				</JobRow>
 				{more && (
 					<>
-						<JobRow title="Hearing" detail="Turns what you say into text" job={options.stt} nested>
+						<JobRow title="Hearing" detail={hearsHere ? "On this Mac when you call from here" : "Turns what you say into text"} job={options.stt} nested>
 							<Picker
 								value={currentId(options.stt)}
 								choices={shortChoices(options.stt)}
@@ -167,6 +169,21 @@ export function UseFor({
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
+}
+
+/** Whether a call placed from this window is heard by this Mac itself (see voice/call.ts), asked without a prompt. */
+function useSpeechOnThisMac(): boolean {
+	const [available, setAvailable] = useState(false);
+	useEffect(() => {
+		let current = true;
+		void deviceTranscription()?.capability().then((capability) => {
+			if (current) setAvailable(capability.available);
+		});
+		return () => {
+			current = false;
+		};
+	}, []);
+	return available;
 }
 
 /** What a job runs on now, as its row's second line. */

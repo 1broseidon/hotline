@@ -3,10 +3,11 @@ Object.assign(globalThis, { requestAnimationFrame: () => 0, cancelAnimationFrame
 const { Call, supportsDirectCalls } = await import("../src/voice/call");
 import type { CallAudio } from "../src/voice/audio";
 import type { CallOptions, CallTransport } from "../src/voice/call";
+import type { DeviceTranscription, TranscriptionCapability, TranscriptionEvent } from "../src/voice/transcription";
 
 type Handlers = { snapshot(items: unknown[]): void; event(item: unknown): void };
 
-function rig(options: CallOptions = {}, response: unknown = null, capabilities: string[] = ["voice", "voiceDirectCalls"]) {
+function rig(options: CallOptions = {}, response: unknown = null, capabilities: string[] = ["voice", "voiceDirectCalls"], transcription?: DeviceTranscription) {
 	const sent: { cmd: string; params: Record<string, unknown> }[] = [];
 	let handlers: Handlers | null = null;
 	let connection: ((state: "open" | "closed" | "gone") => void) | null = null;
@@ -38,16 +39,17 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 	const played: string[] = [];
 	let queue = 0;
 	let idle: () => void = () => {};
-	const mic = { open: true, closed: 0 };
+	const mic = { open: true, closed: 0, opened: 0 };
 	const audio: CallAudio = {
 		open: async () => {},
 		closeMic: () => {
 			mic.open = false;
 			mic.closed++;
 		},
-		reopenMic: async () => {
+		openMic: async () => {
 			if (holdResume) await new Promise<void>((resolve) => (resumeMic = resolve));
 			mic.open = true;
+			mic.opened++;
 		},
 		play: (_mime, data) => {
 			played.push(data);
@@ -66,7 +68,7 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 		},
 	};
 	let now = 1_000;
-	const call = new Call(transport, () => "Mack", audio, () => now, options);
+	const call = new Call(transport, () => "Mack", audio, () => now, options, transcription);
 	idle = () => call.settle();
 	return {
 		call,
@@ -87,6 +89,7 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 		ackAudio: () => audioAcks.shift()?.(),
 		holdResume: () => (holdResume = true),
 		releaseResume: () => resumeMic?.(),
+		at: (ms: number) => (now = ms),
 		speak: (level: number, fromMs: number, toMs: number) => {
 			for (now = fromMs; now <= toMs; now += 43) call.hear(new Float32Array(2048).fill(level), 48_000);
 		},
@@ -421,5 +424,223 @@ describe("a call with the desk", () => {
 		for (const index of [2, 0, 0, 2, 1]) r.desk({ type: "clip", id: "line", index, final: index === 1, mimeType: "audio/wav", data: String(index) });
 		expect(r.played).toEqual(["0", "1"]);
 		r.call.hangUp();
+	});
+});
+
+/** This Mac's speech recognition, faked: what the engine reports is whatever the test emits. */
+function fakeSpeech(capability: Partial<TranscriptionCapability> = {}, granted = true) {
+	let onEvent: (event: TranscriptionEvent) => void = () => {};
+	let final = "";
+	let stopping: (() => Promise<string>) | null = null;
+	const counts = { permits: 0, starts: 0, stops: 0, cancels: 0 };
+	const transcription: DeviceTranscription = {
+		capability: async () => ({ available: true, onDevice: true, locale: "en-US", engine: "apple-analyzer", ...capability }),
+		permit: async () => {
+			counts.permits++;
+			return granted;
+		},
+		start: async (callback) => {
+			onEvent = callback;
+			final = "";
+			counts.starts++;
+			return true;
+		},
+		stop: async () => {
+			counts.stops++;
+			return stopping !== null ? stopping() : final;
+		},
+		cancel: async () => {
+			counts.cancels++;
+		},
+	};
+	return {
+		transcription,
+		counts,
+		emit: (event: TranscriptionEvent) => {
+			if (event.type === "final") final = event.text;
+			onEvent(event);
+		},
+		finalize: (text: string) => (final = text),
+		stopWith: (next: () => Promise<string>) => (stopping = next),
+	};
+}
+
+const TEXT_DESK = ["voice", "voiceDirectCalls", "voiceTextInput"];
+
+function textRig(speech = fakeSpeech(), response: unknown = { callId: "c", input: ["text/plain"], output: "audio/wav", inputMode: "text" }, capabilities = TEXT_DESK) {
+	const r = rig({}, response, capabilities, speech.transcription);
+	return {
+		...r,
+		speech,
+		/** Native levels in dBFS every 50ms, as the engine meters the microphone. */
+		levels: (db: number, fromMs: number, toMs: number) => {
+			for (let at = fromMs; at <= toMs; at += 50) {
+				r.at(at);
+				speech.emit({ type: "level", levelDb: db, at, unit: "dbfs" });
+			}
+		},
+		sentText: () => r.sent.filter((one) => one.cmd === "voice.text").map((one) => one.params),
+	};
+}
+
+describe("a call heard by this Mac", () => {
+	test("runs as text when the desk, this Mac and the person all allow it, and leaves the webview mic shut", async () => {
+		const r = textRig();
+		await r.call.start();
+		expect(r.sent.find((one) => one.cmd === "voice.call_start")?.params.inputMode).toBe("text");
+		expect(r.speech.counts.permits).toBe(1);
+		expect(r.mic.opened).toBe(0);
+		expect(r.call.current.phase).toBe("listening");
+		expect(r.speech.counts.starts).toBe(1);
+	});
+
+	test("a finished utterance is stopped for its whole text and sent with a rising seq", async () => {
+		const r = textRig();
+		await r.call.start();
+		// Words before any voice on the meter are not shown.
+		r.at(1_150);
+		r.speech.emit({ type: "partial", text: "call" });
+		expect(r.call.current.lines).toEqual([]);
+		r.levels(-20, 1_200, 1_400);
+		expect(r.call.current.phase).toBe("hearing");
+		r.speech.emit({ type: "partial", text: "call mack" });
+		expect(r.call.current.lines).toEqual([{ kind: "you", id: "heard-1", text: "call mack" }]);
+		r.speech.finalize("Call Mack and ask about the build.");
+		r.levels(-60, 1_450, 2_700);
+		expect(r.call.current.phase).toBe("thinking");
+		await tick();
+		expect(r.sentText()).toEqual([{ callId: r.call.id, seq: 1, text: "Call Mack and ask about the build." }]);
+		expect(r.call.current.lines).toEqual([{ kind: "you", id: "heard-1", text: "Call Mack and ask about the build." }]);
+		expect(r.sent.some((one) => one.cmd === "voice.audio" || one.cmd === "voice.utterance")).toBe(false);
+
+		r.desk({ type: "heard", seq: 1, text: "Call Mack and ask about the build." });
+		r.desk({ type: "state", state: "listening" });
+		expect(r.speech.counts.starts).toBe(2);
+		r.speech.finalize("Thanks.");
+		r.levels(-20, 3_000, 3_300);
+		r.levels(-60, 3_350, 4_600);
+		await tick();
+		expect(r.sentText().map((one) => one.seq)).toEqual([1, 2]);
+	});
+
+	test("words the room said before the speaker's onset are not sent", async () => {
+		const r = textRig();
+		await r.call.start();
+		r.at(1_200);
+		r.speech.emit({ type: "partial", text: "the radio says" });
+		r.levels(-60, 1_250, 2_000);
+		r.levels(-20, 2_050, 2_300);
+		r.speech.emit({ type: "partial", text: "the radio says call Mack" });
+		expect(r.call.current.lines).toEqual([{ kind: "you", id: "heard-1", text: "call Mack" }]);
+		r.speech.finalize("The radio says call Mack.");
+		r.levels(-60, 2_350, 3_600);
+		await tick();
+		expect(r.sentText().map((one) => one.text)).toEqual(["call Mack."]);
+	});
+
+	test("a cough with no words sends nothing and listens again", async () => {
+		const r = textRig();
+		await r.call.start();
+		r.levels(-20, 1_200, 1_400);
+		r.levels(-60, 1_450, 2_700);
+		await tick();
+		expect(r.sentText()).toEqual([]);
+		expect(r.call.current.phase).toBe("listening");
+		expect(r.speech.counts.starts).toBe(2);
+	});
+
+	test("the engine lets the microphone go while the desk speaks, so it never hears it", async () => {
+		const r = textRig();
+		await r.call.start();
+		const cancels = r.speech.counts.cancels;
+		r.desk({ type: "said", id: "s1", text: "On it." });
+		r.desk({ type: "clip", id: "s1", index: 0, final: true, mimeType: "audio/wav", data: "one" });
+		expect(r.call.current.phase).toBe("speaking");
+		expect(r.speech.counts.cancels).toBe(cancels + 1);
+		// Late words from the cancelled session are not the speaker's.
+		r.speech.emit({ type: "partial", text: "on it" });
+		r.levels(-20, 1_200, 1_400);
+		expect(r.call.current.lines.filter((one) => one.kind === "you")).toEqual([]);
+		r.finishClip();
+		expect(r.call.current.phase).toBe("listening");
+		expect(r.speech.counts.starts).toBe(2);
+	});
+
+	test("holding while the engine finishes discards those words, and resuming listens on this Mac again", async () => {
+		const r = textRig();
+		await r.call.start();
+		let finish: (text: string) => void = () => {};
+		r.speech.stopWith(() => new Promise((resolve) => (finish = resolve)));
+		r.levels(-20, 1_200, 1_400);
+		r.speech.emit({ type: "partial", text: "never mind" });
+		r.levels(-60, 1_450, 2_700);
+		await r.call.hold(true);
+		expect(r.call.current.phase).toBe("held");
+		expect(r.call.current.lines).toEqual([]);
+		finish("Never mind.");
+		await tick();
+		expect(r.sentText()).toEqual([]);
+		await r.call.hold(false);
+		expect(r.call.current.phase).toBe("listening");
+		expect(r.mic.opened).toBe(0);
+		expect(r.speech.counts.starts).toBe(2);
+	});
+
+	test("cutting in on the desk listens on this Mac again", async () => {
+		const r = textRig();
+		await r.call.start();
+		r.desk({ type: "state", state: "thinking" });
+		r.call.interrupt();
+		r.desk({ type: "state", state: "listening" });
+		expect(r.call.current.phase).toBe("listening");
+		expect(r.speech.counts.starts).toBe(2);
+	});
+
+	test("a turn the engine split at a pause is sent whole", async () => {
+		const r = textRig();
+		await r.call.start();
+		r.levels(-20, 1_200, 1_400);
+		r.speech.emit({ type: "final", text: "Call Mack" });
+		r.speech.emit({ type: "ended", reason: "final" });
+		expect(r.speech.counts.starts).toBe(2);
+		r.speech.emit({ type: "partial", text: "about the build" });
+		expect(r.call.current.lines).toEqual([{ kind: "you", id: "heard-1", text: "Call Mack about the build" }]);
+		r.speech.finalize("about the build.");
+		r.levels(-60, 1_450, 2_700);
+		await tick();
+		expect(r.sentText().map((one) => one.text)).toEqual(["Call Mack about the build."]);
+	});
+
+	for (const [why, capabilities, speech] of [
+		["the desk takes no text", ["voice", "voiceDirectCalls"], fakeSpeech()],
+		["this Mac cannot recognize speech", TEXT_DESK, fakeSpeech({ available: false, reason: "No speech here" })],
+		["the person does not allow it", TEXT_DESK, fakeSpeech({}, false)],
+	] as const) {
+		test(`stays on audio when ${why}`, async () => {
+			const r = textRig(speech, { input: ["audio/wav"] }, [...capabilities]);
+			await r.call.start();
+			const start = r.sent.find((one) => one.cmd === "voice.call_start");
+			expect(start?.params.inputMode).toBeUndefined();
+			expect(r.mic.opened).toBe(1);
+			expect(speech.counts.starts).toBe(0);
+			r.speak(0.3, 1_000, 1_600);
+			r.speak(0, 1_650, 3_000);
+			expect(r.sent.filter((one) => one.cmd === "voice.utterance")).toHaveLength(1);
+		});
+	}
+
+	test("the permission is not asked when the desk takes no text", async () => {
+		const speech = fakeSpeech();
+		const r = textRig(speech, null, ["voice", "voiceDirectCalls"]);
+		await r.call.start();
+		expect(speech.counts.permits).toBe(0);
+	});
+
+	test("a desk that does not accept the text it was offered ends the call plainly", async () => {
+		const r = textRig(fakeSpeech(), { input: ["audio/wav"] });
+		await r.call.start();
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.trouble).toBe("The desk did not accept on-device transcription. Update it and call again.");
+		expect(r.sent.at(-1)?.cmd).toBe("voice.call_end");
 	});
 });

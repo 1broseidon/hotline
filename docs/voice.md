@@ -66,6 +66,27 @@ ends the utterance with an error. Cancelling with an empty id cancels
 whatever is current, a model download included, and a reload of the window
 does that too.
 
+## Calls from the window on a Mac
+
+A call placed from the desktop window on macOS is heard by that engine when
+it can be (`ui/src/voice/call.ts`, `ui/src/voice/transcription.ts`). The
+window starts the call with `inputMode: "text"` only when the desk's
+`voice.status` capabilities include `voiceTextInput`, `speech_capability`
+says this Mac can hear, and `speech_permit` is granted; it then never opens
+the webview's microphone. Otherwise the call is the audio call it always
+was, and a desk that answers a text call without `text/plain` in its input
+is hung up with a message to update it. A recognition session runs only
+while the call listens: the desk speaking or thinking, hold and hang-up
+cancel it, so the engine never hears the desk. Its level events drive the
+same turn detector as the webview's microphone, with a 100 ms onset because
+the words corroborate a short "yes". Partial text is the person's live line
+once the meter has heard a voice, less any words recognized more than half
+a second before that onset, which were the room's. When the detector ends
+the turn, the window stops the session for its complete final text and
+sends it once with `voice.text` under the next sequence number; an empty
+final sends nothing. Settings › Providers › Use for describes Hearing as
+"On this Mac when you call from here" while this Mac can hear.
+
 ## Providers
 
 These are the defaults, what a provider uses when the owner picks nothing and

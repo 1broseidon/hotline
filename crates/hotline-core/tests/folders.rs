@@ -35,7 +35,8 @@ struct Place {
 impl Place {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
-        let base = root.path().canonicalize().unwrap();
+        // As the desk spells a folder: resolved, without Windows's `\\?\` prefix.
+        let base = dunce::canonicalize(root.path()).unwrap();
         let [data, workspace, read_only, writable, outside] =
             ["data", "workspace", "read-only", "writable", "outside"].map(|name| base.join(name));
         for directory in [&data, &workspace, &read_only, &writable, &outside] {
@@ -55,6 +56,12 @@ impl Place {
             outside,
         }
     }
+}
+
+/// The root of the disk the temporary directory is on: `/`, or `C:\` on Windows.
+fn disk_root() -> String {
+    let temp = std::env::temp_dir();
+    path(temp.ancestors().last().unwrap_or(&temp))
 }
 
 fn path(path: &Path) -> String {
@@ -357,7 +364,7 @@ async fn a_folder_that_cannot_be_granted_is_refused_and_changes_nothing() {
             "not a folder",
         ),
         (json!([{"path": path(&file)}]), "not a folder"),
-        (json!([{"path": "/"}]), "whole disk"),
+        (json!([{"path": disk_root()}]), "whole disk"),
         (json!([{"path": home}]), "home folder"),
         (json!([{"path": "~"}]), "home folder"),
         (json!([{"path": path(&place.data)}]), "Hotline's own data"),

@@ -87,6 +87,14 @@ sends it once with `voice.text` under the next sequence number; an empty
 final sends nothing. Settings › Providers › Use for describes Hearing as
 "On this Mac when you call from here" while this Mac can hear.
 
+## Three ways to talk
+
+On a Mac that hears speech itself there are three: a **conversation**,
+which is the hands-free call; **hold to talk**, dictation for as long as a
+key or the microphone is held down; and **toggle to talk**, dictation
+started by one tap and stopped by the next. Dictation puts words in the
+field. Elsewhere there is only the conversation.
+
 ## Dictation on a Mac
 
 Where `speech_capability` says this Mac can hear, the composer's key on an
@@ -97,6 +105,16 @@ call through to the teammate; it turns into End the call while one with
 that teammate is live. Where this Mac cannot hear, and on Linux and
 Windows, there is no dictation and the empty composer's key starts the
 call, as the band's does.
+
+A press of the microphone or the Dictate shortcut starts listening at
+once. Its release tells the two apart (`TapOrHold`): held for 300 ms or
+more, the press was a hold and the release stops; shorter, it was a tap
+and listening goes on until the next press, which stops. A press again
+before its release is the key repeating and is ignored, unless it comes
+more than 2.5 seconds after the last one, so a release the system lost
+cannot wedge the key. The microphone hears the pointer go down on it and
+up anywhere; Enter or Space on it starts or stops as a tap does, and
+Enter in the field stops.
 
 The first dictation of a run asks `speech_permit`; a refusal says to allow
 Hotline under Speech Recognition and Microphone in System Settings ›
@@ -112,15 +130,25 @@ smoothed each frame, rising with a 40 ms time constant and falling with
 turn while the final text is awaited. With reduced motion they only
 follow the level. When the engine ends a session on a pause (`ended`
 with `final` or `no-speech`), its words are kept and a fresh session
-starts, so a pause does not end the dictation. Pressing the key again,
-Enter, or the Dictate shortcut stops: the window waits for the engine's
-complete final text and puts it in the field. Nothing is ever sent by
-dictation. Escape cancels and puts the field back as it was before
-listening began. An engine error, or a stop that does not finish, ends the
-dictation with the words heard so far left in the field and one sentence
-under it. One dictation listens at a time: starting another cancels the
-first, and a call that starts lets the dictation go, keeping its words.
-The empty composer offers no Dictate while a call is live.
+starts, so a pause does not end the dictation. Stopping waits for the
+engine's complete final text and puts it in the field. Escape cancels and
+puts the field back as it was before listening began. An engine error, or
+a stop that does not finish, ends the dictation with the words heard so
+far left in the field and one sentence under it. One dictation listens at
+a time: starting another cancels the first, and a call that starts lets
+the dictation go, keeping its words. The empty composer offers no Dictate
+while a call is live.
+
+What happens next is Settings › General › Shortcuts › After you stop
+talking, kept per computer in `localStorage` under
+`hotline.dictation.after`. Leave it in the box, the default, sends
+nothing. Send after 1.5 seconds counts down once a dictation the person
+stopped heard at least two characters besides spaces (`SendCountdown`):
+a line at the head of the composer reads "Sending to <name>…" beside a
+ring that fills over the wait, and "Esc to cancel". Escape, typing in the
+field or clicking it calls the send off and leaves the words; Enter sends
+at once; otherwise the field goes when the wait is over, through Send.
+A cancelled or failed dictation never counts down.
 
 The side thread's composer dictates the same way; the Dictate shortcut
 reaches only the conversation's.
@@ -137,27 +165,31 @@ dictation.
 
 Two shortcuts work while Hotline is in the background, through the
 `global-shortcut` plugin (`ui/src/hotkeys.ts`): Dictate, `Control+Option+H`
-(⌃⌥H) unless changed, offered only where this Mac can dictate; and Call,
-off until set. Both are this computer's, kept in the window's
-`localStorage` under `hotline.hotkeys`, and set in Settings › General ›
-Shortcuts, where a row records new keys (at least one of Control, Option
-or Command, or Ctrl or Alt elsewhere, with a key; Escape gives up), turns
-the shortcut off, and says when the system would not give Hotline the
-keys. Keys another shortcut, or one of the window's own chords, already
-uses are refused there. While keys are being recorded, every shortcut is
-let go so the recorder hears them.
+(⌃⌥H) unless changed, offered only where this Mac can dictate; and
+Conversation, off until set. Both are this computer's, kept in the
+window's `localStorage` under `hotline.hotkeys` (Conversation read from
+`call` where it was stored under that name), and set in Settings ›
+General › Shortcuts, where a row records new keys (at least one of
+Control, Option or Command, or Ctrl or Alt elsewhere, with a key; Escape
+gives up), turns the shortcut off, and says when the system would not
+give Hotline the keys. Keys another shortcut, or one of the window's own
+chords, already uses are refused there. While keys are being recorded,
+every shortcut is let go so the recorder hears them.
 
-Any press brings the main window forward (the shell's handler in
-`hotline-app`). Dictate then starts or stops dictation in the open
-conversation's composer; with a pane open in its place, the pane closes
-and the last teammate's conversation opens and starts listening; with no
-teammate selected it does nothing. Call ends a live call, or else calls
-the open teammate when the desk can. The window registers them on
-startup, again whenever they change, and lets them go when they are
-turned off; a reloaded page first lets go of the ones its previous load
-held. Only the main window may register shortcuts. Help › Keyboard
-shortcuts lists both, with their current keys, under Anywhere on this
-computer.
+The plugin reports each press and release. A Dictate press brings the
+main window forward and goes, with its release, to the open
+conversation's composer, as a tap or a hold as above; with a pane open in
+its place, the pane closes and the last teammate's conversation opens and
+takes it; with no teammate selected it does nothing. A Conversation press
+hangs up a live call where the person is, without bringing the window
+forward, or else brings it forward and calls the open teammate when the
+desk can. The window comes forward from the page (`showWindow`), which is
+why the main window may show and unminimize itself. The window registers
+the shortcuts on startup, again whenever they change, and lets them go
+when they are turned off; a reloaded page first lets go of the ones its
+previous load held. Only the main window may register shortcuts. Help ›
+Keyboard shortcuts lists both, with their current keys, under Anywhere on
+this computer.
 
 ## Providers
 

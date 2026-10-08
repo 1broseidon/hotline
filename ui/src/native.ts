@@ -24,6 +24,15 @@ export function platform(): string {
 	return window.__hotlineDesk?.platform ?? "web";
 }
 
+/** Brings the window forward from wherever the person was: shown, restored and focused. */
+export async function showWindow(): Promise<void> {
+	if (!isDesktop()) return;
+	const window = getCurrentWindow();
+	await window.show();
+	await window.unminimize();
+	await window.setFocus();
+}
+
 /** Whether the page draws the window's frame. macOS keeps its traffic lights. */
 export function drawsFrame(): boolean {
 	const os = platform();

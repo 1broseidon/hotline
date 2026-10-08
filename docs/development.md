@@ -205,7 +205,7 @@ Capabilities for the main window are
 | `opener` | open a link, reveal a path in the file manager |
 | `clipboard-manager` | write the clipboard |
 | `updater` | signed updates, through desktop commands with an idle-room guard |
-| `global-shortcut` | Dictate and Call from any app, set in Settings › General ([voice.md](voice.md#shortcuts-from-any-app)) |
+| `global-shortcut` | Dictate and Conversation from any app, set in Settings › General ([voice.md](voice.md#shortcuts-from-any-app)) |
 
 Closing the window hides it; the process, the teammates and the schedules
 stay. The tray is how the person gets the window back and how they actually
@@ -228,7 +228,7 @@ and Hotline on GitHub. Where there is no menu bar, the same three help items
 sit under the More button beside Settings at the foot of the rail, and
 the chords are the window's own. Keyboard shortcuts lists every chord in
 `ui/src/chords.ts`, and with them the two shortcuts that work from any app,
-Dictate and Call, at the keys set for them in Settings › General.
+Dictate and Conversation, at the keys set for them in Settings › General.
 
 The app icon is `assets/hotline-tile.svg`: the mark from `assets/hotline-mark.svg`
 on a dark rounded tile, in the page's own colours. `make icons` runs

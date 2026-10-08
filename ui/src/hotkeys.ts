@@ -4,20 +4,24 @@ import { isDesktop, platform } from "./native";
 
 /**
  * Shortcuts heard anywhere on this computer, not only in the window: the
- * system hands the keys to Hotline whichever app is in front, the shell
- * brings the window forward (hotline-app's global-shortcut handler), and
- * the window acts. They are this computer's, not the room's, so they live
- * in localStorage, and each person picks their own keys in Settings ›
- * General. Stored in the plugin's own words ("Control+Alt+KeyH"); an empty
- * string is a shortcut turned off.
+ * system hands the keys to Hotline whichever app is in front, and the
+ * window acts, coming forward first when what it does needs it. They are
+ * this computer's, not the room's, so they live in localStorage, and each
+ * person picks their own keys in Settings › General. Stored in the plugin's
+ * own words ("Control+Alt+KeyH"); an empty string is a shortcut turned off.
+ * The system reports both the press and the release, so Dictate can tell a
+ * tap from a hold (voice/dictation.ts).
  */
 
-export type HotkeyId = "dictate" | "call";
+export type HotkeyId = "dictate" | "conversation";
 
 export const HOTKEYS: readonly { id: HotkeyId; label: string; fallback: string }[] = [
 	{ id: "dictate", label: "Dictate", fallback: "Control+Alt+KeyH" },
-	{ id: "call", label: "Call", fallback: "" },
+	{ id: "conversation", label: "Conversation", fallback: "" },
 ];
+
+/** Conversation was stored as `call` before it had its name. */
+const STORED_AS: Partial<Record<HotkeyId, string>> = { conversation: "call" };
 
 type Hotkeys = Record<HotkeyId, string>;
 
@@ -26,28 +30,42 @@ const MAC = platform() === "macos";
 const listeners = new Set<() => void>();
 
 function stored(): Hotkeys {
+	try {
+		return readHotkeys(localStorage.getItem(KEY));
+	} catch {
+		// Private mode: the defaults.
+		return readHotkeys(null);
+	}
+}
+
+/** The keys as stored, with the defaults for any missing or unreadable. */
+export function readHotkeys(stored: string | null): Hotkeys {
 	const keys = Object.fromEntries(HOTKEYS.map((hotkey) => [hotkey.id, hotkey.fallback])) as Hotkeys;
 	try {
-		const raw: unknown = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+		const raw: unknown = JSON.parse(stored ?? "{}");
 		if (typeof raw !== "object" || raw === null) return keys;
 		for (const hotkey of HOTKEYS) {
-			const value = (raw as Record<string, unknown>)[hotkey.id];
+			const saved = raw as Record<string, unknown>;
+			const before = STORED_AS[hotkey.id];
+			const value = hotkey.id in saved || before === undefined ? saved[hotkey.id] : saved[before];
 			if (typeof value === "string" && (value === "" || acceleratorKeyLabel(value) !== null)) keys[hotkey.id] = value;
 		}
 	} catch {
-		// Unreadable or private mode: the defaults.
+		// Unreadable: the defaults.
 	}
 	return keys;
 }
 
-let current: Hotkeys = stored();
+/** Read on first use, after this module's tables below exist. */
+let current: Hotkeys | null = null;
 
 export function hotkeys(): Hotkeys {
+	current ??= stored();
 	return current;
 }
 
 export function setHotkey(id: HotkeyId, accelerator: string): void {
-	current = { ...current, [id]: accelerator };
+	current = { ...hotkeys(), [id]: accelerator };
 	try {
 		localStorage.setItem(KEY, JSON.stringify(current));
 	} catch {
@@ -62,7 +80,7 @@ function subscribe(listener: () => void): () => void {
 }
 
 export function useHotkeys(): Hotkeys {
-	return useSyncExternalStore(subscribe, () => current);
+	return useSyncExternalStore(subscribe, hotkeys);
 }
 
 // ------------------------------------------------------------- reading keys
@@ -153,18 +171,17 @@ export function hotkeyFromPress(press: KeyPress): string | null {
 
 // ------------------------------------------------------------- registering
 
+export type KeyState = "Pressed" | "Released";
+
 /** The plugin, or a fake in tests. */
 export type ShortcutPlugin = {
-	register(accelerator: string, onPress: () => void): Promise<void>;
+	register(accelerator: string, onKey: (state: KeyState) => void): Promise<void>;
 	unregister(accelerator: string): Promise<void>;
 	unregisterAll(): Promise<void>;
 };
 
 const tauriShortcuts: ShortcutPlugin = {
-	register: (accelerator, onPress) =>
-		register(accelerator, (event) => {
-			if (event.state === "Pressed") onPress();
-		}),
+	register: (accelerator, onKey) => register(accelerator, (event) => onKey(event.state)),
 	unregister: (accelerator) => unregister(accelerator),
 	unregisterAll: () => unregisterAll(),
 };
@@ -183,7 +200,7 @@ export class HotkeyRegistrar {
 
 	constructor(
 		private readonly plugin: ShortcutPlugin,
-		private readonly onPress: (id: HotkeyId) => void,
+		private readonly onKey: (id: HotkeyId, state: KeyState) => void,
 	) {
 		this.queue = plugin.unregisterAll().catch(() => {});
 	}
@@ -218,7 +235,7 @@ export class HotkeyRegistrar {
 			}
 			if (want === "") continue;
 			try {
-				await this.plugin.register(want, () => this.onPress(id));
+				await this.plugin.register(want, (state) => this.onKey(id, state));
 				this.held[id] = want;
 			} catch {
 				refusals[id] = refusalText(want);
@@ -234,9 +251,9 @@ function refusalText(accelerator: string): string {
 	return `Hotline couldn't take ${hotkeyLabel(accelerator)}. Another app may be using it; pick other keys.`;
 }
 
-/** What a press does: the window that is up says, and a desk switched to says again. */
-let pressed: ((id: HotkeyId) => void) | null = null;
-export function onHotkey(handler: (id: HotkeyId) => void): () => void {
+/** What a press or release does: the window that is up says, and a desk switched to says again. */
+let pressed: ((id: HotkeyId, state: KeyState) => void) | null = null;
+export function onHotkey(handler: (id: HotkeyId, state: KeyState) => void): () => void {
 	pressed = handler;
 	return () => {
 		if (pressed === handler) pressed = null;
@@ -246,7 +263,7 @@ export function onHotkey(handler: (id: HotkeyId) => void): () => void {
 /** The window's registrar; none in a browser tab, which cannot hear keys outside itself. */
 let registrar: HotkeyRegistrar | null | undefined;
 export function hotkeyRegistrar(): HotkeyRegistrar | null {
-	if (registrar === undefined) registrar = isDesktop() ? new HotkeyRegistrar(tauriShortcuts, (id) => pressed?.(id)) : null;
+	if (registrar === undefined) registrar = isDesktop() ? new HotkeyRegistrar(tauriShortcuts, (id, state) => pressed?.(id, state)) : null;
 	return registrar;
 }
 

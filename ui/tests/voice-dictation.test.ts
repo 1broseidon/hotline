@@ -3,12 +3,17 @@ import {
 	DICTATION_DENIED,
 	DICTATION_UNAVAILABLE,
 	Dictation,
+	HOLD_MS,
+	SEND_AFTER_MS,
+	SendCountdown,
+	TapOrHold,
 	type DictationEngine,
 	type DictationEvent,
 	followLevel,
 	joinDictated,
 	levelFromDbfs,
 	macEngine,
+	pressKind,
 	requestDictation,
 	takeDictationRequests,
 } from "../src/voice/dictation";
@@ -48,7 +53,13 @@ function fakeEngine(overrides: Partial<DictationEngine> = {}) {
 }
 
 function fakeField(text = "") {
-	const field = { text, read: () => field.text, write: (next: string) => (field.text = next) };
+	const field = {
+		text,
+		heard: [] as string[],
+		read: () => field.text,
+		write: (next: string) => (field.text = next),
+		done: (words: string) => field.heard.push(words),
+	};
 	return field;
 }
 
@@ -257,23 +268,137 @@ describe("dictation into the composer", () => {
 		second.cancel();
 	});
 
-	test("the shortcut reaches the composer on screen, or the one about to mount", async () => {
-		const pressed: string[] = [];
-		const release = takeDictationRequests(() => pressed.push("on screen"));
-		requestDictation();
-		expect(pressed).toEqual(["on screen"]);
+	test("the shortcut's presses and releases reach the composer on screen, or the one about to mount", async () => {
+		const edges: string[] = [];
+		const release = takeDictationRequests((edge, at) => edges.push(`${edge} ${at}`));
+		requestDictation("down", 1);
+		requestDictation("up", 2);
+		expect(edges).toEqual(["down 1", "up 2"]);
 		release();
 
-		requestDictation(1_000);
-		const later = takeDictationRequests(() => pressed.push("mounted"), 1_500);
+		requestDictation("down", 1_000);
+		requestDictation("up", 1_400);
+		const later = takeDictationRequests((edge, at) => edges.push(`${edge} ${at}`), 1_500);
 		await settle();
-		expect(pressed).toEqual(["on screen", "mounted"]);
+		expect(edges).toEqual(["down 1", "up 2", "down 1000", "up 1400"]);
 		later();
 
-		requestDictation(1_000);
-		const stale = takeDictationRequests(() => pressed.push("too late"), 9_000);
+		requestDictation("down", 1_000);
+		const stale = takeDictationRequests((edge) => edges.push(`late ${edge}`), 9_000);
 		await settle();
-		expect(pressed).toEqual(["on screen", "mounted"]);
+		expect(edges).toHaveLength(4);
 		stale();
 	});
+
+	test("a stop hands over the words heard, without what was typed before them", async () => {
+		const fake = fakeEngine();
+		const field = fakeField("Note:");
+		const dictation = new Dictation(fake.engine, field);
+		await dictation.start();
+		fake.finalText("ship it");
+		await dictation.stop();
+		expect(field.heard).toEqual(["ship it"]);
+		// A cancel hands over nothing.
+		await dictation.start();
+		dictation.cancel();
+		expect(field.heard).toEqual(["ship it"]);
+	});
+});
+
+describe("tap or hold", () => {
+	test("a press shorter than the hold is a tap", () => {
+		expect(pressKind(0)).toBe("tap");
+		expect(pressKind(HOLD_MS - 1)).toBe("tap");
+		expect(pressKind(HOLD_MS)).toBe("hold");
+	});
+
+	test("a tap starts and the next tap stops", () => {
+		const key = new TapOrHold();
+		expect(key.down(0, false)).toBe("start");
+		expect(key.up(120)).toBeNull();
+		expect(key.down(2_000, true)).toBe("stop");
+		expect(key.up(2_100)).toBeNull();
+	});
+
+	test("a hold talks while held and stops on release", () => {
+		const key = new TapOrHold();
+		expect(key.down(0, false)).toBe("start");
+		expect(key.up(HOLD_MS + 500)).toBe("stop");
+	});
+
+	test("the key repeating while held is not another press", () => {
+		const key = new TapOrHold();
+		expect(key.down(0, false)).toBe("start");
+		expect(key.down(500, true)).toBeNull();
+		expect(key.down(530, true)).toBeNull();
+		expect(key.up(900)).toBe("stop");
+	});
+
+	test("a hold that stops a tapped dictation does not start one on release", () => {
+		const key = new TapOrHold();
+		key.down(0, false);
+		key.up(100);
+		expect(key.down(5_000, true)).toBe("stop");
+		expect(key.up(6_000)).toBeNull();
+	});
+
+	test("a release the system lost does not wedge the key", () => {
+		const key = new TapOrHold();
+		expect(key.down(0, false)).toBe("start");
+		expect(key.down(10_000, true)).toBe("stop");
+	});
+});
+
+describe("sending what was dictated", () => {
+	function countdown() {
+		const sent: string[] = [];
+		let pending: (() => void) | null = null;
+		const timer = new SendCountdown(
+			() => sent.push("sent"),
+			(callback, ms) => {
+				expect(ms).toBe(SEND_AFTER_MS);
+				pending = callback;
+				return () => (pending = null);
+			},
+		);
+		return { timer, sent, elapse: () => pending?.() };
+	}
+
+	test("sends when the wait is over", () => {
+		const { timer, sent, elapse } = countdown();
+		expect(timer.start("ship it", 5)).toBe(true);
+		expect(timer.counting).toBe(5);
+		elapse();
+		expect(sent).toEqual(["sent"]);
+		expect(timer.counting).toBeNull();
+	});
+
+	test("Escape, typing or a click calls it off and nothing is sent", () => {
+		const { timer, sent, elapse } = countdown();
+		timer.start("ship it");
+		timer.cancel();
+		elapse();
+		expect(sent).toEqual([]);
+		expect(timer.counting).toBeNull();
+	});
+
+	test("Enter sends at once, and only once", () => {
+		const { timer, sent, elapse } = countdown();
+		timer.start("ship it");
+		expect(timer.sendNow()).toBe(true);
+		elapse();
+		expect(sent).toEqual(["sent"]);
+		expect(timer.sendNow()).toBe(false);
+	});
+
+	test("a word too short to be one never counts down", () => {
+		const { timer, sent, elapse } = countdown();
+		expect(timer.start(" a ")).toBe(false);
+		expect(timer.start("")).toBe(false);
+		expect(timer.counting).toBeNull();
+		elapse();
+		expect(sent).toEqual([]);
+		expect(timer.start("ok")).toBe(true);
+	});
+
 });

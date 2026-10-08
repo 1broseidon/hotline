@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type PointerEvent as ButtonPointerEvent, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
@@ -10,7 +10,17 @@ import { sizeText } from "../sizes";
 import { readDraft, writeDraft } from "../drafts";
 import { hotkeyLabel, useHotkeys } from "../hotkeys";
 import { useCall, useCallSnapshot } from "../voice/call";
-import { Dictation, NOT_DICTATING, dictationEngine, takeDictationRequests, useDictationAvailable } from "../voice/dictation";
+import {
+	Dictation,
+	NOT_DICTATING,
+	SEND_AFTER_MS,
+	SendCountdown,
+	TapOrHold,
+	afterDictation,
+	dictationEngine,
+	takeDictationRequests,
+	useDictationAvailable,
+} from "../voice/dictation";
 
 /** The field stops growing here, and scrolls from then on. */
 const MAX_HEIGHT = 220;
@@ -91,8 +101,13 @@ export function Composer({
 
 	// Dictation writes into the field as the words come (voice/dictation.ts),
 	// so it reads and writes the text through a ref that is never a render behind.
+	// Where the person asked for it, words dictated are sent a moment after
+	// they stop, unless they call it off; the send is the Send key's own.
 	const textNow = useRef(text);
 	textNow.current = text;
+	const submitNow = useRef(() => {});
+	const [countdown] = useState(() => new SendCountdown(() => submitNow.current()));
+	const sendingSince = useSyncExternalStore(countdown.watch, () => countdown.counting);
 	const [dictation] = useState(() => {
 		const engine = dictationEngine();
 		return engine === undefined
@@ -103,9 +118,24 @@ export function Composer({
 						textNow.current = next;
 						setText(next);
 					},
+					done: (words) => {
+						if (afterDictation() === "send") countdown.start(words);
+					},
 				});
 	});
 	const heard = useSyncExternalStore(dictation?.watch ?? noWatch, () => dictation?.view ?? NOT_DICTATING);
+	// A key or the button tells a tap (start, and stop on the next) from a hold (talk while held).
+	const keyPress = useRef(new TapOrHold());
+	const pointerPress = useRef(new TapOrHold());
+	const act = (action: "start" | "stop" | null) => {
+		if (dictation === null || action === null) return;
+		if (action === "stop") {
+			void dictation.stop();
+			return;
+		}
+		countdown.cancel();
+		void dictation.start();
+	};
 	const dictationHere = useDictationAvailable() && dictation !== null;
 	// A call has the microphone, so there is no dictating over one.
 	const callLive = useCallSnapshot(useCall()).phase !== "ended";
@@ -125,16 +155,55 @@ export function Composer({
 	useEffect(() => {
 		if (callLive) dictation?.release();
 	}, [callLive, dictation]);
-	useEffect(() => () => dictation?.release(), [dictation, draftOf]);
+	useEffect(
+		() => () => {
+			dictation?.release();
+			countdown.cancel();
+		},
+		[dictation, countdown, draftOf],
+	);
 
 	// The Dictate shortcut is the conversation's, not a side thread's.
+	const actNow = useRef(act);
+	actNow.current = act;
 	useEffect(() => {
 		if (embedded || dictation === null || !canDictate) return;
-		return takeDictationRequests(() => {
-			area.current?.focus();
-			dictation.toggle();
+		return takeDictationRequests((edge, at) => {
+			const listening = dictation.view.phase !== "idle";
+			const action = edge === "down" ? keyPress.current.down(at, listening) : keyPress.current.up(at);
+			if (action === "start") area.current?.focus();
+			actNow.current(action);
 		});
 	}, [embedded, dictation, canDictate]);
+
+	// While a send counts down, Escape calls it off and Enter sends now,
+	// wherever focus is.
+	useEffect(() => {
+		if (sendingSince === null) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key !== "Escape" && event.key !== "Enter") return;
+			if ((event.target as Element | null)?.closest("[data-private-terminal]")) return;
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			if (event.key === "Escape") countdown.cancel();
+			else countdown.sendNow();
+		};
+		window.addEventListener("keydown", onKey, true);
+		return () => window.removeEventListener("keydown", onKey, true);
+	}, [sendingSince, countdown]);
+
+	/** The button: down starts or stops at once, and the release ends a hold, wherever the pointer is by then. */
+	const pressKey = (event: ButtonPointerEvent) => {
+		if (event.button !== 0 || dictation === null) return;
+		act(pointerPress.current.down(event.timeStamp, dictating));
+		const release = (up: PointerEvent) => {
+			window.removeEventListener("pointerup", release);
+			window.removeEventListener("pointercancel", release);
+			actNow.current(pointerPress.current.up(up.timeStamp));
+		};
+		window.addEventListener("pointerup", release);
+		window.addEventListener("pointercancel", release);
+	};
 
 	// Escape gives up a dictation wherever focus is, before anything else
 	// on the window hears it.
@@ -214,6 +283,7 @@ export function Composer({
 	}, [attachments.length, dictating]);
 
 	const submit = () => {
+		countdown.cancel();
 		const trimmed = text.trim();
 		if (!trimmed && attachments.length === 0) return;
 		setText("");
@@ -221,6 +291,7 @@ export function Composer({
 		setAttachments([]);
 		onSend(trimmed, sending);
 	};
+	submitNow.current = submit;
 
 	// A refused send hands its words back. Keyed by the moment they were sent,
 	// so the same words can come back twice and still fill the field.
@@ -263,6 +334,15 @@ export function Composer({
 					<PlusIcon />
 				</button>
 				<div className="composer-body">
+					{sendingSince !== null && (
+						<p className="composer-sending" role="status">
+							<svg key={sendingSince} className="send-ring" viewBox="0 0 16 16" aria-hidden="true">
+								<circle cx="8" cy="8" r="6" pathLength="1" style={{ animationDuration: `${SEND_AFTER_MS}ms` }} />
+							</svg>
+							<span className="min-w-0 flex-1 truncate">Sending to {name}…</span>
+							<span className="text-ink-3">Esc to cancel</span>
+						</p>
+					)}
 					{replyQuote !== null && (
 						<div className="flex items-center gap-2 pt-1">
 							<p className="quote mb-0 min-w-0 flex-1">
@@ -302,7 +382,9 @@ export function Composer({
 						onChange={(event) => {
 							setText(event.target.value);
 							dictation?.clearError();
+							countdown.cancel();
 						}}
+						onPointerDown={() => countdown.cancel()}
 						onPaste={(event) => {
 							const files = Array.from(event.clipboardData.files);
 							if (files.length > 0) {
@@ -317,7 +399,7 @@ export function Composer({
 							}
 						}}
 						onKeyDown={(event) => {
-							// While dictating, Enter is "done": the words stay in the field, unsent.
+							// While dictating, Enter stops, as a tap would.
 							if (dictating && event.key === "Enter") {
 								event.preventDefault();
 								if (heard.phase === "listening") void dictation?.stop();
@@ -359,7 +441,11 @@ export function Composer({
 						aria-label={heard.phase === "starting" ? "Stop" : "Stop dictating"}
 						data-shown="true"
 						disabled={heard.phase === "finishing"}
-						onClick={() => dictation.toggle()}
+						onPointerDown={pressKey}
+						// A pointer acted on the way down; this is the keyboard's Enter or Space.
+						onClick={(event) => {
+							if (event.detail === 0) dictation.toggle();
+						}}
 					>
 						<VoiceMeter
 							source={dictation.watchLevel}
@@ -377,7 +463,10 @@ export function Composer({
 						tabIndex={actionShown ? 0 : -1}
 						data-shown={actionShown ? "true" : undefined}
 						disabled={!voice && !mic && !hasContent}
-						onClick={mic ? () => dictation?.toggle() : voice ? onCall : submit}
+						onPointerDown={mic ? pressKey : undefined}
+						onClick={mic ? (event) => {
+							if (event.detail === 0) dictation?.toggle();
+						} : voice ? onCall : submit}
 					>
 						{mic ? <MicIcon /> : voice ? <VoiceIcon /> : <ArrowUpIcon />}
 					</button>

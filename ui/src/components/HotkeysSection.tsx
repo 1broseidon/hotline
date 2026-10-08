@@ -1,22 +1,30 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { matchChord, withCurrentKeys, CHORDS } from "../chords";
 import { HOTKEYS, hotkeyFromPress, hotkeyLabel, setHotkey, setRecording, useHotkeyRefusals, useHotkeys, type HotkeyId } from "../hotkeys";
 import { CloseIcon } from "../icons";
 import { isDesktop, platform } from "../native";
-import { useDictationAvailable } from "../voice/dictation";
+import { Picker } from "../ui/Menu";
+import { SEND_AFTER_MS, setAfterDictation, useAfterDictation, useDictationAvailable, type AfterDictation } from "../voice/dictation";
+
+const AFTER_CHOICES: { id: AfterDictation; name: string }[] = [
+	{ id: "leave", name: "Leave it in the box" },
+	{ id: "send", name: `Send after ${SEND_AFTER_MS / 1000} seconds` },
+];
 
 const HOLD = platform() === "macos" ? "Hold Control, Option or Command, then press a key." : "Hold Ctrl or Alt, then press a key.";
 
 /**
  * Settings › General › Shortcuts: the keys that work from any app on this
  * computer (hotkeys.ts). Each row records new keys, turns its shortcut off,
- * and says when the system would not give Hotline the keys. Dictate is
- * offered only where this Mac can dictate.
+ * and says when the system would not give Hotline the keys. Dictate, and
+ * what becomes of dictated words, are offered only where this Mac can
+ * dictate.
  */
 export function HotkeysSection() {
 	const bindings = useHotkeys();
 	const refused = useHotkeyRefusals();
 	const dictation = useDictationAvailable();
+	const after = useAfterDictation();
 	if (!isDesktop()) return null;
 	const rows = HOTKEYS.filter((hotkey) => hotkey.id !== "dictate" || dictation);
 	return (
@@ -24,20 +32,35 @@ export function HotkeysSection() {
 			<h3 className="group-title">Shortcuts</h3>
 			<div className="grouped">
 				{rows.map((hotkey) => (
-					<HotkeyRow
-						key={hotkey.id}
-						id={hotkey.id}
-						label={hotkey.label}
-						keys={bindings[hotkey.id]}
-						refusal={refused[hotkey.id]}
-						usedBy={(accelerator) => rows.find((other) => other.id !== hotkey.id && bindings[other.id] === accelerator)?.label}
-					/>
+					<Fragment key={hotkey.id}>
+						<HotkeyRow
+							id={hotkey.id}
+							label={hotkey.label}
+							keys={bindings[hotkey.id]}
+							refusal={refused[hotkey.id]}
+							usedBy={(accelerator) => rows.find((other) => other.id !== hotkey.id && bindings[other.id] === accelerator)?.label}
+						/>
+						{hotkey.id === "dictate" && (
+							<div className="group-row">
+								<span className="group-row-text">
+									<span className="group-row-title">After you stop talking</span>
+								</span>
+								<Picker
+									value={after}
+									choices={AFTER_CHOICES}
+									placeholder="Leave it in the box"
+									label="After you stop talking"
+									onChange={(id) => setAfterDictation(id as AfterDictation)}
+								/>
+							</div>
+						)}
+					</Fragment>
 				))}
 			</div>
 			<p className="group-hint">
 				{dictation
-					? "They work from any app and bring Hotline forward. Dictate starts or stops dictation in the open conversation; Call calls the open teammate, or hangs up."
-					: "It works from any app and brings Hotline forward. Call calls the open teammate, or hangs up."}
+					? "They work from any app. Dictate brings Hotline forward: tap it to start and again to stop, or hold it while you talk. Conversation calls the open teammate hands-free, or hangs up."
+					: "It works from any app. Conversation calls the open teammate hands-free, or hangs up."}
 			</p>
 		</section>
 	);

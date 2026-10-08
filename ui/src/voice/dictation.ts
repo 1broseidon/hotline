@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { type DeviceTranscription, deviceTranscription, hearsOnThisMac } from "./transcription";
 
 /**
@@ -59,6 +59,8 @@ type DictationView = {
 type DictationField = {
 	read(): string;
 	write(text: string): void;
+	/** A dictation stopped by the person put its words in the field: these, without what was there before. */
+	done?(heard: string): void;
 };
 
 export const DICTATION_UNAVAILABLE = "Dictation isn't available on this Mac.";
@@ -196,7 +198,9 @@ export class Dictation {
 		if (run !== this.run) return;
 		this.part = final;
 		this.show();
+		const heard = joinDictated("", [...this.committed, final]);
 		this.end(null);
+		this.field.done?.(heard);
 	}
 
 	/** Lets the session go and puts the field back as it was. */
@@ -322,32 +326,195 @@ export function useDictationAvailable(): boolean {
 	return available;
 }
 
-/**
- * The shortcut's way to the conversation's composer. A press with no
- * composer on screen (Settings was open) waits briefly for the one the
- * window is about to show, which takes it as it mounts.
- */
-const REQUEST_PATIENCE_MS = 3_000;
-let target: (() => void) | null = null;
-let requestedAt: number | null = null;
+// ------------------------------------------------------------- tap or hold
 
-export function requestDictation(now = Date.now()): void {
-	if (target !== null) {
-		target();
-		return;
-	}
-	requestedAt = now;
+/** A press held this long is talking while held; a shorter one is a tap that starts or stops. */
+export const HOLD_MS = 300;
+/** A press after this long without one is a new press, so a release the system lost cannot wedge the key. */
+const REPEAT_GAP_MS = 2_500;
+
+export function pressKind(heldMs: number): "tap" | "hold" {
+	return heldMs >= HOLD_MS ? "hold" : "tap";
 }
 
-/** The conversation's composer takes the shortcut's presses while it is mounted. */
-export function takeDictationRequests(toggle: () => void, now = Date.now()): () => void {
-	target = toggle;
-	const waiting = requestedAt;
-	requestedAt = null;
+/**
+ * One key or button that dictates both ways: a press starts listening at
+ * once (or stops a dictation a tap left running), and its release stops
+ * it only when the press was a hold. A press again before the release is
+ * the key repeating, not a new press.
+ */
+export class TapOrHold {
+	private downAt: number | null = null;
+	private lastDownAt = 0;
+	private started = false;
+
+	/** The key went down. `listening` is whether a dictation is already on. */
+	down(at: number, listening: boolean): "start" | "stop" | null {
+		const repeat = this.downAt !== null && at - this.lastDownAt < REPEAT_GAP_MS;
+		this.lastDownAt = at;
+		if (repeat) return null;
+		this.downAt = at;
+		this.started = !listening;
+		return listening ? "stop" : "start";
+	}
+
+	/** The key came up: a hold that started listening stops it. */
+	up(at: number): "stop" | null {
+		if (this.downAt === null) return null;
+		const held = at - this.downAt;
+		this.downAt = null;
+		return this.started && pressKind(held) === "hold" ? "stop" : null;
+	}
+}
+
+// ------------------------------------------------------------- sending after
+
+/** The field is sent this long after a dictation stops, when the person asked for that. */
+export const SEND_AFTER_MS = 1_500;
+
+/** Fewer than two letters is a cough or a click, not a message. */
+export function worthSending(heard: string): boolean {
+	return heard.replace(/\s/g, "").length >= 2;
+}
+
+/**
+ * The count down to sending what was dictated. It starts when a dictation
+ * stops with words; the person can send at once, or call it off, which
+ * leaves the words in the field. The clock is handed in, so tests need no
+ * timers.
+ */
+export class SendCountdown {
+	private cancelTimer: (() => void) | null = null;
+	private startedAt: number | null = null;
+	private readonly listeners = new Set<() => void>();
+
+	constructor(
+		private readonly send: () => void,
+		private readonly after: (callback: () => void, ms: number) => () => void = (callback, ms) => {
+			const timer = setTimeout(callback, ms);
+			return () => clearTimeout(timer);
+		},
+	) {}
+
+	/** When it began, while it counts; null otherwise. */
+	get counting(): number | null {
+		return this.startedAt;
+	}
+
+	readonly watch = (listener: () => void): (() => void) => {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	};
+
+	/** False, and nothing counts, for words not worth sending. */
+	start(heard: string, now = Date.now()): boolean {
+		this.cancel();
+		if (!worthSending(heard)) return false;
+		this.startedAt = now;
+		this.cancelTimer = this.after(() => this.fire(), SEND_AFTER_MS);
+		this.changed();
+		return true;
+	}
+
+	/** Escape, a key typed or a click in the field: the words stay, unsent. */
+	cancel(): void {
+		if (this.startedAt === null) return;
+		this.cancelTimer?.();
+		this.cancelTimer = null;
+		this.startedAt = null;
+		this.changed();
+	}
+
+	/** Enter: send now rather than in a moment. False when nothing was counting. */
+	sendNow(): boolean {
+		if (this.startedAt === null) return false;
+		this.fire();
+		return true;
+	}
+
+	private fire(): void {
+		this.cancelTimer?.();
+		this.cancelTimer = null;
+		this.startedAt = null;
+		this.changed();
+		this.send();
+	}
+
+	private changed(): void {
+		for (const listener of this.listeners) listener();
+	}
+}
+
+/** What happens to dictated words when the person stops: this computer's choice, like its shortcuts. */
+export type AfterDictation = "leave" | "send";
+const AFTER_KEY = "hotline.dictation.after";
+const afterListeners = new Set<() => void>();
+
+function storedAfter(): AfterDictation {
+	try {
+		return localStorage.getItem(AFTER_KEY) === "send" ? "send" : "leave";
+	} catch {
+		return "leave";
+	}
+}
+let after: AfterDictation = storedAfter();
+
+export function afterDictation(): AfterDictation {
+	return after;
+}
+
+export function setAfterDictation(next: AfterDictation): void {
+	after = next;
+	try {
+		if (next === "leave") localStorage.removeItem(AFTER_KEY);
+		else localStorage.setItem(AFTER_KEY, next);
+	} catch {
+		// Private mode: the choice holds until the app quits.
+	}
+	for (const listener of afterListeners) listener();
+}
+
+export function useAfterDictation(): AfterDictation {
+	return useSyncExternalStore(
+		(listener) => {
+			afterListeners.add(listener);
+			return () => afterListeners.delete(listener);
+		},
+		() => after,
+	);
+}
+
+// ------------------------------------------------------------- the shortcut
+
+/**
+ * The Dictate shortcut's way to the conversation's composer: each press
+ * and release, with when it happened, so the composer can tell a tap from
+ * a hold. Edges with no composer on screen (Settings was open) wait
+ * briefly for the one the window is about to show, which takes them as it
+ * mounts.
+ */
+export type KeyEdge = "down" | "up";
+const REQUEST_PATIENCE_MS = 3_000;
+let target: ((edge: KeyEdge, at: number) => void) | null = null;
+let waiting: { edge: KeyEdge; at: number }[] = [];
+
+export function requestDictation(edge: KeyEdge, at = Date.now()): void {
+	if (target !== null) {
+		target(edge, at);
+		return;
+	}
+	waiting.push({ edge, at });
+}
+
+/** The conversation's composer takes the shortcut's edges while it is mounted. */
+export function takeDictationRequests(handle: (edge: KeyEdge, at: number) => void, now = Date.now()): () => void {
+	target = handle;
+	const fresh = waiting.filter((one) => now - one.at < REQUEST_PATIENCE_MS);
+	waiting = [];
 	// After the mount has settled: React may take a fresh mount down and up
 	// once more (StrictMode), and that would let a dictation begun here go.
-	if (waiting !== null && now - waiting < REQUEST_PATIENCE_MS) queueMicrotask(toggle);
+	if (fresh.length > 0) queueMicrotask(() => fresh.forEach((one) => handle(one.edge, one.at)));
 	return () => {
-		if (target === toggle) target = null;
+		if (target === handle) target = null;
 	};
 }

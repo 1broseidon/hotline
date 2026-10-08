@@ -10,6 +10,8 @@
     "core:default",
     "core:window:allow-set-title",
     "core:window:allow-set-focus",
+    "core:window:allow-show",
+    "core:window:allow-unminimize",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
     "core:window:allow-minimize",

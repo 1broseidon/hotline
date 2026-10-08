@@ -18,9 +18,9 @@ import { sameWork, Work, type OpenWork } from "./components/Work";
 import type { ThreadRef } from "./components/Transcript";
 import { Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
-import { hotkeyRegistrar, onHotkey, useHotkeys, useRecording, type HotkeyId } from "./hotkeys";
+import { hotkeyRegistrar, onHotkey, useHotkeys, useRecording, type HotkeyId, type KeyState } from "./hotkeys";
 import { requestDictation, useDictationAvailable } from "./voice/dictation";
-import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, watchWindowShape } from "./native";
+import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, showWindow, watchWindowShape } from "./native";
 import { watchLooking } from "./looking";
 import { noticeRoster, setWindowTitle, toastTarget } from "./notify";
 import { useModelsRevision, useRoomJobs } from "./room";
@@ -498,27 +498,37 @@ export function App() {
 		[nameOf],
 	);
 
-	/* The shortcuts heard anywhere on this computer (hotkeys.ts). The shell
-	 * has already brought the window forward; Dictate goes to the open
+	/* The shortcuts heard anywhere on this computer (hotkeys.ts). Dictate
+	 * brings the window forward and hands its press and release to the open
 	 * conversation's composer, or the last teammate's when a pane stands in
-	 * its place, and Call rings the open teammate or hangs up. */
-	const hotkeyPressed = useRef<(id: HotkeyId) => void>(() => {});
-	hotkeyPressed.current = (id) => {
+	 * its place, which tells a tap from a hold. Conversation calls the open
+	 * teammate, coming forward to do it, or hangs up where the person is. */
+	const hotkeyPressed = useRef<(id: HotkeyId, state: KeyState) => void>(() => {});
+	hotkeyPressed.current = (id, state) => {
 		if (id === "dictate") {
 			if (selected === null) return;
-			setPane(null);
-			requestDictation();
+			if (state === "Pressed") {
+				void showWindow();
+				setPane(null);
+			}
+			requestDictation(state === "Pressed" ? "down" : "up");
 			return;
 		}
-		if (calling) closeCall();
-		else if (selected !== null && directCalls) callTeammate(selected);
+		if (state !== "Pressed") return;
+		if (calling) {
+			closeCall();
+			return;
+		}
+		if (selected === null || !directCalls) return;
+		void showWindow();
+		callTeammate(selected);
 	};
-	useEffect(() => onHotkey((id) => hotkeyPressed.current(id)), []);
+	useEffect(() => onHotkey((id, state) => hotkeyPressed.current(id, state)), []);
 	const bindings = useHotkeys();
 	const recordingKeys = useRecording();
 	const dictationHere = useDictationAvailable();
 	useEffect(() => {
-		void hotkeyRegistrar()?.sync(recordingKeys ? {} : { dictate: dictationHere ? bindings.dictate : "", call: bindings.call });
+		void hotkeyRegistrar()?.sync(recordingKeys ? {} : { dictate: dictationHere ? bindings.dictate : "", conversation: bindings.conversation });
 	}, [bindings, recordingKeys, dictationHere]);
 	/* A narrow window has room for faces beside the pane and no more. */
 	const faces = narrow || railSize.compact;

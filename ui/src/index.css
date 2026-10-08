@@ -1690,6 +1690,40 @@
 		display: none;
 	}
 
+	/* Dictated words about to be sent: one line at the head of the pill,
+	 * where a reply's quote goes, with a ring that fills over the wait. */
+	.composer-sending {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin: 0;
+		padding-top: 4px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+	}
+	.send-ring {
+		width: 14px;
+		height: 14px;
+		flex-shrink: 0;
+		transform: rotate(-90deg);
+	}
+	.send-ring circle {
+		fill: none;
+		stroke: var(--accent);
+		stroke-width: 2;
+		stroke-linecap: round;
+		stroke-dasharray: 1;
+		stroke-dashoffset: 1;
+		/* Its duration is the wait itself, set beside it (SEND_AFTER_MS). */
+		animation: send-ring linear forwards;
+	}
+	@keyframes send-ring {
+		to {
+			stroke-dashoffset: 0;
+		}
+	}
+
 	/* A voice as a few rounded bars (VoiceMeter.tsx): each is scaled by
 	 * --bar, 0 to 1, from its middle. Waiting for the final words, they
 	 * shimmer one after another instead. */
@@ -3237,6 +3271,10 @@
 		animation: none;
 		opacity: 0.6;
 		transform: scaleY(0.45);
+	}
+	.send-ring circle {
+		animation: none;
+		stroke-dashoffset: 0;
 	}
 	.row-lit {
 		background-color: var(--accent-soft);

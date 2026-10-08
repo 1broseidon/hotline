@@ -21,6 +21,13 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+      # The speech engine is linked from an archive checked against its pinned
+      # hash, never fetched by the build itself (scripts/fetch-speech-engine).
+      - name: Fetch the pinned speech engine
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2

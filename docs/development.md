@@ -20,6 +20,15 @@ code implements them, are [wire.md](wire.md), [log.md](log.md) and
   `xcrun swiftc`. Its `SpeechAnalyzer` path needs Swift 6.2 or newer
   (Xcode 26); an older compiler builds only the `SFSpeechRecognizer` path
   ([voice.md](voice.md#device-text-on-a-mac)).
+- Python 3 and network access once per target, for the speech engine:
+  `hotline-core` links sherpa-onnx's prebuilt static library, which the
+  build takes only from `target/speech-engine`
+  (`SHERPA_ONNX_ARCHIVE_DIR` in `.cargo/config.toml`).
+  `scripts/fetch-speech-engine` puts it there after checking its SHA-256
+  against `scripts/speech-engine.sha256`; `make dev`, `check`, `build` and
+  `verify` run it first, and so does every CI job that compiles Rust. A
+  plain `cargo build` on a fresh checkout needs it run once by hand
+  (`--target` for a cross build).
 - On Linux, `libayatana-appindicator3` at runtime, for the tray, and its
   dev package (`libayatana-appindicator3-dev`) to bundle: the Tauri CLI
   finds the library through pkg-config before it writes the deb. A

@@ -272,11 +272,11 @@ so a phone that streams its microphone keeps streaming it. It takes at most a
 minute at a time and never speaks. Its price is zero, so a zero spending
 limit never stops it.
 
-In the window the models are rows under Hearing, in Settings › Providers ›
-Use for › Voice's More (`ui/src/components/DeskModels.tsx`), which opens even
-when nothing can speak yet. While nothing can hear and More is folded, a
-line under Voice says "To talk without a key, download a free speech
-model" and unfolds it. A row says what the model hears and its download
+In the window the models are rows in Settings › Providers › Use for ›
+Hearing (`ui/src/components/DeskModels.tsx`), a fold under Voice that opens
+even when nothing can speak yet. Folded, it says what hears you now; while
+nothing can, it reads "None yet. Download a free speech model." with Set up.
+Open, it holds Hears with, the models and the call assistant. A row says what the model hears and its download
 size, and its Download button names the size; while it downloads the row
 shows how much has arrived over a bar and offers Cancel, and once installed
 it shows its size on the desk and offers Remove. The window asks

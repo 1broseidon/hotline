@@ -3334,7 +3334,8 @@
 	 * tight one: the float shadow's 32px blur, over a conversation that
 	 * scrolls or streams beneath it, cost WebKit a tenth of a core. */
 	.work-float,
-	.call-float {
+	.call-float,
+	.update-float {
 		background: color-mix(in oklab, var(--pop) 72%, transparent);
 		-webkit-backdrop-filter: blur(20px) saturate(1.4);
 		backdrop-filter: blur(20px) saturate(1.4);
@@ -3354,6 +3355,33 @@
 		gap: 12px;
 		padding: 10px 12px 14px;
 		border-radius: var(--radius-pane);
+	}
+	/* The corner's newest version. Alone it sits at the bottom; under a call, just below it. */
+	.update-float {
+		display: flex;
+		width: 248px;
+		flex-shrink: 0;
+		margin-top: auto;
+		flex-direction: column;
+		gap: 6px;
+		padding: 10px 10px 12px 14px;
+		border-radius: var(--radius-pane);
+	}
+	.call-float + .update-float {
+		margin-top: 0;
+	}
+	.update-top {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: var(--text-md);
+		color: var(--ink);
+	}
+	.update-detail {
+		margin-bottom: 4px;
+		padding-right: 8px;
+		font-size: var(--text-sm);
+		color: var(--ink-2);
 	}
 	/* In a narrow window the composer runs the full width; sit above it. */
 	@container (max-width: 716px) {

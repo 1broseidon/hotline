@@ -10,6 +10,7 @@ import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { Titlebar } from "./ui/Titlebar";
 import { CallFloat } from "./components/Call";
+import { UpdateFloat } from "./components/UpdateFloat";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
 import { Teammate } from "./components/Teammate";
@@ -734,14 +735,19 @@ export function App() {
 							onOpenTeammate={select}
 						/>
 					)}
-					{/* What floats over the window runs down its right edge: a turn's work at the top, the call at the bottom. */}
-				{(floatWork !== null || call !== null) && (
+					{/* What floats over the window runs down its right edge: a turn's work at the top, the call and a new version at the bottom. */}
+				{(floatWork !== null || call !== null || pane !== "settings") && (
 					<div className="float-stack" style={dock !== null && pane !== "settings" && !dockOverlay ? { right: dockWidth + 24 } : undefined}>
 						{floatWork}
 						{call !== null && <CallFloat call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => {
 							if (call.deskId == null || call.deskId === activeDeskId()) { select(personaId); return; }
 							try { localStorage.setItem(deskKey(SELECTED_KEY, call.deskId), personaId); } catch { /* Private mode. */ }
 							setActiveDesk(call.deskId);
+						}} />}
+						{/* Settings › Updates says it already, with the notes and the install. */}
+						{pane !== "settings" && <UpdateFloat onOpen={() => {
+							setSettingsSection("updates");
+							setPane("settings");
 						}} />}
 					</div>
 				)}

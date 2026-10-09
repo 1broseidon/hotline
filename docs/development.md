@@ -123,6 +123,13 @@ installed version starts a fresh check. Failures keep the previous offer.
 Release notes are plain text, and cached offers never authorize installation:
 Hotline rechecks the trusted endpoint and requires the version the user reviewed.
 
+A version found while the window is open also shows once as a card in the
+window's bottom-right corner (`ui/src/components/UpdateFloat.tsx`), whose
+**Update…** opens Settings → Updates. Closing it puts that version away
+(`hotline.updateDismissed` in the window's local storage) until a newer one
+is found. A dev build never checks, so `VITE_PREVIEW_UPDATE=0.35.1 make dev`
+shows the card for that version.
+
 **Download, install and restart** uses `tauri-plugin-updater` 2.11.0, following
 Prism's desktop updater. The plugin verifies the downloaded signature before
 installation. A download can be cancelled; installation cannot be cancelled

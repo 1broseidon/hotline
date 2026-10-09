@@ -92,7 +92,7 @@ A release is a tag `desktop-vX.Y.Z` whose version matches `Cargo.toml` and
 target on its own runner, signs and notarizes the Mac bundles from the
 repository secrets, and publishes one GitHub Release marked latest. A hand
 run of the workflow builds and keeps artifacts only. `CHANGELOG.md` takes
-an entry per version.
+an entry per version, and `docs/releases/<version>.md` its release notes.
 
 `make dev` exports `HOTLINE_DATA_DIR` to `.hotline-dev` in the checkout, then
 runs `cargo tauri dev` from `crates/hotline-app`, where `tauri.conf.json`
@@ -120,10 +120,13 @@ running, with a first check after 20 seconds when due. **Check now** bypasses
 that interval. The last attempt and available version are stored in
 `<data dir>/updater.json`; restarting Hotline preserves the interval. A new
 installed version starts a fresh check. Failures keep the previous offer.
-Release notes are the version's `CHANGELOG.md` section
-(`scripts/changelog_notes.py`; a tag without one fails before publishing),
-shown in Settings → Updates through the conversation's markdown renderer,
-which never interprets HTML. Cached offers never authorize installation:
+Release notes are written for each version in `docs/releases/<version>.md`:
+a headline and a few plain highlights for the person using Hotline. They are
+what Settings → Updates and the update card offer, through the
+conversation's markdown renderer, which never interprets HTML. The GitHub
+Release shows them over the version's `CHANGELOG.md` section, the full
+record, and a comparison with the previous tag (`scripts/release_notes.py`).
+A tag missing either fails before anything is published. Cached offers never authorize installation:
 Hotline rechecks the trusted endpoint and requires the version the user reviewed.
 
 A version found while the window is open also shows once as a card in the

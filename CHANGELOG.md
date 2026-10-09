@@ -51,8 +51,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 ### Fixed
 
 - Settings › Updates shows a release's notes as formatted text instead of
-  raw markdown, and the notes are the version's changelog rather than
-  GitHub's list of pull requests.
+  raw markdown, and each release now has notes written for people rather
+  than GitHub's list of pull requests. The GitHub Release adds the full
+  changelog beneath them.
 - The update card and a call's card keep clear of the message box and the
   teammate's pane.
 - The server installer edits its service file in a way both Linux and

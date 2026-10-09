@@ -673,6 +673,10 @@ impl Seat {
             // already reads, so the phone reads the file too. `file.read`
             // names a message, never a path, and serves only what the desk
             // kept for that message.
+            //
+            // A turn that failed may be tried again from the phone too:
+            // `session.retry` sends a line already on the tape once more and
+            // writes nothing new, so it is no more than the phone already did.
             Seat::Phone => {
                 phone_thread_command(command)
                     || matches!(
@@ -691,6 +695,7 @@ impl Seat {
                     // ready. Read-only, and carries no credential.
                     | Command::BackendsList { .. }
                     | Command::SessionCancel { .. }
+                    | Command::SessionRetry { .. }
                     | Command::HumanAnswer { .. }
                     | Command::SecretsPasskeyAnswer { .. }
                     | Command::SessionAnswerPermission { .. }

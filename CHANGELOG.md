@@ -22,6 +22,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   at what each reply actually cost. When it is spent, a turn stops with
   "Chat budget spent" before anything is sent. Sign-ins, local models and
   ACP agents are not counted.
+- Settings › Providers › Use for names Transcription and the Call assistant
+  as rows of their own, and Add provider lists every service by name again;
+  the cards stay in the welcome.
 - Subagents still running show at the top right of the message box instead
   of in the conversation's header. One is named, several are counted with a
   menu, and pressing one opens its run beside the conversation. Side threads

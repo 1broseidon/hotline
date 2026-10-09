@@ -24,6 +24,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 const FILE: &str = "voice-ledger.json";
+/// Teammates' own turns, kept apart from voice's tally in the same shape.
+pub const CHAT_FILE: &str = "chat-ledger.json";
 
 /// What a charge was for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,15 +33,17 @@ pub enum Kind {
     Stt,
     Tts,
     Dispatcher,
+    /// A teammate's own turn on a per-token key. Kept in the chat ledger.
+    Teammates,
 }
 
 impl Kind {
     /// The budget it is spent against: hearing and speaking are Voice, the
-    /// call assistant is Chat.
+    /// call assistant and teammates are Chat.
     pub fn budget(self) -> BudgetKind {
         match self {
             Kind::Stt | Kind::Tts => BudgetKind::Voice,
-            Kind::Dispatcher => BudgetKind::Chat,
+            Kind::Dispatcher | Kind::Teammates => BudgetKind::Chat,
         }
     }
 }
@@ -78,7 +82,7 @@ impl fmt::Display for Exhausted {
             ),
             Exhausted::Unreadable => write!(
                 f,
-                "Voice can't check its budget, so paid calls are off. Chat carries on by text."
+                "The spending tally can't be read, so paid use is off until it can."
             ),
         }
     }
@@ -113,24 +117,27 @@ pub struct Spent {
     pub month: Spend,
 }
 
-/// Spend by kind, for a day or a month.
+/// Spend by kind, for a day or a month. A file from before teammates were
+/// metered has no `teammates`, which reads as nothing spent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Spend {
     pub stt: f64,
     pub tts: f64,
     pub dispatcher: f64,
+    #[serde(default)]
+    pub teammates: f64,
 }
 
 impl Spend {
     pub fn total(&self) -> f64 {
-        self.stt + self.tts + self.dispatcher
+        self.stt + self.tts + self.dispatcher + self.teammates
     }
 
     /// What was spent against one budget.
     pub fn budget(&self, budget: BudgetKind) -> f64 {
         match budget {
             BudgetKind::Voice => self.stt + self.tts,
-            BudgetKind::Chat => self.dispatcher,
+            BudgetKind::Chat => self.dispatcher + self.teammates,
             BudgetKind::Images => 0.0,
         }
     }
@@ -140,6 +147,7 @@ impl Spend {
             Kind::Stt => &mut self.stt,
             Kind::Tts => &mut self.tts,
             Kind::Dispatcher => &mut self.dispatcher,
+            Kind::Teammates => &mut self.teammates,
         }
     }
 
@@ -154,7 +162,7 @@ impl Spend {
     }
 
     fn sane(&self) -> bool {
-        [self.stt, self.tts, self.dispatcher]
+        [self.stt, self.tts, self.dispatcher, self.teammates]
             .iter()
             .all(|usd| usd.is_finite() && *usd >= 0.0)
     }
@@ -248,8 +256,13 @@ pub struct Ledger {
 impl Ledger {
     /// The ledger under a desk's data directory. Nothing is read until it is asked.
     pub fn open(data_root: &Path) -> Ledger {
+        Ledger::open_file(data_root, FILE)
+    }
+
+    /// A ledger kept in another file under the data directory.
+    pub fn open_file(data_root: &Path, file: &str) -> Ledger {
         Ledger {
-            path: data_root.join(FILE),
+            path: data_root.join(file),
             state: Mutex::new(State {
                 record: None,
                 version: 0,

@@ -18,6 +18,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   subscription or the desk's own voice is never ended by a spent budget,
   and a refused call says which budget is spent. An earlier version's
   shared limits carry over as the Voice and Images limits.
+- Hotline Agent teammates on a provider key count against the Chat budget,
+  at what each reply actually cost. When it is spent, a turn stops with
+  "Chat budget spent" before anything is sent. Sign-ins, local models and
+  ACP agents are not counted.
 
 ### Fixed
 

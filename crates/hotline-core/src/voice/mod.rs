@@ -311,7 +311,8 @@ impl Calls {
         room: Weak<Room>,
         injected: Option<Services>,
     ) -> Arc<Self> {
-        Self::with_models(log, vault, room, injected, local::catalogue())
+        let budget = Arc::new(Budget::open(log.clone()));
+        Self::with_models(log, vault, room, injected, local::catalogue(), budget)
     }
 
     /// With the speech models offered for download named, for a harness that serves its own.
@@ -321,9 +322,10 @@ impl Calls {
         room: Weak<Room>,
         injected: Option<Services>,
         models: Vec<local::Model>,
+        ledger: Arc<Budget>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            ledger: Arc::new(Budget::open(log.clone())),
+            ledger,
             installs: Installs::new(vault.root(), models),
             log,
             vault,

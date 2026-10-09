@@ -254,6 +254,26 @@ obsolete `request_human` wait is released without treating the new text as an
 answer or approval. Missing usage from an interrupted request is reported as
 unknown.
 
+**The Chat budget.** A turn on a model billed per token (a provider key, or a
+custom server with a key) is metered against the Chat budget of
+`settings.spending`, the one the call assistant also spends
+(`turn::ChatMeter`). Each round reserves an estimate before its request goes
+out: about a third of the request's bytes as input tokens (the same
+`recovery::estimated_tokens` the context threshold uses), plus the request's
+output ceiling, at the model's price from discovery or the bundled catalogue
+(`crate::pricing`, the call assistant's own). When the round reports its
+usage, the reservation is settled to what it cost, cache reads and writes
+priced at the catalogue's cache prices. A round that fails, is interrupted,
+or reports no usage keeps its reservation. The spend is kept in
+`<data dir>/chat-ledger.json` by day and month, beside voice's tally, and the
+Chat budget is judged on both. When a round's reservation is refused (the
+Chat budget is spent, or set to zero) the turn ends with a failure of kind
+`budget`, titled "Chat budget spent", before anything is sent; the window
+shows it without **Try again**, since trying again cannot help until the
+budget is raised or the day or month turns. A sign-in, a local server or a
+model with no per-token price is never metered or refused. ACP teammates
+bill their own accounts and are not counted at all.
+
 Before anything else it is told a **preamble**: who it is, the goal, the
 working directory, how far it can reach, how to read the clock, how to use Hotline's
 own tools, the index of the skills in its workspace (name, description and
@@ -667,7 +687,8 @@ what is sent:
 An ACP teammate (`driver/acp.rs`) is another process. Selecting it trusts
 that harness's tools, configuration, and permission policy. Hotline holds no
 credentials for it — these agents sign themselves in — and does not apply
-its shell sandbox to the harness's own tools.
+its shell sandbox to the harness's own tools. Its turns are billed to the
+harness's own account, so they are not counted against the Chat budget.
 
 For ACP teammates, Settings → Reach shows the harness's advertised runtime
 mode and labels it **Externally managed**. The chat header shows only model

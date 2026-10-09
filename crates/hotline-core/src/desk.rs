@@ -38,6 +38,7 @@ use tokio_util::sync::CancellationToken;
 struct DeskCredentials {
     vault: Arc<Vault>,
     log: Log,
+    budget: Arc<crate::voice::metering::Budget>,
 }
 
 impl ProviderKeys for DeskCredentials {
@@ -63,6 +64,10 @@ impl ProviderKeys for DeskCredentials {
 
     fn web_search_keys(&self) -> crate::websearch::Keys {
         self.vault.web_search_keys()
+    }
+
+    fn budget(&self) -> Option<Arc<crate::voice::metering::Budget>> {
+        Some(self.budget.clone())
     }
 }
 
@@ -148,9 +153,13 @@ impl Desk {
         let log = Log::open(root);
         log.migrate_backend_id()?;
         let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
+        // One budget for the desk: voice, the call assistant and teammates'
+        // turns all reserve through it, so none can spend what another did.
+        let budget = Arc::new(crate::voice::metering::Budget::open(log.clone()));
         let keys = Arc::new(DeskCredentials {
             vault: vault.clone(),
             log: log.clone(),
+            budget: budget.clone(),
         });
         let room = Room::new_with_mcp(log.clone(), keys, vault.clone());
         let mcp_oauth = Arc::new(McpOAuthService::new(vault.clone()));
@@ -173,6 +182,7 @@ impl Desk {
             Arc::downgrade(&room),
             services,
             models,
+            budget,
         );
         room.set_voice(&voice);
         Ok(Desk {

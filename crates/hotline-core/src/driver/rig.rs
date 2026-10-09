@@ -586,20 +586,16 @@ impl InProcess {
             mcp_tools.push(tell_person(escalation));
         }
         let model = lock(&self.model).clone();
-        let output_limit = self
-            .keys
-            .model_metadata()
-            .get(&model)
-            .and_then(|model| model.output_limit);
+        let metadata = self.keys.model_metadata();
+        let output_limit = metadata.get(&model).and_then(|model| model.output_limit);
+        let keys = self.keys.provider_auth();
+        let meter = turn::ChatMeter::for_model(self.keys.budget(), &keys, &model, &metadata);
         let turn = Turn {
-            keys: self.keys.provider_auth(),
+            keys,
             model: model.clone(),
             output_limit,
-            context_limit: self
-                .keys
-                .model_metadata()
-                .get(&model)
-                .and_then(|m| m.context_limit),
+            context_limit: metadata.get(&model).and_then(|m| m.context_limit),
+            meter,
             effort: lock(&self.effort).clone(),
             preamble: if index.is_empty() {
                 self.preamble.clone()
@@ -677,6 +673,9 @@ impl InProcess {
 struct Turn {
     keys: HashMap<String, ProviderAuth>,
     model: String,
+    /// The Chat budget this turn's rounds are metered against; `None` for a
+    /// model that costs nothing per token, or a desk without budgets.
+    meter: Option<turn::ChatMeter>,
     output_limit: Option<u64>,
     context_limit: Option<u64>,
     effort: Option<String>,
@@ -2016,6 +2015,7 @@ mod tests {
         let turn = Turn {
             output_limit: None,
             context_limit: None,
+            meter: None,
             keys: HashMap::new(),
             model: "nope/none".to_string(),
             effort: None,
@@ -2589,6 +2589,7 @@ mod tests {
         let turn = || Turn {
             output_limit: None,
             context_limit: None,
+            meter: None,
             keys: HashMap::from([(
                 "github-copilot".to_string(),
                 ProviderAuth::Login {

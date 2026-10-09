@@ -513,8 +513,11 @@ its day. A reservation that is dropped, or settled with a cost that is not a
 number, stays charged.
 
 Each kind is spent against a budget of `settings.spending`: speech to text
-and text to speech against **Voice**, the call assistant against **Chat**
-(which also covers teammates' turns). Images have their own budget and
+and text to speech against **Voice**, the call assistant against **Chat**.
+Chat also covers teammates' own turns on per-token keys, which the same
+`Budget` keeps in `<data dir>/chat-ledger.json` (kind `teammates`); the Chat
+budget is judged on both files together. There is one `Budget` per desk,
+shared by calls and teammates. Images have their own budget and
 ledger. A budget has optional daily and monthly limits and none by default;
 no limit is never spent, and zero turns that budget's paid use off. A room
 that never set `settings.spending` but kept an early version's
@@ -576,7 +579,7 @@ full and can end the run when it spends the cap.
 A model on an API key with no listed price is metered at a guard rate of $5
 per million input tokens and $25 per million output tokens (`UNPRICED`), so
 the caps still bound it. The desk logs once per model that it is doing so
-(`[voice] … has no listed price`), because the budget then runs down faster
+(`[pricing] … has no listed price`), because the budget then runs down faster
 than the bill. The fix is a catalogue entry: run `hotline-models-sync` (see
 [development.md](development.md#the-model-catalogue)). The catalogue holds
 one price per model, so a model priced by prompt length (Claude Haiku 5.5

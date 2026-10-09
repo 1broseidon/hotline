@@ -7,8 +7,9 @@ use super::{
     metering::{BUDGET_ERROR, Budget},
     settings::VoiceSettings,
 };
-use crate::contract::{Command, CredentialKind, ModelCost, ScheduleKind, VoiceModel};
+use crate::contract::{Command, ModelCost, ScheduleKind, VoiceModel};
 use crate::log::{Log, StreamId};
+use crate::pricing::{billed, cost, listed_price};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use async_trait::async_trait;
@@ -618,108 +619,6 @@ const ANSWER_TOKENS: u64 = 512;
 /// instructions (Anthropic's are about 300 tokens).
 const TOOL_BYTES: usize = 2048;
 
-/// What a model with no listed price is metered at, per million tokens: an
-/// Opus-class rate, so the caps still bound the spend of a model nobody
-/// priced. It is a guard and not a price, so a call assistant metered at it
-/// runs the budget down faster than the bill does, and the desk logs that
-/// once per model. Adding the model to `models.json` with `hotline-models-sync`
-/// is the fix.
-const UNPRICED: ModelCost = ModelCost {
-    input: 5.0,
-    output: 25.0,
-    cache_read: None,
-    cache_write: None,
-};
-
-/// The model's price from what its connection discovered, else from the
-/// bundled catalogue. `None` when neither lists one.
-fn listed_price(
-    model: &str,
-    metadata: &std::collections::HashMap<String, crate::contract::CatalogModel>,
-) -> Option<ModelCost> {
-    metadata
-        .get(model)
-        .and_then(|entry| entry.cost.clone())
-        .or_else(|| {
-            let (provider, id) = model.split_once('/')?;
-            let cost = crate::models::catalog()
-                .providers
-                .get(provider)?
-                .models
-                .get(id)?
-                .cost
-                .as_ref()?;
-            Some(ModelCost {
-                input: cost.input,
-                output: cost.output,
-                cache_read: cost.cache_read,
-                cache_write: cost.cache_write,
-            })
-        })
-}
-
-/// What the call assistant pays per token: nothing on a sign-in or a local
-/// server, the listed price on an API key, and [`UNPRICED`] on a key whose
-/// model has no listed price.
-fn billed(kind: Option<CredentialKind>, model: &str, listed: Option<ModelCost>) -> ModelCost {
-    match kind {
-        Some(CredentialKind::Oauth | CredentialKind::Local) => ModelCost {
-            input: 0.0,
-            output: 0.0,
-            cache_read: None,
-            cache_write: None,
-        },
-        _ => listed.unwrap_or_else(|| {
-            warn_unpriced(model);
-            UNPRICED
-        }),
-    }
-}
-
-/// Says once per model, in the desk's log, that it is metered at [`UNPRICED`].
-fn warn_unpriced(model: &str) {
-    static WARNED: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> =
-        std::sync::OnceLock::new();
-    let first = super::lock(WARNED.get_or_init(Mutex::default)).insert(model.to_string());
-    if first {
-        eprintln!(
-            "[voice] {model} has no listed price, so the call assistant is metered at ${} in and ${} out per million tokens; the voice budget runs down faster than the bill",
-            UNPRICED.input, UNPRICED.output
-        );
-    }
-}
-
-/// What a response cost at `price`, in dollars. Anthropic reports cache reads
-/// and writes beside `input_tokens`; the OpenAI-style APIs count them inside
-/// it. Tokens the total holds beyond input and output (a Gemini model's
-/// thinking) are priced as output. A cache price the catalogue lacks is the
-/// input price for a read and Anthropic's 1.25 times it for a write.
-fn cost(price: &ModelCost, usage: &Usage, cache_beside_input: bool) -> f64 {
-    let read = usage.cached_input_tokens;
-    let written = usage.cache_creation_input_tokens;
-    let cached = read.saturating_add(written);
-    let (fresh, input) = if cache_beside_input {
-        (
-            usage.input_tokens,
-            usage.input_tokens.saturating_add(cached),
-        )
-    } else {
-        (
-            usage.input_tokens.saturating_sub(cached),
-            usage.input_tokens.max(cached),
-        )
-    };
-    let unreported = usage
-        .total_tokens
-        .saturating_sub(input.saturating_add(usage.output_tokens));
-    let output = usage.output_tokens.saturating_add(unreported);
-    (fresh as f64 * price.input
-        + read as f64 * price.cache_read.unwrap_or(price.input)
-        + written as f64 * price.cache_write.unwrap_or(price.input * 1.25)
-        + output as f64 * price.output)
-        / 1_000_000.0
-}
-
 /// The owner's thinking level if the model lists it. A level the model
 /// doesn't list (the model changed, or the setting was typed by hand) is
 /// dropped rather than sent and refused.
@@ -1253,6 +1152,8 @@ mod tests {
     }
 
     use super::*;
+    use crate::contract::CredentialKind;
+    use crate::pricing::UNPRICED;
     use axum::{Router, body::Bytes, routing::post};
     use std::sync::Mutex;
 

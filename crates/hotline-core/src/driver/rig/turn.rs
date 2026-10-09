@@ -9,6 +9,68 @@ use rig::streaming::StreamedAssistantContent;
 use rig::tool::{ToolContext, ToolResult, ToolSet};
 use serde_json::json;
 
+/// Meters a turn's rounds against the Chat budget when its model is billed
+/// per token: each round reserves an estimate before its request goes out
+/// and is settled to what the provider reports it used. A round that fails,
+/// is interrupted, or reports no usage keeps its reservation. A sign-in, a
+/// local server or a free model has no meter, so it is never counted or
+/// refused. ACP agents bill their own accounts and are not metered here.
+pub(crate) struct ChatMeter {
+    budget: Arc<crate::voice::metering::Budget>,
+    price: crate::contract::ModelCost,
+}
+
+impl ChatMeter {
+    /// The meter for `model` on the connections in `keys`, or `None` when it
+    /// costs nothing per token or the desk keeps no budget.
+    pub(crate) fn for_model(
+        budget: Option<Arc<crate::voice::metering::Budget>>,
+        keys: &HashMap<String, ProviderAuth>,
+        model: &str,
+        metadata: &HashMap<String, crate::contract::CatalogModel>,
+    ) -> Option<Self> {
+        let budget = budget?;
+        let provider = model.split_once('/')?.0;
+        let price = crate::pricing::billed(
+            keys.get(provider).and_then(crate::pricing::credential_kind),
+            model,
+            crate::pricing::listed_price(model, metadata),
+        );
+        (price.input > 0.0 || price.output > 0.0).then_some(Self { budget, price })
+    }
+
+    /// Reserves a round of about `input` tokens in and at most `output` out.
+    #[allow(clippy::result_large_err)]
+    fn reserve(
+        &self,
+        input: u64,
+        output: u64,
+    ) -> Result<crate::voice::ledger::Reservation, Failure> {
+        let usd =
+            (input as f64 * self.price.input + output as f64 * self.price.output) / 1_000_000.0;
+        self.budget
+            .reserve(crate::voice::ledger::Kind::Teammates, usd)
+            .map_err(Failure::budget)
+    }
+
+    /// Settles a round to its reported usage, which [`every_input_token`]
+    /// has already folded Anthropic's cache counts into, so cache reads and
+    /// writes are priced inside `input_tokens` on every route.
+    fn settle(
+        &self,
+        reservation: crate::voice::ledger::Reservation,
+        usage: &rig::completion::Usage,
+    ) {
+        let actual = crate::pricing::cost(&self.price, usage, false);
+        // A cost that spends the budget is written down; the next round's
+        // reservation is what refuses.
+        let _ = self.budget.settle(reservation, actual);
+    }
+}
+
+/// The output a round is reserved for when the request names no ceiling.
+const UNCAPPED_OUTPUT: u64 = 8_192;
+
 #[derive(Default)]
 pub(super) struct Steering {
     state: Mutex<InputState>,
@@ -205,6 +267,22 @@ async fn run_inner(
         if let Some(context) = jobs.context() {
             request.chat_history.push(Message::user(context));
         }
+        // Before a paid request goes out, the Chat budget must have room for
+        // it; the reservation is kept unless this round's usage settles it.
+        let reservation = match &turn.meter {
+            Some(meter) => Some(
+                meter
+                    .reserve(
+                        recovery::estimated_tokens(&request.chat_history, &request),
+                        request
+                            .max_tokens
+                            .or(turn.output_limit)
+                            .unwrap_or(UNCAPPED_OUTPUT),
+                    )
+                    .map_err(|failure| failure.after_tools(answered_calls))?,
+            ),
+            None => None,
+        };
         let response = model.stream(request);
         tokio::pin!(response);
         let response = loop {
@@ -322,6 +400,12 @@ async fn run_inner(
             }
         }
         let reported = every_input_token(stream.usage(), &turn.model);
+        if let (Some(meter), Some(reservation)) = (&turn.meter, reservation)
+            && stream.response.is_some()
+            && reported.has_values()
+        {
+            meter.settle(reservation, &reported);
+        }
         usage_complete &= stream.response.is_some() && reported.has_values();
         context_tokens = reported.input_tokens.saturating_add(reported.output_tokens);
         usage += reported;
@@ -866,6 +950,7 @@ mod tests {
             mcp_tools: Vec::new(),
             capability: None,
             delegate: None,
+            meter: None,
         };
         let request = CompletionRequest {
             model: None,
@@ -902,6 +987,183 @@ mod tests {
             ))))
             .await
             .unwrap();
+    }
+
+    /// A budget on a scratch desk, with `spending` as the room's setting.
+    fn chat_budget(
+        spending: serde_json::Value,
+    ) -> (tempfile::TempDir, Arc<crate::voice::metering::Budget>) {
+        let root = tempfile::tempdir().unwrap();
+        let log = crate::log::Log::open(root.path());
+        log.append(
+            &crate::log::StreamId::Room,
+            &crate::room::room_event("setting", json!({"id": "spending", "value": spending})),
+        )
+        .unwrap();
+        let budget = Arc::new(crate::voice::metering::Budget::open(log));
+        (root, budget)
+    }
+
+    fn metered(budget: &Arc<crate::voice::metering::Budget>) -> ChatMeter {
+        ChatMeter {
+            budget: budget.clone(),
+            price: crate::contract::ModelCost {
+                input: 1.0,
+                output: 4.0,
+                cache_read: Some(0.1),
+                cache_write: None,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn a_paid_round_is_charged_exactly_what_its_usage_cost() {
+        let (_root, budget) = chat_budget(json!({"chat": {"dayUsd": 5}}));
+        let (mut turn, request) = fixture();
+        turn.meter = Some(metered(&budget));
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (chunks, stream) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([Some(stream)])),
+        };
+        let (updates, _receiver) = mpsc::channel(64);
+        let reserved = budget.clone();
+        let task = tokio::spawn(async move {
+            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
+        });
+        receive(&mut requests).await;
+        // In flight, the round holds its estimate: the whole output ceiling.
+        let estimate = reserved.spent().unwrap().day.teammates;
+        assert!(
+            estimate > (UNCAPPED_OUTPUT as f64 * 4.0) / 1e6,
+            "{estimate}"
+        );
+        chunks
+            .send(Ok(RawStreamingChoice::Message("done".into())))
+            .await
+            .unwrap();
+        // 1,000 tokens in, 400 of them read from the cache; 200 out.
+        let usage = rig::completion::Usage {
+            input_tokens: 1_000,
+            output_tokens: 200,
+            total_tokens: 1_200,
+            cached_input_tokens: 400,
+            ..rig::completion::Usage::new()
+        };
+        chunks
+            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
+                "scripted", usage,
+            ))))
+            .await
+            .unwrap();
+        drop(chunks);
+        task.await.unwrap().unwrap();
+        let charged = budget.spent().unwrap().day.teammates;
+        let expected = (600.0 * 1.0 + 400.0 * 0.1 + 200.0 * 4.0) / 1e6;
+        assert!(
+            (charged - expected).abs() < 1e-15,
+            "{charged} is not {expected}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_spent_chat_budget_refuses_the_turn_before_any_request() {
+        let (_root, budget) = chat_budget(json!({"chat": {"dayUsd": 1}}));
+        budget.charge(crate::voice::ledger::Kind::Dispatcher, 1.0);
+        let (mut turn, request) = fixture();
+        turn.meter = Some(metered(&budget));
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::new()),
+        };
+        let (updates, _receiver) = mpsc::channel(64);
+        let failure = run(&model, request, &ToolSet::default(), &turn, &updates, None)
+            .await
+            .unwrap_err();
+        assert_eq!(failure.kind, Kind::Budget);
+        assert_eq!(failure.title, "Chat budget spent");
+        assert_eq!(
+            failure.details,
+            "The Chat budget for today is spent. Raise it in Settings › Budgets."
+        );
+        assert!(failure.retry_delay(0).is_none());
+        assert!(failure.notice().contains(r#""kind":"budget""#));
+        assert!(requests.try_recv().is_err(), "nothing was sent");
+        assert_eq!(budget.spent().unwrap().day.teammates, 0.0);
+    }
+
+    #[test]
+    fn subscriptions_local_servers_and_desks_without_budgets_are_not_metered() {
+        let (_root, budget) = chat_budget(json!({"chat": {"dayUsd": 0}}));
+        let metadata = HashMap::new();
+        let login = HashMap::from([(
+            "github-copilot".to_string(),
+            ProviderAuth::Login {
+                token_dir: PathBuf::from("/nowhere"),
+            },
+        )]);
+        assert!(
+            ChatMeter::for_model(
+                Some(budget.clone()),
+                &login,
+                "github-copilot/claude-opus-5.5",
+                &metadata
+            )
+            .is_none()
+        );
+        let local = HashMap::from([(
+            "ollama".to_string(),
+            ProviderAuth::Local {
+                base_url: "http://127.0.0.1:11434".into(),
+            },
+        )]);
+        assert!(
+            ChatMeter::for_model(Some(budget.clone()), &local, "ollama/llama3", &metadata)
+                .is_none()
+        );
+        let key = HashMap::from([("anthropic".to_string(), ProviderAuth::ApiKey("sk".into()))]);
+        assert!(
+            ChatMeter::for_model(None, &key, "anthropic/claude-haiku-5-5", &metadata).is_none()
+        );
+        let meter =
+            ChatMeter::for_model(Some(budget), &key, "anthropic/claude-haiku-5-5", &metadata)
+                .unwrap();
+        assert_eq!((meter.price.input, meter.price.output), (0.1, 0.5));
+    }
+
+    #[tokio::test]
+    async fn a_turn_on_a_sign_in_runs_whatever_the_chat_budget_says() {
+        let (_root, budget) = chat_budget(json!({"chat": {"dayUsd": 0}}));
+        let (mut turn, request) = fixture();
+        turn.keys = HashMap::from([(
+            "github-copilot".to_string(),
+            ProviderAuth::Login {
+                token_dir: PathBuf::from("/nowhere"),
+            },
+        )]);
+        turn.model = "github-copilot/claude-opus-5.5".into();
+        turn.meter = ChatMeter::for_model(
+            Some(budget.clone()),
+            &turn.keys,
+            &turn.model,
+            &HashMap::new(),
+        );
+        let (seen, mut requests) = mpsc::unbounded_channel();
+        let (chunks, stream) = mpsc::channel(8);
+        let model = ScriptModel {
+            requests: seen,
+            streams: Mutex::new(VecDeque::from([Some(stream)])),
+        };
+        let (updates, _receiver) = mpsc::channel(64);
+        let task = tokio::spawn(async move {
+            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
+        });
+        receive(&mut requests).await;
+        answer(chunks).await;
+        task.await.unwrap().unwrap();
+        assert_eq!(budget.spent().unwrap().day.teammates, 0.0);
     }
 
     #[tokio::test]

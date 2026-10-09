@@ -24,6 +24,7 @@ pub mod log;
 pub mod mcp;
 pub mod models;
 pub mod paths;
+pub(crate) mod pricing;
 #[cfg(windows)]
 mod process_windows;
 mod providers;

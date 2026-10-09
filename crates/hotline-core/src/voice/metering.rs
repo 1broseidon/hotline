@@ -2,7 +2,9 @@
 //! owns persistence; this coordinator owns permission to begin paid work.
 //!
 //! Each kind of work is spent against its own budget: transcription and
-//! speech against Voice, the call assistant against Chat. A reservation is
+//! speech against Voice, the call assistant and teammates' turns against
+//! Chat. Teammates' spend is kept in its own file, `chat-ledger.json`; the
+//! Chat budget is judged on both tallies together. A reservation is
 //! refused when its budget would go over a limit; work that costs nothing is
 //! never refused, and never touches the ledger.
 use super::{
@@ -16,7 +18,10 @@ use std::sync::{Mutex, PoisonError};
 pub const BUDGET_ERROR: &str = "The voice budget cannot authorize this request.";
 
 pub struct Budget {
-    ledger: Ledger,
+    /// Voice's tally: transcription, speech and the call assistant.
+    voice: Ledger,
+    /// Teammates' own turns on per-token keys.
+    chat: Ledger,
     log: Log,
     gate: Mutex<()>,
 }
@@ -24,7 +29,8 @@ pub struct Budget {
 impl Budget {
     pub fn open(log: Log) -> Self {
         Self {
-            ledger: Ledger::open(log.root()),
+            voice: Ledger::open(log.root()),
+            chat: Ledger::open_file(log.root(), ledger::CHAT_FILE),
             log,
             gate: Mutex::new(()),
         }
@@ -34,15 +40,42 @@ impl Budget {
         VoiceSettings::from_log(&self.log)
     }
 
+    fn ledger(&self, kind: Kind) -> &Ledger {
+        match kind {
+            Kind::Teammates => &self.chat,
+            _ => &self.voice,
+        }
+    }
+
     /// A budget's limits as the room has them now. Images are not spent here.
     pub fn limits(&self, budget: BudgetKind) -> BudgetLimits {
         limits(&self.settings(), budget)
     }
 
-    /// What voice's kinds have spent today and this month.
+    /// What every kind has spent today and this month, from both tallies.
     pub fn spent(&self) -> Result<Spent, Exhausted> {
         let _held = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
-        self.ledger.spent()
+        self.spent_held(BudgetKind::Chat)
+    }
+
+    /// What a budget needs read to be judged: voice's tally alone for Voice,
+    /// both for Chat. The kinds a budget does not cover read as nothing.
+    fn spent_held(&self, budget: BudgetKind) -> Result<Spent, Exhausted> {
+        let voice = self.voice.spent()?;
+        if budget != BudgetKind::Chat {
+            return Ok(voice);
+        }
+        let chat = self.chat.spent()?;
+        Ok(Spent {
+            day: ledger::Spend {
+                teammates: chat.day.teammates,
+                ..voice.day
+            },
+            month: ledger::Spend {
+                teammates: chat.month.teammates,
+                ..voice.month
+            },
+        })
     }
 
     /// Whether paid work of these kinds may begin: each one's budget has
@@ -58,10 +91,10 @@ impl Budget {
             return Ok(());
         }
         let settings = self.settings();
-        let spent = self.ledger.spent()?;
-        kinds
-            .iter()
-            .try_for_each(|kind| left(&settings, &spent, kind.budget()))
+        kinds.iter().try_for_each(|kind| {
+            let budget = kind.budget();
+            left(&settings, &self.spent_held(budget)?, budget)
+        })
     }
 
     /// Persist a conservative estimate before issuing a request. Settle it
@@ -79,8 +112,8 @@ impl Budget {
             return Ok(Reservation::free(kind));
         }
         let settings = self.settings();
-        let spent = self.ledger.spent()?;
         let budget = kind.budget();
+        let spent = self.spent_held(budget)?;
         left(&settings, &spent, budget)?;
         let limits = limits(&settings, budget);
         let over = |spent: f64, limit: Option<f64>| limit.is_some_and(|limit| usd > limit - spent);
@@ -92,11 +125,9 @@ impl Budget {
         }
         // A successful reservation may spend the last cent. That request is
         // paid for; the next reservation will be refused.
-        let reservation = self
-            .ledger
-            .reserve(kind, usd)
-            .ok_or(Exhausted::Unreadable)?;
-        self.ledger.spent()?;
+        let ledger = self.ledger(kind);
+        let reservation = ledger.reserve(kind, usd).ok_or(Exhausted::Unreadable)?;
+        ledger.spent()?;
         Ok(reservation)
     }
 
@@ -107,7 +138,7 @@ impl Budget {
         let _held = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
         let over = actual_usd > reservation.usd();
         let kind = reservation.kind();
-        self.ledger.settle(reservation, actual_usd);
+        self.ledger(kind).settle(reservation, actual_usd);
         if over {
             self.ready_held(&[kind])
         } else {
@@ -122,13 +153,13 @@ impl Budget {
         if usd == 0.0 {
             return Ok(());
         }
-        self.ledger.charge(kind, usd);
+        self.ledger(kind).charge(kind, usd);
         self.ready_held(&[kind])
     }
 
     #[cfg(test)]
-    pub(super) fn charge(&self, kind: Kind, usd: f64) {
-        self.ledger.charge(kind, usd);
+    pub(crate) fn charge(&self, kind: Kind, usd: f64) {
+        self.ledger(kind).charge(kind, usd);
     }
 }
 
@@ -283,5 +314,28 @@ mod tests {
             budget.reserve(Kind::Tts, 0.1).err(),
             Some(Exhausted::Unreadable)
         );
+    }
+
+    #[test]
+    fn teammates_and_the_call_assistant_share_the_chat_budget_in_two_files() {
+        let (root, budget) = budget_with(json!({"chat": {"dayUsd": 1}}));
+        budget.reserve(Kind::Teammates, 0.75).unwrap();
+        assert_eq!(
+            budget.reserve(Kind::Dispatcher, 0.5).err(),
+            Some(Exhausted::Day(BudgetKind::Chat))
+        );
+        budget.reserve(Kind::Dispatcher, 0.25).unwrap();
+        assert_eq!(
+            budget.ready(&[Kind::Teammates]),
+            Err(Exhausted::Day(BudgetKind::Chat))
+        );
+        // Voice is not chat's.
+        assert!(budget.reserve(Kind::Tts, 3.0).is_ok());
+        let spent = budget.spent().unwrap();
+        assert_eq!((spent.day.teammates, spent.day.dispatcher), (0.75, 0.25));
+        let chat: Value =
+            serde_json::from_slice(&std::fs::read(root.path().join(ledger::CHAT_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(chat["daySpend"]["teammates"], 0.75);
     }
 }

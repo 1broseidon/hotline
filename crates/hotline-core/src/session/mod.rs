@@ -203,6 +203,13 @@ pub trait ProviderKeys: Send + Sync {
     fn web_search_keys(&self) -> crate::websearch::Keys {
         HashMap::new()
     }
+
+    /// The desk's spending budgets, which a teammate's turn on a per-token
+    /// key is metered against (the Chat budget). Test doubles have none, so
+    /// their turns are neither metered nor refused.
+    fn budget(&self) -> Option<Arc<crate::voice::metering::Budget>> {
+        None
+    }
 }
 
 /// What the room asks a model for: an agent to run a teammate's turns, and a

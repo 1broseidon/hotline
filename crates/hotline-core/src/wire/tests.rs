@@ -5225,6 +5225,17 @@ async fn capabilities_options_report_each_budget_from_its_own_tally() {
         .to_string(),
     )
     .unwrap();
+    std::fs::write(
+        root.path().join("chat-ledger.json"),
+        json!({
+            "day": chrono::Local::now().format("%Y-%m-%d").to_string(),
+            "month": chrono::Local::now().format("%Y-%m").to_string(),
+            "daySpend": {"stt": 0.0, "tts": 0.0, "dispatcher": 0.0, "teammates": 1.0},
+            "monthSpend": {"stt": 0.0, "tts": 0.0, "dispatcher": 0.0, "teammates": 3.0}
+        })
+        .to_string(),
+    )
+    .unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
     );
@@ -5237,7 +5248,12 @@ async fn capabilities_options_report_each_budget_from_its_own_tally() {
     )
     .await;
     let budgets = &answer["result"]["spending"]["budgets"];
-    assert_eq!(budgets[0]["spentDayUsd"], 0.0625, "{answer}");
+    assert_eq!(budgets[0]["spentDayUsd"], 1.0625, "{answer}");
+    assert_eq!(budgets[0]["spentMonthUsd"], 3.0625);
+    assert_eq!(
+        budgets[0]["lines"][0],
+        json!({"kind": "teammates", "dayUsd": 1.0, "monthUsd": 3.0})
+    );
     assert_eq!(budgets[0]["lines"][1]["kind"], "callAssistant");
     assert_eq!(budgets[0]["lines"][1]["monthUsd"], 0.0625);
     assert_eq!(budgets[1]["spentDayUsd"], 0.25);

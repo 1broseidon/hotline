@@ -208,7 +208,7 @@ fn spending(
                 BudgetKind::Chat,
                 voice.limits(BudgetKind::Chat),
                 vec![
-                    line(SpendingKind::Teammates, 0.0, 0.0),
+                    line(SpendingKind::Teammates, day.teammates, month.teammates),
                     line(
                         SpendingKind::CallAssistant,
                         day.dispatcher,

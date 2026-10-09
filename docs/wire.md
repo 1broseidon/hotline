@@ -371,9 +371,11 @@ resolve from. Its `spending` is `CapabilitySpending`
 `images` budgets in that order, each
 `{kind, dayUsd: number|null, monthUsd: number|null, spentDayUsd, spentMonthUsd, lines}`.
 A `null` limit is no limit. `lines` say what the spend went on:
-`teammates` and `callAssistant` for chat, `transcription` and `speech` for
-voice, none for images. Chat and voice come from voice's tally
-(`voice-ledger.json`), images from the image tally (`spending.json`);
+`teammates` (Hotline Agent turns on per-token keys; ACP teammates bill their
+own accounts and are not counted) and `callAssistant` for chat,
+`transcription` and `speech` for voice, none for images. Teammates come from
+`chat-ledger.json`, the call assistant and voice from `voice-ledger.json`,
+images from the image tally (`spending.json`);
 `unavailable` is set when either cannot be read. The `stt` and `tts` options are every speech model each
 connected provider offers, as the provider lists them (cached for a day; the
 provider's default when it cannot be asked), with voices on each speaking

@@ -77,7 +77,7 @@ async function mount(who: Persona, info: SessionInfo) {
 describe("a teammate's extra folders", () => {
 	test("a folder shows its path and Can edit, and turning it on saves the whole list", async () => {
 		await mount(persona, session);
-		expect(container.textContent).toContain("Also let it read");
+		expect(container.textContent).not.toContain("Also let it read");
 		expect(container.textContent).toContain("/private/tmp/notes");
 		expect(container.textContent).toContain("Add folder");
 		expect(container.textContent).toContain("Its file tools and protected shell reach these too");

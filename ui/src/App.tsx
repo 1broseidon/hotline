@@ -744,7 +744,16 @@ export function App() {
 					)}
 					{/* What floats over the window runs down its right edge: a turn's work at the top, the call and a new version at the bottom. */}
 				{(floatWork !== null || call !== null || pane !== "settings") && (
-					<div className="float-stack" style={dock !== null && pane !== "settings" && !dockOverlay ? { right: dockWidth + 24 } : undefined}>
+					<div
+						className="float-stack"
+						style={
+							dock !== null && pane !== "settings" && !dockOverlay
+								? { right: dockWidth + 24 }
+								: inspector && selected !== null && pane === null
+									? { right: INSPECTOR_WIDTH + 24 }
+									: undefined
+						}
+					>
 						{floatWork}
 						{call !== null && <CallFloat call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => {
 							if (call.deskId == null || call.deskId === activeDeskId()) { select(personaId); return; }
@@ -765,6 +774,9 @@ export function App() {
 		</div>
 	);
 }
+
+/** The teammate's pane (`.inspector` in index.css); what floats keeps clear of it. */
+const INSPECTOR_WIDTH = 320;
 
 /** The menu bar and the window both hear the same chord; one press is one
  * action, even when both fire. */

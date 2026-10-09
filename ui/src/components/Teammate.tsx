@@ -290,7 +290,6 @@ export function Teammate({
 									</span>
 								</div>
 							)}
-							<p className="border-y border-line bg-hover px-3 py-1 text-xs text-ink-3">Also let it read</p>
 							<FolderRows folders={folders} disabled={busy} onChange={(next) => save({ folders: next })} />
 						</div>
 						{folders.length > 0 && (

@@ -3445,10 +3445,18 @@
 		font-size: var(--text-sm);
 		color: var(--ink-2);
 	}
+	/* The update card is wider than the call's and says nothing urgent, so
+	 * it waits above the composer rather than over its keys. */
+	.float-stack > .update-float:last-child {
+		margin-bottom: 68px;
+	}
 	/* In a narrow window the composer runs the full width; sit above it. */
 	@container (max-width: 716px) {
 		.float-stack {
 			bottom: 84px;
+		}
+		.float-stack > .update-float:last-child {
+			margin-bottom: 0;
 		}
 	}
 	.call-top {

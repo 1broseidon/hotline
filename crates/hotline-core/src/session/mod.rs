@@ -4691,7 +4691,8 @@ fn fold_said(lines: impl IntoIterator<Item = Said>) -> Vec<Said> {
 /// to. An empty vec is the one update that is never written: a delta, which
 /// the message that follows it makes durable. An agent's message is split
 /// into bubbles here so both kinds of agent and a peer thread get the same
-/// ones.
+/// ones, and is written without the marker a call asks for between a spoken
+/// part and a shown one, whenever it comes ([`crate::voice::spoken`]).
 fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec<TranscriptEvent> {
     match update {
         Update::Chapter { boundary } => {
@@ -4699,8 +4700,8 @@ fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec
             Vec::new()
         }
         Update::Delta { .. } | Update::Parked => Vec::new(),
-        Update::Message { kind, id, text } => match kind {
-            MessageKind::Agent => {
+        Update::Message { kind, id, text } => match (kind, crate::voice::spoken::unmarked(&text)) {
+            (MessageKind::Agent, text) => {
                 let ts = now_ms();
                 pacing::paced(&text)
                     .into_iter()
@@ -4720,7 +4721,7 @@ fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec
                     })
                     .collect()
             }
-            MessageKind::Thought => vec![TranscriptEvent::Thought {
+            (MessageKind::Thought, text) => vec![TranscriptEvent::Thought {
                 id,
                 ts: now_ms(),
                 text,

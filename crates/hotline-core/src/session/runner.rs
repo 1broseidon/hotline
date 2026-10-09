@@ -55,6 +55,7 @@ use crate::driver::{
 };
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
 use crate::thread::{End, Link, ThreadId, ThreadKind, ThreadState};
+use crate::voice::spoken::Unmarked;
 use futures_util::future::BoxFuture;
 use std::collections::HashMap;
 use std::sync::{Arc, Weak};
@@ -116,16 +117,9 @@ pub(super) trait Witness {
     /// running are `in_flight`, for the one that has to fail them first.
     fn heard(&mut self, _update: &Update, _in_flight: &mut HashMap<String, PendingTool>) {}
 
-    /// The words as they arrive (kind, message id, text, and whether the reply
-    /// is being held back as narration), before the message is whole.
-    fn delta(&mut self, _kind: MessageKind, _message_id: &str, _text: &str, _muted: bool) {}
-
-    /// What is written of an update, once [`Self::heard`] and [`Self::delta`]
-    /// have had it as the agent sent it, and before a message is paced into
-    /// bubbles. The DM takes the marker out of a reply said on a call here.
-    fn shown(&mut self, update: Update) -> Update {
-        update
-    }
+    /// The words as they arrive (kind, message id, the words, and whether the
+    /// reply is being held back as narration), before the message is whole.
+    fn delta(&mut self, _kind: MessageKind, _message_id: &str, _words: Words<'_>, _muted: bool) {}
 
     /// One event of the turn, and whether it came of a permission request.
     fn write(&mut self, event: TranscriptEvent, asked: bool);
@@ -133,6 +127,17 @@ pub(super) trait Witness {
     /// A look at the lines waiting behind the turn, between one update and the
     /// next, for a kind whose person can steer a turn in flight.
     fn steer(&mut self) {}
+}
+
+/// One chunk of a message's words as they arrive.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Words<'a> {
+    /// As the agent wrote them, the marker between a spoken part and a shown
+    /// one included: what a call says its reply from.
+    pub written: &'a str,
+    /// As the chat shows them: the marker out, and the start of one held back
+    /// until the next chunk says whether it was. Often empty while it is held.
+    pub shown: &'a str,
 }
 
 /// A witness made of two closures: how a peer turn and a run are written.
@@ -146,8 +151,10 @@ where
     D: FnMut(MessageKind, &str, &str, bool),
     W: FnMut(TranscriptEvent, bool),
 {
-    fn delta(&mut self, kind: MessageKind, message_id: &str, text: &str, muted: bool) {
-        (self.delta)(kind, message_id, text, muted);
+    fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
+        if !words.shown.is_empty() {
+            (self.delta)(kind, message_id, words.shown, muted);
+        }
     }
 
     fn write(&mut self, event: TranscriptEvent, asked: bool) {
@@ -157,8 +164,9 @@ where
 
 /// [`drive`] for a conversation somebody is watching: the line is handed over
 /// already stamped, with its attachments, and `delta` is told the words as
-/// they arrive (kind, message id, text, and whether the reply is being held
-/// back as narration) so they can be shown before the message is whole.
+/// they arrive (kind, message id, text as shown, and whether the reply is
+/// being held back as narration) so they can be shown before the message is
+/// whole.
 pub(super) async fn drive_with(
     driver: &dyn Driver,
     wire_text: String,
@@ -175,6 +183,12 @@ pub(super) async fn drive_with(
 /// Reads one turn's updates off the driver to its end and tells `witness`
 /// what each came to.
 ///
+/// No message is shown or written with the marker a call asks the agent to
+/// write between what it says and what it shows
+/// ([`crate::voice::spoken::MARKER`]), on a call or not: an agent that keeps
+/// its own history keeps the call's contract in it and may write the marker
+/// in a typed reply long after. The words on both sides of it are kept.
+///
 /// `ready` wakes the loop when a line is queued behind the turn, so a witness
 /// that can steer is asked to look at once rather than at the next update. A
 /// cancel asks the driver to stop and keeps reading until it has, so the
@@ -189,6 +203,9 @@ pub(super) async fn drive_updates(
     let mut in_flight = HashMap::new();
     let mut voice = narration::Voice::new();
     let mut driven = Driven::default();
+    // Each message's words as the chat is shown them, by message id, until
+    // the message is whole.
+    let mut unmarked: HashMap<String, Unmarked> = HashMap::new();
     loop {
         witness.steer();
         let received = tokio::select! {
@@ -224,9 +241,16 @@ pub(super) async fn drive_updates(
             } = &update
             {
                 let muted = *kind == MessageKind::Agent && voice.mutes_deltas();
-                witness.delta(*kind, message_id, text, muted);
+                let shown = unmarked.entry(message_id.clone()).or_default().push(text);
+                let words = Words {
+                    written: text,
+                    shown: &shown,
+                };
+                witness.delta(*kind, message_id, words, muted);
             }
-            let update = witness.shown(update);
+            if let Update::Message { id, .. } = &update {
+                unmarked.remove(id);
+            }
             let asked = matches!(update, Update::Permission { .. });
             driven.asked |= asked;
             for event in event_of(update, &mut in_flight) {
@@ -786,6 +810,59 @@ mod tests {
         assert_eq!(
             silent.report,
             "The subagent finished without writing a report."
+        );
+    }
+
+    /// An agent asked once for a spoken part and a shown one may write the
+    /// marker in any later reply. A run, like every turn, streams and keeps
+    /// the words on both sides of it and never the marker, even split across
+    /// chunks, and its report is the reply as shown.
+    #[tokio::test]
+    async fn a_run_shows_and_keeps_a_reply_without_the_marker() {
+        use crate::session::tests::Scripted;
+        let delta = |text: &str| Update::Delta {
+            kind: MessageKind::Agent,
+            message_id: "m1".to_string(),
+            text: text.to_string(),
+        };
+        let driver = Scripted::new(vec![
+            delta("Two tests fail. <<<END"),
+            delta("SPEAK>>> | test | result |"),
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "m1".to_string(),
+                text: "Two tests fail. <<<ENDSPEAK>>> | test | result |".to_string(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".to_string(),
+                usage: None,
+            },
+        ]);
+        let mut streamed = Vec::new();
+        let mut written = Vec::new();
+        let driven = drive_with(
+            &driver,
+            timed(now_ms(), "Check the tests."),
+            Vec::new(),
+            Reach::Workspace,
+            None,
+            |_, _, text, _| streamed.push(text.to_string()),
+            |event, _| written.push(event),
+        )
+        .await;
+        assert_eq!(streamed, ["Two tests fail. ", "\n\n| test | result |"]);
+        let said: Vec<&str> = written
+            .iter()
+            .filter_map(|event| match event {
+                TranscriptEvent::Agent { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(said, ["Two tests fail.\n\n| test | result |"]);
+        assert!(
+            driven.replies.iter().all(|text| !text.contains("ENDSPEAK")),
+            "{:?}",
+            driven.replies
         );
     }
 

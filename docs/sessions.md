@@ -69,9 +69,13 @@ handed the person's words and, after a blank line, the contract that asks for
 a spoken part and a shown part with `<<<ENDSPEAK>>>` between them
 (`voice::spoken`); the tape keeps the words alone. While the turn's origin is
 that call, the witness hands the call the reply's words as they stream and
-each message as it lands, and the conversation is shown the reply without the
-marker: as it streams, and as it is written, before pacing splits it into
-bubbles (`Witness::shown`). The end of the turn, or its parking on subagents,
+each message as it lands. The conversation is shown every reply without the
+marker, on a call or not, since an ACP agent keeps the contract in its own
+history and may write the marker in a typed reply later: as it streams
+(`runner::drive_updates`, which hands a witness the words as written for the
+call and as shown for the chat), and as it is written, before pacing splits it
+into bubbles (`event_of`). Side threads, runs and peer exchanges are driven
+the same way, and the phone's glance is the reply as shown. The end of the turn, or its parking on subagents,
 tells the call it can listen. Nothing else about the turn differs from a typed
 one: its chapter, its grants, its metering and what the model sees besides the
 contract are the same. See

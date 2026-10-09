@@ -1881,6 +1881,79 @@ async fn a_turn_reaches_the_phone_once_with_its_report() {
     assert_eq!(sent[0]["data"]["personaId"], "ada");
 }
 
+/// An agent asked once on a call for a spoken part and a shown one keeps that
+/// in its own history, and may write the marker in a typed reply long after.
+/// The chat, the tape and the phone have the words on both sides of it and
+/// never the marker, even when it arrives split across chunks.
+#[tokio::test]
+async fn a_typed_reply_is_shown_kept_and_pushed_without_the_marker() {
+    let delta = |text: &str| Update::Delta {
+        kind: MessageKind::Agent,
+        message_id: "m1".to_string(),
+        text: text.to_string(),
+    };
+    let room = room(
+        "typed-marker",
+        Fake::new(Scripted::new(vec![
+            delta("The build is green. <"),
+            delta("<<ENDSP"),
+            delta("EAK>>>\n| job | result |"),
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "m1".to_string(),
+                text: "The build is green. <<<ENDSPEAK>>>\n| job | result |".to_string(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".to_string(),
+                usage: None,
+            },
+        ])),
+    );
+    std::fs::write(
+        room.log.root().join("remote.json"),
+        json!({
+            "desktopId": "desk-1",
+            "host": "desk.local",
+            "enabled": true,
+            "grants": [{
+                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0, "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
+                "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut deltas = room.subscribe_deltas();
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "Is the build green?", None, None)
+        .await
+        .unwrap();
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(kinds(&events), ["user", "agent", "turn"]);
+    assert_eq!(events[0]["text"], "Is the build green?");
+    assert_eq!(events[1]["text"], "The build is green.\n\n| job | result |");
+
+    let mut streamed = String::new();
+    while let Ok(delta) = deltas.try_recv() {
+        if let StreamDelta::ThreadDelta { text, .. } = delta {
+            streamed.push_str(&text);
+        }
+    }
+    assert_eq!(streamed, "The build is green. \n\n| job | result |");
+
+    let mut sent = Vec::new();
+    for _ in 0..200 {
+        sent = lock(&room.push.sent).clone();
+        if !sent.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    // The phone shows the reply's first line, which the marker ended.
+    assert_eq!(sent[0]["body"], "The build is green.");
+}
+
 /// Waits for the teammate's session to say whether its turn is open only
 /// for subagents.
 async fn until_awaiting(room: &Room, persona_id: &str, want: bool) {

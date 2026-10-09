@@ -18,16 +18,17 @@
 //!   the person's lines read, keeps the session's checkpoint, says a reply to a
 //!   call and to the phone, and steers: a line said to a driver that takes
 //!   input mid-turn is handed to it when it arrives. On a turn said on a call
-//!   to the teammate, the reply's words stream to the call as they arrive, and
-//!   the chat shows the whole reply without the marker between its spoken and
-//!   shown parts (see [`crate::voice::spoken`]).
+//!   to the teammate, the reply's words stream to the call as they arrive.
+//!   The chat and the phone show every reply whole, without the marker between
+//!   its spoken and shown parts, on a call or not (see
+//!   [`crate::voice::spoken`] and [`super::runner::drive_updates`]).
 //! - **The end of a turn.** What the driver did not take is queued again in its
 //!   order, and a quiet run that found something is escalated.
 //!
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
 
-use super::runner::{Driven, Witness};
+use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
 use super::{
     Glance, PendingTool, Room, Session, Wired, call_origin, escalation, lock, mark, new_id, now_ms,
@@ -37,7 +38,7 @@ use crate::contract::{Reach, Receipt, ScheduledRun, SessionState, TranscriptEven
 use crate::driver::{MessageKind, Update};
 use crate::room;
 use crate::thread::{ThreadId, ThreadKind};
-use crate::voice::spoken::{Unmarked, unmarked};
+use crate::voice::spoken::unmarked;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -170,7 +171,6 @@ impl Occupant for Session {
             steered: &mut held.steered,
             from_voice: held.from_voice,
             card: None,
-            unmarked: HashMap::new(),
         };
         room.threads()
             .drive(
@@ -243,9 +243,6 @@ struct Heard<'a> {
     from_voice: bool,
     /// The card the update in hand raises, until its event is written.
     card: Option<(String, crate::push::Waiting)>,
-    /// A call's replies as the chat is shown them while they stream, by
-    /// message id.
-    unmarked: HashMap<String, Unmarked>,
 }
 
 impl Heard<'_> {
@@ -322,13 +319,12 @@ impl Witness for Heard<'_> {
                         .unwrap_or_else(|_| "Hotline".into());
                     voice.delivery(&session.persona_id, id, &name, text, true, Some(origin));
                 }
-                let shown = match on_call {
-                    Some(_) => unmarked(text),
-                    None => text.clone(),
-                };
+                // The phone is shown the reply as the chat is, without the
+                // marker, whether or not this turn was said on a call: the
+                // agent may write it in any reply once it has been asked to.
                 *lock(&session.glance) = Some(Glance {
                     event_id: id.clone(),
-                    text: shown.trim().to_string(),
+                    text: unmarked(text).trim().to_string(),
                 });
             }
             // The agent has said what it has to say and the turn stays open
@@ -362,7 +358,7 @@ impl Witness for Heard<'_> {
         }
     }
 
-    fn delta(&mut self, kind: MessageKind, message_id: &str, text: &str, muted: bool) {
+    fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
         // A muted turn must not run the writing indicator for a message
         // that will never land, so the delta is demoted with the event it
         // is building; and after the acknowledgement a message may turn
@@ -370,46 +366,26 @@ impl Witness for Heard<'_> {
         let muted = muted
             || (kind == MessageKind::Agent
                 && quiet::mutes_deltas(lock(&self.session.quiet).as_ref(), now_ms()));
-        let mut text = text.to_string();
-        if let Some(origin) = self.on_call() {
-            // Words the window types as they come are said as they come; a
-            // message that may yet turn out to be narration waits to be whole.
-            if kind == MessageKind::Agent
-                && !muted
-                && let Some(voice) = lock(&self.room.voice).upgrade()
-            {
-                voice.reply_delta(&self.session.persona_id, message_id, &text, &origin);
-            }
-            text = self
-                .unmarked
-                .entry(message_id.to_string())
-                .or_default()
-                .push(&text);
-            if text.is_empty() {
-                return;
-            }
+        // Words the window types as they come are said as they come, from
+        // what the agent wrote, marker and all; a message that may yet turn
+        // out to be narration waits to be whole.
+        if let Some(origin) = self.on_call()
+            && kind == MessageKind::Agent
+            && !muted
+            && let Some(voice) = lock(&self.room.voice).upgrade()
+        {
+            voice.reply_delta(&self.session.persona_id, message_id, words.written, &origin);
+        }
+        if words.shown.is_empty() {
+            return;
         }
         let _ = self.room.deltas.send(super::turns::delta_of(
             &ThreadId::dm(&self.session.persona_id),
             kind,
             message_id,
-            &text,
+            words.shown,
             muted,
         ));
-    }
-
-    fn shown(&mut self, update: Update) -> Update {
-        match update {
-            Update::Message { kind, id, text } if self.on_call().is_some() => {
-                self.unmarked.remove(&id);
-                Update::Message {
-                    kind,
-                    text: unmarked(&text),
-                    id,
-                }
-            }
-            update => update,
-        }
     }
 
     fn write(&mut self, event: TranscriptEvent, asked: bool) {

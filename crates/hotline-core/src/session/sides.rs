@@ -1925,6 +1925,40 @@ mod tests {
         );
     }
 
+    /// A side thread's agent may write a call's marker in a typed reply: it
+    /// streams and is kept without it, the words on both sides kept.
+    #[tokio::test]
+    async fn a_reply_in_a_side_thread_is_shown_and_kept_without_the_marker() {
+        let delta = |text: &str| Update::Delta {
+            kind: MessageKind::Agent,
+            message_id: "m1".to_string(),
+            text: text.to_string(),
+        };
+        let agents = Fake::new(Scripted::new(vec![
+            delta("Fixed. <<<ENDSPEAK"),
+            delta(">>> See the diff."),
+            say("m1", "Fixed. <<<ENDSPEAK>>> See the diff."),
+            turn(),
+        ]));
+        let room = room("side-marker", agents);
+        let mut deltas = room.subscribe_deltas();
+        let summary = room.start_side("ada", "Task").await.unwrap();
+        settled(&room, &summary.side_id).await;
+        let mut streamed = String::new();
+        while let Ok(delta) = deltas.try_recv() {
+            if let StreamDelta::ThreadDelta { text, .. } = delta {
+                streamed.push_str(&text);
+            }
+        }
+        assert_eq!(streamed, "Fixed. \n\nSee the diff.");
+        let said: Vec<String> = side_stream(&room, &summary.side_id)
+            .iter()
+            .filter(|event| event["kind"] == "agent")
+            .map(|event| event["text"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(said.join("\n\n"), "Fixed.\n\nSee the diff.");
+    }
+
     #[tokio::test]
     async fn archiving_turns_the_marker_into_a_one_line_result_and_ends_the_agent() {
         let agents = Fake::new(Scripted::new(vec![

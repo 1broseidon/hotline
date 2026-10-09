@@ -262,7 +262,7 @@ transition and animation, and holds the mark still.
   does: the face, the name at the heading's size and the goal under it
   like a bio, each plain text until pointed at, when it shows the field
   it is. The working directory is a row of its own, the folder's name
-  (Its own folder when it is the teammate's) and three quiet keys (the
+  (Main workspace when it is the teammate's) and three quiet keys (the
   full path, choose, reveal), never a path field. Every grant is one row
   in one of three lists, ordered authority, equipment, outcome:
   Permissions (reach, background work and collaboration, each with an

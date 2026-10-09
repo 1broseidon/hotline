@@ -257,7 +257,7 @@ export function Teammate({
 						<h3 className="label">Folders</h3>
 						<div className="grouped">
 							<div className="group-row">
-								<RowText title={folderName(persona.cwd) === persona.id ? "Its own folder" : folderName(persona.cwd)} />
+								<RowText title={folderName(persona.cwd) === persona.id ? "Main workspace" : folderName(persona.cwd)} />
 								<span className="-my-1 -mr-2 flex items-center gap-0.5">
 									<InfoKey about={persona.cwd} label="Show the full path" open={pathShown} onToggle={() => setPathShown((was) => !was)} />
 									<button

@@ -2252,9 +2252,10 @@ async fn the_call_thinks_while_the_teammate_works_and_listens_when_its_turn_ends
         calls.subscribe(&id).unwrap().0,
         VoiceEvent::State {
             state: VoiceState::Thinking,
-            reason: None
+            reason: None,
+            listening: true,
         },
-        "still working"
+        "still working, and taking what the person says"
     );
     calls
         .change(&id, |call| {
@@ -2281,6 +2282,97 @@ async fn the_call_thinks_while_the_teammate_works_and_listens_when_its_turn_ends
         )
     })
     .await;
+    calls.end(&id).unwrap();
+}
+
+/// While the teammate's turn works, the call takes what the person says: its
+/// `thinking` says `listening`, an utterance is accepted and steers into the
+/// turn, and it stops what the call was saying (barge-in). While the desk is
+/// still taking the person's last words, `thinking` has the floor and says
+/// no such thing; and a desk call, which has no teammate's turn, never does.
+#[tokio::test]
+async fn the_call_listens_while_the_teammate_works_and_speaking_over_it_cuts_it_off() {
+    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .change(&id, |call| {
+            call.answering = Some(1);
+            call.state(VoiceState::Thinking, None);
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        event(&mut rx, |e| matches!(e, VoiceEvent::State { .. })).await,
+        VoiceEvent::State {
+            state: VoiceState::Thinking,
+            reason: None,
+            listening: true,
+        }
+    );
+    // The wire carries it only when it is so.
+    let wire = serde_json::to_value(calls.subscribe(&id).unwrap().0).unwrap();
+    assert_eq!(wire["listening"], true);
+    let listening = serde_json::to_value(VoiceEvent::State {
+        state: VoiceState::Listening,
+        reason: None,
+        listening: false,
+    })
+    .unwrap();
+    assert!(listening.get("listening").is_none(), "{listening}");
+
+    // A reply begins mid-turn, and the person speaks over it.
+    *lock(&fake.delay) = Duration::from_secs(5);
+    calls.reply_delta(&persona, "narration", "Looking at the logs now. ", &origin);
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "Looking at the logs now."),
+    )
+    .await;
+    let speaking = calls.change(&id, |call| Ok(call.speech.clone())).unwrap();
+    utterance(&calls, &id, 2).unwrap();
+    assert!(speaking.is_cancelled(), "what the call was saying stops");
+    assert!(
+        calls
+            .change(&id, |call| Ok(call.streams.is_empty()))
+            .unwrap()
+    );
+    // Taking those words, the desk has the floor.
+    assert_eq!(
+        calls.subscribe(&id).unwrap().0,
+        VoiceEvent::State {
+            state: VoiceState::Thinking,
+            reason: None,
+            listening: false,
+        }
+    );
+    *lock(&fake.delay) = Duration::ZERO;
+    calls.end(&id).unwrap();
+
+    // A desk call thinks with the floor.
+    let (_root, desk, calls) = desk(services());
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk.clone()).unwrap();
+    calls
+        .change(&id, |call| {
+            call.answering = Some(1);
+            call.state(VoiceState::Thinking, None);
+            Ok(())
+        })
+        .unwrap();
+    assert!(matches!(
+        calls.subscribe(&id).unwrap().0,
+        VoiceEvent::State {
+            listening: false,
+            ..
+        }
+    ));
+    assert!(
+        calls
+            .status()
+            .capabilities
+            .iter()
+            .any(|capability| capability == LISTEN_WHILE_THINKING)
+    );
     calls.end(&id).unwrap();
 }
 
@@ -2335,7 +2427,8 @@ async fn a_call_that_thinks_says_so_again() {
         event(&mut rx, |e| matches!(e, VoiceEvent::State { .. })).await,
         VoiceEvent::State {
             state: VoiceState::Thinking,
-            reason: None
+            reason: None,
+            listening: true,
         }
     );
     assert!(again.elapsed() <= THINKING_AGAIN * 2);
@@ -2439,7 +2532,8 @@ async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_
         calls.subscribe(&id).unwrap().0,
         VoiceEvent::State {
             state: VoiceState::Listening,
-            reason: None
+            reason: None,
+            listening: false,
         },
         "not quiet for long enough"
     );
@@ -2453,7 +2547,8 @@ async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_
         calls.subscribe(&id).unwrap().0,
         VoiceEvent::State {
             state: VoiceState::Ended,
-            reason: Some(VoiceEndReason::Idle)
+            reason: Some(VoiceEndReason::Idle),
+            listening: false,
         }
     );
     until_written("the closing link", || {

@@ -39,6 +39,10 @@ const ERROR_LINE: &str = "Voice keeps failing. Please continue by text.";
 const MAX_FAILURES: u8 = 3;
 const MAX_AUDIO: usize = 2 * 1024 * 1024;
 const BUDGET_LINE: &str = "The voice budget is unavailable or spent. Chat carries on by text.";
+/// The capability of a desk whose call to a teammate takes what the person
+/// says while the teammate's turn works: its `thinking` says `listening`, and
+/// the words steer into the open turn.
+pub const LISTEN_WHILE_THINKING: &str = "voiceListenWhileThinking";
 /// How often a call that is thinking says so again. A phone stops waiting on
 /// a desk it has not heard from for 45 seconds, and a teammate's turn can work
 /// for longer than that without a word. Tests wait a tenth of a second.
@@ -264,10 +268,22 @@ impl Call {
         self.cut.push_back(event);
     }
 
+    /// Whether the call thinks only because the teammate's turn is still
+    /// working, with the person's last words handed to it: what they say now
+    /// is taken, and steers into that turn.
+    fn listening_while_thinking(&self) -> bool {
+        self.state == VoiceState::Thinking
+            && self.target.is_some()
+            && self.answering.is_some()
+            && !self.utterance_pending
+            && self.input.is_none()
+    }
+
     fn snapshot(&self) -> VoiceEvent {
         VoiceEvent::State {
             state: self.state,
             reason: self.reason,
+            listening: self.listening_while_thinking(),
         }
     }
     fn state(&mut self, state: VoiceState, reason: Option<VoiceEndReason>) {
@@ -550,7 +566,11 @@ impl Calls {
             .or_else(|| dispatcher.as_ref().err().cloned())
             .or(budget_error);
         VoiceStatus {
-            capabilities: vec!["voiceDirectCalls".into(), "voiceTextInput".into()],
+            capabilities: vec![
+                "voiceDirectCalls".into(),
+                "voiceTextInput".into(),
+                LISTEN_WHILE_THINKING.into(),
+            ],
             available: unavailable.is_none(),
             direct_available,
             unavailable,

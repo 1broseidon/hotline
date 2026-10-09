@@ -19,10 +19,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   shows the whole reply, and your words in it are exactly what you said.
   An agent that does not split its reply is read up to its first code block
   or table, a few sentences at most. Links are said as "a link", and money,
-  percentages and arrows are read as words.
+  percentages and arrows are read as words. The mark between the two parts
+  never shows, not even in a typed reply later from Claude Code or Codex,
+  which remember being asked for it: the chat, side threads, subagent runs
+  and phone notifications show the words on both sides of it.
 - While a teammate works on what you asked, the call stays on its
-  blip-blip until it is done. Cutting in stops what it is saying, and what
-  you say next goes into the work it already has open.
+  blip-blip until it is done, and keeps listening: just speak, with no tap
+  needed, and what you say goes into the work it already has open.
+  Speaking stops what it is saying. The call never hears its own voice or
+  blip-blip as you, and what it starts to say while you are talking waits
+  until you finish, and is dropped if you said something.
 - The Call assistant in Settings › Providers › Use for is only for calls to
   the desk, and says so.
 

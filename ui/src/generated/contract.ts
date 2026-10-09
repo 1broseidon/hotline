@@ -1818,7 +1818,15 @@ export type VoiceCall = { callId: string, input: Array<string>, output: string, 
 
 export type VoiceEndReason = "client" | "goodbye" | "budget" | "replaced" | "error" | "idle";
 
-export type VoiceEvent = { "type": "state", state: VoiceState, reason?: VoiceEndReason, } | { "type": "heard", seq: number, text: string, } | { "type": "said", id: string, text: string, } | { "type": "clip", id: string, index: number, final: boolean, mimeType: string, data: string, } | { "type": "delivery", personaId: string, eventId: string, text: string, } | { "type": "card", personaId: string, requestId: string, kind: string, };
+export type VoiceEvent = { "type": "state", state: VoiceState, reason?: VoiceEndReason, 
+/**
+ * On `thinking`: the teammate's turn is still working and the call
+ * takes what the person says, which steers into that turn. A client
+ * keeps its microphone open, as it does on `listening`, unless it is
+ * playing speech. Absent, `thinking` means the desk is still taking
+ * the last thing said and has the floor, as from desks before it.
+ */
+listening?: boolean, } | { "type": "heard", seq: number, text: string, } | { "type": "said", id: string, text: string, } | { "type": "clip", id: string, index: number, final: boolean, mimeType: string, data: string, } | { "type": "delivery", personaId: string, eventId: string, text: string, } | { "type": "card", personaId: string, requestId: string, kind: string, };
 
 /**
  * Omission preserves remote audio transcription for existing callers.

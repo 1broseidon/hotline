@@ -76,8 +76,18 @@ says this Mac can hear, and `speech_permit` is granted; it then never opens
 the webview's microphone. Otherwise the call is the audio call it always
 was, and a desk that answers a text call without `text/plain` in its input
 is hung up with a message to update it. A recognition session runs only
-while the call listens: the desk speaking or thinking, hold and hang-up
-cancel it, so the engine never hears the desk. Its level events drive the
+while the call listens: the desk speaking or thinking with the floor, hold
+and hang-up cancel it, so the engine never hears the desk. A `thinking` that
+says `listening` is listened through: the call's phase is `listening` while
+the teammate works, the blip-blip goes on, and its levels are not given to
+the detector until each blip-blip and its tail have played (the webview's
+microphone skips those blocks the same way). Speech that plays mid-turn shuts
+the microphone or ends the session as any speech does, and it opens again
+once the speech is done. What the desk begins to say while the person is
+talking does not play over them: it waits until their turn ends, and goes if
+they said something (the desk stops it on taking their words) or plays if it
+was only noise. Clips that arrive after the person's words are sent and before
+the desk has taken them are of a reply they cut off, and are not played. Its level events drive the
 same turn detector as the webview's microphone, with a 100 ms onset because
 the words corroborate a short "yes". Partial text is the person's live line
 once the meter has heard a voice, less any words recognized more than half
@@ -462,7 +472,15 @@ The reply is rendered twice from one stream:
   two parts a paragraph apart, as it streams (`spoken::Unmarked`, which holds
   back a partial marker the same way) and as it is written to the tape
   (`spoken::unmarked`, before the reply is paced into bubbles). Only the
-  first marker is the reply's. A turn not said on a call is shown as written.
+  first marker is the reply's.
+
+The marker is taken out of every agent message, on a call or not
+(`runner::drive_updates` for the words as they stream, `event_of` for what is
+written): the main conversation, a side thread, a subagent's run and a peer
+exchange alike, and the reply the phone is pushed. An ACP agent such as Claude
+Code or Codex keeps the call's contract in its own session history, so it may
+write the marker in a typed reply long after the call; the words on both sides
+of it are kept, a paragraph apart, and only the call says the first part.
 
 On an agent turn, what the agent writes before its first tool call is said as
 it streams, as the acknowledgement. Its words between tools are narration
@@ -474,8 +492,18 @@ closed by an empty final clip, and one line on the call's thread.
 
 The call is `thinking` from an utterance until the teammate's session has
 finished that turn, or left it open only for subagents (`Calls::turn_ended`),
-apart from while it speaks; then it listens. When the person speaks again
-before a turn ends, the call waits for the turn that has their latest words.
+apart from while it speaks; then it listens. Once the desk has handed the
+person's words to the session, that `thinking` says `listening: true`
+(`Call::listening_while_thinking`): the turn is still working, and the call
+takes what the person says, so a client keeps its microphone open while the
+teammate works and nothing is playing, and the person never has to tap to cut
+in. What they say is an utterance like any other: it stops what the call is
+saying and steers into the open turn. While the desk is still taking their
+last words (transcribing them, starting the session), `thinking` has the
+floor and says no such thing, and a desk call never does. A desk that does
+this says `voiceListenWhileThinking` among its capabilities. When the person
+speaks again before a turn ends, the call waits for the turn that has their
+latest words.
 A reply the turn never finished is said as far as it got. While it thinks it
 sends `thinking`
 again every 15 seconds, so a phone, which gives up on a desk it has not heard

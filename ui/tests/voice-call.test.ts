@@ -37,6 +37,8 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 		},
 	};
 	const played: string[] = [];
+	const chimes: string[] = [];
+	let tone = 0;
 	let queue = 0;
 	let idle: () => void = () => {};
 	const mic = { open: true, closed: 0, opened: 0 };
@@ -62,7 +64,10 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 			return queue > 0;
 		},
 		outputLevel: () => 0,
-		chime: () => 0,
+		chime: (kind) => {
+			chimes.push(kind);
+			return kind === "think" ? tone : 0;
+		},
 		close: () => {
 			mic.open = false;
 		},
@@ -75,6 +80,9 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 		status: (value: unknown) => (status = value),
 		sent,
 		played,
+		chimes,
+		/** How long a blip-blip plays, in seconds. */
+		tone: (seconds: number) => (tone = seconds),
 		mic,
 		desk: (event: unknown) => handlers?.event(event),
 		snapshot: (items: unknown[]) => handlers?.snapshot(items),
@@ -427,6 +435,133 @@ describe("a call with the desk", () => {
 	});
 });
 
+describe("a call while the teammate works", () => {
+	const MACK = { target: { personaId: "mack", name: "Mack" } };
+	const WORKING = { type: "state", state: "thinking", listening: true };
+
+	test("the mic stays open, and words said then steer into the open turn", async () => {
+		const r = rig(MACK, { personaId: "mack" });
+		await r.call.start();
+		r.speak(0.3, 1_000, 1_600);
+		r.speak(0, 1_650, 3_000);
+		expect(r.call.current.phase).toBe("thinking");
+		// The desk takes the words, and has the floor until it has handed them over.
+		r.desk({ type: "state", state: "thinking" });
+		expect(r.call.current.phase).toBe("thinking");
+		r.desk(WORKING);
+		expect(r.call.current.phase).toBe("listening");
+		r.speak(0.3, 4_000, 4_600);
+		expect(r.call.current.phase).toBe("hearing");
+		// Said again while the person talks, it changes nothing.
+		r.desk(WORKING);
+		expect(r.call.current.phase).toBe("hearing");
+		r.speak(0, 4_650, 6_000);
+		expect(r.sent.filter((one) => one.cmd === "voice.utterance").map((one) => one.params.seq)).toEqual([1, 2]);
+		expect(r.call.current.phase).toBe("thinking");
+		// A thinking that listens, said again before the desk took the words, does not open the mic.
+		r.desk(WORKING);
+		expect(r.call.current.phase).toBe("thinking");
+		r.desk({ type: "state", state: "thinking" });
+		r.desk(WORKING);
+		expect(r.call.current.phase).toBe("listening");
+		r.desk({ type: "state", state: "listening" });
+		expect(r.call.current.phase).toBe("listening");
+		r.call.hangUp();
+	});
+
+	test("a desk that thinks without listening still has the floor", async () => {
+		const r = rig(MACK, { personaId: "mack" });
+		await r.call.start();
+		r.desk({ type: "state", state: "thinking" });
+		expect(r.call.current.phase).toBe("thinking");
+		r.speak(0.3, 1_000, 1_600);
+		expect(r.call.current.phase).toBe("thinking");
+		r.call.hangUp();
+	});
+
+	test("speech mid-turn shuts the mic while it plays, which opens again while the teammate works", async () => {
+		const r = rig(MACK, { personaId: "mack" });
+		await r.call.start();
+		r.desk(WORKING);
+		r.desk({ type: "state", state: "speaking" });
+		expect(r.call.current.phase).toBe("thinking");
+		r.desk({ type: "said", id: "s1", text: "Looking at the logs." });
+		r.desk({ type: "clip", id: "s1", index: 0, final: true, mimeType: "audio/wav", data: "logs" });
+		expect(r.call.current.phase).toBe("speaking");
+		// The reply's own voice in the mic is never heard as the person.
+		r.speak(0.3, 1_000, 1_600);
+		r.speak(0, 1_650, 3_000);
+		expect(r.sent.some((one) => one.cmd === "voice.utterance")).toBe(false);
+		r.desk(WORKING);
+		r.finishClip();
+		expect(r.call.current.phase).toBe("listening");
+		r.call.hangUp();
+	});
+
+	test("what the desk begins to say while the person talks waits, and goes when they said something", async () => {
+		const r = rig(MACK, { personaId: "mack" });
+		await r.call.start();
+		r.desk(WORKING);
+		r.speak(0.3, 1_000, 1_600);
+		expect(r.call.current.phase).toBe("hearing");
+		r.desk({ type: "state", state: "speaking" });
+		r.desk({ type: "said", id: "s1", text: "Looking at the logs." });
+		r.desk({ type: "clip", id: "s1", index: 0, final: false, mimeType: "audio/wav", data: "logs" });
+		expect(r.played).toEqual([]);
+		expect(r.call.current.phase).toBe("hearing");
+		r.speak(0, 1_650, 3_000);
+		expect(r.sent.filter((one) => one.cmd === "voice.utterance")).toHaveLength(1);
+		expect(r.played).toEqual([]);
+		// The rest of it, and any line said before the desk took the words, is not played either.
+		r.desk({ type: "clip", id: "s1", index: 1, final: true, mimeType: "audio/wav", data: "more logs" });
+		r.desk({ type: "said", id: "s2", text: "Still looking." });
+		r.desk({ type: "clip", id: "s2", index: 0, final: true, mimeType: "audio/wav", data: "still" });
+		expect(r.played).toEqual([]);
+		r.desk({ type: "state", state: "thinking" });
+		r.desk({ type: "said", id: "s3", text: "Got it, switching to staging." });
+		r.desk({ type: "clip", id: "s3", index: 0, final: true, mimeType: "audio/wav", data: "staging" });
+		expect(r.played).toEqual(["staging"]);
+		r.call.hangUp();
+	});
+
+	test("the blip-blip goes on while the mic is open, and never counts as the person", async () => {
+		const speech = fakeSpeech();
+		const r = textRig(speech, { personaId: "mack", input: ["text/plain"] }, TEXT_DESK, MACK);
+		await r.call.start();
+		r.tone(0.3);
+		r.at(5_000);
+		r.desk(WORKING);
+		expect(r.call.current.phase).toBe("listening");
+		await new Promise((resolve) => setTimeout(resolve, 1_900));
+		expect(r.chimes.filter((kind) => kind === "think").length).toBeGreaterThan(0);
+		// The engine hears the blip-blip; the detector is not told.
+		r.levels(-20, 5_000, 5_400);
+		expect(r.call.current.phase).toBe("listening");
+		r.levels(-74, 5_450, 5_600);
+		r.levels(-20, 5_650, 6_000);
+		expect(r.call.current.phase).toBe("hearing");
+		r.call.hangUp();
+	});
+
+	test("noise taken for the person gives the floor back, and what the desk said meanwhile is said", async () => {
+		const r = textRig();
+		await r.call.start();
+		r.levels(-20, 1_200, 1_400);
+		expect(r.call.current.phase).toBe("hearing");
+		r.desk({ type: "said", id: "s1", text: "On it." });
+		r.desk({ type: "clip", id: "s1", index: 0, final: true, mimeType: "audio/wav", data: "one" });
+		expect(r.played).toEqual([]);
+		r.levels(-74, 1_450, 2_700);
+		await tick();
+		expect(r.sentText()).toEqual([]);
+		expect(r.played).toEqual(["one"]);
+		expect(r.call.current.phase).toBe("speaking");
+		r.finishClip();
+		expect(r.call.current.phase).toBe("listening");
+		r.call.hangUp();
+	});
+});
+
 /** This Mac's speech recognition, faked: what the engine reports is whatever the test emits. */
 function fakeSpeech(capability: Partial<TranscriptionCapability> = {}, granted = true) {
 	let onEvent: (event: TranscriptionEvent) => void = () => {};
@@ -467,8 +602,8 @@ function fakeSpeech(capability: Partial<TranscriptionCapability> = {}, granted =
 
 const TEXT_DESK = ["voice", "voiceDirectCalls", "voiceTextInput"];
 
-function textRig(speech = fakeSpeech(), response: unknown = { callId: "c", input: ["text/plain"], output: "audio/wav", inputMode: "text" }, capabilities = TEXT_DESK) {
-	const r = rig({}, response, capabilities, speech.transcription);
+function textRig(speech = fakeSpeech(), response: unknown = { callId: "c", input: ["text/plain"], output: "audio/wav", inputMode: "text" }, capabilities = TEXT_DESK, options: CallOptions = {}) {
+	const r = rig(options, response, capabilities, speech.transcription);
 	return {
 		...r,
 		speech,

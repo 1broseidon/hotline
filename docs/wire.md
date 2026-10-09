@@ -1129,9 +1129,9 @@ traffic controls.
 
 Voice commands and `{"call":"<callId>"}` subscriptions are available to the
 local desk and paired owners. Companions receive `code: "forbidden"`.
-An owner hello advertises `voice` and `voiceDirectCalls` when speech and the
-budget permit an audio or text direct call, and `voiceTextInput` when text is
-ready. `VoiceStatus.available` reports desk readiness for the requested mode,
+An owner hello advertises `voice`, `voiceDirectCalls` and
+`voiceListenWhileThinking` when speech and the budget permit an audio or text
+direct call, and `voiceTextInput` when text is ready. `VoiceStatus.available` reports desk readiness for the requested mode,
 including the dispatcher; additive `directAvailable` reports readiness without
 that dispatcher. A direct call can work while desk routing is misconfigured:
 it has no dispatcher, since the teammate's own session answers it.
@@ -1228,7 +1228,7 @@ The call subscription starts with a one-element `snapshot` containing its
 
 | Event | Fields |
 | --- | --- |
-| `state` | `state`: `listening`, `thinking`, `speaking`, `held`, `ended`; optional `reason` |
+| `state` | `state`: `listening`, `thinking`, `speaking`, `held`, `ended`; optional `reason`; optional `listening: true` on `thinking` |
 | `heard` | `seq`, `text` |
 | `said` | `id`, `text` |
 | `clip` | matching `id`, `index`, `final`, `mimeType`, base64 `data` |
@@ -1250,7 +1250,15 @@ sound (the desktop plays a short blip-blip, repeated while it lasts) rather
 than speech. On a desk call the answer is the dispatcher's; on a direct call it
 is the teammate's own reply, and the call stays `thinking` between what it says
 until the teammate's turn is over, sending `thinking` again every 15 seconds
-while it waits. An answer streams at sentence boundaries, and one answer keeps
+while it waits. Once the person's words are with the teammate, that
+`thinking` carries `listening: true`: the call takes an utterance now, which
+steers into the open turn and stops what the call is saying, so a client keeps
+its microphone open as on `listening` while nothing plays, and holds what
+begins to play while the person is talking. Absent (and from an older desk),
+`thinking` has the floor: an utterance is refused until it changes. A
+`thinking` with `listening` that a client receives with an utterance of its
+own still on the way is from before the desk took it, so it waits for the
+desk's next state. An answer streams at sentence boundaries, and one answer keeps
 one `said.id`: each sentence sends `said` again under that id with the answer
 so far, which a client shows in place of the line it had. Its clips carry on
 that id's indices, one whole clip per sentence or, with negotiated progressive

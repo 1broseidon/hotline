@@ -2729,6 +2729,14 @@ pub enum VoiceEvent {
         state: VoiceState,
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<VoiceEndReason>,
+        /// On `thinking`: the teammate's turn is still working and the call
+        /// takes what the person says, which steers into that turn. A client
+        /// keeps its microphone open, as it does on `listening`, unless it is
+        /// playing speech. Absent, `thinking` means the desk is still taking
+        /// the last thing said and has the floor, as from desks before it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        listening: bool,
     },
     Heard {
         seq: u32,

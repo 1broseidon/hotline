@@ -756,6 +756,7 @@ impl Seat {
             if audio || text {
                 capabilities.push("voice");
                 capabilities.push("voiceDirectCalls");
+                capabilities.push(crate::voice::LISTEN_WHILE_THINKING);
             }
             if text {
                 capabilities.push("voiceTextInput");

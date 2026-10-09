@@ -107,16 +107,23 @@ only_person() {
     fi
 }
 
+# Edits the unit in place with sed expressions. A suffix joined to -i is the
+# one in-place form GNU and BSD sed both read; the copy it leaves is removed.
+edit_unit() {
+    as_root sed -i.edit "$@" "$UNIT"
+    as_root rm -f "$UNIT.edit"
+}
+
 # Points the unit just installed at another account: its user and group, its
 # HOME, and a PATH that starts where that person keeps their CLIs. Anything
 # else the person needs on PATH goes in with: sudo systemctl edit hotline.
 run_unit_as() {
     unit_path="$3/.local/bin:$3/.npm-global/bin:/usr/local/bin:/usr/bin:/bin"
-    as_root sed -i \
+    edit_unit \
         -e "s|^User=.*|User=$1|" \
         -e "s|^Group=.*|Group=$2|" \
         -e "s|^Environment=HOME=.*|Environment=HOME=$3|" \
-        -e "s|^Environment=PATH=.*|Environment=PATH=$unit_path|" "$UNIT"
+        -e "s|^Environment=PATH=.*|Environment=PATH=$unit_path|"
     for line in "User=$1" "Group=$2" "Environment=HOME=$3" "Environment=PATH=$unit_path"; do
         grep -qxF "$line" "$UNIT" || fail "could not set $line in $UNIT"
     done
@@ -386,8 +393,8 @@ server() {
     fi
     if [ -n "$listen" ]; then
         exec_start="ExecStart=/usr/local/bin/hotline serve --store file --listen $listen --public-url $public_url"
-        as_root sed -i -e '/^# Replace this documentation address/d' \
-            -e "s|^ExecStart=.*|$exec_start|" "$UNIT"
+        edit_unit -e '/^# Replace this documentation address/d' \
+            -e "s|^ExecStart=.*|$exec_start|"
     fi
     as_root systemctl daemon-reload
     if [ -n "$fresh" ]; then

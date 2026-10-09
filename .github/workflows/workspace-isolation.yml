@@ -16,7 +16,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, macos-15, macos-15-intel]
+        # Apple silicon on macOS 26, as the release builds; Intel on the last
+        # Intel image GitHub offers.
+        runner: [ubuntu-24.04, macos-26, macos-15-intel]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:

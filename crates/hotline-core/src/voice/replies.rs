@@ -4,7 +4,7 @@
 //! times").
 //!
 //! Each reply a call said is counted once, under the way it was written
-//! ([`Path`]), in `<data dir>/voice-replies.json`, written whole and
+//! and so said ([`Path`]), in `<data dir>/voice-replies.json`, written whole and
 //! atomically after every count as the ledgers are. The counts are a
 //! diagnostic: a file that cannot be read starts them again rather than
 //! stopping a call.
@@ -55,6 +55,7 @@ impl Replies {
             Path::SpokenOnly => &mut entry.spoken_only,
             Path::Unclosed => &mut entry.unclosed,
             Path::Untagged => &mut entry.untagged,
+            Path::Rewritten => &mut entry.rewritten,
         };
         *count = count.saturating_add(1);
         if let Err(error) = self.write(counts) {
@@ -122,6 +123,7 @@ mod tests {
         replies.count("acp/claude-code", Path::Untagged);
         replies.count("hotline/anthropic/claude-haiku-5-5", Path::SpokenOnly);
         replies.count("acp/codex", Path::Unclosed);
+        replies.count("acp/codex", Path::Rewritten);
 
         let again = Replies::open(root.path());
         assert_eq!(
@@ -136,6 +138,7 @@ mod tests {
                 VoiceReplies {
                     model: "acp/codex".into(),
                     unclosed: 1,
+                    rewritten: 1,
                     ..VoiceReplies::default()
                 },
                 VoiceReplies {

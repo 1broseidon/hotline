@@ -4237,6 +4237,25 @@ impl Room {
         Ok(id)
     }
 
+    /// Keeps `spoken` as what a call to the teammate said for its reply
+    /// `event_id`, on the reply's first bubble: the call assistant's rewrite
+    /// of a reply that wrote no spoken version ([`crate::voice::spoken`]).
+    /// False while the reply is not yet on the tape.
+    pub(crate) fn voice_spoken(&self, persona_id: &str, event_id: &str, spoken: &str) -> bool {
+        let tape = self.tape(persona_id);
+        let Some(reply) = tape
+            .iter()
+            .rev()
+            .find(|event| event["id"] == event_id && event["kind"] == "agent")
+        else {
+            return false;
+        };
+        let mut reply = reply.clone();
+        reply["spoken"] = Value::from(spoken);
+        self.write_value(persona_id, &reply);
+        true
+    }
+
     pub(crate) fn voice_push(&self, persona_id: &str, name: &str, text: &str) {
         self.push.notify(name, text, persona_id, None);
     }

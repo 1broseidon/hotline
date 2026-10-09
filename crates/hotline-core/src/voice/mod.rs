@@ -53,12 +53,22 @@ const THINKING_AGAIN: Duration = if cfg!(test) {
     Duration::from_secs(15)
 };
 
+/// How long a call waits for the call assistant to rewrite a teammate's reply
+/// that wrote no spoken version before it says the reply's opening instead.
+/// Tests wait less.
+const REWRITE_WAIT: Duration = if cfg!(test) {
+    Duration::from_millis(300)
+} else {
+    Duration::from_secs(6)
+};
+
 /// Provider seams for an embedded desk or a scripted client. Production desks
-/// resolve both from the vault on each call and before each utterance.
+/// resolve both from the vault on each call and before each utterance. A
+/// desk with no call assistant has `dispatcher` `None`.
 #[derive(Clone)]
 pub struct Services {
     pub speech: SpeechSet,
-    pub dispatcher: Arc<dyn Dispatcher>,
+    pub dispatcher: Option<Arc<dyn Dispatcher>>,
 }
 
 /// Text input carries no remote listener, even when an audio listener is configured.
@@ -75,8 +85,10 @@ struct CallSpeech {
  * call assistant against Chat when its model is billed per token. A call
  * heard, spoken and answered for free (a subscription, the desk's own
  * engine, a signed-in model) names none, so no budget can stop it. A call to
- * a teammate has no call assistant: its turns are the teammate's own, which
- * its session meters as any other.
+ * a teammate names no call assistant: its turns are the teammate's own, which
+ * its session meters as any other, and the call assistant's rewrite of a
+ * reply written only to be read is asked of the Chat budget when it is
+ * wanted, and falls back to the reply's opening if refused.
  */
 fn paid_kinds(speech: Option<&CallSpeech>, assistant: Option<&dyn Dispatcher>) -> Vec<Kind> {
     let mut kinds = Vec::new();
@@ -238,6 +250,9 @@ struct Call {
     /// A direct call's thread, which keeps all of what was said. A desk call
     /// is kept on the desk tape.
     record: Option<Record>,
+    /// What the person last said on a direct call, which a rewrite of the
+    /// teammate's reply is handed for context.
+    words: String,
 }
 
 impl Call {
@@ -506,7 +521,10 @@ impl Calls {
     }
     fn dispatcher(&self) -> Result<Arc<dyn Dispatcher>, String> {
         if let Some(services) = &self.injected {
-            return Ok(services.dispatcher.clone());
+            return services
+                .dispatcher
+                .clone()
+                .ok_or_else(|| "This desk has no call assistant.".to_string());
         }
         ProviderDispatcher::resolve(self.vault.clone(), &self.log)
     }
@@ -516,8 +534,9 @@ impl Calls {
         self.ledger.clone()
     }
 
-    /// The call assistant a call uses: a desk call's routes what was said; a
-    /// call to a teammate has none, since the teammate answers itself.
+    /// The call assistant a call pays for from the start: a desk call's
+    /// routes what was said. A call to a teammate pays for none, since the
+    /// teammate answers itself ([`paid_kinds`]).
     fn assistant_for(&self, target: Option<&str>) -> Option<Arc<dyn Dispatcher>> {
         if target.is_some() {
             return None;
@@ -692,6 +711,7 @@ impl Calls {
                 record: target
                     .as_deref()
                     .map(|persona_id| Record::open(self.room.clone(), id, persona_id)),
+                words: String::new(),
             });
             self.thinking_again(id, cancel.clone());
             let this = self.clone();
@@ -1428,6 +1448,10 @@ impl Calls {
             self.record("user", &text)?;
         } else {
             self.keep(id, Speaker::Person, &text);
+            let _ = self.change(id, |call| {
+                call.words = text.clone();
+                Ok(())
+            });
         }
         if goodbye(&text) && source.permits_goodbye() {
             if self
@@ -1599,10 +1623,11 @@ impl Calls {
 
     /// A teammate's reply on its own call, said as it streams in: its spoken
     /// version ([`spoken::Spoken`]) sentence by sentence as one line, kept on
-    /// the call's thread once it is over. Speaking over it stops it at once,
-    /// so the call is free for what the person says; the chat has the written
-    /// version in any case. A reply that reaches its end is counted by how
-    /// it was written ([`Self::count`]).
+    /// the call's thread once it is over. A reply that wrote none is said
+    /// once it is whole ([`Self::unspoken`]). Speaking over it stops it at
+    /// once, so the call is free for what the person says; the chat has the
+    /// written version in any case. A reply that reaches its end is counted
+    /// by how it was said ([`Self::count`]).
     async fn answer(
         &self,
         id: &str,
@@ -1626,8 +1651,16 @@ impl Calls {
                     }
                 }
             }
-            self.count(id, event, spoken::path(&whole));
-            for sentence in spoken.finish() {
+            let rest = match spoken.finish() {
+                spoken::Ending::Spoken(rest) => {
+                    self.count(id, event, spoken::path(&whole));
+                    rest
+                }
+                spoken::Ending::Untagged(opening) => {
+                    self.unspoken(id, event, &whole, opening, speech).await
+                }
+            };
+            for sentence in rest {
                 if sentences.send(sentence).await.is_err() {
                     return;
                 }
@@ -1646,6 +1679,121 @@ impl Calls {
         });
         let kept = self.keep_reply(id, std::mem::take(&mut *lock(&reply)));
         result.and(kept)
+    }
+
+    /// What is said of a teammate's whole reply that wrote no spoken version.
+    /// One short line, such as the line the contract asks for before a tool,
+    /// is said as written and not counted. Anything longer was written to be
+    /// read, so the call assistant says it again to be heard
+    /// ([`Self::rewrite`]); without one, or when that fails, the call says
+    /// the reply's opening.
+    async fn unspoken(
+        &self,
+        id: &str,
+        event: &str,
+        whole: &str,
+        opening: Vec<String>,
+        speech: &CancellationToken,
+    ) -> Vec<String> {
+        let written = spoken::versions(whole).written;
+        if written.trim().is_empty() || spoken::said_as_written(&written) {
+            return opening;
+        }
+        match self.rewrite(id, event, &written, speech).await {
+            Some(rewritten) => {
+                self.count(id, event, spoken::Path::Rewritten);
+                sentences(&rewritten)
+            }
+            None => {
+                self.count(id, event, spoken::Path::Untagged);
+                opening
+            }
+        }
+    }
+
+    /// A reply written only to be read, said again by the call assistant as
+    /// it would be on a phone call ([`Dispatcher::rewrite`]), from the reply
+    /// and the person's last words, and kept as what was said for it. The
+    /// call thinks while it is written, so the person hears the blip-blip and
+    /// the phone the call's heartbeat. `None`, and a line in the log, when
+    /// the desk has no call assistant, the Chat budget refuses it, it fails,
+    /// or it takes longer than [`REWRITE_WAIT`]: none of those ends the call.
+    async fn rewrite(
+        &self,
+        id: &str,
+        event: &str,
+        written: &str,
+        speech: &CancellationToken,
+    ) -> Option<String> {
+        let failed = |why: &str| {
+            eprintln!(
+                "[voice] reply {event} on call {id} was not rewritten, so its opening is said: {why}"
+            );
+        };
+        let assistant = match self.dispatcher() {
+            Ok(assistant) => assistant,
+            Err(error) => {
+                failed(&error);
+                return None;
+            }
+        };
+        let (persona, words) = self
+            .change(id, |call| {
+                if call.state != VoiceState::Held && !speech.is_cancelled() {
+                    call.state(VoiceState::Thinking, None);
+                }
+                Ok((call.target.clone(), call.words.clone()))
+            })
+            .ok()?;
+        let rewritten = tokio::time::timeout(
+            REWRITE_WAIT,
+            assistant.rewrite(&words, written, self.ledger.clone()),
+        )
+        .await;
+        match rewritten {
+            Ok(Ok(text)) if !spoken::speech_text(&text).is_empty() => {
+                let text = text.trim().to_string();
+                if let Some(persona) = persona {
+                    self.keep_spoken(&persona, event, &text);
+                }
+                Some(text)
+            }
+            Ok(Ok(_)) => {
+                failed("it came back empty");
+                None
+            }
+            Ok(Err(error)) => {
+                failed(&error);
+                None
+            }
+            Err(_) => {
+                failed(&format!("it took longer than {:?}", REWRITE_WAIT));
+                None
+            }
+        }
+    }
+
+    /// Keeps a rewrite as what was said for its reply, on the reply's first
+    /// bubble, where a reply's own spoken version is kept
+    /// (`Room::voice_spoken`). The session writes the reply just after it
+    /// hands the reply to the call, so a rewrite that comes back first waits
+    /// a moment for it.
+    fn keep_spoken(&self, persona: &str, event: &str, spoken: &str) {
+        let room = self.room.clone();
+        let (persona, event, spoken) = (persona.to_string(), event.to_string(), spoken.to_string());
+        tokio::spawn(async move {
+            for _ in 0..20 {
+                let Some(room) = room.upgrade() else { return };
+                if room.voice_spoken(&persona, &event, &spoken) {
+                    return;
+                }
+                drop(room);
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            eprintln!(
+                "[voice] reply {event} was rewritten and said, but was never written, so the rewrite is not kept"
+            );
+        });
     }
 
     /// Counts a teammate's reply on a call to it under the model that wrote
@@ -2181,8 +2329,9 @@ impl Calls {
     }
 
     /// Words of a teammate's reply as it streams, on the turn of a call to
-    /// it: said as they come, from the reply's first words. The reply's whole
-    /// text follows as [`Self::delivery`], which ends the stream.
+    /// it: its spoken version said as it comes, from the reply's first words
+    /// ([`spoken::Spoken`]). The reply's whole text follows as
+    /// [`Self::delivery`], which ends the stream.
     pub(crate) fn reply_delta(&self, persona: &str, event: &str, chunk: &str, origin: &Origin) {
         if !origin.direct {
             return;

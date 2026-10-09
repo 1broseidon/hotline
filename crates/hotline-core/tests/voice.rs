@@ -136,6 +136,9 @@ impl Dispatcher for ClipCheck {
     async fn narrate(&self, _: &str, text: &str, _: Arc<Budget>) -> Result<String, String> {
         Ok(text.into())
     }
+    async fn rewrite(&self, _: &str, _: &str, _: Arc<Budget>) -> Result<String, String> {
+        unreachable!("a desk call has no teammate's reply to rewrite")
+    }
 }
 
 async fn check_clip(
@@ -165,7 +168,7 @@ async fn check_clip(
                     tts: fake.clone(),
                     fallback_tts: None,
                 },
-                dispatcher: fake.clone(),
+                dispatcher: Some(fake.clone()),
             }),
         )
         .unwrap(),
@@ -423,6 +426,12 @@ impl Dispatcher for ScriptDispatcher {
     async fn narrate(&self, name: &str, text: &str, _: Arc<Budget>) -> Result<String, String> {
         Ok(format!("{name} says: {text}"))
     }
+    /// Says the untagged reply below again, given what the person said.
+    async fn rewrite(&self, words: &str, written: &str, _: Arc<Budget>) -> Result<String, String> {
+        assert_eq!(words, "ask Mack to check the failing PR");
+        assert_eq!(written, UNTAGGED_REPLY);
+        Ok(REWRITTEN.into())
+    }
 }
 fn services() -> Services {
     let speech = Arc::new(FakeSpeech);
@@ -432,7 +441,7 @@ fn services() -> Services {
             tts: speech,
             fallback_tts: None,
         },
-        dispatcher: Arc::new(ScriptDispatcher),
+        dispatcher: Some(Arc::new(ScriptDispatcher)),
     }
 }
 fn wav() -> Vec<u8> {
@@ -480,6 +489,7 @@ async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching(
         "The checks passed.",
         TAGGED_WRITTEN,
         Some("The checks passed."),
+        "both",
     )
     .await;
 }
@@ -492,16 +502,31 @@ async fn device_text_reuses_the_direct_agent_session_and_call_origin() {
         "The checks passed.",
         TAGGED_WRITTEN,
         Some("The checks passed."),
+        "both",
     )
     .await;
 }
 
-/// An agent that ignores the tags wrote to be read: the call says the
-/// opening, up to the first code block, and the chat shows all of it.
+/// A reply its agent wrote without the tags, to be read.
+const UNTAGGED_REPLY: &str =
+    "Here is the fix:\n```rust\nlet ready = true;\n```\nThe checks pass now.";
+/// That reply as the call assistant says it again to be heard.
+const REWRITTEN: &str = "The fix is in and the checks pass now. Details are in the chat.";
+
+/// An agent that ignores the tags wrote to be read: the call assistant says
+/// it again to be heard, that is said and kept as what was said for it, and
+/// the chat shows all of the reply.
 #[tokio::test]
-async fn a_reply_without_tags_is_said_up_to_its_first_code_block() {
-    let reply = "Here is the fix:\n```rust\nlet ready = true;\n```\nThe checks pass now.";
-    direct_call_uses_existing_conversation(true, reply, "Here is the fix:", reply, None).await;
+async fn a_reply_without_tags_is_rewritten_to_be_heard() {
+    direct_call_uses_existing_conversation(
+        true,
+        UNTAGGED_REPLY,
+        REWRITTEN,
+        UNTAGGED_REPLY,
+        Some(REWRITTEN),
+        "rewritten",
+    )
+    .await;
 }
 
 /// One brain, two outputs: what is said on a call to a teammate is a turn of
@@ -517,6 +542,7 @@ async fn direct_call_uses_existing_conversation(
     spoken: &str,
     written: &str,
     kept: Option<&str>,
+    counted: &str,
 ) {
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
@@ -647,7 +673,17 @@ async fn direct_call_uses_existing_conversation(
         "{asked}"
     );
 
-    let tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
+    // What was said is kept beside the reply as soon as the reply is
+    // written, which for a rewrite may be just after it is said.
+    let mut tape = Vec::new();
+    for _ in 0..200 {
+        tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
+        let first = tape.iter().find(|v| v["kind"] == "agent");
+        if first.is_some_and(|reply| reply["spoken"].as_str() == kept) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
     assert_eq!(
         tape.iter().filter(|v| v["kind"] == "chapter").count(),
         1,
@@ -710,6 +746,24 @@ async fn direct_call_uses_existing_conversation(
             .unwrap_or(0.0),
         0.0
     );
+    // The reply is counted by how it was said, under the teammate's agent
+    // and model, and the count is on the wire.
+    send(
+        &mut socket,
+        json!({"id":8,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    let replies = until(&mut socket, |f| f["id"] == 8).await["result"]["replies"].clone();
+    assert_eq!(replies.as_array().map(Vec::len), Some(1), "{replies}");
+    let model = replies[0]["model"].as_str().unwrap();
+    assert!(
+        model.starts_with("hotline/") && model.ends_with("/test"),
+        "{model}"
+    );
+    for path in ["both", "spokenOnly", "unclosed", "untagged", "rewritten"] {
+        let expected = u64::from(path == counted);
+        assert_eq!(replies[0][path], expected, "{path}: {replies}");
+    }
     send(
         &mut socket,
         json!({"id":4,"cmd":"voice.call_start","params":{"callId":call}}),

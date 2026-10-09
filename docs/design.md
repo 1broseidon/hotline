@@ -472,6 +472,18 @@ tape from the reference tree reads as before, and an older client shows the
 written text. Hotline Agent's rebuilt history shows the model both, tagged
 ([One brain, two outputs](voice.md#one-brain-two-outputs)).
 
+A reply on a direct call that writes no spoken version is not read by its
+opening while it streams. Once it is whole, the call assistant says it again
+to be heard, and that is said and kept as the reply's `spoken`, superseding
+the event the session wrote. The opening of a reply written to be read was
+rarely the answer, and a phone call needs the answer first; holding the
+reply until it is whole is what keeps the person from hearing an opening and
+then the rewrite. One short line is said as written, since it is the line the
+contract asks for before a tool. The rewrite is a fallback, never a gate: no
+call assistant, a refused Chat budget, a failure or six seconds without an
+answer says the opening as before, and the call goes on
+([A reply written only to be read](voice.md#a-reply-written-only-to-be-read)).
+
 A finalized transcript that is wholly a goodbye speaks `Goodbye.` and ends
 either kind of call. Audio goodbye still requires enough genuine audio to
 avoid a tiny hallucinated farewell. Replies use progressive independently

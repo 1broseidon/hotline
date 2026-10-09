@@ -2500,9 +2500,14 @@ pub struct VoiceReplies {
     /// A spoken version never closed with `</spoken>`.
     #[serde(default)]
     pub unclosed: u32,
-    /// No spoken version: the call said the reply's opening.
+    /// No spoken version, and the call said the reply's opening: there was
+    /// no call assistant to rewrite it, or it failed or took too long.
     #[serde(default)]
     pub untagged: u32,
+    /// No spoken version, so the call assistant rewrote the reply to be
+    /// heard, and that was said.
+    #[serde(default)]
+    pub rewritten: u32,
 }
 
 /// A teammate's own voice: one of a speaking model's voices.

@@ -1877,9 +1877,15 @@ spokenOnly: number,
  */
 unclosed: number, 
 /**
- * No spoken version: the call said the reply's opening.
+ * No spoken version, and the call said the reply's opening: there was
+ * no call assistant to rewrite it, or it failed or took too long.
  */
-untagged: number, };
+untagged: number, 
+/**
+ * No spoken version, so the call assistant rewrote the reply to be
+ * heard, and that was said.
+ */
+rewritten: number, };
 
 export type VoiceState = "listening" | "thinking" | "speaking" | "held" | "ended";
 

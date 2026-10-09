@@ -71,7 +71,8 @@ show between `<written>` tags (`voice::spoken`); the tape keeps the words
 alone. While the turn's origin is that call, the witness hands the call the
 reply's words as they stream and each message as it lands, and the reply is
 written with its spoken version kept beside it (`Witness::said_on_call`, the
-agent event's `spoken`). The conversation is shown every reply's written
+agent event's `spoken`); a reply that wrote none gets the call assistant's
+rewrite there once the call has said it (`Room::voice_spoken`). The conversation is shown every reply's written
 version and never a tag, on a call or not, since an ACP agent keeps the
 contract in its own history and may write the tags in a typed reply later: as
 it streams (`runner::drive_updates`, which hands a witness the words as

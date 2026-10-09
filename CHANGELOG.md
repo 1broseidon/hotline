@@ -19,11 +19,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   and Moonshine (English). Each model's row says what it is for in a word
   or two after its name, and a window not in English with only Parakeet
   English installed is told that Parakeet hears more languages.
-- The desk counts how each teammate reply on a call was written, by the
-  agent and model that wrote it: both versions, a spoken one only, a spoken
-  one never closed, or no spoken one. The counts outlast a restart and come
-  back in `voice.status`, ready for a client to say how often a model kept to
-  the format.
+- The desk counts how each teammate reply on a call was said, by the agent
+  and model that wrote it: both versions, a spoken one only, a spoken one
+  never closed, no spoken one, or no spoken one and rewritten by the call
+  assistant. The counts outlast a restart and come back in `voice.status`,
+  ready for a client to say how often a model kept to the format.
 
 ### Fixed
 
@@ -43,8 +43,13 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   was said on the call as a quiet line above it that opens in full when
   pressed, and your words in it are exactly what you said. The teammate
   remembers both, so a follow-up knows what you heard and what you could
-  only read. An agent that writes only one answer is read up to its first
-  code block or table, a few sentences at most. Links are said as "a link",
+  only read. An agent that writes only the answer to be read has it said
+  again by the call assistant once it is whole, the answer first and the
+  details left to the chat, while you hear the call thinking, and the
+  transcript line shows what was said. With no call assistant, a spent Chat
+  budget or no answer within six seconds, the call reads it up to its first
+  code block or table, a few sentences at most; a short line such as "Let
+  me check the logs" is said as written. Links are said as "a link",
   and money, percentages and arrows are read as words. The tags around the
   two answers never show, not even in a typed reply later from Claude Code
   or Codex, which remember being asked for them: the chat, side threads,
@@ -55,8 +60,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   Speaking stops what it is saying. The call never hears its own voice or
   blip-blip as you, and what it starts to say while you are talking waits
   until you finish, and is dropped if you said something.
-- The Call assistant in Settings › Providers › Use for is only for calls to
-  the desk, and says so.
+- The Call assistant in Settings › Providers › Use for answers calls to the
+  desk, and says so. On a call to a teammate it only says again a reply the
+  teammate wrote to be read, metered on the Chat budget as its call
+  assistant line.
 
 ## [0.35.2] - 2026-10-09
 

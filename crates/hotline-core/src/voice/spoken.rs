@@ -12,9 +12,10 @@
 //! setting, so Hotline Agent and an ACP agent read it alike, and never in the
 //! tape, so the conversation keeps the person's words as they said them.
 //!
-//! [`Spoken`] takes what to say from a reply as it streams, and
-//! [`speech_text`] turns each sentence of it into what a person would say for
-//! it. [`Shown`] and [`versions`] take what the chat shows, which is the
+//! [`Spoken`] takes what to say from a reply as it streams, [`said_as_written`]
+//! says whether a reply that wrote no spoken version is short enough to say
+//! as it is rather than have the call assistant say it again, and
+//! [`speech_text`] turns each sentence into what a person would say for it. [`Shown`] and [`versions`] take what the chat shows, which is the
 //! written version alone; [`versions`] also keeps the spoken one, which the
 //! chat draws as a transcript line and the model is shown again in its
 //! history ([`both`]).
@@ -40,8 +41,9 @@ Example:
 
 Before using a tool, say at most one short line. If you were cut off, answer the new words without repeating yourself.]";
 
-/// The most sentences said of a reply that has no spoken version: it was
-/// written to be read, so the call says its opening and the chat has it all.
+/// The most sentences said of a reply that has no spoken version, when the
+/// call assistant cannot say it again: it was written to be read, so the
+/// call says its opening and the chat has it all.
 const FALLBACK_SENTENCES: usize = 3;
 
 /// What the agent is handed for a turn said on a call: the person's words as
@@ -188,16 +190,22 @@ fn table(line: &str) -> bool {
 /// The sentences of a reply that are said, taken as the reply streams.
 ///
 /// Everything inside `<spoken>` is said, a sentence as soon as it is whole,
-/// and nothing after it. A reply that has no spoken version was written to be
-/// read, so only its opening is said: up to its first code block or table,
-/// and at most [`FALLBACK_SENTENCES`] sentences. Text before the first tag is
-/// read that way too, which is how the line an agent writes before a tool is
-/// said as it streams. A fenced code block or a table is never read out, and
-/// no tag is ever said, not even the part of one that ends a chunk.
+/// and nothing after it. Text before a spoken version is held rather than
+/// said as it streams: a reply that never writes one is said again by the
+/// call assistant once it is whole (`Calls::answer`), and its opening must not
+/// be heard first. What is held is read as a reply written to be read is: up
+/// to its first code block or table, and at most [`FALLBACK_SENTENCES`]
+/// sentences. When a spoken version begins, what was held is said before it,
+/// as the line an agent wrote before its tags; when the reply ends without
+/// one, [`Spoken::finish`] hands it back as the reply's opening. A fenced code
+/// block or a table is never read out, and no tag is ever said, not even the
+/// part of one that ends a chunk.
 #[derive(Default)]
 pub(crate) struct Spoken {
     tags: Tags,
     place: Place,
+    /// A spoken version has begun.
+    began: bool,
     /// The spoken version is over: nothing more is said.
     done: bool,
     /// Text not yet read: part of a line not yet known to be prose.
@@ -210,8 +218,20 @@ pub(crate) struct Spoken {
     fenced: bool,
     /// Something to be seen, code or a table, came before any spoken version.
     visual: bool,
-    /// Sentences the fallback has said.
+    /// Sentences of the opening taken so far.
     said: usize,
+    /// The opening: sentences from before any spoken version, held until the
+    /// reply says whether it has one.
+    held: Vec<String>,
+}
+
+/// How a reply that has been read to its end finishes being said.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Ending {
+    /// It wrote a spoken version, and this is the rest of it.
+    Spoken(Vec<String>),
+    /// It wrote none, and this is its opening.
+    Untagged(Vec<String>),
 }
 
 impl Spoken {
@@ -221,10 +241,16 @@ impl Spoken {
         self.take(pieces, false)
     }
 
-    /// The reply is over: whatever is left to say.
-    pub(crate) fn finish(&mut self) -> Vec<String> {
+    /// The reply is over: the rest of its spoken version, or its opening
+    /// when it wrote none.
+    pub(crate) fn finish(&mut self) -> Ending {
         let pieces = self.tags.finish().into_iter().collect();
-        self.take(pieces, true)
+        let rest = self.take(pieces, true);
+        if self.began {
+            Ending::Spoken(rest)
+        } else {
+            Ending::Untagged(std::mem::take(&mut self.held))
+        }
     }
 
     fn take(&mut self, pieces: Vec<Piece>, finished: bool) -> Vec<String> {
@@ -246,7 +272,9 @@ impl Spoken {
                     } else if next == Place::Spoken {
                         // What came before is said as far as the fallback
                         // would, and the spoken version starts afresh.
-                        out.extend(self.read(true));
+                        self.read(true);
+                        out.append(&mut self.held);
+                        self.began = true;
                         self.fenced = false;
                     }
                     self.place = next;
@@ -315,16 +343,36 @@ impl Spoken {
         self.gate(sentences, out);
     }
 
+    /// Sentences of the spoken version are said; any other is held as the
+    /// opening, as far as the fallback reads.
     fn gate(&mut self, sentences: Vec<String>, out: &mut Vec<String>) {
         for sentence in sentences {
             if self.place == Place::Spoken {
                 out.push(sentence);
             } else if !self.visual && self.said < FALLBACK_SENTENCES {
                 self.said += 1;
-                out.push(sentence);
+                self.held.push(sentence);
             }
         }
     }
+}
+
+/// The most words in a reply with no spoken version that is said as it was
+/// written: the contract's limit for a spoken version.
+const LINE_WORDS: usize = 40;
+
+/// Whether a reply that wrote no spoken version is said as it was written
+/// rather than rewritten: one line of prose under [`LINE_WORDS`] words and
+/// at most [`FALLBACK_SENTENCES`] sentences, with no code or table, so its
+/// opening is all of it. That is the one short line the contract asks for
+/// before a tool, and a reply that short has nothing to rewrite.
+pub(crate) fn said_as_written(written: &str) -> bool {
+    let text = written.trim();
+    !text.is_empty()
+        && !text.contains(['\n', '`'])
+        && !table(text)
+        && text.split_whitespace().count() < LINE_WORDS
+        && super::sentences(text).len() <= FALLBACK_SENTENCES
 }
 
 /// A reply as the chat shows it while it streams: the written version, and
@@ -463,6 +511,8 @@ pub(crate) enum Path {
     Unclosed,
     /// No spoken version, so the call said the reply's opening.
     Untagged,
+    /// No spoken version, so the call assistant wrote one, which was said.
+    Rewritten,
 }
 
 impl Path {
@@ -473,12 +523,14 @@ impl Path {
             Path::SpokenOnly => "spokenOnly",
             Path::Unclosed => "unclosed",
             Path::Untagged => "untagged",
+            Path::Rewritten => "rewritten",
         }
     }
 }
 
 /// How a whole reply was written, read as [`Spoken`] reads it: only the
-/// first spoken version counts, and a stray tag is no version.
+/// first spoken version counts, and a stray tag is no version. A reply is
+/// [`Path::Rewritten`] only once the call assistant has rewritten it.
 pub(crate) fn path(text: &str) -> Path {
     let mut tags = Tags::default();
     let mut pieces = tags.push(text);
@@ -654,14 +706,18 @@ pub(crate) fn speech_text(text: &str) -> String {
 mod tests {
     use super::*;
 
-    /// Everything said of a reply that arrives in these chunks.
+    /// Everything said of a reply that arrives in these chunks, its opening
+    /// at the end when it wrote no spoken version, as a call says it when
+    /// there is no rewrite.
     fn said(chunks: &[&str]) -> Vec<String> {
         let mut spoken = Spoken::default();
         let mut out = Vec::new();
         for chunk in chunks {
             out.extend(spoken.push(chunk));
         }
-        out.extend(spoken.finish());
+        match spoken.finish() {
+            Ending::Spoken(rest) | Ending::Untagged(rest) => out.extend(rest),
+        }
         out
     }
 
@@ -752,7 +808,7 @@ mod tests {
                 .push("ken>\n<written>Everything else. And more.</written>")
                 .is_empty()
         );
-        assert!(spoken.finish().is_empty());
+        assert_eq!(spoken.finish(), Ending::Spoken(Vec::new()));
     }
 
     #[test]
@@ -821,18 +877,67 @@ mod tests {
     }
 
     #[test]
-    fn a_line_before_the_tags_is_said_as_it_streams_and_kept_with_what_was_said() {
+    fn a_line_before_the_tags_is_said_before_the_spoken_version_and_kept_with_it() {
         let mut spoken = Spoken::default();
-        assert_eq!(spoken.push("Let me check. "), ["Let me check."]);
+        assert!(spoken.push("Let me check. ").is_empty());
         assert_eq!(
             spoken.push("<spoken>It's green.</spoken><written>Green: 42 of 42.</written>"),
-            ["It's green."]
+            ["Let me check.", "It's green."]
         );
         let both = versions(
             "Let me check. <spoken>It's green.</spoken><written>Green: 42 of 42.</written>",
         );
         assert_eq!(both.spoken.as_deref(), Some("Let me check. It's green."));
         assert_eq!(both.written, "Green: 42 of 42.");
+    }
+
+    /// A reply that has not begun a spoken version says nothing as it
+    /// streams, so a rewrite of it is never heard after its opening; its
+    /// opening comes back when it ends.
+    #[test]
+    fn a_reply_without_a_spoken_version_is_held_and_its_opening_handed_back() {
+        let mut spoken = Spoken::default();
+        for chunk in [
+            "The build fails for two reasons. ",
+            "First, the key is missing. Second, the port is taken. ",
+            "Third, a flaky test.\n```sh\ncargo test\n```\nThat's all.",
+        ] {
+            assert!(spoken.push(chunk).is_empty(), "{chunk}");
+        }
+        assert_eq!(
+            spoken.finish(),
+            Ending::Untagged(vec![
+                "The build fails for two reasons.".into(),
+                "First, the key is missing.".into(),
+                "Second, the port is taken.".into(),
+            ])
+        );
+        let mut spoken = Spoken::default();
+        assert!(spoken.push("<written>Four.</written>").is_empty());
+        assert_eq!(spoken.finish(), Ending::Untagged(vec!["Four.".into()]));
+    }
+
+    #[test]
+    fn only_one_short_line_without_a_spoken_version_is_said_as_written() {
+        for line in [
+            "Let me check the logs.",
+            "On it. Running the tests now.",
+            "  The build is green, all **42** checks pass.\n",
+            "It's at https://ketch.run/docs.",
+        ] {
+            assert!(said_as_written(line), "{line:?}");
+        }
+        for reply in [
+            "",
+            "Here's the fix:\n```rust\nlet x = 1;\n```",
+            "Run `cargo test` first.",
+            "Two fixes:\n- set the key\n- free the port",
+            "| test | result |",
+            "One. Two. Three. Four.",
+            &"word ".repeat(40),
+        ] {
+            assert!(!said_as_written(reply), "{reply:?}");
+        }
     }
 
     #[test]
@@ -983,8 +1088,15 @@ mod tests {
             assert_eq!(path(reply), expected, "{reply:?}");
         }
         assert_eq!(
-            [Path::Both, Path::SpokenOnly, Path::Unclosed, Path::Untagged].map(Path::name),
-            ["both", "spokenOnly", "unclosed", "untagged"]
+            [
+                Path::Both,
+                Path::SpokenOnly,
+                Path::Unclosed,
+                Path::Untagged,
+                Path::Rewritten
+            ]
+            .map(Path::name),
+            ["both", "spokenOnly", "unclosed", "untagged", "rewritten"]
         );
     }
 

@@ -498,8 +498,10 @@ the same error. A `fallbackTts` that cannot be used is no fallback.
 When nothing can hear or speak, `resolve` returns a sentence for a person.
 
 `dispatcher` names the chat model that routes what was said on a call to the
-desk; Settings › Providers › Use for calls it the call assistant. A call to a
-teammate never uses it. Without that setting the
+desk; Settings › Providers › Use for calls it the call assistant. On a call to
+a teammate it only says again, to be heard, a reply the teammate wrote
+without a spoken version ([A reply written only to be
+read](#a-reply-written-only-to-be-read)). Without that setting the
 desk takes the best-suited quick chat model of the room's default provider: a
 middle-tier one (`flash`, `mini`, `small`, `fast`) first, because the lightest
 tier (`flash-lite`, `nano`, `luna`, `haiku`, `instant`) is too thin to hold a
@@ -563,8 +565,13 @@ The reply is read twice from one stream:
   each sentence said as soon as it is whole, cleaned for speech as below, and
   nothing after it. It holds back the end of a chunk that could be the start
   of a tag, so no part of a tag is ever said, and it never reads out a fenced
-  code block or a table. Text before the first tag is read as a reply with no
-  tags is: that is how the one line before a tool is said as it streams.
+  code block or a table. Text before a spoken version is not said as it
+  streams, because a reply that never writes one is said differently once it
+  is whole ([A reply written only to be
+  read](#a-reply-written-only-to-be-read)), and its opening must not be heard
+  first. When a spoken
+  version begins, the text before it is said first, read as a reply with no
+  tags is, as the line an agent wrote before its tags.
 - **Shown.** The chat shows the written version alone, as a normal desk
   answer: as it streams (`spoken::Shown`, which holds back a partial tag the
   same way and drops the spoken version), and as it is written to the tape
@@ -577,9 +584,9 @@ The tags are read tolerantly. Case and spaces inside the angle brackets do not
 matter. A `<spoken>` never closed ends where `<written>` begins. A reply with
 no `<written>` shows its spoken version, or the text after it when the model
 forgot the tag; text outside both versions after the first tag is shown with
-the written one. A reply with no tags at all was written to be read, so the
-call says its opening, up to its first code block or table and at most three
-sentences, and the chat shows all of it. Only the first spoken version is the
+the written one. A reply with no spoken version at all was written to be
+read, and the chat shows all of it; what the call says of it is below. Only
+the first spoken version is the
 reply's, a written version ends only at its own closing tag, and any other tag
 is stray: it is dropped and the text on both sides kept. Text that only looks
 like a tag (`<spoke>`, `Vec<String>`, `a < b`) is text.
@@ -607,26 +614,13 @@ version of its own, opening with a continuation ("Also", "Additionally",
 for word, writes one `[voice]` line to the log (`spoken::lazy`). It is a
 diagnostic: nothing shown or said changes.
 
-Each reply the call says is counted once, by how it was written
-(`spoken::path`): `both` (a spoken version closed with `</spoken>`, and a
-written one), `spokenOnly` (a closed spoken version and no written one),
-`unclosed` (a `<spoken>` never closed) or `untagged` (no spoken version). The
-count is kept under the agent and model that wrote the reply:
-`hotline/<provider>/<model>` for Hotline Agent, and `acp/<adapter>` for an
-ACP agent, followed by `/<model>` when its session reports one. The counts
-live in `<data dir>/voice-replies.json`, written whole and atomically after
-each count (`voice/replies.rs`), each count writes one `[voice]` line to the
-log, and `voice.status` returns them as `replies` (`docs/wire.md`), so a
-client can say how often a model kept to the contract. A reply the person
-spoke over, or a hold cut off, before it was whole is not counted. The counts
-are a diagnostic, so a file that cannot be read starts them again rather
-than stopping a call.
-
 On an agent turn, what the agent writes before its first tool call is said as
-it streams, as the acknowledgement. Its words between tools are narration
-(`session/narration.rs`) and are not said; the call stays `thinking`, and the
-client's blip-blip covers the work. The message that lands as the report is
-said when it lands: its spoken version, or its opening when it wrote none. Each message said is one reply:
+the acknowledgement: its spoken version as it streams, or, without one, the
+line as written once it is whole, which is when the tool starts. Its words
+between tools are narration (`session/narration.rs`) and are not said; the
+call stays `thinking`, and the client's blip-blip covers the work. The message
+that lands as the report is said when it lands: its spoken version, or, when
+it wrote none, as below. Each message said is one reply:
 one `said` id, the line growing sentence by sentence, its clips under that id
 closed by an empty final clip, and one line on the call's thread.
 
@@ -666,7 +660,8 @@ words as written. The two pairs of tags are the only markup the agent is asked
 for.
 
 The latency of a call to a teammate is the teammate's: its first word waits on
-its model's first sentence. That is accepted. A desk call keeps its router:
+its model's first sentence, and for a reply written only to be read, on the
+whole reply and its rewrite. That is accepted. A desk call keeps its router:
 the call assistant answers what was said on the desk, hands work to teammates
 with `session.prompt`, and narrates their replies, as below.
 
@@ -690,6 +685,60 @@ voice), picked on its card from the voices of the model the desk speaks with.
 A direct call to that teammate speaks in it while the desk still speaks with
 that provider and model; otherwise, or if the provider refuses the voice, the
 call uses the desk's voice. Desk calls always use the desk's voice.
+
+### A reply written only to be read
+
+A reply that writes no `<spoken>` version (`spoken::Ending::Untagged`) is
+said once it is whole, from its written version (`Calls::unspoken`):
+
+- **One short line** is said as it was written (`spoken::said_as_written`):
+  one line of prose, under 40 words and at most three sentences, with no code
+  or table. That is the one short line the contract asks for before a tool,
+  which arrives as a message of its own when the tool starts, and a reply that
+  short has nothing to say again.
+- **Anything longer** the call assistant says again to be heard
+  (`Calls::rewrite`, `Dispatcher::rewrite`): it is handed the written version,
+  its first 8,000 characters with a note that the rest is in the chat, and
+  the person's last words, as escaped untrusted data, and asked to say it as
+  on a phone call, leading with the answer in one to three sentences under 40
+  words of plain speech, mentioning that details are in the chat, and adding
+  nothing. What it writes is said as the reply's line, kept on the call's
+  thread, and kept as the reply's `spoken`, so the window's transcript line
+  and the model's rebuilt history have it: the session has written the reply
+  by then, and the call supersedes that event with the field added
+  (`Room::voice_spoken`), waiting up to two seconds for it to land. While it
+  writes, the call is `thinking`: the person hears the blip-blip, and the
+  15-second heartbeat keeps a phone waiting.
+- **When there is no rewrite** (the desk has no call assistant, the Chat
+  budget refuses it, the request fails, or it takes longer than six seconds)
+  the call says the reply's opening, as it always did: up to its first code
+  block or table, and at most three sentences. Each such case writes one
+  `[voice]` line to the log; none of them ends the call, not even a refused
+  budget.
+
+The rewrite is the call assistant's work and is metered as it is (see
+[The ledger](#the-ledger)): reserved and settled on the Chat budget's call
+assistant line, and never refused on a model that costs nothing.
+
+### How each reply was said
+
+Each reply the call says is counted once, by how it was written and so said
+(`spoken::path`): `both` (a spoken version closed with `</spoken>`, and a
+written one), `spokenOnly` (a closed spoken version and no written one),
+`unclosed` (a `<spoken>` never closed), `untagged` (no spoken version, and its
+opening was said) or `rewritten` (no spoken version, and the call assistant's
+rewrite was said). One short line said as written is not counted: it is what
+the contract asks for before a tool. The count is kept under the agent and
+model that wrote the reply:
+`hotline/<provider>/<model>` for Hotline Agent, and `acp/<adapter>` for an
+ACP agent, followed by `/<model>` when its session reports one. The counts
+live in `<data dir>/voice-replies.json`, written whole and atomically after
+each count (`voice/replies.rs`), each count writes one `[voice]` line to the
+log, and `voice.status` returns them as `replies` (`docs/wire.md`), so a
+client can say how often a model kept to the contract. A reply the person
+spoke over, or a hold cut off, before it was whole is not counted. The counts
+are a diagnostic, so a file that cannot be read starts them again rather
+than stopping a call.
 
 ## Timing
 
@@ -768,9 +817,11 @@ call assistant) is never refused and never reads the ledger, so free voice
 runs even when the ledger cannot be read. `ready(kinds)` asks the same of
 the kinds a call would pay for before work starts: transcription and speech
 when their provider charges, and on a desk call the call assistant when it is
-billed per token. A call to a teammate pays for no call assistant; its turns
+billed per token. A call to a teammate names no call assistant; its turns
 are the teammate's own and are metered by its session, against Chat on a
-per-token key, as typed turns are. `voice.call_start`
+per-token key, as typed turns are. A rewrite of a reply written only to be
+read reserves on Chat like any call assistant request, and a refusal only
+means the reply's opening is said instead. `voice.call_start`
 refuses a call whose paid budget is spent with that sentence; during a call
 a refused reservation ends it with the bundled budget line. A call that
 pays for nothing names no kinds, so no budget can end it.
@@ -801,7 +852,7 @@ model from the vault's model metadata first, then the bundled catalogue; a
 sign-in or a local server costs nothing. Each model call reserves an estimate
 before it goes out: the request's bytes (prompt, history, preamble, and 2 KB
 per tool) divided by three as input tokens, plus the request's own output
-ceiling (512 tokens for an answer, 160 for a narration). When the response
+ceiling (512 tokens for an answer, 160 for a narration or a rewrite). When the response
 reports usage, the reservation is settled to what it cost: `input_tokens` at
 the input price, cache reads and writes at the catalogue's cache prices, and
 output. Anthropic reports cache tokens beside `input_tokens`; the

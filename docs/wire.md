@@ -1186,7 +1186,10 @@ input, and its replies must carry that call and turn's internal origin.
 A reply to a turn said on a direct call is an `agent` event like any other,
 whose `text` is the written version, and whose first bubble also carries
 `spoken`: the version written to be heard, as the agent wrote it (a line it
-wrote before the version included), before it was cleaned for speech. It is
+wrote before the version included), before it was cleaned for speech. A reply
+that wrote no spoken version gets `spoken` when the call assistant says it
+again to be heard: the event is written first without it, then written again
+under the same id with it once that has been said. It is
 on the tape and on the wire as an optional field, absent on every other
 message, so a client that does not know it shows `text`, which stands alone.
 The window draws it as a transcript line above the reply. What was actually
@@ -1202,12 +1205,13 @@ any, sorted by `model`: `hotline/<provider>/<model>` for Hotline Agent, or
 `acp/<adapter>` for an ACP agent, followed by `/<model>` when its session
 reports one. Each reply the call said is counted once under `both` (a closed
 spoken version and a written one), `spokenOnly`, `unclosed` (a `<spoken>`
-never closed) or `untagged` (no spoken version). The field is additive and
+never closed), `untagged` (no spoken version, its opening said) or
+`rewritten` (no spoken version, the call assistant's rewrite said). The field is additive and
 absent until a reply has been counted; the desk keeps the counts across
-restarts ([voice.md](voice.md#one-brain-two-outputs)).
+restarts ([voice.md](voice.md#how-each-reply-was-said)).
 
 ```json
-{"replies": [{"model": "acp/claude-code", "both": 47, "spokenOnly": 1, "unclosed": 0, "untagged": 2}]}
+{"replies": [{"model": "acp/claude-code", "both": 47, "spokenOnly": 1, "unclosed": 0, "untagged": 0, "rewritten": 2}]}
 ```
 
 Repeating a retained id with the same target and input mode returns the same
@@ -1346,9 +1350,13 @@ Approval requests arrive as `card` and must be answered in the existing UI.
 The dispatcher has no persona: its `voice-dispatcher` tape is hidden from the
 roster and rail, but indexed by `search.all` and `search.thread`.
 
-A direct call has no dispatcher and pays for none: its turns are the
-teammate's, metered by the session against Chat on a per-token key, as typed
-turns are.
+A direct call has no dispatcher in front of it and pays for none up front:
+its turns are the teammate's, metered by the session against Chat on a
+per-token key, as typed turns are. Its one use of the call assistant is to say
+again, to be heard, a reply the teammate wrote with no spoken version; that
+request reserves on Chat as any call-assistant request does, and a refusal,
+a failure, no call assistant or more than six seconds only means the call
+says the reply's opening instead ([voice.md](voice.md#a-reply-written-only-to-be-read)).
 
 Speech attempts and conservative dispatcher estimates are reserved before a
 request so cancellation or a lost response cannot erase their cost. Reservations

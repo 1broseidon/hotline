@@ -20,6 +20,12 @@ pub(crate) struct Fake {
     pub narrations: AtomicUsize,
     /// Whether the fake call assistant's model costs nothing.
     pub free_assistant: bool,
+    /// What the call assistant's rewrite of a reply comes back with, after
+    /// `rewrite_delay`; none is scripted unless a test says so.
+    pub rewrite: Mutex<Result<String, String>>,
+    pub rewrite_delay: Mutex<Duration>,
+    /// The person's words and the written reply each rewrite was handed.
+    pub rewrites: Mutex<Vec<(String, String)>>,
 }
 impl Default for Fake {
     fn default() -> Self {
@@ -38,6 +44,9 @@ impl Default for Fake {
             narration: Mutex::new(None),
             narrations: AtomicUsize::new(0),
             free_assistant: false,
+            rewrite: Mutex::new(Err("No rewrite is scripted.".into())),
+            rewrite_delay: Mutex::new(Duration::ZERO),
+            rewrites: Mutex::new(Vec::new()),
         }
     }
 }
@@ -128,6 +137,12 @@ impl Dispatcher for Fake {
         }
         Ok(format!("{name} says: {text}"))
     }
+    async fn rewrite(&self, words: &str, written: &str, _: Arc<Budget>) -> Result<String, String> {
+        lock(&self.rewrites).push((words.into(), written.into()));
+        let delay = *lock(&self.rewrite_delay);
+        tokio::time::sleep(delay).await;
+        lock(&self.rewrite).clone()
+    }
 }
 pub(crate) fn services() -> Services {
     with_fake(Arc::new(Fake::default()))
@@ -139,7 +154,7 @@ pub(crate) fn with_fake(fake: Arc<Fake>) -> Services {
             tts: fake.clone(),
             fallback_tts: None,
         },
-        dispatcher: fake,
+        dispatcher: Some(fake),
     }
 }
 fn desk(services: Services) -> (tempfile::TempDir, Arc<crate::desk::Desk>, Arc<Calls>) {
@@ -1914,9 +1929,28 @@ async fn direct_call() -> (
     broadcast::Receiver<VoiceEvent>,
     Arc<Fake>,
 ) {
+    direct_call_with(true).await
+}
+
+/// The same, on a desk that has a call assistant or none.
+async fn direct_call_with(
+    assistant: bool,
+) -> (
+    tempfile::TempDir,
+    Arc<crate::desk::Desk>,
+    Arc<Calls>,
+    String,
+    String,
+    broadcast::Receiver<VoiceEvent>,
+    Arc<Fake>,
+) {
     let fake = Arc::new(Fake::default());
     *lock(&fake.transcript) = "Can you check the build?".into();
-    let (root, desk, calls) = desk(with_fake(fake.clone()));
+    let mut services = with_fake(fake.clone());
+    if !assistant {
+        services.dispatcher = None;
+    }
+    let (root, desk, calls) = desk(services);
     let persona = mack(&desk).await;
     let id = Uuid::new_v4().to_string();
     calls
@@ -2172,6 +2206,8 @@ async fn each_reply_said_is_counted_by_how_it_was_written() {
             "untagged",
             "All 42 checks pass:\n| check | result |\n| unit | ok |",
         ),
+        // One short line, as before a tool, is said as written, uncounted.
+        ("line", "Let me check the logs."),
     ] {
         assert!(calls.delivery(&persona, event, "Mack", reply, true, Some(&origin)));
         one_reply(&mut rx).await;
@@ -2193,6 +2229,7 @@ async fn each_reply_said_is_counted_by_how_it_was_written() {
         spoken_only: 1,
         unclosed: 1,
         untagged: 1,
+        rewritten: 0,
     }];
     assert_eq!(calls.status().replies.as_ref(), Some(&counted));
     assert_eq!(replies::Replies::open(desk.log.root()).counts(), counted);
@@ -2201,18 +2238,201 @@ async fn each_reply_said_is_counted_by_how_it_was_written() {
     calls.end(&id).unwrap();
 }
 
-/// An agent that writes no spoken version wrote its reply to be read: the
-/// call says its opening, up to its first code block, and the chat has it all.
+/// A reply written only to be read, as an agent writes when it ignores the
+/// tags.
+const UNTAGGED: &str = "Here's the fix for the flaky test:\n```rust\nassert!(ready);\n```\nIt passes ten runs in a row now.";
+
+/// The agent event the session writes for a reply, as it does just after
+/// handing the reply to the call.
+fn write_reply(desk: &crate::desk::Desk, persona: &str, event: &str, text: &str) {
+    desk.log
+        .append(
+            &StreamId::Tape(persona.into()),
+            &json!({"kind": "agent", "id": event, "ts": 1, "text": text}),
+        )
+        .unwrap();
+}
+
+/// What was said for a reply, as its agent event keeps it.
+fn kept_spoken(desk: &crate::desk::Desk, persona: &str, event: &str) -> Option<String> {
+    desk.log
+        .load(&StreamId::Tape(persona.into()))
+        .into_iter()
+        .find(|line| line["id"] == event)
+        .and_then(|line| line["spoken"].as_str().map(str::to_string))
+}
+
+/// A reply that wrote no spoken version says nothing while it streams, so
+/// its opening is never heard before what replaces it. Once it is whole, the
+/// call assistant is handed it and the person's last words and says it again
+/// to be heard; that is said as the reply's one line, kept on the call's
+/// thread and on the reply as what was said, and counted as rewritten. A
+/// reply with a spoken version, or one short line such as the line before
+/// a tool, never asks the call assistant.
 #[tokio::test]
-async fn a_reply_without_tags_is_said_up_to_its_first_code_block() {
+async fn a_reply_without_a_spoken_version_is_rewritten_said_and_kept() {
+    let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .change(&id, |call| {
+            call.words = "Why is the test flaky?".into();
+            Ok(())
+        })
+        .unwrap();
+    let rewrite = "It was a race on startup, and it's fixed now. Details are in the chat.";
+    *lock(&fake.rewrite) = Ok(rewrite.into());
+
+    assert!(calls.delivery(
+        &persona,
+        "tagged",
+        "Mack",
+        "<spoken>It's fixed.</spoken><written>Fixed: see the diff.</written>",
+        true,
+        Some(&origin)
+    ));
+    one_reply(&mut rx).await;
+    assert!(calls.delivery(
+        &persona,
+        "line",
+        "Mack",
+        "Let me check the logs.",
+        true,
+        Some(&origin)
+    ));
+    assert_eq!(one_reply(&mut rx).await.0[0].1, "Let me check the logs.");
+    assert!(
+        lock(&fake.rewrites).is_empty(),
+        "only a reply to be read is rewritten"
+    );
+
+    let (head, tail) = UNTAGGED.split_at(40);
+    calls.reply_delta(&persona, "reply-1", head, &origin);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    while let Ok(event) = rx.try_recv() {
+        assert!(
+            !matches!(event, VoiceEvent::Said { .. } | VoiceEvent::Clip { .. }),
+            "nothing is said of it while it streams: {event:?}"
+        );
+    }
+    calls.reply_delta(&persona, "reply-1", tail, &origin);
+    assert!(calls.delivery(&persona, "reply-1", "Mack", UNTAGGED, true, Some(&origin)));
+    let (said, clips) = one_reply(&mut rx).await;
+    assert!(said.iter().all(|(line, _)| *line == said[0].0));
+    assert_eq!(said.last().unwrap().1, rewrite);
+    assert_eq!(clips.len(), 3, "two sentences and the closing clip");
+    assert_eq!(
+        *lock(&fake.rewrites),
+        [("Why is the test flaky?".to_string(), UNTAGGED.to_string())]
+    );
+    assert_eq!(
+        lock(&fake.spoken)[2..],
+        [
+            "It was a race on startup, and it's fixed now.",
+            "Details are in the chat."
+        ]
+    );
+    // The session writes the reply after handing it over; the rewrite waits
+    // for it, and is kept beside it as what was said.
+    write_reply(&desk, &persona, "reply-1", UNTAGGED);
+    until_written("the rewrite", || {
+        kept_spoken(&desk, &persona, "reply-1").as_deref() == Some(rewrite)
+    })
+    .await;
+    until_written("the call's thread", || {
+        said_on(&desk, &id).last().map(|(_, text)| text.as_str()) == Some(rewrite)
+    })
+    .await;
+    let counts = calls.status().replies.unwrap();
+    assert_eq!((counts[0].both, counts[0].rewritten), (1, 1), "{counts:?}");
+    assert_eq!(counts[0].untagged, 0);
+    calls.end(&id).unwrap();
+}
+
+/// While the call assistant writes, the call thinks: the person hears the
+/// blip-blip, and the call says so again on its heartbeat, so a phone does
+/// not give up on it.
+#[tokio::test]
+async fn the_call_thinks_while_a_reply_is_rewritten() {
     let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
-    let reply = "Here's the fix for the flaky test:\n```rust\nassert!(ready);\n```\nIt passes ten runs in a row now.";
-    assert!(calls.delivery(&persona, "reply-1", "Mack", reply, true, Some(&origin)));
+    *lock(&fake.rewrite) = Ok("It's fixed. Details are in the chat.".into());
+    *lock(&fake.rewrite_delay) = REWRITE_WAIT * 2 / 3;
+    assert!(REWRITE_WAIT * 2 / 3 > THINKING_AGAIN);
+    assert!(calls.delivery(&persona, "reply-1", "Mack", UNTAGGED, true, Some(&origin)));
+    let thinking = |e: &VoiceEvent| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Thinking,
+                ..
+            }
+        )
+    };
+    event(&mut rx, thinking).await;
+    event(&mut rx, thinking).await;
     let (said, _) = one_reply(&mut rx).await;
-    assert_eq!(said.last().unwrap().1, "Here's the fix for the flaky test:");
-    assert_eq!(*lock(&fake.spoken), ["Here's the fix for the flaky test:"]);
+    assert_eq!(
+        said.last().unwrap().1,
+        "It's fixed. Details are in the chat."
+    );
     calls.end(&id).unwrap();
+}
+
+/// When the call assistant cannot rewrite a reply written to be read (it
+/// fails, its budget refuses it, it takes too long, or the desk has none),
+/// the call says the reply's opening, up to its first code block, as it
+/// always did; the reply is counted as untagged, nothing is kept as said for
+/// it, and the call goes on.
+#[tokio::test]
+async fn a_reply_that_cannot_be_rewritten_is_said_up_to_its_first_code_block() {
+    for case in ["failed", "budget", "slow", "no assistant"] {
+        let (_root, desk, calls, id, persona, mut rx, fake) =
+            direct_call_with(case != "no assistant").await;
+        let origin = on_turn(&calls, &id, 1);
+        *lock(&fake.rewrite) = match case {
+            "failed" => Err("The provider is down.".into()),
+            "budget" => Err(BUDGET_ERROR.into()),
+            _ => Ok("Too late to say.".into()),
+        };
+        if case == "slow" {
+            *lock(&fake.rewrite_delay) = REWRITE_WAIT * 3;
+        }
+        write_reply(&desk, &persona, "reply-1", UNTAGGED);
+        assert!(calls.delivery(&persona, "reply-1", "Mack", UNTAGGED, true, Some(&origin)));
+        let (said, _) = one_reply(&mut rx).await;
+        assert_eq!(
+            said.last().unwrap().1,
+            "Here's the fix for the flaky test:",
+            "{case}"
+        );
+        assert_eq!(
+            *lock(&fake.spoken),
+            ["Here's the fix for the flaky test:"],
+            "{case}"
+        );
+        assert_eq!(
+            lock(&fake.rewrites).len(),
+            usize::from(case != "no assistant"),
+            "{case}"
+        );
+        let counts = calls.status().replies.unwrap();
+        assert_eq!((counts[0].untagged, counts[0].rewritten), (1, 0), "{case}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(kept_spoken(&desk, &persona, "reply-1"), None, "{case}");
+        // A refused budget ends nothing: the call takes the next words.
+        event(&mut rx, |e| {
+            matches!(
+                e,
+                VoiceEvent::State {
+                    state: VoiceState::Listening,
+                    ..
+                }
+            )
+        })
+        .await;
+        utterance(&calls, &id, 2).unwrap();
+        calls.end(&id).unwrap();
+    }
 }
 
 /// Speaking over a teammate stops what it is saying and gives the person the
@@ -2371,7 +2591,12 @@ async fn the_call_listens_while_the_teammate_works_and_speaking_over_it_cuts_it_
 
     // A reply begins mid-turn, and the person speaks over it.
     *lock(&fake.delay) = Duration::from_secs(5);
-    calls.reply_delta(&persona, "narration", "Looking at the logs now. ", &origin);
+    calls.reply_delta(
+        &persona,
+        "narration",
+        "<spoken>Looking at the logs now. ",
+        &origin,
+    );
     event(
         &mut rx,
         |e| matches!(e, VoiceEvent::Said { text, .. } if text == "Looking at the logs now."),
@@ -2434,7 +2659,7 @@ async fn a_reply_the_turn_never_finished_is_said_as_far_as_it_got() {
     calls.reply_delta(
         &persona,
         "reply-1",
-        "The deploy is half done. The rest",
+        "<spoken>The deploy is half done. The rest",
         &origin,
     );
     event(

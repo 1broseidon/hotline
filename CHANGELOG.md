@@ -29,9 +29,20 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   of in the conversation's header. One is named, several are counted with a
   menu, and pressing one opens its run beside the conversation. Side threads
   stay in the header.
+- On a call, a teammate sounds like itself rather than an assistant in
+  front of it. It speaks in the first person with one voice, never as "my
+  session" or "the main agent", and gets straight to the point without
+  "Good to hear…" openers or sign-offs, asking a question only when it
+  needs one. When you ask for something to be done or looked up, such as
+  putting the transcript in the chat, it starts on it straight away and
+  says so briefly, instead of promising to or saying it can't.
 
 ### Fixed
 
+- An answer on a call is one reply. It is still spoken as soon as its
+  first sentence is ready, but the call and the chat show it as one message
+  instead of a line per sentence, and an acknowledgement is no longer said
+  twice when the teammate hands your request over.
 - When a teammate on Claude Code or Hotline Agent has answered and only its
   subagents are still working, the answer is its reply in the conversation
   (on Claude Code it stayed in the Working card's steps) and the teammate no

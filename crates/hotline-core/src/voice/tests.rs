@@ -155,7 +155,11 @@ impl Dispatcher for Fake {
         if hand {
             (front.hand_off)()?;
         }
-        output.send(line).await.map_err(|e| e.to_string())
+        // As the provider's dispatcher does: sentence by sentence.
+        for sentence in sentences(&line) {
+            output.send(sentence).await.map_err(|e| e.to_string())?;
+        }
+        Ok(())
     }
     async fn narrate_first_person(
         &self,
@@ -784,19 +788,34 @@ async fn clips_are_sent_in_sentence_order_and_sequences_cannot_replay() {
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     utterance(&calls, &id, 1).unwrap();
     assert!(utterance(&calls, &id, 1).is_err());
-    for text in ["The first sentence.", "The second sentence."] {
+    // One answer is one line: the second sentence extends the first under
+    // its id, and its clips carry on that id's indices.
+    let mut line = None;
+    for (index, text) in [
+        "The first sentence.",
+        "The first sentence. The second sentence.",
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let said = event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
-        let VoiceEvent::Said {
-            id: line,
-            text: actual,
-        } = said
-        else {
+        let VoiceEvent::Said { id, text: actual } = said else {
             unreachable!()
         };
         assert_eq!(actual, text);
+        let line = line.get_or_insert(id.clone());
+        assert_eq!(&id, line);
         let clip = event(&mut rx, |e| matches!(e, VoiceEvent::Clip { .. })).await;
-        assert!(matches!(clip, VoiceEvent::Clip { id, index: 0, r#final: true, .. } if id == line));
+        assert!(
+            matches!(&clip, VoiceEvent::Clip { id, index: at, r#final: false, .. } if id == line && *at == index as u32),
+            "{clip:?}"
+        );
     }
+    let last = event(&mut rx, |e| matches!(e, VoiceEvent::Clip { .. })).await;
+    assert!(matches!(
+        last,
+        VoiceEvent::Clip { id, index: 2, r#final: true, data, .. } if Some(&id) == line.as_ref() && data.is_empty()
+    ));
     calls.end(&id).unwrap();
     calls.end(&id).unwrap();
 }
@@ -1241,15 +1260,21 @@ async fn a_blocked_dispatcher_says_nothing_and_interrupt_preserves_its_text() {
         }
         assert!(utterance(&calls, &id, 2).is_err());
         gate.add_permits(1);
+        let whole = "The first sentence. The second sentence.";
         event(
             &mut rx,
-            |e| matches!(e, VoiceEvent::Said { text, .. } if text == "The second sentence."),
+            |e| matches!(e, VoiceEvent::Said { text, .. } if text == whole),
         )
         .await;
         tokio::task::yield_now().await;
         assert!(lock(&fake.spoken).is_empty());
-        let tape = desk.log.load(&crate::log::StreamId::Tape(TAPE_ID.into()));
-        assert!(tape.iter().any(|e| e["text"] == "The second sentence."));
+        until_written("the answer", || {
+            desk.log
+                .load(&crate::log::StreamId::Tape(TAPE_ID.into()))
+                .iter()
+                .any(|e| e["text"] == whole)
+        })
+        .await;
         while let Ok(e) = rx.try_recv() {
             assert!(!matches!(e, VoiceEvent::Clip { .. }));
         }
@@ -1940,7 +1965,7 @@ async fn a_fronted_handoff_is_acknowledged_once_and_a_lost_one_is_reported() {
     // This desk has no provider, so the teammate cannot start: the caller is told.
     event(
         &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text.contains("didn't reach my session")),
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text.contains("couldn't start on that")),
     )
     .await;
     calls.end(&id).unwrap();
@@ -2339,6 +2364,100 @@ async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
     );
 }
 
+/// A reply the voice writes in several sentences is spoken as they come but
+/// is one reply: one line on screen, growing under one id, its audio under
+/// that id ending in one final clip, and one line on the call's thread.
+#[tokio::test]
+async fn a_fronted_reply_in_several_sentences_is_one_line_on_the_call() {
+    let reply = "The build is still red. It's the flaky config test again. I'm rerunning it now.";
+    let (_root, desk, calls, id, _persona, mut rx) = direct_call(Ok((reply.into(), false))).await;
+    utterance(&calls, &id, 1).unwrap();
+    let mut said = Vec::new();
+    let mut clips = Vec::new();
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            match rx.recv().await.unwrap() {
+                VoiceEvent::Said { id, text } => said.push((id, text)),
+                VoiceEvent::Clip {
+                    id,
+                    index,
+                    r#final,
+                    data,
+                    ..
+                } => {
+                    clips.push((id, index, data.is_empty()));
+                    if r#final {
+                        return;
+                    }
+                }
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+    let line = &said[0].0;
+    assert!(said.iter().all(|(id, _)| id == line), "{said:?}");
+    assert_eq!(
+        said.iter()
+            .map(|(_, text)| text.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "The build is still red.",
+            "The build is still red. It's the flaky config test again.",
+            reply,
+        ]
+    );
+    // One clip a sentence, in order, then an empty clip that ends the line.
+    assert!(clips.iter().all(|(id, _, _)| id == line));
+    assert_eq!(
+        clips
+            .iter()
+            .map(|(_, index, empty)| (*index, *empty))
+            .collect::<Vec<_>>(),
+        [(0, false), (1, false), (2, false), (3, true)]
+    );
+    until_written("the reply", || said_on(&desk, &id).len() == 2).await;
+    assert_eq!(
+        said_on(&desk, &id),
+        [
+            ("user".to_string(), "Can you check the build?".to_string()),
+            ("agent".to_string(), reply.to_string()),
+        ]
+    );
+    let stored = desk.log.load(&StreamId::Call(id.clone()));
+    assert!(stored.iter().any(|event| event["id"] == line.as_str()));
+    let exchange = calls.change(&id, |call| Ok(call.exchange.clone())).unwrap();
+    assert_eq!(lock(&exchange).lines().last().unwrap().text, reply);
+    calls.end(&id).unwrap();
+}
+
+/// A desk call's answer, streamed in sentences, is one line on the
+/// dispatcher's tape too.
+#[tokio::test]
+async fn a_desk_calls_streamed_answer_is_one_line_on_its_tape() {
+    let (_root, desk, calls) = desk(services());
+    let id = Uuid::new_v4().to_string();
+    calls.start(&id, desk.clone()).unwrap();
+    let (_, mut rx) = calls.subscribe(&id).unwrap();
+    utterance(&calls, &id, 1).unwrap();
+    event(&mut rx, |e| {
+        matches!(e, VoiceEvent::Clip { r#final: true, .. })
+    })
+    .await;
+    let agent = || -> Vec<String> {
+        desk.log
+            .load(&StreamId::Tape(TAPE_ID.into()))
+            .into_iter()
+            .filter(|event| event["kind"] == "agent")
+            .map(|event| event["text"].as_str().unwrap().to_string())
+            .collect()
+    };
+    until_written("the answer", || !agent().is_empty()).await;
+    assert_eq!(agent(), ["The first sentence. The second sentence."]);
+    calls.end(&id).unwrap();
+}
+
 #[tokio::test]
 async fn a_relayed_report_and_the_persons_words_are_kept_as_who_said_them() {
     let (_root, desk, calls, id, _persona, mut rx) =
@@ -2349,6 +2468,8 @@ async fn a_relayed_report_and_the_persons_words_are_kept_as_who_said_them() {
         |e| matches!(e, VoiceEvent::Said { text, .. } if text == "On it."),
     )
     .await;
+    // The voice's reply is kept once it is over, before any report is said.
+    until_written("the reply", || said_on(&desk, &id).len() == 2).await;
     calls
         .change(&id, |call| {
             call.record.as_ref().unwrap().said(

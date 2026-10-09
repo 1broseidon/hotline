@@ -1235,10 +1235,13 @@ is a sentence explaining what the owner needs to change.
 After a nonempty, non-goodbye `heard`, the desk says nothing until the
 dispatcher answers: the call is `thinking`, and a client covers the wait with
 its own sound (the desktop plays a short blip-blip, repeated while it lasts)
-rather than speech. Dispatcher text streams at sentence boundaries; each
-sentence has its own `said.id`. Whole-clip output uses `index: 0`, `final: true`;
-negotiated progressive output can carry multiple clips for that sentence.
-Clients
+rather than speech. Dispatcher text streams at sentence boundaries, and one
+answer keeps one `said.id`: each sentence sends `said` again under that id with
+the answer so far, which a client shows in place of the line it had. Its clips
+carry on that id's indices, one whole clip per sentence or, with negotiated
+progressive output, several, and the answer ends with an empty `final: true`
+clip (`data: ""`) once the dispatcher is done. A whole line said at once (a
+narrated reply, a goodbye) marks its own last clip `final` instead. Clients
 must queue clips across successive `said` IDs instead of replacing playback.
 
 A completed teammate reply during an active, unheld call is narrated and sent as

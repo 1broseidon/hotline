@@ -286,6 +286,13 @@ async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) 
     // No bundled acknowledgement: the first words are the dispatcher's own.
     assert_ne!(said["event"]["text"], "");
     assert_eq!(clip["event"]["id"], said["event"]["id"]);
+    // The answer is one line: an empty final clip closes it once it is over.
+    let closing = until(&mut socket, |f| {
+        f["event"]["type"] == "clip" && f["event"]["final"] == true
+    })
+    .await;
+    assert_eq!(closing["event"]["id"], said["event"]["id"]);
+    assert_eq!(closing["event"]["data"], "");
     let delivery = until(&mut socket, |f| f["event"]["type"] == "delivery").await;
     let narrated = until(&mut socket, |f| f["event"]["type"] == "said").await;
     assert_eq!(delivery["event"]["personaId"], mack);
@@ -329,7 +336,7 @@ async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) 
             .any(|e| e["kind"] == "user" && e["text"] == "Check the failing PR."),
         "{tape:?}"
     );
-    assert_eq!(clip["event"]["final"], true);
+    assert_eq!(clip["event"]["final"], false);
     let wav = STANDARD
         .decode(clip["event"]["data"].as_str().unwrap())
         .unwrap();

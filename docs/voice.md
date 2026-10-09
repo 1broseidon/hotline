@@ -423,6 +423,26 @@ latest chapter closed with and the newest 24 entries of its conversation. A
 scheduled prompt, a colleague's message or an answer to a request is named for
 what it is in that data, never as something the person said. A question about
 how the work is going is answered from that and reaches no session.
+
+The front is the teammate, not an assistant in front of it. It speaks in the
+first person as one person with one voice, never mentions a session, a main
+agent or a call assistant, and tells what the session did as what it did
+itself. It answers the point directly, the way a colleague on the phone would:
+one reply in natural spoken prose, one to three short sentences unless asked
+for more, with no filler opener ("Good to hear…") or sign-off, and at most one
+question, asked only when it needs the answer. Anything that needs doing or
+looking up (files, sending something to the chat, checking how something
+stands, running something) goes to the session at once with a brief spoken
+acknowledgement; it never says it can't and never promises without handing it
+over.
+
+A reply is spoken sentence by sentence as the model writes it, so the first
+words come quickly, but it is one reply. The call shows it as one line that
+grows under one `said` id, its audio continues under that id and ends with an
+empty final clip, and the call's thread, and so the chat, keeps it once,
+whole, when it is over (or when the person speaks over it, with what was
+said by then). The voice's memory of the call holds it the same way. A desk
+call's answers are kept as one line on the dispatcher's tape likewise.
 The exchange is only what the voice is given: a direct call is a thread
 (`docs/threads.md`), and everything said on it is kept in `calls/<id>.jsonl`,
 indexed for `search_thread`, linked from the teammate's DM and read back after
@@ -433,7 +453,9 @@ The desk's own calls, which name no teammate, are not threads; they stay on the
 `voice-dispatcher` tape, which the dispatcher reads across calls.
 A request for work calls the front's one tool, `hand_to_session`, which hands
 the words to the teammate's session as a call without a front would, at most
-once per utterance; the front then says a short acknowledgement. The session
+once per utterance; the front then says a short acknowledgement. When the
+model speaks before calling the tool, what it writes after the tool's result
+is not spoken, so the acknowledgement is said once. The session
 hears the call lines it has not yet been told (the person's and the voice's,
 not its own relayed reports) ahead of the person's exact words, framed as the
 call's; the conversation shows only the words. The front never claims work is
@@ -446,7 +468,8 @@ acknowledgements are not spoken, nor a turn that ends on a bare one; its
 reply at the end of the turn is. Replies
 to any turn handed off on this call are delivered, not only to the latest one,
 and longer replies are retold in the first person by the dispatcher's model,
-which summarises lists rather than reading them out.
+plainly and briefly, under the same voice rules, which summarises lists rather
+than reading them out.
 Short plain replies are spoken as written. Without a dispatcher, a direct call
 hands every utterance to the session and speaks its replies as before.
 

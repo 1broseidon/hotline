@@ -255,6 +255,27 @@ struct Delivery {
     text: String,
 }
 
+/// A reply that arrives sentence by sentence: the one line it is shown and
+/// kept as, and its words so far.
+#[derive(Default)]
+struct Reply {
+    line: String,
+    text: String,
+}
+
+impl Reply {
+    /// Adds a sentence, and says the line and the reply so far.
+    fn add(&mut self, sentence: &str) -> (String, String) {
+        if self.line.is_empty() {
+            self.line = Uuid::new_v4().to_string();
+        } else {
+            self.text.push(' ');
+        }
+        self.text.push_str(sentence);
+        (self.line.clone(), self.text.clone())
+    }
+}
+
 enum Work {
     Text {
         seq: u32,
@@ -1348,31 +1369,17 @@ impl Calls {
             .await
             .map_err(|_| "The voice dispatcher timed out.".to_string())?
         };
-        let consume = async {
-            let mut failure = None;
-            while let Some(sentence) = answers.recv().await {
-                if failure.is_some() {
-                    // Speech may fail; keep recording the rest of the answer as text.
-                    let silent = CancellationToken::new();
-                    silent.cancel();
-                    let _ = self.say(id, &sentence, &silent, &context.cancel).await;
-                } else if let Err(error) = self
-                    .say(id, &sentence, speech_cancel, &context.cancel)
-                    .await
-                {
-                    failure = Some(error);
-                }
-            }
-            failure.map_or(Ok(()), Err)
-        };
+        let reply = Mutex::new(Reply::default());
+        let consume = self.say_reply(id, &mut answers, &reply, speech_cancel, &context.cancel);
         tokio::select! {
             _ = context.cancel.cancelled() => Ok(()),
             result = async {
                 let (produced, spoken) = tokio::join!(produce, consume);
+                let kept = self.keep_reply(id, Speaker::Voice, std::mem::take(&mut *lock(&reply)));
                 if [&produced, &spoken].iter().any(|result| result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR)) {
                     Err(BUDGET_ERROR.to_string())
                 } else {
-                    produced.and(spoken)
+                    produced.and(spoken).and(kept)
                 }
             } => result,
         }
@@ -1540,7 +1547,7 @@ impl Calls {
                                 persona: target.clone(),
                                 event: String::new(),
                                 name: name.clone(),
-                                text: "That didn't reach my session. Check our conversation before you try again.".into(),
+                                text: "I couldn't start on that. Check our conversation before you try again.".into(),
                             },
                             notices.child_token(),
                         ));
@@ -1577,25 +1584,19 @@ impl Calls {
             .await
             .map_err(|_| "The voice timed out.".to_string())?
         };
-        let consume = async {
-            let mut failure = None;
-            while let Some(sentence) = answers.recv().await {
-                if failure.is_none()
-                    && let Err(error) = self
-                        .say(id, &sentence, speech_cancel, &context.cancel)
-                        .await
-                {
-                    failure = Some(error);
-                }
-            }
-            failure.map_or(Ok(()), Err)
-        };
+        let reply = Mutex::new(Reply::default());
+        let consume = self.say_reply(id, &mut answers, &reply, speech_cancel, &context.cancel);
         // Speaking over the voice drops what it was about to say; a handoff it
-        // already made stands, as accepted work does without a front.
-        let (produced, spoken) = tokio::select! {
-            _ = context.cancel.cancelled() => return Ok(()),
-            _ = speech_cancel.cancelled() => return Ok(()),
-            done = async { tokio::join!(produce, consume) } => done,
+        // already made stands, as accepted work does without a front. What it
+        // had said by then is kept as its reply.
+        let done = tokio::select! {
+            _ = context.cancel.cancelled() => None,
+            _ = speech_cancel.cancelled() => None,
+            done = async { tokio::join!(produce, consume) } => Some(done),
+        };
+        let kept = self.keep_reply(id, Speaker::Voice, std::mem::take(&mut *lock(&reply)));
+        let Some((produced, spoken)) = done else {
+            return Ok(());
         };
         if [&produced, &spoken]
             .iter()
@@ -1610,7 +1611,7 @@ impl Calls {
             hand_off()?;
             return Ok(());
         }
-        produced.and(spoken)
+        produced.and(spoken).and(kept)
     }
 
     async fn summary(&self, delivery: &Delivery) -> Result<String, String> {
@@ -1728,13 +1729,38 @@ impl Calls {
     /// is what the clients know it by; the write is made behind the call.
     fn keep(&self, id: &str, speaker: Speaker, text: &str) -> String {
         let line = Uuid::new_v4().to_string();
+        self.keep_as(id, speaker, &line, text);
+        line
+    }
+
+    fn keep_as(&self, id: &str, speaker: Speaker, line: &str, text: &str) {
         let _ = self.change(id, |call| {
             if let Some(record) = &call.record {
-                record.said(speaker, &line, text);
+                record.said(speaker, line, text);
             }
             Ok(())
         });
-        line
+    }
+
+    /// A reply said sentence by sentence, kept once and whole: on a direct
+    /// call as one line of the call's thread under the id the clients were
+    /// shown, and on a desk call as one line of the dispatcher's tape.
+    fn keep_reply(&self, id: &str, speaker: Speaker, reply: Reply) -> Result<(), String> {
+        if reply.text.is_empty() {
+            return Ok(());
+        }
+        let direct = self.change(id, |call| {
+            if call.target.is_some() {
+                lock(&call.exchange).push(speaker, &reply.text);
+            }
+            Ok(call.target.is_some())
+        })?;
+        if direct {
+            self.keep_as(id, speaker, &reply.line, &reply.text);
+        } else {
+            self.record("agent", &reply.text)?;
+        }
+        Ok(())
     }
 
     fn record(&self, kind: &str, text: &str) -> Result<String, String> {
@@ -1827,46 +1853,156 @@ impl Calls {
                 text,
             },
         );
+        self.speaking(id, interrupted);
+        let speech = self.speech_for(id)?;
+        let streaming = self.change(id, |call| Ok(call.stream_audio))?;
+        let mut index = 0;
+        for (at, sentence) in sentences.iter().enumerate() {
+            if interrupted.is_cancelled() || ended.is_cancelled() {
+                return Ok(());
+            }
+            let last = at + 1 == sentences.len();
+            self.speak_sentence(
+                id,
+                &line,
+                &speech,
+                streaming,
+                sentence,
+                &mut index,
+                last,
+                interrupted,
+                ended,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Says a reply as the dispatcher writes it, sentence by sentence, as one
+    /// line: each sentence is spoken as soon as it arrives, the clients are
+    /// shown the line growing under one id, and its audio carries on under
+    /// that id until an empty final clip closes it. The words are gathered in
+    /// `reply` for [`Self::keep_reply`], which keeps them once, whole, even
+    /// when the person speaks over the reply. Speech that fails stops the
+    /// speaking, not the words.
+    async fn say_reply(
+        &self,
+        id: &str,
+        answers: &mut mpsc::Receiver<String>,
+        reply: &Mutex<Reply>,
+        interrupted: &CancellationToken,
+        ended: &CancellationToken,
+    ) -> Result<(), String> {
+        let mut failure = None;
+        let mut speech = None;
+        let mut index = 0;
+        while let Some(sentence) = answers.recv().await {
+            let sentence = sentence.trim();
+            if sentence.is_empty() {
+                continue;
+            }
+            let (line, text) = lock(reply).add(sentence);
+            self.emit(
+                id,
+                VoiceEvent::Said {
+                    id: line.clone(),
+                    text,
+                },
+            );
+            if failure.is_some() || interrupted.is_cancelled() || ended.is_cancelled() {
+                continue;
+            }
+            if speech.is_none() {
+                self.speaking(id, interrupted);
+                let services = self.speech_for(id).and_then(|services| {
+                    Ok((services, self.change(id, |call| Ok(call.stream_audio))?))
+                });
+                match services {
+                    Ok(services) => speech = Some(services),
+                    Err(error) => {
+                        failure = Some(error);
+                        continue;
+                    }
+                }
+            }
+            let (services, streaming) = speech.as_ref().expect("resolved above");
+            if let Err(error) = self
+                .speak_sentence(
+                    id,
+                    &line,
+                    services,
+                    *streaming,
+                    sentence,
+                    &mut index,
+                    false,
+                    interrupted,
+                    ended,
+                )
+                .await
+            {
+                failure = Some(error);
+            }
+        }
+        if failure.is_none() && index > 0 && !interrupted.is_cancelled() && !ended.is_cancelled() {
+            let line = lock(reply).line.clone();
+            self.clip(
+                id,
+                &line,
+                index,
+                true,
+                &Clip {
+                    mime: "audio/wav".into(),
+                    bytes: Vec::new(),
+                },
+                Some(interrupted),
+            );
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
+    /// The call is speaking, unless it is held or was just spoken over.
+    fn speaking(&self, id: &str, interrupted: &CancellationToken) {
         let _ = self.change(id, |call| {
             if call.state != VoiceState::Held && !interrupted.is_cancelled() {
                 call.state(VoiceState::Speaking, None);
             }
             Ok(())
         });
-        let speech = self.speech_for(id)?;
-        let streaming = self.change(id, |call| Ok(call.stream_audio))?;
-        let mut chunk_index = 0;
-        for (index, sentence) in sentences.iter().enumerate() {
-            if interrupted.is_cancelled() || ended.is_cancelled() {
-                return Ok(());
-            }
-            let sentence = &speakable(sentence);
-            if streaming {
-                tokio::select! {
-                    _ = interrupted.cancelled() => return Ok(()),
-                    _ = ended.cancelled() => return Ok(()),
-                    result = self.synthesize_stream(id, &line, &speech, sentence, &mut chunk_index, index + 1 == sentences.len(), interrupted) => result?,
-                }
-                continue;
-            }
-            let clip = tokio::select! {
-                _ = interrupted.cancelled() => return Ok(()),
-                _ = ended.cancelled() => return Ok(()),
-                clip = self.synthesize(&speech, sentence) => clip?,
+    }
+
+    /// One sentence of `line`, sent as its next clip or clips from `index`.
+    #[allow(clippy::too_many_arguments)]
+    async fn speak_sentence(
+        &self,
+        id: &str,
+        line: &str,
+        speech: &CallSpeech,
+        streaming: bool,
+        sentence: &str,
+        index: &mut u32,
+        last: bool,
+        interrupted: &CancellationToken,
+        ended: &CancellationToken,
+    ) -> Result<(), String> {
+        let sentence = &speakable(sentence);
+        if streaming {
+            return tokio::select! {
+                _ = interrupted.cancelled() => Ok(()),
+                _ = ended.cancelled() => Ok(()),
+                result = self.synthesize_stream(id, line, speech, sentence, index, last, interrupted) => result,
             };
-            // A hold/interrupt can arrive at the same time as the provider.
-            if interrupted.is_cancelled() || ended.is_cancelled() {
-                return Ok(());
-            }
-            self.clip(
-                id,
-                &line,
-                index as u32,
-                index + 1 == sentences.len(),
-                &clip,
-                Some(interrupted),
-            );
         }
+        let clip = tokio::select! {
+            _ = interrupted.cancelled() => return Ok(()),
+            _ = ended.cancelled() => return Ok(()),
+            clip = self.synthesize(speech, sentence) => clip?,
+        };
+        // A hold/interrupt can arrive at the same time as the provider.
+        if interrupted.is_cancelled() || ended.is_cancelled() {
+            return Ok(());
+        }
+        self.clip(id, line, *index, last, &clip, Some(interrupted));
+        *index += 1;
         Ok(())
     }
 

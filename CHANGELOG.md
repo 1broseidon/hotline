@@ -38,7 +38,6 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   from and a die that suggests a name, and every other choice folded to a
   good default.
 - Skills can be offered to teammates all at once.
-
 - A teammate can be given extra folders besides its own: a repository it
   should read, or a second project it may edit, without Whole machine. In
   New teammate and on the teammate's pane they sit with its working
@@ -59,12 +58,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   cancelled or removed; it is checked against the copy Hotline expects
   before it is used. Once one is installed, calls hear with it first, on
   every device that calls this desk, and it costs nothing against the
-  spending limit. About credits the models and the engine.
+  spending limit. Until something can hear you, Voice points at them. About
+  credits the models and the engine.
 - Dictation works on Windows and Linux once the desk has a speech model:
   the composer's microphone, hold or tap to talk, and the Dictate shortcut
   hear you through the desk, with the meter following your voice and the
   words filling in about once a second. A Mac uses the desk too when its
-  Hearing is set to something other than On this Mac.
+  Hearing is set to something other than On this Mac. A microphone that
+  won't open says whether it is missing, busy or not allowed.
 
 ### Changed
 

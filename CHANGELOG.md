@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.35.1] - 2026-10-09
+
 ### Added
 
 - When a new version is out, a small card in the window's bottom-right
@@ -40,11 +42,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   the desk** shortcut calls the desk from any app. Both are off until you
   set their keys, and pressing either during a call hangs up.
 
+- The conversation's header shows the teammate's name without repeating
+  its goal, which stays on the teammate's pane.
+- The teammate's pane calls its own folder **Main workspace** and drops the
+  "Also let it read" strip above extra folders.
+- Settings › Computer links to how a teammate's computer is built.
+
 ### Fixed
 
 - Settings › Updates shows a release's notes as formatted text instead of
   raw markdown, and the notes are the version's changelog rather than
   GitHub's list of pull requests.
+- The update card and a call's card keep clear of the message box and the
+  teammate's pane.
+- The server installer edits its service file in a way both Linux and
+  macOS `sed` accept, so its tests pass on a Mac.
 
 ## [0.35.0] - 2026-10-08
 

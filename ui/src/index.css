@@ -656,7 +656,8 @@
 	}
 	/* In a pane column (Settings, New teammate) a group is the wizard's
 	 * card: rounder, roomier rows, and its title and hint on the rows' edge. */
-	.pane-column .grouped {
+	.pane-column .grouped,
+	.inspector .grouped {
 		border-radius: var(--radius-group);
 	}
 	.pane-column .group-row {

@@ -19,6 +19,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   and Moonshine (English). Each model's row says what it is for in a word
   or two after its name, and a window not in English with only Parakeet
   English installed is told that Parakeet hears more languages.
+- The desk counts how each teammate reply on a call was written, by the
+  agent and model that wrote it: both versions, a spoken one only, a spoken
+  one never closed, or no spoken one. The counts outlast a restart and come
+  back in `voice.status`, ready for a client to say how often a model kept to
+  the format.
 
 ### Fixed
 

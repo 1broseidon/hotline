@@ -1852,13 +1852,47 @@ export type VoiceInputMode = "audio" | "text";
 
 export type VoiceModel = { providerId: string, modelId: string, voice?: string, };
 
+/**
+ * How one model's replies on calls to teammates were said: each reply is
+ * counted once, by the way it was written. Read-only, kept by the desk
+ * across restarts.
+ */
+export type VoiceReplies = { 
+/**
+ * The teammate's agent and model: `hotline/<provider>/<model>` for
+ * Hotline Agent, `acp/<adapter>` for an ACP agent, followed by
+ * `/<model>` when its session names one.
+ */
+model: string, 
+/**
+ * A spoken version and a written one.
+ */
+both: number, 
+/**
+ * A spoken version and no written one.
+ */
+spokenOnly: number, 
+/**
+ * A spoken version never closed with `</spoken>`.
+ */
+unclosed: number, 
+/**
+ * No spoken version: the call said the reply's opening.
+ */
+untagged: number, };
+
 export type VoiceState = "listening" | "thinking" | "speaking" | "held" | "ended";
 
 export type VoiceStatus = { capabilities: Array<string>, available: boolean, 
 /**
  * Direct teammate calls need speech and budget, but no desk dispatcher.
  */
-directAvailable?: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceModel, fallbackTts?: VoiceModel, dispatcher?: VoiceModel, budget: VoiceBudget, };
+directAvailable?: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceModel, fallbackTts?: VoiceModel, dispatcher?: VoiceModel, budget: VoiceBudget, 
+/**
+ * How teammates' replies on calls to them were said, one entry per
+ * model that wrote any, by model. Absent before the first.
+ */
+replies?: Array<VoiceReplies>, };
 
 /**
  * What the desk's own model heard in one clip.

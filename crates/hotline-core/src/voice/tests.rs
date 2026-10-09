@@ -2153,6 +2153,54 @@ async fn a_streamed_reply_says_its_spoken_version_as_one_line() {
     calls.end(&id).unwrap();
 }
 
+/// Each reply a call says is counted once, by how it was written, under the
+/// model that wrote it; `voice.status` reads the counts back, and the desk
+/// keeps them across a restart.
+#[tokio::test]
+async fn each_reply_said_is_counted_by_how_it_was_written() {
+    let (_root, desk, calls, id, persona, mut rx, _fake) = direct_call().await;
+    assert_eq!(calls.status().replies, None);
+    let origin = on_turn(&calls, &id, 1);
+    for (event, reply) in [
+        (
+            "both",
+            "<spoken>It's green.</spoken>\n<written>All 42 checks pass.</written>",
+        ),
+        ("spoken", "<spoken>It's green.</spoken>"),
+        ("unclosed", "<spoken>It's green. <written>All 42 pass."),
+        (
+            "untagged",
+            "All 42 checks pass:\n| check | result |\n| unit | ok |",
+        ),
+    ] {
+        assert!(calls.delivery(&persona, event, "Mack", reply, true, Some(&origin)));
+        one_reply(&mut rx).await;
+    }
+    // Said again when the turn ends, a reply is not counted again.
+    assert!(calls.delivery(
+        &persona,
+        "both",
+        "Mack",
+        "<spoken>It's green.</spoken>",
+        true,
+        Some(&origin)
+    ));
+    let model = calls.writer(&persona);
+    assert!(model.starts_with("hotline"), "{model}");
+    let counted = vec![crate::contract::VoiceReplies {
+        model,
+        both: 1,
+        spoken_only: 1,
+        unclosed: 1,
+        untagged: 1,
+    }];
+    assert_eq!(calls.status().replies.as_ref(), Some(&counted));
+    assert_eq!(replies::Replies::open(desk.log.root()).counts(), counted);
+    let wire = serde_json::to_value(calls.status()).unwrap();
+    assert_eq!(wire["replies"][0]["spokenOnly"], 1);
+    calls.end(&id).unwrap();
+}
+
 /// An agent that writes no spoken version wrote its reply to be read: the
 /// call says its opening, up to its first code block, and the chat has it all.
 #[tokio::test]

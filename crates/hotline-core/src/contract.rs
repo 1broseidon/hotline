@@ -2474,6 +2474,35 @@ pub struct VoiceStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispatcher: Option<VoiceModel>,
     pub budget: VoiceBudget,
+    /// How teammates' replies on calls to them were said, one entry per
+    /// model that wrote any, by model. Absent before the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replies: Option<Vec<VoiceReplies>>,
+}
+
+/// How one model's replies on calls to teammates were said: each reply is
+/// counted once, by the way it was written. Read-only, kept by the desk
+/// across restarts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceReplies {
+    /// The teammate's agent and model: `hotline/<provider>/<model>` for
+    /// Hotline Agent, `acp/<adapter>` for an ACP agent, followed by
+    /// `/<model>` when its session names one.
+    pub model: String,
+    /// A spoken version and a written one.
+    #[serde(default)]
+    pub both: u32,
+    /// A spoken version and no written one.
+    #[serde(default)]
+    pub spoken_only: u32,
+    /// A spoken version never closed with `</spoken>`.
+    #[serde(default)]
+    pub unclosed: u32,
+    /// No spoken version: the call said the reply's opening.
+    #[serde(default)]
+    pub untagged: u32,
 }
 
 /// A teammate's own voice: one of a speaking model's voices.
@@ -3939,6 +3968,12 @@ mod tests {
         .unwrap();
         assert!(!old.direct_available);
         assert!(VoiceStatus::decl(&ts_rs::Config::default()).contains("directAvailable?: boolean"));
+        // The counts of how replies were said are additive too.
+        assert_eq!(old.replies, None);
+        assert!(
+            VoiceStatus::decl(&ts_rs::Config::default()).contains("replies?: Array<VoiceReplies>")
+        );
+        assert!(serde_json::to_value(&old).unwrap().get("replies").is_none());
     }
 
     #[test]

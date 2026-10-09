@@ -4,6 +4,7 @@ pub mod dispatcher;
 pub mod ledger;
 pub mod metering;
 mod record;
+mod replies;
 pub mod settings;
 pub mod speech;
 pub mod spoken;
@@ -373,6 +374,8 @@ pub struct Calls {
     narration: Arc<tokio::sync::Semaphore>,
     /// The desk's own speech models and their downloads.
     installs: Arc<Installs>,
+    /// How teammates' replies on calls to them were said, by model.
+    replies: replies::Replies,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -412,6 +415,7 @@ impl Calls {
         Arc::new(Self {
             ledger,
             installs: Installs::new(vault.root(), models),
+            replies: replies::Replies::open(log.root()),
             log,
             vault,
             room,
@@ -593,6 +597,7 @@ impl Calls {
                 spent_day_usd,
                 spent_month_usd,
             },
+            replies: Some(self.replies.counts()).filter(|counts| !counts.is_empty()),
         }
     }
 
@@ -1596,7 +1601,8 @@ impl Calls {
     /// version ([`spoken::Spoken`]) sentence by sentence as one line, kept on
     /// the call's thread once it is over. Speaking over it stops it at once,
     /// so the call is free for what the person says; the chat has the written
-    /// version in any case.
+    /// version in any case. A reply that reaches its end is counted by how
+    /// it was written ([`Self::count`]).
     async fn answer(
         &self,
         id: &str,
@@ -1611,13 +1617,16 @@ impl Calls {
         let (sentences, mut said) = mpsc::channel(8);
         let split = async move {
             let mut spoken = spoken::Spoken::default();
+            let mut whole = String::new();
             while let Some(chunk) = chunks.recv().await {
+                whole.push_str(&chunk);
                 for sentence in spoken.push(&chunk) {
                     if sentences.send(sentence).await.is_err() {
                         return;
                     }
                 }
             }
+            self.count(id, event, spoken::path(&whole));
             for sentence in spoken.finish() {
                 if sentences.send(sentence).await.is_err() {
                     return;
@@ -1637,6 +1646,49 @@ impl Calls {
         });
         let kept = self.keep_reply(id, std::mem::take(&mut *lock(&reply)));
         result.and(kept)
+    }
+
+    /// Counts a teammate's reply on a call to it under the model that wrote
+    /// it, and says so in one line of the log.
+    fn count(&self, id: &str, event: &str, path: spoken::Path) {
+        let Ok(Some(persona)) = self.change(id, |call| Ok(call.target.clone())) else {
+            return;
+        };
+        let model = self.writer(&persona);
+        eprintln!(
+            "[voice] reply {event} on call {id} by {model}: {}",
+            path.name()
+        );
+        self.replies.count(&model, path);
+    }
+
+    /// The agent and model a teammate's replies come from, as the counts
+    /// name them: `hotline/` and the model for Hotline Agent, `acp/` and the
+    /// adapter for an ACP agent, then the model its session reports, if any.
+    fn writer(&self, persona_id: &str) -> String {
+        let persona = crate::room::roster(&self.log)
+            .into_iter()
+            .find(|persona| persona.id == persona_id);
+        let reported = self
+            .room
+            .upgrade()
+            .and_then(|room| room.info(persona_id).current_model_id);
+        let model = reported
+            .or_else(|| {
+                persona
+                    .as_ref()
+                    .and_then(|persona| persona.model_id.clone())
+            })
+            .filter(|model| !model.is_empty());
+        let agent = match persona.map(|persona| persona.backend_id) {
+            Some(backend) if backend == crate::driver::HOTLINE_BACKEND_ID => backend,
+            Some(backend) => format!("acp/{backend}"),
+            None => "unknown".to_string(),
+        };
+        match model {
+            Some(model) => format!("{agent}/{model}"),
+            None => agent,
+        }
     }
 
     /// A line said on a direct call, kept on the call's thread. The line's id

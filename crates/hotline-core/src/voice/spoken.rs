@@ -450,6 +450,57 @@ pub(crate) fn versions(text: &str) -> Versions {
     }
 }
 
+/// How a reply on a call was written, which decides how it was said:
+/// counted by the model that wrote it ([`super::replies`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Path {
+    /// A spoken version closed with `</spoken>`, and a written one.
+    Both,
+    /// A spoken version closed with `</spoken>`, and no written one.
+    SpokenOnly,
+    /// A spoken version never closed with `</spoken>`: it ended where the
+    /// written one began, or with the reply.
+    Unclosed,
+    /// No spoken version, so the call said the reply's opening.
+    Untagged,
+}
+
+impl Path {
+    /// How the log and the wire name it.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Path::Both => "both",
+            Path::SpokenOnly => "spokenOnly",
+            Path::Unclosed => "unclosed",
+            Path::Untagged => "untagged",
+        }
+    }
+}
+
+/// How a whole reply was written, read as [`Spoken`] reads it: only the
+/// first spoken version counts, and a stray tag is no version.
+pub(crate) fn path(text: &str) -> Path {
+    let mut tags = Tags::default();
+    let mut pieces = tags.push(text);
+    pieces.extend(tags.finish());
+    let mut place = Place::Before;
+    let (mut spoken, mut closed, mut written) = (false, false, false);
+    for piece in pieces {
+        let Piece::Tag(tag) = piece else { continue };
+        let next = place.after(tag);
+        spoken |= next == Place::Spoken;
+        closed |= place == Place::Spoken && tag == Tag::EndSpoken;
+        written |= next == Place::Written;
+        place = next;
+    }
+    match (spoken, closed, written) {
+        (false, _, _) => Path::Untagged,
+        (true, false, _) => Path::Unclosed,
+        (true, true, true) => Path::Both,
+        (true, true, false) => Path::SpokenOnly,
+    }
+}
+
 fn paragraphs(parts: &[&str]) -> String {
     parts
         .iter()
@@ -892,6 +943,48 @@ mod tests {
         assert_eq!(
             versions("<spoken>It's merged and the tests pass.</spoken>").lazy,
             None
+        );
+    }
+
+    #[test]
+    fn a_reply_is_counted_by_how_it_was_written() {
+        for (reply, expected) in [
+            (
+                "<spoken>It's green.</spoken>\n<written>All 42 pass.</written>",
+                Path::Both,
+            ),
+            (
+                "Let me look. < Spoken >It's green.</SPOKEN><written>All 42 pass.",
+                Path::Both,
+            ),
+            ("<spoken>It's green.</spoken>", Path::SpokenOnly),
+            (
+                "<spoken>Two fixes.</spoken>\nFirst, set the key.",
+                Path::SpokenOnly,
+            ),
+            (
+                "<spoken>Done, and merged. <written>Merged as **#42**.",
+                Path::Unclosed,
+            ),
+            ("<spoken>All done.\n", Path::Unclosed),
+            (
+                "<spoken>Yes.</written><written>Yes, it's merged.</written>",
+                Path::Unclosed,
+            ),
+            ("Here's the fix:\n```rust\nlet x = 1;\n```", Path::Untagged),
+            ("<written>The answer is 4.</written>", Path::Untagged),
+            (
+                "<written>Four.</written><spoken>Four.</spoken>",
+                Path::Untagged,
+            ),
+            ("Use a <spokesperson> or Vec<String>.", Path::Untagged),
+            ("", Path::Untagged),
+        ] {
+            assert_eq!(path(reply), expected, "{reply:?}");
+        }
+        assert_eq!(
+            [Path::Both, Path::SpokenOnly, Path::Unclosed, Path::Untagged].map(Path::name),
+            ["both", "spokenOnly", "unclosed", "untagged"]
         );
     }
 

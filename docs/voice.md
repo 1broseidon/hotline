@@ -607,6 +607,21 @@ version of its own, opening with a continuation ("Also", "Additionally",
 for word, writes one `[voice]` line to the log (`spoken::lazy`). It is a
 diagnostic: nothing shown or said changes.
 
+Each reply the call says is counted once, by how it was written
+(`spoken::path`): `both` (a spoken version closed with `</spoken>`, and a
+written one), `spokenOnly` (a closed spoken version and no written one),
+`unclosed` (a `<spoken>` never closed) or `untagged` (no spoken version). The
+count is kept under the agent and model that wrote the reply:
+`hotline/<provider>/<model>` for Hotline Agent, and `acp/<adapter>` for an
+ACP agent, followed by `/<model>` when its session reports one. The counts
+live in `<data dir>/voice-replies.json`, written whole and atomically after
+each count (`voice/replies.rs`), each count writes one `[voice]` line to the
+log, and `voice.status` returns them as `replies` (`docs/wire.md`), so a
+client can say how often a model kept to the contract. A reply the person
+spoke over, or a hold cut off, before it was whole is not counted. The counts
+are a diagnostic, so a file that cannot be read starts them again rather
+than stopping a call.
+
 On an agent turn, what the agent writes before its first tool call is said as
 it streams, as the acknowledgement. Its words between tools are narration
 (`session/narration.rs`) and are not said; the call stays `thinking`, and the

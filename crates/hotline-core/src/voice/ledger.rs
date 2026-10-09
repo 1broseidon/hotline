@@ -477,7 +477,7 @@ impl Ledger {
 /// Runs a write that waits on the disk without holding a runtime worker: on
 /// a multi-thread runtime the worker's other tasks move elsewhere first. A
 /// current-thread runtime, or none, has nowhere to move them and just waits.
-fn off_the_runtime<T>(work: impl FnOnce() -> T) -> T {
+pub(super) fn off_the_runtime<T>(work: impl FnOnce() -> T) -> T {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
             tokio::task::block_in_place(work)

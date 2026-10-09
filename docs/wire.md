@@ -1149,7 +1149,7 @@ No extra speech credential is created.
 
 | Command | Params | Result |
 | --- | --- | --- |
-| `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and `budget`, the Voice budget's limits (`dayUsd`, `monthUsd`, absent when none) and what transcription and speech spent |
+| `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and `budget`, the Voice budget's limits (`dayUsd`, `monthUsd`, absent when none) and what transcription and speech spent; optional `replies`, how teammates' replies on calls were said, by model |
 | `voice.call_start` | `{callId,personaId?,streamAudio?,inputMode?:"audio"\|"text"}` | `VoiceCall`: call id, accepted input formats, primary output format, echoed `inputMode`, and optional echoed `personaId` |
 | `voice.text` | `{callId,seq,text}` | void; one finalized device transcript on a negotiated text call |
 | `voice.audio` | `{callId,seq,index,data,final}` | void; negotiated mono PCM16 at 16 kHz |
@@ -1194,6 +1194,20 @@ said, cut short or not, is the call's own thread.
 
 ```json
 {"kind": "agent", "id": "m2", "ts": 1760000000000, "text": "The build fails for two reasons: ...", "spoken": "Two things are wrong. I've put both fixes in the chat."}
+```
+
+`voice.status` may carry `replies`, read-only counts of how teammates' replies
+on calls to them were said, one `VoiceReplies` per model that has written
+any, sorted by `model`: `hotline/<provider>/<model>` for Hotline Agent, or
+`acp/<adapter>` for an ACP agent, followed by `/<model>` when its session
+reports one. Each reply the call said is counted once under `both` (a closed
+spoken version and a written one), `spokenOnly`, `unclosed` (a `<spoken>`
+never closed) or `untagged` (no spoken version). The field is additive and
+absent until a reply has been counted; the desk keeps the counts across
+restarts ([voice.md](voice.md#one-brain-two-outputs)).
+
+```json
+{"replies": [{"model": "acp/claude-code", "both": 47, "spokenOnly": 1, "unclosed": 0, "untagged": 2}]}
 ```
 
 Repeating a retained id with the same target and input mode returns the same

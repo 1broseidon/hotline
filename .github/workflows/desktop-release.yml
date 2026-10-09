@@ -282,7 +282,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Verify manifest generation
-        run: python3 -m unittest discover -s scripts -p 'test_updater_manifest.py'
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
       - name: Prepare a draft and release notes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -292,10 +292,14 @@ jobs:
             echo "This release is already published; refusing to replace it." >&2
             exit 1
           fi
+          # The version's CHANGELOG.md section is the release's notes and the
+          # updater's; a tag without one is refused here, before anything is published.
+          python3 scripts/changelog_notes.py "${GITHUB_REF_NAME#desktop-v}" > dist/notes.md
           if [ "$state" = "none" ]; then
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --notes-file dist/notes.md --title "$GITHUB_REF_NAME"
+          else
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file dist/notes.md
           fi
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body --jq .body > dist/notes.md
       - name: Generate the complete update manifest
         run: |
           python3 scripts/updater_manifest.py dist --version "${GITHUB_REF_NAME#desktop-v}" --repository "$GITHUB_REPOSITORY" --notes dist/notes.md

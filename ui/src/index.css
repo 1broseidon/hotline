@@ -3356,6 +3356,13 @@
 		padding: 10px 12px 14px;
 		border-radius: var(--radius-pane);
 	}
+	/* A release's notes in Settings › Updates: the changelog's section, smaller than a bubble. */
+	.update-notes {
+		max-height: 320px;
+		overflow-y: auto;
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+	}
 	/* The corner's newest version. Alone it sits at the bottom; under a call, just below it. */
 	.update-float {
 		display: flex;

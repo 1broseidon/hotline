@@ -14,6 +14,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   corner says "Update available", with Update… to open Settings › Updates. Closing it hides
   that version until a newer one arrives.
 
+### Fixed
+
+- Settings › Updates shows a release's notes as formatted text instead of
+  raw markdown, and the notes are the version's changelog rather than
+  GitHub's list of pull requests.
+
 ## [0.35.0] - 2026-10-08
 
 ### Added

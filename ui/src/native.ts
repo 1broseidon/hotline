@@ -332,7 +332,27 @@ export type UpdateStatus = {
 	disabledReason: string | null;
 };
 
+/**
+ * A dev build never checks for updates, so `VITE_PREVIEW_UPDATE=0.35.1 make dev`
+ * pretends that version is out: the corner card and Settings › Updates show
+ * it, with notes in the changelog's shape. Installing it fails, as it should.
+ */
+export const PREVIEW_UPDATE = import.meta.env.DEV ? (import.meta.env.VITE_PREVIEW_UPDATE as string | undefined) : undefined;
+const PREVIEW_NOTES = `### Added
+
+- When a new version is out, a small card in the window's corner says so.
+
+### Fixed
+
+- Release notes in **Settings › Updates** read as formatted text, not markdown.
+- An example fix with \`inline code\` and a [link](https://github.com/1broseidon/hotline/releases).
+`;
+
 export async function updateStatus(): Promise<UpdateStatus> {
+	if (PREVIEW_UPDATE) return {
+		current: appVersion(), available: { version: PREVIEW_UPDATE, notes: PREVIEW_NOTES }, checkedAt: Math.floor(Date.now() / 1000),
+		phase: "idle", downloaded: 0, total: null, error: null, disabledReason: null,
+	};
 	if (!isDesktop()) return {
 		current: appVersion(), available: null, checkedAt: null, phase: "idle",
 		downloaded: 0, total: null, error: null,
@@ -347,7 +367,7 @@ export function watchUpdates(onChange: (status: UpdateStatus) => void, onError: 
 	let stop: (() => void) | undefined;
 	void (async () => {
 		try {
-			if (isDesktop()) {
+			if (isDesktop() && !PREVIEW_UPDATE) {
 				const unlisten = await listen<UpdateStatus>("hotline://update", (event) => {
 					if (!gone) onChange(event.payload);
 				});

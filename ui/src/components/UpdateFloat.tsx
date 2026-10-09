@@ -1,11 +1,8 @@
 import { useEffect, useState } from "react";
 import { CloseIcon } from "../icons";
-import { appVersion, watchUpdates, type UpdateStatus } from "../native";
+import { PREVIEW_UPDATE, watchUpdates, type UpdateStatus } from "../native";
 
 const DISMISSED = "hotline.updateDismissed";
-
-/** `VITE_PREVIEW_UPDATE=0.35.1 make dev` shows the card for that version; a dev build never checks for real. */
-const PREVIEW = import.meta.env.DEV ? (import.meta.env.VITE_PREVIEW_UPDATE as string | undefined) : undefined;
 
 function dismissedVersion(): string | null {
 	try { return localStorage.getItem(DISMISSED); } catch { return null; }
@@ -27,15 +24,12 @@ export function updateToShow(status: UpdateStatus | null, dismissed: string | nu
 export function UpdateFloat({ onOpen }: { onOpen: () => void }) {
 	const [status, setStatus] = useState<UpdateStatus | null>(null);
 	// A preview comes back on every launch; closing it lasts the run.
-	const [dismissed, setDismissed] = useState(() => (PREVIEW ? null : dismissedVersion()));
-	useEffect(() => (PREVIEW ? undefined : watchUpdates(setStatus, () => setStatus(null))), []);
-	const shown: UpdateStatus | null = PREVIEW
-		? { current: appVersion(), available: { version: PREVIEW, notes: "" }, checkedAt: null, phase: "idle", downloaded: 0, total: null, error: null, disabledReason: null }
-		: status;
-	const version = updateToShow(shown, dismissed);
+	const [dismissed, setDismissed] = useState(() => (PREVIEW_UPDATE ? null : dismissedVersion()));
+	useEffect(() => watchUpdates(setStatus, () => setStatus(null)), []);
+	const version = updateToShow(status, dismissed);
 	if (version === null) return null;
 	const dismiss = () => {
-		if (!PREVIEW) try { localStorage.setItem(DISMISSED, version); } catch { /* Private mode: put away for this run only. */ }
+		if (!PREVIEW_UPDATE) try { localStorage.setItem(DISMISSED, version); } catch { /* Private mode: put away for this run only. */ }
 		setDismissed(version);
 	};
 	return (

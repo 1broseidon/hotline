@@ -120,7 +120,10 @@ running, with a first check after 20 seconds when due. **Check now** bypasses
 that interval. The last attempt and available version are stored in
 `<data dir>/updater.json`; restarting Hotline preserves the interval. A new
 installed version starts a fresh check. Failures keep the previous offer.
-Release notes are plain text, and cached offers never authorize installation:
+Release notes are the version's `CHANGELOG.md` section
+(`scripts/changelog_notes.py`; a tag without one fails before publishing),
+shown in Settings → Updates through the conversation's markdown renderer,
+which never interprets HTML. Cached offers never authorize installation:
 Hotline rechecks the trusted endpoint and requires the version the user reviewed.
 
 A version found while the window is open also shows once as a card in the
@@ -128,7 +131,7 @@ window's bottom-right corner (`ui/src/components/UpdateFloat.tsx`), whose
 **Update…** opens Settings → Updates. Closing it puts that version away
 (`hotline.updateDismissed` in the window's local storage) until a newer one
 is found. A dev build never checks, so `VITE_PREVIEW_UPDATE=0.35.1 make dev`
-shows the card for that version.
+pretends that version is out, for the card and Settings → Updates alike.
 
 **Download, install and restart** uses `tauri-plugin-updater` 2.11.0, following
 Prism's desktop updater. The plugin verifies the downloaded signature before

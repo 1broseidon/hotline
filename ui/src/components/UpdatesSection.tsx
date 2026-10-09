@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { appVersion, cancelUpdate, checkUpdate, installUpdate, openLink, updateStatus, watchUpdates, type UpdateStatus } from "../native";
 import { Refusal } from "../ui/Refusal";
+import { Markdown } from "./Markdown";
 
 const RELEASES = "https://github.com/1Broseidon/hotline/releases/latest";
 const describe = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -49,7 +50,7 @@ export function UpdatesSection() {
 				</div>
 				{available && (
 					<div className="flex flex-col gap-4 px-4 py-4">
-						{available.notes && <div className="whitespace-pre-wrap text-sm text-ink-2" aria-label="Release notes">{available.notes}</div>}
+						{available.notes && <div className="update-notes" aria-label="Release notes"><Markdown text={available.notes} /></div>}
 						<button type="button" className="text-left text-sm text-accent-ink hover:underline" onClick={() => void openLink(`https://github.com/1Broseidon/hotline/releases/tag/desktop-v${encodeURIComponent(available.version)}`)}>Full release notes ↗</button>
 						{downloading && <div className="flex flex-col gap-2">
 							<progress className="w-full accent-[var(--accent)]" aria-label="Update download" max={status?.total ?? undefined} value={status?.total ? status.downloaded : undefined} />

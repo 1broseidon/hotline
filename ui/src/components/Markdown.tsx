@@ -19,8 +19,8 @@ import { Mermaid } from "./Mermaid";
  * touches `innerHTML`, and `rehype-raw` is deliberately absent. A ```mermaid
  * block is drawn, as an image that cannot run anything (see Mermaid.tsx).
  *
- * Only an agent's bubbles come through here. What you typed is shown as you
- * typed it.
+ * Only an agent's bubbles come through here, and a release's notes in
+ * Settings › Updates. What you typed is shown as you typed it.
  */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
 	return rendered(text);

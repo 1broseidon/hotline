@@ -97,6 +97,13 @@ function button(label: string) {
 	return found;
 }
 async function click(label: string) { await settle(() => button(label).click()); }
+/** Chooses `item` from the picker labelled `label`; the menu opens over the whole document. */
+async function pick(label: string, item: string) {
+	await settle(() => (container.querySelector(`[aria-label="${label}"]`) as HTMLButtonElement).click());
+	const found = [...document.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')].find((node) => node.textContent?.startsWith(item));
+	if (!found) throw new Error(`Missing ${item} in ${label}`);
+	await settle(() => found.click());
+}
 function pairingCalls() { return calls.filter(({ cmd }) => cmd === "remote.pairing"); }
 function polls() { return pairingCalls().filter(({ params }) => params.id && !params.cancel); }
 function cancellations() { return pairingCalls().filter(({ params }) => params.cancel); }
@@ -112,14 +119,11 @@ describe("Remote settings over the wire", () => {
 		expect(calls.at(-1)).toEqual({ cmd: "remote.configure", params: { enabled: true, host: "all" } });
 		expect(text()).toContain("Owner · Paired");
 		expect(text()).toContain("Companion · Paired");
+		await settle(() => [...container.querySelectorAll("button")].find((node) => node.textContent?.startsWith("Addresses"))!.click());
 		expect(text()).toContain("https://[2001:db8::1]:8788");
-		await settle(() => {
-			const select = container.querySelector("select")!;
-			select.value = "2001:db8::1";
-			select.dispatchEvent(new dom.Event("change", { bubbles: true }));
-		});
+		await pick("Listen on", "2001:db8::1");
 		expect(calls.at(-1)).toEqual({ cmd: "remote.configure", params: { enabled: true, host: "2001:db8::1" } });
-		await click("Revoke access");
+		await settle(() => [...container.querySelectorAll("button")].find((node) => node.textContent === "Revoke")!.click());
 		expect(calls.at(-1)).toEqual({ cmd: "remote.revoke", params: { deviceId: owner.id } });
 		expect(text()).not.toContain("Test owner");
 	});
@@ -128,7 +132,7 @@ describe("Remote settings over the wire", () => {
 		const server = { id: "server-desk", name: "Grizzly", kind: "remote" as const, origin: "http://127.0.0.1:1", token: "t" };
 		await settle(() => replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "http://127.0.0.1:2", token: "t" }]));
 		await mount();
-		expect(container.querySelector("#remote-relay")).toBeNull();
+		expect(container.querySelector('[aria-label="Relay"]')).toBeNull();
 		await unmount();
 		root = createRoot(container);
 		await settle(() => replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "http://127.0.0.1:2", token: "t" }, server]));
@@ -137,18 +141,10 @@ describe("Remote settings over the wire", () => {
 			? { ...enabled, relay: { deskId: params.deskId, name: "Grizzly", url: relayUrl, error: null } }
 			: enabled;
 		await mount();
-		await settle(() => {
-			const select = container.querySelector("#remote-relay") as HTMLSelectElement;
-			select.value = server.id;
-			select.dispatchEvent(new dom.Event("change", { bubbles: true }));
-		});
+		await pick("Relay", "Grizzly");
 		expect(calls.at(-1)).toEqual({ cmd: "remote.relay", params: { deskId: server.id } });
 		expect(text()).toContain("Phones also reach this desk through Grizzly.");
-		await settle(() => {
-			const select = container.querySelector("#remote-relay") as HTMLSelectElement;
-			select.value = "";
-			select.dispatchEvent(new dom.Event("change", { bubbles: true }));
-		});
+		await pick("Relay", "None");
 		expect(calls.at(-1)).toEqual({ cmd: "remote.relay", params: {} });
 		await settle(() => replaceDesks([]));
 	});
@@ -172,7 +168,7 @@ describe("Remote settings over the wire", () => {
 		respond = ({ cmd }) => cmd === "remote.status" ? { ...enabled, devices: [oldPhone] } : enabled;
 		await mount();
 		expect(text()).toContain("Old phoneOwner · Needs re-pair · Scan a new QR");
-		await click("Revoke access");
+		await click("Revoke");
 		expect(calls.at(-1)).toEqual({ cmd: "remote.revoke", params: { deviceId: oldPhone.id } });
 		expect(text()).not.toContain("Old phone");
 	});

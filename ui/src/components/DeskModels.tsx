@@ -101,7 +101,7 @@ export function DeskModels({ onInstalledChanged }: { onInstalledChanged(): void 
 			))}
 			<div className="group-row use-for-nested group-row-detail" style={{ whiteSpace: "normal" }}>
 				<span>
-					Models run on the desk itself: free, and nothing you say leaves it. Each downloads once from sherpa-onnx on GitHub.{" "}
+					Free and private: they run on this computer.{" "}
 					{credits.map((model) => (
 						<span key={model.credit}>
 							{model.credit} (

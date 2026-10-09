@@ -25,10 +25,9 @@ function PublicAddress({ status, busy, onSave }: { status: RemoteStatus; busy: b
 			<summary className="cursor-pointer">{saved ? <>Public address · <span className="break-all">{saved}</span></> : "Using a tunnel or your own domain?"}</summary>
 			<form className="mt-2 flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); void onSave(text.trim() || null); }}>
 				<p>
-					Optional. If Cloudflare Tunnel, ngrok or a forwarded port gives this desk an https address, paste it here and phones will also use it away from home.
 					{port
-						? <>{" "}Point the tunnel at <code>https://localhost:{port}</code> and let it accept this desk’s own certificate.</>
-						: " Turn Remote access on to see where to point it."}
+						? <>Optional. Point your tunnel at <code>https://localhost:{port}</code> (self-signed).</>
+						: "Optional. Turn Remote access on first."}
 				</p>
 				<div className="flex items-center gap-2">
 					<input className="field min-w-0 flex-1" type="url" inputMode="url" spellCheck={false} placeholder="https://desk.example.com" aria-label="Public address" value={text} disabled={busy} onChange={(e) => setText(e.target.value)} />
@@ -151,7 +150,7 @@ export function RemoteSection() {
 				<div className="group-row">
 					<label className="group-row-text" htmlFor="remote-address">
 						<span className="group-row-title">Listen on</span>
-						<span className="group-row-detail">All host IPs by default. Choose one to limit access.</span>
+						<span className="group-row-detail">Which network phones use.</span>
 					</label>
 					<select id="remote-address" className="field max-w-56" value={host} disabled={busy || !status} onChange={(e) => void configure(status?.enabled ?? false, e.target.value)}>
 						<option value="all">All host IPs</option>

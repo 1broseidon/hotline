@@ -53,8 +53,7 @@ export function DesksSection({ onAddDesk }: { onAddDesk(): void }) {
 					))}
 				</div>
 				<p className="group-hint">
-					Forgetting a server stops reaching it from this computer. To remove this computer from the server too, run{" "}
-					<code>hotline revoke</code> there.
+					To also remove this computer from a server, run <code>hotline revoke</code> there.
 				</p>
 			</section>
 			<div className="flex justify-start">

@@ -594,8 +594,7 @@ function ComputerSection({
 					</div>
 				</div>
 				<p className="group-hint">
-					Newest creates new computers on the latest hotline-computer release, checked every six hours
-					{releases !== null ? ` (never below ${releases.floor})` : ""}. A picked release or a custom image pins one; a pinned computer is never offered an update.
+					Newest follows each release. Pick one to pin it.
 				</p>
 			</section>
 		</>
@@ -800,7 +799,7 @@ function ProvidersSection({
 								))
 							)}
 						</div>
-						<p className="group-hint">API keys, OpenRouter and Grok sign-ins use your OS credential store. ChatGPT and Copilot keep tokens in permission-restricted files.</p>
+						<p className="group-hint">Keys and sign-ins stay on this computer.</p>
 					</section>
 					{capabilities !== null && <UseFor options={capabilities} voice={voice} onChanged={() => void reloadCapabilities()} />}
 					{refusal !== null && <Refusal message={refusal} />}
@@ -1299,7 +1298,7 @@ function WebSearchGroup() {
 					))
 				)}
 			</div>
-			<p className="group-hint">Tried in this order, the next when one fails. A provider with a key goes first. One switched off here is off for every teammate.</p>
+			<p className="group-hint">Tried in order, one with a key first. Off here is off for every teammate.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
@@ -1850,7 +1849,7 @@ function ImportSection({ onRefuse }: { onRefuse(message: string | null): void })
 					</div>
 				</div>
 				<p className="group-hint">
-					Copies teammates, conversations, schedules, settings and keys from an earlier edition of this app, which kept its data under the name Toad. The source is left as it is.
+					Copies everything from Toad, Hotline's earlier name. The original is left as it is.
 				</p>
 			</section>
 			{report !== null && (

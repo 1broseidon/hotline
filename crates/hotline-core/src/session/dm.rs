@@ -136,9 +136,16 @@ impl Occupant for Session {
                     .clone()
                     .map(|armed| armed as Arc<dyn crate::driver::Escalate>),
             );
-            Source::Say {
-                text: wired.text,
-                attachments: wired.attachments,
+            if wired.retry {
+                Source::Retry {
+                    text: wired.text,
+                    attachments: wired.attachments,
+                }
+            } else {
+                Source::Say {
+                    text: wired.text,
+                    attachments: wired.attachments,
+                }
             }
         };
         Begin::Go(Hold {

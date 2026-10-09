@@ -118,6 +118,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `models.efforts` | `{modelId}` | `EffortChoices` — `choices` that model's effort levels, empty when it has none, and `defaultId` the one a teammate with none stored runs at |
 | `session.start` | `{personaId}` | `SessionInfo` |
 | `session.stop` | `{personaId}` | none |
+| `session.retry` | `{personaId}` | none; runs the last turn again when it failed and nothing was said after it, without writing the person's message again; otherwise refused |
 | `session.prompt` | `{personaId, text, replyTo?, attachments?}` | none |
 | `session.cancel` | `{personaId}` | none |
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |

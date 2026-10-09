@@ -119,6 +119,11 @@ pub(super) enum Source {
         text: String,
         attachments: Vec<Attachment>,
     },
+    /// The turn that failed on this line, run again (`Driver::retry`).
+    Retry {
+        text: String,
+        attachments: Vec<Attachment>,
+    },
     Updates(mpsc::Receiver<Update>),
 }
 
@@ -205,6 +210,7 @@ impl Threads<'_> {
     ) -> Driven {
         let updates = match source {
             Source::Say { text, attachments } => driver.prompt(text, attachments, reach).await,
+            Source::Retry { text, attachments } => driver.retry(text, attachments, reach).await,
             Source::Updates(updates) => updates,
         };
         drive_updates(driver, updates, cancel, ready, witness).await

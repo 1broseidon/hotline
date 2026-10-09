@@ -3149,6 +3149,10 @@ pub enum Command {
     SessionStart { persona_id: String },
     #[serde(rename = "session.stop")]
     SessionStop { persona_id: String },
+    /// Runs the teammate's last turn again when it failed, without writing
+    /// the person's message a second time.
+    #[serde(rename = "session.retry")]
+    SessionRetry { persona_id: String },
     /// `replyTo` is the id of the message this one answers, and the
     /// attachments are files handed to the teammate alongside the words.
     #[serde(rename = "session.prompt")]

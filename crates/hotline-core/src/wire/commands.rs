@@ -427,6 +427,7 @@ pub(crate) async fn run(
             Ok(json!(info))
         }
         Command::SessionStop { persona_id } => room.stop(&persona_id).map(|()| Value::Null),
+        Command::SessionRetry { persona_id } => room.retry(&persona_id).await.map(|()| Value::Null),
         Command::SessionPrompt {
             persona_id,
             text,

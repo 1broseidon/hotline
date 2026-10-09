@@ -420,6 +420,20 @@ pub trait Driver: Send + Sync {
         reach: Reach,
     ) -> mpsc::Receiver<Update>;
 
+    /// Runs the turn that just failed again, for the person's Retry. The
+    /// words and attachments are the line that started it, already on the
+    /// tape. A driver that keeps its own history re-runs it without adding
+    /// the line twice; one that cannot (a harness, whose session ended with
+    /// the failure) is asked the same words again, which is the default.
+    async fn retry(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+        reach: Reach,
+    ) -> mpsc::Receiver<Update> {
+        self.prompt(text, attachments, reach).await
+    }
+
     /// Hands the next turn, and only that turn, a way to be heard: a quiet
     /// scheduled run's `tell_person`. `None` clears one left unused. A
     /// driver that cannot offer a tool of its own for one turn ignores it,

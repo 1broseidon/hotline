@@ -146,6 +146,10 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
+    /// Runs the last turn again when it failed (`Room::retry`).
+    async fn retry(&self, _persona_id: &str) -> Result<(), String> {
+        Err("This desk cannot retry a turn.".into())
+    }
     /// Revokes existing execution before a new policy is written to the log.
     fn invalidate(&self, persona_id: &str) -> Result<(), String>;
     /// A gateway change revokes every session, including cached peer sessions.

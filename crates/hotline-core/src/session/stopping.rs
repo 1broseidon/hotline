@@ -265,6 +265,7 @@ impl Room {
                 voice: crate::voice::Origin::from_event_id(&line.said),
                 spoken: line.said.starts_with("voice:"),
                 unprompted: None,
+                retry: false,
             },
         );
         Ok(())

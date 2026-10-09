@@ -13,6 +13,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 - When a new version is out, a small card in the window's bottom-right
   corner says "Update available", with Update… to open Settings › Updates.
   Closing it hides that version until a newer one arrives.
+- When a teammate's turn fails on the network, at the provider or on a rate
+  limit, its error card offers **Try again**, which runs the same request
+  again without repeating your message in the conversation.
 - Settings › Remote can keep an optional **Public address**. When
   Cloudflare Tunnel, ngrok or a forwarded port gives the desk an https
   address, paired phones learn it and use it away from home. Pairing still

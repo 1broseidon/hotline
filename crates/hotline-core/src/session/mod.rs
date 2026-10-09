@@ -472,6 +472,9 @@ struct Wired {
     /// Work the agent took up by itself between turns. Nothing is said to
     /// the driver; the turn is these updates.
     unprompted: Option<Unprompted>,
+    /// The person's Retry of the turn that failed on this line: the driver
+    /// runs it again rather than taking a new line.
+    retry: bool,
 }
 
 /// The call a queued line came from, if it came from one: the thread it says
@@ -497,6 +500,7 @@ impl Wired {
             voice: None,
             spoken: false,
             unprompted: None,
+            retry: false,
         }
     }
 
@@ -2239,6 +2243,7 @@ impl Room {
                     spoken: crate::wire::commands::from_voice()
                         || crate::wire::commands::voice_origin().is_some(),
                     unprompted: None,
+                    retry: false,
                 },
                 attachments,
             },
@@ -2362,6 +2367,30 @@ impl Room {
         let _working = self.working()?;
         let session = self.session(persona_id)?;
         self.dispatch(session, Wired::words(timed(now_ms(), text)));
+        Ok(())
+    }
+
+    /// The person's Retry on a turn that failed: the same line goes to the
+    /// driver again, and nothing new is written for it, so the conversation
+    /// keeps the one message and its failure and gains only the new reply.
+    /// Only the latest turn, when it failed and nothing was said after it,
+    /// can be retried.
+    pub async fn retry(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        let Some(line) = failed_line(&self.tape(persona_id)) else {
+            return Err("There is no failed turn to retry.".into());
+        };
+        let _working = self.working()?;
+        self.start(persona_id).await?;
+        let (session, _held) = self.in_this_chapter(persona_id).await?;
+        self.dispatch(
+            session,
+            Wired {
+                text: timed_from(line.ts, line.client, &line.text),
+                attachments: line.attachments,
+                retry: true,
+                ..Wired::words(String::new())
+            },
+        );
         Ok(())
     }
 
@@ -5186,6 +5215,39 @@ pub(crate) fn timed(ts: i64, text: &str) -> String {
 
 /// The same, naming which of the person's apps wrote it when the door it came
 /// in at knows: `[Fri 2 Oct 2026, 16:20 · phone]`.
+/// The line a retry would send again: the person's latest message, when the
+/// last turn after it failed and nothing else has been said since.
+struct FailedLine {
+    ts: i64,
+    client: Option<Client>,
+    text: String,
+    attachments: Vec<Attachment>,
+}
+
+fn failed_line(tape: &[Value]) -> Option<FailedLine> {
+    let last_turn = tape.iter().rposition(|event| event["kind"] == "turn")?;
+    let last_user = tape.iter().rposition(|event| event["kind"] == "user")?;
+    if last_turn < last_user || tape[last_turn]["stopReason"] != "failed" {
+        return None;
+    }
+    let TranscriptEvent::User {
+        ts,
+        text,
+        attachments,
+        client,
+        ..
+    } = serde_json::from_value(tape[last_user].clone()).ok()?
+    else {
+        return None;
+    };
+    Some(FailedLine {
+        ts,
+        client,
+        text,
+        attachments: attachments.unwrap_or_default(),
+    })
+}
+
 pub(crate) fn timed_from(ts: i64, client: Option<Client>, text: &str) -> String {
     let at = Local
         .timestamp_millis_opt(ts)

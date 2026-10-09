@@ -60,6 +60,8 @@ pub(super) struct Scripted {
     unconsumed: Option<Unconsumed>,
     /// Each prompt exactly as handed over, stamp and all.
     heard: Arc<Mutex<Vec<String>>>,
+    /// Each retry, by its words, apart from the prompts it also counts as.
+    retried: Arc<Mutex<Vec<String>>>,
     /// One permit lets one start finish, so a start can be caught while the
     /// harness is still coming up. `None` starts at once.
     start_gate: Option<Arc<Semaphore>>,
@@ -96,6 +98,7 @@ impl Scripted {
             unprompted: Arc::new(Mutex::new(None)),
             unconsumed: None,
             heard: Arc::new(Mutex::new(Vec::new())),
+            retried: Arc::new(Mutex::new(Vec::new())),
             start_gate: None,
             start_error: None,
         }
@@ -192,6 +195,16 @@ impl Driver for Scripted {
 
     fn escalate_next(&self, escalation: Option<Arc<dyn Escalate>>) {
         lock(&self.escalations).push(escalation);
+    }
+
+    async fn retry(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+        reach: Reach,
+    ) -> mpsc::Receiver<Update> {
+        lock(&self.retried).push(words_of(&text));
+        self.prompt(text, attachments, reach).await
     }
 
     async fn prompt(
@@ -5387,6 +5400,77 @@ async fn updates_wait_for_queued_work_and_release_the_room_after_failure() {
     drop(held);
     semaphore.add_permits(1);
     room.prompt("ada", "retry", None, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_failed_turn_is_retried_on_the_same_line_without_writing_it_again() {
+    let failed = vec![
+        Update::Notice {
+            level: NoticeLevel::Error,
+            text:
+                "Provider connection interrupted: The request could not complete over the network."
+                    .into(),
+        },
+        Update::Turn {
+            stop_reason: "failed".into(),
+            usage: None,
+        },
+    ];
+    let answered = vec![
+        Update::Message {
+            kind: MessageKind::Agent,
+            id: "answer".into(),
+            text: "It jammed on the third floor.".into(),
+        },
+        Update::Turn {
+            stop_reason: "end_turn".into(),
+            usage: None,
+        },
+    ];
+    let agents = Fake::new(Scripted::turns(vec![failed, answered]));
+    let room = room("retry-failed", agents.clone());
+    room.start("ada").await.unwrap();
+    assert!(
+        room.retry("ada")
+            .await
+            .unwrap_err()
+            .contains("no failed turn"),
+        "a turn that never failed was retried"
+    );
+    room.prompt("ada", "did the crane jam?", None, None)
+        .await
+        .unwrap();
+    let after_failure = settled(&room, "ada", 3).await;
+    assert_eq!(after_failure.last().unwrap()["stopReason"], "failed");
+
+    room.retry("ada").await.unwrap();
+    let events = settled(&room, "ada", 5).await;
+    let users: Vec<_> = events
+        .iter()
+        .filter(|event| event["kind"] == "user")
+        .collect();
+    assert_eq!(
+        users.len(),
+        1,
+        "the retried line was written again: {events:?}"
+    );
+    assert_eq!(
+        *lock(&agents.driver.retried),
+        vec!["did the crane jam?".to_string()]
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event["text"] == "It jammed on the third floor.")
+    );
+    assert_eq!(events.last().unwrap()["stopReason"], "end_turn");
+    assert!(
+        room.retry("ada")
+            .await
+            .unwrap_err()
+            .contains("no failed turn"),
+        "a turn that answered was retried"
+    );
 }
 
 /// Subagent runs: a fresh agent for the teammate on a stream of its own, one

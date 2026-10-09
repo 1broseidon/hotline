@@ -8,7 +8,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
-## [0.35.2] - Unreleased
+## [0.35.2] - 2026-10-09
 
 ### Changed
 

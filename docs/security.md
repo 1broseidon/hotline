@@ -763,6 +763,27 @@ made it so.
   directory the desk made, so this adds no reach beyond what an operator
   clicking "New teammate" already grants; it only lets the phone ask for it.
 
+## Try a failed turn again, from the desk or a phone
+
+- **Default and old records:** nothing new is stored. `session.retry`
+  queues the line already on the tape as a retry and writes no new message.
+- **Grant source:** the local desk and owners, as every command; the phone
+  seat's allowlist in `Seat::permits` (`wire/mod.rs`) names
+  `Command::SessionRetry`, so a companion may retry too. It can only resend a
+  line the tape already holds, which any paired phone could have sent.
+- **Enforcement:** `Room::retry` refuses unless the tape's last turn failed
+  and no message came after it, so an old failure cannot be replayed, and it
+  holds the same work lease and chapter as a prompt. The driver runs the turn
+  with the reach the teammate has now, not the reach it had when it failed.
+- **Tests:** `session/tests.rs`
+  `a_failed_turn_is_retried_on_the_same_line_without_writing_it_again`,
+  `driver/rig.rs`
+  `a_failed_turn_keeps_the_users_line_so_a_retry_still_has_the_question`, and
+  `wire/tests.rs` `the_phone_seat_may_try_a_failed_turn_again`.
+- **Residual risk:** a failed turn may already have run tools before it
+  failed; a retry can run them again. The card says what failed and the
+  person chooses to retry.
+
 ## Edit or remove a teammate from the phone (BRO-117)
 
 - **Default and old records:** nothing new is stored. `mobile.persona_update`

@@ -181,7 +181,7 @@ export function UseFor({
 						<DeskModels onInstalledChanged={onChanged} />
 					</>
 				)}
-				<JobRow title="Call assistant" detail="Only for calls to the desk; teammates answer their own" job={options.dispatcher}>
+				<JobRow title="Call assistant" detail="When calling the desk, use this assistant. Teammates use their configured model." job={options.dispatcher} wrap>
 					<Picker
 						value={currentId(options.dispatcher)}
 						choices={shortChoices(options.dispatcher)}
@@ -207,7 +207,6 @@ export function UseFor({
 					)}
 				</JobRow>
 			</div>
-			<p className="group-hint">Subscriptions go before paid keys.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
@@ -292,6 +291,7 @@ function JobRow({
 	detail,
 	job,
 	nested = false,
+	wrap = false,
 	always,
 	children,
 }: {
@@ -299,6 +299,8 @@ function JobRow({
 	detail: string;
 	job: CapabilityJob;
 	nested?: boolean;
+	/** The detail is a sentence to read whole, not a value to clip. */
+	wrap?: boolean;
 	always?: React.ReactNode;
 	children: React.ReactNode;
 }) {
@@ -307,7 +309,7 @@ function JobRow({
 		<div className={nested ? "group-row use-for-nested" : "group-row"}>
 			<span className="group-row-text">
 				<span className="group-row-title">{title}</span>
-				<span className="group-row-detail" style={nothing ? { whiteSpace: "normal" } : undefined}>
+				<span className="group-row-detail" style={nothing || wrap ? { whiteSpace: "normal" } : undefined}>
 					{nothing ? (job.unavailable ?? detail) : detail}
 				</span>
 			</span>

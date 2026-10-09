@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CapabilityJob, CapabilityOptions } from "../src/generated/contract";
-import { AUTOMATIC, carriedEffort, choicesFor, effortChoices, effortsOf, currentId, parseCap, pickId, spentText, splitPickId, tagsFor, usd, voiceChoices, voicePatch } from "../src/useFor";
+import { budgetsPatch, limitText } from "../src/budgets";
+import { AUTOMATIC, carriedEffort, choicesFor, effortChoices, effortsOf, currentId, parseCap, pickId, splitPickId, tagsFor, usd, voiceChoices, voicePatch } from "../src/useFor";
 
 const images: CapabilityJob = {
 	automatic: { providerId: "openrouter", providerName: "OpenRouter", modelId: "openai/gpt-image-2.5-flare" },
@@ -88,17 +89,11 @@ describe("a write to settings.voice", () => {
 	});
 });
 
-describe("the spending line", () => {
-	const spending = { dayUsd: 2, monthUsd: 20, spentDayUsd: 0.14, spentMonthUsd: 1.02 };
-
-	test("says what is spent today and this month; the caps are beside it", () => {
-		expect(spentText(spending)).toBe("$0.14 spent today · $1.02 this month");
-	});
-
-	test("never shows a real spend as nothing, and owns up to an unread tally", () => {
+describe("budgets", () => {
+	test("never shows a real spend as nothing", () => {
 		expect(usd(0.002)).toBe("<$0.01");
 		expect(usd(0)).toBe("$0.00");
-		expect(spentText({ ...spending, unavailable: "x" })).toContain("could not be read");
+		expect(usd(1.5)).toBe("$1.50");
 	});
 
 	test("reads a cap as a non-negative dollar amount", () => {
@@ -170,5 +165,31 @@ describe("the call assistant's thinking", () => {
 		expect(carriedEffort(dispatcher, "anthropic", "claude-opus-5-5")).toBe("low");
 		expect(carriedEffort(dispatcher, "anthropic", "claude-haiku-4-5")).toBeUndefined();
 		expect(carriedEffort(dispatcher, "groq", "llama-3.3-70b")).toBeUndefined();
+	});
+});
+
+describe("the three budgets", () => {
+	const budget = (kind: "chat" | "voice" | "images", dayUsd: number | null, monthUsd: number | null) => ({
+		kind,
+		dayUsd,
+		monthUsd,
+		spentDayUsd: 0,
+		spentMonthUsd: 0,
+		lines: [],
+	});
+	const spending = { budgets: [budget("chat", null, null), budget("voice", 10, 20), budget("images", 0, null)] };
+
+	test("a budget with nothing set says it has no limit, and 0 is a limit", () => {
+		expect(limitText(budget("chat", null, null))).toBe("No limit");
+		expect(limitText(budget("voice", 10, 20))).toBe("$10.00 a day, $20.00 a month");
+		expect(limitText(budget("images", 0, null))).toBe("$0.00 a day");
+	});
+
+	test("changing one budget writes all three, keeping the others as they were", () => {
+		expect(budgetsPatch(spending, "chat", { dayUsd: 5, monthUsd: null })).toEqual({
+			chat: { dayUsd: 5, monthUsd: null },
+			voice: { dayUsd: 10, monthUsd: 20 },
+			images: { dayUsd: 0, monthUsd: null },
+		});
 	});
 });

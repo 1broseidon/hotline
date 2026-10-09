@@ -193,11 +193,6 @@ export function usd(amount: number): string {
 	return `$${amount.toFixed(2)}`;
 }
 
-export function spentText(spending: CapabilityOptions["spending"]): string {
-	const text = `${usd(spending.spentDayUsd)} spent today · ${usd(spending.spentMonthUsd)} this month`;
-	return spending.unavailable === undefined ? text : `${text} (some spending could not be read)`;
-}
-
 /** A cap typed into a field: a finite, non-negative dollar amount, else nothing. */
 export function parseCap(raw: string): number | null {
 	if (raw.trim() === "") return null;

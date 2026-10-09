@@ -7,7 +7,7 @@ import { deviceTranscription } from "../voice/transcription";
 import { setHearOnThisMac, useHearOnThisMac } from "../voice/hearing";
 import { DeskModels } from "./DeskModels";
 
-/** The Hearing picker's own choice: this Mac, not a provider. Provider ids never start with a bar. */
+/** The Transcription picker's own choice: this Mac, not a provider. Provider ids never start with a bar. */
 const ON_THIS_MAC = "|this-mac";
 /** The desk's own models, as the core names their provider. */
 const ON_THE_DESK = "local";
@@ -18,10 +18,8 @@ import {
 	currentId,
 	effortChoices,
 	effortsOf,
-	parseCap,
 	type PickerChoice,
 	shortModel,
-	spentText,
 	splitPickId,
 	stored,
 	voicePatch,
@@ -29,8 +27,8 @@ import {
 } from "../useFor";
 
 /**
- * Which connected provider and model does each job, and the one cap on what
- * they may spend. It sits under Providers' connections because it is about
+ * Which connected provider and model does each job (what they may spend is
+ * Budgets, below). It sits under Providers' connections because it is about
  * them: a picker lists only what is already connected, grouped by provider,
  * and Automatic, the first choice, is the key being absent — the desk picks
  * the first provider that can. A job nothing connected can do says what to
@@ -121,15 +119,15 @@ export function UseFor({
 						onChange={pickVoice}
 					/>
 				</JobRow>
-				{/* Hearing, the free models and the call assistant, folded under one row that says what hears you now. */}
+				{/* Transcription and the free models, folded under one row that says what transcribes you now. */}
 				<button
 					type="button"
 					className="nt-fold-row nt-fold-head"
 					aria-expanded={more}
-					aria-label="Hearing and call assistant"
+					aria-label="Transcription"
 					onClick={() => setMore((was) => !was)}
 				>
-					<span className="nt-fold-title">Hearing</span>
+					<span className="nt-fold-title">Transcription</span>
 					<span className="nt-fold-value">
 						{hearsHere && hearHere
 							? "On this Mac, free and private"
@@ -146,7 +144,7 @@ export function UseFor({
 						{hearsHere ? (
 							<div className="group-row use-for-nested">
 								<span className="group-row-text">
-									<span className="group-row-title">Hears with</span>
+									<span className="group-row-title">Transcribes with</span>
 									<span className="group-row-detail">
 										{hearHere
 											? `Free and private on calls from this Mac${hearingNow !== undefined ? `; other devices use ${hearsOnDesk ? "the desk" : hearingNow.providerName}` : ""}`
@@ -160,7 +158,7 @@ export function UseFor({
 										value={hearHere ? ON_THIS_MAC : currentId(options.stt)}
 										choices={[{ id: ON_THIS_MAC, name: "On this Mac", group: "This Mac" }, ...shortChoices(options.stt)]}
 										placeholder="Automatic"
-										label="How calls from this Mac hear you"
+										label="Transcription on calls from this Mac"
 										onChange={(id) => {
 											if (id === ON_THIS_MAC) return setHearOnThisMac(true);
 											setHearOnThisMac(false);
@@ -170,47 +168,46 @@ export function UseFor({
 								</span>
 							</div>
 						) : (
-							<JobRow title="Hears with" detail={hearsOnDesk ? "Free and private, on the desk" : "Turns what you say into text"} job={options.stt} nested>
+							<JobRow title="Transcribes with" detail={hearsOnDesk ? "Free and private, on the desk" : "Turns what you say into text"} job={options.stt} nested>
 								<Picker
 									value={currentId(options.stt)}
 									choices={shortChoices(options.stt)}
 									placeholder="Automatic"
-									label="Model for hearing you"
+									label="Transcription model"
 									onChange={(id) => setVoice("stt", pickModel(id))}
 								/>
 							</JobRow>
 						)}
 						<DeskModels onInstalledChanged={onChanged} />
-						<JobRow title="Call assistant" detail="Answers while you talk and hands work to teammates" job={options.dispatcher} nested>
-							<Picker
-								value={currentId(options.dispatcher)}
-								choices={shortChoices(options.dispatcher)}
-								placeholder="Automatic"
-								label="Model for the call assistant"
-								onChange={(id) => {
-									const next = pickModel(id);
-									setVoice("dispatcher", next === null ? null : stored(next.provider, next.model, undefined, carriedEffort(options.dispatcher, next.provider, next.model)));
-								}}
-							/>
-							{effortsOf(options.dispatcher).length > 0 && (
-								<Picker
-									value={options.dispatcher.selected?.effort ?? AUTOMATIC}
-									choices={effortChoices(options.dispatcher)}
-									placeholder="Default thinking"
-									label="Call assistant thinking"
-									onChange={(id) => {
-										const selected = options.dispatcher.selected;
-										if (selected === undefined) return;
-										setVoice("dispatcher", stored(selected.providerId, selected.modelId, undefined, id === AUTOMATIC ? undefined : id));
-									}}
-								/>
-							)}
-						</JobRow>
 					</>
 				)}
-				<SpendingRow spending={options.spending} onWrite={write} />
+				<JobRow title="Call assistant" detail="Answers on calls and hands work on" job={options.dispatcher}>
+					<Picker
+						value={currentId(options.dispatcher)}
+						choices={shortChoices(options.dispatcher)}
+						placeholder="Automatic"
+						label="Model for the call assistant"
+						onChange={(id) => {
+							const next = pickModel(id);
+							setVoice("dispatcher", next === null ? null : stored(next.provider, next.model, undefined, carriedEffort(options.dispatcher, next.provider, next.model)));
+						}}
+					/>
+					{effortsOf(options.dispatcher).length > 0 && (
+						<Picker
+							value={options.dispatcher.selected?.effort ?? AUTOMATIC}
+							choices={effortChoices(options.dispatcher)}
+							placeholder="Default thinking"
+							label="Call assistant thinking"
+							onChange={(id) => {
+								const selected = options.dispatcher.selected;
+								if (selected === undefined) return;
+								setVoice("dispatcher", stored(selected.providerId, selected.modelId, undefined, id === AUTOMATIC ? undefined : id));
+							}}
+						/>
+					)}
+				</JobRow>
 			</div>
-			<p className="group-hint">Subscriptions go before paid keys. A limit of 0 turns paid use off.</p>
+			<p className="group-hint">Subscriptions go before paid keys.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
@@ -321,58 +318,5 @@ function JobRow({
 				</span>
 			)}
 		</div>
-	);
-}
-
-function SpendingRow({ spending, onWrite }: { spending: CapabilityOptions["spending"]; onWrite(patch: Record<string, unknown>): void }) {
-	return (
-		<div className="group-row">
-			<span className="group-row-text">
-				<span className="group-row-title">Spending limit</span>
-				<span className="group-row-detail">{spentText(spending)}</span>
-			</span>
-			<span className="flex shrink-0 items-center gap-3 text-sm text-ink-3">
-				<Cap label="Daily limit" value={spending.dayUsd} unit="/ day" onCommit={(dayUsd) => onWrite({ spending: { dayUsd, monthUsd: spending.monthUsd } })} />
-				<Cap label="Monthly limit" value={spending.monthUsd} unit="/ month" onCommit={(monthUsd) => onWrite({ spending: { dayUsd: spending.dayUsd, monthUsd } })} />
-			</span>
-		</div>
-	);
-}
-
-/** A dollar amount typed in: saved when you leave it or press Enter, put back if it is not a cap. */
-function Cap({ label, value, unit, onCommit }: { label: string; value: number; unit: string; onCommit(usd: number): void }) {
-	const [text, setText] = useState(value.toFixed(2));
-
-	useEffect(() => {
-		setText(value.toFixed(2));
-	}, [value]);
-
-	const commit = () => {
-		const next = parseCap(text);
-		if (next === null) {
-			setText(value.toFixed(2));
-			return;
-		}
-		setText(next.toFixed(2));
-		if (next !== value) onCommit(next);
-	};
-
-	return (
-		<label className="flex items-center gap-1">
-			<span className="text-ink-3">$</span>
-			<input
-				type="text"
-				inputMode="decimal"
-				className="field w-16 text-right"
-				aria-label={label}
-				value={text}
-				onChange={(event) => setText(event.target.value)}
-				onBlur={commit}
-				onKeyDown={(event) => {
-					if (event.key === "Enter") event.currentTarget.blur();
-				}}
-			/>
-			{unit}
-		</label>
 	);
 }

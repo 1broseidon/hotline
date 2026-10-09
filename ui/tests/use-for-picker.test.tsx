@@ -32,7 +32,7 @@ test("ChatGPT images require a picker selection, Automatic clears it, and with n
 		stt: { options: [] },
 		tts: { options: [] },
 		dispatcher: { options: [] },
-		spending: { dayUsd: 2, monthUsd: 20, spentDayUsd: 0, spentMonthUsd: 0 },
+		spending: { budgets: [] },
 	};
 	let changes = 0;
 	const render = () => act(async () => { root.render(<UseFor options={options} voice={undefined} onChanged={() => { changes += 1; }} />); });

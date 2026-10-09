@@ -24,6 +24,7 @@ import { SecretsSection } from "./Secrets";
 import { McpPasteBack } from "./McpPasteBack";
 import { SkillsSection } from "./Skills";
 import { UseFor } from "./UseFor";
+import { Budgets } from "./Budgets";
 import { tagsFor } from "../useFor";
 
 import { HotkeysSection } from "./HotkeysSection";
@@ -795,6 +796,7 @@ function ProvidersSection({
 						<p className="group-hint">Keys and sign-ins stay on this computer.</p>
 					</section>
 					{capabilities !== null && <UseFor options={capabilities} voice={voice} onChanged={() => void reloadCapabilities()} />}
+					{capabilities !== null && <Budgets spending={capabilities.spending} onChanged={() => void reloadCapabilities()} />}
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>

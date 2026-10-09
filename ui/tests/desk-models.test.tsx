@@ -80,7 +80,7 @@ test("a model is downloaded only when asked, followed until it lands, and remove
 		stt: { options: [], unavailable: "Download a speech model for the desk, or connect OpenAI, Google, OpenRouter, Groq or Mistral to hear you." },
 		tts: { options: [], unavailable: "Connect OpenAI, Google, OpenRouter or Groq to speak." },
 		dispatcher: { options: [] },
-		spending: { dayUsd: 2, monthUsd: 20, spentDayUsd: 0, spentMonthUsd: 0 },
+		spending: { budgets: [] },
 	};
 	let refreshed = 0;
 	const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
@@ -89,7 +89,7 @@ test("a model is downloaded only when asked, followed until it lands, and remove
 	try {
 		await act(async () => { root.render(<UseFor options={options} voice={undefined} onChanged={() => { refreshed += 1; }} />); });
 		expect(asked).toEqual([]);
-		await act(async () => { button("Hearing and call assistant")!.click(); });
+		await act(async () => { button("Transcription")!.click(); });
 		await settle();
 		expect(asked.map((one) => one.cmd)).toEqual(["voice.models"]);
 		expect(container.textContent).toContain("Download a speech model for the desk");

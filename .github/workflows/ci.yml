@@ -68,6 +68,15 @@ jobs:
           key: ci-${{ matrix.os }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # The cache keeps the speech engine's build-script output but not the
+      # library that script unpacked into target/sherpa-onnx-prebuilt, so a
+      # rebuild against it finds nothing to link. Forgetting the output makes
+      # the build unpack the pinned archive again.
+      - name: Unpack the speech engine again
+        if: runner.environment == 'github-hosted'
+        shell: bash
+        run: rm -rf target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+
       # grizzly's Linux image has these baked in.
       - name: Install the Linux toolkit
         if: runner.os == 'Linux' && runner.environment == 'github-hosted'
@@ -121,6 +130,11 @@ jobs:
         with:
           key: ci-macos
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The cache lacks the speech engine's unpacked library; see above.
+      - name: Unpack the speech engine again
+        shell: bash
+        run: rm -rf target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
 
       - name: Compile the macOS code and its tests
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -179,6 +193,11 @@ jobs:
         with:
           shared-key: release-${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The cache lacks the speech engine's unpacked library; see above.
+      - name: Unpack the speech engine again
+        shell: bash
+        run: rm -rf target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
 
       - name: Install the Linux toolkit
         if: runner.os == 'Linux'

@@ -2197,6 +2197,9 @@
 	}
 	/* A fold in a settings group sits among plain rows, and its title is as
 	 * wide as the words. */
+	.grouped > .nt-fold-row + .group-row,
+	.grouped > .nt-fold-row + .nt-fold-row,
+	.grouped > .group-row + .nt-fold-row,
 	.grouped > .nt-fold + .nt-fold-row,
 	.grouped > .nt-fold + .group-row,
 	.grouped > .group-row + .nt-fold,

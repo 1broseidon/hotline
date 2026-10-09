@@ -133,28 +133,24 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
 					<section>
-						<div className="flex items-baseline justify-between pr-3">
+						<div className="flex items-baseline justify-between pr-4">
 							<h3 className="group-title">Your skills</h3>
 							{home.some((one) => one.invalid === undefined && one.offered !== true) && (
-								<button type="button" className="control btn-quiet" disabled={busy} onClick={() => void offerAll()}>
+								<button type="button" className="nt-fold-action" disabled={busy} onClick={() => void offerAll()}>
 									Offer all
 								</button>
 							)}
 						</div>
 						<div className="grouped">
-							<div className="group-row">
-								<span className="group-row-text">
-									<span className="group-row-title">Folder</span>
-									<span className="group-row-detail selectable font-mono" style={{ whiteSpace: "normal", wordBreak: "break-all" }}>
-										{skillsHome ?? STANDARD_FOLDER}
-									</span>
-								</span>
+							<div className="nt-fold-row">
+								<span className="nt-fold-title">Folder</span>
+								<span className="nt-fold-value selectable font-mono">{skillsHome ?? STANDARD_FOLDER}</span>
 								{skillsHome !== null && (
-									<button type="button" className="control btn-quiet" disabled={busy} onClick={() => void standardFolder()}>
+									<button type="button" className="nt-fold-action text-ink-2" disabled={busy} onClick={() => void standardFolder()}>
 										Use default
 									</button>
 								)}
-								<button type="button" className="control btn-quiet" disabled={busy} onClick={() => void changeFolder()}>
+								<button type="button" className="nt-fold-action" disabled={busy} onClick={() => void changeFolder()}>
 									Change
 								</button>
 							</div>
@@ -177,7 +173,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 						</p>
 					</section>
 					<section>
-						<h3 className="group-title">Gateway</h3>
+						<h3 className="group-title">From other folders</h3>
 						<div className="grouped">
 							<button type="button" className="group-row group-row-add" disabled={busy} onClick={() => void add()}>
 								<PlusIcon />

@@ -498,8 +498,9 @@ where it is and copies nothing in, and each entry is offered to teammates by
 a switch under Settings → Skills (the `offeredSkills` setting), so a skill the
 person keeps for their other agents is one switch away from their teammates
 and an edit there is what the teammate reads at its next start. The
-**gateway** is the operator's folder, `skills/` in the data directory, for a
-skill from anywhere else: a folder the person picks is copied in under its
+**gateway** (Settings → Skills calls it **From other folders**) is the
+operator's folder, `skills/` in the data directory, for a skill from anywhere
+else: a folder the person picks is copied in under its
 name, and everything valid there is offered. What is offered — the gateway's
 and the person's own switched on — is granted per teammate with the same
 none / some / all policy MCP servers use; a new teammate gets none, and all

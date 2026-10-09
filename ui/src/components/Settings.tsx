@@ -1883,16 +1883,16 @@ function ImportSection({ onRefuse }: { onRefuse(message: string | null): void })
 	return (
 		<>
 			<section>
-				<h3 className="group-title">Bring over a previous edition</h3>
+				<h3 className="group-title">From an earlier edition</h3>
 				<div className="grouped">
-					<div className="group-row flex-col items-stretch gap-1.5">
-						<label className="label mb-0" htmlFor="import-from">
-							Its data directory
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="import-from">
+							Its folder
 						</label>
-						<PathField id="import-from" value={from} onChange={setFrom} />
-					</div>
-					<div className="group-row justify-end">
-						<button type="button" className="control btn-primary" disabled={busy || from.trim() === ""} onClick={() => void run()}>
+						<div className="min-w-0 flex-1">
+							<PathField id="import-from" value={from} onChange={setFrom} />
+						</div>
+						<button type="button" className="control btn-primary shrink-0" disabled={busy || from.trim() === ""} onClick={() => void run()}>
 							{busy ? "Importing…" : "Import"}
 						</button>
 					</div>

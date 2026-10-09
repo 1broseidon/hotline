@@ -133,7 +133,7 @@ window's bottom-right corner (`ui/src/components/UpdateFloat.tsx`), whose
 is found. A dev build never checks, so `VITE_PREVIEW_UPDATE=0.35.1 make dev`
 pretends that version is out, for the card and Settings → Updates alike.
 
-**Download, install and restart** uses `tauri-plugin-updater` 2.11.0, following
+**Update and restart** uses `tauri-plugin-updater` 2.11.0, following
 Prism's desktop updater. The plugin verifies the downloaded signature before
 installation. A download can be cancelled; installation cannot be cancelled
 from Hotline after the native installer starts. A Linux deb or rpm does not

@@ -462,6 +462,16 @@ hold and an unfinished preceding turn are refused before work is queued.
 There is no remote STT request or STT budget reservation for device text.
 Dispatcher and speaking costs keep their existing budget and ledger rules.
 
+A teammate on a direct call answers twice, a `<spoken>` version to be heard
+and a `<written>` version to be read, each standing alone, rather than one
+reply split by a marker: a split reads to a model as an opener and a body, and
+the chat then showed one answer cut in two. The written version is the chat's
+message; the spoken one is kept beside it as an optional `spoken` field on the
+reply's first `agent` event, so the tape and segment layout are unchanged, a
+tape from the reference tree reads as before, and an older client shows the
+written text. Hotline Agent's rebuilt history shows the model both, tagged
+([One brain, two outputs](voice.md#one-brain-two-outputs)).
+
 A finalized transcript that is wholly a goodbye speaks `Goodbye.` and ends
 either kind of call. Audio goodbye still requires enough genuine audio to
 avoid a tiny hallucinated farewell. Replies use progressive independently

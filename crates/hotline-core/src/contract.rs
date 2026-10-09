@@ -1140,6 +1140,12 @@ pub enum TranscriptEvent {
         ring: Option<RingIntent>,
         #[serde(skip_serializing_if = "Option::is_none")]
         receipt: Option<Receipt>,
+        /// On a reply to a turn said on a call, the version written to be
+        /// heard, while `text` is the version written to be read. On the
+        /// first bubble of the reply only. A client that does not know it
+        /// shows `text`, which stands alone.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        spoken: Option<String>,
     },
     Thought {
         id: String,

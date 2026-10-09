@@ -66,16 +66,20 @@ no ids. The one id still parsed for provenance is a line kept across a stop
 
 A line said on a call to the teammate is a **voice turn**. The driver is
 handed the person's words and, after a blank line, the contract that asks for
-a spoken part and a shown part with `<<<ENDSPEAK>>>` between them
-(`voice::spoken`); the tape keeps the words alone. While the turn's origin is
-that call, the witness hands the call the reply's words as they stream and
-each message as it lands. The conversation is shown every reply without the
-marker, on a call or not, since an ACP agent keeps the contract in its own
-history and may write the marker in a typed reply later: as it streams
-(`runner::drive_updates`, which hands a witness the words as written for the
-call and as shown for the chat), and as it is written, before pacing splits it
-into bubbles (`event_of`). Side threads, runs and peer exchanges are driven
-the same way, and the phone's glance is the reply as shown. The end of the turn, or its parking on subagents,
+the answer twice, a version to say between `<spoken>` tags and a version to
+show between `<written>` tags (`voice::spoken`); the tape keeps the words
+alone. While the turn's origin is that call, the witness hands the call the
+reply's words as they stream and each message as it lands, and the reply is
+written with its spoken version kept beside it (`Witness::said_on_call`, the
+agent event's `spoken`). The conversation is shown every reply's written
+version and never a tag, on a call or not, since an ACP agent keeps the
+contract in its own history and may write the tags in a typed reply later: as
+it streams (`runner::drive_updates`, which hands a witness the words as
+written for the call and as shown for the chat), and as it is written, before
+pacing splits it into bubbles (`event_of`). Side threads, runs and peer
+exchanges are driven the same way, and the phone's glance is the reply as
+shown. A history rebuilt from the tape shows the model a reply said on a call
+as both its versions, tagged (`voiced`). The end of the turn, or its parking on subagents,
 tells the call it can listen. Nothing else about the turn differs from a typed
 one: its chapter, its grants, its metering and what the model sees besides the
 contract are the same. See

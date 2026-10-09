@@ -530,15 +530,21 @@ heard, under an id that marks the line as said on the call
 Said into a turn that is still running, the words steer it, as typing does.
 
 What makes the turn a voice turn is one thing the agent is handed after the
-person's words, the contract (`spoken::CONTRACT`):
+person's words, the contract (`spoken::CONTRACT`): answer twice, once to be
+heard and once to be read, each version standing alone and neither continuing
+the other. The version to be heard goes between `<spoken>` tags: how you'd
+answer on a phone call, leading with the answer, one to three sentences under
+40 words, plain speech with no code, lists, links or markdown, mentioning the
+written version only as "details are in the chat". The version to be read
+goes between `<written>` tags: the complete answer exactly as if the question
+had been typed, never spoken, not assuming the reader heard the other one. It
+gives one example, and asks for at most one short line before a tool and, when
+the person cut in, an answer to the new words without repeating what was said.
 
-> One response, two parts, in this order, separated by `<<<ENDSPEAK>>>`.
-> Part 1 is spoken: short, conversational, self-contained, leading with the
-> answer; anything visual described in words and never reproduced, with no
-> code, tables, lists, links or markdown, and no reference to what follows.
-> Part 2 is shown in the chat and never spoken: the full detail, code, tables
-> and links. It may be empty. The marker is always written. Anything written
-> before using a tool is spoken as it comes, so it is a brief line.
+The contract asks for two whole versions rather than one reply cut in two. A
+reply split by a marker into a part to say and a part to show reads to a model
+as an opener and a body, so the chat showed the spoken opener as its first
+bubble and the rest after it: one answer chopped in two, not a desk answer.
 
 The contract travels in the text of the turn the driver is handed, after the
 words and a blank line, and nowhere else. A model setting or a system note
@@ -549,37 +555,63 @@ holds it: `Room::prompt` writes what the person said and hands the driver the
 words with the contract, so the conversation, a rebuilt history and a search
 see only the words. Nothing else about the turn changes what the model sees.
 
-The reply is rendered twice from one stream:
+The reply is read twice from one stream:
 
 - **Said.** The DM's witness hands the call each chunk of the reply's words as
   the agent writes them (`Calls::reply_delta`), and the whole message when it
-  lands (`Calls::delivery`). `spoken::Spoken` takes the spoken part: the
-  sentences before the marker, each said as soon as it is whole. It holds back
-  the end of a chunk that could be the start of the marker, so no part of the
-  marker is ever said, and it never reads out a fenced code block or a table.
-  A reply with no marker was written to be read, so the call says its opening,
-  up to the first code block or table and at most three sentences, and the
-  rest is only shown; until the marker comes, a sentence the fallback would
-  not say waits for it.
-- **Shown.** The chat shows the whole reply with the marker taken out and the
-  two parts a paragraph apart, as it streams (`spoken::Unmarked`, which holds
-  back a partial marker the same way) and as it is written to the tape
-  (`spoken::unmarked`, before the reply is paced into bubbles). Only the
-  first marker is the reply's.
+  lands (`Calls::delivery`). `spoken::Spoken` takes what is inside `<spoken>`,
+  each sentence said as soon as it is whole, cleaned for speech as below, and
+  nothing after it. It holds back the end of a chunk that could be the start
+  of a tag, so no part of a tag is ever said, and it never reads out a fenced
+  code block or a table. Text before the first tag is read as a reply with no
+  tags is: that is how the one line before a tool is said as it streams.
+- **Shown.** The chat shows the written version alone, as a normal desk
+  answer: as it streams (`spoken::Shown`, which holds back a partial tag the
+  same way and drops the spoken version), and as it is written to the tape
+  (`spoken::versions`, before the reply is paced into bubbles). On a turn said
+  on the call, the reply's first bubble keeps the spoken version beside it, in
+  the agent event's `spoken` field (`docs/wire.md`); the window draws it as a
+  transcript line above the reply (`ui/design.md`).
 
-The marker is taken out of every agent message, on a call or not
+The tags are read tolerantly. Case and spaces inside the angle brackets do not
+matter. A `<spoken>` never closed ends where `<written>` begins. A reply with
+no `<written>` shows its spoken version, or the text after it when the model
+forgot the tag; text outside both versions after the first tag is shown with
+the written one. A reply with no tags at all was written to be read, so the
+call says its opening, up to its first code block or table and at most three
+sentences, and the chat shows all of it. Only the first spoken version is the
+reply's, a written version ends only at its own closing tag, and any other tag
+is stray: it is dropped and the text on both sides kept. Text that only looks
+like a tag (`<spoke>`, `Vec<String>`, `a < b`) is text.
+
+No tag is shown in any agent message, on a call or not
 (`runner::drive_updates` for the words as they stream, `event_of` for what is
 written): the main conversation, a side thread, a subagent's run and a peer
-exchange alike, and the reply the phone is pushed. An ACP agent such as Claude
-Code or Codex keeps the call's contract in its own session history, so it may
-write the marker in a typed reply long after the call; the words on both sides
-of it are kept, a paragraph apart, and only the call says the first part.
+exchange alike, and the reply the phone is pushed, which is the written
+version. An ACP agent such as Claude Code or Codex keeps the call's contract in
+its own session history, so it may write the tags in a typed reply long after
+the call; that reply is shown and kept as its written version, and keeps no
+spoken version, since nothing was said.
+
+The model is shown both versions again. Hotline Agent rebuilds its history
+from the tape, and a reply with a `spoken` field is presented to it as
+`<spoken>…</spoken>` and `<written>…</written>` on the next line, the bubbles
+of the reply joined inside the written version, so a follow-up or a barge-in
+knows what the person heard and what they could only read. An ACP agent keeps
+its own history, which already has both. The call's thread
+(`calls/<id>.jsonl`) keeps the line that was said, as before.
+
+A written version that reads as the rest of the spoken one rather than a
+version of its own, opening with a continuation ("Also", "Additionally",
+"Here's the rest", "As I said") or with the spoken version again nearly word
+for word, writes one `[voice]` line to the log (`spoken::lazy`). It is a
+diagnostic: nothing shown or said changes.
 
 On an agent turn, what the agent writes before its first tool call is said as
 it streams, as the acknowledgement. Its words between tools are narration
 (`session/narration.rs`) and are not said; the call stays `thinking`, and the
 client's blip-blip covers the work. The message that lands as the report is
-said whole when it lands, up to its marker. Each message said is one reply:
+said when it lands: its spoken version, or its opening when it wrote none. Each message said is one reply:
 one `said` id, the line growing sentence by sentence, its clips under that id
 closed by an empty final clip, and one line on the call's thread.
 
@@ -615,7 +647,8 @@ markdown emphasis, headings and list bullets go; a link is "a link", and a
 labelled link is its label; money, scales and percentages are words ("$3.4B"
 is "3.4 billion dollars", "12%" is "12 percent"), "->" and "=>" are "to", "#42"
 is "number 42" and "~5" is "about 5". The line shown on the call keeps the
-words as written. The marker is the only markup the agent is asked for.
+words as written. The two pairs of tags are the only markup the agent is asked
+for.
 
 The latency of a call to a teammate is the teammate's: its first word waits on
 its model's first sentence. That is accepted. A desk call keeps its router:

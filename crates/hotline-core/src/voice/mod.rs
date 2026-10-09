@@ -1593,10 +1593,10 @@ impl Calls {
     }
 
     /// A teammate's reply on its own call, said as it streams in: its spoken
-    /// part ([`spoken::Spoken`]) sentence by sentence as one line, kept on
+    /// version ([`spoken::Spoken`]) sentence by sentence as one line, kept on
     /// the call's thread once it is over. Speaking over it stops it at once,
-    /// so the call is free for what the person says; the chat has the whole
-    /// reply in any case.
+    /// so the call is free for what the person says; the chat has the written
+    /// version in any case.
     async fn answer(
         &self,
         id: &str,

@@ -2240,9 +2240,10 @@ impl Room {
             Sending {
                 shown: text.to_string(),
                 wire: Wired {
-                    // A turn said on a call to this teammate asks for a reply
-                    // in a spoken part and a shown one. That is for the agent
-                    // alone; the conversation shows what the person said.
+                    // A turn said on a call to this teammate asks for the reply
+                    // twice, a version to say and a version to show. That is
+                    // for the agent alone; the conversation shows what the
+                    // person said.
                     text: match crate::wire::commands::voice_origin() {
                         Some(origin) if origin.direct => crate::voice::spoken::voice_turn(text),
                         _ => text.to_string(),
@@ -4598,7 +4599,8 @@ fn sweep_idle_chapters(room: Weak<Room>) {
 ///
 /// The model said one thing; the tape may show it as several bubbles. Consecutive
 /// agent events collapse back into one [`Said::Agent`], so the model sees one
-/// thing again. The Rig history is built from this, not from the tape, so it
+/// thing again. A reply said on a call is shown to it as both its versions
+/// ([`voiced`]). The Rig history is built from this, not from the tape, so it
 /// does not need a second fold.
 fn said(events: &[Value]) -> Vec<Said> {
     let within: Vec<&Value> = match chapter_view::open_chapter(events) {
@@ -4619,10 +4621,14 @@ fn said(events: &[Value]) -> Vec<Said> {
     };
     // A file sent without a caption is a message with no words; the model
     // remembers it by name.
-    fold_said(within.iter().filter_map(|event| {
+    fold_said(voiced(within.iter().filter_map(|event| {
         event.get("text")?.as_str()?;
         let text = crate::sent::message_text(event);
-        match event.get("kind")?.as_str()? {
+        let spoken = event
+            .get("spoken")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let said = match event.get("kind")?.as_str()? {
             "user" => Some(Said::User(match event.get("ts").and_then(Value::as_i64) {
                 Some(ts) => timed_from(
                     ts,
@@ -4662,8 +4668,36 @@ fn said(events: &[Value]) -> Vec<Said> {
                 _ => None,
             },
             _ => None,
+        }?;
+        Some((said, spoken))
+    })))
+}
+
+/// A reply said on a call, as the model is shown it again: its spoken
+/// version and its written one, tagged as the call asked for them, so a
+/// follow-up or a barge-in knows what was heard and what was only read. The
+/// spoken version is kept on the reply's first bubble, and the bubbles after
+/// it are the rest of the written version.
+fn voiced(lines: impl IntoIterator<Item = (Said, Option<String>)>) -> Vec<Said> {
+    let mut replies: Vec<(Said, Option<String>)> = Vec::new();
+    for (line, spoken) in lines {
+        match (replies.last_mut(), line) {
+            (Some((Said::Agent(written), Some(_))), Said::Agent(next)) if spoken.is_none() => {
+                written.push_str("\n\n");
+                written.push_str(&next);
+            }
+            (_, line) => replies.push((line, spoken)),
         }
-    }))
+    }
+    replies
+        .into_iter()
+        .map(|reply| match reply {
+            (Said::Agent(written), Some(spoken)) => {
+                Said::Agent(crate::voice::spoken::both(&spoken, &written))
+            }
+            (line, _) => line,
+        })
+        .collect()
 }
 
 /// Consecutive agent events are one thing the model said, shown as several
@@ -4691,42 +4725,58 @@ fn fold_said(lines: impl IntoIterator<Item = Said>) -> Vec<Said> {
 /// to. An empty vec is the one update that is never written: a delta, which
 /// the message that follows it makes durable. An agent's message is split
 /// into bubbles here so both kinds of agent and a peer thread get the same
-/// ones, and is written without the marker a call asks for between a spoken
-/// part and a shown one, whenever it comes ([`crate::voice::spoken`]).
-fn event_of(update: Update, in_flight: &mut HashMap<String, PendingTool>) -> Vec<TranscriptEvent> {
+/// ones. What is written of a message is its written version, without a tag
+/// of the two versions a call asks for, whenever they come
+/// ([`crate::voice::spoken`]); on a turn said on a call (`on_call`), the
+/// reply's first bubble also keeps the version written to be heard.
+fn event_of(
+    update: Update,
+    in_flight: &mut HashMap<String, PendingTool>,
+    on_call: bool,
+) -> Vec<TranscriptEvent> {
     match update {
         Update::Chapter { boundary } => {
             boundary.finish(None);
             Vec::new()
         }
         Update::Delta { .. } | Update::Parked => Vec::new(),
-        Update::Message { kind, id, text } => match (kind, crate::voice::spoken::unmarked(&text)) {
-            (MessageKind::Agent, text) => {
-                let ts = now_ms();
-                pacing::paced(&text)
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, text)| TranscriptEvent::Agent {
-                        id: if i == 0 {
-                            id.clone()
-                        } else {
-                            format!("{id}-{}", i + 1)
-                        },
-                        ts,
-                        text,
-                        attachments: None,
-                        reactions: None,
-                        ring: None,
-                        receipt: None,
-                    })
-                    .collect()
+        Update::Message { kind, id, text } => {
+            let versions = crate::voice::spoken::versions(&text);
+            match kind {
+                MessageKind::Agent => {
+                    let mut spoken = versions.spoken.filter(|_| on_call);
+                    if spoken.is_some()
+                        && let Some(reason) = versions.lazy
+                    {
+                        eprintln!("[voice] the written version of {id} {reason}");
+                    }
+                    let ts = now_ms();
+                    pacing::paced(&versions.written)
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, text)| TranscriptEvent::Agent {
+                            id: if i == 0 {
+                                id.clone()
+                            } else {
+                                format!("{id}-{}", i + 1)
+                            },
+                            ts,
+                            text,
+                            attachments: None,
+                            reactions: None,
+                            ring: None,
+                            receipt: None,
+                            spoken: spoken.take(),
+                        })
+                        .collect()
+                }
+                MessageKind::Thought => vec![TranscriptEvent::Thought {
+                    id,
+                    ts: now_ms(),
+                    text: versions.written,
+                }],
             }
-            (MessageKind::Thought, text) => vec![TranscriptEvent::Thought {
-                id,
-                ts: now_ms(),
-                text,
-            }],
-        },
+        }
         Update::ToolCall {
             call_id,
             title,

@@ -18,10 +18,11 @@
 //!   the person's lines read, keeps the session's checkpoint, says a reply to a
 //!   call and to the phone, and steers: a line said to a driver that takes
 //!   input mid-turn is handed to it when it arrives. On a turn said on a call
-//!   to the teammate, the reply's words stream to the call as they arrive.
-//!   The chat and the phone show every reply whole, without the marker between
-//!   its spoken and shown parts, on a call or not (see
-//!   [`crate::voice::spoken`] and [`super::runner::drive_updates`]).
+//!   to the teammate, the reply's words stream to the call as they arrive,
+//!   and the reply is written with the version that was said beside it. The
+//!   chat and the phone show every reply's written version without a tag, on
+//!   a call or not (see [`crate::voice::spoken`] and
+//!   [`super::runner::drive_updates`]).
 //! - **The end of a turn.** What the driver did not take is queued again in its
 //!   order, and a quiet run that found something is escalated.
 //!
@@ -38,7 +39,7 @@ use crate::contract::{Reach, Receipt, ScheduledRun, SessionState, TranscriptEven
 use crate::driver::{MessageKind, Update};
 use crate::room;
 use crate::thread::{ThreadId, ThreadKind};
-use crate::voice::spoken::unmarked;
+use crate::voice::spoken::versions;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -307,8 +308,7 @@ impl Witness for Heard<'_> {
                 // narration::Voice has committed this as an acknowledgement or
                 // report. On a call to this teammate it is said now rather than
                 // when tool work ends: the words already said as it streamed
-                // are its start, and the rest of what comes before the marker
-                // follows.
+                // are its start, and the rest of its spoken version follows.
                 let on_call = self.on_call();
                 if let Some(origin) = &on_call
                     && let Some(voice) = lock(&room.voice).upgrade()
@@ -319,12 +319,13 @@ impl Witness for Heard<'_> {
                         .unwrap_or_else(|_| "Hotline".into());
                     voice.delivery(&session.persona_id, id, &name, text, true, Some(origin));
                 }
-                // The phone is shown the reply as the chat is, without the
-                // marker, whether or not this turn was said on a call: the
-                // agent may write it in any reply once it has been asked to.
+                // The phone is shown the reply as the chat is, its written
+                // version, whether or not this turn was said on a call: the
+                // agent may write the tags in any reply once it has been asked
+                // to.
                 *lock(&session.glance) = Some(Glance {
                     event_id: id.clone(),
-                    text: unmarked(text).trim().to_string(),
+                    text: versions(text).written.trim().to_string(),
                 });
             }
             // The agent has said what it has to say and the turn stays open
@@ -367,8 +368,8 @@ impl Witness for Heard<'_> {
             || (kind == MessageKind::Agent
                 && quiet::mutes_deltas(lock(&self.session.quiet).as_ref(), now_ms()));
         // Words the window types as they come are said as they come, from
-        // what the agent wrote, marker and all; a message that may yet turn
-        // out to be narration waits to be whole.
+        // what the agent wrote, tags and all; a message that may yet turn out
+        // to be narration waits to be whole.
         if let Some(origin) = self.on_call()
             && kind == MessageKind::Agent
             && !muted
@@ -386,6 +387,10 @@ impl Witness for Heard<'_> {
             words.shown,
             muted,
         ));
+    }
+
+    fn said_on_call(&self) -> bool {
+        self.on_call().is_some()
     }
 
     fn write(&mut self, event: TranscriptEvent, asked: bool) {

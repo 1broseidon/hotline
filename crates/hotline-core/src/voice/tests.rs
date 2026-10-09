@@ -2020,7 +2020,7 @@ async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
         &persona,
         "reply-1",
         "Mack",
-        "What's on your mind? <<<ENDSPEAK>>> Shown only.",
+        "<spoken>What's on your mind?</spoken>\n<written>Shown only.</written>",
         true,
         Some(&origin)
     ));
@@ -2095,18 +2095,19 @@ async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
     );
 }
 
-/// A teammate's reply on a call to it is said as it streams, up to the
-/// marker, as one reply: one line on screen growing under one id, its audio
+/// A teammate's reply on a call to it has its spoken version said as it
+/// streams, as one reply: one line on screen growing under one id, its audio
 /// under that id ending in one empty final clip, and one line on the call's
-/// thread. Nothing after the marker, and never the marker, reaches speech.
+/// thread. Neither the written version nor a tag reaches speech.
 #[tokio::test]
-async fn a_streamed_reply_is_said_up_to_its_marker_as_one_line() {
+async fn a_streamed_reply_says_its_spoken_version_as_one_line() {
     let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     let chunks = [
-        "The build is still red. It's the fla",
-        "ky config test again. <<<END",
-        "SPEAK>>>\n| test | result |\n| config | flaky |\n",
+        "<spo",
+        "ken>The build is still red. It's the fla",
+        "ky config test again.</spok",
+        "en>\n<written>| test | result |\n| config | flaky |\n</written>",
     ];
     for chunk in chunks {
         calls.reply_delta(&persona, "reply-1", chunk, &origin);
@@ -2152,10 +2153,10 @@ async fn a_streamed_reply_is_said_up_to_its_marker_as_one_line() {
     calls.end(&id).unwrap();
 }
 
-/// An agent that writes no marker wrote its reply to be read: the call says
-/// its opening, up to its first code block, and the chat has the rest.
+/// An agent that writes no spoken version wrote its reply to be read: the
+/// call says its opening, up to its first code block, and the chat has it all.
 #[tokio::test]
-async fn a_reply_without_the_marker_is_said_up_to_its_first_code_block() {
+async fn a_reply_without_tags_is_said_up_to_its_first_code_block() {
     let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     let reply = "Here's the fix for the flaky test:\n```rust\nassert!(ready);\n```\nIt passes ten runs in a row now.";
@@ -2180,7 +2181,12 @@ async fn speaking_over_a_reply_stops_it_and_gives_the_person_the_floor() {
         })
         .unwrap();
     *lock(&fake.delay) = Duration::from_secs(5);
-    calls.reply_delta(&persona, "reply-1", "I looked at the logs. ", &origin);
+    calls.reply_delta(
+        &persona,
+        "reply-1",
+        "<spoken>I looked at the logs. ",
+        &origin,
+    );
     event(
         &mut rx,
         |e| matches!(e, VoiceEvent::Said { text, .. } if text == "I looked at the logs."),
@@ -2197,17 +2203,12 @@ async fn speaking_over_a_reply_stops_it_and_gives_the_person_the_floor() {
         )
     })
     .await;
-    calls.reply_delta(
-        &persona,
-        "reply-1",
-        "The cache is stale. <<<ENDSPEAK>>>",
-        &origin,
-    );
+    calls.reply_delta(&persona, "reply-1", "The cache is stale.</spoken>", &origin);
     assert!(calls.delivery(
         &persona,
         "reply-1",
         "Mack",
-        "I looked at the logs. The cache is stale. <<<ENDSPEAK>>>",
+        "<spoken>I looked at the logs. The cache is stale.</spoken>",
         true,
         Some(&origin)
     ));
@@ -2242,7 +2243,7 @@ async fn the_call_thinks_while_the_teammate_works_and_listens_when_its_turn_ends
         &persona,
         "ack",
         "Mack",
-        "On it. <<<ENDSPEAK>>>",
+        "<spoken>On it.</spoken>",
         true,
         Some(&origin)
     ));
@@ -2441,20 +2442,20 @@ async fn a_call_that_thinks_says_so_again() {
 async fn a_hold_cuts_off_a_reply_and_leaves_it_to_the_phone() {
     let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
-    calls.reply_delta(&persona, "reply-1", "The deploy went out. ", &origin);
-    event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
-    calls.hold(&id, true).unwrap();
     calls.reply_delta(
         &persona,
         "reply-1",
-        "Nothing broke. <<<ENDSPEAK>>>",
+        "<spoken>The deploy went out. ",
         &origin,
     );
+    event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
+    calls.hold(&id, true).unwrap();
+    calls.reply_delta(&persona, "reply-1", "Nothing broke.</spoken>", &origin);
     assert!(!calls.delivery(
         &persona,
         "reply-1",
         "Mack",
-        "The deploy went out. Nothing broke. <<<ENDSPEAK>>>",
+        "<spoken>The deploy went out. Nothing broke.</spoken>",
         true,
         Some(&origin)
     ));

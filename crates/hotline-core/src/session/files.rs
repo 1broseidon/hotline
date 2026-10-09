@@ -143,6 +143,7 @@ impl Room {
             reactions: None,
             ring: None,
             receipt: None,
+            spoken: None,
         };
         if let Some(capability) = &capability
             && let Err(refused) = capability.check()

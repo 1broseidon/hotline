@@ -157,6 +157,7 @@ mod tests {
             reactions: None,
             ring: None,
             receipt: None,
+            spoken: None,
         }
     }
 

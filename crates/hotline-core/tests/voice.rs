@@ -466,43 +466,57 @@ async fn provider_seeing(reply: &'static str) -> (String, Arc<std::sync::Mutex<V
     (url, seen)
 }
 
-/// The teammate's reply on a call to it, as its agent wrote it: a spoken
-/// part, the marker, and a table that is only shown.
-const MARKED_REPLY: &str =
-    "The checks passed. <<<ENDSPEAK>>>\n| check | result |\n| --- | --- |\n| unit | ok |";
+/// The teammate's reply on a call to it, as its agent wrote it: the version
+/// to say, then the version to show, a table.
+const TAGGED_REPLY: &str = "<spoken>The checks passed.</spoken>\n<written>All checks passed:\n\n| check | result |\n| --- | --- |\n| unit | ok |</written>";
+const TAGGED_WRITTEN: &str =
+    "All checks passed:\n\n| check | result |\n| --- | --- |\n| unit | ok |";
 
 #[tokio::test]
 async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching() {
-    direct_call_uses_existing_conversation(false, MARKED_REPLY, "The checks passed.").await;
+    direct_call_uses_existing_conversation(
+        false,
+        TAGGED_REPLY,
+        "The checks passed.",
+        TAGGED_WRITTEN,
+        Some("The checks passed."),
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn device_text_reuses_the_direct_agent_session_and_call_origin() {
-    direct_call_uses_existing_conversation(true, MARKED_REPLY, "The checks passed.").await;
-}
-
-/// An agent that ignores the marker wrote to be read: the call says the
-/// opening, up to the first code block, and the chat shows all of it.
-#[tokio::test]
-async fn a_reply_without_the_marker_is_said_up_to_its_first_code_block() {
     direct_call_uses_existing_conversation(
         true,
-        "Here is the fix:\n```rust\nlet ready = true;\n```\nThe checks pass now.",
-        "Here is the fix:",
+        TAGGED_REPLY,
+        "The checks passed.",
+        TAGGED_WRITTEN,
+        Some("The checks passed."),
     )
     .await;
+}
+
+/// An agent that ignores the tags wrote to be read: the call says the
+/// opening, up to the first code block, and the chat shows all of it.
+#[tokio::test]
+async fn a_reply_without_tags_is_said_up_to_its_first_code_block() {
+    let reply = "Here is the fix:\n```rust\nlet ready = true;\n```\nThe checks pass now.";
+    direct_call_uses_existing_conversation(true, reply, "Here is the fix:", reply, None).await;
 }
 
 /// One brain, two outputs: what is said on a call to a teammate is a turn of
 /// the teammate's own conversation (the person's exact words on its tape,
 /// marked as said on the call, in its open chapter), the agent is handed the
-/// contract after the words, the call says the reply's spoken part, and the
-/// chat shows the whole reply without the marker. No call assistant is asked
-/// anything, and the teammate's turn is metered as Chat.
+/// contract after the words, the call says the reply's spoken version, and
+/// the chat shows its written version, with what was said kept beside it.
+/// No call assistant is asked anything, and the teammate's turn is metered
+/// as Chat.
 async fn direct_call_uses_existing_conversation(
     device_text: bool,
     reply: &'static str,
     spoken: &str,
+    written: &str,
+    kept: Option<&str>,
 ) {
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
@@ -599,8 +613,10 @@ async fn direct_call_uses_existing_conversation(
     assert!(said.iter().all(|said| said["id"] == line), "{said:?}");
     assert_eq!(said.last().unwrap()["text"], spoken);
     assert!(
-        said.iter()
-            .all(|said| !said["text"].as_str().unwrap().contains("ENDSPEAK")),
+        said.iter().all(|said| {
+            let text = said["text"].as_str().unwrap();
+            !text.contains("spoken>") && !text.contains("written>")
+        }),
         "{said:?}"
     );
     assert!(clips.iter().all(|clip| clip["id"] == line));
@@ -623,11 +639,11 @@ async fn direct_call_uses_existing_conversation(
         .flat_map(|request| request["messages"].as_array().cloned().unwrap_or_default())
         .filter(|message| message["role"] == "user")
         .map(|message| message["content"].to_string())
-        .find(|content| content.contains("ENDSPEAK"))
+        .find(|content| content.contains("[Voice call: answer twice"))
         .expect("the turn's input carries the contract");
     assert!(asked.contains(&words), "{asked}");
     assert!(
-        asked.contains("Part 2 is shown in the chat and never spoken"),
+        asked.contains("Do not assume the reader heard the spoken version."),
         "{asked}"
     );
 
@@ -646,20 +662,24 @@ async fn direct_call_uses_existing_conversation(
             .unwrap()
             .starts_with(&format!("voice:{call}:1:agent:"))
     );
-    let shown: Vec<&str> = tape
-        .iter()
-        .filter(|v| v["kind"] == "agent")
-        .map(|v| v["text"].as_str().unwrap())
-        .collect();
+    let agents: Vec<&Value> = tape.iter().filter(|v| v["kind"] == "agent").collect();
+    let shown: Vec<&str> = agents.iter().map(|v| v["text"].as_str().unwrap()).collect();
     // Paced into bubbles, so compared word for word.
     let words_of = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
     assert_eq!(
         words_of(&shown.join("\n")),
-        words_of(&reply.replace("<<<ENDSPEAK>>>", "")),
-        "the chat shows the whole reply without the marker"
+        words_of(written),
+        "the chat shows the written version"
     );
+    // What was said is kept on the reply's first bubble, for the transcript
+    // line and the model's history.
+    assert_eq!(agents[0]["spoken"].as_str(), kept, "{tape:?}");
+    assert!(agents[1..].iter().all(|v| v.get("spoken").is_none()));
     assert!(
-        !tape.iter().any(|v| v.to_string().contains("ENDSPEAK")),
+        !tape.iter().any(|v| {
+            let event = v.to_string();
+            event.contains("spoken>") || event.contains("written>")
+        }),
         "{tape:?}"
     );
     assert!(

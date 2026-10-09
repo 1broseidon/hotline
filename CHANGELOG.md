@@ -32,15 +32,18 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   you say goes straight into its own conversation, in the chapter you are
   in, so it remembers the call as it remembers the chat and nothing is lost
   in a handoff. Its first word now waits on its own model.
-- A teammate answers a call in two parts: a short spoken answer, and the
-  detail, code, tables and links, which only show in the chat. The chat
-  shows the whole reply, and your words in it are exactly what you said.
-  An agent that does not split its reply is read up to its first code block
-  or table, a few sentences at most. Links are said as "a link", and money,
-  percentages and arrows are read as words. The mark between the two parts
-  never shows, not even in a typed reply later from Claude Code or Codex,
-  which remember being asked for it: the chat, side threads, subagent runs
-  and phone notifications show the words on both sides of it.
+- A teammate answers a call twice: a short answer written to be heard, and
+  the complete answer written to be read, with the detail, code, tables and
+  links. The chat shows the written answer as an ordinary reply, with what
+  was said on the call as a quiet line above it that opens in full when
+  pressed, and your words in it are exactly what you said. The teammate
+  remembers both, so a follow-up knows what you heard and what you could
+  only read. An agent that writes only one answer is read up to its first
+  code block or table, a few sentences at most. Links are said as "a link",
+  and money, percentages and arrows are read as words. The tags around the
+  two answers never show, not even in a typed reply later from Claude Code
+  or Codex, which remember being asked for them: the chat, side threads,
+  subagent runs and phone notifications show the written answer.
 - While a teammate works on what you asked, the call stays on its
   blip-blip until it is done, and keeps listening: just speak, with no tap
   needed, and what you say goes into the work it already has open.

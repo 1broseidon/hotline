@@ -710,6 +710,9 @@ not subscribe to that."` Both seat refusals carry `"code": "forbidden"`.
 | `{"view": "roster"}` | every living teammate's row | `event` for a changed row, `removed` for a tombstone |
 | `{"schedules": id}` | that teammate's jobs and loops | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
 
+An `agent` event on a tape may carry `spoken`, what was said on a call for
+it ([Voice calls](#voice-calls)).
+
 A tape subscription also forwards `StreamDelta`s for that teammate, never
 written down:
 
@@ -1173,12 +1176,25 @@ installed. Like every `voice.*` command these are refused to a companion.
 `callId` is a client-generated UUID. Omitting `personaId` calls the desk;
 including it calls that teammate's existing session, chapter and harness:
 each utterance is a turn of its conversation, said into a turn still running
-as a steer, with the reply's spoken part said on the call and the whole reply
-shown in the chat ([One brain, two outputs](voice.md#one-brain-two-outputs)).
+as a steer, with the reply's spoken version said on the call and its written
+version shown in the chat ([One brain, two outputs](voice.md#one-brain-two-outputs)).
 Clients require `voiceDirectCalls` before sending a target and check its echo
 in the descriptor. The core validates the target before replacing an active
 call. A direct turn has the same operator origin and standing grants as typed
 input, and its replies must carry that call and turn's internal origin.
+
+A reply to a turn said on a direct call is an `agent` event like any other,
+whose `text` is the written version, and whose first bubble also carries
+`spoken`: the version written to be heard, as the agent wrote it (a line it
+wrote before the version included), before it was cleaned for speech. It is
+on the tape and on the wire as an optional field, absent on every other
+message, so a client that does not know it shows `text`, which stands alone.
+The window draws it as a transcript line above the reply. What was actually
+said, cut short or not, is the call's own thread.
+
+```json
+{"kind": "agent", "id": "m2", "ts": 1760000000000, "text": "The build fails for two reasons: ...", "spoken": "Two things are wrong. I've put both fixes in the chat."}
+```
 
 Repeating a retained id with the same target and input mode returns the same
 call descriptor, including an ended call; changing either is refused. The desk retains the latest 32 call

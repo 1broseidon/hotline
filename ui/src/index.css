@@ -1597,6 +1597,21 @@
 			0 0 0 var(--hairline) var(--line-strong),
 			var(--shadow-glass);
 	}
+	/* What the teammate left running stands on the pill's top right, over
+	 * the conversation's foot in the row the mark rises into, so the two
+	 * share it: the mark at the left, these at the right. Keys, not quiet
+	 * text, because the conversation scrolls under them; a long title
+	 * truncates before it reaches the mark. */
+	.composer-corner {
+		position: absolute;
+		right: 0;
+		bottom: 100%;
+		display: flex;
+		max-width: 60%;
+		justify-content: flex-end;
+		gap: 6px;
+		padding-bottom: 6px;
+	}
 	.composer-body {
 		display: flex;
 		min-width: 0;
@@ -2841,8 +2856,9 @@
 		display: flex;
 		width: min(400px, calc(100vw - 32px));
 		/* One height whatever the run holds, never down over the composer,
-		 * whose top is 68px above the column's foot. */
-		height: min(360px, calc(100% - 68px));
+		 * whose top is 68px above the column's foot, or the keys standing on
+		 * its corner, 28px above that. */
+		height: min(360px, calc(100% - 96px));
 		flex-shrink: 0;
 		flex-direction: column;
 		border-radius: var(--radius-pane);

@@ -841,7 +841,11 @@ still running, only while the session is thinking — absent, not null, when
 there is none. `pin` is the teammate's 0-based slot among the desk's pinned
 teammates, absent when it is not pinned; the affected rows are sent again when
 the `pinnedTeammates` setting changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
-`ready`, `thinking`, `error`, or `stopped`). A persona tombstone on the
+`ready`, `thinking`, `error`, or `stopped`). While a turn is `thinking`,
+`awaitingSubagents: true` says it is open only for subagents it started and
+reads as done: the reply is in the conversation and the composer is as it is
+between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
+`subagents` lists the runs still going, oldest first. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
 itself after its teammate was deleted is not put back. If the view falls
 behind on the room stream it reloads every row; a lagged burst of

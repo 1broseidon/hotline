@@ -51,6 +51,7 @@ fn idle(persona_id: &str) -> SessionInfo {
             additional_directories: false,
         },
         error: None,
+        awaiting_subagents: false,
     }
 }
 

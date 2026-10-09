@@ -715,6 +715,31 @@ impl Live {
         }
     }
 
+    /// The agent closed a cycle while the prompt stays open for subagents it
+    /// started. Claude's adapter holds `session/prompt` until its background
+    /// subagents finish, and marks the end of each cycle with the usage report
+    /// that carries its cost: the one word an agent gives that its message is
+    /// whole. So the message is closed, and the turn told it has nothing more
+    /// to say until a subagent reports or the person speaks. An agent whose
+    /// last words were not a message is still working, and one with no
+    /// subagents open is about to answer the prompt, so neither parks.
+    async fn park_for_subagents(&self) {
+        if lock(&self.updates).is_none()
+            || lock(&self.unprompted_open).is_some()
+            || lock(&self.children).is_empty()
+        {
+            return;
+        }
+        let speaking = lock(&self.open)
+            .as_ref()
+            .is_some_and(|message| message.kind == MessageKind::Agent);
+        if !speaking {
+            return;
+        }
+        self.flush().await;
+        self.emit(Update::Parked).await;
+    }
+
     /// Answers every permission still waiting, which is what the end of a turn
     /// and the end of a session both are: nobody is behind those buttons now.
     fn settle_permissions(&self) {
@@ -2265,6 +2290,7 @@ async fn between_turns(live: &Arc<Live>, update: SessionUpdate) {
     translate(live, update).await;
     if ends {
         live.end_unprompted().await;
+        live.park_for_subagents().await;
     }
 }
 
@@ -3886,6 +3912,193 @@ mod tests {
                 },
             ]
         );
+    }
+
+    /// An agent that answers in one cycle, closes it with the usage report
+    /// that carries its cost, and holds the prompt open until `release`, as
+    /// Claude's adapter holds it for its background subagents. With `spawns`
+    /// it started one first, which ends on release and is followed by one
+    /// more cycle of the agent's own words.
+    fn holding_agent(
+        spawns: bool,
+        release: Arc<tokio::sync::Notify>,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let running = agent_client_protocol::Agent
+                .builder()
+                .name("holding")
+                .on_receive_request(
+                    async move |request: InitializeRequest, responder, _cx| {
+                        responder.respond(InitializeResponse::new(request.protocol_version))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |_request: NewSessionRequest,
+                                responder: Responder<NewSessionResponse>,
+                                _cx| {
+                        responder.respond(NewSessionResponse::new(SessionId::new("parent")))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |_request: PromptRequest,
+                          responder: Responder<PromptResponse>,
+                          cx: ConnectionTo<Client>| {
+                        let release = release.clone();
+                        async move {
+                            let later = cx.clone();
+                            cx.spawn(async move {
+                                let say = |update: Value| {
+                                    later.send_notification(RawSessionUpdate {
+                                        session_id: "parent".to_string(),
+                                        update,
+                                    })
+                                };
+                                let closes = || {
+                                    serde_json::json!({
+                                        "sessionUpdate": "usage_update",
+                                        "used": 1000,
+                                        "size": 200000,
+                                        "cost": { "amount": 0.01, "currency": "USD" },
+                                    })
+                                };
+                                if spawns {
+                                    say(serde_json::json!({
+                                        "sessionUpdate": "subagent_spawned",
+                                        "subagentSessionId": "child-1",
+                                        "name": "Edge cases",
+                                        "task": "Check the edge cases",
+                                        "capabilities": {},
+                                    }))?;
+                                }
+                                say(serde_json::json!({
+                                    "sessionUpdate": "agent_message_chunk",
+                                    "content": { "type": "text", "text": "The lift is in crane.rs." },
+                                }))?;
+                                say(closes())?;
+                                release.notified().await;
+                                if spawns {
+                                    say(serde_json::json!({
+                                        "sessionUpdate": "subagent_state_update",
+                                        "subagentSessionId": "child-1",
+                                        "state": "completed",
+                                    }))?;
+                                    say(serde_json::json!({
+                                        "sessionUpdate": "agent_message_chunk",
+                                        "content": { "type": "text", "text": "The edge cases pass." },
+                                    }))?;
+                                    say(closes())?;
+                                }
+                                responder.respond(PromptResponse::new(StopReason::EndTurn))
+                            })?;
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+            if let Err(error) = running {
+                eprintln!("the holding agent ended: {error}");
+            }
+        }
+    }
+
+    /// The agent's words as the turn hears them: deltas left out, a message
+    /// by its text, a park and the turn's end by name.
+    fn heard_of(update: &Update) -> Option<String> {
+        match update {
+            Update::Message { text, .. } => Some(text.clone()),
+            Update::Parked => Some("parked".to_string()),
+            Update::Turn { stop_reason, .. } => Some(stop_reason.clone()),
+            _ => None,
+        }
+    }
+
+    /// A prompt held open for a subagent: once the agent closes the cycle its
+    /// reply was in, the reply is a whole message and the turn parks, and
+    /// what it says once the subagent is done is a reply of its own.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_prompt_held_for_a_subagent_parks_on_the_finished_reply() {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let agent = holding_agent(true, release.clone());
+        let held = room("held-for-subagent");
+        let ada = persona(&scratch_cwd(), Vec::new());
+        let driver = ChildAgent::new(
+            scratch("held-for-subagent"),
+            "claude".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+        let _reports = Driver::subscribe_subagents(&driver).unwrap();
+        driver.handshake(&ada, client_transport()).await.unwrap();
+        let mut updates = driver
+            .prompt(
+                "where is the lift".to_string(),
+                Vec::new(),
+                Reach::Workspace,
+            )
+            .await;
+        let mut heard = Vec::new();
+        while heard.last().map(String::as_str) != Some("parked") {
+            heard.extend(heard_of(&next(&mut updates).await));
+        }
+        assert_eq!(heard, ["The lift is in crane.rs.", "parked"]);
+
+        release.notify_one();
+        let mut after = Vec::new();
+        while after.last().map(String::as_str) != Some("end_turn") {
+            after.extend(heard_of(&next(&mut updates).await));
+        }
+        assert_eq!(
+            after,
+            ["The edge cases pass.", "end_turn"],
+            "the last subagent is done, so the closing cycle does not park"
+        );
+    }
+
+    /// An agent with no subagent open that closes a cycle and keeps the
+    /// prompt a moment longer is a turn like any other: its words stay open
+    /// until the turn ends, and nothing parks.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_prompt_with_no_subagent_open_never_parks() {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let agent = holding_agent(false, release.clone());
+        let held = room("held-without-subagent");
+        let ada = persona(&scratch_cwd(), Vec::new());
+        let driver = ChildAgent::new(
+            scratch("held-without-subagent"),
+            "claude".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+        let _reports = Driver::subscribe_subagents(&driver).unwrap();
+        driver.handshake(&ada, client_transport()).await.unwrap();
+        let mut updates = driver
+            .prompt(
+                "where is the lift".to_string(),
+                Vec::new(),
+                Reach::Workspace,
+            )
+            .await;
+        assert!(
+            matches!(next(&mut updates).await, Update::Delta { text, .. } if text == "The lift is in crane.rs.")
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            updates.try_recv().is_err(),
+            "nothing more until the turn ends"
+        );
+        release.notify_one();
+        let mut heard = Vec::new();
+        while heard.last().map(String::as_str) != Some("end_turn") {
+            heard.extend(heard_of(&next(&mut updates).await));
+        }
+        assert_eq!(heard, ["The lift is in crane.rs.", "end_turn"]);
     }
 
     #[test]

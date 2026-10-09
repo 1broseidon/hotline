@@ -3,6 +3,7 @@ import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, railOrder } from "../pins";
 import { ChevronDownIcon, ComputerIcon, SettingsIcon, MoreIcon, PlusIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
+import { shownState } from "../activity";
 import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
 import { Avatar, faceOf, initialOf } from "../ui/Avatar";
@@ -217,8 +218,9 @@ function Row({
 	/** Faces only: the row shows its name and line on a card while hovered or focused. */
 	onTip?: (row: HTMLElement | null, name?: string, line?: string) => void;
 }) {
-	const vital = VITAL[entry.session.state];
-	const working = entry.session.state === "thinking" && entry.activity !== undefined;
+	const state = shownState(entry.session);
+	const vital = VITAL[state];
+	const working = state === "thinking" && entry.activity !== undefined;
 	const busy = entry.session.state === "starting" || entry.drawing;
 	const line = lineOf(entry);
 	return (
@@ -298,9 +300,10 @@ function Row({
 
 /** What a row says under the name: the tool running, the last line, or the goal. */
 function lineOf(entry: RosterEntry): string {
-	const vital = VITAL[entry.session.state];
+	const state = shownState(entry.session);
+	const vital = VITAL[state];
 	const { preview, activity } = entry;
-	if (entry.session.state === "thinking" && activity !== undefined) return activity;
+	if (state === "thinking" && activity !== undefined) return activity;
 	return preview
 		? `${preview.from === "me" ? "You: " : ""}${oneLine(preview.text)}`
 		: vital.label || oneLine(entry.persona.goal);

@@ -215,10 +215,10 @@ written. On the teammate's tape it leaves one link (see
 [Thread links](#thread-links)), rewritten as the run goes from live to closed
 `done`, `failed` or `cancelled`, which a client is sent as a `subagent` line
 going from `running` to the same three; pressing it
-opens the run in the work card, the same floating card a turn's steps open
-in. While a run is going, the teammate's roster row lists it in `subagents`
-(`Room::subagents`), so the conversation's band names it and opens it from
-there however far its line has scrolled up. The run id is the job id and the
+opens the run in the right-hand pane. While a run is going, the teammate's
+roster row lists it in `subagents` (`Room::subagents`), so a key at the
+composer's top right names it (or counts several, with a menu) and opens it
+from there however far its line has scrolled up. The run id is the job id and the
 tool call's id. Stop, revocation or any other end of the teammate's turn
 cancels its runs and waits for them to settle; a run the process died under
 is settled as `cancelled` on the next start, by the one settle
@@ -242,6 +242,53 @@ updates are ignored. A subagent the harness never ends is settled as
 `cancelled` when its session ends or is replaced. An adapter that does not
 take the capability keeps showing subagents as tool calls on the
 teammate's turn.
+
+### A turn left open for its subagents
+
+A turn can stay open after the agent has said its reply, because a subagent
+it started is still working: Hotline Agent's loop owns the job and waits on
+it, and Claude's adapter does not answer `session/prompt` until its
+background subagents finish and it has said what they found. While nothing
+else is open, that turn reads as done. The reply is chat, not narration; the
+phone and a call hear it then, as they would at a turn's end; and the
+session's `awaitingSubagents` is true while `state` stays `thinking`. So the
+window shows no Working mark, the work card says Done, the composer has no
+Interrupt key, and the desktop toast for a finished turn fires. Everything
+that waits for a turn to end (a chapter's close, a computer joining or
+swapping, the next queued line) still waits, because the turn is running.
+
+The driver says the agent has nothing more to say with `Update::Parked`
+(`driver/mod.rs`), which releases a held line as the report
+(`session/narration.rs`). The DM witness (`session/dm.rs`) reads the turn as
+waiting on subagents only when every tool still in flight launched one:
+Hotline Agent's `subagent` call stays running until its run reports, while a
+shell job it left going is work, so that turn still reads as working.
+`awaitingSubagents` goes false when the agent works again (a tool call or
+result, a thought, a card), when a line is steered into the turn, and when
+the turn ends. A reply said while waiting lands as any reply does.
+
+Hotline Agent parks whenever its jobs are all it has left
+([Hotline Agent](#hotline-agent)). An ACP agent parks when it closes a cycle
+with a usage report that carries the cycle's cost while one of its subagents
+is open and its last words were a message (`park_for_subagents` in
+`driver/acp.rs`). That report is the only sign an ACP agent gives that a
+message is whole. Claude's adapter sends one at the end of every cycle. An
+agent with no subagent open is about to answer the prompt, and one whose last
+output was a tool call or a thought is still working, so neither parks. Codex's
+adapter also waits for its subagents before answering, but its usage reports
+carry no cost, so its turn reads as working until it ends. An agent that does
+not report subagents never parks.
+
+A line said while a turn waits on its subagents is steered into that turn.
+Hotline Agent wakes and answers it, then waits again if its subagents are
+still going. An ACP agent that offers steering
+([Steering an ACP turn](#steering-an-acp-turn)) takes it the same way, and
+Claude's adapter answers it inside the held turn. The line is not queued
+behind the subagents and does not cancel them. An ACP agent without steering
+cannot take a line mid-turn, so the line waits for the turn to end, as any
+line sent to such an agent while it works does. Stopping subagents is the
+agent's to do when asked (`cancel_job`, or the harness's own), or Stop the
+session under More.
 
 `drive` in the same module is the loop both a run and a peer exchange use to
 take one prompt to its end on a stream nobody is watching: the funnel's

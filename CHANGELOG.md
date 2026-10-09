@@ -22,9 +22,20 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   at what each reply actually cost. When it is spent, a turn stops with
   "Chat budget spent" before anything is sent. Sign-ins, local models and
   ACP agents are not counted.
+- Subagents still running show at the top right of the message box instead
+  of in the conversation's header. One is named, several are counted with a
+  menu, and pressing one opens its run beside the conversation. Side threads
+  stay in the header.
 
 ### Fixed
 
+- When a teammate on Claude Code or Hotline Agent has answered and only its
+  subagents are still working, the answer is its reply in the conversation
+  (on Claude Code it stayed in the Working card's steps) and the teammate no
+  longer shows as Working. The message box works as it does between turns: a
+  message sent then reaches the teammate at once, without stopping the
+  subagents. Working comes back if the teammate goes back to work, and what
+  it says once a subagent reports lands as any reply does.
 - The call assistant's spend is what the provider billed. Each request
   reserves an estimate and is settled to its reported usage, cache reads
   and writes included, instead of keeping the estimate. Claude Haiku 5.5

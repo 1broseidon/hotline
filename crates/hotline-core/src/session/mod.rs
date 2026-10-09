@@ -357,6 +357,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
             additional_directories: false,
         },
         error: None,
+        awaiting_subagents: false,
     }
 }
 
@@ -1994,6 +1995,7 @@ impl Room {
         let info = {
             let mut info = lock(&session.info);
             info.state = SessionState::Stopped;
+            info.awaiting_subagents = false;
             info.clone()
         };
         let _ = self.info_changes.send(info);
@@ -4396,6 +4398,31 @@ impl Room {
         let info = {
             let mut info = lock(&session.info);
             info.state = state;
+            // A turn beginning or ending is the end of any wait on subagents.
+            info.awaiting_subagents = false;
+            info.clone()
+        };
+        let _ = self.info_changes.send(info);
+    }
+
+    /// Says whether the turn in flight reads as done: the agent has said its
+    /// reply and the turn is open only for subagents it started. A display
+    /// fact, told to the roster when it changes; the turn is still running,
+    /// so `state` stays `thinking` and nothing that waits on a turn's end
+    /// (a chapter's close, a computer's swap) stops waiting.
+    fn await_subagents(&self, session: &Arc<Session>, awaiting: bool) {
+        let _lifecycle = lock(&self.lifecycle);
+        if !session.capability.is_current() || !self.current_session(session) {
+            return;
+        }
+        let info = {
+            let mut info = lock(&session.info);
+            if info.awaiting_subagents == awaiting
+                || (awaiting && info.state != SessionState::Thinking)
+            {
+                return;
+            }
+            info.awaiting_subagents = awaiting;
             info.clone()
         };
         let _ = self.info_changes.send(info);

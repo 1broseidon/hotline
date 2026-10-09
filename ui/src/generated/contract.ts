@@ -1185,7 +1185,13 @@ contextRestored: boolean, restoreNote?: string, models: Array<ConfigChoice>, cur
  * Select config options that are not the model or mode picker (e.g.
  * Claude effort).
  */
-configs: Array<SessionConfig>, slashCommands: Array<SlashCommand>, capabilities: SessionCapabilities, error?: string, };
+configs: Array<SessionConfig>, slashCommands: Array<SlashCommand>, capabilities: SessionCapabilities, error?: string, 
+/**
+ * The turn in flight is open only for subagents it started: the agent
+ * has said its reply and is doing nothing else, so the turn reads as
+ * done while they work. Only ever set while `state` is `thinking`.
+ */
+awaitingSubagents?: boolean, };
 
 export type SessionState = "idle" | "starting" | "ready" | "thinking" | "error" | "stopped";
 

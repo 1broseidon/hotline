@@ -635,8 +635,9 @@ has one hook and one view.
   (`linkLine` in `links.ts`) with an Open that opens the thread in the dock; the
   `side`, `subagent` and `call` cases draw nothing, since a `threads2` socket is
   sent a link even for one written long ago. A `peer` marker and a delivery still
-  open the pair they name, in the dock. The band's subagent and side chips, the
-  More menu's Threads entry and its Start a side thread all open the dock. That
+  open the pair they name, in the dock. The subagent chips at the composer's
+  corner, the band's side chips, the More menu's Threads entry and its Start a
+  side thread all open the dock. That
   last is `thread.open` with no text: the thread opens untitled and idle, and
   the first line said in it names it. There is no `/side` command.
 - **Not done.** `search.thread` hits are chapters and messages with no thread in

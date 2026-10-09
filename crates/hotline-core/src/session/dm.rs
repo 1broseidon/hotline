@@ -164,6 +164,7 @@ impl Occupant for Session {
             room,
             session: self,
             steered: &mut held.steered,
+            from_voice: held.from_voice,
             card: None,
         };
         room.threads()
@@ -232,6 +233,8 @@ struct Heard<'a> {
     room: &'a Room,
     session: &'a Arc<Session>,
     steered: &'a mut Vec<Wired>,
+    /// Whether the line came from a voice, which decides how the reply is said.
+    from_voice: bool,
     /// The card the update in hand raises, until its event is written.
     card: Option<(String, crate::push::Waiting)>,
 }
@@ -251,6 +254,11 @@ impl Witness for Heard<'_> {
         // notice can be an error raised before the prompt reached the model.
         if !matches!(update, Update::Notice { .. }) {
             room.mark_read(session);
+        }
+        // A turn waiting on its subagents reads as done until the agent works
+        // again: a reply is a reply, but a tool, a thought or a card is work.
+        if works(update) {
+            room.await_subagents(session, false);
         }
         match update {
             // The words are told to `delta`; the message that follows makes
@@ -300,6 +308,19 @@ impl Witness for Heard<'_> {
                     event_id: id.clone(),
                     text: text.trim().to_string(),
                 });
+            }
+            // The agent has said what it has to say and the turn stays open
+            // only for subagents it started: it reads as done. The reply is
+            // heard now, where a turn's end would have said it. A tool still
+            // running that did not launch a subagent (a command left going)
+            // is work, and the turn goes on reading as it does.
+            Update::Parked
+                if in_flight
+                    .values()
+                    .all(|tool| tool.kind == super::jobs::SUBAGENT) =>
+            {
+                room.send_glance(session, self.from_voice);
+                room.await_subagents(session, true);
             }
             Update::Permission {
                 request_id,
@@ -415,6 +436,29 @@ impl Room {
             // A new instruction is neither an answer nor permission. Release
             // an obsolete human wait so the model can reconsider the request.
             self.release_human_waits(&session.persona_id);
+            // A turn that was only waiting on its subagents has a line to
+            // answer now, so it is working again.
+            self.await_subagents(session, false);
         }
     }
+}
+
+/// Whether an update is the agent at work. Its words, a notice, its waiting
+/// and the end of its turn are not, so a turn waiting on its subagents reads
+/// as done through them; the end of the turn clears the wait with the state.
+fn works(update: &Update) -> bool {
+    !matches!(
+        update,
+        Update::Parked
+            | Update::Turn { .. }
+            | Update::Notice { .. }
+            | Update::Delta {
+                kind: MessageKind::Agent,
+                ..
+            }
+            | Update::Message {
+                kind: MessageKind::Agent,
+                ..
+            }
+    )
 }

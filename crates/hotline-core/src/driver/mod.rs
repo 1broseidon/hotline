@@ -249,8 +249,10 @@ pub enum Update {
     },
     /// The turn is still open but has nothing more to say until one of its
     /// background jobs finishes or the person says something: Hotline Agent
-    /// with a shell command or a subagent still running. Whatever it said
-    /// last is what the person should be reading while they wait.
+    /// with a shell command or a subagent still running, or a harness that
+    /// holds its prompt open for subagents it started. Whatever it said last
+    /// is what the person should be reading while they wait, and a turn left
+    /// open only for subagents reads as done (`awaiting_subagents`).
     Parked,
     /// The turn is over. A driver sends this last, cancelled or not.
     Turn {

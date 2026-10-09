@@ -936,6 +936,12 @@ pub struct SessionInfo {
     pub capabilities: SessionCapabilities,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The turn in flight is open only for subagents it started: the agent
+    /// has said its reply and is doing nothing else, so the turn reads as
+    /// done while they work. Only ever set while `state` is `thinking`.
+    #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
+    pub awaiting_subagents: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

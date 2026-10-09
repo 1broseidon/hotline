@@ -9,6 +9,7 @@
  */
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { shownState } from "./activity";
 import type { SessionState } from "./generated/contract";
 import { postToast, requestAttention } from "./native";
 import type { RosterEntry } from "./wire";
@@ -34,20 +35,22 @@ export function noticeRoster(entries: RosterEntry[], desk: { id: string; name?: 
 	for (const entry of entries) {
 		const key = scope + entry.persona.id;
 		live.add(key);
+		// A turn open only for its subagents has replied: it reads as ended.
+		const state = shownState(entry.session);
 		const previous = lastState.get(key);
-		lastState.set(key, entry.session.state);
+		lastState.set(key, state);
 		if (previous !== "thinking") continue;
-		if (entry.session.state !== "ready" && entry.session.state !== "error") continue;
+		if (state !== "ready" && state !== "error") continue;
 		// Focus means the desk on screen is being looked at; a desk off screen
 		// is not, however focused the window is.
 		if (desk.name === undefined && document.hasFocus()) continue;
 		// A turn that ended on the person's own line said nothing to them:
 		// a quiet schedule that found nothing stays quiet here too.
-		if (entry.session.state === "ready" && entry.preview?.from === "me") continue;
+		if (state === "ready" && entry.preview?.from === "me") continue;
 		const title = desk.name === undefined ? entry.persona.name : `${entry.persona.name} · ${desk.name}`;
 		const target = desk.name === undefined ? entry.persona.id : `${desk.id}/${entry.persona.id}`;
 		void postToast(target, title, lastLine(entry));
-		if (entry.session.state === "error") void requestAttention();
+		if (state === "error") void requestAttention();
 	}
 	for (const key of lastState.keys()) {
 		if (key.startsWith(scope) && !live.has(key)) lastState.delete(key);

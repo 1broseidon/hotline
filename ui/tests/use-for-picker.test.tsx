@@ -56,10 +56,10 @@ test("ChatGPT images require a picker selection, Automatic clears it, and with n
 		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { images: null } } });
 		expect(changes).toBe(2);
 		// Nothing hears yet, so the folded free models are pointed at; once the desk hears, the hint goes.
-		expect(container.textContent).toContain("To talk without a key, download a free speech model.");
+		expect(container.textContent).toContain("None yet. Download a free speech model.");
 		options.stt.automatic = { providerId: "local", providerName: "On the desk" };
 		await render();
-		expect(container.textContent).not.toContain("download a free speech model");
+		expect(container.textContent).not.toContain("Download a free speech model");
 	} finally {
 		await act(async () => { root.unmount(); });
 		command.mockRestore();

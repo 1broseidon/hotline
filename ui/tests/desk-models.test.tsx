@@ -89,7 +89,7 @@ test("a model is downloaded only when asked, followed until it lands, and remove
 	try {
 		await act(async () => { root.render(<UseFor options={options} voice={undefined} onChanged={() => { refreshed += 1; }} />); });
 		expect(asked).toEqual([]);
-		await act(async () => { button("More voice settings")!.click(); });
+		await act(async () => { button("Hearing and call assistant")!.click(); });
 		await settle();
 		expect(asked.map((one) => one.cmd)).toEqual(["voice.models"]);
 		expect(container.textContent).toContain("Download a speech model for the desk");

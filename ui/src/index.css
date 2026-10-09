@@ -666,6 +666,9 @@
 	.pane-column .group-title {
 		margin: 0 0 8px 16px;
 	}
+	.pane-column .use-for-nested {
+		padding-left: 32px;
+	}
 	.pane-column .group-hint {
 		margin: 8px 16px 0;
 	}

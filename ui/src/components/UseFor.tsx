@@ -3,7 +3,6 @@ import type { CapabilityJob, CapabilityOptions } from "../generated/contract";
 import { Refusal } from "../ui/Refusal";
 import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
-import { ChevronDownIcon } from "../icons";
 import { deviceTranscription } from "../voice/transcription";
 import { setHearOnThisMac, useHearOnThisMac } from "../voice/hearing";
 import { DeskModels } from "./DeskModels";
@@ -110,27 +109,9 @@ export function UseFor({
 					detail={
 						speakingNow === undefined
 							? "Talk to the desk"
-							: `${voiceName(speakingNow.voice) ?? "Default voice"} on ${speakingNow.providerName}${
-									hearsOnDesk
-										? ", hearing on the desk"
-										: hearingNow !== undefined && hearingNow.providerId !== speakingNow.providerId
-											? `, hearing through ${hearingNow.providerName}`
-											: ""
-								}`
+							: `${voiceName(speakingNow.voice) ?? "Default voice"} on ${speakingNow.providerName}`
 					}
 					job={speaking}
-					always={
-						<button
-							type="button"
-							className="control btn-icon"
-							aria-expanded={more}
-							aria-label="More voice settings"
-							title="Hearing and call assistant"
-							onClick={() => setMore((was) => !was)}
-						>
-							<ChevronDownIcon className={more ? "rotate-180" : ""} />
-						</button>
-					}
 				>
 					<Picker
 						value={currentVoiceId(speaking)}
@@ -140,24 +121,32 @@ export function UseFor({
 						onChange={pickVoice}
 					/>
 				</JobRow>
-				{!more && hearingNow === undefined && !hearsHere && (
-					// Nothing hears yet: the free models on the desk are folded below, so point at them.
-					<div className="group-row use-for-nested">
-						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-							To talk without a key,{" "}
-							<button type="button" className="link-quiet" onClick={() => setMore(true)}>
-								download a free speech model
-							</button>
-							.
-						</span>
-					</div>
-				)}
+				{/* Hearing, the free models and the call assistant, folded under one row that says what hears you now. */}
+				<button
+					type="button"
+					className="nt-fold-row nt-fold-head"
+					aria-expanded={more}
+					aria-label="Hearing and call assistant"
+					onClick={() => setMore((was) => !was)}
+				>
+					<span className="nt-fold-title">Hearing</span>
+					<span className="nt-fold-value">
+						{hearsHere && hearHere
+							? "On this Mac, free and private"
+							: hearsOnDesk
+								? "On the desk, free and private"
+								: hearingNow !== undefined
+									? hearingNow.providerName
+									: "None yet. Download a free speech model."}
+					</span>
+					<span className="nt-fold-action">{more ? "Done" : hearingNow === undefined && !hearsHere ? "Set up" : "Change"}</span>
+				</button>
 				{more && (
 					<>
 						{hearsHere ? (
 							<div className="group-row use-for-nested">
 								<span className="group-row-text">
-									<span className="group-row-title">Hearing</span>
+									<span className="group-row-title">Hears with</span>
 									<span className="group-row-detail">
 										{hearHere
 											? `Free and private on calls from this Mac${hearingNow !== undefined ? `; other devices use ${hearsOnDesk ? "the desk" : hearingNow.providerName}` : ""}`
@@ -181,7 +170,7 @@ export function UseFor({
 								</span>
 							</div>
 						) : (
-							<JobRow title="Hearing" detail={hearsOnDesk ? "Free and private, on the desk" : "Turns what you say into text"} job={options.stt} nested>
+							<JobRow title="Hears with" detail={hearsOnDesk ? "Free and private, on the desk" : "Turns what you say into text"} job={options.stt} nested>
 								<Picker
 									value={currentId(options.stt)}
 									choices={shortChoices(options.stt)}

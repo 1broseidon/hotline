@@ -120,6 +120,13 @@ pub(super) trait Witness {
     /// is being held back as narration), before the message is whole.
     fn delta(&mut self, _kind: MessageKind, _message_id: &str, _text: &str, _muted: bool) {}
 
+    /// What is written of an update, once [`Self::heard`] and [`Self::delta`]
+    /// have had it as the agent sent it, and before a message is paced into
+    /// bubbles. The DM takes the marker out of a reply said on a call here.
+    fn shown(&mut self, update: Update) -> Update {
+        update
+    }
+
     /// One event of the turn, and whether it came of a permission request.
     fn write(&mut self, event: TranscriptEvent, asked: bool);
 
@@ -219,6 +226,7 @@ pub(super) async fn drive_updates(
                 let muted = *kind == MessageKind::Agent && voice.mutes_deltas();
                 witness.delta(*kind, message_id, text, muted);
             }
+            let update = witness.shown(update);
             let asked = matches!(update, Update::Permission { .. });
             driven.asked |= asked;
             for event in event_of(update, &mut in_flight) {

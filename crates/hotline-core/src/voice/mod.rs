@@ -1,12 +1,12 @@
 //! One owner call per desk, with bounded work and complete sentence clips.
 
 pub mod dispatcher;
-pub mod exchange;
 pub mod ledger;
 pub mod metering;
 mod record;
 pub mod settings;
 pub mod speech;
+pub mod spoken;
 
 use crate::contract::{
     BudgetKind, SpeechModel, VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceInputMode,
@@ -14,15 +14,14 @@ use crate::contract::{
 };
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use dispatcher::{Context, Dispatcher, Front, ProviderDispatcher};
-use exchange::{Exchange, Speaker};
+use dispatcher::{Context, Dispatcher, ProviderDispatcher};
 use ledger::Kind;
 use metering::{BUDGET_ERROR, Budget};
-use record::Record;
+use record::{Record, Speaker};
 use settings::VoiceSettings;
 use speech::local::{self, Installs};
 use speech::{Clip, Speech, SpeechId, SpeechOutput, SpeechSet};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
@@ -40,6 +39,14 @@ const ERROR_LINE: &str = "Voice keeps failing. Please continue by text.";
 const MAX_FAILURES: u8 = 3;
 const MAX_AUDIO: usize = 2 * 1024 * 1024;
 const BUDGET_LINE: &str = "The voice budget is unavailable or spent. Chat carries on by text.";
+/// How often a call that is thinking says so again. A phone stops waiting on
+/// a desk it has not heard from for 45 seconds, and a teammate's turn can work
+/// for longer than that without a word. Tests wait a tenth of a second.
+const THINKING_AGAIN: Duration = if cfg!(test) {
+    Duration::from_millis(100)
+} else {
+    Duration::from_secs(15)
+};
 
 /// Provider seams for an embedded desk or a scripted client. Production desks
 /// resolve both from the vault on each call and before each utterance.
@@ -62,7 +69,9 @@ struct CallSpeech {
  * hearing and speaking against Voice when their provider charges, and the
  * call assistant against Chat when its model is billed per token. A call
  * heard, spoken and answered for free (a subscription, the desk's own
- * engine, a signed-in model) names none, so no budget can stop it.
+ * engine, a signed-in model) names none, so no budget can stop it. A call to
+ * a teammate has no call assistant: its turns are the teammate's own, which
+ * its session meters as any other.
  */
 fn paid_kinds(speech: Option<&CallSpeech>, assistant: Option<&dyn Dispatcher>) -> Vec<Kind> {
     let mut kinds = Vec::new();
@@ -211,19 +220,50 @@ struct Call {
     deliveries: CancellationToken,
     utterance_pending: bool,
     first_clip_started: Option<Instant>,
-    /// The turns of a direct call that reached the teammate's session. Its
-    /// voice answers some turns itself, so a reply can belong to an earlier
-    /// turn than the latest.
-    handed: Arc<Mutex<VecDeque<u32>>>,
-    /// What was said on a direct call, which its voice converses from and
-    /// its session is told.
-    exchange: Arc<Mutex<Exchange>>,
+    /// On a direct call, the latest turn handed to the teammate whose session
+    /// has not finished it: the call thinks until it has, unless the person
+    /// takes the floor.
+    answering: Option<u32>,
+    /// On a direct call, the teammate's replies being said as they stream,
+    /// by event id, until each is whole.
+    streams: HashMap<String, mpsc::UnboundedSender<String>>,
+    /// Replies the call did not say to the end, cut off by a hold or with no
+    /// room in its queue, which the phone is told of instead.
+    cut: VecDeque<String>,
     /// A direct call's thread, which keeps all of what was said. A desk call
     /// is kept on the desk tape.
     record: Option<Record>,
 }
 
 impl Call {
+    /// Where the call rests between things to say: thinking while an
+    /// utterance or the teammate's turn is still being worked on, else
+    /// listening.
+    fn resting(&self) -> VoiceState {
+        if self.utterance_pending || self.answering.is_some() {
+            VoiceState::Thinking
+        } else {
+            VoiceState::Listening
+        }
+    }
+
+    /// Stops saying the replies being streamed. A hold cuts them off, and
+    /// what they would have said reaches the phone as a held call's replies do.
+    fn stop_streams(&mut self, held: bool) {
+        for (event, _) in std::mem::take(&mut self.streams) {
+            if held {
+                self.cut_off(event);
+            }
+        }
+    }
+
+    fn cut_off(&mut self, event: String) {
+        if self.cut.len() >= 16 {
+            self.cut.pop_front();
+        }
+        self.cut.push_back(event);
+    }
+
     fn snapshot(&self) -> VoiceEvent {
         VoiceEvent::State {
             state: self.state,
@@ -297,6 +337,14 @@ enum Work {
     },
     Delivery(Delivery, CancellationToken),
     Notice(Delivery, CancellationToken),
+    /// A teammate's reply on its own call, said as it streams in.
+    Answer {
+        event: String,
+        chunks: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
+        speech: CancellationToken,
+    },
+    /// The teammate's session finished the turn of this utterance.
+    TurnOver(u32),
 }
 
 pub struct Calls {
@@ -445,12 +493,13 @@ impl Calls {
         self.ledger.clone()
     }
 
-    /// The call assistant a call uses: always on a desk call, and on a direct
-    /// call only when it speaks for the teammate.
+    /// The call assistant a call uses: a desk call's routes what was said; a
+    /// call to a teammate has none, since the teammate answers itself.
     fn assistant_for(&self, target: Option<&str>) -> Option<Arc<dyn Dispatcher>> {
-        self.dispatcher()
-            .ok()
-            .filter(|dispatcher| target.is_none() || dispatcher.fronts())
+        if target.is_some() {
+            return None;
+        }
+        self.dispatcher().ok()
     }
 
     /// Whether the call's paid work may go on: each budget it spends against
@@ -471,14 +520,15 @@ impl Calls {
     pub fn status_for(&self, input_mode: VoiceInputMode) -> VoiceStatus {
         let speech = self.resolve_speech(input_mode, None);
         let dispatcher = self.dispatcher();
-        let budget_error = self
-            .ledger
-            .ready(&paid_kinds(
-                speech.as_ref().ok(),
-                dispatcher.as_deref().ok(),
-            ))
-            .err()
-            .map(|e| e.to_string());
+        let budget_error = |assistant: Option<&dyn Dispatcher>| {
+            self.ledger
+                .ready(&paid_kinds(speech.as_ref().ok(), assistant))
+                .err()
+                .map(|e| e.to_string())
+        };
+        // A call to a teammate pays for no call assistant.
+        let direct_budget_error = budget_error(None);
+        let budget_error = budget_error(dispatcher.as_deref().ok());
         let limits = self.ledger.limits(BudgetKind::Voice);
         let spent = self.ledger.spent();
         // A tally that cannot be read reports its limits spent.
@@ -492,7 +542,7 @@ impl Calls {
                 limits.month_usd.unwrap_or(0.0),
             ),
         };
-        let direct_available = speech.is_ok() && budget_error.is_none();
+        let direct_available = speech.is_ok() && direct_budget_error.is_none();
         let unavailable = speech
             .as_ref()
             .err()
@@ -608,19 +658,14 @@ impl Calls {
                 deliveries: CancellationToken::new(),
                 utterance_pending: false,
                 first_clip_started: None,
-                handed: Arc::default(),
-                // A call picked up again under an id it had is remembered
-                // from its thread; a new one has nothing yet.
-                exchange: Arc::new(Mutex::new(match &target {
-                    Some(_) => Exchange::from_thread(
-                        &self.log.load(&crate::log::StreamId::Call(id.to_string())),
-                    ),
-                    None => Exchange::default(),
-                })),
+                answering: None,
+                streams: HashMap::new(),
+                cut: VecDeque::new(),
                 record: target
                     .as_deref()
                     .map(|persona_id| Record::open(self.room.clone(), id, persona_id)),
             });
+            self.thinking_again(id, cancel.clone());
             let this = self.clone();
             let id = id.to_string();
             let context = Context::new(self.log.clone(), room, cancel.clone());
@@ -667,6 +712,30 @@ impl Calls {
                 .output
                 .clone(),
         })
+    }
+
+    /// While the call thinks, it says so again every [`THINKING_AGAIN`], so a
+    /// teammate working for minutes is not taken for a desk that went quiet.
+    fn thinking_again(self: &Arc<Self>, id: &str, cancel: CancellationToken) {
+        let this = Arc::downgrade(self);
+        let id = id.to_string();
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(THINKING_AGAIN);
+            every.tick().await;
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    _ = every.tick() => {}
+                }
+                let Some(this) = this.upgrade() else { return };
+                let _ = this.change(&id, |call| {
+                    if call.state == VoiceState::Thinking {
+                        let _ = call.events.send(call.snapshot());
+                    }
+                    Ok(())
+                });
+            }
+        });
     }
 
     /// A revoked or disconnected owner may not leave a paid dispatcher running.
@@ -742,21 +811,18 @@ impl Calls {
                 call.speech.cancel();
                 call.deliveries.cancel();
                 call.deliveries = CancellationToken::new();
+                call.stop_streams(true);
                 call.state(VoiceState::Held, None);
             } else if call.state == VoiceState::Held {
-                call.state(
-                    if call.utterance_pending {
-                        VoiceState::Thinking
-                    } else {
-                        VoiceState::Listening
-                    },
-                    None,
-                );
+                call.state(call.resting(), None);
             }
             Ok(())
         })
     }
 
+    /// Stops what the call is saying and gives the person the floor. A
+    /// teammate's turn goes on, and what it says next is still said; what the
+    /// person says now steers into that turn.
     pub fn interrupt(&self, id: &str) -> Result<(), String> {
         self.change(id, |call| {
             call.activity = Instant::now();
@@ -764,15 +830,10 @@ impl Calls {
             call.speech.cancel();
             call.deliveries.cancel();
             call.deliveries = CancellationToken::new();
+            call.stop_streams(false);
+            call.answering = None;
             if call.state != VoiceState::Held {
-                call.state(
-                    if call.utterance_pending {
-                        VoiceState::Thinking
-                    } else {
-                        VoiceState::Listening
-                    },
-                    None,
-                );
+                call.state(call.resting(), None);
             }
             Ok(())
         })
@@ -864,6 +925,7 @@ impl Calls {
             call.speech = speech;
             call.deliveries.cancel();
             call.deliveries = CancellationToken::new();
+            call.stop_streams(false);
             call.utterance_pending = true;
             call.first_clip_started = Some(Instant::now());
             call.seq = Some(seq);
@@ -1013,6 +1075,7 @@ impl Calls {
                 call.speech = speech;
                 call.deliveries.cancel();
                 call.deliveries = CancellationToken::new();
+                call.stop_streams(false);
                 call.speech_services = services;
                 call.seq = Some(seq);
                 call.utterance_pending = true;
@@ -1190,6 +1253,24 @@ impl Calls {
                         self.narrate(&id, &context, delivery, speech).await
                     }
                 }
+                Work::Answer {
+                    event,
+                    chunks,
+                    speech,
+                } => {
+                    let chunks = lock(chunks).take().expect("one answer consumer");
+                    self.answer(&id, event, chunks, speech, &context.cancel)
+                        .await
+                }
+                Work::TurnOver(seq) => {
+                    let _ = self.change(&id, |call| {
+                        if call.answering.is_some_and(|answering| answering <= *seq) {
+                            call.answering = None;
+                        }
+                        Ok(())
+                    });
+                    Ok(())
+                }
             };
             // A refused reservation is what ends a call on its budget.
             let budget_failed = result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR);
@@ -1207,8 +1288,10 @@ impl Calls {
                             Work::Utterance { speech, .. }
                             | Work::Text { speech, .. }
                             | Work::Live { speech, .. }
+                            | Work::Answer { speech, .. }
                             | Work::Delivery(_, speech)
                             | Work::Notice(_, speech) => Some(speech),
+                            Work::TurnOver(_) => None,
                         };
                         self.system_line(
                             &id,
@@ -1238,14 +1321,7 @@ impl Calls {
                     }
                 }
                 if call.state != VoiceState::Held {
-                    call.state(
-                        if call.utterance_pending {
-                            VoiceState::Thinking
-                        } else {
-                            VoiceState::Listening
-                        },
-                        None,
-                    );
+                    call.state(call.resting(), None);
                 }
                 Ok(())
             });
@@ -1348,14 +1424,8 @@ impl Calls {
             direct: target.is_some(),
         };
         if let Some(target) = target {
-            let front = self.dispatcher().ok().filter(|d| d.fronts());
-            let Some(front) = front else {
-                return self
-                    .hand_off(id, &target, &text, origin, context, speech_cancel)
-                    .await;
-            };
             return self
-                .front(id, front, &target, text, origin, context, speech_cancel)
+                .hand_off(id, &target, &text, origin, context, speech_cancel)
                 .await;
         }
         let dispatcher = self.dispatcher()?;
@@ -1375,7 +1445,7 @@ impl Calls {
             _ = context.cancel.cancelled() => Ok(()),
             result = async {
                 let (produced, spoken) = tokio::join!(produce, consume);
-                let kept = self.keep_reply(id, Speaker::Voice, std::mem::take(&mut *lock(&reply)));
+                let kept = self.keep_reply(id, std::mem::take(&mut *lock(&reply)));
                 if [&produced, &spoken].iter().any(|result| result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR)) {
                     Err(BUDGET_ERROR.to_string())
                 } else {
@@ -1385,9 +1455,12 @@ impl Calls {
         }
     }
 
-    /// The person's words into the teammate's own session, where the work is
-    /// done: what a direct call does with every utterance when nothing can
-    /// speak for the teammate.
+    /// The person's words into the teammate's own session, in the open
+    /// chapter of its conversation, as a turn said on this call: what a direct
+    /// call does with every utterance. The session hears the contract after
+    /// the words (see [`spoken`]); the conversation shows the words alone.
+    /// Into a turn still running, the words steer it. The call thinks until
+    /// the session has finished the turn ([`Self::turn_ended`]).
     async fn hand_off(
         &self,
         id: &str,
@@ -1398,14 +1471,7 @@ impl Calls {
         speech_cancel: &CancellationToken,
     ) -> Result<(), String> {
         let room = self.room.upgrade().ok_or("The desk has closed.")?;
-        self.change(id, |call| {
-            let mut handed = lock(&call.handed);
-            if handed.len() >= 16 {
-                handed.pop_front();
-            }
-            handed.push_back(origin.seq);
-            Ok(())
-        })?;
+        let seq = origin.seq;
         // Room owns session startup/reuse, revocable grants, steering and tape.
         // Once accepted, this work is independent of the call's speech token.
         tokio::select! {
@@ -1427,191 +1493,16 @@ impl Calls {
         // accepted. Cancellation stops that wait, not an accepted turn.
         tokio::select! {
             biased;
-            _ = context.cancel.cancelled() => Ok(()),
-            _ = speech_cancel.cancelled() => Ok(()),
+            _ = context.cancel.cancelled() => return Ok(()),
+            _ = speech_cancel.cancelled() => return Ok(()),
             accepted = tokio::time::timeout(Duration::from_secs(60), prompt) => {
-                accepted.map_err(|_| "The teammate did not accept the instruction in time.".to_string())?
+                accepted.map_err(|_| "The teammate did not accept the instruction in time.".to_string())??;
             }
         }
-    }
-
-    /// A direct call's turn, answered at once by the teammate's voice: a
-    /// quick model speaking as the teammate, which hands the person's words
-    /// to the teammate's session when they ask for work and otherwise answers
-    /// from the conversation. The teammate's own reply arrives later as a
-    /// delivery, said in its words.
-    #[allow(clippy::too_many_arguments)]
-    async fn front(
-        &self,
-        id: &str,
-        dispatcher: Arc<dyn Dispatcher>,
-        target: &str,
-        text: String,
-        origin: Origin,
-        context: &Context,
-        speech_cancel: &CancellationToken,
-    ) -> Result<(), String> {
-        let room = self.room.upgrade().ok_or("The desk has closed.")?;
-        let persona = crate::room::roster(&self.log)
-            .into_iter()
-            .find(|persona| persona.id == target)
-            .ok_or("That teammate is no longer in the room.")?;
-        let (work, notices, handed, exchange) = self.change(id, |call| {
-            Ok((
-                call.work.clone(),
-                call.deliveries.clone(),
-                call.handed.clone(),
-                call.exchange.clone(),
-            ))
-        })?;
-        // What was said before this turn is the voice's conversation and, for
-        // a handoff, what its session has not been told. The person's words
-        // join the call's record now, so a reply that is never spoken still
-        // leaves them remembered.
-        let (earlier, unseen) = {
-            let mut exchange = lock(&exchange);
-            let earlier = (exchange.lines(), exchange.unseen());
-            exchange.push(Speaker::Person, &text);
-            earlier
-        };
-        let handed_off = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        // Read here, in the call's scope: the voice may run its tool elsewhere.
-        let client = crate::wire::commands::prompt_client();
-        let hand_off: Arc<dyn Fn() -> Result<serde_json::Value, String> + Send + Sync> = {
-            let handed_off = handed_off.clone();
-            let room = Arc::downgrade(&room);
-            let target = target.to_string();
-            let name = persona.name.clone();
-            let text = text.clone();
-            let cancel = context.cancel.clone();
-            let exchange = exchange.clone();
-            let preamble = exchange::handoff_preamble(&unseen);
-            Arc::new(move || {
-                if handed_off.swap(true, Ordering::SeqCst) {
-                    return Ok(serde_json::json!({"status": "already handed"}));
-                }
-                lock(&exchange).told();
-                {
-                    let mut handed = lock(&handed);
-                    if handed.len() >= 16 {
-                        handed.pop_front();
-                    }
-                    handed.push_back(origin.seq);
-                }
-                let room = room.clone();
-                let target = target.clone();
-                let name = name.clone();
-                let text = text.clone();
-                let origin = origin.clone();
-                let cancel = cancel.clone();
-                let work = work.clone();
-                let notices = notices.clone();
-                let preamble = preamble.clone();
-                // Accepted work outlives what the voice says about it; only
-                // the call ending stops a handoff still waiting to land.
-                tokio::spawn(async move {
-                    let landed = async {
-                        let room = room.upgrade().ok_or("The desk has closed.".to_string())?;
-                        tokio::time::timeout(Duration::from_secs(60), room.start(&target))
-                            .await
-                            .map_err(|_| "The teammate did not start in time.".to_string())??;
-                        let prompt = crate::wire::commands::VOICE_COMMAND.scope(
-                            (),
-                            crate::wire::commands::CALL_ORIGIN.scope(
-                                origin,
-                                crate::wire::commands::CALL_HEARD
-                                    .scope(preamble, room.prompt(&target, &text, None, None)),
-                            ),
-                        );
-                        let prompt = async move {
-                            match client {
-                                Some(client) => {
-                                    crate::wire::commands::PROMPT_CLIENT
-                                        .scope(client, prompt)
-                                        .await
-                                }
-                                None => prompt.await,
-                            }
-                        };
-                        tokio::time::timeout(Duration::from_secs(60), prompt)
-                            .await
-                            .map_err(|_| "The teammate did not accept it in time.".to_string())?
-                    };
-                    let landed = tokio::select! {
-                        _ = cancel.cancelled() => return,
-                        landed = landed => landed,
-                    };
-                    if landed.is_err() {
-                        let _ = work.try_send(Work::Notice(
-                            Delivery {
-                                persona: target.clone(),
-                                event: String::new(),
-                                name: name.clone(),
-                                text: "I couldn't start on that. Check our conversation before you try again.".into(),
-                            },
-                            notices.child_token(),
-                        ));
-                    }
-                });
-                Ok(serde_json::json!({"status": "queued"}))
-            })
-        };
-        let front = Front {
-            name: persona.name.clone(),
-            goal: persona.goal.clone(),
-            working: matches!(
-                room.info(target).state,
-                crate::contract::SessionState::Thinking | crate::contract::SessionState::Starting
-            ),
-            recent: recent(&self.log, target),
-            call: earlier,
-            standing: {
-                let cwd = persona.cwd.clone();
-                tokio::task::spawn_blocking(move || workspace_instructions(&cwd))
-                    .await
-                    .ok()
-                    .flatten()
-            },
-            note: chapter_note(&self.log, target),
-            hand_off: hand_off.clone(),
-        };
-        let (output, mut answers) = mpsc::channel(8);
-        let produce = async {
-            tokio::time::timeout(
-                Duration::from_secs(60),
-                dispatcher.front_stream(front, &text, self.ledger.clone(), output),
-            )
-            .await
-            .map_err(|_| "The voice timed out.".to_string())?
-        };
-        let reply = Mutex::new(Reply::default());
-        let consume = self.say_reply(id, &mut answers, &reply, speech_cancel, &context.cancel);
-        // Speaking over the voice drops what it was about to say; a handoff it
-        // already made stands, as accepted work does without a front. What it
-        // had said by then is kept as its reply.
-        let done = tokio::select! {
-            _ = context.cancel.cancelled() => None,
-            _ = speech_cancel.cancelled() => None,
-            done = async { tokio::join!(produce, consume) } => Some(done),
-        };
-        let kept = self.keep_reply(id, Speaker::Voice, std::mem::take(&mut *lock(&reply)));
-        let Some((produced, spoken)) = done else {
-            return Ok(());
-        };
-        if [&produced, &spoken]
-            .iter()
-            .any(|result| result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR))
-        {
-            return Err(BUDGET_ERROR.to_string());
-        }
-        // A voice that failed before deciding must not lose the request: the
-        // words go to the teammate as they would without a voice.
-        if produced.is_err() && !handed_off.load(Ordering::SeqCst) && !speech_cancel.is_cancelled()
-        {
-            hand_off()?;
-            return Ok(());
-        }
-        produced.and(spoken).and(kept)
+        self.change(id, |call| {
+            call.answering = Some(seq);
+            Ok(())
+        })
     }
 
     async fn summary(&self, delivery: &Delivery) -> Result<String, String> {
@@ -1642,38 +1533,6 @@ impl Calls {
         }
     }
 
-    /// A teammate's finished reply, said by the teammate on its own call:
-    /// as it wrote it when it is already short enough to say, else in a few
-    /// first-person sentences, else its opening sentences.
-    async fn in_own_words(&self, delivery: &Delivery) -> Result<String, String> {
-        let opening = || {
-            sentences(&delivery.text)
-                .into_iter()
-                .take(2)
-                .collect::<Vec<_>>()
-                .join(" ")
-        };
-        if speech_ready(&delivery.text) {
-            return Ok(delivery.text.trim().to_string());
-        }
-        if delivery.text.len() > 32_000 {
-            return Ok(opening());
-        }
-        let Ok(dispatcher) = self.dispatcher() else {
-            return Ok(opening());
-        };
-        let result = tokio::time::timeout(
-            Duration::from_secs(30),
-            dispatcher.narrate_first_person(&delivery.name, &delivery.text, self.ledger.clone()),
-        )
-        .await;
-        match result {
-            Ok(Err(error)) if error == BUDGET_ERROR => Err(error),
-            Ok(Ok(text)) if !text.trim().is_empty() => Ok(sentences(&text).join(" ")),
-            _ => Ok(opening()),
-        }
-    }
-
     async fn narrate(
         &self,
         id: &str,
@@ -1682,24 +1541,10 @@ impl Calls {
         speech: &CancellationToken,
     ) -> Result<(), String> {
         self.ready_for(id)?;
-        // The call's own voice already acknowledged the request; a turn that
-        // ends on the teammate's bare "on it" would say it twice.
-        if acknowledgement(&delivery.text)
-            && self.change(id, |call| Ok(call.target.is_some()))?
-            && self
-                .dispatcher()
-                .is_ok_and(|dispatcher| dispatcher.fronts())
-        {
-            return Ok(());
-        }
         let text = tokio::select! {
             _ = context.cancel.cancelled() => return Ok(()),
             _ = speech.cancelled() => { self.push(delivery, &delivery.text); return Ok(()); },
-            text = async {
-                if self.change(id, |call| Ok(call.target.is_some()))? {
-                    self.in_own_words(delivery).await
-                } else { self.summary(delivery).await }
-            } => text?,
+            text = self.summary(delivery) => text?,
         };
         if text.is_empty() {
             return Ok(());
@@ -1721,8 +1566,54 @@ impl Calls {
             self.push(delivery, &delivery.text);
             return Ok(());
         }
-        self.say_as(id, &text, Speaker::Relayed, speech, &context.cancel)
-            .await
+        self.say(id, &text, speech, &context.cancel).await
+    }
+
+    /// A teammate's reply on its own call, said as it streams in: its spoken
+    /// part ([`spoken::Spoken`]) sentence by sentence as one line, kept on
+    /// the call's thread once it is over. Speaking over it stops it at once,
+    /// so the call is free for what the person says; the chat has the whole
+    /// reply in any case.
+    async fn answer(
+        &self,
+        id: &str,
+        event: &str,
+        mut chunks: mpsc::UnboundedReceiver<String>,
+        speech: &CancellationToken,
+        ended: &CancellationToken,
+    ) -> Result<(), String> {
+        if speech.is_cancelled() {
+            return Ok(());
+        }
+        let (sentences, mut said) = mpsc::channel(8);
+        let split = async move {
+            let mut spoken = spoken::Spoken::default();
+            while let Some(chunk) = chunks.recv().await {
+                for sentence in spoken.push(&chunk) {
+                    if sentences.send(sentence).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            for sentence in spoken.finish() {
+                if sentences.send(sentence).await.is_err() {
+                    return;
+                }
+            }
+        };
+        let reply = Mutex::new(Reply::default());
+        let say = self.say_reply(id, &mut said, &reply, speech, ended);
+        let result = tokio::select! {
+            _ = speech.cancelled() => Ok(()),
+            _ = ended.cancelled() => Ok(()),
+            (_, said) = async { tokio::join!(split, say) } => said,
+        };
+        let _ = self.change(id, |call| {
+            call.streams.remove(event);
+            Ok(())
+        });
+        let kept = self.keep_reply(id, std::mem::take(&mut *lock(&reply)));
+        result.and(kept)
     }
 
     /// A line said on a direct call, kept on the call's thread. The line's id
@@ -1745,18 +1636,12 @@ impl Calls {
     /// A reply said sentence by sentence, kept once and whole: on a direct
     /// call as one line of the call's thread under the id the clients were
     /// shown, and on a desk call as one line of the dispatcher's tape.
-    fn keep_reply(&self, id: &str, speaker: Speaker, reply: Reply) -> Result<(), String> {
+    fn keep_reply(&self, id: &str, reply: Reply) -> Result<(), String> {
         if reply.text.is_empty() {
             return Ok(());
         }
-        let direct = self.change(id, |call| {
-            if call.target.is_some() {
-                lock(&call.exchange).push(speaker, &reply.text);
-            }
-            Ok(call.target.is_some())
-        })?;
-        if direct {
-            self.keep_as(id, speaker, &reply.line, &reply.text);
+        if self.change(id, |call| Ok(call.target.is_some()))? {
+            self.keep_as(id, Speaker::Voice, &reply.line, &reply.text);
         } else {
             self.record("agent", &reply.text)?;
         }
@@ -1811,23 +1696,12 @@ impl Calls {
         Ok(clip)
     }
 
+    /// Speaks a line at once, kept as the call's own on a direct call's
+    /// thread or the dispatcher's tape.
     async fn say(
         &self,
         id: &str,
         text: &str,
-        interrupted: &CancellationToken,
-        ended: &CancellationToken,
-    ) -> Result<(), String> {
-        self.say_as(id, text, Speaker::Voice, interrupted, ended)
-            .await
-    }
-
-    /// Speaks a line, and on a direct call remembers it as `speaker`'s.
-    async fn say_as(
-        &self,
-        id: &str,
-        text: &str,
-        speaker: Speaker,
         interrupted: &CancellationToken,
         ended: &CancellationToken,
     ) -> Result<(), String> {
@@ -1836,13 +1710,8 @@ impl Calls {
             return Err("The dispatcher returned no words.".into());
         }
         let text = sentences.join(" ");
-        let line = if self.change(id, |call| {
-            if call.target.is_some() {
-                lock(&call.exchange).push(speaker, &text);
-            }
-            Ok(call.target.is_some())
-        })? {
-            self.keep(id, speaker, &text)
+        let line = if self.change(id, |call| Ok(call.target.is_some()))? {
+            self.keep(id, Speaker::Voice, &text)
         } else {
             self.record("agent", &text)?
         };
@@ -2155,6 +2024,26 @@ impl Calls {
         if text.trim().is_empty() {
             return false;
         }
+        if let Some(origin) = origin.filter(|origin| origin.direct) {
+            let mut calls = lock(&self.calls);
+            let Some(call) = calling(&mut calls, persona, origin) else {
+                return false;
+            };
+            // A reply said as it streamed is whole now.
+            if call.streams.remove(event).is_some() {
+                return true;
+            }
+            if call.cut.iter().any(|id| id == event) {
+                return false;
+            }
+            if call.spoken_events.iter().any(|id| id == event) {
+                return true;
+            }
+            if call.state == VoiceState::Held {
+                return false;
+            }
+            return begin_answer(call, event).is_some_and(|said| said.send(text.into()).is_ok());
+        }
         let delivery = Delivery {
             persona: persona.into(),
             event: event.into(),
@@ -2164,15 +2053,8 @@ impl Calls {
         let mut calls = lock(&self.calls);
         if let Some(call) = calls.iter_mut().rev().find(|call| {
             call.state != VoiceState::Ended
+                && call.target.is_none()
                 && origin.is_none_or(|origin| origin.call_id == call.id)
-                && call.target.as_ref().is_none_or(|target| {
-                    target == persona
-                        && origin.is_some_and(|origin| {
-                            origin.direct
-                                && (call.seq == Some(origin.seq)
-                                    || lock(&call.handed).contains(&origin.seq))
-                        })
-                })
         }) {
             if call.spoken_events.iter().any(|id| id == event) {
                 return true;
@@ -2194,8 +2076,7 @@ impl Calls {
         }
         drop(calls);
         // Text-only desks retain their ordinary push and incur no voice cost.
-        if origin.is_some_and(|origin| origin.direct)
-            || !from_voice
+        if !from_voice
             || self.resolve_speech(VoiceInputMode::Text, None).is_err()
             || self.dispatcher().map_or(true, |assistant| {
                 self.ledger
@@ -2221,13 +2102,58 @@ impl Calls {
         true
     }
 
-    /// Whether a direct call's turns are answered by the teammate's voice,
-    /// which acknowledges and reports progress itself.
-    pub(crate) fn fronted(&self, origin: &Origin) -> bool {
-        origin.direct
-            && self
-                .dispatcher()
-                .is_ok_and(|dispatcher| dispatcher.fronts())
+    /// Words of a teammate's reply as it streams, on the turn of a call to
+    /// it: said as they come, from the reply's first words. The reply's whole
+    /// text follows as [`Self::delivery`], which ends the stream.
+    pub(crate) fn reply_delta(&self, persona: &str, event: &str, chunk: &str, origin: &Origin) {
+        if !origin.direct {
+            return;
+        }
+        let mut calls = lock(&self.calls);
+        let Some(call) = calling(&mut calls, persona, origin) else {
+            return;
+        };
+        if let Some(stream) = call.streams.get(event) {
+            let _ = stream.send(chunk.into());
+            return;
+        }
+        // A reply already said, or cut off, is not begun again halfway.
+        if call.state == VoiceState::Held
+            || call.spoken_events.iter().any(|id| id == event)
+            || call.cut.iter().any(|id| id == event)
+        {
+            return;
+        }
+        if let Some(stream) = begin_answer(call, event)
+            && stream.send(chunk.into()).is_ok()
+        {
+            call.streams.insert(event.into(), stream);
+        }
+    }
+
+    /// The teammate's session finished a turn said on a call to it, or left
+    /// it open only for its subagents: once what it said is said, the call
+    /// listens.
+    pub(crate) fn turn_ended(&self, persona: &str, origin: &Origin) {
+        if !origin.direct {
+            return;
+        }
+        let mut calls = lock(&self.calls);
+        let Some(call) = calling(&mut calls, persona, origin) else {
+            return;
+        };
+        // The turn will say nothing more, even of a reply it never finished.
+        call.streams.clear();
+        if call.work.try_send(Work::TurnOver(origin.seq)).is_err()
+            && call
+                .answering
+                .is_some_and(|answering| answering <= origin.seq)
+        {
+            call.answering = None;
+            if call.state == VoiceState::Thinking {
+                call.state(call.resting(), None);
+            }
+        }
     }
 
     pub(crate) fn handoff_failed(&self, persona: &str, name: &str) {
@@ -2284,104 +2210,44 @@ impl Calls {
     }
 }
 
-/// A teammate's conversation as its voice reads it: the newest lines first,
-/// each cut short, with tool steps as their titles. A line is called a user's
-/// only when the person said it: a schedule's prompt, a colleague's message
-/// and an answer that came back are named for what they are, so the voice
-/// never takes them for the person's words.
-fn recent(log: &Log, persona: &str) -> Vec<serde_json::Value> {
-    let clip = |text: &str| text.chars().take(600).collect::<String>();
-    log.load(&crate::log::StreamId::Tape(persona.into()))
-        .into_iter()
-        .rev()
-        .filter_map(|event| {
-            let kind = event["kind"].as_str()?.to_string();
-            match kind.as_str() {
-                "user" if event.get("scheduled").is_some_and(|run| !run.is_null()) => {
-                    Some(serde_json::json!({
-                        "kind": "scheduled prompt",
-                        "job": clip(event["scheduled"]["name"].as_str().unwrap_or_default()),
-                        "text": clip(event["text"].as_str()?),
-                    }))
-                }
-                "user" | "agent" => {
-                    Some(serde_json::json!({"kind": kind, "text": clip(event["text"].as_str()?)}))
-                }
-                "delivery" => {
-                    let cause = &event["cause"];
-                    let from = clip(cause["name"].as_str().unwrap_or_default());
-                    let (kind, from) = match cause["kind"].as_str() {
-                        Some("peer") => ("message from a teammate", Some(from)),
-                        Some("handoff") => ("work handed over by a teammate", Some(from)),
-                        Some("answer") => ("the person's answer to a request", None),
-                        _ => ("delivery", None),
-                    };
-                    Some(serde_json::json!({
-                        "kind": kind,
-                        "from": from,
-                        "text": clip(event["text"].as_str().unwrap_or_default()),
-                    }))
-                }
-                "tool" => Some(serde_json::json!({
-                    "kind": "step",
-                    "title": clip(event["title"].as_str().unwrap_or_default()),
-                    "status": event["status"],
-                })),
-                "turn" => Some(serde_json::json!({"kind": "turn ended"})),
-                _ => None,
-            }
-        })
-        .take(24)
-        .collect()
+/// The call to `persona` a line of its session belongs to: one still going
+/// on which the line's turn, or a later one, was said.
+fn calling<'a>(
+    calls: &'a mut VecDeque<Call>,
+    persona: &str,
+    origin: &Origin,
+) -> Option<&'a mut Call> {
+    calls.iter_mut().rev().find(|call| {
+        origin.direct
+            && call.id == origin.call_id
+            && call.state != VoiceState::Ended
+            && call.target.as_deref() == Some(persona)
+            && call.seq.is_some_and(|seq| origin.seq <= seq)
+    })
 }
 
-/// The workspace's own `AGENTS.md`, when a person wrote it: the standing
-/// instructions of the project the teammate works in. The one Hotline writes
-/// holds only the name and goal the voice is already given, and a link out of
-/// the workspace is never followed.
-fn workspace_instructions(cwd: &str) -> Option<String> {
-    use std::io::Read;
-    let path = std::path::Path::new(cwd).join("AGENTS.md");
-    if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+/// Queues a teammate's reply to be said on its call, and hands back where its
+/// words go. None when the call has too much queued to take it: the reply is
+/// then left to the phone, and never begun later from its middle.
+fn begin_answer(call: &mut Call, event: &str) -> Option<mpsc::UnboundedSender<String>> {
+    let (words, chunks) = mpsc::unbounded_channel();
+    let queued = call.work.try_send(Work::Answer {
+        event: event.into(),
+        chunks: Mutex::new(Some(chunks)),
+        speech: call.deliveries.child_token(),
+    });
+    if queued.is_err() {
+        call.cut_off(event.into());
         return None;
     }
-    let mut bytes = Vec::new();
-    std::fs::File::open(&path)
-        .ok()?
-        .take(32_768)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    let text = String::from_utf8_lossy(&bytes);
-    let text = text.trim();
-    if text.is_empty() || text.starts_with(crate::driver::acp::MANAGED_MARKER) {
-        return None;
+    if call.spoken_events.len() >= 128 {
+        call.spoken_events.pop_front();
     }
-    Some(text.chars().take(4_000).collect())
+    call.spoken_events.push_back(event.into());
+    Some(words)
 }
 
-/// What the teammate's last handoff note says: the open chapter's, which a
-/// reopened chapter carries, else the one that just ended.
-fn chapter_note(log: &Log, persona: &str) -> Option<String> {
-    use crate::store::chapters;
-    let events = log.load(&crate::log::StreamId::Tape(persona.into()));
-    let noted = |chapter: &&serde_json::Value| {
-        chapter["note"]
-            .as_str()
-            .is_some_and(|note| !note.trim().is_empty())
-    };
-    let chapter = chapters::open_chapter(&events)
-        .filter(noted)
-        .or_else(|| chapters::previous_chapter(&events).filter(noted))?;
-    let note = chapter["note"].as_str()?.trim();
-    let note: String = note.chars().take(1_500).collect();
-    Some(
-        match chapter["title"].as_str().filter(|title| !title.is_empty()) {
-            Some(title) => format!("{title}: {note}"),
-            None => note,
-        },
-    )
-}
-
+/// Whether a teammate's reply on a desk call can be said as written.
 fn speech_ready(text: &str) -> bool {
     let text = text.trim();
     !text.is_empty()
@@ -2448,41 +2314,6 @@ fn own_voice(
         }),
         ..settings.clone()
     })
-}
-
-/// A short reply that only says the work has started.
-fn acknowledgement(text: &str) -> bool {
-    let words: String = text
-        .to_lowercase()
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '\'' || c == '’' {
-                c
-            } else {
-                ' '
-            }
-        })
-        .collect();
-    let words: Vec<&str> = words.split_whitespace().collect();
-    let phrase = words.join(" ");
-    words.len() <= 6
-        && [
-            "on it",
-            "got it",
-            "will do",
-            "working on it",
-            "looking now",
-            "checking now",
-            "one sec",
-            "one moment",
-            "sure",
-            "okay",
-            "ok",
-        ]
-        .iter()
-        .any(|ack| phrase == *ack || phrase.starts_with(&format!("{ack} ")))
-        && !phrase.contains("done")
-        && !phrase.contains("finished")
 }
 
 fn sentences(text: &str) -> Vec<String> {

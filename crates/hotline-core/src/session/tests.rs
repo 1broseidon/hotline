@@ -783,21 +783,24 @@ async fn a_cancelled_turn_leaves_its_line_sent() {
     assert_eq!(events[0]["receipt"], "sent");
 }
 
-/// What a voice call said before a handoff is heard by the agent ahead of the
-/// person's words, and never shown as theirs.
+/// A turn said on a call to the teammate asks the agent for a spoken part
+/// and a shown one, after the person's words; the tape keeps the words alone.
 #[tokio::test]
-async fn a_handoff_tells_the_agent_the_call_but_the_tape_shows_only_the_words() {
+async fn a_voice_turn_tells_the_agent_the_contract_but_the_tape_shows_only_the_words() {
     let agents = Fake::new(Scripted::new(spoken_turn()));
     let prompts = agents.driver.prompts.clone();
-    let room = room("call-heard", agents);
+    let room = room("voice-turn", agents);
     room.start("ada").await.unwrap();
-    crate::wire::commands::CALL_HEARD
+    let origin = crate::voice::Origin {
+        call_id: uuid::Uuid::new_v4().to_string(),
+        seq: 1,
+        direct: true,
+    };
+    crate::wire::commands::VOICE_COMMAND
         .scope(
-            Some(
-                "Earlier on this voice call:\nThe person: hi\n\nThe person now says, by voice:"
-                    .into(),
-            ),
-            room.prompt("ada", "Check the build.", None, None),
+            (),
+            crate::wire::commands::CALL_ORIGIN
+                .scope(origin, room.prompt("ada", "Check the build.", None, None)),
         )
         .await
         .unwrap();
@@ -808,13 +811,17 @@ async fn a_handoff_tells_the_agent_the_call_but_the_tape_shows_only_the_words() 
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     let heard = lock(&prompts).clone();
+    assert!(heard[0].starts_with("Check the build.\n\n"), "{heard:?}");
     assert!(
-        heard[0].starts_with("Earlier on this voice call:"),
+        heard[0].ends_with(crate::voice::spoken::CONTRACT),
         "{heard:?}"
     );
-    assert!(heard[0].ends_with("\nCheck the build."), "{heard:?}");
     let events = settled(&room, "ada", 2).await;
     assert_eq!(events[0]["text"], "Check the build.");
+    assert!(
+        events[0]["id"].as_str().unwrap().starts_with("voice:"),
+        "the line is marked as said on a call"
+    );
 }
 
 /// The agent's reaction lands on the person's last message and nowhere else.
@@ -6874,7 +6881,10 @@ async fn unconsumed_direct_call_steering_keeps_its_origin_when_replayed() {
     })
     .await
     .unwrap();
-    assert_eq!(words_of(&lock(&unconsumed)[0].0), "Update the request.");
+    assert_eq!(
+        words_of(&lock(&unconsumed)[0].0),
+        crate::voice::spoken::voice_turn("Update the request.")
+    );
     gate.add_permits(1);
     tokio::time::timeout(Duration::from_secs(5), async {
         while lock(&prompts).len() < 2 {
@@ -6885,7 +6895,10 @@ async fn unconsumed_direct_call_steering_keeps_its_origin_when_replayed() {
     .unwrap();
     assert_eq!(
         *lock(&prompts),
-        ["Start the original request.", "Update the request."]
+        [
+            "Start the original request.".to_string(),
+            crate::voice::spoken::voice_turn("Update the request.")
+        ]
     );
     gate.add_permits(2);
     tokio::time::timeout(Duration::from_secs(5), async {

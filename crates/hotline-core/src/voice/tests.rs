@@ -18,10 +18,6 @@ pub(crate) struct Fake {
     pub answer_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     pub narration: Mutex<Option<Result<String, String>>>,
     pub narrations: AtomicUsize,
-    /// When set, direct calls get a front that says this and, if true, hands off.
-    pub front: Mutex<Option<Result<(String, bool), String>>>,
-    pub fronted: Mutex<Vec<Front>>,
-    pub first_person: AtomicUsize,
     /// Whether the fake call assistant's model costs nothing.
     pub free_assistant: bool,
 }
@@ -41,9 +37,6 @@ impl Default for Fake {
             answer_gate: Mutex::new(None),
             narration: Mutex::new(None),
             narrations: AtomicUsize::new(0),
-            front: Mutex::new(None),
-            fronted: Mutex::new(Vec::new()),
-            first_person: AtomicUsize::new(0),
             free_assistant: false,
         }
     }
@@ -134,41 +127,6 @@ impl Dispatcher for Fake {
             return result;
         }
         Ok(format!("{name} says: {text}"))
-    }
-    fn fronts(&self) -> bool {
-        lock(&self.front).is_some()
-    }
-    async fn front_stream(
-        &self,
-        front: Front,
-        _: &str,
-        _: Arc<Budget>,
-        output: mpsc::Sender<String>,
-    ) -> Result<(), String> {
-        lock(&self.fronted).push(front.clone());
-        let gate = lock(&self.answer_gate).clone();
-        if let Some(gate) = gate {
-            gate.acquire().await.unwrap().forget();
-        }
-        let plan = lock(&self.front).clone().unwrap();
-        let (line, hand) = plan?;
-        if hand {
-            (front.hand_off)()?;
-        }
-        // As the provider's dispatcher does: sentence by sentence.
-        for sentence in sentences(&line) {
-            output.send(sentence).await.map_err(|e| e.to_string())?;
-        }
-        Ok(())
-    }
-    async fn narrate_first_person(
-        &self,
-        _: &str,
-        text: &str,
-        _: Arc<Budget>,
-    ) -> Result<String, String> {
-        self.first_person.fetch_add(1, Ordering::SeqCst);
-        Ok(format!("In my words: {text}"))
     }
 }
 pub(crate) fn services() -> Services {
@@ -1719,7 +1677,7 @@ async fn live_audio_cannot_dispatch_before_commit_or_after_cancel() {
 }
 
 #[tokio::test]
-async fn direct_call_filters_unrelated_stale_and_duplicate_replies() {
+async fn direct_call_filters_unrelated_future_and_duplicate_replies() {
     let fake = Arc::new(Fake::default());
     let (_root, desk, calls) = desk(with_fake(fake.clone()));
     let id = Uuid::new_v4().to_string();
@@ -1746,17 +1704,22 @@ async fn direct_call_filters_unrelated_stale_and_duplicate_replies() {
         true,
         Some(&origin)
     ));
-    let stale = Origin {
-        seq: 3,
+    let unsaid = Origin {
+        seq: 5,
         ..origin.clone()
     };
-    assert!(!calls.delivery("ada", "stale", "Ada", "Old reply.", true, Some(&stale)));
+    assert!(!calls.delivery("ada", "ahead", "Ada", "Not asked yet.", true, Some(&unsaid)));
     let old_call = Origin {
         call_id: Uuid::new_v4().to_string(),
         ..origin.clone()
     };
     assert!(!calls.delivery("ada", "old-call", "Ada", "Old call.", true, Some(&old_call)));
-    assert!(calls.delivery("ada", "ack", "Ada", "On it.", true, Some(&origin)));
+    // A reply to an earlier turn of this call is the call's too, and is said once.
+    let earlier = Origin {
+        seq: 3,
+        ..origin.clone()
+    };
+    assert!(calls.delivery("ada", "ack", "Ada", "On it.", true, Some(&earlier)));
     assert!(calls.delivery("ada", "ack", "Ada", "On it.", true, Some(&origin)));
     event(&mut rx, |e| matches!(e, VoiceEvent::Clip { .. })).await;
     event(&mut rx, |e| {
@@ -1770,7 +1733,9 @@ async fn direct_call_filters_unrelated_stale_and_duplicate_replies() {
     })
     .await;
     assert_eq!(*lock(&fake.spoken), ["On it."]);
+    // The teammate answered itself: no call assistant was asked anything.
     assert_eq!(fake.narrations.load(Ordering::SeqCst), 0);
+    assert_eq!(fake.answers.load(Ordering::SeqCst), 0);
     calls.card(
         "mack",
         &json!({"kind":"human_action","status":"pending","actionId":"other"}),
@@ -1882,241 +1847,6 @@ async fn streaming_failure_falls_back_only_before_audio_and_drops_rejected_produ
     }
 }
 
-async fn fronted_call(
-    plan: Result<(String, bool), String>,
-) -> (
-    tempfile::TempDir,
-    Arc<Fake>,
-    Arc<Calls>,
-    String,
-    broadcast::Receiver<VoiceEvent>,
-) {
-    use crate::contract::Command;
-    let fake = Arc::new(Fake::default());
-    *lock(&fake.front) = Some(plan);
-    *lock(&fake.transcript) = "Can you check the build?".into();
-    let (root, desk, calls) = desk(with_fake(fake.clone()));
-    let handle: Arc<dyn RoomHandle> = desk.clone();
-    let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Keep the build green","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
-    let persona = crate::wire::commands::run(create, &desk.log, &handle)
-        .await
-        .unwrap();
-    let id = Uuid::new_v4().to_string();
-    calls.start(&id, desk).unwrap();
-    calls
-        .change(&id, |call| {
-            call.target = Some(persona["id"].as_str().unwrap().into());
-            Ok(())
-        })
-        .unwrap();
-    let (_, rx) = calls.subscribe(&id).unwrap();
-    (root, fake, calls, id, rx)
-}
-fn handed(calls: &Calls, id: &str) -> Vec<u32> {
-    calls
-        .change(id, |call| Ok(lock(&call.handed).iter().copied().collect()))
-        .unwrap()
-}
-
-#[tokio::test]
-async fn a_fronted_call_answers_in_first_person_without_handing_off_a_question() {
-    let (_root, fake, calls, id, mut rx) =
-        fronted_call(Ok(("I'm still on the tests.".into(), false))).await;
-    utterance(&calls, &id, 1).unwrap();
-    event(
-        &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "I'm still on the tests."),
-    )
-    .await;
-    event(&mut rx, |e| {
-        matches!(
-            e,
-            VoiceEvent::State {
-                state: VoiceState::Listening,
-                ..
-            }
-        )
-    })
-    .await;
-    let fronted = lock(&fake.fronted).clone();
-    assert_eq!(fronted.len(), 1);
-    assert_eq!(fronted[0].name, "Mack");
-    assert_eq!(fronted[0].goal, "Keep the build green");
-    assert!(!fronted[0].working);
-    assert!(handed(&calls, &id).is_empty());
-    assert_eq!(fake.answers.load(Ordering::SeqCst), 0);
-    calls.end(&id).unwrap();
-}
-
-#[tokio::test]
-async fn a_fronted_handoff_is_acknowledged_once_and_a_lost_one_is_reported() {
-    let (_root, fake, calls, id, mut rx) = fronted_call(Ok(("On it.".into(), true))).await;
-    utterance(&calls, &id, 1).unwrap();
-    event(
-        &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "On it."),
-    )
-    .await;
-    assert_eq!(handed(&calls, &id), [1]);
-    // A second call to the tool in the same turn queues nothing more.
-    let front = lock(&fake.fronted)[0].clone();
-    assert_eq!((front.hand_off)().unwrap()["status"], "already handed");
-    assert_eq!(handed(&calls, &id), [1]);
-    // This desk has no provider, so the teammate cannot start: the caller is told.
-    event(
-        &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text.contains("couldn't start on that")),
-    )
-    .await;
-    calls.end(&id).unwrap();
-}
-
-#[tokio::test]
-async fn a_failed_front_hands_the_words_over_unchanged() {
-    let (_root, fake, calls, id, _rx) = fronted_call(Err("provider down".into())).await;
-    utterance(&calls, &id, 1).unwrap();
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while handed(&calls, &id).is_empty() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .unwrap();
-    assert_eq!(handed(&calls, &id), [1]);
-    assert!(!lock(&fake.spoken).iter().any(|line| line == "On it."));
-    calls.end(&id).unwrap();
-}
-
-#[tokio::test]
-async fn work_handed_off_earlier_still_reports_in_first_person_after_a_later_question() {
-    let (_root, fake, calls, id, mut rx) = fronted_call(Ok(("Nearly there.".into(), false))).await;
-    let mack = calls
-        .change(&id, |call| {
-            call.seq = Some(5);
-            lock(&call.handed).push_back(4);
-            Ok(call.target.clone().unwrap())
-        })
-        .unwrap();
-    let earlier = Origin {
-        call_id: id.clone(),
-        seq: 4,
-        direct: true,
-    };
-    let unasked = Origin {
-        seq: 3,
-        ..earlier.clone()
-    };
-    assert!(!calls.delivery(&mack, "stale", "Mack", "Old.", true, Some(&unasked)));
-    let report = "The build is green again. I fixed the flaky `config.rs` test, reran the suite \
-                  twice, and pushed the change to the branch so you can review it.";
-    assert!(calls.delivery(&mack, "done", "Mack", report, true, Some(&earlier)));
-    event(
-        &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text.starts_with("In my words:")),
-    )
-    .await;
-    assert_eq!(fake.first_person.load(Ordering::SeqCst), 1);
-    assert_eq!(fake.narrations.load(Ordering::SeqCst), 0);
-    calls.end(&id).unwrap();
-}
-
-#[tokio::test]
-async fn speaking_over_a_thinking_front_frees_the_call_for_the_next_turn() {
-    let (_root, fake, calls, id, mut rx) = fronted_call(Ok(("On it.".into(), true))).await;
-    let gate = Arc::new(tokio::sync::Semaphore::new(0));
-    *lock(&fake.answer_gate) = Some(gate.clone());
-    utterance(&calls, &id, 1).unwrap();
-    event(&mut rx, |e| matches!(e, VoiceEvent::Heard { .. })).await;
-    while lock(&fake.fronted).is_empty() {
-        tokio::task::yield_now().await;
-    }
-    calls.interrupt(&id).unwrap();
-    // The front never finishes, yet the call takes the next turn.
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while utterance(&calls, &id, 2).is_err() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .unwrap();
-    assert!(handed(&calls, &id).is_empty());
-    gate.add_permits(2);
-    calls.end(&id).unwrap();
-}
-
-#[test]
-fn only_a_bare_acknowledgement_counts_as_one() {
-    for ack in [
-        "on it",
-        "On it.",
-        "Got it, looking now.",
-        "Sure!",
-        "Working on it…",
-    ] {
-        assert!(acknowledgement(ack), "{ack}");
-    }
-    for reply in [
-        "On it. The tests passed and I pushed the fix to the branch.",
-        "Done.",
-        "Okay, done.",
-        "The largest file is shooting-stars-wallpaper.png.",
-        "No.",
-    ] {
-        assert!(!acknowledgement(reply), "{reply}");
-    }
-}
-
-#[tokio::test]
-async fn a_fronted_call_does_not_repeat_the_teammates_bare_acknowledgement() {
-    let (_root, fake, calls, id, mut rx) = fronted_call(Ok(("On it.".into(), false))).await;
-    let mack = calls
-        .change(&id, |call| {
-            call.seq = Some(1);
-            Ok(call.target.clone().unwrap())
-        })
-        .unwrap();
-    let origin = Origin {
-        call_id: id.clone(),
-        seq: 1,
-        direct: true,
-    };
-    assert!(calls.delivery(&mack, "ack", "Mack", "on it", true, Some(&origin)));
-    assert!(calls.delivery(
-        &mack,
-        "done",
-        "Mack",
-        "The build is green.",
-        true,
-        Some(&origin)
-    ));
-    event(
-        &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "The build is green."),
-    )
-    .await;
-    assert_eq!(*lock(&fake.spoken), ["The build is green."]);
-    calls.end(&id).unwrap();
-}
-
-#[test]
-fn a_link_is_said_as_its_site_and_shown_in_full() {
-    assert_eq!(
-        speakable(
-            "Here it is: https://ketch.run (GitHub repo: https://github.com/1broseidon/ketch)"
-        ),
-        "Here it is: ketch.run (GitHub repo: github.com)"
-    );
-    assert_eq!(
-        speakable("See www.example.com/docs?x=1."),
-        "See example.com."
-    );
-    assert_eq!(
-        speakable("Check main.rs in v1.2."),
-        "Check main.rs in v1.2."
-    );
-    assert!(!speech_ready("Here it is: https://ketch.run"));
-}
-
 #[test]
 fn a_teammate_voice_applies_only_to_the_model_it_was_picked_from() {
     let desk = VoiceSettings::default();
@@ -2160,102 +1890,88 @@ fn a_teammate_voice_applies_only_to_the_model_it_was_picked_from() {
     );
 }
 
-#[tokio::test]
-async fn the_voice_remembers_the_call_and_the_session_is_told_what_it_missed() {
-    let (_root, fake, calls, id, mut rx) =
-        fronted_call(Ok(("What's on your mind?".into(), false))).await;
-    utterance(&calls, &id, 1).unwrap();
-    event(
-        &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "What's on your mind?"),
-    )
-    .await;
-    event(&mut rx, |e| {
-        matches!(
-            e,
-            VoiceEvent::State {
-                state: VoiceState::Listening,
-                ..
-            }
-        )
-    })
-    .await;
-    *lock(&fake.front) = Some(Ok(("On it.".into(), true)));
-    *lock(&fake.transcript) = "Please run the tests.".into();
-    utterance(&calls, &id, 2).unwrap();
-    event(
-        &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "On it."),
-    )
-    .await;
-    let fronted = lock(&fake.fronted).clone();
-    assert!(fronted[0].call.is_empty());
-    let texts: Vec<_> = fronted[1]
-        .call
-        .iter()
-        .map(|line| line.text.as_str())
-        .collect();
-    assert_eq!(texts, ["Can you check the build?", "What's on your mind?"]);
-    let exchange = calls.change(&id, |call| Ok(call.exchange.clone())).unwrap();
-    // The handoff told the session everything up to the exact words.
-    assert!(
-        lock(&exchange)
-            .unseen()
-            .iter()
-            .all(|line| line.text == "On it.")
-    );
-    calls.end(&id).unwrap();
-}
-
-#[test]
-fn a_scheduled_prompt_is_not_the_person_speaking() {
-    let root = tempfile::tempdir().unwrap();
-    let log = Log::open(root.path());
-    let tape = StreamId::Tape("ada".into());
-    for event in [
-        json!({"kind":"user","id":"1","text":"Fix the typo."}),
-        json!({"kind":"user","id":"2","text":"Remind George to test it.","scheduled":{"jobId":"j","kind":"schedule","name":"Reminder"}}),
-        json!({"kind":"delivery","id":"3","text":"Done with the review.","cause":{"kind":"peer","name":"Mack","personaId":"m","threadKey":"t","status":"done","about":"review"}}),
-    ] {
-        log.append(&tape, &event).unwrap();
-    }
-    let seen = recent(&log, "ada");
-    assert_eq!(seen[0]["kind"], "message from a teammate");
-    assert_eq!(seen[0]["from"], "Mack");
-    assert_eq!(seen[1]["kind"], "scheduled prompt");
-    assert_eq!(seen[1]["job"], "Reminder");
-    assert_eq!(seen[2]["kind"], "user");
+/// The teammate Mack, made through the room's own command.
+async fn mack(desk: &Arc<crate::desk::Desk>) -> String {
+    use crate::contract::Command;
+    let handle: Arc<dyn RoomHandle> = desk.clone();
+    let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Keep the build green","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
+    crate::wire::commands::run(create, &desk.log, &handle)
+        .await
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
 }
 
 /// A direct call that is a thread from the start: the teammate Mack, and a
 /// call to it that names Mack as its target when it begins.
-async fn direct_call(
-    plan: Result<(String, bool), String>,
-) -> (
+async fn direct_call() -> (
     tempfile::TempDir,
     Arc<crate::desk::Desk>,
     Arc<Calls>,
     String,
     String,
     broadcast::Receiver<VoiceEvent>,
+    Arc<Fake>,
 ) {
-    use crate::contract::Command;
     let fake = Arc::new(Fake::default());
-    *lock(&fake.front) = Some(plan);
     *lock(&fake.transcript) = "Can you check the build?".into();
-    let (root, desk, calls) = desk(with_fake(fake));
-    let handle: Arc<dyn RoomHandle> = desk.clone();
-    let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Keep the build green","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
-    let persona = crate::wire::commands::run(create, &desk.log, &handle)
-        .await
-        .unwrap();
-    let persona = persona["id"].as_str().unwrap().to_string();
+    let (root, desk, calls) = desk(with_fake(fake.clone()));
+    let persona = mack(&desk).await;
     let id = Uuid::new_v4().to_string();
     calls
         .start_target(&id, Some(persona.clone()), false, desk.clone())
         .unwrap();
     let (_, rx) = calls.subscribe(&id).unwrap();
-    (root, desk, calls, id, persona, rx)
+    (root, desk, calls, id, persona, rx, fake)
+}
+
+/// The call has heard turn `seq`, as if the person had said it: its replies
+/// are this call's.
+fn on_turn(calls: &Calls, id: &str, seq: u32) -> Origin {
+    calls
+        .change(id, |call| {
+            call.seq = Some(seq);
+            Ok(())
+        })
+        .unwrap();
+    Origin {
+        call_id: id.into(),
+        seq,
+        direct: true,
+    }
+}
+
+/// Every `said` and `clip` of a reply until its final clip.
+async fn one_reply(
+    rx: &mut broadcast::Receiver<VoiceEvent>,
+) -> (Vec<(String, String)>, Vec<(String, u32, bool)>) {
+    let mut said = Vec::new();
+    let mut clips = Vec::new();
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            match rx.recv().await.unwrap() {
+                VoiceEvent::Said { id, text } => said.push((id, text)),
+                VoiceEvent::Clip {
+                    id,
+                    index,
+                    r#final,
+                    data,
+                    ..
+                } => {
+                    clips.push((id, index, data.is_empty()));
+                    if r#final {
+                        return;
+                    }
+                }
+                VoiceEvent::Delivery { .. } => panic!("a teammate's own reply is no delivery"),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+    (said, clips)
 }
 
 async fn until_written(what: &str, mut done: impl FnMut() -> bool) {
@@ -2291,20 +2007,35 @@ fn call_link(desk: &crate::desk::Desk, persona: &str) -> Option<Value> {
 
 #[tokio::test]
 async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
-    let (_root, desk, calls, id, persona, mut rx) =
-        direct_call(Ok(("What's on your mind?".into(), false))).await;
+    let (_root, desk, calls, id, persona, mut rx, _fake) = direct_call().await;
     utterance(&calls, &id, 1).unwrap();
+    // This desk has no model for Mack, so the words never reach a session.
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == RETRY_LINE),
+    )
+    .await;
+    let origin = on_turn(&calls, &id, 1);
+    assert!(calls.delivery(
+        &persona,
+        "reply-1",
+        "Mack",
+        "What's on your mind? <<<ENDSPEAK>>> Shown only.",
+        true,
+        Some(&origin)
+    ));
     event(
         &mut rx,
         |e| matches!(e, VoiceEvent::Said { text, .. } if text == "What's on your mind?"),
     )
     .await;
-    until_written("the call's lines", || said_on(&desk, &id).len() == 2).await;
+    until_written("the call's lines", || said_on(&desk, &id).len() == 3).await;
 
     assert_eq!(
         said_on(&desk, &id),
         [
             ("user".to_string(), "Can you check the build?".to_string()),
+            ("agent".to_string(), RETRY_LINE.to_string()),
             ("agent".to_string(), "What's on your mind?".to_string()),
         ]
     );
@@ -2364,72 +2095,318 @@ async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
     );
 }
 
-/// A reply the voice writes in several sentences is spoken as they come but
-/// is one reply: one line on screen, growing under one id, its audio under
-/// that id ending in one final clip, and one line on the call's thread.
+/// A teammate's reply on a call to it is said as it streams, up to the
+/// marker, as one reply: one line on screen growing under one id, its audio
+/// under that id ending in one empty final clip, and one line on the call's
+/// thread. Nothing after the marker, and never the marker, reaches speech.
 #[tokio::test]
-async fn a_fronted_reply_in_several_sentences_is_one_line_on_the_call() {
-    let reply = "The build is still red. It's the flaky config test again. I'm rerunning it now.";
-    let (_root, desk, calls, id, _persona, mut rx) = direct_call(Ok((reply.into(), false))).await;
-    utterance(&calls, &id, 1).unwrap();
-    let mut said = Vec::new();
-    let mut clips = Vec::new();
-    tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            match rx.recv().await.unwrap() {
-                VoiceEvent::Said { id, text } => said.push((id, text)),
-                VoiceEvent::Clip {
-                    id,
-                    index,
-                    r#final,
-                    data,
-                    ..
-                } => {
-                    clips.push((id, index, data.is_empty()));
-                    if r#final {
-                        return;
-                    }
-                }
-                _ => {}
-            }
-        }
-    })
-    .await
-    .unwrap();
+async fn a_streamed_reply_is_said_up_to_its_marker_as_one_line() {
+    let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    let chunks = [
+        "The build is still red. It's the fla",
+        "ky config test again. <<<END",
+        "SPEAK>>>\n| test | result |\n| config | flaky |\n",
+    ];
+    for chunk in chunks {
+        calls.reply_delta(&persona, "reply-1", chunk, &origin);
+    }
+    let whole = chunks.concat();
+    assert!(calls.delivery(&persona, "reply-1", "Mack", &whole, true, Some(&origin)));
+    let (said, clips) = one_reply(&mut rx).await;
     let line = &said[0].0;
     assert!(said.iter().all(|(id, _)| id == line), "{said:?}");
+    let spoken = "The build is still red. It's the flaky config test again.";
     assert_eq!(
         said.iter()
             .map(|(_, text)| text.as_str())
             .collect::<Vec<_>>(),
-        [
-            "The build is still red.",
-            "The build is still red. It's the flaky config test again.",
-            reply,
-        ]
+        ["The build is still red.", spoken]
     );
-    // One clip a sentence, in order, then an empty clip that ends the line.
     assert!(clips.iter().all(|(id, _, _)| id == line));
     assert_eq!(
         clips
             .iter()
             .map(|(_, index, empty)| (*index, *empty))
             .collect::<Vec<_>>(),
-        [(0, false), (1, false), (2, false), (3, true)]
+        [(0, false), (1, false), (2, true)]
     );
-    until_written("the reply", || said_on(&desk, &id).len() == 2).await;
+    assert_eq!(
+        *lock(&fake.spoken),
+        [
+            "The build is still red.",
+            "It's the flaky config test again."
+        ]
+    );
+    until_written("the reply", || said_on(&desk, &id).len() == 1).await;
     assert_eq!(
         said_on(&desk, &id),
-        [
-            ("user".to_string(), "Can you check the build?".to_string()),
-            ("agent".to_string(), reply.to_string()),
-        ]
+        [("agent".to_string(), spoken.to_string())]
     );
     let stored = desk.log.load(&StreamId::Call(id.clone()));
     assert!(stored.iter().any(|event| event["id"] == line.as_str()));
-    let exchange = calls.change(&id, |call| Ok(call.exchange.clone())).unwrap();
-    assert_eq!(lock(&exchange).lines().last().unwrap().text, reply);
+    // The turn's end hands the same reply over again: it is not said twice.
+    assert!(calls.delivery(&persona, "reply-1", "Mack", &whole, true, Some(&origin)));
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert_eq!(lock(&fake.spoken).len(), 2);
     calls.end(&id).unwrap();
+}
+
+/// An agent that writes no marker wrote its reply to be read: the call says
+/// its opening, up to its first code block, and the chat has the rest.
+#[tokio::test]
+async fn a_reply_without_the_marker_is_said_up_to_its_first_code_block() {
+    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    let reply = "Here's the fix for the flaky test:\n```rust\nassert!(ready);\n```\nIt passes ten runs in a row now.";
+    assert!(calls.delivery(&persona, "reply-1", "Mack", reply, true, Some(&origin)));
+    let (said, _) = one_reply(&mut rx).await;
+    assert_eq!(said.last().unwrap().1, "Here's the fix for the flaky test:");
+    assert_eq!(*lock(&fake.spoken), ["Here's the fix for the flaky test:"]);
+    calls.end(&id).unwrap();
+}
+
+/// Speaking over a teammate stops what it is saying and gives the person the
+/// floor, without stopping its turn: what it goes on writing of that reply is
+/// not said, and the call takes the person's next words at once.
+#[tokio::test]
+async fn speaking_over_a_reply_stops_it_and_gives_the_person_the_floor() {
+    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .change(&id, |call| {
+            call.answering = Some(1);
+            Ok(())
+        })
+        .unwrap();
+    *lock(&fake.delay) = Duration::from_secs(5);
+    calls.reply_delta(&persona, "reply-1", "I looked at the logs. ", &origin);
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "I looked at the logs."),
+    )
+    .await;
+    calls.interrupt(&id).unwrap();
+    event(&mut rx, |e| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Listening,
+                ..
+            }
+        )
+    })
+    .await;
+    calls.reply_delta(
+        &persona,
+        "reply-1",
+        "The cache is stale. <<<ENDSPEAK>>>",
+        &origin,
+    );
+    assert!(calls.delivery(
+        &persona,
+        "reply-1",
+        "Mack",
+        "I looked at the logs. The cache is stale. <<<ENDSPEAK>>>",
+        true,
+        Some(&origin)
+    ));
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    while let Ok(event) = rx.try_recv() {
+        assert!(
+            !matches!(&event, VoiceEvent::Said { text, .. } if text.contains("stale")),
+            "{event:?}"
+        );
+        assert!(!matches!(event, VoiceEvent::Clip { .. }), "{event:?}");
+    }
+    *lock(&fake.delay) = Duration::ZERO;
+    utterance(&calls, &id, 2).unwrap();
+    calls.end(&id).unwrap();
+}
+
+/// The call thinks while the teammate's turn is open, between what it says,
+/// and listens once the session has finished the turn. A turn that ends
+/// before a later one the person said does not end the wait for that one.
+#[tokio::test]
+async fn the_call_thinks_while_the_teammate_works_and_listens_when_its_turn_ends() {
+    let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls
+        .change(&id, |call| {
+            call.answering = Some(1);
+            call.state(VoiceState::Thinking, None);
+            Ok(())
+        })
+        .unwrap();
+    assert!(calls.delivery(
+        &persona,
+        "ack",
+        "Mack",
+        "On it. <<<ENDSPEAK>>>",
+        true,
+        Some(&origin)
+    ));
+    one_reply(&mut rx).await;
+    event(&mut rx, |e| matches!(e, VoiceEvent::State { .. })).await;
+    assert_eq!(
+        calls.subscribe(&id).unwrap().0,
+        VoiceEvent::State {
+            state: VoiceState::Thinking,
+            reason: None
+        },
+        "still working"
+    );
+    calls
+        .change(&id, |call| {
+            call.seq = Some(2);
+            call.answering = Some(2);
+            Ok(())
+        })
+        .unwrap();
+    calls.turn_ended(&persona, &origin);
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert_eq!(
+        calls.change(&id, |call| Ok(call.answering)).unwrap(),
+        Some(2)
+    );
+    let later = Origin { seq: 2, ..origin };
+    calls.turn_ended(&persona, &later);
+    event(&mut rx, |e| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Listening,
+                ..
+            }
+        )
+    })
+    .await;
+    calls.end(&id).unwrap();
+}
+
+/// A reply its turn never finished, because the agent stopped mid-message,
+/// is said as far as it got, and the call listens.
+#[tokio::test]
+async fn a_reply_the_turn_never_finished_is_said_as_far_as_it_got() {
+    let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls.reply_delta(
+        &persona,
+        "reply-1",
+        "The deploy is half done. The rest",
+        &origin,
+    );
+    event(
+        &mut rx,
+        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "The deploy is half done."),
+    )
+    .await;
+    calls.turn_ended(&persona, &origin);
+    let (said, _) = one_reply(&mut rx).await;
+    assert_eq!(said.last().unwrap().1, "The deploy is half done. The rest");
+    event(&mut rx, |e| {
+        matches!(
+            e,
+            VoiceEvent::State {
+                state: VoiceState::Listening,
+                ..
+            }
+        )
+    })
+    .await;
+    calls.end(&id).unwrap();
+}
+
+/// A call that thinks says so again while it waits, so a phone does not take
+/// a teammate's long work for a desk that went quiet.
+#[tokio::test]
+async fn a_call_that_thinks_says_so_again() {
+    let (_root, _desk, calls, id, _persona, mut rx, _fake) = direct_call().await;
+    calls
+        .change(&id, |call| {
+            call.answering = Some(1);
+            call.state(VoiceState::Thinking, None);
+            Ok(())
+        })
+        .unwrap();
+    event(&mut rx, |e| matches!(e, VoiceEvent::State { .. })).await;
+    let again = tokio::time::Instant::now();
+    assert_eq!(
+        event(&mut rx, |e| matches!(e, VoiceEvent::State { .. })).await,
+        VoiceEvent::State {
+            state: VoiceState::Thinking,
+            reason: None
+        }
+    );
+    assert!(again.elapsed() <= THINKING_AGAIN * 2);
+    calls.end(&id).unwrap();
+}
+
+/// A hold cuts off a reply being said, and the phone hears of it as of any
+/// reply that comes while the call is held.
+#[tokio::test]
+async fn a_hold_cuts_off_a_reply_and_leaves_it_to_the_phone() {
+    let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
+    let origin = on_turn(&calls, &id, 1);
+    calls.reply_delta(&persona, "reply-1", "The deploy went out. ", &origin);
+    event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
+    calls.hold(&id, true).unwrap();
+    calls.reply_delta(
+        &persona,
+        "reply-1",
+        "Nothing broke. <<<ENDSPEAK>>>",
+        &origin,
+    );
+    assert!(!calls.delivery(
+        &persona,
+        "reply-1",
+        "Mack",
+        "The deploy went out. Nothing broke. <<<ENDSPEAK>>>",
+        true,
+        Some(&origin)
+    ));
+    calls.end(&id).unwrap();
+}
+
+/// A call to a teammate has no call assistant, so a Chat budget that is off
+/// cannot refuse it; a desk call, which has one, is refused.
+#[tokio::test]
+async fn a_direct_call_pays_for_no_call_assistant() {
+    let free_speech = Arc::new(Fake {
+        subscription: true,
+        ..Fake::default()
+    });
+    let (_root, desk, calls) = desk(with_fake(free_speech));
+    let persona = mack(&desk).await;
+    spending(&desk, json!({"chat": {"dayUsd": 0}}));
+    let status = calls.status();
+    assert!(status.direct_available);
+    assert!(!status.available);
+    let id = Uuid::new_v4().to_string();
+    calls
+        .start_target(&id, Some(persona), false, desk.clone())
+        .unwrap();
+    assert!(calls.ready_for(&id).is_ok());
+    calls.end(&id).unwrap();
+}
+
+#[test]
+fn a_link_is_said_as_its_site_and_shown_in_full() {
+    assert_eq!(
+        speakable(
+            "Here it is: https://ketch.run (GitHub repo: https://github.com/1broseidon/ketch)"
+        ),
+        "Here it is: ketch.run (GitHub repo: github.com)"
+    );
+    assert_eq!(
+        speakable("See www.example.com/docs?x=1."),
+        "See example.com."
+    );
+    assert_eq!(
+        speakable("Check main.rs in v1.2."),
+        "Check main.rs in v1.2."
+    );
+    assert!(!speech_ready("Here it is: https://ketch.run"));
 }
 
 /// A desk call's answer, streamed in sentences, is one line on the
@@ -2459,95 +2436,8 @@ async fn a_desk_calls_streamed_answer_is_one_line_on_its_tape() {
 }
 
 #[tokio::test]
-async fn a_relayed_report_and_the_persons_words_are_kept_as_who_said_them() {
-    let (_root, desk, calls, id, _persona, mut rx) =
-        direct_call(Ok(("On it.".into(), false))).await;
-    utterance(&calls, &id, 1).unwrap();
-    event(
-        &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "On it."),
-    )
-    .await;
-    // The voice's reply is kept once it is over, before any report is said.
-    until_written("the reply", || said_on(&desk, &id).len() == 2).await;
-    calls
-        .change(&id, |call| {
-            call.record.as_ref().unwrap().said(
-                Speaker::Relayed,
-                "relayed-1",
-                "The build is green.",
-            );
-            Ok(())
-        })
-        .unwrap();
-    until_written("the relayed line", || said_on(&desk, &id).len() == 3).await;
-    let stored = desk.log.load(&StreamId::Call(id.clone()));
-    let relayed = stored
-        .iter()
-        .find(|event| event["id"] == "relayed-1")
-        .unwrap();
-    assert_eq!(relayed["relayed"], true);
-    let rebuilt = Exchange::from_thread(&stored);
-    assert_eq!(
-        rebuilt
-            .lines()
-            .iter()
-            .map(|line| line.speaker)
-            .collect::<Vec<_>>(),
-        [Speaker::Person, Speaker::Voice, Speaker::Relayed]
-    );
-    calls.end(&id).unwrap();
-}
-
-#[tokio::test]
-async fn a_call_picked_up_again_remembers_what_its_thread_says() {
-    let fake = Arc::new(Fake::default());
-    *lock(&fake.front) = Some(Ok(("Go on.".into(), false)));
-    let (_root, desk, calls) = desk(with_fake(fake));
-    let persona = {
-        use crate::contract::Command;
-        let handle: Arc<dyn RoomHandle> = desk.clone();
-        let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Keep the build green","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
-        crate::wire::commands::run(create, &desk.log, &handle)
-            .await
-            .unwrap()["id"]
-            .as_str()
-            .unwrap()
-            .to_string()
-    };
-    let id = Uuid::new_v4().to_string();
-    // What an earlier process kept of the call.
-    for (kind, text) in [
-        ("user", "We were talking about the harbour."),
-        ("agent", "Yes, the cranes."),
-    ] {
-        desk.log
-            .append(
-                &StreamId::Call(id.clone()),
-                &json!({"kind": kind, "id": text, "ts": 1, "text": text}),
-            )
-            .unwrap();
-    }
-    calls
-        .start_target(&id, Some(persona), false, desk.clone())
-        .unwrap();
-    let exchange = calls.change(&id, |call| Ok(call.exchange.clone())).unwrap();
-    let remembered: Vec<String> = lock(&exchange)
-        .lines()
-        .into_iter()
-        .map(|line| line.text)
-        .collect();
-    assert_eq!(
-        remembered,
-        ["We were talking about the harbour.", "Yes, the cranes."]
-    );
-    assert!(lock(&exchange).unseen().is_empty());
-    calls.end(&id).unwrap();
-}
-
-#[tokio::test]
 async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_not() {
-    let (_root, desk, calls, id, persona, _rx) = direct_call(Ok(("Go on.".into(), false))).await;
+    let (_root, desk, calls, id, persona, _rx, _fake) = direct_call().await;
     let room = calls.room.upgrade().unwrap();
     let mut looked_again = std::collections::HashMap::new();
     until_written("the link", || call_link(&desk, &persona).is_some()).await;

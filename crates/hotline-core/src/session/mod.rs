@@ -2240,11 +2240,12 @@ impl Room {
             Sending {
                 shown: text.to_string(),
                 wire: Wired {
-                    // A voice call's earlier lines are for the agent alone;
-                    // the conversation shows only what the person said.
-                    text: match crate::wire::commands::call_heard() {
-                        Some(heard) => format!("{heard}\n{text}"),
-                        None => text.to_string(),
+                    // A turn said on a call to this teammate asks for a reply
+                    // in a spoken part and a shown one. That is for the agent
+                    // alone; the conversation shows what the person said.
+                    text: match crate::wire::commands::voice_origin() {
+                        Some(origin) if origin.direct => crate::voice::spoken::voice_turn(text),
+                        _ => text.to_string(),
                     },
                     attachments: attachments.clone().unwrap_or_default(),
                     scheduled: None,

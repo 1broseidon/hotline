@@ -439,31 +439,71 @@ fn wav() -> Vec<u8> {
     include_bytes!("fixtures/voice/ask-mack.wav").to_vec()
 }
 async fn provider(reply: &'static str) -> String {
+    provider_seeing(reply).await.0
+}
+
+/// A chat-completions fixture that answers every request with `reply`, and
+/// keeps every request it was sent.
+async fn provider_seeing(reply: &'static str) -> (String, Arc<std::sync::Mutex<Vec<Value>>>) {
     use axum::{Router, body::Bytes, routing::post};
-    let app = Router::new().route("/v1/chat/completions", post(move |_: Bytes| async move {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let requests = seen.clone();
+    let app = Router::new().route("/v1/chat/completions", post(move |body: Bytes| {
+        let requests = requests.clone();
+        async move {
+        if let Ok(request) = serde_json::from_slice::<Value>(&body) {
+            requests.lock().unwrap().push(request);
+        }
         let delta = json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":reply},"finish_reason":null}]});
         let done = json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}});
         ([("Content-Type", "text/event-stream")], format!("data: {delta}\n\ndata: {done}\n\ndata: [DONE]\n\n"))
-    }));
+    }}));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/v1", listener.local_addr().unwrap());
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    url
+    (url, seen)
 }
+
+/// The teammate's reply on a call to it, as its agent wrote it: a spoken
+/// part, the marker, and a table that is only shown.
+const MARKED_REPLY: &str =
+    "The checks passed. <<<ENDSPEAK>>>\n| check | result |\n| --- | --- |\n| unit | ok |";
 
 #[tokio::test]
 async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching() {
-    direct_call_uses_existing_conversation(false).await;
+    direct_call_uses_existing_conversation(false, MARKED_REPLY, "The checks passed.").await;
 }
 
 #[tokio::test]
 async fn device_text_reuses_the_direct_agent_session_and_call_origin() {
-    direct_call_uses_existing_conversation(true).await;
+    direct_call_uses_existing_conversation(true, MARKED_REPLY, "The checks passed.").await;
 }
 
-async fn direct_call_uses_existing_conversation(device_text: bool) {
+/// An agent that ignores the marker wrote to be read: the call says the
+/// opening, up to the first code block, and the chat shows all of it.
+#[tokio::test]
+async fn a_reply_without_the_marker_is_said_up_to_its_first_code_block() {
+    direct_call_uses_existing_conversation(
+        true,
+        "Here is the fix:\n```rust\nlet ready = true;\n```\nThe checks pass now.",
+        "Here is the fix:",
+    )
+    .await;
+}
+
+/// One brain, two outputs: what is said on a call to a teammate is a turn of
+/// the teammate's own conversation (the person's exact words on its tape,
+/// marked as said on the call, in its open chapter), the agent is handed the
+/// contract after the words, the call says the reply's spoken part, and the
+/// chat shows the whole reply without the marker. No call assistant is asked
+/// anything, and the teammate's turn is metered as Chat.
+async fn direct_call_uses_existing_conversation(
+    device_text: bool,
+    reply: &'static str,
+    spoken: &str,
+) {
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         hotline_core::desk::Desk::open_with_voice_services(
@@ -480,8 +520,9 @@ async fn direct_call_uses_existing_conversation(device_text: bool) {
     let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=direct-test"))
         .await
         .unwrap();
-    let provider = provider("The checks passed.").await;
-    send(&mut socket, json!({"id":90,"cmd":"credential.custom_save","params":{"draft":{"name":"Direct fixture","baseUrl":provider,"api":"chat_completions","models":["test"]}}})).await;
+    let (provider, requests) = provider_seeing(reply).await;
+    // A key, so the teammate's turns are billed per token.
+    send(&mut socket, json!({"id":90,"cmd":"credential.custom_save","params":{"draft":{"name":"Direct fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
     assert_eq!(until(&mut socket, |f| f["id"] == 90).await["ok"], true);
     send(&mut socket, json!({"id":91,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
     let persona = until(&mut socket, |f| f["id"] == 91).await["result"]["id"]
@@ -534,18 +575,63 @@ async fn direct_call_uses_existing_conversation(device_text: bool) {
     };
     send(&mut socket, input.clone()).await;
     let heard = until(&mut socket, |f| f["event"]["type"] == "heard").await;
-    let delivery = until(&mut socket, |f| f["event"]["type"] == "delivery").await;
-    assert_eq!(delivery["event"]["personaId"], persona);
-    assert_eq!(delivery["event"]["text"], "The checks passed.");
-    let said = until(&mut socket, |f| f["event"]["type"] == "said").await;
-    assert_eq!(said["event"]["text"], "The checks passed.");
-    let clip = until(&mut socket, |f| f["event"]["type"] == "clip").await;
-    assert_eq!(clip["event"]["final"], true);
+    // The reply is one line: its spoken part, said in clips under its id and
+    // closed by an empty final clip. The teammate is the voice, so there is no
+    // `delivery` naming it.
+    let mut said = Vec::new();
+    let mut clips = Vec::new();
+    loop {
+        let frame = until(&mut socket, |f| f["event"].is_object()).await;
+        let event = &frame["event"];
+        assert_ne!(event["type"], "delivery", "the teammate speaks for itself");
+        match event["type"].as_str() {
+            Some("said") => said.push(event.clone()),
+            Some("clip") => {
+                clips.push(event.clone());
+                if event["final"] == true {
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let line = said[0]["id"].clone();
+    assert!(said.iter().all(|said| said["id"] == line), "{said:?}");
+    assert_eq!(said.last().unwrap()["text"], spoken);
+    assert!(
+        said.iter()
+            .all(|said| !said["text"].as_str().unwrap().contains("ENDSPEAK")),
+        "{said:?}"
+    );
+    assert!(clips.iter().all(|clip| clip["id"] == line));
+    let last = clips.last().unwrap();
+    assert_eq!(last["data"], "");
+    assert_eq!(last["index"], clips.len() - 1);
+    // Its turn over, the call listens.
+    until(&mut socket, |f| f["event"]["state"] == "listening").await;
     let mut replay = input;
     replay["id"] = json!(7);
     send(&mut socket, replay).await;
     assert_eq!(until(&mut socket, |f| f["id"] == 7).await["ok"], false);
-    let tape = log.load(&hotline_core::log::StreamId::Tape(persona));
+
+    // The agent heard the words, then the contract.
+    let words = heard["event"]["text"].as_str().unwrap().to_string();
+    let asked = requests
+        .lock()
+        .unwrap()
+        .iter()
+        .flat_map(|request| request["messages"].as_array().cloned().unwrap_or_default())
+        .filter(|message| message["role"] == "user")
+        .map(|message| message["content"].to_string())
+        .find(|content| content.contains("ENDSPEAK"))
+        .expect("the turn's input carries the contract");
+    assert!(asked.contains(&words), "{asked}");
+    assert!(
+        asked.contains("Part 2 is shown in the chat and never spoken"),
+        "{asked}"
+    );
+
+    let tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
     assert_eq!(
         tape.iter().filter(|v| v["kind"] == "chapter").count(),
         1,
@@ -553,12 +639,28 @@ async fn direct_call_uses_existing_conversation(device_text: bool) {
     );
     let user = tape.iter().find(|v| v["kind"] == "user").unwrap();
     assert_eq!(tape.iter().filter(|v| v["kind"] == "user").count(), 1);
-    assert_eq!(user["text"], heard["event"]["text"]);
+    assert_eq!(user["text"], words, "the person's words, as they said them");
     assert!(
         user["id"]
             .as_str()
             .unwrap()
             .starts_with(&format!("voice:{call}:1:agent:"))
+    );
+    let shown: Vec<&str> = tape
+        .iter()
+        .filter(|v| v["kind"] == "agent")
+        .map(|v| v["text"].as_str().unwrap())
+        .collect();
+    // Paced into bubbles, so compared word for word.
+    let words_of = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert_eq!(
+        words_of(&shown.join("\n")),
+        words_of(&reply.replace("<<<ENDSPEAK>>>", "")),
+        "the chat shows the whole reply without the marker"
+    );
+    assert!(
+        !tape.iter().any(|v| v.to_string().contains("ENDSPEAK")),
+        "{tape:?}"
     );
     assert!(
         !log.load(&hotline_core::log::StreamId::Tape(
@@ -566,6 +668,27 @@ async fn direct_call_uses_existing_conversation(device_text: bool) {
         ))
         .iter()
         .any(|v| matches!(v["kind"].as_str(), Some("user" | "agent")))
+    );
+    // The turn spent the Chat budget as the teammate's; nothing went on a
+    // call assistant.
+    let ledger = |file: &str| -> Value {
+        std::fs::read(root.path().join(file))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or(Value::Null)
+    };
+    assert!(
+        ledger("chat-ledger.json")["daySpend"]["teammates"]
+            .as_f64()
+            .is_some_and(|spent| spent > 0.0),
+        "{}",
+        ledger("chat-ledger.json")
+    );
+    assert_eq!(
+        ledger("voice-ledger.json")["daySpend"]["dispatcher"]
+            .as_f64()
+            .unwrap_or(0.0),
+        0.0
     );
     send(
         &mut socket,

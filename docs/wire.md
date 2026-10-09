@@ -14,7 +14,13 @@ One writer task per socket queues whole frames in the order they were
 produced, so answers, snapshots and events never interleave. Commands are
 answered on the read loop, in the order they arrived: the append a
 command makes *is* its answer, and a client that creates a teammate and
-then subscribes must see it.
+then subscribes must see it. A command that names one teammate — by
+`personaId`, by a `thread` (a DM is its teammate's), by a `sideId`, or as
+the `id` of a `persona.*` command — is answered on that teammate's own lane
+instead: in order with that teammate's other commands, and waiting on
+nobody else's. Starting an agent can take a while, or never finish, and it
+holds up only the commands about that teammate. Its answer may therefore
+arrive after the answers to commands sent after it.
 
 A frame with no `id` is dropped. `id` is a JSON number (`i64`).
 

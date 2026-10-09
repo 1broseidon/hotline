@@ -548,6 +548,13 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
+            // Quitting, and the updater's restart, end the process without
+            // dropping the desk, so no agent's driver gets to kill its child.
+            // A launcher that ignores its closed stdin would be left running
+            // under pid 1, so every agent's process group is killed here.
+            if let tauri::RunEvent::Exit = event {
+                hotline_core::driver::acp::end_every_agent();
+            }
             #[cfg(target_os = "macos")]
             {
                 // A dock click of a running app with no visible window is Reopen,

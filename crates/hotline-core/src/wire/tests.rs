@@ -4128,7 +4128,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
         ),
     ];
     for (cmd, params) in &commands {
-        let frame = json!({"id":1,"cmd":cmd,"params":params}).to_string();
+        let frame = json!({"id":1,"cmd":cmd,"params":params});
         answer(
             &frame,
             Seat::Phone,
@@ -4205,16 +4205,7 @@ async fn remote_control_answer(
         max: usize::MAX,
     };
     let mut subscriptions = HashMap::new();
-    answer(
-        &frame.to_string(),
-        seat,
-        log,
-        room,
-        &outbox,
-        &mut subscriptions,
-        None,
-    )
-    .await;
+    answer(&frame, seat, log, room, &outbox, &mut subscriptions, None).await;
     let response = serde_json::from_str(&frames.recv().await.unwrap()).unwrap();
     for handle in subscriptions.into_values() {
         handle.abort();

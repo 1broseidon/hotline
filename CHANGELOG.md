@@ -55,6 +55,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   and writes included, instead of keeping the estimate. Claude Haiku 5.5
   has its price, and a model with no listed price is metered at a high
   guard rate that the desk now logs.
+- A teammate on an outside agent whose command never finishes starting no
+  longer stalls the desk. Your other teammates keep answering, what you
+  send them is saved, and Settings › Computer keeps loading. The stuck
+  start gives up after 60 seconds, or 5 minutes the first time a command
+  runs, since that run may be downloading the agent. The teammate shows an
+  error card that names the command so you can try it in a terminal, and
+  your next message to it tries again. Quitting Hotline now also stops
+  any agent that was still starting, so none is left running.
 
 ## [0.35.1] - 2026-10-09
 

@@ -92,6 +92,84 @@ const UNPROMPTED_QUIET: Duration = Duration::from_secs(300);
 /// the agent gets its turn back and the card says it expired.
 const PERMISSION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
+/// How long an agent's command has to answer `initialize` and open its
+/// session, from the moment it is spawned.
+///
+/// A launcher can hang without a word: a `mise` shim that re-executes itself
+/// forever, a wrapper waiting on a prompt nobody can see. Unbounded, that start
+/// never ends and the teammate never says why. Bounded, it ends as a failure
+/// that names the command, and the process group is killed.
+///
+/// Two bounds, because silence on stdout means two different things. A launch
+/// that has answered on this machine before has its package in the npx or uvx
+/// cache, and answers in seconds; a minute is far past any honest start. A
+/// launch that has never answered here may be downloading its package, which
+/// says nothing on stdout either and can take minutes on a slow network, so it
+/// gets five. Which one applies is `registry::started_before`, and a launch
+/// that runs out the short bound is forgotten, so a package evicted from the
+/// cache gets the long one on its next start.
+#[derive(Clone, Copy, Debug)]
+pub struct StartBounds {
+    /// For a launch that has answered on this machine before.
+    pub known: Duration,
+    /// For a launch that never has, which may be fetching its package.
+    pub first: Duration,
+}
+
+impl Default for StartBounds {
+    fn default() -> Self {
+        Self {
+            known: Duration::from_secs(60),
+            first: Duration::from_secs(5 * 60),
+        }
+    }
+}
+
+/// The process groups of the agents this process started and has not yet
+/// killed.
+///
+/// Dropping a driver kills its group, but quitting the app drops nothing: the
+/// process exits, and a launcher that ignores its closed stdin is reparented
+/// to pid 1 and runs on. [`end_every_agent`] is how the exit path reaches
+/// them. Each id was captured at spawn, from a group this process made.
+#[cfg(unix)]
+static GROUPS: Mutex<Vec<libc::pid_t>> = Mutex::new(Vec::new());
+
+/// Kills every agent process group this process started, for an exit that
+/// will not run their drivers' `Drop`. On Windows each child is in a job
+/// object that closes with the process and takes the tree with it, so there
+/// is nothing to do there.
+pub fn end_every_agent() {
+    #[cfg(unix)]
+    for group in std::mem::take(&mut *lock(&GROUPS)) {
+        // Safety: each group is one this process made for its own child.
+        unsafe { libc::killpg(group, libc::SIGKILL) };
+    }
+}
+
+/// Kills one child's process group and stops counting it among the live ones.
+fn end_group(child: &tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(id) = child.id() {
+        let group = id as libc::pid_t;
+        lock(&GROUPS).retain(|live| *live != group);
+        // Safety: the group is the one this driver made for its child.
+        unsafe { libc::killpg(group, libc::SIGKILL) };
+    }
+    #[cfg(windows)]
+    let _ = child;
+}
+
+/// A bound as a person reads it: `60 s`, `5 min`.
+fn spoken(bound: Duration) -> String {
+    let seconds = bound.as_secs();
+    if seconds >= 120 && seconds.is_multiple_of(60) {
+        format!("{} min", seconds / 60)
+    } else {
+        format!("{seconds} s")
+    }
+}
+
 /// How many lines of the child's stderr are kept, to hang on the end of the
 /// sentence when a turn fails. The tail is what says why.
 const STDERR_LINES: usize = 20;
@@ -270,6 +348,7 @@ pub struct ChildAgent {
     served: Mutex<Option<Served>>,
     live: Arc<Live>,
     launch: Mutex<Option<registry::Launch>>,
+    start_bounds: StartBounds,
     operation_gate: tokio::sync::Mutex<()>,
 }
 
@@ -298,8 +377,14 @@ impl ChildAgent {
             served: Mutex::new(None),
             live: Arc::new(Live::default()),
             launch: Mutex::new(None),
+            start_bounds: StartBounds::default(),
             operation_gate: tokio::sync::Mutex::new(()),
         }
+    }
+
+    pub(crate) fn with_start_bounds(mut self, bounds: StartBounds) -> Self {
+        self.start_bounds = bounds;
+        self
     }
 
     pub(crate) fn with_history(self, said: Vec<super::rig::Said>) -> Self {
@@ -350,13 +435,8 @@ impl ChildAgent {
         }
         let child = lock(&self.child).take();
         if let Some(mut child) = child {
-            #[cfg(unix)]
-            if let Some(id) = child.id() {
-                // Only the process group captured when this driver spawned it.
-                unsafe {
-                    libc::killpg(id as libc::pid_t, libc::SIGKILL);
-                }
-            }
+            // Only the process group captured when this driver spawned it.
+            end_group(&child);
             #[cfg(windows)]
             drop(lock(&self.job).take());
             let _ = child.start_kill();
@@ -411,10 +491,8 @@ impl ChildAgent {
             task.abort();
         }
         let child = lock(&self.child).take();
-        #[cfg(unix)]
-        if let Some(id) = child.as_ref().and_then(tokio::process::Child::id) {
-            // Safety: the group is the one this driver made for its child.
-            unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) };
+        if let Some(child) = &child {
+            end_group(child);
         }
         #[cfg(windows)]
         drop(lock(&self.job).take());
@@ -1161,7 +1239,7 @@ fn proxy_error(status: StatusCode, message: &str) -> Response {
 
 /// The child goes when the driver does, and takes whatever it started with it.
 ///
-/// The process is its own group leader (see [`Driver::start`]), so this
+/// The process is its own group leader (see [`ChildAgent::spawn`]), so this
 /// reaches the real agent behind a wrapper launcher — `npx` spawning node,
 /// `uvx` spawning python — where killing the immediate child would only orphan
 /// it, leaving it reparented to pid 1 and not exiting on stdin EOF.
@@ -1202,44 +1280,18 @@ impl Driver for ChildAgent {
         registry::install(&self.root, &self.backend_id).await?;
         let launch = registry::launch(&self.root, &self.backend_id)?;
         *lock(&self.launch) = Some(launch.clone());
-        let mut command = tokio::process::Command::new(&launch.command);
-        command
-            .args(&launch.args)
-            .envs(launch.env.iter().cloned())
-            .current_dir(&persona.cwd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true);
-        #[cfg(unix)]
-        command.process_group(0);
-
-        #[cfg(windows)]
-        crate::process_windows::prepare(&mut command);
-        let mut child = command
-            .spawn()
-            .map_err(|error| format!("Could not start {}: {error}", launch.command))?;
-        #[cfg(windows)]
-        let job = crate::process_windows::Job::attach(child.id())
-            .map_err(|error| format!("Could not contain the agent process tree: {error}"))?;
-        let (stdin, stdout, stderr) =
-            match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
-                (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
-                _ => return Err(format!("{} gave no pipes to speak over.", launch.command)),
-            };
-        pump_stderr(self.live.clone(), stderr);
-        *lock(&self.child) = Some(child);
-        #[cfg(windows)]
-        {
-            *lock(&self.job) = Some(job);
+        *lock(&self.persona) = Some(persona.clone());
+        let bound = if registry::started_before(&self.root, &launch) {
+            self.start_bounds.known
+        } else {
+            self.start_bounds.first
+        };
+        let Ok(result) = tokio::time::timeout(bound, self.spawn(persona, &launch)).await else {
+            return Ok(self.stalled(&launch, bound));
+        };
+        if result.is_ok() {
+            registry::mark_started(&self.root, &launch, true);
         }
-
-        let result = self
-            .handshake(
-                persona,
-                ByteStreams::new(stdin.compat_write(), stdout.compat()),
-            )
-            .await;
         if result.is_ok()
             && let Err(error) = self.check_capability()
         {
@@ -1581,6 +1633,88 @@ impl Driver for ChildAgent {
 }
 
 impl ChildAgent {
+    /// Starts the child in a process group of its own and runs the handshake
+    /// over its pipes. [`Driver::start`] bounds the whole of it.
+    async fn spawn(
+        &self,
+        persona: &Persona,
+        launch: &registry::Launch,
+    ) -> Result<DriverInfo, String> {
+        let mut command = tokio::process::Command::new(&launch.command);
+        command
+            .args(&launch.args)
+            .envs(launch.env.iter().cloned())
+            .current_dir(&persona.cwd)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        command.process_group(0);
+
+        #[cfg(windows)]
+        crate::process_windows::prepare(&mut command);
+        let mut child = command
+            .spawn()
+            .map_err(|error| format!("Could not start {}: {error}", launch.command))?;
+        #[cfg(unix)]
+        if let Some(id) = child.id() {
+            lock(&GROUPS).push(id as libc::pid_t);
+        }
+        #[cfg(windows)]
+        let job = crate::process_windows::Job::attach(child.id())
+            .map_err(|error| format!("Could not contain the agent process tree: {error}"))?;
+        let (stdin, stdout, stderr) =
+            match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
+                (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
+                _ => {
+                    end_group(&child);
+                    return Err(format!("{} gave no pipes to speak over.", launch.command));
+                }
+            };
+        pump_stderr(self.live.clone(), stderr);
+        *lock(&self.child) = Some(child);
+        #[cfg(windows)]
+        {
+            *lock(&self.job) = Some(job);
+        }
+
+        self.handshake(
+            persona,
+            ByteStreams::new(stdin.compat_write(), stdout.compat()),
+        )
+        .await
+    }
+
+    /// A start that ran out its bound: the process group is killed, and the
+    /// teammate comes up failed, with the sentence on its tape as an error
+    /// card, the way an expired sign-in does. The next message starts it
+    /// again, which is the retry.
+    fn stalled(&self, launch: &registry::Launch, bound: Duration) -> DriverInfo {
+        self.kill_child();
+        lock(&self.live.connection).take();
+        registry::mark_started(&self.root, launch, false);
+        let name = registry::known(&self.root, &self.backend_id)
+            .map_or_else(|| self.backend_id.clone(), |backend| backend.name);
+        let sentence = format!(
+            "{name} didn't start within {} ({}). Check that the command runs in a terminal.{}",
+            spoken(bound),
+            launch.line(),
+            self.live.stderr_hint()
+        );
+        let failure = super::failure::Failure::startup(sentence);
+        // The details, which are redacted: the stderr tail is the agent's.
+        eprintln!("[acp] {}", failure.details);
+        *lock(&self.live.startup_failure) = Some(failure.notice());
+        self.live.failed.store(true, Ordering::SeqCst);
+        {
+            let mut session = lock(&self.live.session);
+            session.id = None;
+            session.info.session_id = None;
+        }
+        self.live.publish_info()
+    }
+
     /// Everything after the child exists: the connection, the handshake, and
     /// the conversation this teammate is joining.
     ///

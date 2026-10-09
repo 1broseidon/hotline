@@ -38,3 +38,6 @@ pub fn open_desk(root: &Path) -> io::Result<Desk> {
 pub fn open_vault(root: &Path, log: Log) -> io::Result<Vault> {
     Vault::open_with_store(root, log, store())
 }
+
+#[cfg(unix)]
+pub mod stalled;

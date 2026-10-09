@@ -130,6 +130,23 @@ impl Desk {
             store,
             services,
             crate::voice::speech::local::catalogue(),
+            Default::default(),
+        )
+    }
+
+    /// Open giving an ACP agent's command these bounds to start in, for a
+    /// harness whose agent never answers and should not take a minute to say so.
+    pub fn open_with_acp_start_bounds(
+        root: &Path,
+        store: Arc<dyn crate::credentials::SecretStore>,
+        bounds: crate::driver::acp::StartBounds,
+    ) -> io::Result<Desk> {
+        Self::open_inner(
+            root,
+            store,
+            None,
+            crate::voice::speech::local::catalogue(),
+            bounds,
         )
     }
 
@@ -140,7 +157,7 @@ impl Desk {
         store: Arc<dyn crate::credentials::SecretStore>,
         models: Vec<crate::voice::speech::local::Model>,
     ) -> io::Result<Desk> {
-        Self::open_inner(root, store, None, models)
+        Self::open_inner(root, store, None, models, Default::default())
     }
 
     fn open_inner(
@@ -148,6 +165,7 @@ impl Desk {
         store: Arc<dyn crate::credentials::SecretStore>,
         services: Option<crate::voice::Services>,
         models: Vec<crate::voice::speech::local::Model>,
+        acp_start: crate::driver::acp::StartBounds,
     ) -> io::Result<Desk> {
         install_crypto_provider();
         let log = Log::open(root);
@@ -161,7 +179,7 @@ impl Desk {
             log: log.clone(),
             budget: budget.clone(),
         });
-        let room = Room::new_with_mcp(log.clone(), keys, vault.clone());
+        let room = Room::new_with_mcp(log.clone(), keys, vault.clone(), acp_start);
         let mcp_oauth = Arc::new(McpOAuthService::new(vault.clone()));
         let room_for_oauth = Arc::downgrade(&room);
         mcp_oauth.set_on_complete(Arc::new(move || {

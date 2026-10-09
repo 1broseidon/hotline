@@ -130,6 +130,13 @@ pub fn acp_registry_path(root: &Path) -> PathBuf {
     root.join("cache").join("acp-registry.json")
 }
 
+/// The ACP launch commands that have answered on this machine, which is how a
+/// start knows whether `npx` or `uvx` may still be downloading the package. A
+/// cache: deleting it gives each agent's next start the longer bound once.
+pub fn acp_started_path(root: &Path) -> PathBuf {
+    root.join("cache").join("acp-started.json")
+}
+
 /// Agents the ACP registry ships as prebuilt archives, unpacked one folder per
 /// agent and archive. Safe to delete: the next start downloads it again.
 pub fn acp_agents_dir(root: &Path) -> PathBuf {

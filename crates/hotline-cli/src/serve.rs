@@ -118,6 +118,9 @@ fn serve(root: PathBuf, backend: Backend, options: ServeOptions) -> Result<(), S
                 stopped.interrupted.len()
             );
         }
+        // The process ends without dropping the desk; every agent's process
+        // group goes now rather than outliving it under pid 1.
+        hotline_core::driver::acp::end_every_agent();
         door::remove(&root);
         drop(stopped);
         eprintln!("Stopped.");

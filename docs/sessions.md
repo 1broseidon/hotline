@@ -795,6 +795,49 @@ the child gave it.
   itself to an agent is machinery, not conversation. A restarted backend
   hears it again; a second prompt on the same connection does not.
 
+### Starting an ACP child
+
+The child is spawned in a process group of its own on Unix, and in a job
+object on Windows, so killing it reaches the real agent behind a wrapper
+(`npx` starting node, `uvx` starting python, a `mise` shim) rather than
+orphaning it. Spawning it, `initialize` and opening the session
+(`session/new`, `session/load` or `session/resume`) run under one bound
+(`StartBounds` in `driver/acp.rs`):
+
+- **60 seconds** for a launch that has answered on this machine before. Its
+  package is already in npx's or uvx's cache, and a real start answers in
+  seconds.
+- **5 minutes** for a launch that never has, because npx or uvx may be
+  downloading the package, which is as silent on stdout as a hang. Which
+  launches have answered is `cache/acp-started.json` in the data directory,
+  keyed by the command line, so a new adapter version is a new launch. A
+  launch that runs out the short bound is taken off that list, because its
+  package may have been evicted from the cache and its next start should get
+  the long bound.
+
+A start that runs out its bound kills the process group and comes up failed:
+the teammate's state is `error`, and its conversation gets an error card,
+"Agent did not start", whose details name the agent, the bound and the command
+as it can be pasted into a terminal ("Claude Code didn't start within 60 s
+(/…/npx -y @agentclientprotocol/claude-agent-acp@0.88.0). Check that the
+command runs in a terminal."), with the last lines of its stderr. This is the
+same path an expired harness sign-in takes. A message sent to that teammate is
+written to its tape at once, and its turn starts the agent again; if that
+start runs out too, the turn fails with the same card.
+
+A slow or stalled start holds up only that teammate. Starts are behind each
+teammate's own gate, and on the wire every command that names a teammate is
+answered on that teammate's own lane of the socket
+([wire](wire.md)), so the other teammates' commands, Settings and
+the computer's status are answered meanwhile.
+
+The child dies with the driver: dropping it kills the process group. Quitting
+the app (and the updater's restart) ends the process without dropping
+anything, so the exit path calls `acp::end_every_agent`, which kills every
+group this process started and has not yet killed, including one still
+starting. `hotline serve` calls it when it stops. On Windows the job objects
+close with the process and take their trees with them.
+
 ### Steering an ACP turn
 
 A line sent while an ACP teammate works reaches the running turn when the

@@ -249,6 +249,7 @@ struct DeskAgents {
     root: PathBuf,
     log: Log,
     mcp_vault: Option<Arc<Vault>>,
+    acp_start: acp::StartBounds,
 }
 
 #[async_trait]
@@ -298,7 +299,8 @@ impl Agents for DeskAgents {
             tools,
         )
         .with_history(said)
-        .with_mcp(grant.servers, grant.missing);
+        .with_mcp(grant.servers, grant.missing)
+        .with_start_bounds(self.acp_start);
         let driver = match &self.mcp_vault {
             Some(vault) => driver.with_mcp_vault(vault.clone()),
             None => driver,
@@ -661,6 +663,7 @@ impl Room {
             root: log.root().to_path_buf(),
             log: log.clone(),
             mcp_vault: None,
+            acp_start: acp::StartBounds::default(),
         });
         Self::with_agents(log, keys, agents)
     }
@@ -671,12 +674,14 @@ impl Room {
         log: Log,
         keys: Arc<dyn ProviderKeys>,
         vault: Arc<Vault>,
+        acp_start: acp::StartBounds,
     ) -> Arc<Self> {
         let agents = Arc::new(DeskAgents {
             keys: keys.clone(),
             root: log.root().to_path_buf(),
             log: log.clone(),
             mcp_vault: Some(vault.clone()),
+            acp_start,
         });
         Self::with_agents_computers_and_vault(log, keys, agents, Computer::new(), Some(vault))
     }

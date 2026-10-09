@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { CloseIcon, HangUpIcon, PauseIcon, PhoneIcon, PlayIcon } from "../icons";
-import { HotlineMark } from "../ui/HotlineMark";
 import { Avatar } from "../ui/Avatar";
+import { CallToad } from "./CallToad";
+import { VoiceBars, WorkingRing, callWorking, stageRing } from "./CallStage";
+import { activeDeskId } from "../desks";
+import type { RosterEntry } from "../wire";
 import { type Call as CallSession, type CallPhase, closeCall, restartCall, useCallSnapshot } from "../voice/call";
 
 const WORDS: Record<CallPhase, string> = {
@@ -17,16 +20,22 @@ const WORDS: Record<CallPhase, string> = {
 
 /**
  * The chosen desk or teammate stays on the line while the window moves
- * between conversations. Pressing the face while they speak cuts in;
- * work and the transcript stay in the teammate's own conversation.
+ * between conversations. The desk is the toad, whose mouth the reply's
+ * audio opens; a teammate is their face. Your voice swells the disc; bars
+ * round the mark follow the reply's audio, and an arc runs round it while
+ * the teammate works off the call. Pressing the mark while they speak cuts
+ * in; work and the transcript stay in the teammate's own conversation.
  */
 export function CallFloat({
 	call,
 	names,
+	roster,
 	onOpenTeammate,
 }: {
 	call: CallSession;
 	names: (personaId: string) => string | undefined;
+	/** The desk on screen's roster; a call to another desk reads none of it. */
+	roster: readonly RosterEntry[];
 	onOpenTeammate(personaId: string): void;
 }) {
 	const state = useCallSnapshot(call);
@@ -47,6 +56,8 @@ export function CallFloat({
 		if (!live) again.current?.focus();
 	}, [live]);
 	const speaking = state.phase === "speaking" || state.phase === "thinking";
+	const working = callWorking(call.deskId == null || call.deskId === activeDeskId() ? roster : [], call.target?.personaId);
+	const ring = stageRing(state.phase, working);
 	return (
 		<aside className="call-float" aria-label={`Call with ${call.target?.name ?? "the desk"}`}>
 			<div className="call-top">
@@ -64,7 +75,7 @@ export function CallFloat({
 			<button
 				ref={stage}
 				type="button"
-				className="call-mark"
+				className={call.target === undefined ? "call-mark" : "call-mark call-mark-face"}
 				data-phase={state.phase}
 				title={speaking ? "Press to cut in" : undefined}
 				aria-label={speaking ? "Cut in" : WORDS[state.phase]}
@@ -74,8 +85,10 @@ export function CallFloat({
 					if (speaking) call.interrupt();
 				}}
 			>
-				{call.target === undefined ? <HotlineMark width={44} /> :
-					<Avatar id={call.target.personaId} name={call.target.name} hash={call.target.avatarHash} size={44} read={call.readAvatar} />}
+				{ring === "bars" && <VoiceBars call={call} />}
+				{ring === "working" && <WorkingRing />}
+				{call.target === undefined ? <CallToad call={call} phase={state.phase} /> :
+					<Avatar id={call.target.personaId} name={call.target.name} hash={call.target.avatarHash} size={56} read={call.readAvatar} />}
 			</button>
 
 			{state.cards.map((card) => (

@@ -48,6 +48,7 @@ fn idle(persona_id: &str) -> SessionInfo {
             fork: false,
             mcp_http: false,
             image: false,
+            additional_directories: false,
         },
         error: None,
     }
@@ -687,7 +688,8 @@ impl RoomHandle for Quiet {
             crate::contract::BackendChoice {
                 id: "hotline".to_string(),
                 name: "Hotline Agent".to_string(),
-                description: "Built in: runs on the desk's provider keys.".to_string(),
+                description: "Hotline's own agent. Runs any model from the providers you connect."
+                    .to_string(),
                 unavailable: None,
             },
             crate::contract::BackendChoice {
@@ -1705,6 +1707,7 @@ async fn a_draft_that_names_things_keeps_them() {
         backend_id: Some("cursor".to_string()),
         cwd: Some("/tmp/harbour".to_string()),
         reach: Some(crate::contract::Reach::Machine),
+        folders: None,
         model_id: Some("gpt-5".to_string()),
         effort_id: None,
         computer: None,
@@ -2301,6 +2304,7 @@ fn the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create() {
             backend_id: None,
             cwd: None,
             reach: None,
+            folders: None,
             model_id: None,
             effort_id: None,
             computer: None,
@@ -3256,6 +3260,7 @@ async fn session_set_model_accepts_an_arbitrary_id_on_an_acp_teammate() {
         backend_id: Some("cursor".to_string()),
         cwd: None,
         reach: None,
+        folders: None,
         model_id: None,
         effort_id: None,
         computer: None,
@@ -3382,6 +3387,7 @@ async fn session_set_config_refuses_an_effort_the_model_does_not_list() {
         backend_id: None,
         cwd: None,
         reach: None,
+        folders: None,
         model_id: Some(model.clone()),
         effort_id: None,
         computer: None,
@@ -3559,6 +3565,7 @@ async fn session_set_config_on_an_acp_teammate_goes_to_the_room() {
         backend_id: Some("cursor".to_string()),
         cwd: None,
         reach: None,
+        folders: None,
         model_id: None,
         effort_id: None,
         computer: None,
@@ -3666,6 +3673,7 @@ async fn session_start_writes_the_reported_model_on_an_acp_teammate() {
         backend_id: Some("cursor".to_string()),
         cwd: None,
         reach: None,
+        folders: None,
         model_id: None,
         effort_id: None,
         computer: None,
@@ -4774,6 +4782,78 @@ async fn voice_is_owner_only_through_the_real_handler() {
 }
 
 #[tokio::test]
+async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
+    use crate::credentials::tests::MemoryStore;
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
+    );
+    let room: Arc<dyn RoomHandle> = desk.clone();
+    let model = "parakeet-tdt-110m-en";
+    // A companion can neither see, fetch, remove nor hear with them. None of
+    // these is answered, so nothing here reaches the network.
+    for (command, params) in [
+        ("voice.models", json!({})),
+        ("voice.model_install", json!({"modelId":model})),
+        ("voice.model_cancel", json!({"modelId":model})),
+        ("voice.model_remove", json!({"modelId":model})),
+        (
+            "voice.transcribe",
+            json!({"mimeType":"audio/wav","data":"UklGRg=="}),
+        ),
+    ] {
+        let denied = remote_control_answer(
+            Seat::Phone,
+            &room,
+            &desk.log,
+            json!({"id":1,"cmd":command,"params":params}),
+        )
+        .await;
+        assert_eq!(denied["code"], FORBIDDEN, "{command}: {denied}");
+    }
+    for seat in [Seat::Desk, Seat::Owner] {
+        let listed = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            json!({"id":2,"cmd":"voice.models","params":{}}),
+        )
+        .await;
+        assert_eq!(listed["ok"], true, "{listed}");
+        // Nothing is installed until the owner asks.
+        let states: Vec<&str> = listed["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|model| model["state"].as_str().unwrap())
+            .collect();
+        assert_eq!(states, ["available", "available"]);
+        let unknown = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            json!({"id":3,"cmd":"voice.model_install","params":{"modelId":"../../vault"}}),
+        )
+        .await;
+        assert_eq!(unknown["ok"], false, "{unknown}");
+        let unheard = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            json!({"id":4,"cmd":"voice.transcribe","params":{"mimeType":"audio/wav","data":"UklGRg=="}}),
+        )
+        .await;
+        assert_eq!(unheard["ok"], false, "{unheard}");
+        assert!(
+            unheard["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("Download a speech model")),
+            "{unheard}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speech_and_budget() {
     use crate::credentials::tests::MemoryStore;
     let root = tempfile::tempdir().unwrap();
@@ -4999,13 +5079,15 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
     let empty = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
     assert_eq!(empty["ok"], true, "{empty}");
     let result = &empty["result"];
-    for job in ["images", "stt", "tts"] {
+    for (job, says) in [
+        ("images", "Connect"),
+        ("stt", "Download a speech model for the desk, or connect"),
+        ("tts", "Connect"),
+    ] {
         assert_eq!(result[job]["options"], json!([]), "{job}");
         assert!(
-            result[job]["unavailable"]
-                .as_str()
-                .unwrap()
-                .contains("Connect")
+            result[job]["unavailable"].as_str().unwrap().contains(says),
+            "{job}"
         );
         assert!(result[job].get("automatic").is_none());
         assert!(result[job].get("selected").is_none());

@@ -44,12 +44,55 @@ it.
 | Background work | `backgroundWork` | `false`, including on older records | Creating its own schedules and loops. Jobs the person creates over the desk wire carry `operatorCreated` and run without it; an agent tool cannot set that flag. |
 | Computer | `computer.enabled` | off | A containerized desktop, `--cap-drop=ALL`, `no-new-privileges`, with the workspace and the teammate's declared mounts bound in. It is a per-teammate capability, not a gateway server, and does not widen reach. Its threads share it through an exclusive lease, below. |
 | Secrets | `computer.secrets` | none | Named values from the operator's store (see below), in the environment of every job that computer runs. The computer redacts each value from what its tools answer and nothing returns one. A record from before the field, or a name nobody ticked, grants nothing. |
-| ACP harness | `backendId` other than `hotline` | Hotline Agent | Trust in that harness: its process, tools, configuration and permission policy are its own, outside Hotline's sandbox. Hotline's file callbacks for it stay in the workspace whatever its saved `reach` or advertised mode says. Its runtime mode is shown as *Externally managed*. |
+| Extra folders | `folders` | none, including on older records | Folders besides the workspace, each read-only unless `writable`. Under `workspace` reach Hotline Agent's file tools open each through its own cap-std handle and the confined shell binds or allows it (read-only or read-write) at its own path; nothing else outside the wall opens. `machine` reach makes them moot. Hotline's ACP file callbacks honour them the same way; a harness that advertises `additionalDirectories` is handed them, and its own reach stays its own. A computer mounts each at `/home/agent/folders/<name>`, `:ro` unless writable. Set only through `persona.create`/`persona.update`, which refuse `/`, the home directory or anything holding it, Hotline's data directory (other than a teammate's workspace inside it), the teammate's own workspace, overlapping folders and more than 16. |
+| ACP harness | `backendId` other than `hotline` | Hotline Agent | Trust in that harness: its process, tools, configuration and permission policy are its own, outside Hotline's sandbox. Hotline's file callbacks for it stay in the workspace and its granted folders whatever its saved `reach` or advertised mode says. Its runtime mode is shown as *Externally managed*. |
 
-Reach, gateway, collaboration, background work and the computer are
-independent axes. Changing one never changes another; in particular
+Reach, gateway, collaboration, background work, extra folders and the
+computer are independent axes. Changing one never changes another; in particular
 `machine` reach grants no gateway server, and neither ACP mode nor a
 computer counts as `machine` reach for collaboration.
+
+## Extra folders
+
+- **Default and old records:** `folders` absent is none, and every record
+  from before the field has none. No older reach, mount or path is turned
+  into a folder grant.
+- **Grant source:** the person, through `persona.create` and
+  `persona.update` at the desk or an owner seat. No agent tool sets it, and
+  the phone's narrow commands cannot name it. `wire/commands.rs`
+  `checked_folders` checks each path and stores the directory it resolves
+  to, before anything is revoked or written.
+- **Enforcement:** `tools::Workspace` opens each granted folder as its own
+  cap-std `Dir` and resolves an absolute path in it inside that handle, so
+  `..` and symlinks cannot leave it; a write, edit, create or ACP write in a
+  read-only one is refused before anything (even a parent directory) is
+  made. A folder whose name no longer resolves to the stored directory is
+  not opened. The confined shell gets the same list: Seatbelt `subpath`
+  rules with or without `file-write*`, and bubblewrap `--ro-bind`/`--bind`
+  before the workspace. Every handle carries the session's lease. The ACP
+  callback workspace (`driver/acp.rs` `callback_workspace`) is built with the
+  same folders. Windows offers no shell under workspace reach, as before;
+  its file tools are held to the folders.
+- **Revocation:** `folders` is a reattaching key, so a change invalidates
+  the teammate's lease before the new record is written: every handle built
+  with the old set refuses its next call, and the restarted session opens
+  the new set. A computer records the folders it was made with
+  (`HOTLINE_FOLDERS`) and is removed and made again at the next start when
+  they differ, so a folder taken away is no longer mounted.
+- **What Hotline does not enforce:** whole-machine reach already opens
+  everything, so its folders are advice in the preamble. An ACP harness is
+  handed the folders as `additionalDirectories` when it advertises them, and
+  what its own tools then reach is its own; ACP has no way to say a folder
+  is read-only, so only Hotline's callbacks hold it to that.
+- **Residual risk:** a writable folder is the agent's to change as much as
+  its workspace is, including any secret in it; a read-only one can still
+  be read whole and what is read can leave over the network. A workspace
+  Hotline made, in its data directory, cannot be granted, so its
+  `.hotline-home` stays its teammate's; a folder the person chose as two
+  teammates' workspace is theirs to share. Remaking a computer when its folders change keeps
+  its named volumes (home, store, scratch) on Docker and Podman, but Apple
+  container keeps nothing but the rw layer, so its desktop starts over.
+  A file already written before the change stays written.
 
 ## Accepted risks and known limits
 
@@ -139,6 +182,50 @@ replay, pending, mode, bounds, budget, STT-accounting, direct origin, live commi
 cancellation and streaming failure tests in `voice::tests` and
 `session::tests`. Provider adapter tests use local HTTP/WebSocket fixtures;
 live provider and iPhone compatibility still require device verification.
+
+## The desk's own speech models
+
+The desk can hear with a speech model on its own machine (`voice.md`, Hearing
+on the desk). It is an operator action on the desk, not a capability of any
+teammate: no tool, prompt or driver path reaches it, and it hears only audio
+the owner's own clients send to calls and to `voice.transcribe`.
+
+- **Default.** Nothing is installed, offered or loaded. A room from before
+  the models has none.
+- **Grant source.** The owner's `voice.model_install`, over the local desk or
+  an owner seat. `voice.models`, `voice.model_install`, `voice.model_cancel`,
+  `voice.model_remove` and `voice.transcribe` are absent from the companion
+  allowlist in `wire::Seat::permits`, so a phone companion is refused all of
+  them; no agent tool names them.
+- **Enforcement.** The core downloads only the archives in its catalogue,
+  each pinned by size and SHA-256 in `local/install.rs`; an archive is hashed
+  as it arrives and deleted unread unless it matches. Only the four file
+  names a model is made of are taken from it, into a directory of Hotline's
+  choosing, so no path, link or extra entry in an archive chooses where a
+  byte lands. A model appears by renaming a complete directory into place.
+  Before a model's first load in a run each file is hashed against what was
+  recorded when it was unpacked, because the engine's C++ exceptions cannot
+  be caught and a damaged file would stop the desk; audio under a tenth of a
+  second, which also throws, never reaches it.
+- **What it changes for spending.** Its price is zero and `voice.transcribe`
+  asks no budget, so a zero limit never stops it and it never spends.
+- **Residual risk.** The pin trusts what NVIDIA trained and sherpa-onnx
+  converted on the day it was pinned; a model is data that onnxruntime
+  parses, so a hostile one could attack the parser, which is why only pinned
+  archives are fetched. The engine's static library is downloaded by
+  `sherpa-onnx-sys`'s build script from that project's GitHub release for
+  the exact crate version in `Cargo.lock`; TLS is the only check on the
+  archive itself. Anyone who can write the data directory can replace a
+  model's files and its record together, as they can every other file there.
+  Audio sent to `voice.transcribe` is decoded in the desk's process, AAC by
+  symphonia, which is pure Rust.
+
+Proofs: `wire::tests::the_desks_speech_models_are_the_owners_through_the_real_handler`;
+the headless `tests/local_speech.rs::a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`;
+`voice::speech::local::tests` for what counts as installed, a damaged model
+refused before loading and a click heard as nothing; `voice::ledger::tests::the_desks_own_hearing_costs_nothing_batch_or_live`.
+`a_real_model_installs_and_hears_what_was_said` runs a real model when
+`HOTLINE_TEST_SPEECH_MODEL` names one.
 
 ## Generated images (BRO-174)
 
@@ -517,7 +604,9 @@ extend; when a change adds a boundary, it adds a row.
 | Must hold | Proof | Needs |
 | --- | --- | --- |
 | Finalized device text uses the existing owner/local desk call authority; companions cannot start, commit or subscribe; duplicate commits and mixed input modes are refused; disconnect cancels further input; direct replies retain the actual agent session and core-assigned call/turn origin, with no new grants or remote STT spend | `wire/tests.rs` `voice_is_owner_only_through_the_real_handler`; `tests/voice.rs` `device_text_reuses_the_direct_agent_session_and_call_origin`; `voice/tests.rs` `finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn`, `text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds`, `canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call`, `text_input_keeps_budget_gating_before_dispatch` | — |
+| The desk's speech models are installed only when an owner or the desk asks: a companion can neither list, fetch, cancel, remove nor transcribe; an archive that is not the pinned one is deleted before it is unpacked; only a model's own files are taken, whatever paths and links the archive holds; a cancelled download leaves nothing; an installed model is offered and chosen for hearing, a removed one is not; a damaged model is refused before the engine loads it | `wire/tests.rs` `the_desks_speech_models_are_the_owners_through_the_real_handler`; `tests/local_speech.rs` `a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`; `voice/speech/local/tests.rs` `a_damaged_model_is_refused_before_the_engine_could_throw_on_it`, `a_model_is_installed_only_whole_and_under_its_own_name` | — |
 | Workspace reach keeps another project's `.env` out of the read tool and the shell, over the wire, and the ledger says what is offered | `tests/desk.rs` `workspace_reach_keeps_another_projects_env_out_of_the_tools` | Linux with bubblewrap |
+| Extra folders: granted and checked over the real wire, every refusal leaving the record as it was; in a real Hotline Agent turn a read-only folder is read and not changed, a writable one is changed, a path outside every grant and a link out of a folder are refused, and the confined shell is held the same way; narrowing or removing them over the wire is in force at the next tool call; a teammate without the field reaches none; a folder swapped for a link after it was granted opens nothing; a revoked handle refuses its folders; Seatbelt and bubblewrap grant each folder with its mode; Hotline's ACP callbacks honour the grants and a harness that takes `additionalDirectories` is handed them; a computer mounts them `:ro` unless writable, cannot have them covered by a declared mount, and is made again when the set changes; the preamble names them and who enforces them | `tests/folders.rs` `granted_folders_hold_the_real_tools_and_a_change_takes_them_back`, `a_folder_that_cannot_be_granted_is_refused_and_changes_nothing`; `tools/workspace.rs` `a_granted_folder_is_read_by_absolute_path_and_changed_only_when_writable`, `a_path_outside_every_grant_or_out_through_a_link_is_refused`, `a_folder_swapped_for_a_link_or_never_granted_opens_nothing`, `a_revoked_handle_refuses_its_folders_too`, `whole_machine_reach_keeps_no_folder_wall`; `tools/shell/macos.rs` `granted_folders_are_in_the_profile_with_their_modes`, `granted_folders_are_open_to_the_shell_as_granted`; `tools/shell/linux.rs` `granted_folders_are_bound_with_their_modes_before_the_workspace`, `granted_folders_are_open_to_the_shell_as_granted`; `driver/acp.rs` `acp_callbacks_honour_granted_folders`, `session_new_hands_the_granted_folders_to_a_harness_that_takes_them`; `computer/mod.rs` `granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered`, `a_computer_made_with_other_folders_is_made_again`; `session/tests.rs` `the_preamble_names_the_granted_folders_and_who_enforces_them` | the shell rows: a Mac, or Linux with bubblewrap |
 | Workspace tools refuse parent paths and a path outside the wall; machine reach resolves them; the overflow directory is the one read outside | `tools/workspace.rs` `parent_paths_are_rejected`, `reaching_the_machine_resolves_absolute_paths_and_parents`, `workspace_reach_can_read_the_teammates_overflow_directory`, `machine_reach_ignores_the_overflow_root` | — |
 | A revoked workspace handle refuses reads and writes | `tools/workspace.rs` `a_revoked_workspace_handle_refuses_reads_and_writes` | — |
 | Confined shell: writes inside, refuses writes and reads outside including from child processes, private `/tmp`, private persistent home, no host environment, a home symlink cannot escape, synthetic parents read-only | `tools/shell.rs` `workspace_reach_*`, `workspace_shell_*`, `a_private_home_symlink_cannot_create_files_outside`, `synthetic_parent_directories_are_read_only` | Linux with bubblewrap |
@@ -1057,8 +1146,10 @@ made it so.
   covers viewer-token forwarding and remote revocation.
   `hotline-app/tests/window_capabilities.rs` uses Tauri's real IPC dispatcher
   with the shipping generated ACL to prove main-command access, the viewer's
-  four-command limit, denied plugin access, and refusal from unrelated windows
-  and remote origins. It also keeps both platform handler lists, the manifest
+  four-command limit, denied plugin access, that only the main window may
+  register, unregister and unregister all global shortcuts (and may not ask
+  which are registered), and refusal from unrelated windows and remote
+  origins. It also keeps both platform handler lists, the manifest
   and the main permission set synchronized.
 - **Residual risk:** a stolen unspent token can win the upgrade race for its one
   persona and access that computer's screen, controls and files. The header can

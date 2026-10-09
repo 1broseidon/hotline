@@ -7,8 +7,13 @@
  * platform's own apps are: a Mac hand reaches for Cmd+, without thinking,
  * and Ctrl+N in a Mac text field is "next line". The menu bar's
  * accelerators (hotline-app) say the same.
+ *
+ * The rows with a `hotkey` are heard by the system, not the window, and
+ * their keys are whatever the person picked in Settings › General
+ * (hotkeys.ts), so their `keys` are read when asked for.
  */
 
+import { hotkeyLabel, hotkeys, type HotkeyId } from "./hotkeys";
 import { platform } from "./native";
 
 const MAC = platform() === "macos";
@@ -22,6 +27,7 @@ export const CHORD_GROUPS = [
 	{ id: "room", title: "Room" },
 	{ id: "conversation", title: "Conversation" },
 	{ id: "panes", title: "Panes" },
+	{ id: "anywhere", title: "Anywhere on this computer" },
 ] as const;
 
 export type ChordGroup = (typeof CHORD_GROUPS)[number]["id"];
@@ -38,8 +44,10 @@ export type Chord = {
 	label: string;
 	/** Shown on Help and in titles. The platform's chord key, matching the listener. */
 	keys: string;
-	/** What the window listener compares. A field-owned chord has none. */
+	/** What the window listener compares. A field-owned or system-wide chord has none. */
 	match?: ChordMatch;
+	/** A system-wide shortcut the person sets; `keys` is empty when it is off. */
+	hotkey?: HotkeyId;
 };
 
 export const CHORDS: readonly Chord[] = [
@@ -60,10 +68,18 @@ export const CHORDS: readonly Chord[] = [
 	{ id: "interrupt", group: "conversation", label: "Interrupt", keys: "Esc" },
 	{ id: "sidebar", group: "panes", label: "Team", keys: mod("B"), match: { mod: true, key: "b", code: "KeyB" } },
 	{ id: "close", group: "panes", label: "Close", keys: "Esc", match: { key: "Escape" } },
+	{ id: "dictate", group: "anywhere", label: "Dictate: tap to start and stop, or hold to talk", keys: "", hotkey: "dictate" },
+	{ id: "conversation", group: "anywhere", label: "Conversation: call the open teammate, or hang up", keys: "", hotkey: "conversation" },
 ];
 
+/** A row with its keys as they are now: a system-wide one's are the person's. */
+export function withCurrentKeys(chord: Chord): Chord {
+	return chord.hotkey === undefined ? chord : { ...chord, keys: hotkeyLabel(hotkeys()[chord.hotkey]) };
+}
+
 export function chordKeys(id: string): string {
-	return CHORDS.find((chord) => chord.id === id)?.keys ?? "";
+	const chord = CHORDS.find((one) => one.id === id);
+	return chord === undefined ? "" : withCurrentKeys(chord).keys;
 }
 
 /** The compact mark the overflow menu uses: ⌘I on a Mac, ⌃I elsewhere, not Ctrl+I. */

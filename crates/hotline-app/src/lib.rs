@@ -10,8 +10,11 @@
 //! is the one that hands a click back. Two commands open or save a file a
 //! teammate sent, and refuse any other path (`files`); a few more carry
 //! files to and from a desk on a server, touching only what the person
-//! picked, dropped or chose to save (`transfer`). The judgement for
-//! all of it lives in the page, not here. The page draws the window's top strip on
+//! picked, dropped or chose to save (`transfer`). On macOS what the person
+//! says on a call or dictates can become text on the machine itself
+//! (`speech`). The page registers the person's global shortcuts and hears
+//! them pressed and released from any app. The judgement for all of it
+//! lives in the page, not here. The page draws the window's top strip on
 //! every platform. On macOS the menu bar is this process's, and its items
 //! emit an event the window handles. On Linux and Windows there is no menu
 //! bar and no system frame: the strip carries the window's controls too,
@@ -28,6 +31,7 @@ mod instance;
 mod laptop;
 #[cfg(target_os = "linux")]
 mod linux_package;
+mod speech;
 mod transfer;
 mod updater;
 
@@ -376,7 +380,8 @@ pub fn run() {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_clipboard_manager::init());
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build());
     #[cfg(not(target_os = "macos"))]
     let builder = builder.plugin(tauri_plugin_notification::init());
     #[cfg(target_os = "macos")]
@@ -401,6 +406,11 @@ pub fn run() {
         updater::check_update,
         updater::install_update,
         updater::cancel_update,
+        speech::speech_capability,
+        speech::speech_permit,
+        speech::speech_start,
+        speech::speech_stop,
+        speech::speech_cancel,
     ]);
     #[cfg(not(target_os = "macos"))]
     let builder = builder.invoke_handler(tauri::generate_handler![
@@ -423,6 +433,11 @@ pub fn run() {
         updater::check_update,
         updater::install_update,
         updater::cancel_update,
+        speech::speech_capability,
+        speech::speech_permit,
+        speech::speech_start,
+        speech::speech_stop,
+        speech::speech_cancel,
     ]);
     builder
         .manage(desks.clone())
@@ -450,6 +465,11 @@ pub fn run() {
                 .center()
                 .visible(false)
                 .on_page_load(move |window, payload| {
+                    // A page that reloads mid-utterance no longer knows its
+                    // session id, and the microphone would stay open for it.
+                    if matches!(payload.event(), PageLoadEvent::Started) {
+                        tauri::async_runtime::spawn(speech::speech_cancel(String::new()));
+                    }
                     if matches!(payload.event(), PageLoadEvent::Finished) {
                         shown.call_once(|| {
                             let _ = window.show();

@@ -3,7 +3,7 @@ import type { Attachment, ConfigChoice, ScheduledJob, ThreadId, TranscriptEvent 
 import { sideTitle } from "../links";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
+import { ClockIcon, ComputerIcon, HangUpIcon, MoreIcon, PhoneIcon, ProgressRing, WarningIcon } from "../icons";
 import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
@@ -61,13 +61,17 @@ export function Conversation({
 	models,
 	onSaid,
 	onCall,
+	onHangUp,
 }: {
 	entry: RosterEntry;
 	/** The room's models, for the model picker in the band. */
 	models: ConfigChoice[];
 	/** Where the band's model or effort picker hands a refusal. */
 	onSaid(said: string | null): void;
+	/** Rings this teammate, where the desk can put a call through to them. */
 	onCall?: (() => void) | undefined;
+	/** Ends the call, while one with this teammate is live. */
+	onHangUp?: (() => void) | undefined;
 	roster: RosterEntry[];
 	jobs: ScheduledJob[];
 	/** What the band's model or effort picker was refused with, or nothing. */
@@ -410,6 +414,18 @@ export function Conversation({
 						<ClockIcon className="text-ink-3" />
 						{jobs.length === 1 ? "1 scheduled" : `${jobs.length} scheduled`}
 						<span className="text-ink-3">{scheduleDetail}</span>
+					</button>
+				)}
+
+				{/* A call is its own key, beside the teammate's other ways in: the
+				 * composer's voice is dictation where this Mac can hear. */}
+				{onHangUp !== undefined ? (
+					<button type="button" className="control btn-icon" title={`End the call with ${persona.name}`} aria-label="End the call" onClick={onHangUp}>
+						<HangUpIcon />
+					</button>
+				) : onCall !== undefined && (
+					<button type="button" className="control btn-icon" title={`Call ${persona.name}`} aria-label={`Call ${persona.name}`} onClick={onCall}>
+						<PhoneIcon />
 					</button>
 				)}
 

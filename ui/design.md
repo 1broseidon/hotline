@@ -38,12 +38,22 @@ One family, **Workbench**, for every screen:
   desk phone's handset sits in the cradle, cut from them by a gap. At
   24px and under, and on the mark that moves, it draws the brow: a slim,
   straight handset whose wider cut survives as a pixel
-  (`ui/src/ui/receiver.ts` holds both). The titlebar and the tray wear
-  the toad alone; the handset is what the mark does, and chrome is at
-  rest. In chrome it is ink-3, the colour of a reading, never the accent:
-  the accent is for what is happening, and the mark is furniture. The app
-  tile is the drawing with its handset in the accent on a dark rounded
-  square (`assets/hotline-tile.svg`).
+  (`ui/src/ui/receiver.ts` holds both). The handset is what the mark
+  does, at work; the logo is at rest. So the toad alone is the logo and
+  the app icon: the titlebar, the tray, the welcome, About, and the app
+  tile, the toad in the accent on a dark rounded square
+  (`assets/hotline-tile.svg`). In chrome it is ink-3, the colour of a
+  reading, never the accent: the accent is for what is happening, and the
+  mark is furniture. On a call the desk is that toad with a mouth, cut
+  through like the pupils (`ui/src/components/CallToad.tsx`, the phone's
+  call toad): the reply's own playing audio opens it and lifts the toad,
+  thinking looks up and bobs, hold droops the eyes, and it blinks. A
+  teammate on a call is their face instead. Round either, as on the
+  phone (`ui/src/components/CallStage.tsx`): the disc swells with your
+  voice, never the toad; bars in the accent follow the reply's audio;
+  and an arc in the accent runs round while the teammate works off the
+  call. Reduced motion holds it all still, the mouth half open and the
+  bars short while the desk speaks.
 - The **well** is the window's ground. The rail stands directly in it.
 - A **pane** is a rounded canvas set 8px into the well with one hairline
   at its edge and a 1px light along its top: the conversation, the

@@ -89,6 +89,16 @@ pub struct Persona {
     /// How far Hotline Agent's tools reach. Absent means the working directory.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reach: Option<Reach>,
+    /// Folders besides the workspace this teammate may read, and change where
+    /// a grant is `writable`. Absent means none, including on every record
+    /// from before the field: no older reach or mount is translated into a
+    /// grant. Set only by the person through `persona.update` or
+    /// `persona.create`, which check each path (see [`FolderGrant`]).
+    /// Under workspace reach Hotline Agent's file tools and confined shell
+    /// enforce it; Hotline's ACP file callbacks honour it for a harness; a
+    /// computer mounts it; whole-machine reach makes it moot but keeps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folders: Option<Vec<FolderGrant>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -182,6 +192,26 @@ pub enum Reach {
     #[default]
     Workspace,
     Machine,
+}
+
+/// One folder a teammate may reach besides its workspace.
+///
+/// The path is stored as it was checked when granted: absolute, an existing
+/// directory, canonical (so no symlink in it points somewhere else), not the
+/// workspace or inside it, not inside another granted folder, and not `/`,
+/// the home directory or anything holding it, or Hotline's data directory
+/// or anything holding it or inside it, another teammate's workspace there
+/// included.
+/// A folder that later stops being that same directory is left out when a
+/// session opens it rather than followed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts")]
+pub struct FolderGrant {
+    pub path: String,
+    /// Whether the teammate may create, change and delete files in it.
+    /// Absent is false: a grant is read-only unless the person said more.
+    #[serde(default)]
+    pub writable: bool,
 }
 
 /// Inherit everything, inherit nothing, or name what is inherited. `Some` is
@@ -728,6 +758,10 @@ pub struct PersonaDraft {
     pub cwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reach: Option<Reach>,
+    /// Extra folders from the start, checked as `persona.update` checks
+    /// them. Absent or empty is none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folders: Option<Vec<FolderGrant>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -966,6 +1000,11 @@ pub struct SessionCapabilities {
     pub fork: bool,
     pub mcp_http: bool,
     pub image: bool,
+    /// The harness takes ACP's `additionalDirectories`, so a teammate's extra
+    /// folders are handed to it when a session opens. False means the
+    /// harness was not told of them; its own reach is still its own.
+    #[serde(default)]
+    pub additional_directories: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -2191,9 +2230,9 @@ pub struct BackendChoice {
 
 /// Where a fresh room stands on its way to a first turn, as the welcome
 /// pane reads it. Derived from what the room already knows — its credentials,
-/// the harnesses this machine can start, its default backend and its roster —
-/// never from a stored "seen" flag: the pane is on screen exactly as long as
-/// there is nothing else to show.
+/// the harnesses this machine can start, its default backend and its roster,
+/// tombstones included — never from a stored "seen" flag: the pane is on
+/// screen exactly while no teammate has ever been made here.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -2210,6 +2249,10 @@ pub struct Welcome {
     pub can_run: bool,
     /// How many teammates the room has. Past zero the pane is gone.
     pub teammates: usize,
+    /// A teammate has been made in this room, whether or not one is left.
+    /// A room that is set up and empty opens on New teammate, not on the
+    /// welcome: it has been through setup once already.
+    pub set_up: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -2510,6 +2553,50 @@ pub struct CapabilityOptions {
     pub spending: CapabilitySpending,
 }
 
+/// Where one of the desk's own speech models stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SpeechModelState {
+    Available,
+    Downloading,
+    Unpacking,
+    Installed,
+}
+
+/// A model the desk can turn speech into text with on its own machine, which
+/// the owner downloads once. Nothing is installed until they ask.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct SpeechModel {
+    pub id: String,
+    pub name: String,
+    /// What it hears and how it trades accuracy for speed, in a few words.
+    pub detail: String,
+    pub download_bytes: u64,
+    /// What it takes on disk once installed.
+    pub disk_bytes: u64,
+    /// The model's maker and licence, as the licence asks to be credited.
+    pub credit: String,
+    pub licence_url: String,
+    pub state: SpeechModelState,
+    /// How much has arrived, while it downloads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received_bytes: Option<u64>,
+    /// Why the last download failed, until the next one starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// What the desk's own model heard in one clip.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceTranscript {
+    pub text: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
@@ -2657,6 +2744,22 @@ pub enum Command {
     VoiceHold { call_id: String, hold: bool },
     #[serde(rename = "voice.call_end")]
     VoiceCallEnd { call_id: String },
+    /// The desk's own speech models and where each stands. Owner only, like
+    /// the rest of `voice.*`; a download in progress is polled here.
+    #[serde(rename = "voice.models")]
+    VoiceModels {},
+    /// Starts downloading a model. The download is checked against the hash
+    /// Hotline pins for it before anything of it is unpacked.
+    #[serde(rename = "voice.model_install")]
+    VoiceModelInstall { model_id: String },
+    #[serde(rename = "voice.model_cancel")]
+    VoiceModelCancel { model_id: String },
+    #[serde(rename = "voice.model_remove")]
+    VoiceModelRemove { model_id: String },
+    /// One clip heard by the desk's own model, outside any call: a 16 kHz
+    /// mono PCM16 WAV or AAC in MP4, at most two minutes.
+    #[serde(rename = "voice.transcribe")]
+    VoiceTranscribe { mime_type: String, data: String },
     /// Listener and pairing controls require an owner or the local desk.
     #[serde(rename = "remote.status")]
     RemoteStatus {},

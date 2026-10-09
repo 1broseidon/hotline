@@ -7,7 +7,7 @@ use super::{
     metering::{BUDGET_ERROR, Budget},
     settings::VoiceSettings,
 };
-use crate::contract::{Command, ModelCost, ScheduleKind, VoiceModel};
+use crate::contract::{Command, CredentialKind, ModelCost, ScheduleKind, VoiceModel};
 use crate::log::{Log, StreamId};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
@@ -589,6 +589,16 @@ impl ProviderDispatcher {
                 cache_read: None,
                 cache_write: None,
             });
+        // A signed-in plan, or a model served on the owner's own network, is not
+        // billed per token: metering it would spend the dollar limits on money
+        // nobody pays. Only an API key's provider charges what its catalogue says.
+        let price = billed(
+            model
+                .split_once('/')
+                .and_then(|(provider, _)| vault.connection(provider))
+                .map(|(credential, _)| credential.credential_kind),
+            price,
+        );
         if ![price.input, price.output]
             .iter()
             .all(|usd| usd.is_finite() && *usd >= 0.0)
@@ -602,6 +612,20 @@ impl ProviderDispatcher {
             effort,
             price,
         }))
+    }
+}
+
+/// What the call assistant pays per token: nothing on a sign-in or a local
+/// server, the catalogue's price on an API key.
+fn billed(kind: Option<CredentialKind>, price: ModelCost) -> ModelCost {
+    match kind {
+        Some(CredentialKind::Oauth | CredentialKind::Local) => ModelCost {
+            input: 0.0,
+            output: 0.0,
+            cache_read: None,
+            cache_write: None,
+        },
+        _ => price,
     }
 }
 
@@ -966,6 +990,24 @@ fn tools(context: Context) -> Vec<DynamicTool> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_signed_in_or_local_call_assistant_costs_nothing_and_a_key_pays_its_price() {
+        let catalogue = ModelCost {
+            input: 0.2,
+            output: 0.5,
+            cache_read: None,
+            cache_write: None,
+        };
+        for kind in [CredentialKind::Oauth, CredentialKind::Local] {
+            let price = billed(Some(kind), catalogue.clone());
+            assert_eq!((price.input, price.output), (0.0, 0.0), "{kind:?}");
+        }
+        for kind in [Some(CredentialKind::ApiKey), None] {
+            let price = billed(kind, catalogue.clone());
+            assert_eq!((price.input, price.output), (0.2, 0.5));
+        }
+    }
+
     use super::*;
     use axum::{Router, body::Bytes, routing::post};
     use std::sync::Mutex;
@@ -1006,7 +1048,8 @@ mod tests {
                     base_url: url,
                     api: crate::contract::OpenAiApi::ChatCompletions,
                     models: vec!["slow-large".into(), "fast-mini".into()],
-                    secret: None,
+                    // A key, so the fixture bills per token as a paid provider does.
+                    secret: Some("fixture-key".into()),
                 },
             )
             .unwrap();
@@ -1092,7 +1135,8 @@ mod tests {
                     base_url: url,
                     api: crate::contract::OpenAiApi::ChatCompletions,
                     models: vec!["fast-mini".into()],
-                    secret: None,
+                    // A key, so the fixture bills per token as a paid provider does.
+                    secret: Some("fixture-key".into()),
                 },
             )
             .unwrap();
@@ -1188,7 +1232,8 @@ mod tests {
                         base_url: "http://127.0.0.1:9/v1".into(),
                         api: crate::contract::OpenAiApi::ChatCompletions,
                         models: models.iter().map(|model| model.to_string()).collect(),
-                        secret: None,
+                        // A key, so the fixture bills per token as a paid provider does.
+                        secret: Some("fixture-key".into()),
                     },
                 )
                 .unwrap()

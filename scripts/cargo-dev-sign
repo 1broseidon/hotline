@@ -18,14 +18,18 @@ Set HOTLINE_DEV_SIGN_IDENTITY to choose the certificate; otherwise the first
 "Apple Development" identity in the keychain is used, and with none at all
 the binary stays unsigned as before.
 """
+import ctypes
 import json
 import os
 import platform
 import re
+import shutil
 import subprocess
 import sys
 
 IDENTIFIER = "dev.hotline.app.dev"
+# Apple's posix_spawn flag that replaces the calling process, as execve does.
+POSIX_SPAWN_SETEXEC = 0x0040
 
 
 def identity():
@@ -79,12 +83,47 @@ def main(argv):
         split = rest.index("--")
         flags, app_args = rest[:split], rest[split + 1:]
     executable = build(flags)
-    if executable:
-        sign(executable)
     if command == "run":
         if not executable:
             sys.exit("cargo-dev-sign: cargo build produced no executable to run")
-        os.execv(executable, [executable, *app_args])
+        # Run a signed copy: another cargo build (a test run, an editor's
+        # check) can relink the original between signing and exec, and the
+        # app would start unsigned, a stranger to the keychain.
+        running = executable + "-dev"
+        shutil.copy2(executable, running)
+        sign(running)
+        exec_responsible(running, [running, *app_args])
+    elif executable:
+        sign(executable)
+
+
+def exec_responsible(executable, args):
+    """Becomes the app, as exec does, but as its own responsible process.
+
+    macOS asks the responsible process's Info.plist for a privacy prompt's
+    reason. A bare binary started from a shell is the responsibility of
+    whatever launched that shell (a terminal, an editor, another app), so
+    asking for speech recognition there is a TCC privacy violation that
+    kills the dev app. Disclaiming makes the app answer for itself with the
+    Info.plist embedded in it, as an installed Hotline.app does.
+    POSIX_SPAWN_SETEXEC keeps the PID, so `tauri dev` still watches and
+    stops the right process. Anything unexpected falls back to plain exec.
+    """
+    try:
+        libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+        attributes = ctypes.c_void_p()
+        if libsystem.posix_spawnattr_init(ctypes.byref(attributes)) == 0:
+            libsystem.posix_spawnattr_setflags(ctypes.byref(attributes), ctypes.c_short(POSIX_SPAWN_SETEXEC))
+            libsystem.responsibility_spawnattrs_setdisclaim(ctypes.byref(attributes), 1)
+            argv = (ctypes.c_char_p * (len(args) + 1))(*[os.fsencode(arg) for arg in args], None)
+            environ = [os.fsencode(f"{key}={value}") for key, value in os.environ.items()]
+            envp = (ctypes.c_char_p * (len(environ) + 1))(*environ, None)
+            pid = ctypes.c_int()
+            # Returns only on failure: on success this process is the app.
+            libsystem.posix_spawn(ctypes.byref(pid), os.fsencode(executable), None, ctypes.byref(attributes), argv, envp)
+    except (OSError, AttributeError):
+        pass
+    os.execv(executable, args)
 
 
 if __name__ == "__main__":

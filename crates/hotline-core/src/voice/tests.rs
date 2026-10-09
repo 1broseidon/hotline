@@ -452,6 +452,34 @@ async fn device_goodbye_needs_no_fabricated_audio_or_dispatcher() {
 }
 
 #[tokio::test]
+async fn zero_limits_leave_a_free_voice_ready_and_turn_a_paid_one_off() {
+    for (subscription, ready) in [(true, true), (false, false)] {
+        let fake = Arc::new(Fake {
+            subscription,
+            ..Fake::default()
+        });
+        let (_root, desk, calls) = desk(with_fake(fake));
+        desk.log
+            .append(
+                &StreamId::Room,
+                &crate::room::room_event(
+                    "setting",
+                    json!({"id":"spending", "value":{"dayUsd":0,"monthUsd":0}}),
+                ),
+            )
+            .unwrap();
+        let status = calls.status_for(VoiceInputMode::Text);
+        assert_eq!(
+            status.direct_available, ready,
+            "subscription {subscription}"
+        );
+        if !ready {
+            assert!(status.unavailable.unwrap().starts_with("Paid voice is off"));
+        }
+    }
+}
+
+#[tokio::test]
 async fn text_input_keeps_budget_gating_before_dispatch() {
     let fake = Arc::new(Fake::default());
     let (_root, desk, calls) = desk(with_fake(fake.clone()));
@@ -460,6 +488,8 @@ async fn text_input_keeps_budget_gating_before_dispatch() {
         .start_with_input(&id, None, false, VoiceInputMode::Text, desk.clone())
         .unwrap();
     let (_, mut rx) = calls.subscribe(&id).unwrap();
+    // A cent spent, then the caps lowered to nothing: today's budget is gone.
+    calls.ledger.charge(Kind::Dispatcher, 0.01);
     desk.log
         .append(
             &StreamId::Room,

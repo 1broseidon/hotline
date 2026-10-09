@@ -35,12 +35,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
+          # macOS 26's Xcode compiles SpeechAnalyzer (Swift 6.2); macos-15's
+          # older Xcode would ship only the older on-device recognizer.
+          - runner: macos-26
             target: aarch64-apple-darwin
             suffix: macos_aarch64
           # Intel Macs are built on Apple silicon: GitHub's Intel runner is its
           # slowest, and Rust cross-compiles to x86_64 natively.
-          - runner: macos-15
+          - runner: macos-26
             target: x86_64-apple-darwin
             suffix: macos_x86_64
             cross: true
@@ -56,6 +58,13 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+      # The speech engine is linked from an archive checked against its pinned
+      # hash, never fetched by the build itself (scripts/fetch-speech-engine).
+      - name: Fetch the pinned speech engine
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
 
       - name: Tag must match the workspace version
         if: github.event_name == 'push'
@@ -221,6 +230,13 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+      # The speech engine is linked from an archive checked against its pinned
+      # hash, never fetched by the build itself (scripts/fetch-speech-engine).
+      - name: Fetch the pinned speech engine
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
       - uses: Swatinem/rust-cache@v2
         with:
           key: server-${{ matrix.suffix }}

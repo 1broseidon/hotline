@@ -6,6 +6,7 @@ import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import type { McpOAuthStatus } from "../wire";
 import { DEFAULT_IDLE_HOURS, useModelsRevision, useRawSetting, useRoomSettings } from "../room";
+import { recheckVoiceSupport } from "../voice/call";
 import { BackKey, Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
@@ -21,6 +22,7 @@ import { SkillsSection } from "./Skills";
 import { UseFor } from "./UseFor";
 import { tagsFor } from "../useFor";
 
+import { HotkeysSection } from "./HotkeysSection";
 import { UpdatesSection } from "./UpdatesSection";
 import { RemoteSection } from "./RemoteSection";
 import { onServer } from "../serverFiles";
@@ -98,7 +100,17 @@ export function SettingsRail({
  * at a time, chosen in the rail, each a column of grouped rows. What a
  * teammate is, is not here; that is the teammate's own pane.
  */
-export function Settings({ section, onBack, onAddDesk }: { section: SettingsSection; onBack?: () => void; onAddDesk?: () => void }) {
+export function Settings({
+	section,
+	onSection,
+	onBack,
+	onAddDesk,
+}: {
+	section: SettingsSection;
+	onSection?: (section: SettingsSection) => void;
+	onBack?: () => void;
+	onAddDesk?: () => void;
+}) {
 	const settings = useRoomSettings();
 	const [refusal, setRefusal] = useState<string | null>(null);
 
@@ -132,6 +144,7 @@ export function Settings({ section, onBack, onAddDesk }: { section: SettingsSect
 							onIdleHours={(hours) => patch({ chapterIdleHours: hours })}
 							onBackend={(id) => patch({ defaultBackendId: id })}
 							onDefaultModel={(id) => patch({ defaultModelId: id })}
+							onProviders={onSection === undefined ? undefined : () => onSection("providers")}
 						/>
 					)}
 					{section === "computer" && (
@@ -178,6 +191,7 @@ function GeneralSection({
 	onIdleHours,
 	onBackend,
 	onDefaultModel,
+	onProviders,
 }: {
 	idleHours: number;
 	defaultBackendId: string;
@@ -185,6 +199,7 @@ function GeneralSection({
 	onIdleHours(hours: number): void;
 	onBackend(id: string): void;
 	onDefaultModel(id: string | null): void;
+	onProviders: (() => void) | undefined;
 }) {
 	const [hours, setHours] = useState(String(idleHours));
 	const [backends, setBackends] = useState<BackendChoice[]>([]);
@@ -224,6 +239,7 @@ function GeneralSection({
 	return (
 		<>
 			<AppearanceSection />
+			<HotkeysSection />
 			<section>
 				<h3 className="group-title">Chapters</h3>
 				<div className="grouped">
@@ -250,7 +266,7 @@ function GeneralSection({
 			</section>
 			<section>
 				<h3 className="group-title" id="setting-backend">
-					New teammates run on
+					New teammates use
 				</h3>
 				{backends.length > 0 ? (
 					<BackendPicker
@@ -259,6 +275,7 @@ function GeneralSection({
 						name="setting-backend"
 						labelledBy="setting-backend"
 						onSelect={onBackend}
+						onProviders={onProviders}
 					/>
 				) : (
 					<div className="grouped">
@@ -640,7 +657,10 @@ function ProvidersSection({
 	const reload = () =>
 		wire
 			.command("credential.list", {})
-			.then(setHeld)
+			.then((credentials) => {
+				setHeld(credentials);
+				recheckVoiceSupport();
+			})
 			.catch((error: Error) => {
 				setHeld([]);
 				setRefusal(error.message);

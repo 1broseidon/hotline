@@ -321,3 +321,44 @@ fn remote_origins_cannot_use_main_or_viewer_permissions() {
         }
     }
 }
+
+#[test]
+fn only_the_main_window_may_set_global_shortcuts() {
+    let app = acl_app();
+    let main = window(&app, "main");
+    // The mock app runs no plugin, so an admitted call fails after the ACL
+    // for want of a handler; a refused one fails at the ACL.
+    for command in ["register", "unregister", "unregister_all"] {
+        let error = invoke(
+            &main,
+            &format!("plugin:global-shortcut|{command}"),
+            local_origin(),
+        )
+        .expect_err("no plugin answers in the mock app");
+        let message = error.as_str().unwrap_or_default();
+        assert!(
+            !message.contains("not allowed") && !message.contains("denied"),
+            "main was refused {command}: {message}"
+        );
+    }
+    // The page never asks who holds a shortcut, so it may not.
+    assert_denied(
+        &main,
+        "plugin:global-shortcut|is_registered",
+        local_origin(),
+    );
+    assert_denied(&main, "plugin:global-shortcut|register_all", local_origin());
+    for label in ["computer-alice", "other"] {
+        let elsewhere = window(&app, label);
+        assert_denied(
+            &elsewhere,
+            "plugin:global-shortcut|register",
+            local_origin(),
+        );
+    }
+    assert_denied(
+        &main,
+        "plugin:global-shortcut|register",
+        "https://attacker.example/",
+    );
+}

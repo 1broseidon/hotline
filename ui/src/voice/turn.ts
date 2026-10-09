@@ -28,7 +28,7 @@ const FLOOR_MARGIN = 3.2;
 /** Softer syllables keep a confirmed utterance alive without opening a new one. */
 const CONTINUE_MARGIN = 1.6;
 const MIN_CONTINUE_LEVEL = 0.012;
-/** Onset needs MIN_SPEECH_MS of voiced time within this short window. */
+/** Onset needs the configured minimum of voiced time within this short window. */
 const ONSET_WINDOW_MS = 500;
 /** Longer meter gaps are unknown audio, never evidence of speech or silence. */
 const MAX_SAMPLE_GAP_MS = 150;
@@ -67,6 +67,8 @@ export function levelFromDb(db: number): number {
  * millisecond clock as often as the meter reports; it does not care how
  * often. After an `end` it ignores everything until `reset`, which is what
  * the client calls when it starts listening again.
+ * Recognized text may corroborate a shorter onset; audio-only callers use
+ * MIN_SPEECH_MS by default.
  */
 export class TurnDetector {
   private floor = INITIAL_FLOOR;
@@ -82,7 +84,10 @@ export class TurnDetector {
   /** The last STEADY_MS of levels, to tell a room from a person. */
   private recent: { at: number; level: number }[] = [];
 
-  constructor(now: number) {
+  constructor(
+    now: number,
+    private minimumSpeechMs = MIN_SPEECH_MS,
+  ) {
     this.clipStart = now;
     this.lastSample = now;
   }
@@ -158,7 +163,7 @@ export class TurnDetector {
         (total, interval) => total + interval.to - Math.max(from, interval.from),
         0,
       );
-      if (voiced && voicedMs >= MIN_SPEECH_MS) {
+      if (voiced && voicedMs >= this.minimumSpeechMs) {
         this.started = true;
         events.push({ kind: 'start', at: Math.max(from, this.onset[0]!.from) });
         this.onset = [];

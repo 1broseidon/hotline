@@ -126,6 +126,17 @@ describe("a connection's tags", () => {
 		expect(tagsFor(options, "anthropic")).toEqual(["Chat"]);
 		expect(tagsFor(options, "mistral")).toEqual([]);
 	});
+
+	test("count a sign-in's own speech toward that provider's connection", () => {
+		const signedIn: CapabilityOptions = {
+			...options,
+			dispatcher: { options: [{ providerId: "xai", providerName: "xAI", models: [{ id: "grok-4.3" }] }] },
+			images: { options: [{ providerId: "xai", providerName: "xAI", models: [{ id: "grok-imagine-image" }] }] },
+			stt: { options: [{ providerId: "xai-subscription", providerName: "Grok subscription", models: [{ id: "grok-stt" }] }] },
+			tts: { options: [{ providerId: "xai-subscription", providerName: "Grok subscription", models: [{ id: "grok-voice-tts-1.0" }] }] },
+		};
+		expect(tagsFor(signedIn, "xai")).toEqual(["Chat", "Images", "Voice"]);
+	});
 });
 
 describe("the call assistant's thinking", () => {

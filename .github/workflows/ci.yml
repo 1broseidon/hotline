@@ -45,6 +45,13 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+      # The speech engine is linked from an archive checked against its pinned
+      # hash, never fetched by the build itself (scripts/fetch-speech-engine).
+      - name: Fetch the pinned speech engine
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -94,10 +101,17 @@ jobs:
   # there would cost a whole release run (0.28.0's did). So its clippy, its
   # tests and the keychain round trip all run here.
   macos:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+      # The speech engine is linked from an archive checked against its pinned
+      # hash, never fetched by the build itself (scripts/fetch-speech-engine).
+      - name: Fetch the pinned speech engine
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -129,9 +143,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-15
+          - runner: macos-26
             target: aarch64-apple-darwin
-          - runner: macos-15
+          - runner: macos-26
             target: x86_64-apple-darwin
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
@@ -141,6 +155,13 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+      # The speech engine is linked from an archive checked against its pinned
+      # hash, never fetched by the build itself (scripts/fetch-speech-engine).
+      - name: Fetch the pinned speech engine
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
 
       - uses: oven-sh/setup-bun@v2
         with:

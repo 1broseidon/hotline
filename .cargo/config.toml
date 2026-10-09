@@ -8,6 +8,9 @@
 [env]
 TS_RS_EXPORT_DIR = { value = "ui/src/generated", relative = true }
 TS_RS_LARGE_INT = "number"
+# sherpa-onnx's build links the archive it finds here and never downloads
+# one itself; scripts/fetch-speech-engine puts it here after checking its hash.
+SHERPA_ONNX_ARCHIVE_DIR = { value = ".speech-engine", relative = true }
 
 # Link the C runtime statically on Windows. The MSVC default is the DLL
 # (VCRUNTIME140.dll, VCRUNTIME140_1.dll), which a clean Windows does not have:

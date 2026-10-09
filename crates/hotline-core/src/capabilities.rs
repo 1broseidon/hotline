@@ -68,7 +68,7 @@ pub async fn options(
             selected: voice.stt.as_ref().map(|choice| pick(&speech.stt, choice)),
             automatic: speech.automatic_stt,
             unavailable: speech.stt.is_empty().then(|| {
-                "Connect OpenAI, Google, OpenRouter, Groq or Mistral to hear you.".to_string()
+                "Download a speech model for the desk, or connect OpenAI, Google, OpenRouter, Groq or Mistral to hear you.".to_string()
             }),
             options: speech.stt,
         },

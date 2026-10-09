@@ -73,46 +73,83 @@ const connect = () => {
 	connected += 1;
 };
 
-describe("the setup screen on this computer's own desk", () => {
-	test("offers creating a first teammate and connecting to a server as two equal choices, one line each", async () => {
+function primary() {
+	return container.querySelector<HTMLButtonElement>(".btn-primary");
+}
+async function pick(title: string) {
+	const row = [...container.querySelectorAll("label")].find((node) => node.textContent?.startsWith(title));
+	if (!row) throw new Error(`Missing choice ${title}: ${text()}`);
+	await act(async () => {
+		row.querySelector("input")!.click();
+	});
+}
+
+describe("the greeting on this computer's own desk", () => {
+	test("says what Hotline is, with one way forward and a server as the quieter way in", async () => {
 		await mount(connect);
-		expect(text()).toContain("Where your teammates run");
-		expect(text()).toContain("Create a first teammate");
-		expect(text()).toContain("Teammates on this computer.");
-		expect(text()).toContain("Connect to a server");
-		expect(text()).toContain("Teammates on a server you run.");
-		// The steps wait for the choice, and neither choice is the screen's primary.
-		expect(text()).not.toContain("A way to run agents");
-		expect(container.querySelector(".btn-primary")).toBeNull();
-		const rows = [...container.querySelectorAll("button")];
-		expect(rows.map((row) => row.className)).toEqual([rows[0]!.className, rows[0]!.className]);
+		expect(text()).toContain("Welcome to Hotline");
+		expect(primary()?.textContent).toBe("Get started");
+		expect(button("Connect to a server instead").className).not.toContain("btn-primary");
+		// Nothing is asked yet.
+		expect(text()).not.toContain("Setup steps");
+		expect(container.querySelector("ol")).toBeNull();
 	});
 
-	test("Connect to a server opens the Add a server pane and keeps the choice on screen", async () => {
+	test("Connect to a server instead opens the Add a server pane and leaves the greeting up", async () => {
 		await mount(connect);
-		await click("Connect to a server");
+		await click("Connect to a server instead");
 		expect(connected).toBe(1);
-		expect(text()).toContain("Where your teammates run");
+		expect(text()).toContain("Welcome to Hotline");
 	});
 
-	test("Create a first teammate goes on to the steps, and Connect to a server stays one press away", async () => {
+	test("Get started goes to why Hotline, and Back returns to the greeting", async () => {
 		await mount(connect);
-		await click("Create a first teammate");
-		expect(text()).toContain("A way to run agents");
-		expect(text()).toContain("Your first teammate");
-		expect(text()).toContain("Say hello");
-		expect(text()).not.toContain("Where your teammates run");
+		await click("Get started");
+		expect(text()).toContain("Why Hotline");
+		for (const step of ["Why Hotline", "How they think", "Connect", "Your teammate"]) expect(text()).toContain(step);
 		expect(connected).toBe(0);
-		await click("Connect to a server");
-		expect(connected).toBe(1);
+		await click("Back");
+		expect(text()).toContain("Welcome to Hotline");
 	});
 });
 
-describe("the setup screen on a server's own desk", () => {
-	test("goes straight to the steps: there is nothing to choose between", async () => {
+describe("the wizard", () => {
+	test("states the four pillars before anything is asked", async () => {
 		await mount(null);
-		expect(text()).toContain("A way to run agents");
-		expect(text()).not.toContain("Where your teammates run");
+		await click("Get started");
+		for (const pillar of ["Runs on your computer", "Bring your own AI", "A computer of their own", "With you anywhere"]) expect(text()).toContain(pillar);
+		expect(primary()?.disabled).toBe(false);
+	});
+
+	test("names the two ways to think and waits for one before going on", async () => {
+		await mount(null);
+		await click("Get started");
+		await click("Continue");
+		expect(text()).toContain("How your teammates think");
+		expect(text()).toContain("Hotline Agent");
+		expect(text()).toContain("Recommended");
+		expect(text()).toContain("An AI coding tool you already have");
+		expect(primary()?.disabled).toBe(true);
+		await pick("Hotline Agent");
+		expect(primary()?.disabled).toBe(false);
+		await click("Back");
+		expect(text()).toContain("Why Hotline");
+	});
+
+	test("cannot pick a tool this machine does not have", async () => {
+		await mount(null);
+		await click("Get started");
+		await click("Continue");
+		const already = [...container.querySelectorAll("label")].find((node) => node.textContent?.startsWith("An AI coding tool you already have"));
+		expect(already?.querySelector("input")?.disabled).toBe(true);
+		expect(text()).toContain("None is on this computer");
+	});
+});
+
+describe("the greeting on a server's own desk", () => {
+	test("has nothing to choose between: no server to connect to", async () => {
+		await mount(null);
+		expect(text()).toContain("Welcome to Hotline");
 		expect(text()).not.toContain("Connect to a server");
 	});
 });

@@ -9,8 +9,8 @@ pub mod settings;
 pub mod speech;
 
 use crate::contract::{
-    VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceInputMode, VoiceModel, VoiceState,
-    VoiceStatus,
+    SpeechModel, VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceInputMode, VoiceModel,
+    VoiceState, VoiceStatus,
 };
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -20,7 +20,8 @@ use ledger::Kind;
 use metering::{BUDGET_ERROR, Budget};
 use record::Record;
 use settings::VoiceSettings;
-use speech::{Clip, SpeechId, SpeechOutput, SpeechSet};
+use speech::local::{self, Installs};
+use speech::{Clip, Speech, SpeechId, SpeechOutput, SpeechSet};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -56,7 +57,30 @@ struct CallSpeech {
     fallback_tts: Option<Arc<dyn speech::Speech>>,
 }
 
+/**
+ * A cap with nothing left turns paid voice off. A call that would hear or
+ * speak through a provider that charges cannot run then: it would be
+ * refused at its first reservation. One heard and spoken for free — a
+ * subscription, or the desk's own engine — runs whatever the caps say.
+ */
+fn paid_voice_off(budget: &ledger::Budget, speech: Option<&CallSpeech>) -> Option<String> {
+    let speech = speech?;
+    let none_left =
+        budget.spent_day_usd >= budget.day_usd || budget.spent_month_usd >= budget.month_usd;
+    (none_left && !speech.free()).then(|| {
+        "Paid voice is off: there is no spending limit left. Raise the limit, or use a free voice.".to_string()
+    })
+}
+
 impl CallSpeech {
+    /** Whether hearing and speaking both cost nothing; a paid fallback voice is never used for a free one. */
+    fn free(&self) -> bool {
+        self.stt
+            .as_ref()
+            .is_none_or(|stt| ledger::is_free(&stt.id().provider_id))
+            && ledger::is_free(&self.tts.id().provider_id)
+    }
+
     fn audio(speech: SpeechSet) -> Self {
         Self {
             stt: Some(speech.stt),
@@ -258,6 +282,8 @@ pub struct Calls {
     ledger: Arc<Budget>,
     calls: Mutex<VecDeque<Call>>,
     narration: Arc<tokio::sync::Semaphore>,
+    /// The desk's own speech models and their downloads.
+    installs: Arc<Installs>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -274,14 +300,27 @@ fn model(id: SpeechId) -> VoiceModel {
 }
 
 impl Calls {
+    #[cfg(test)]
     pub(crate) fn new(
         log: Log,
         vault: Arc<Vault>,
         room: Weak<Room>,
         injected: Option<Services>,
     ) -> Arc<Self> {
+        Self::with_models(log, vault, room, injected, local::catalogue())
+    }
+
+    /// With the speech models offered for download named, for a harness that serves its own.
+    pub(crate) fn with_models(
+        log: Log,
+        vault: Arc<Vault>,
+        room: Weak<Room>,
+        injected: Option<Services>,
+        models: Vec<local::Model>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             ledger: Arc::new(Budget::open(log.clone())),
+            installs: Installs::new(vault.root(), models),
             log,
             vault,
             room,
@@ -289,6 +328,58 @@ impl Calls {
             calls: Mutex::new(VecDeque::new()),
             narration: Arc::new(tokio::sync::Semaphore::new(1)),
         })
+    }
+
+    /// The desk's own speech models and where each stands.
+    pub fn speech_models(&self) -> Vec<SpeechModel> {
+        self.installs.status()
+    }
+
+    pub fn install_speech_model(&self, id: &str) -> Result<Vec<SpeechModel>, String> {
+        self.installs.install(id)?;
+        Ok(self.installs.status())
+    }
+
+    pub fn cancel_speech_model(&self, id: &str) -> Vec<SpeechModel> {
+        self.installs.cancel(id);
+        self.installs.status()
+    }
+
+    pub fn remove_speech_model(&self, id: &str) -> Result<Vec<SpeechModel>, String> {
+        self.installs.remove(id)?;
+        Ok(self.installs.status())
+    }
+
+    /// One clip heard by the desk's own model, outside any call: the model
+    /// picked for hearing when it is one of the desk's, else the first
+    /// installed. Free, so no budget is asked.
+    pub async fn transcribe(&self, mime: &str, data: &str) -> Result<String, String> {
+        // Two minutes of 16 kHz PCM16 and its WAV header, as base64.
+        const MAX_BYTES: usize = local::MAX_SECONDS * 32_000 + 44;
+        if data.len() > MAX_BYTES.div_ceil(3) * 4 {
+            return Err(format!(
+                "Send at most {} minutes of audio at a time.",
+                local::MAX_SECONDS / 60
+            ));
+        }
+        let bytes = STANDARD
+            .decode(data)
+            .map_err(|_| "Audio must be standard base64.".to_string())?;
+        let picked = self
+            .settings()
+            .stt
+            .filter(|pick| pick.provider_id == local::PROVIDER_ID)
+            .and_then(|pick| pick.model_id);
+        let model = local::chosen(self.vault.root(), picked.as_deref())
+            .or_else(|| local::chosen(self.vault.root(), None))
+            .ok_or("Download a speech model in Settings › Providers for the desk to hear you.")?;
+        local::Local::new(model)
+            .transcribe(Clip {
+                mime: mime.to_string(),
+                bytes,
+            })
+            .await
+            .map_err(|error| error.to_string())
     }
 
     /// How long each call still going has been quiet, in milliseconds: the
@@ -335,7 +426,12 @@ impl Calls {
         let budget = self.ledger.balance();
         let speech = self.resolve_speech(input_mode, None);
         let dispatcher = self.dispatcher();
-        let budget_error = self.ledger.check().err().map(|e| e.to_string());
+        let budget_error = self
+            .ledger
+            .check()
+            .err()
+            .map(|e| e.to_string())
+            .or_else(|| paid_voice_off(&budget, speech.as_ref().ok()));
         let direct_available = speech.is_ok() && budget_error.is_none();
         let unavailable = speech
             .as_ref()
@@ -416,6 +512,9 @@ impl Calls {
                 self.dispatcher()?;
             }
             self.ledger.check().map_err(|e| e.to_string())?;
+            if let Some(off) = paid_voice_off(&self.ledger.balance(), Some(&speech_services)) {
+                return Err(off);
+            }
             for call in calls
                 .iter_mut()
                 .filter(|call| call.state != VoiceState::Ended)
@@ -764,6 +863,9 @@ impl Calls {
     fn connected(&self, speech: &dyn speech::Speech) -> bool {
         if self.injected.is_some() {
             return true;
+        }
+        if speech.id().provider_id == local::PROVIDER_ID {
+            return local::chosen(self.vault.root(), Some(&speech.id().model_id)).is_some();
         }
         let auth = self.vault.provider_auth();
         if speech.is_subscription() {

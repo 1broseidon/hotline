@@ -16,9 +16,11 @@ import { Teammate } from "./components/Teammate";
 import { Shortcuts } from "./components/Shortcuts";
 import { sameWork, Work, type OpenWork } from "./components/Work";
 import type { ThreadRef } from "./components/Transcript";
-import { Welcome } from "./components/Welcome";
+import { EmptyRoom, Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
-import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, watchWindowShape } from "./native";
+import { hotkeyRegistrar, onHotkey, useHotkeys, useRecording, type HotkeyId, type KeyState } from "./hotkeys";
+import { requestDictation, useDictationAvailable } from "./voice/dictation";
+import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, showWindow, watchWindowShape } from "./native";
 import { watchLooking } from "./looking";
 import { noticeRoster, setWindowTitle, toastTarget } from "./notify";
 import { useModelsRevision, useRoomJobs } from "./room";
@@ -484,12 +486,78 @@ export function App() {
 		return () => document.removeEventListener("contextmenu", suppress);
 	}, []);
 
-	const welcome = rosterLoaded && roster.length === 0;
+	/* Whether a teammate has ever been made in this room, as `welcome`'s
+	 * setUp reads it off the room's stream. A room with a teammate is set up
+	 * by definition, so the core is asked only while the roster is empty —
+	 * on the first snapshot, after the last teammate is deleted, after a
+	 * reconnect — and the answer before stands while the next is on its way.
+	 * Null until there is one, so neither screen flashes in ahead of it. */
+	const [setUp, setSetUp] = useState<boolean | null>(null);
+	const empty = rosterLoaded && roster.length === 0;
+	useEffect(() => {
+		if (!rosterLoaded) return;
+		if (!empty) {
+			setSetUp(true);
+			return;
+		}
+		if (connection !== "open") return;
+		let current = true;
+		wire
+			.command("welcome", {})
+			.then((state) => current && setSetUp(state.setUp))
+			// The welcome reads the same command and says what went wrong.
+			.catch(() => current && setSetUp(false));
+		return () => {
+			current = false;
+		};
+	}, [rosterLoaded, empty, connection]);
+	/* An empty room nobody has set up is the welcome alone, in a bare
+	 * window; until the core has said which room this is, it is that bare
+	 * window with nothing in it yet. */
+	const welcome = empty && setUp !== true;
 	const call = useCall();
 	const callPhase = useCallSnapshot(call).phase;
 	const calling = call !== null && callPhase !== "ended";
 	const { available: voice, directCalls } = useVoiceSupport(connection);
 	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
+	const callTeammate = useCallback(
+		(entry: RosterEntry) =>
+			void startCall(nameOf, { personaId: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash }),
+		[nameOf],
+	);
+
+	/* The shortcuts heard anywhere on this computer (hotkeys.ts). Dictate
+	 * brings the window forward and hands its press and release to the open
+	 * conversation's composer, or the last teammate's when a pane stands in
+	 * its place, which tells a tap from a hold. Conversation calls the open
+	 * teammate, coming forward to do it, or hangs up where the person is. */
+	const hotkeyPressed = useRef<(id: HotkeyId, state: KeyState) => void>(() => {});
+	hotkeyPressed.current = (id, state) => {
+		if (id === "dictate") {
+			if (selected === null) return;
+			if (state === "Pressed") {
+				void showWindow();
+				setPane(null);
+			}
+			requestDictation(state === "Pressed" ? "down" : "up");
+			return;
+		}
+		if (state !== "Pressed") return;
+		if (calling) {
+			closeCall();
+			return;
+		}
+		if (selected === null || !directCalls) return;
+		void showWindow();
+		callTeammate(selected);
+	};
+	useEffect(() => onHotkey((id, state) => hotkeyPressed.current(id, state)), []);
+	const bindings = useHotkeys();
+	const recordingKeys = useRecording();
+	const dictationHere = useDictationAvailable();
+	useEffect(() => {
+		void hotkeyRegistrar()?.sync(recordingKeys ? {} : { dictate: dictationHere ? bindings.dictate : "", conversation: bindings.conversation });
+	}, [bindings, recordingKeys, dictationHere]);
 	/* A narrow window has room for faces beside the pane and no more. */
 	const faces = narrow || railSize.compact;
 	/* Settings' sections have no faces to fall back to: they stand at the
@@ -517,6 +585,7 @@ export function App() {
 	return (
 		<div className="flex h-full flex-col">
 			<Titlebar
+				bare={welcome && pane === null}
 				searchable={pane === null && selected !== null}
 				searchOpen={searchOpen}
 				onToggleSearch={() => setSearchOpen((open) => !open)}
@@ -529,6 +598,14 @@ export function App() {
 			/>
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />
+			{welcome && pane === null ? (
+				// A room never set up is the welcome alone: no rail, nothing to pick in it yet.
+				<div className="flex min-h-0 flex-1 p-2 pt-0">
+					{setUp === false && (
+						<Welcome models={models} onCreated={select} onConnectServer={desk?.kind === "local" ? () => togglePane("add-desk") : null} />
+					)}
+				</div>
+			) : (
 			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
 			{!railSize.open ? null : pane === "settings" ? (
 				<Suspense fallback={null}>
@@ -565,7 +642,7 @@ export function App() {
 				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
-						<Settings section={settingsSection} onAddDesk={() => togglePane("add-desk")} />
+						<Settings section={settingsSection} onSection={setSettingsSection} onAddDesk={() => togglePane("add-desk")} />
 					</Suspense>
 				) : pane === "shortcuts" ? (
 					<Shortcuts onClose={closePane} />
@@ -574,9 +651,15 @@ export function App() {
 				) : pane === "add-desk" ? (
 					<AddDesk onClose={closePane} />
 				) : pane === "new-teammate" ? (
-					<NewTeammate models={models} onCreated={select} onClose={closePane} />
-				) : welcome ? (
-					<Welcome models={models} onCreated={select} onConnectServer={desk?.kind === "local" ? () => togglePane("add-desk") : null} />
+					<NewTeammate
+							models={models}
+							onCreated={select}
+							onClose={closePane}
+							onProviders={() => {
+								setSettingsSection("providers");
+								setPane("settings");
+							}}
+						/>
 				) : selected ? (
 					<>
 						<Conversation
@@ -584,9 +667,8 @@ export function App() {
 							entry={selected}
 							models={models}
 							onSaid={setSaid}
-							onCall={directCalls ? () => void startCall(nameOf, {
-								personaId: selected.persona.id, name: selected.persona.name, avatarHash: selected.persona.avatar?.hash,
-							}) : undefined}
+							onCall={directCalls ? () => callTeammate(selected) : undefined}
+							onHangUp={calling && call?.target?.personaId === selected.persona.id ? closeCall : undefined}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}
@@ -627,6 +709,8 @@ export function App() {
 							/>
 						)}
 					</>
+				) : empty ? (
+					<EmptyRoom onNew={() => togglePane("new-teammate")} />
 				) : (
 					<div className="pane">
 						<Band>
@@ -654,7 +738,7 @@ export function App() {
 				{(floatWork !== null || call !== null) && (
 					<div className="float-stack" style={dock !== null && pane !== "settings" && !dockOverlay ? { right: dockWidth + 24 } : undefined}>
 						{floatWork}
-						{call !== null && <CallFloat call={call} names={nameOf} onOpenTeammate={(personaId) => {
+						{call !== null && <CallFloat call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => {
 							if (call.deskId == null || call.deskId === activeDeskId()) { select(personaId); return; }
 							try { localStorage.setItem(deskKey(SELECTED_KEY, call.deskId), personaId); } catch { /* Private mode. */ }
 							setActiveDesk(call.deskId);
@@ -664,6 +748,7 @@ export function App() {
 				</div>
 			</main>
 			</div>
+			)}
 		</div>
 	);
 }

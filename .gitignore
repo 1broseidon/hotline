@@ -17,3 +17,6 @@ __pycache__/
 
 # wrangler state from deploying site/ and docs-site/
 .wrangler/
+
+# The speech engine archive, fetched and checked by scripts/fetch-speech-engine.
+/.speech-engine/

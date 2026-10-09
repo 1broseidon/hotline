@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/hotline-core", "crates/hotline-app", "crates/hotline-cli"]
 
 [workspace.package]
-version = "0.34.0"
+version = "0.35.0"
 edition = "2024"
 
 [workspace.dependencies]
@@ -34,4 +34,17 @@ opt-level = 3
 [profile.dev.package.image-webp]
 opt-level = 3
 [profile.dev.package.moxcms]
+opt-level = 3
+
+# The desk's speech models are half a gigabyte: a download is hashed and
+# unpacked as it arrives, and each file is hashed again the first time it
+# loads. Unoptimised, that is a minute where it should be seconds; the AAC
+# decoder is the same story for a phone's clip.
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.libbz2-rs-sys]
+opt-level = 3
+[profile.dev.package.symphonia-core]
+opt-level = 3
+[profile.dev.package.symphonia-codec-aac]
 opt-level = 3

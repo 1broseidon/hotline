@@ -2,7 +2,7 @@ import { expect, spyOn, test } from "bun:test";
 import { Window } from "happy-dom";
 import type { CapabilityOptions } from "../src/generated/contract";
 
-test("ChatGPT images require a picker selection, and Automatic clears it", async () => {
+test("ChatGPT images require a picker selection, Automatic clears it, and with nothing to hear you Voice points at the free models", async () => {
 	const dom = new Window();
 	const restores: (() => void)[] = [];
 	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
@@ -55,6 +55,11 @@ test("ChatGPT images require a picker selection, and Automatic clears it", async
 		await pick("Automatic");
 		expect(calls.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { images: null } } });
 		expect(changes).toBe(2);
+		// Nothing hears yet, so the folded free models are pointed at; once the desk hears, the hint goes.
+		expect(container.textContent).toContain("To talk without a key, download a free speech model.");
+		options.stt.automatic = { providerId: "local", providerName: "On the desk" };
+		await render();
+		expect(container.textContent).not.toContain("download a free speech model");
 	} finally {
 		await act(async () => { root.unmount(); });
 		command.mockRestore();

@@ -19,7 +19,7 @@ use super::{
     with_image_placeholders,
 };
 use crate::contract::{
-    AgentKind, Attachment, AttachmentKind, ConfigChoice, NoticeLevel, Persona, Reach,
+    AgentKind, Attachment, AttachmentKind, ConfigChoice, FolderGrant, NoticeLevel, Persona, Reach,
     SessionConfig, TokenUsage, ToolSourceKind,
 };
 use crate::mcp::server::TeammateTools;
@@ -208,6 +208,10 @@ pub struct InProcess {
     /// Learned at `start`, from the persona: where relative paths start and
     /// where commands run.
     cwd: Mutex<PathBuf>,
+    /// Learned at `start` with the cwd: the folders the person granted
+    /// besides it. A change to them restarts the session, so a handle built
+    /// from these never outlives the grant it was built from.
+    folders: Mutex<Vec<FolderGrant>>,
     model: Mutex<String>,
     /// The effort the next request will send, when the current model lists it.
     effort: Mutex<Option<String>>,
@@ -260,6 +264,7 @@ impl InProcess {
             keys,
             preamble,
             cwd: Mutex::new(PathBuf::new()),
+            folders: Mutex::new(Vec::new()),
             model: Mutex::new(String::new()),
             effort: Mutex::new(None),
             history: Arc::new(AsyncMutex::new(history)),
@@ -351,6 +356,7 @@ impl Driver for InProcess {
                 .to_string()
         })?;
         *lock(&self.cwd) = PathBuf::from(&persona.cwd);
+        *lock(&self.folders) = persona.folders.clone().unwrap_or_default();
         *lock(&self.model) = model.clone();
         // The stored effort when the model lists it, else the blank's
         // default, so a fresh teammate is never sent without a level the
@@ -455,6 +461,7 @@ impl Driver for InProcess {
                 format!("{}\n\n{index}", self.preamble)
             },
             cwd: lock(&self.cwd).clone(),
+            folders: lock(&self.folders).clone(),
             reach,
             history: self.history.clone(),
             stop,
@@ -649,6 +656,7 @@ struct Turn {
     effort: Option<String>,
     preamble: String,
     cwd: PathBuf,
+    folders: Vec<FolderGrant>,
     reach: Reach,
     history: Arc<AsyncMutex<Vec<Message>>>,
     stop: Arc<Stop>,
@@ -683,6 +691,7 @@ impl Turn {
             self.cwd.clone(),
             self.reach,
             self.output_dir.clone(),
+            &self.folders,
             self.capability.clone(),
         )
         .map_err(|error| error.to_string())?;
@@ -1978,6 +1987,7 @@ mod tests {
             effort: None,
             preamble: "you are Ada".to_string(),
             cwd: root.clone(),
+            folders: Vec::new(),
             reach: Reach::Workspace,
             history: history.clone(),
             stop: Arc::new(Stop::default()),
@@ -2544,6 +2554,7 @@ mod tests {
             effort: None,
             preamble: "you are Ada".to_string(),
             cwd: root.clone(),
+            folders: Vec::new(),
             reach: Reach::Workspace,
             history: history.clone(),
             stop: Arc::new(Stop::default()),

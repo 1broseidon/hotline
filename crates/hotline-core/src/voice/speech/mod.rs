@@ -15,6 +15,7 @@
 mod catalog;
 mod clip;
 mod google;
+pub mod local;
 mod openai_shape;
 mod providers;
 mod wav;
@@ -82,6 +83,8 @@ pub enum SpeechError {
     Refused { provider_id: String, status: u16 },
     /// The provider answered, but not with anything usable.
     Malformed { provider_id: String },
+    /// The desk's own engine could not hear, said as a sentence for a person.
+    Engine(String),
 }
 
 impl fmt::Display for SpeechError {
@@ -125,6 +128,7 @@ impl fmt::Display for SpeechError {
             SpeechError::Malformed { provider_id } => {
                 write!(f, "{provider_id} answered with something unusable.")
             }
+            SpeechError::Engine(sentence) => write!(f, "{sentence}"),
         }
     }
 }

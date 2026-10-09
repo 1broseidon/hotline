@@ -263,11 +263,17 @@ desk-seat only.
 `welcome` is what the window's welcome pane reads in place of an empty
 room: the providers with a live credential, by name; the ACP harnesses this
 machine can start; the room's default backend; `canRun`, true once a
-teammate could run on a provider or on a harness that is the default; and
-the number of teammates. It is derived from the credentials, `backends.list`
-and the roster every time it is asked, never stored, so there is no "seen"
-flag to reset: the pane is on screen exactly while the room has no teammate,
-and opens on the step that is still to do.
+teammate could run on a provider or on a harness that is the default; the
+number of teammates; and `setUp`, true once a teammate has been made in the
+room, whether or not one is left. It is derived from the credentials,
+`backends.list` and the room stream every time it is asked, never stored, so
+there is no "seen" flag to reset. `setUp` reads the stream's `persona`
+events with their tombstones: a delete leaves one in the teammate's place, so
+a room keeps having been set up through deletes and compactions, and a room
+imported with teammates is set up from its first open. The pane is on screen
+exactly while the room is not set up, and opens on the step that is still to
+do; a room that is set up and empty keeps the window and offers New teammate
+instead.
 
 `session.answer_permission` is refused when nothing is waiting behind that
 request any more — the turn ended, the session stopped, or somebody else
@@ -304,7 +310,7 @@ the deadline passed, the session stopped, the room restarted, or somebody
 else answered first. The tape still writes `dismissed` for a
 decline, which is the previous edition's word for that afterlife.
 
-`PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?,
+`PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?, folders?,
 modelId?, effortId?, computer?, backgroundWork?}`. Create fills what the draft leaves blank: a fresh
 uuid, name `"Untitled"` if blank, empty goal, `backendId` from the room's
 `defaultBackendId` or `"hotline"`, a workspace under the data directory,
@@ -313,11 +319,26 @@ draft asked for `"machine"`. Background work is off unless the draft turned
 it on, and `allowedSenders` defaults to an empty list. The whole teammate is written as one room
 event; a patch is folded over the record and the whole record is written
 again, because a stream folds by id and a partial line would leave half a
-teammate. A patch that names `cwd`, `reach`, `goal`, `mcpPolicy`,
+teammate. A patch that names `cwd`, `reach`, `folders`, `goal`, `mcpPolicy`,
 `backgroundWork`, `allowedSenders`, `backendId` or `harnessOverride` invalidates
 current main and peer execution before writing the record, clears queued
 turns, and then reattaches a live main session. The old driver cannot keep
 using the previous grant while the new one is being installed.
+
+`folders` is the teammate's extra folders, `[{path, writable?}]`, on the
+persona and the draft. Absent means none, and so does an empty list, which
+is how a patch clears them. `writable` absent is `false`: read-only. Create
+and a patch naming `folders` check every entry before anything is revoked
+or written, and refuse the whole list with a sentence when one is not an
+absolute path (`~` expands) to an existing directory, is `/`, the home
+directory or a folder holding it, Hotline's data directory, a folder
+holding it or a folder inside it (another teammate's workspace there too),
+is this teammate's workspace or inside it, overlaps another entry, or when
+there are more than 16. What is stored, and answered, is each path as the
+directory it resolves to (`/tmp/x` is `/private/tmp/x` on macOS); the same
+folder twice is one entry, writable if either said so. A teammate's
+`SessionCapabilities.additionalDirectories` says whether its harness took
+them when its session opened; Hotline Agent's is `false` and means nothing.
 
 `pinnedTeammates` is the desk's pinned teammates: a list of up to three
 persona ids, in the order they sit at the top of the team. `persona.pin` is
@@ -1099,6 +1120,21 @@ No extra speech credential is created.
 | `voice.interrupt` | `{callId}` | void |
 | `voice.hold` | `{callId,hold}` | void |
 | `voice.call_end` | `{callId}` | void |
+| `voice.models` | `{}` | `SpeechModel[]`: each of the desk's own speech models, its sizes, credit and licence, and `state`: `available`, `downloading` (with `receivedBytes`), `unpacking` or `installed`, with `error` after a failed download |
+| `voice.model_install` | `{modelId}` | `SpeechModel[]`; starts the download in the background |
+| `voice.model_cancel` | `{modelId}` | `SpeechModel[]` |
+| `voice.model_remove` | `{modelId}` | `SpeechModel[]`; also stops a download under way |
+| `voice.transcribe` | `{mimeType,data}` | `VoiceTranscript`: `{text}` |
+
+The `voice.model_*` commands and `voice.transcribe` are the desk's own
+hearing ([Hearing on the desk](voice.md#hearing-on-the-desk)). Nothing is
+installed until an owner or the desk asks; a download is checked against the
+size and SHA-256 Hotline pins for it before anything is unpacked, and a client
+follows it by asking `voice.models` again (the window does every half second).
+`voice.transcribe` hears one clip outside any call with an installed model:
+standard base64 of a mono PCM16 WAV or AAC in MP4, at most a minute. It needs
+no provider and no budget, and is refused with a sentence when nothing is
+installed. Like every `voice.*` command these are refused to a companion.
 
 `callId` is a client-generated UUID. Omitting `personaId` calls the desk;
 including it calls that teammate's existing session, chapter and harness.

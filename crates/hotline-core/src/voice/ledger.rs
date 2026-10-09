@@ -162,6 +162,9 @@ impl Ledger {
     }
 
     /// Whether voice may run: `Err` once today's or this month's cap is spent.
+    /// A cap of zero turns paid voice off, not voice: nothing spent is not
+    /// a spent cap, so a subscription's free voice still runs, and
+    /// [`super::metering::Budget::reserve`] refuses anything that costs.
     pub fn check(&self, settings: &VoiceSettings) -> Result<(), Exhausted> {
         self.check_on(today(), settings)
     }
@@ -187,9 +190,10 @@ impl Ledger {
             return Err(Exhausted::Unreadable);
         };
         record.roll_to(today);
-        if record.month_spend.total() >= settings.month_usd {
+        let spent = |total: f64, cap: f64| total > 0.0 && total >= cap;
+        if spent(record.month_spend.total(), settings.month_usd) {
             Err(Exhausted::Month)
-        } else if record.day_spend.total() >= settings.day_usd {
+        } else if spent(record.day_spend.total(), settings.day_usd) {
             Err(Exhausted::Day)
         } else {
             Ok(())
@@ -350,6 +354,8 @@ const PRICES: &[(&str, f64, f64)] = &[
     ("xai", 0.10 / 60.0, 0.015),
     // The subscription adapter uses the owner's existing plan, never the paid API.
     ("xai-subscription", 0.0, 0.0),
+    // The desk's own model runs on the desk and costs nothing.
+    ("local", 0.0, 0.0),
 ];
 
 /// Whisper's price, and a premium voice's, for a provider not in the table.
@@ -363,6 +369,11 @@ fn price(provider_id: &str) -> (f64, f64) {
 }
 
 /// The cost of transcribing a clip of this many seconds.
+/// Whether a provider's voice costs nothing: a subscription's, or the desk's own.
+pub fn is_free(provider_id: &str) -> bool {
+    price(provider_id) == (0.0, 0.0)
+}
+
 pub fn stt_usd(provider_id: &str, seconds: f64) -> f64 {
     price(provider_id).0 * seconds.max(0.0) / 60.0
 }
@@ -391,6 +402,12 @@ mod tests {
         assert_eq!(super::tts_usd("xai-subscription", 8_000), 0.0);
         assert!(super::stt_usd("xai", 20.0) > 0.0);
         assert!(super::tts_usd("xai", 8_000) > 0.0);
+    }
+
+    #[test]
+    fn the_desks_own_hearing_costs_nothing_batch_or_live() {
+        assert_eq!(super::stt_usd("local", 120.0), 0.0);
+        assert_eq!(super::stt_live_usd("local", 120.0), 0.0);
     }
     use super::*;
 
@@ -503,10 +520,16 @@ mod tests {
     }
 
     #[test]
-    fn a_zero_cap_is_voice_off() {
+    fn a_zero_cap_turns_paid_voice_off_not_free_voice() {
         let (_root, ledger) = ledger();
+        let today = date(2026, 9, 30);
+        // Nothing spent: a subscription's free voice still runs.
+        assert_eq!(ledger.check_on(today, &settings(0.0, 20.0)), Ok(()));
+        assert_eq!(ledger.check_on(today, &settings(0.0, 0.0)), Ok(()));
+        // Anything spent against a zero cap has spent it.
+        ledger.charge_on(today, Kind::Tts, 0.01);
         assert_eq!(
-            ledger.check_on(date(2026, 9, 30), &settings(0.0, 20.0)),
+            ledger.check_on(today, &settings(0.0, 20.0)),
             Err(Exhausted::Day)
         );
     }

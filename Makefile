@@ -2,14 +2,20 @@
 # nothing done in it can reach real data.
 dev: export HOTLINE_DATA_DIR := $(CURDIR)/.hotline-dev
 
-.PHONY: check ui-check dev build verify icons tray-icons
+.PHONY: check ui-check dev build verify icons tray-icons speech-engine
 
-check: ui-check
+check: ui-check speech-engine
 	python3 -m unittest discover -s scripts -p 'test_*.py'
 	python3 -m unittest discover -s site/tests -p 'test_*.py'
 	cargo fmt --all --check
 	cargo clippy --workspace --all-targets -- -D warnings
 	cargo test --workspace
+
+# The desk's speech engine is linked from a prebuilt archive the build never
+# downloads itself: this puts it in .speech-engine, checked against its
+# pinned SHA-256 (scripts/speech-engine.sha256).
+speech-engine:
+	python3 scripts/fetch-speech-engine
 
 # The window is TypeScript, and a window that does not compile is a broken
 # build however green the Rust is. `bun install` is a no-op when the lockfile
@@ -25,16 +31,16 @@ ui-check:
 ifeq ($(shell uname -s),Darwin)
 dev: DEV_RUNNER := --runner $(CURDIR)/scripts/cargo-dev-sign
 endif
-dev:
+dev: speech-engine
 	cd crates/hotline-app && cargo tauri dev $(DEV_RUNNER)
 
 # A release: the window built by Vite, the shell by cargo, bundled by the
 # Tauri CLI into target/release/bundle (AppImage, deb and rpm on Linux).
-build:
+build: speech-engine
 	cd crates/hotline-app && cargo tauri build
 
 # The headless harnesses drive the real core over the wire; Phase 0 adds the first.
-verify:
+verify: speech-engine
 	cargo test --workspace --test '*'
 
 # Every platform's app icon, rendered from the one tile in assets/. The CLI

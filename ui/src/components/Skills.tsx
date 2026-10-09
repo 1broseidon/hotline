@@ -86,6 +86,15 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 		run(async () => {
 			await wire.command("skills.offer", { name, offered });
 		});
+	// One switch at a time, so each lands through the same command a row's
+	// switch sends and a refusal stops the rest rather than half-saying yes.
+	const offerAll = () =>
+		run(async () => {
+			for (const entry of entries) {
+				if (entry.source !== "home" || entry.invalid !== undefined || entry.offered === true) continue;
+				await wire.command("skills.offer", { name: entry.name, offered: true });
+			}
+		});
 	const changeFolder = async () => {
 		const path = await chooseFolder(undefined, "Choose the skills folder on the server");
 		if (path === null) return;
@@ -124,7 +133,14 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
 					<section>
-						<h3 className="group-title">Your skills</h3>
+						<div className="flex items-baseline justify-between pr-3">
+							<h3 className="group-title">Your skills</h3>
+							{home.some((one) => one.invalid === undefined && one.offered !== true) && (
+								<button type="button" className="control btn-quiet" disabled={busy} onClick={() => void offerAll()}>
+									Offer all
+								</button>
+							)}
+						</div>
 						<div className="grouped">
 							<div className="group-row">
 								<span className="group-row-text">
@@ -135,7 +151,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 								</span>
 								{skillsHome !== null && (
 									<button type="button" className="control btn-quiet" disabled={busy} onClick={() => void standardFolder()}>
-										Standard
+										Use default
 									</button>
 								)}
 								<button type="button" className="control btn-quiet" disabled={busy} onClick={() => void changeFolder()}>

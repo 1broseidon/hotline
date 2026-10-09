@@ -24,6 +24,7 @@ export function Titlebar({
 	onToggleSearch,
 	rail,
 	call,
+	bare = false,
 }: {
 	/** A conversation is showing: the search has something to search. */
 	searchable: boolean;
@@ -33,6 +34,8 @@ export function Titlebar({
 	rail?: { open: boolean; onToggle(): void } | undefined;
 	/** A call with the desk: present only when the desk can speak. */
 	call?: { open: boolean; onToggle(): void } | undefined;
+	/** The welcome: the mark and the window's own controls, nothing that acts on a room that is not there yet. */
+	bare?: boolean;
 }) {
 	const frame = drawsFrame();
 	const [maximized, setMaximized] = useState(false);
@@ -47,7 +50,7 @@ export function Titlebar({
 		<header className="titlebar">
 			<div data-tauri-drag-region className="titlebar-drag" onDoubleClick={() => void toggleMaximize()} />
 			<div className="titlebar-lead">
-				{rail !== undefined && (
+				{rail !== undefined && !bare && (
 					<button
 						type="button"
 						className="control btn-icon"
@@ -65,7 +68,7 @@ export function Titlebar({
 				    names them (windowTitle). */}
 				<HotlineMark className="titlebar-mark" width={18} plain label="Hotline" />
 			</p>
-			<div className="titlebar-tools">
+			<div className="titlebar-tools" hidden={bare}>
 				{call !== undefined && (
 					<button
 						type="button"

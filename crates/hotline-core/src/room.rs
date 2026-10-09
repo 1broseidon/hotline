@@ -217,6 +217,20 @@ pub(crate) fn personas(events: &[Value]) -> Vec<Persona> {
         .collect()
 }
 
+/// Whether a teammate has ever been made in this room, whether or not one
+/// is left. Deleting a teammate writes a `persona` tombstone, and the fold
+/// keeps it in the teammate's place, so the stream still says one was here:
+/// that is how the room knows it has been set up without storing that it was.
+pub(crate) fn has_had_a_teammate(events: &[Value]) -> bool {
+    events.iter().any(|event| {
+        is_kind(event, "persona")
+            && event
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| !id.is_empty())
+    })
+}
+
 /// Every setting the room has, the ones nobody set included.
 ///
 /// A deleted setting is not an override, so its default stands again — which
@@ -631,6 +645,7 @@ mod tests {
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,
+            folders: None,
             computer: None,
             voice: None,
             session_checkpoints: Vec::new(),
@@ -762,6 +777,25 @@ mod tests {
             .map(|event| event["id"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(ids, ["ada", "bob"]);
+    }
+
+    /// Set up is read off the stream, so a delete cannot undo it and a
+    /// compaction, which writes the fold back, keeps the tombstone that says so.
+    #[test]
+    fn a_room_that_ever_had_a_teammate_stays_set_up_after_the_last_is_deleted() {
+        let log = scratch("set-up");
+        append(&log, &setting("theme", Value::from("dark")));
+        append(&log, &persona_event(&persona("", "Nobody")));
+        assert!(!has_had_a_teammate(&log.load(&StreamId::Room)));
+
+        append(&log, &persona_event(&persona("ada", "Ada")));
+        assert!(has_had_a_teammate(&log.load(&StreamId::Room)));
+
+        append(&log, &tombstone("persona", "ada"));
+        log.compact(&StreamId::Room).unwrap();
+        let events = log.load(&StreamId::Room);
+        assert!(personas(&events).is_empty());
+        assert!(has_had_a_teammate(&events));
     }
 
     #[test]

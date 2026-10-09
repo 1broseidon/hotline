@@ -3,6 +3,7 @@ import { type Capacity, CPU_STEP, MEMORY_STEP_MB, capacityNote, cpuCeiling, cpuL
 import type {
 	ComputerMount,
 	ComputerStatus,
+	FolderGrant,
 	McpPolicy,
 	PeerThreadSummary,
 	Persona,
@@ -43,6 +44,7 @@ import type { ThreadRef } from "./Transcript";
  * The name is the band's heading and edits in place; the goal is the one
  * field. The working directory is a row — the folder's name and three
  * quiet keys: the full path, choose, reveal — picked rather than typed.
+ * Under it, the folders it may also read, each with its own "Can edit".
  * Everything the teammate is allowed is one Access list, one row per
  * grant: a title, a value where there is one, and a switch or a chevron.
  * It runs from authority to equipment to outcome: the grants that widen
@@ -82,6 +84,9 @@ export function Teammate({
 	const [harnessName, setHarnessName] = useState<string | null>(session.agentName ?? null);
 	const goalField = useRef<HTMLTextAreaElement>(null);
 	const hotline = persona.backendId === "hotline";
+	// Only a session that is up has said what it takes.
+	const running = session.state === "ready" || session.state === "thinking";
+	const folders = persona.folders ?? [];
 
 	useEffect(() => {
 		setName(persona.name);
@@ -249,7 +254,7 @@ export function Teammate({
 					</div>
 
 					<section>
-						<h3 className="label">Working directory</h3>
+						<h3 className="label">Folders</h3>
 						<div className="grouped">
 							<div className="group-row">
 								<RowText title={folderName(persona.cwd) === persona.id ? "Its own folder" : folderName(persona.cwd)} />
@@ -285,7 +290,19 @@ export function Teammate({
 									</span>
 								</div>
 							)}
+							<p className="border-y border-line bg-hover px-3 py-1 text-xs text-ink-3">Also let it read</p>
+							<FolderRows folders={folders} disabled={busy} onChange={(next) => save({ folders: next })} />
 						</div>
+						{folders.length > 0 && (
+							<p className="group-hint">
+								{foldersNote({
+									hotline,
+									machine: persona.reach === "machine",
+									takesFolders: !running || session.capabilities.additionalDirectories,
+									computer: persona.computer?.enabled === true,
+								})}
+							</p>
+						)}
 					</section>
 
 					{/* What it may do without you: reach, waking itself, who may hand it work. */}
@@ -1279,6 +1296,96 @@ function CollaborationRows({
 						</button>
 					</div>
 				))}
+		</>
+	);
+}
+
+/**
+ * The line under the folder list: who holds the teammate to them. Hotline
+ * Agent's own tools do, unless it has the whole machine; an ACP harness
+ * enforces its own access, and is handed the folders only when it said it
+ * takes them (`takesFolders` is false only for a running session that did not).
+ */
+export function foldersNote({
+	hotline,
+	machine,
+	takesFolders,
+	computer,
+}: {
+	hotline: boolean;
+	machine: boolean;
+	takesFolders: boolean;
+	computer: boolean;
+}): string {
+	const who = hotline
+		? machine
+			? "Whole machine already reaches everything; these folders apply if you turn it off."
+			: "Its file tools and protected shell reach these too; the rest of the machine stays hidden."
+		: takesFolders
+			? "This agent enforces its own access; Hotline passes these folders to it."
+			: "This agent enforces its own access. It does not take extra folders, so only Hotline's own file callbacks honour them.";
+	return computer ? `${who} Its computer sees them under /home/agent/folders.` : who;
+}
+
+/**
+ * Folders outside the workspace the teammate may also read, and edit where
+ * "Can edit" is on: one row each, and the row that adds one. The caller
+ * puts them in a group under the workspace. The list is saved whole on
+ * every change; the pane renders what the record holds, which is the path
+ * as the core resolved it.
+ */
+export function FolderRows({
+	folders,
+	disabled,
+	onChange,
+}: {
+	folders: FolderGrant[];
+	disabled: boolean;
+	onChange(folders: FolderGrant[]): void;
+}) {
+	const add = async () => {
+		const path = await chooseFolder(undefined, "Choose a folder for it to read");
+		if (path === null || folders.some((folder) => folder.path === path)) return;
+		onChange([...folders, { path, writable: false }]);
+	};
+
+	return (
+		<>
+			{folders.map((folder) => (
+				<div key={folder.path} className="group-row items-start">
+					<span className="group-row-text flex flex-col gap-1.5">
+						<span className="group-row-title selectable font-mono text-sm" style={{ whiteSpace: "normal", wordBreak: "break-all" }}>
+							{folder.path}
+						</span>
+						<label className="flex items-center gap-2 text-sm text-ink-2">
+							<input
+								type="checkbox"
+								className="switch"
+								checked={folder.writable}
+								disabled={disabled}
+								onChange={(event) =>
+									onChange(folders.map((one) => (one.path === folder.path ? { ...one, writable: event.target.checked } : one)))
+								}
+							/>
+							Can edit
+						</label>
+					</span>
+					<button
+						type="button"
+						className="control btn-icon -mr-1.5"
+						aria-label={`Remove ${folder.path}`}
+						title="Remove"
+						disabled={disabled}
+						onClick={() => onChange(folders.filter((one) => one.path !== folder.path))}
+					>
+						<CloseIcon />
+					</button>
+				</div>
+			))}
+			<button type="button" className="group-row group-row-add" disabled={disabled} onClick={() => void add()}>
+				<PlusIcon />
+				Add folder
+			</button>
 		</>
 	);
 }

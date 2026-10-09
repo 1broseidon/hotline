@@ -208,7 +208,7 @@ export type Client = "desktop" | "phone";
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
+export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
 /**
  * A picture at most this many px on its longer side, as a JPEG the
  * desk keeps, rather than the file itself: what a phone draws in
@@ -450,6 +450,25 @@ export type FileChunk = { name: string, mimeType: string,
  * The whole file's size in bytes.
  */
 size: number, offset: number, data: string, next?: number, };
+
+/**
+ * One folder a teammate may reach besides its workspace.
+ *
+ * The path is stored as it was checked when granted: absolute, an existing
+ * directory, canonical (so no symlink in it points somewhere else), not the
+ * workspace or inside it, not inside another granted folder, and not `/`,
+ * the home directory or anything holding it, or Hotline's data directory
+ * or anything holding it or inside it, another teammate's workspace there
+ * included.
+ * A folder that later stops being that same directory is left out when a
+ * session opens it rather than followed.
+ */
+export type FolderGrant = { path: string, 
+/**
+ * Whether the teammate may create, change and delete files in it.
+ * Absent is false: a grant is read-only unless the person said more.
+ */
+writable: boolean, };
 
 /**
  * A search hit that names whose conversation it came from.
@@ -705,7 +724,18 @@ team?: string, backendId: string, cwd: string,
 /**
  * How far Hotline Agent's tools reach. Absent means the working directory.
  */
-reach?: Reach, modelId?: string, modeId?: string, 
+reach?: Reach, 
+/**
+ * Folders besides the workspace this teammate may read, and change where
+ * a grant is `writable`. Absent means none, including on every record
+ * from before the field: no older reach or mount is translated into a
+ * grant. Set only by the person through `persona.update` or
+ * `persona.create`, which check each path (see [`FolderGrant`]).
+ * Under workspace reach Hotline Agent's file tools and confined shell
+ * enforce it; Hotline's ACP file callbacks honour it for a harness; a
+ * computer mounts it; whole-machine reach makes it moot but keeps it.
+ */
+folders?: Array<FolderGrant>, modelId?: string, modeId?: string, 
 /**
  * The effort a Hotline Agent teammate runs at, when its model offers one.
  * Absent means the model's default. An ACP teammate does not store this:
@@ -827,7 +857,12 @@ export type PersonaDraft = { name: string, goal?: string,
 /**
  * Initial roster section. Empty and omitted both mean the default team.
  */
-team?: string, backendId?: string, cwd?: string, reach?: Reach, modelId?: string, effortId?: string, computer?: PersonaComputer, 
+team?: string, backendId?: string, cwd?: string, reach?: Reach, 
+/**
+ * Extra folders from the start, checked as `persona.update` checks
+ * them. Absent or empty is none.
+ */
+folders?: Array<FolderGrant>, modelId?: string, effortId?: string, computer?: PersonaComputer, 
 /**
  * Whether the teammate may keep its own schedules from the start. Absent
  * is off, as on the pane.
@@ -1088,7 +1123,13 @@ export type SessionCapabilities = {
 /**
  * The driver admits operator input during its active conversation.
  */
-activeInput: boolean, loadSession: boolean, resume: boolean, fork: boolean, mcpHttp: boolean, image: boolean, };
+activeInput: boolean, loadSession: boolean, resume: boolean, fork: boolean, mcpHttp: boolean, image: boolean, 
+/**
+ * The harness takes ACP's `additionalDirectories`, so a teammate's extra
+ * folders are handed to it when a session opens. False means the
+ * harness was not told of them; its own reach is still its own.
+ */
+additionalDirectories: boolean, };
 
 /**
  * One backend's durable session id for one teammate.
@@ -1267,6 +1308,37 @@ export type SkillSource = "builtin" | "gateway" | "home" | "workspace" | "comput
 export type Skipped = { item: string, reason: string, };
 
 export type SlashCommand = { name: string, description?: string, hint?: string, };
+
+/**
+ * A model the desk can turn speech into text with on its own machine, which
+ * the owner downloads once. Nothing is installed until they ask.
+ */
+export type SpeechModel = { id: string, name: string, 
+/**
+ * What it hears and how it trades accuracy for speed, in a few words.
+ */
+detail: string, downloadBytes: number, 
+/**
+ * What it takes on disk once installed.
+ */
+diskBytes: number, 
+/**
+ * The model's maker and licence, as the licence asks to be credited.
+ */
+credit: string, licenceUrl: string, state: SpeechModelState, 
+/**
+ * How much has arrived, while it downloads.
+ */
+receivedBytes?: number, 
+/**
+ * Why the last download failed, until the next one starts.
+ */
+error?: string, };
+
+/**
+ * Where one of the desk's own speech models stands.
+ */
+export type SpeechModelState = "available" | "downloading" | "unpacking" | "installed";
 
 export type SpendingSettings = { dayUsd: number, monthUsd: number, };
 
@@ -1682,6 +1754,11 @@ export type VoiceStatus = { capabilities: Array<string>, available: boolean,
 directAvailable?: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceModel, fallbackTts?: VoiceModel, dispatcher?: VoiceModel, budget: VoiceBudget, };
 
 /**
+ * What the desk's own model heard in one clip.
+ */
+export type VoiceTranscript = { text: string, };
+
+/**
  * Which of the desk's web search a teammate gets — the same
  * inherit/override question `McpPolicy` answers for servers. Absent on the
  * teammate means `all`: inherit whatever the app's Tools pane has on. `some`
@@ -1713,9 +1790,9 @@ export type WebSearchStatus = { providers: Array<WebSearchProviderStatus>, };
 /**
  * Where a fresh room stands on its way to a first turn, as the welcome
  * pane reads it. Derived from what the room already knows — its credentials,
- * the harnesses this machine can start, its default backend and its roster —
- * never from a stored "seen" flag: the pane is on screen exactly as long as
- * there is nothing else to show.
+ * the harnesses this machine can start, its default backend and its roster,
+ * tombstones included — never from a stored "seen" flag: the pane is on
+ * screen exactly while no teammate has ever been made here.
  */
 export type Welcome = { 
 /**
@@ -1739,4 +1816,10 @@ canRun: boolean,
 /**
  * How many teammates the room has. Past zero the pane is gone.
  */
-teammates: number, };
+teammates: number, 
+/**
+ * A teammate has been made in this room, whether or not one is left.
+ * A room that is set up and empty opens on New teammate, not on the
+ * welcome: it has been through setup once already.
+ */
+setUp: boolean, };

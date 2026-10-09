@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Puts the speech engine's prebuilt library where the build takes it from, checked.
+
+The desk's local speech-to-text (hotline-core, `voice/speech/local`) links
+sherpa-onnx statically, and its build script would otherwise download a
+prebuilt archive over TLS alone. Cargo is pointed at `.speech-engine`
+instead (`.cargo/config.toml`, SHERPA_ONNX_ARCHIVE_DIR), and this script is
+the only thing that fills it: it fetches the archive for one target from
+the sherpa-onnx release and keeps it only if its SHA-256 matches the one
+pinned in `scripts/speech-engine.sha256`. A mismatch deletes the file and
+fails, so a changed archive can never be linked unnoticed.
+
+    scripts/fetch-speech-engine                # this machine's target
+    scripts/fetch-speech-engine --target x86_64-apple-darwin
+
+Bumping sherpa-onnx means new archives: put their hashes in the pin file
+(`shasum -a 256` of each, from the release page) in the same commit.
+"""
+import argparse
+import hashlib
+import os
+import platform
+import re
+import sys
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PINS = ROOT / "scripts" / "speech-engine.sha256"
+# Outside target/: CI restores its build cache over target/ after this runs.
+DESTINATION = ROOT / ".speech-engine"
+
+# Each Rust target's archive, as sherpa-onnx-sys names it for static linking.
+ARCHIVES = {
+    "x86_64-unknown-linux-gnu": "linux-x64-static-lib",
+    "aarch64-unknown-linux-gnu": "linux-aarch64-static-lib",
+    "x86_64-apple-darwin": "osx-x64-static-lib",
+    "aarch64-apple-darwin": "osx-arm64-static-lib",
+    "x86_64-pc-windows-msvc": "win-x64-static-MT-Release-lib",
+}
+
+
+def version():
+    """The sherpa-onnx-sys version the lockfile builds, so the archive matches the crate."""
+    lock = (ROOT / "Cargo.lock").read_text()
+    found = re.search(r'name = "sherpa-onnx-sys"\nversion = "([^"]+)"', lock)
+    if not found:
+        sys.exit("fetch-speech-engine: sherpa-onnx-sys is not in Cargo.lock")
+    return found.group(1)
+
+
+def host_target():
+    machine = platform.machine().lower()
+    arch = "aarch64" if machine in ("arm64", "aarch64") else "x86_64"
+    system = platform.system()
+    if system == "Darwin":
+        return f"{arch}-apple-darwin"
+    if system == "Windows":
+        return f"{arch}-pc-windows-msvc"
+    return f"{arch}-unknown-linux-gnu"
+
+
+def pins():
+    table = {}
+    for line in PINS.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            digest, name = line.split()
+            table[name] = digest
+    return table
+
+
+def sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as file:
+        for chunk in iter(lambda: file.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument("--target", default=os.environ.get("CARGO_BUILD_TARGET") or host_target())
+    target = parser.parse_args().target
+    if target not in ARCHIVES:
+        sys.exit(f"fetch-speech-engine: no speech engine archive for {target}")
+    name = f"sherpa-onnx-v{version()}-{ARCHIVES[target]}.tar.bz2"
+    expected = pins().get(name)
+    if expected is None:
+        sys.exit(f"fetch-speech-engine: {name} has no pinned hash in {PINS.relative_to(ROOT)}")
+    DESTINATION.mkdir(parents=True, exist_ok=True)
+    path = DESTINATION / name
+    if path.exists() and sha256(path) == expected:
+        return
+    url = f"https://github.com/k2-fsa/sherpa-onnx/releases/download/v{version()}/{name}"
+    partial = path.with_suffix(".part")
+    print(f"fetch-speech-engine: downloading {name}", file=sys.stderr)
+    urllib.request.urlretrieve(url, partial)
+    actual = sha256(partial)
+    if actual != expected:
+        partial.unlink()
+        sys.exit(f"fetch-speech-engine: {name} hashed {actual}, expected {expected}; refusing it")
+    partial.replace(path)
+
+
+if __name__ == "__main__":
+    main()

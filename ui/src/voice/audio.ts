@@ -7,12 +7,12 @@ import { rms } from "./wav";
  * samples, playback of whole clips, the output level, and the earcons.
  */
 export interface CallAudio {
-	/** Asks for the microphone and starts reading it; rejects when it cannot. */
+	/** Readies playback and the earcons; blocks reach `onBlock` once the microphone is open. */
 	open(onBlock: (block: Float32Array, rate: number) => void): Promise<void>;
 	/** Lets the microphone go, so the system's mic light goes off (hold). */
 	closeMic(): void;
-	/** Takes the microphone again after `closeMic`. */
-	reopenMic(): Promise<void>;
+	/** Asks for the microphone and starts reading it, first or again after `closeMic`; rejects when it cannot. */
+	openMic(): Promise<void>;
 	/** Queues one playable clip; `onIdle` fires once the queue has drained. */
 	play(mimeType: string, data: string): void;
 	stopPlayback(): void;
@@ -92,17 +92,17 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 			player = new ClipPlayer(context, out, events.onIdle, events.onStarted);
 			processor = context.createScriptProcessor(BLOCK, 1, 1);
 			processor.onaudioprocess = (event) => {
-				if (context.currentTime >= quietUntil) reader?.(event.inputBuffer.getChannelData(0), context.sampleRate);
+				// Without a microphone the processor still runs, on silence that is nobody's.
+				if (source !== null && context.currentTime >= quietUntil) reader?.(event.inputBuffer.getChannelData(0), context.sampleRate);
 			};
 			// A script processor only runs while it leads somewhere; this gain is silent.
 			const sink = context.createGain();
 			sink.gain.value = 0;
 			processor.connect(sink);
 			sink.connect(context.destination);
-			await takeMic();
 		},
 		closeMic: dropMic,
-		reopenMic: takeMic,
+		openMic: takeMic,
 		play(mimeType, data) {
 			player?.push(mimeType, data);
 		},

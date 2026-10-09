@@ -120,6 +120,30 @@ impl Desk {
         store: Arc<dyn crate::credentials::SecretStore>,
         services: Option<crate::voice::Services>,
     ) -> io::Result<Desk> {
+        Self::open_inner(
+            root,
+            store,
+            services,
+            crate::voice::speech::local::catalogue(),
+        )
+    }
+
+    /// Open offering these speech models for download in place of Hotline's
+    /// own, for a harness that serves small ones itself.
+    pub fn open_with_speech_models(
+        root: &Path,
+        store: Arc<dyn crate::credentials::SecretStore>,
+        models: Vec<crate::voice::speech::local::Model>,
+    ) -> io::Result<Desk> {
+        Self::open_inner(root, store, None, models)
+    }
+
+    fn open_inner(
+        root: &Path,
+        store: Arc<dyn crate::credentials::SecretStore>,
+        services: Option<crate::voice::Services>,
+        models: Vec<crate::voice::speech::local::Model>,
+    ) -> io::Result<Desk> {
         install_crypto_provider();
         let log = Log::open(root);
         log.migrate_backend_id()?;
@@ -143,8 +167,13 @@ impl Desk {
                 }
             });
         }));
-        let voice =
-            crate::voice::Calls::new(log.clone(), vault.clone(), Arc::downgrade(&room), services);
+        let voice = crate::voice::Calls::with_models(
+            log.clone(),
+            vault.clone(),
+            Arc::downgrade(&room),
+            services,
+            models,
+        );
         room.set_voice(&voice);
         Ok(Desk {
             voice,
@@ -732,7 +761,8 @@ impl RoomHandle for Desk {
         let mut choices = vec![BackendChoice {
             id: HOTLINE_BACKEND_ID.to_string(),
             name: "Hotline Agent".to_string(),
-            description: "Built in: runs on the desk's provider keys.".to_string(),
+            description: "Hotline's own agent. Runs any model from the providers you connect."
+                .to_string(),
             unavailable: None,
         }];
         for backend in acp::registry::backends(self.log.root()).await {
@@ -1366,6 +1396,7 @@ mod tests {
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,
+            folders: None,
             computer: None,
             voice: None,
             session_checkpoints: Vec::new(),

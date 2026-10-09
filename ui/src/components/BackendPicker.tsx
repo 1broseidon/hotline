@@ -1,5 +1,6 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { BackendChoice } from "../generated/contract";
+import { wire } from "../wire";
 import { ChevronDownIcon, ChevronRightIcon } from "../icons";
 
 /** Hotline Agent's stored backend id. The picker puts this row first even if
@@ -29,13 +30,17 @@ export function BackendPicker({
 	name,
 	labelledBy,
 	onSelect,
+	onProviders,
 }: {
 	backends: BackendChoice[];
 	selected: string;
 	name: string;
 	labelledBy: string;
 	onSelect(id: string): void;
+	/** Opens Settings › Providers; without it the words are plain text. */
+	onProviders?: (() => void) | undefined;
 }) {
+	const connected = useConnectedProviders();
 	const { ready, more } = arrange(backends);
 	const selectedIsMore = more.some((one) => one.id === selected);
 	const [open, setOpen] = useState(selectedIsMore);
@@ -70,46 +75,50 @@ export function BackendPicker({
 		}
 	};
 
+	const choice = (backend: BackendChoice) => (
+		<Choice
+			key={backend.id}
+			backend={backend}
+			detail={backend.id === HOTLINE_AGENT ? <HotlineAgentDetail connected={connected} onProviders={onProviders} /> : (backend.unavailable ?? backend.description)}
+			off={backend.unavailable !== undefined}
+			name={name}
+			selected={selected}
+			tabIndex={stop === backend.id ? 0 : -1}
+			onSelect={onSelect}
+		/>
+	);
+	const builtIn = ready.filter((one) => one.id === HOTLINE_AGENT);
+	const external = ready.filter((one) => one.id !== HOTLINE_AGENT);
+
+	// Two lists, not one: Hotline Agent is the agent and any model, the rest
+	// are someone else's agent with its own login. In one list the two read
+	// as the same kind of choice.
 	return (
-		<div role="radiogroup" aria-labelledby={labelledBy} className="grouped" onKeyDown={onKey}>
-			{ready.map((backend) => (
-				<Choice
-					key={backend.id}
-					backend={backend}
-					detail={backend.unavailable ?? backend.description}
-					off={backend.unavailable !== undefined}
-					name={name}
-					selected={selected}
-					tabIndex={stop === backend.id ? 0 : -1}
-					onSelect={onSelect}
-				/>
-			))}
-			{more.length > 0 && (
-				<button
-					type="button"
-					data-picker-row=""
-					tabIndex={stop === "" ? 0 : -1}
-					className="group-row group-row-choice w-full text-left"
-					aria-expanded={open}
-					onClick={() => setOpen((was) => !was)}
-				>
-					{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
-					<span className="text-sm text-ink-3">More harnesses ({more.length})</span>
-				</button>
+		<div role="radiogroup" aria-labelledby={labelledBy} className="flex flex-col" onKeyDown={onKey}>
+			{builtIn.length > 0 && <div className="grouped">{builtIn.map(choice)}</div>}
+			{(external.length > 0 || more.length > 0) && (
+				<>
+					<p className="group-title mt-4">Or an agent you already use</p>
+					<div className="grouped">
+						{external.map(choice)}
+						{more.length > 0 && (
+							<button
+								type="button"
+								data-picker-row=""
+								tabIndex={stop === "" ? 0 : -1}
+								className="group-row group-row-choice w-full text-left"
+								aria-expanded={open}
+								onClick={() => setOpen((was) => !was)}
+							>
+								{open ? <ChevronDownIcon className="shrink-0 text-ink-3" /> : <ChevronRightIcon className="shrink-0 text-ink-3" />}
+								<span className="text-sm text-ink-3">More agents ({more.length})</span>
+							</button>
+						)}
+						{open && more.map(choice)}
+					</div>
+					<p className="group-hint">Hotline starts that agent's own CLI. It signs in, picks its models and runs its tools its own way.</p>
+				</>
 			)}
-			{open &&
-				more.map((backend) => (
-					<Choice
-						key={backend.id}
-						backend={backend}
-						detail={backend.unavailable ?? backend.description}
-						off={backend.unavailable !== undefined}
-						name={name}
-						selected={selected}
-						tabIndex={stop === backend.id ? 0 : -1}
-						onSelect={onSelect}
-					/>
-				))}
 		</div>
 	);
 }
@@ -124,6 +133,63 @@ function arrange(backends: BackendChoice[]): { ready: BackendChoice[]; more: Bac
 	return { ready: [...hotline, ...featured], more: [...startable, ...missing] };
 }
 
+/**
+ * The names of the providers connected now, live ones only, for the chips
+ * under Hotline Agent: it runs on these, and nothing else in the list does.
+ */
+function useConnectedProviders(): string[] | null {
+	const [names, setNames] = useState<string[] | null>(null);
+	useEffect(() => {
+		let current = true;
+		void Promise.all([wire.command("credential.list", {}), wire.command("providers.list", {})])
+			.then(([credentials, providers]) => {
+				if (!current) return;
+				const live = credentials
+					.filter((one) => !one.revoked)
+					.map((one) => providers.find((provider) => provider.id === one.providerId)?.name ?? one.label);
+				setNames([...new Set(live)].sort((a, b) => a.localeCompare(b)));
+			})
+			.catch(() => {
+				if (current) setNames([]);
+			});
+		return () => {
+			current = false;
+		};
+	}, []);
+	return names;
+}
+
+function HotlineAgentDetail({ connected, onProviders }: { connected: string[] | null; onProviders: (() => void) | undefined }) {
+	return (
+		<>
+			<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+				Hotline's own agent. Runs any model from the providers you connect in{" "}
+				{onProviders === undefined ? (
+					"Settings › Providers"
+				) : (
+					<button type="button" className="text-accent-ink hover:underline" onClick={onProviders}>
+						Settings › Providers
+					</button>
+				)}
+				.
+			</span>
+			{connected !== null && (
+				<span className="mt-1.5 flex flex-wrap gap-1">
+					{connected.length === 0 ? (
+						<span className="text-sm text-warn">None connected yet</span>
+					) : (
+						connected.map((one) => (
+							<span key={one} className="provider-chip">
+								{one}
+							</span>
+						))
+					)}
+				</span>
+			)}
+		</>
+	);
+}
+
 function Choice({
 	backend,
 	detail,
@@ -134,7 +200,7 @@ function Choice({
 	onSelect,
 }: {
 	backend: BackendChoice;
-	detail: string;
+	detail: ReactNode;
 	off: boolean;
 	name: string;
 	selected: string;
@@ -160,9 +226,13 @@ function Choice({
 			/>
 			<span className="group-row-text">
 				<span className="group-row-title">{backend.name}</span>
-				<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-					{detail}
-				</span>
+				{typeof detail === "string" ? (
+					<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+						{detail}
+					</span>
+				) : (
+					detail
+				)}
 			</span>
 		</label>
 	);

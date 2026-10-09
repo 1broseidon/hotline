@@ -334,6 +334,237 @@ async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finis
     }
 }
 
+/// Hotline Agent hands work to a subagent and answers: the turn reads as done
+/// while the run works, with the run in the roster row's subagents and the
+/// reply in the chat. A line sent then is taken into the open turn and
+/// answered there, and the run's report wakes the turn, which ends cleanly.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_person() {
+    let api = "chat_completions";
+    let (seen, mut requests) = tokio::sync::mpsc::channel(16);
+    let release = Arc::new(tokio::sync::Notify::new());
+    let step = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let release_run = release.clone();
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |body: Bytes| {
+            let seen = seen.clone();
+            let step = step.clone();
+            let release = release_run.clone();
+            async move {
+                use axum::response::IntoResponse;
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                if request["stream"] != true {
+                    return (
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        json_response(json!({"error":{"message":"not in this test"}})),
+                    )
+                        .into_response();
+                }
+                // The run is offered no subagents of its own; the teammate is.
+                let main = request["tools"].as_array().is_some_and(|tools| {
+                    tools
+                        .iter()
+                        .any(|tool| tool["function"]["name"] == "subagent")
+                });
+                let events = if main {
+                    let index = step.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    seen.send(request.clone()).await.unwrap();
+                    match index {
+                        0 => tool_events(
+                            api,
+                            "subagent",
+                            json!({"task":"Check the edge cases of the lift","title":"Edge cases"}),
+                            "call_sub",
+                        ),
+                        1 => text_events(
+                            "The lift is in crane.rs; a subagent is checking the edge cases.",
+                        ),
+                        2 => {
+                            assert!(request.to_string().contains("also check the brakes"));
+                            text_events("Noted, the brakes are next.")
+                        }
+                        3 => {
+                            assert!(request.to_string().contains("Two edge cases fail."));
+                            text_events("Two edge cases fail; I will fix them.")
+                        }
+                        _ => panic!("unexpected request: {request}"),
+                    }
+                } else {
+                    release.notified().await;
+                    text_events("Two edge cases fail.")
+                };
+                let body = events
+                    .into_iter()
+                    .map(|event| format!("data: {event}\n\n"))
+                    .collect::<String>();
+                (
+                    [("Content-Type", "text/event-stream")],
+                    format!("{body}data: [DONE]\n\n"),
+                )
+                    .into_response()
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let root = tempfile::tempdir().unwrap();
+    let workspace = root.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let desk = common::open_desk(root.path()).unwrap();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+    let port = door.port();
+    let door_task = tokio::spawn(door.run());
+    let mut client = Client::connect(port).await;
+    let saved = client
+        .call(
+            "credential.custom_save",
+            json!({"draft": {
+                "name":api, "baseUrl":base, "api":api, "models":["vendor/coder"]
+            }}),
+        )
+        .await;
+    assert_eq!(saved["ok"], true, "{saved}");
+    let made = client
+        .call(
+            "persona.create",
+            json!({"draft": {
+                "name":"Delegating tester", "goal":"Hand work off", "cwd":workspace.to_string_lossy()
+            }}),
+        )
+        .await;
+    let persona = made["result"]["id"].as_str().unwrap().to_owned();
+    let tape = client.subscribe(json!({"tape":persona})).await;
+    let roster = client.subscribe(json!({"view":"roster"})).await;
+    assert_eq!(
+        client
+            .call("session.start", json!({"personaId":persona}))
+            .await["ok"],
+        true
+    );
+    let said = |text: &'static str| {
+        move |frame: &Value| {
+            frame["sub"] == tape
+                && frame["event"]["kind"] == "agent"
+                && frame["event"]["text"] == text
+        }
+    };
+    let row = |awaiting: bool| {
+        let persona = persona.clone();
+        move |frame: &Value| {
+            frame["sub"] == roster
+                && frame["event"]["persona"]["id"] == persona.as_str()
+                && frame["event"]["session"]["state"] == "thinking"
+                && (frame["event"]["session"]["awaitingSubagents"] == true) == awaiting
+        }
+    };
+    assert_eq!(
+        client
+            .call(
+                "session.prompt",
+                json!({"personaId":persona,"text":"Where is the lift?"})
+            )
+            .await["ok"],
+        true
+    );
+    next_request(&mut requests).await;
+    next_request(&mut requests).await;
+
+    // The reply is chat, and the turn reads as done while the run works.
+    client
+        .next_where(
+            Duration::from_secs(15),
+            said("The lift is in crane.rs; a subagent is checking the edge cases."),
+        )
+        .await;
+    // The row that marks the wait and the row that lists the run can be two
+    // frames when the run is slow to announce itself (Windows CI); take the
+    // row that has both.
+    let waiting = {
+        let row = row(true);
+        client
+            .next_where(Duration::from_secs(15), move |frame: &Value| {
+                row(frame)
+                    && frame["event"]["subagents"]
+                        .as_array()
+                        .is_some_and(|runs| !runs.is_empty())
+            })
+            .await
+    };
+    let runs = waiting["event"]["subagents"].as_array().unwrap();
+    assert_eq!(runs.len(), 1, "{waiting}");
+    assert_eq!(runs[0]["title"], "Edge cases");
+
+    // Said meanwhile, it goes into the open turn, which works on it and
+    // waits again. Each roster row read below is newer than the last one
+    // matched, so none is an older frame read again.
+    client.inbox.retain(|frame| frame["sub"] != roster);
+    assert_eq!(
+        client
+            .call(
+                "session.prompt",
+                json!({"personaId":persona,"text":"also check the brakes"})
+            )
+            .await["ok"],
+        true
+    );
+    next_request(&mut requests).await;
+    client.next_where(Duration::from_secs(15), row(false)).await;
+    client.inbox.retain(|frame| frame["sub"] != roster);
+    client
+        .next_where(Duration::from_secs(15), said("Noted, the brakes are next."))
+        .await;
+    client.next_where(Duration::from_secs(15), row(true)).await;
+
+    // The run reports, and the turn answers it and ends.
+    release.notify_one();
+    next_request(&mut requests).await;
+    client
+        .next_where(
+            Duration::from_secs(15),
+            said("Two edge cases fail; I will fix them."),
+        )
+        .await;
+    let ended = client
+        .next_where(Duration::from_secs(15), |frame| {
+            frame["sub"] == tape && frame["event"]["kind"] == "turn"
+        })
+        .await;
+    assert_eq!(ended["event"]["stopReason"], "end_turn");
+    let persona_id = persona.clone();
+    let rested = client
+        .next_where(Duration::from_secs(15), move |frame| {
+            frame["sub"] == roster
+                && frame["event"]["persona"]["id"] == persona_id.as_str()
+                && frame["event"]["session"]["state"] == "ready"
+        })
+        .await;
+    assert_ne!(rested["event"]["session"]["awaitingSubagents"], true);
+    let turns = client
+        .inbox
+        .iter()
+        .filter(|frame| frame["sub"] == tape && frame["event"]["kind"] == "turn")
+        .count();
+    assert_eq!(
+        turns, 0,
+        "the person's second line was one turn with the first"
+    );
+    client
+        .call("session.stop", json!({"personaId":persona}))
+        .await;
+    drop(client);
+    door_task.abort();
+    server.abort();
+}
+
+fn text_events(text: &str) -> Vec<Value> {
+    vec![
+        json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{"role":"assistant","content":text},"finish_reason":null}]}),
+        json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
+    ]
+}
+
 fn json_values(value: &Value) -> Vec<Value> {
     match value {
         Value::String(text) => serde_json::from_str::<Value>(text)

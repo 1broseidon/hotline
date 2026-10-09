@@ -18,12 +18,12 @@ import { setTheme, THEMES, useTheme } from "../theme";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
-import { ConnectProvider } from "./ConnectProvider";
-import { ServicePicker } from "./ServicePicker";
+import { ConnectProvider, ProviderRow } from "./ConnectProvider";
 import { SecretsSection } from "./Secrets";
 import { McpPasteBack } from "./McpPasteBack";
 import { SkillsSection } from "./Skills";
 import { UseFor } from "./UseFor";
+import { Budgets } from "./Budgets";
 import { tagsFor } from "../useFor";
 
 import { HotkeysSection } from "./HotkeysSection";
@@ -729,18 +729,21 @@ function ProvidersSection({
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
 					{choosing && (
-						<section className="flex flex-col gap-3">
+						<section>
 							<div className="flex items-center">
-								<h3 className="group-title mb-0 flex-1">Connect a service</h3>
-								<button type="button" className="control btn-quiet" onClick={() => setChoosing(false)}>
+								<h3 className="group-title flex-1">Add provider</h3>
+								<button type="button" className="control btn-quiet mb-2" onClick={() => setChoosing(false)}>
 									Cancel
 								</button>
 							</div>
-							{addable.length === 0 ? (
-								<p className="group-hint">Every service Hotline knows is already here.</p>
-							) : (
-								<ServicePicker providers={providers} connected={providers.filter((one) => live.has(one.id)).map((one) => one.name)} onPick={(provider) => begin(provider)} />
-							)}
+							{/* Settings lists every service by name; the welcome's cards are for someone choosing their first. */}
+							<div className="grouped">
+								{addable.length === 0 ? (
+									<p className="group-row text-sm text-ink-3">Every provider Hotline knows is already here.</p>
+								) : (
+									addable.map((provider) => <ProviderRow key={provider.id} provider={provider} onPick={() => begin(provider)} />)
+								)}
+							</div>
 						</section>
 					)}
 					{adding !== null && (
@@ -795,6 +798,7 @@ function ProvidersSection({
 						<p className="group-hint">Keys and sign-ins stay on this computer.</p>
 					</section>
 					{capabilities !== null && <UseFor options={capabilities} voice={voice} onChanged={() => void reloadCapabilities()} />}
+					{capabilities !== null && <Budgets spending={capabilities.spending} onChanged={() => void reloadCapabilities()} />}
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>

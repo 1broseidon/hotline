@@ -8,6 +8,66 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.35.2] - 2026-10-09
+
+### Changed
+
+- Spending is three budgets, Chat, Voice and Images, each with its own
+  optional daily and monthly limit, and no limit unless you set one. A
+  call is stopped only by a budget it pays into, so a call on a
+  subscription or the desk's own voice is never ended by a spent budget,
+  and a refused call says which budget is spent. An earlier version's
+  shared limits carry over as the Voice and Images limits.
+- Hotline Agent teammates on a provider key count against the Chat budget,
+  at what each reply actually cost. When it is spent, a turn stops with
+  "Chat budget spent" before anything is sent. Sign-ins, local models and
+  ACP agents are not counted.
+- Settings › Providers › Use for names Transcription and the Call assistant
+  as rows of their own, and Add provider lists every service by name again;
+  the cards stay in the welcome.
+- Subagents still running show at the top right of the message box instead
+  of in the conversation's header. One is named, several are counted with a
+  menu, and pressing one opens its run beside the conversation. Side threads
+  stay in the header.
+- On a call, a teammate sounds like itself rather than an assistant in
+  front of it. It speaks in the first person with one voice, never as "my
+  session" or "the main agent", and gets straight to the point without
+  "Good to hear…" openers or sign-offs, asking a question only when it
+  needs one. When you ask for something to be done or looked up, such as
+  putting the transcript in the chat, it starts on it straight away and
+  says so briefly, instead of promising to or saying it can't.
+
+### Fixed
+
+- An answer on a call is one reply. It is still spoken as soon as its
+  first sentence is ready, but the call and the chat show it as one message
+  instead of a line per sentence, and an acknowledgement is no longer said
+  twice when the teammate hands your request over.
+- When a teammate on Claude Code or Hotline Agent has answered and only its
+  subagents are still working, the answer is its reply in the conversation
+  (on Claude Code it stayed in the Working card's steps) and the teammate no
+  longer shows as Working. The message box works as it does between turns: a
+  message sent then reaches the teammate at once, without stopping the
+  subagents. Working comes back if the teammate goes back to work, and what
+  it says once a subagent reports lands as any reply does.
+- The call assistant's spend is what the provider billed. Each request
+  reserves an estimate and is settled to its reported usage, cache reads
+  and writes included, instead of keeping the estimate. Claude Haiku 5.5
+  has its price, and a model with no listed price is metered at a high
+  guard rate that the desk now logs.
+- A teammate on an outside agent whose command never finishes starting no
+  longer stalls the desk. Your other teammates keep answering, what you
+  send them is saved, and Settings › Computer keeps loading. The stuck
+  start gives up after 60 seconds, or 5 minutes the first time a command
+  runs, since that run may be downloading the agent. The teammate shows an
+  error card that names the command so you can try it in a terminal, and
+  your next message to it tries again. Quitting Hotline now also stops
+  any agent that was still starting, so none is left running.
+- The desktop app keeps a log, `logs/hotline.log` in its data folder,
+  with what it reports while starting up, why an agent failed to start,
+  and any crash message. It is capped at 5 MB, and the previous file is
+  kept as `hotline.log.1`.
+
 ## [0.35.1] - 2026-10-09
 
 ### Added

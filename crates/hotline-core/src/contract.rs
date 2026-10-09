@@ -22,7 +22,7 @@ use serde_json::{Map, Value};
 use ts_rs::TS;
 
 pub use crate::imagegen::ImageSettings;
-pub use crate::spending::{SpendingSettings, SpendingSummary};
+pub use crate::spending::{BudgetLimits, SpendingSettings, SpendingSummary};
 
 // ---------------------------------------------------------------------------
 // Avatars
@@ -936,6 +936,12 @@ pub struct SessionInfo {
     pub capabilities: SessionCapabilities,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The turn in flight is open only for subagents it started: the agent
+    /// has said its reply and is doing nothing else, so the turn reads as
+    /// done while they work. Only ever set while `state` is `thinking`.
+    #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
+    pub awaiting_subagents: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -2427,8 +2433,15 @@ pub struct VoiceModel {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts")]
 pub struct VoiceBudget {
-    pub day_usd: f64,
-    pub month_usd: f64,
+    /// The Voice budget's daily limit; absent when it has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub day_usd: Option<f64>,
+    /// The Voice budget's monthly limit; absent when it has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub month_usd: Option<f64>,
+    /// What transcription and speech have spent today.
     pub spent_day_usd: f64,
     pub spent_month_usd: f64,
 }
@@ -2528,18 +2541,78 @@ pub struct CapabilityJob {
     pub options: Vec<CapabilityProvider>,
 }
 
-/// The shared caps and what has been spent against them so far.
+/// The spending budgets and what has been spent against each so far.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct CapabilitySpending {
-    pub day_usd: f64,
-    pub month_usd: f64,
-    pub spent_day_usd: f64,
-    pub spent_month_usd: f64,
+    /// Always chat, voice and images, in that order.
+    pub budgets: Vec<SpendingBudget>,
     /// Set when a tally could not be read, so the spent figures are not whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<String>,
+}
+
+/// One budget: its limits, what it has spent, and what that went on.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SpendingBudget {
+    pub kind: BudgetKind,
+    /// `null` is no limit. Zero turns this budget's paid use off.
+    pub day_usd: Option<f64>,
+    /// `null` is no limit. Zero turns this budget's paid use off.
+    pub month_usd: Option<f64>,
+    pub spent_day_usd: f64,
+    pub spent_month_usd: f64,
+    /// Chat: teammates, then the call assistant. Voice: transcription, then
+    /// speech. Images: none.
+    pub lines: Vec<SpendingLine>,
+}
+
+/// What paid use is budgeted under: teammates and the call assistant are
+/// chat, hearing and speaking on calls are voice, and drawing is images.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum BudgetKind {
+    Chat,
+    Voice,
+    Images,
+}
+
+impl BudgetKind {
+    /// The budget's name as Settings › Budgets shows it.
+    pub fn name(self) -> &'static str {
+        match self {
+            BudgetKind::Chat => "Chat",
+            BudgetKind::Voice => "Voice",
+            BudgetKind::Images => "Images",
+        }
+    }
+}
+
+/// One kind of paid use within a budget and what it has cost today and this
+/// month.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SpendingLine {
+    pub kind: SpendingKind,
+    pub day_usd: f64,
+    pub month_usd: f64,
+}
+
+/// Paid use as Budgets names it: teammates' turns and the call assistant
+/// (chat), transcription and speech (voice).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum SpendingKind {
+    Teammates,
+    CallAssistant,
+    Transcription,
+    Speech,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -3855,8 +3928,11 @@ mod tests {
         );
         assert!(ImageSettings::decl(&config).contains("provider?: string"));
         assert!(ImageSettings::decl(&config).contains("model?: string"));
-        assert!(SpendingSettings::decl(&config).contains("dayUsd: number"));
-        assert!(SpendingSettings::decl(&config).contains("monthUsd: number"));
+        assert!(SpendingSettings::decl(&config).contains("voice: BudgetLimits"));
+        assert!(BudgetLimits::decl(&config).contains("dayUsd?: number"));
+        assert!(BudgetLimits::decl(&config).contains("monthUsd?: number"));
+        assert!(SpendingBudget::decl(&config).contains("dayUsd: number | null"));
+        assert!(VoiceBudget::decl(&config).contains("dayUsd?: number"));
         assert!(ImagesStatus::decl(&config).contains("unavailable?: string"));
         assert!(ImagesStatus::decl(&config).contains("provider?: string"));
         assert!(ImagesStatus::decl(&config).contains("model?: string"));

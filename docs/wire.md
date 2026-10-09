@@ -14,7 +14,13 @@ One writer task per socket queues whole frames in the order they were
 produced, so answers, snapshots and events never interleave. Commands are
 answered on the read loop, in the order they arrived: the append a
 command makes *is* its answer, and a client that creates a teammate and
-then subscribes must see it.
+then subscribes must see it. A command that names one teammate — by
+`personaId`, by a `thread` (a DM is its teammate's), by a `sideId`, or as
+the `id` of a `persona.*` command — is answered on that teammate's own lane
+instead: in order with that teammate's other commands, and waiting on
+nobody else's. Starting an agent can take a while, or never finish, and it
+holds up only the commands about that teammate. Its answer may therefore
+arrive after the answers to commands sent after it.
 
 A frame with no `id` is dropped. `id` is a JSON number (`i64`).
 
@@ -364,25 +370,44 @@ Only changing whether a computer is enabled reattaches the teammate; limit,
 image and mount edits apply on the next container creation, not a restart of
 an existing container. Secret-grant edits are handed to a running computer.
 
-`capabilities.options` feeds Settings > Providers > Use for, and reads the same
-connections `images.status` and `voice.status` resolve from. Its spending
-figures are the caps in `settings.spending`, which govern images and voice
-alike, and the sum of the image tally and voice's own tally, which are still two
-separate files. The `stt` and `tts` options are every speech model each
+`capabilities.options` feeds Settings > Providers > Use for and Settings >
+Budgets, and reads the same connections `images.status` and `voice.status`
+resolve from. Its `spending` is `CapabilitySpending`
+`{budgets: SpendingBudget[], unavailable?}`: always the `chat`, `voice` and
+`images` budgets in that order, each
+`{kind, dayUsd: number|null, monthUsd: number|null, spentDayUsd, spentMonthUsd, lines}`.
+A `null` limit is no limit. `lines` say what the spend went on:
+`teammates` (Hotline Agent turns on per-token keys; ACP teammates bill their
+own accounts and are not counted) and `callAssistant` for chat,
+`transcription` and `speech` for voice, none for images. Teammates come from
+`chat-ledger.json`, the call assistant and voice from `voice-ledger.json`,
+images from the image tally (`spending.json`);
+`unavailable` is set when either cannot be read. The `stt` and `tts` options are every speech model each
 connected provider offers, as the provider lists them (cached for a day; the
 provider's default when it cannot be asked), with voices on each speaking
 model and the default model first; see `docs/voice.md`. The command may wait on
-those lists for up to five seconds; starting a call does not. Voice reads `settings.spending` when the owner has set it and
-falls back to `settings.voice.dayUsd` and `monthUsd` otherwise.
+those lists for up to five seconds; starting a call does not. Voice reads
+`settings.spending` when the owner has set it. A room that never set it but
+kept an early version's `settings.voice.dayUsd` and `monthUsd` has those as
+its Voice limits, and no others.
 
 `images` is an `ImageSettings` object `{provider?: string, model?: string}`,
 defaulting to `{}`. An omitted provider selects the first connected provider
 that can make images, on its default model; a model is used only with an
 explicit provider. An unavailable explicit provider is reported rather than
-silently switched. `spending` is a `SpendingSettings` object
-`{dayUsd: number, monthUsd: number}`, defaulting to `$2` per UTC day and `$20`
-per UTC month. Omitted spending fields take their defaults; each limit must
-be finite and non-negative, and either zero limit disables spending. Each object replaces
+silently switched. `spending` is a `SpendingSettings` object with a budget
+each for `chat` (teammates and the call assistant), `voice` (transcription
+and speech) and `images`, each `{dayUsd?: number, monthUsd?: number}`:
+
+```json
+{"chat": {"dayUsd": 5, "monthUsd": 50}, "voice": {"dayUsd": 10}, "images": {}}
+```
+
+An absent or `null` limit is no limit, and the default is no limits at all.
+Each limit must be finite and non-negative; zero turns that budget's paid use
+off. The shared `{dayUsd, monthUsd}` earlier versions wrote is still
+accepted, as the voice and images limits with chat unlimited, and is stored
+in the new shape; mixing it with budget keys is refused. Each object replaces
 the whole setting rather than merging its fields. Top-level `null` restores
 the whole object's defaults. Image selections must be non-blank strings when
 present. Both objects are typed and validated before any key in an update is
@@ -822,7 +847,11 @@ still running, only while the session is thinking — absent, not null, when
 there is none. `pin` is the teammate's 0-based slot among the desk's pinned
 teammates, absent when it is not pinned; the affected rows are sent again when
 the `pinnedTeammates` setting changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
-`ready`, `thinking`, `error`, or `stopped`). A persona tombstone on the
+`ready`, `thinking`, `error`, or `stopped`). While a turn is `thinking`,
+`awaitingSubagents: true` says it is open only for subagents it started and
+reads as done: the reply is in the conversation and the composer is as it is
+between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
+`subagents` lists the runs still going, oldest first. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
 itself after its teammate was deleted is not put back. If the view falls
 behind on the room stream it reloads every row; a lagged burst of
@@ -1109,13 +1138,14 @@ Speech comes from connected providers. By default the dispatcher uses the room's
 default provider and prefers its lightweight chat models, excluding speech,
 embedding, image and audio model IDs. `settings.voice.dispatcher` can select a
 provider and model explicitly; catalogues supply no measured latency ranking.
-`settings.voice` also selects speech models, voices and spending caps; see
+`settings.voice` also selects speech models and voices; what voice may spend
+is the Voice and Chat budgets of `settings.spending`. See
 [Voice providers and settings](voice.md).
 No extra speech credential is created.
 
 | Command | Params | Result |
 | --- | --- | --- |
-| `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and budget |
+| `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and `budget`, the Voice budget's limits (`dayUsd`, `monthUsd`, absent when none) and what transcription and speech spent |
 | `voice.call_start` | `{callId,personaId?,streamAudio?,inputMode?:"audio"\|"text"}` | `VoiceCall`: call id, accepted input formats, primary output format, echoed `inputMode`, and optional echoed `personaId` |
 | `voice.text` | `{callId,seq,text}` | void; one finalized device transcript on a negotiated text call |
 | `voice.audio` | `{callId,seq,index,data,final}` | void; negotiated mono PCM16 at 16 kHz |
@@ -1211,10 +1241,13 @@ is a sentence explaining what the owner needs to change.
 After a nonempty, non-goodbye `heard`, the desk says nothing until the
 dispatcher answers: the call is `thinking`, and a client covers the wait with
 its own sound (the desktop plays a short blip-blip, repeated while it lasts)
-rather than speech. Dispatcher text streams at sentence boundaries; each
-sentence has its own `said.id`. Whole-clip output uses `index: 0`, `final: true`;
-negotiated progressive output can carry multiple clips for that sentence.
-Clients
+rather than speech. Dispatcher text streams at sentence boundaries, and one
+answer keeps one `said.id`: each sentence sends `said` again under that id with
+the answer so far, which a client shows in place of the line it had. Its clips
+carry on that id's indices, one whole clip per sentence or, with negotiated
+progressive output, several, and the answer ends with an empty `final: true`
+clip (`data: ""`) once the dispatcher is done. A whole line said at once (a
+narrated reply, a goodbye) marks its own last clip `final` instead. Clients
 must queue clips across successive `said` IDs instead of replacing playback.
 
 A completed teammate reply during an active, unheld call is narrated and sent as
@@ -1230,7 +1263,14 @@ Each `clip.mimeType` describes that clip, including bundled and fallback clips;
 One failed utterance speaks a bundled “Sorry, say that again.” and returns to
 `listening` (or stays held). Three consecutive failed work items end with a
 bundled explanation and reason `error`; success resets that count. Budget
-failure ends immediately with its bundled line. Failed goodbye synthesis uses
+failure ends immediately with its bundled line. Only a budget the call pays
+into can end it: transcription and speech on a provider that charges spend
+the Voice budget, and a call assistant billed per token the Chat budget. A
+call heard, spoken and answered for free runs whatever the budgets say. At
+`voice.call_start` a call whose paid part's budget is spent or zero is
+refused with a sentence naming it ("The Voice budget for today is spent.
+Raise it in Settings › Budgets."); during a call it ends with reason `budget`
+when a reservation is refused. Failed goodbye synthesis uses
 a bundled “Goodbye.” and still ends with reason `goodbye`. The whole-utterance
 farewell bypass requires at least 400 ms of audio and one byte per millisecond;
 shorter or sparser clips follow the dispatcher path. This size/duration check
@@ -1259,8 +1299,10 @@ roster and rail, but indexed by `search.all` and `search.thread`.
 Speech attempts and conservative dispatcher estimates are reserved before a
 request so cancellation or a lost response cannot erase their cost. Reservations
 serialize across calls and push narration, and cannot exceed the remaining cap.
-Dispatcher estimates count input bytes plus a fixed prompt/tool allowance and the
-output limit; reported usage above the reservation is additionally charged.
+Dispatcher estimates count a third of the request's bytes (prompt, history,
+preamble and tools) as input tokens plus the request's output limit; reported
+usage then settles the reservation to the actual cost, up or down, and a call
+without usage keeps it (see [voice.md](voice.md#the-ledger)).
 These are spending guards, not provider invoices. Each fallback attempt is charged separately.
 An unavailable or exhausted ledger stops work; a bundled spoken system
 line can be played without a further paid request. A whole-utterance

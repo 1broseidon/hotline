@@ -372,7 +372,10 @@ impl Room {
         let mut starting = Starting(Some(driver.clone()));
         let mut info = driver.start(&checkpointed).await?;
         lease.check()?;
-        if reopening.is_some() && !info.context_restored {
+        // A harness that came up failed (it never answered, or is signed out)
+        // was not asked to reopen anything, and starting it over would only
+        // wait out the same failure a second time.
+        if reopening.is_some() && !info.context_restored && driver.startup_failure().is_none() {
             // The harness would not reopen it. The thread is not lost: the
             // agent is started over from what the thread said.
             starting.0 = None;

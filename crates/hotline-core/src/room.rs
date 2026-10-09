@@ -80,7 +80,7 @@ pub(crate) fn normalize_setting(key: &str, value: &Value) -> Result<Value, Strin
         "spending" => {
             let settings: SpendingSettings =
                 serde_json::from_value(value.clone()).map_err(|_| {
-                    "Spending settings must be an object with numeric dayUsd and monthUsd limits."
+                    "Spending settings must give chat, voice and images budgets, each with optional numeric dayUsd and monthUsd limits."
                         .to_string()
                 })?;
             settings.validate()?;
@@ -839,7 +839,8 @@ mod tests {
     }
 
     #[test]
-    fn voice_follows_the_shared_spending_caps_only_once_the_owner_has_set_them() {
+    fn voices_own_caps_count_only_until_the_owner_sets_spending() {
+        use crate::contract::BudgetLimits;
         use crate::voice::settings::VoiceSettings;
         let log = scratch("voice-shared-caps");
         append(
@@ -848,18 +849,28 @@ mod tests {
         );
         assert!(!is_set(&log, "spending"));
         let voice = VoiceSettings::from_log(&log);
-        assert_eq!((voice.day_usd, voice.month_usd), (5.0, 50.0));
+        assert_eq!(voice.voice, BudgetLimits::new(Some(5.0), Some(50.0)));
+        assert_eq!(voice.chat, BudgetLimits::default());
         append(
             &log,
             &setting("spending", json!({"dayUsd": 0.5, "monthUsd": 4})),
         );
         assert!(is_set(&log, "spending"));
         let voice = VoiceSettings::from_log(&log);
-        assert_eq!((voice.day_usd, voice.month_usd), (0.5, 4.0));
+        assert_eq!(voice.voice, BudgetLimits::new(Some(0.5), Some(4.0)));
+        assert_eq!(voice.chat, BudgetLimits::default());
+        append(&log, &setting("spending", json!({"chat": {"dayUsd": 1}})));
+        let voice = VoiceSettings::from_log(&log);
+        assert_eq!(
+            voice.voice,
+            BudgetLimits::default(),
+            "voice's own caps are gone"
+        );
+        assert_eq!(voice.chat, BudgetLimits::new(Some(1.0), None));
         append(&log, &tombstone("setting", "spending"));
         assert!(!is_set(&log, "spending"));
         let voice = VoiceSettings::from_log(&log);
-        assert_eq!((voice.day_usd, voice.month_usd), (5.0, 50.0));
+        assert_eq!(voice.voice, BudgetLimits::new(Some(5.0), Some(50.0)));
     }
 
     #[test]
@@ -868,7 +879,7 @@ mod tests {
         assert_eq!(settings(&log)["images"], json!({}));
         assert_eq!(
             settings(&log)["spending"],
-            json!({"dayUsd": 2.0, "monthUsd": 20.0})
+            json!({"chat": {}, "voice": {}, "images": {}})
         );
         append(
             &log,
@@ -882,9 +893,10 @@ mod tests {
         let images: ImageSettings = serde_json::from_value(selected["images"].clone()).unwrap();
         assert_eq!(images.provider.as_deref(), Some("openai"));
         assert_eq!(images.model.as_deref(), Some("gpt-image-1-mini"));
+        // The shared limit of earlier versions reads as voice's and images'.
         assert_eq!(
             selected["spending"],
-            json!({"dayUsd": 0.0, "monthUsd": 20.0})
+            json!({"chat": {}, "voice": {"dayUsd": 0.0}, "images": {"dayUsd": 0.0}})
         );
         append(&log, &tombstone("setting", "images"));
         append(&log, &tombstone("setting", "spending"));
@@ -920,7 +932,7 @@ mod tests {
         append(&log, &setting("spending", json!({"dayUsd": 0.0})));
         assert_eq!(
             try_settings(&log).unwrap()["spending"],
-            json!({"dayUsd": 0.0, "monthUsd": 20.0})
+            json!({"chat": {}, "voice": {"dayUsd": 0.0}, "images": {"dayUsd": 0.0}})
         );
         std::fs::write(
             crate::paths::room_path(log.root()),

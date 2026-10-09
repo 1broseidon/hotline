@@ -268,8 +268,8 @@ The adapter is provider `local`, named On the desk, and hears `audio/wav`
 (mono PCM16 at any rate, which the engine resamples), `audio/mp4` (AAC,
 decoded with symphonia) and live PCM, which it gathers until the turn ends,
 so a phone that streams its microphone keeps streaming it. It takes at most a
-minute at a time and never speaks. Its price is zero, so a zero spending
-limit never stops it.
+minute at a time and never speaks. Its price is zero, so a zero Voice
+budget never stops it.
 
 In the window the models are rows in Settings › Providers › Use for ›
 Hearing (`ui/src/components/DeskModels.tsx`), a fold under Voice that opens
@@ -378,8 +378,7 @@ fallback.
 `settings.voice` overrides any of it:
 
 ```json
-{ "dayUsd": 2, "monthUsd": 20,
-  "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
+{ "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "cedar" },
   "fallbackTts": { "provider": "google" },
   "dispatcher": { "provider": "openai", "model": "gpt-5-mini" } }
@@ -424,6 +423,26 @@ latest chapter closed with and the newest 24 entries of its conversation. A
 scheduled prompt, a colleague's message or an answer to a request is named for
 what it is in that data, never as something the person said. A question about
 how the work is going is answered from that and reaches no session.
+
+The front is the teammate, not an assistant in front of it. It speaks in the
+first person as one person with one voice, never mentions a session, a main
+agent or a call assistant, and tells what the session did as what it did
+itself. It answers the point directly, the way a colleague on the phone would:
+one reply in natural spoken prose, one to three short sentences unless asked
+for more, with no filler opener ("Good to hear…") or sign-off, and at most one
+question, asked only when it needs the answer. Anything that needs doing or
+looking up (files, sending something to the chat, checking how something
+stands, running something) goes to the session at once with a brief spoken
+acknowledgement; it never says it can't and never promises without handing it
+over.
+
+A reply is spoken sentence by sentence as the model writes it, so the first
+words come quickly, but it is one reply. The call shows it as one line that
+grows under one `said` id, its audio continues under that id and ends with an
+empty final clip, and the call's thread, and so the chat, keeps it once,
+whole, when it is over (or when the person speaks over it, with what was
+said by then). The voice's memory of the call holds it the same way. A desk
+call's answers are kept as one line on the dispatcher's tape likewise.
 The exchange is only what the voice is given: a direct call is a thread
 (`docs/threads.md`), and everything said on it is kept in `calls/<id>.jsonl`,
 indexed for `search_thread`, linked from the teammate's DM and read back after
@@ -434,7 +453,9 @@ The desk's own calls, which name no teammate, are not threads; they stay on the
 `voice-dispatcher` tape, which the dispatcher reads across calls.
 A request for work calls the front's one tool, `hand_to_session`, which hands
 the words to the teammate's session as a call without a front would, at most
-once per utterance; the front then says a short acknowledgement. The session
+once per utterance; the front then says a short acknowledgement. When the
+model speaks before calling the tool, what it writes after the tool's result
+is not spoken, so the acknowledgement is said once. The session
 hears the call lines it has not yet been told (the person's and the voice's,
 not its own relayed reports) ahead of the person's exact words, framed as the
 call's; the conversation shows only the words. The front never claims work is
@@ -447,7 +468,8 @@ acknowledgements are not spoken, nor a turn that ends on a bare one; its
 reply at the end of the turn is. Replies
 to any turn handed off on this call are delivered, not only to the latest one,
 and longer replies are retold in the first person by the dispatcher's model,
-which summarises lists rather than reading them out.
+plainly and briefly, under the same voice rules, which summarises lists rather
+than reading them out.
 Short plain replies are spoken as written. Without a dispatcher, a direct call
 hands every utterance to the session and speaks its replies as before.
 
@@ -502,22 +524,50 @@ Neither is called by the speech layer; the desk asks them beside its own.
 
 `voice/ledger.rs` keeps today's and this month's spend in
 `<data dir>/voice-ledger.json`, split into speech to text, text to speech and
-dispatcher. `check(settings)` returns `Err(Exhausted)` once either cap is spent
-and `charge(kind, usd)` records a cost. The caps are `settings.voice.dayUsd`
-and `monthUsd`, $2 and $20 by default. Zero turns paid voice off: a cap
-only counts as spent once something was spent against it, so a subscription's
-free voice still runs and any reservation that costs is refused. Once the owner
-has set `settings.spending`, its `dayUsd` and `monthUsd` govern voice instead,
-so one cap covers images and voice. Voice's ledger and the image ledger are
-still separate tallies; Settings shows their sum.
+dispatcher. `spent()` reads what each kind has spent today and this month
+and `charge(kind, usd)` records a cost. `reserve(kind, usd)` records an
+estimate and returns a `Reservation` naming the day and month it was charged
+to; `settle(reservation, actual)` replaces it with the actual cost. A cost
+above the estimate is charged in full to the day it became known. A cost below
+it is refunded from the reservation's own day and month while they are still
+current, so a day that rolled over in between keeps its estimate and its
+month is refunded. A refund never takes a total below zero or a month below
+its day. A reservation that is dropped, or settled with a cost that is not a
+number, stays charged.
+
+Each kind is spent against a budget of `settings.spending`: speech to text
+and text to speech against **Voice**, the call assistant against **Chat**.
+Chat also covers teammates' own turns on per-token keys, which the same
+`Budget` keeps in `<data dir>/chat-ledger.json` (kind `teammates`); the Chat
+budget is judged on both files together. There is one `Budget` per desk,
+shared by calls and teammates. Images have their own budget and
+ledger. A budget has optional daily and monthly limits and none by default;
+no limit is never spent, and zero turns that budget's paid use off. A room
+that never set `settings.spending` but kept an early version's
+`settings.voice.dayUsd` and `monthUsd` has those as its Voice limits. A
+spending setting that cannot be read turns paid chat and voice off.
+
+`voice/metering.rs` is the gate. `reserve(kind, usd)` is refused with
+`Exhausted::Day(budget)`, `Month(budget)` or `Off(budget)` when the kind's
+own budget would go over a limit, and each says which budget in a sentence
+("The Voice budget for today is spent. Raise it in Settings › Budgets.").
+A reservation of nothing (a subscription, the desk's own engine, a signed-in
+call assistant) is never refused and never reads the ledger, so free voice
+runs even when the ledger cannot be read. `ready(kinds)` asks the same of
+the kinds a call would pay for before work starts: transcription and speech
+when their provider charges, the call assistant when it is billed per token
+(on a direct call, only when it speaks for the teammate). `voice.call_start`
+refuses a call whose paid budget is spent with that sentence; during a call
+a refused reservation ends it with the bundled budget line. A call that
+pays for nothing names no kinds, so no budget can end it.
 
 Days and months are the desk host's local calendar. A clock that goes backwards
 keeps counting against the later day. The ledger fails closed: a file that
 exists and cannot be read or understood, or a charge that could not be written
-down, makes `check` fail until it can. Reading is tried again on every check,
-so mending the file mends the ledger, and so is a write that failed: each
-`check` (and each status read) writes the balance it is holding again, so a disk
-that comes back turns voice back on without a restart. The fsync runs without
+down, makes paid reservations fail until it can. Reading is tried again on
+every read, so mending the file mends the ledger, and so is a write that
+failed: each read (and each status read) writes the balance it is holding
+again, so a disk that comes back turns paid voice back on without a restart. The fsync runs without
 the ledger balance lock held. A healthy direct ledger check need not wait for
 another write, but retrying a failed write still waits for disk. The desk's
 `Budget` gate also serializes checks and reservations through persistence so
@@ -528,10 +578,35 @@ they do not hold a runtime worker.
 Prices in the ledger module are rounded up, since they are a guard and not an
 invoice: speech to text per minute and text to speech per 1,000 characters by
 provider, one high price for a provider not in the table, and zero for the
-desk's own model (`local`). The dispatcher is not
-in that table: `voice/dispatcher.rs` reserves each call from its model's own
-price, the vault's model metadata first, then the bundled catalogue, and $5 per
-million input tokens and $25 per million output tokens when neither has one.
+desk's own model (`local`). Speech is priced from what is sent (seconds of
+audio, characters of text) and no provider reports usage back, so its
+reservation is its charge and is never settled.
+
+The call assistant is not in that table. `voice/dispatcher.rs` prices its
+model from the vault's model metadata first, then the bundled catalogue; a
+sign-in or a local server costs nothing. Each model call reserves an estimate
+before it goes out: the request's bytes (prompt, history, preamble, and 2 KB
+per tool) divided by three as input tokens, plus the request's own output
+ceiling (512 tokens for an answer, 160 for a narration). When the response
+reports usage, the reservation is settled to what it cost: `input_tokens` at
+the input price, cache reads and writes at the catalogue's cache prices, and
+output. Anthropic reports cache tokens beside `input_tokens`; the
+OpenAI-style APIs count them inside it, and are priced net of them. Tokens the
+total holds beyond input and output (a Gemini model's thinking) are priced as
+output. A blocking call settles on its response; a streamed call settles when
+its turn finishes, which includes turns that only call a tool. A call that
+fails, is cancelled, or reports no usage keeps its reservation, since the
+provider may have billed it. A cost above the estimate is written down in
+full and can end the run when it spends the cap.
+
+A model on an API key with no listed price is metered at a guard rate of $5
+per million input tokens and $25 per million output tokens (`UNPRICED`), so
+the caps still bound it. The desk logs once per model that it is doing so
+(`[pricing] … has no listed price`), because the budget then runs down faster
+than the bill. The fix is a catalogue entry: run `hotline-models-sync` (see
+[development.md](development.md#the-model-catalogue)). The catalogue holds
+one price per model, so a model priced by prompt length (Claude Haiku 5.5
+above 100,000 prompt tokens) is metered at its base price.
 
 ## Checking against the real endpoints
 

@@ -11,29 +11,106 @@ const MAX_LEDGER_BYTES: u64 = 4096;
 const STORAGE_ERROR: &str =
     "The spending ledger could not be safely read or saved. Spending is blocked.";
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(default, rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct SpendingSettings {
-    pub day_usd: f64,
-    pub month_usd: f64,
+/// One budget's limits. An absent limit is no limit; zero turns that
+/// budget's paid use off.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct BudgetLimits {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub month_usd: Option<f64>,
 }
 
-impl Default for SpendingSettings {
-    fn default() -> Self {
-        Self {
-            day_usd: 2.0,
-            month_usd: 20.0,
+impl BudgetLimits {
+    pub fn new(day_usd: Option<f64>, month_usd: Option<f64>) -> Self {
+        Self { day_usd, month_usd }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if [self.day_usd, self.month_usd]
+            .into_iter()
+            .flatten()
+            .all(valid_amount)
+        {
+            Ok(())
+        } else {
+            Err("Spending limits must be finite, nonnegative dollar amounts.".into())
         }
+    }
+
+    /// Whether either limit is zero, which turns the budget's paid use off.
+    pub fn off(&self) -> bool {
+        self.day_usd == Some(0.0) || self.month_usd == Some(0.0)
+    }
+}
+
+/// The room's `spending` setting: a budget each for chat (teammates and the
+/// call assistant), voice (transcription and speech) and images, each with
+/// optional daily and monthly limits. A room that set none has no limits.
+///
+/// ```json
+/// {"chat": {"dayUsd": 5, "monthUsd": 50}, "voice": {"dayUsd": 10}, "images": {}}
+/// ```
+///
+/// The shared limits earlier versions wrote, `{"dayUsd": 10, "monthUsd": 20}`,
+/// still read: as the voice and the images limits, with chat unlimited,
+/// since those were the two they covered. Writes are always the new shape.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SpendingSettings {
+    pub chat: BudgetLimits,
+    pub voice: BudgetLimits,
+    pub images: BudgetLimits,
+}
+
+impl<'de> Deserialize<'de> for SpendingSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Stored {
+            #[serde(default)]
+            chat: Option<BudgetLimits>,
+            #[serde(default)]
+            voice: Option<BudgetLimits>,
+            #[serde(default)]
+            images: Option<BudgetLimits>,
+            #[serde(default)]
+            day_usd: Option<f64>,
+            #[serde(default)]
+            month_usd: Option<f64>,
+        }
+        let stored = Stored::deserialize(deserializer)?;
+        let budgets = stored.chat.is_some() || stored.voice.is_some() || stored.images.is_some();
+        let shared = stored.day_usd.is_some() || stored.month_usd.is_some();
+        if budgets && shared {
+            return Err(serde::de::Error::custom(
+                "spending mixes shared limits with per-budget ones",
+            ));
+        }
+        if shared {
+            let limits = BudgetLimits::new(stored.day_usd, stored.month_usd);
+            return Ok(Self {
+                chat: BudgetLimits::default(),
+                voice: limits,
+                images: limits,
+            });
+        }
+        Ok(Self {
+            chat: stored.chat.unwrap_or_default(),
+            voice: stored.voice.unwrap_or_default(),
+            images: stored.images.unwrap_or_default(),
+        })
     }
 }
 
 impl SpendingSettings {
     pub fn validate(&self) -> Result<(), String> {
-        if !valid_amount(self.day_usd) || !valid_amount(self.month_usd) {
-            return Err("Spending limits must be finite, nonnegative dollar amounts.".into());
-        }
-        Ok(())
+        self.chat.validate()?;
+        self.voice.validate()?;
+        self.images.validate()
     }
 }
 
@@ -164,17 +241,15 @@ impl SpendLedger {
         }
     }
 
-    pub fn reserve(
-        &self,
-        settings: &SpendingSettings,
-        estimate_usd: f64,
-    ) -> Result<Reservation, String> {
-        settings.validate()?;
+    /// Reserves an image's estimated cost against the Images budget's
+    /// limits. A zero limit turns paid images off before anything is read.
+    pub fn reserve(&self, limits: &BudgetLimits, estimate_usd: f64) -> Result<Reservation, String> {
+        limits.validate()?;
         if !valid_amount(estimate_usd) {
             return Err("The estimated cost must be a finite, nonnegative dollar amount.".into());
         }
-        if settings.day_usd == 0.0 || settings.month_usd == 0.0 {
-            return Err("Spending is disabled because a spending limit is zero.".into());
+        if limits.off() {
+            return Err("Paid images are disabled because an Images budget limit is zero.".into());
         }
         let mut state = self.inner.lock()?;
         let period = Period::now();
@@ -182,11 +257,12 @@ impl SpendLedger {
         totals.advance(period);
         let day_usd = totals.day_usd + estimate_usd;
         let month_usd = totals.month_usd + estimate_usd;
-        if !valid_amount(day_usd) || day_usd > settings.day_usd {
-            return Err("The daily spending limit would be exceeded.".into());
+        let over = |total: f64, limit: Option<f64>| limit.is_some_and(|limit| total > limit);
+        if !valid_amount(day_usd) || over(day_usd, limits.day_usd) {
+            return Err("The Images budget's daily limit would be exceeded.".into());
         }
-        if !valid_amount(month_usd) || month_usd > settings.month_usd {
-            return Err("The monthly spending limit would be exceeded.".into());
+        if !valid_amount(month_usd) || over(month_usd, limits.month_usd) {
+            return Err("The Images budget's monthly limit would be exceeded.".into());
         }
         if estimate_usd > 0.0 && (day_usd == totals.day_usd || month_usd == totals.month_usd) {
             return Err(
@@ -321,45 +397,112 @@ mod tests {
         serde_json::from_slice(&fs::read(root.join("spending.json")).unwrap()).unwrap()
     }
 
+    /// Limits as the tests write them: a dollar figure each.
+    fn limits(day_usd: f64, month_usd: f64) -> BudgetLimits {
+        BudgetLimits::new(Some(day_usd), Some(month_usd))
+    }
+
+    /// The two and twenty dollars earlier versions defaulted to.
+    fn capped() -> BudgetLimits {
+        limits(2.0, 20.0)
+    }
+
     #[test]
-    fn defaults_and_contract_use_dollar_limits() {
+    fn defaults_are_three_budgets_without_limits() {
         let settings = SpendingSettings::default();
-        assert_eq!(settings.day_usd, 2.0);
-        assert_eq!(settings.month_usd, 20.0);
+        assert_eq!(settings.chat, BudgetLimits::default());
+        assert_eq!(settings.voice, BudgetLimits::default());
+        assert_eq!(settings.images, BudgetLimits::default());
         assert!(settings.validate().is_ok());
+        assert_eq!(
+            serde_json::to_value(&settings).unwrap(),
+            serde_json::json!({"chat": {}, "voice": {}, "images": {}})
+        );
         assert_eq!(
             serde_json::from_str::<SpendingSettings>("{}").unwrap(),
             settings
         );
+        let declaration = SpendingSettings::decl(&ts_rs::Config::default());
+        assert!(declaration.contains("chat: BudgetLimits"));
+        let declaration = BudgetLimits::decl(&ts_rs::Config::default());
+        assert!(declaration.contains("dayUsd?: number"));
+    }
+
+    #[test]
+    fn each_budget_has_its_own_optional_limits() {
+        let value = serde_json::json!({
+            "chat": {"dayUsd": 5.0, "monthUsd": 50.0},
+            "voice": {"dayUsd": 10.0, "monthUsd": null},
+            "images": {}
+        });
+        let settings: SpendingSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(settings.chat, limits(5.0, 50.0));
+        assert_eq!(settings.voice, BudgetLimits::new(Some(10.0), None));
+        assert_eq!(settings.images, BudgetLimits::default());
+        assert_eq!(
+            serde_json::to_value(&settings).unwrap(),
+            serde_json::json!({
+                "chat": {"dayUsd": 5.0, "monthUsd": 50.0},
+                "voice": {"dayUsd": 10.0},
+                "images": {}
+            })
+        );
+        let missing: SpendingSettings =
+            serde_json::from_value(serde_json::json!({"voice": null})).unwrap();
+        assert_eq!(missing, SpendingSettings::default());
+    }
+
+    #[test]
+    fn the_shared_limits_of_earlier_versions_are_voice_and_images_limits() {
+        let legacy: SpendingSettings =
+            serde_json::from_value(serde_json::json!({"dayUsd": 10, "monthUsd": 20})).unwrap();
+        assert_eq!(legacy.chat, BudgetLimits::default());
+        assert_eq!(legacy.voice, limits(10.0, 20.0));
+        assert_eq!(legacy.images, limits(10.0, 20.0));
+        assert_eq!(
+            serde_json::to_value(&legacy).unwrap(),
+            serde_json::json!({
+                "chat": {},
+                "voice": {"dayUsd": 10.0, "monthUsd": 20.0},
+                "images": {"dayUsd": 10.0, "monthUsd": 20.0}
+            })
+        );
         let partial: SpendingSettings =
             serde_json::from_value(serde_json::json!({"dayUsd": 0.0})).unwrap();
-        assert_eq!(partial.day_usd, 0.0);
-        assert_eq!(partial.month_usd, 20.0);
-        let value = serde_json::json!({"dayUsd": 2.0, "monthUsd": 20.0});
-        assert_eq!(serde_json::to_value(&settings).unwrap(), value);
-        assert_eq!(
-            serde_json::from_value::<SpendingSettings>(value).unwrap(),
-            settings
+        assert_eq!(partial.voice, BudgetLimits::new(Some(0.0), None));
+        assert!(
+            serde_json::from_value::<SpendingSettings>(
+                serde_json::json!({"dayUsd": 1, "chat": {"dayUsd": 2}})
+            )
+            .is_err()
         );
-        let declaration = SpendingSettings::decl(&ts_rs::Config::default());
-        assert!(declaration.contains("dayUsd: number"));
-        assert!(declaration.contains("monthUsd: number"));
+    }
+
+    #[test]
+    fn no_limit_is_no_limit_for_images() {
+        let root = tempfile::tempdir().unwrap();
+        let ledger = SpendLedger::new(root.path().to_path_buf());
+        let unlimited = BudgetLimits::default();
+        ledger
+            .reserve(&unlimited, 50.0)
+            .unwrap()
+            .charge(50.0)
+            .unwrap();
+        assert!(ledger.reserve(&unlimited, 500.0).is_ok());
+        let day_only = BudgetLimits::new(Some(600.0), None);
+        assert!(
+            ledger
+                .reserve(&day_only, 60.0)
+                .unwrap_err()
+                .contains("daily")
+        );
     }
 
     #[test]
     fn either_zero_limit_disables_spending_without_io() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().join("absent"));
-        for settings in [
-            SpendingSettings {
-                day_usd: 0.0,
-                month_usd: 20.0,
-            },
-            SpendingSettings {
-                day_usd: 2.0,
-                month_usd: 0.0,
-            },
-        ] {
+        for settings in [limits(0.0, 20.0), limits(2.0, 0.0)] {
             assert!(settings.validate().is_ok());
             assert!(
                 ledger
@@ -376,25 +519,12 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
         for amount in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0] {
-            for settings in [
-                SpendingSettings {
-                    day_usd: amount,
-                    month_usd: 20.0,
-                },
-                SpendingSettings {
-                    day_usd: 2.0,
-                    month_usd: amount,
-                },
-            ] {
+            for settings in [limits(amount, 20.0), limits(2.0, amount)] {
                 assert!(settings.validate().is_err());
                 assert!(ledger.reserve(&settings, 0.5).is_err());
             }
-            assert!(
-                ledger
-                    .reserve(&SpendingSettings::default(), amount)
-                    .is_err()
-            );
-            let reservation = ledger.reserve(&SpendingSettings::default(), 0.25).unwrap();
+            assert!(ledger.reserve(&capped(), amount).is_err());
+            let reservation = ledger.reserve(&capped(), 0.25).unwrap();
             assert!(reservation.charge(amount).is_err());
         }
         assert_eq!(read_totals(root.path()).day_usd, 1.0);
@@ -404,7 +534,7 @@ mod tests {
     fn cancelled_attempts_stay_reserved_and_refusal_is_repeatable() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        let settings = SpendingSettings::default();
+        let settings = capped();
         drop(ledger.reserve(&settings, 1.5).unwrap());
         let saved = fs::read(root.path().join("spending.json")).unwrap();
         for _ in 0..3 {
@@ -424,10 +554,7 @@ mod tests {
     fn monthly_limit_is_independent_of_daily_limit() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        let settings = SpendingSettings {
-            day_usd: 10.0,
-            month_usd: 1.0,
-        };
+        let settings = limits(10.0, 1.0);
         ledger
             .reserve(&settings, 0.75)
             .unwrap()
@@ -447,12 +574,11 @@ mod tests {
     fn concurrent_reservations_and_charges_share_one_gate() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        let settings = SpendingSettings::default();
+        let settings = capped();
         let barrier = Arc::new(std::sync::Barrier::new(16));
         let handles: Vec<_> = (0..16)
             .map(|_| {
                 let ledger = ledger.clone();
-                let settings = settings.clone();
                 let barrier = barrier.clone();
                 std::thread::spawn(move || {
                     barrier.wait();
@@ -479,12 +605,12 @@ mod tests {
     fn reservations_survive_restart_and_hold_no_lock() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        let reservation = ledger.reserve(&SpendingSettings::default(), 1.5).unwrap();
+        let reservation = ledger.reserve(&capped(), 1.5).unwrap();
         assert!(ledger.inner.state.try_lock().is_ok());
         drop(reservation);
         drop(ledger);
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        assert!(ledger.reserve(&SpendingSettings::default(), 0.75).is_err());
+        assert!(ledger.reserve(&capped(), 0.75).is_err());
         assert_eq!(read_totals(root.path()).month_usd, 1.5);
     }
 
@@ -492,7 +618,7 @@ mod tests {
     fn actual_cost_replaces_the_estimate_and_overage_is_recorded() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        let settings = SpendingSettings::default();
+        let settings = capped();
         ledger.reserve(&settings, 1.5).unwrap().charge(0.5).unwrap();
         assert_eq!(read_totals(root.path()).day_usd, 0.5);
         ledger.reserve(&settings, 1.5).unwrap().charge(3.0).unwrap();
@@ -507,8 +633,8 @@ mod tests {
     fn zero_actual_cost_releases_only_its_own_estimate() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        let reservation = ledger.reserve(&SpendingSettings::default(), 0.75).unwrap();
-        drop(ledger.reserve(&SpendingSettings::default(), 0.5).unwrap());
+        let reservation = ledger.reserve(&capped(), 0.75).unwrap();
+        drop(ledger.reserve(&capped(), 0.5).unwrap());
         reservation.charge(0.0).unwrap();
         assert_eq!(read_totals(root.path()).day_usd, 0.5);
     }
@@ -517,7 +643,7 @@ mod tests {
     fn releasing_concurrent_reservations_cannot_make_roundoff_negative() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        let settings = SpendingSettings::default();
+        let settings = capped();
         let reservations: Vec<_> = (0..3)
             .map(|_| ledger.reserve(&settings, 0.01).unwrap())
             .collect();
@@ -526,7 +652,7 @@ mod tests {
         }
         assert_eq!(read_totals(root.path()).day_usd, 0.0);
         assert_eq!(read_totals(root.path()).month_usd, 0.0);
-        assert!(ledger.reserve(&settings, settings.day_usd).is_ok());
+        assert!(ledger.reserve(&settings, settings.day_usd.unwrap()).is_ok());
     }
 
     #[test]
@@ -539,16 +665,11 @@ mod tests {
             let root = tempfile::tempdir().unwrap();
             fs::write(root.path().join("spending.json"), &bytes).unwrap();
             let ledger = SpendLedger::new(root.path().to_path_buf());
-            assert_eq!(
-                ledger
-                    .reserve(&SpendingSettings::default(), 0.5)
-                    .unwrap_err(),
-                STORAGE_ERROR
-            );
+            assert_eq!(ledger.reserve(&capped(), 0.5).unwrap_err(), STORAGE_ERROR);
             assert_eq!(fs::read(root.path().join("spending.json")).unwrap(), bytes);
-            assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
+            assert!(ledger.reserve(&capped(), 0.5).is_err());
             fs::remove_file(root.path().join("spending.json")).unwrap();
-            assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
+            assert!(ledger.reserve(&capped(), 0.5).is_err());
         }
     }
 
@@ -556,22 +677,18 @@ mod tests {
     fn unreadable_or_missing_existing_ledger_blocks_spending() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        drop(ledger.reserve(&SpendingSettings::default(), 0.5).unwrap());
+        drop(ledger.reserve(&capped(), 0.5).unwrap());
         let saved = fs::read(root.path().join("spending.json")).unwrap();
         fs::remove_file(root.path().join("spending.json")).unwrap();
-        assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
+        assert!(ledger.reserve(&capped(), 0.5).is_err());
         fs::create_dir(root.path().join("spending.json")).unwrap();
         let restarted = SpendLedger::new(root.path().to_path_buf());
-        assert!(
-            restarted
-                .reserve(&SpendingSettings::default(), 0.5)
-                .is_err()
-        );
-        assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
+        assert!(restarted.reserve(&capped(), 0.5).is_err());
+        assert!(ledger.reserve(&capped(), 0.5).is_err());
         fs::remove_dir(root.path().join("spending.json")).unwrap();
         fs::write(root.path().join("spending.json"), saved).unwrap();
         ledger
-            .reserve(&SpendingSettings::default(), 0.5)
+            .reserve(&capped(), 0.5)
             .unwrap()
             .charge(0.25)
             .unwrap();
@@ -582,7 +699,7 @@ mod tests {
     fn a_failed_save_can_retry_after_storage_recovers() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        let reservation = ledger.reserve(&SpendingSettings::default(), 0.5).unwrap();
+        let reservation = ledger.reserve(&capped(), 0.5).unwrap();
         let totals = read_totals(root.path());
         fs::remove_file(root.path().join("spending.json")).unwrap();
         fs::create_dir(root.path().join("spending.json")).unwrap();
@@ -598,11 +715,7 @@ mod tests {
             serde_json::to_vec(&totals).unwrap(),
         )
         .unwrap();
-        ledger
-            .reserve(&SpendingSettings::default(), 0.5)
-            .unwrap()
-            .charge(0.5)
-            .unwrap();
+        ledger.reserve(&capped(), 0.5).unwrap().charge(0.5).unwrap();
         reservation.charge(0.25).unwrap();
         assert_eq!(read_totals(root.path()).day_usd, 0.75);
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
@@ -612,7 +725,7 @@ mod tests {
     fn failed_settlements_are_recovered_before_more_spending_is_admitted() {
         let root = tempfile::tempdir().unwrap();
         let ledger = SpendLedger::new(root.path().to_path_buf());
-        let settings = SpendingSettings::default();
+        let settings = capped();
         let reservation = ledger.reserve(&settings, 0.5).unwrap();
         let saved = fs::read(root.path().join("spending.json")).unwrap();
         fs::remove_file(root.path().join("spending.json")).unwrap();
@@ -629,8 +742,8 @@ mod tests {
         assert!(ledger.inner.lock().unwrap().pending.is_empty());
         assert!(ledger.reserve(&settings, 0.1).is_err());
         assert_eq!(read_totals(root.path()).day_usd, 3.0);
-        let higher_limit = SpendingSettings {
-            day_usd: 4.0,
+        let higher_limit = BudgetLimits {
+            day_usd: Some(4.0),
             ..settings
         };
         ledger
@@ -667,7 +780,7 @@ mod tests {
             let same_month = period.month == Period::now().month;
             assert_eq!(ledger.summary().unwrap().day_usd, 0.0);
             assert_eq!(read_totals(root.path()).day, period.day);
-            drop(ledger.reserve(&SpendingSettings::default(), 0.5).unwrap());
+            drop(ledger.reserve(&capped(), 0.5).unwrap());
             reservation.charge(0.25).unwrap();
             let current = read_totals(root.path());
             assert_eq!(current.day, Period::now().day);
@@ -700,7 +813,7 @@ mod tests {
             .unwrap();
             let ledger = SpendLedger::new(root.path().to_path_buf());
             assert_eq!(ledger.summary().unwrap_err(), STORAGE_ERROR);
-            assert!(ledger.reserve(&SpendingSettings::default(), 0.5).is_err());
+            assert!(ledger.reserve(&capped(), 0.5).is_err());
         }
     }
 
@@ -725,8 +838,8 @@ mod tests {
             let summary = ledger.summary().unwrap();
             assert_eq!(summary.day_usd, 0.75);
             assert_eq!(summary.month_usd, 1.5);
-            assert!(ledger.reserve(&SpendingSettings::default(), 1.5).is_err());
-            let reservation = ledger.reserve(&SpendingSettings::default(), 0.25).unwrap();
+            assert!(ledger.reserve(&capped(), 1.5).is_err());
+            let reservation = ledger.reserve(&capped(), 0.25).unwrap();
             assert_eq!(reservation.period.day, period.day);
             assert_eq!(reservation.period.month, period.month);
             reservation.charge(0.125).unwrap();
@@ -751,9 +864,9 @@ mod tests {
             }
         );
         assert!(!root.path().join("spending.json").exists());
-        drop(ledger.reserve(&SpendingSettings::default(), 0.5).unwrap());
+        drop(ledger.reserve(&capped(), 0.5).unwrap());
         ledger
-            .reserve(&SpendingSettings::default(), 0.75)
+            .reserve(&capped(), 0.75)
             .unwrap()
             .charge(0.25)
             .unwrap();

@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { shownState } from "../activity";
 import type { Call, CallPhase } from "../voice/call";
 import type { RosterEntry } from "../wire";
 
@@ -35,7 +36,10 @@ export function stageRing(phase: CallPhase, working: boolean): "bars" | "working
  */
 export function callWorking(roster: readonly Pick<RosterEntry, "persona" | "session" | "sides">[], personaId: string | undefined): boolean {
 	const rows = personaId === undefined ? roster : roster.filter((row) => row.persona.id === personaId);
-	return rows.some((row) => row.session.state === "thinking" || row.session.state === "starting" || (row.sides ?? []).some((side) => side.working));
+	return rows.some((row) => {
+		const state = shownState(row.session);
+		return state === "thinking" || state === "starting" || (row.sides ?? []).some((side) => side.working);
+	});
 }
 
 /**

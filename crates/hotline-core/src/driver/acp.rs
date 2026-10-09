@@ -92,6 +92,84 @@ const UNPROMPTED_QUIET: Duration = Duration::from_secs(300);
 /// the agent gets its turn back and the card says it expired.
 const PERMISSION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
+/// How long an agent's command has to answer `initialize` and open its
+/// session, from the moment it is spawned.
+///
+/// A launcher can hang without a word: a `mise` shim that re-executes itself
+/// forever, a wrapper waiting on a prompt nobody can see. Unbounded, that start
+/// never ends and the teammate never says why. Bounded, it ends as a failure
+/// that names the command, and the process group is killed.
+///
+/// Two bounds, because silence on stdout means two different things. A launch
+/// that has answered on this machine before has its package in the npx or uvx
+/// cache, and answers in seconds; a minute is far past any honest start. A
+/// launch that has never answered here may be downloading its package, which
+/// says nothing on stdout either and can take minutes on a slow network, so it
+/// gets five. Which one applies is `registry::started_before`, and a launch
+/// that runs out the short bound is forgotten, so a package evicted from the
+/// cache gets the long one on its next start.
+#[derive(Clone, Copy, Debug)]
+pub struct StartBounds {
+    /// For a launch that has answered on this machine before.
+    pub known: Duration,
+    /// For a launch that never has, which may be fetching its package.
+    pub first: Duration,
+}
+
+impl Default for StartBounds {
+    fn default() -> Self {
+        Self {
+            known: Duration::from_secs(60),
+            first: Duration::from_secs(5 * 60),
+        }
+    }
+}
+
+/// The process groups of the agents this process started and has not yet
+/// killed.
+///
+/// Dropping a driver kills its group, but quitting the app drops nothing: the
+/// process exits, and a launcher that ignores its closed stdin is reparented
+/// to pid 1 and runs on. [`end_every_agent`] is how the exit path reaches
+/// them. Each id was captured at spawn, from a group this process made.
+#[cfg(unix)]
+static GROUPS: Mutex<Vec<libc::pid_t>> = Mutex::new(Vec::new());
+
+/// Kills every agent process group this process started, for an exit that
+/// will not run their drivers' `Drop`. On Windows each child is in a job
+/// object that closes with the process and takes the tree with it, so there
+/// is nothing to do there.
+pub fn end_every_agent() {
+    #[cfg(unix)]
+    for group in std::mem::take(&mut *lock(&GROUPS)) {
+        // Safety: each group is one this process made for its own child.
+        unsafe { libc::killpg(group, libc::SIGKILL) };
+    }
+}
+
+/// Kills one child's process group and stops counting it among the live ones.
+fn end_group(child: &tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(id) = child.id() {
+        let group = id as libc::pid_t;
+        lock(&GROUPS).retain(|live| *live != group);
+        // Safety: the group is the one this driver made for its child.
+        unsafe { libc::killpg(group, libc::SIGKILL) };
+    }
+    #[cfg(windows)]
+    let _ = child;
+}
+
+/// A bound as a person reads it: `60 s`, `5 min`.
+fn spoken(bound: Duration) -> String {
+    let seconds = bound.as_secs();
+    if seconds >= 120 && seconds.is_multiple_of(60) {
+        format!("{} min", seconds / 60)
+    } else {
+        format!("{seconds} s")
+    }
+}
+
 /// How many lines of the child's stderr are kept, to hang on the end of the
 /// sentence when a turn fails. The tail is what says why.
 const STDERR_LINES: usize = 20;
@@ -270,6 +348,7 @@ pub struct ChildAgent {
     served: Mutex<Option<Served>>,
     live: Arc<Live>,
     launch: Mutex<Option<registry::Launch>>,
+    start_bounds: StartBounds,
     operation_gate: tokio::sync::Mutex<()>,
 }
 
@@ -298,8 +377,14 @@ impl ChildAgent {
             served: Mutex::new(None),
             live: Arc::new(Live::default()),
             launch: Mutex::new(None),
+            start_bounds: StartBounds::default(),
             operation_gate: tokio::sync::Mutex::new(()),
         }
+    }
+
+    pub(crate) fn with_start_bounds(mut self, bounds: StartBounds) -> Self {
+        self.start_bounds = bounds;
+        self
     }
 
     pub(crate) fn with_history(self, said: Vec<super::rig::Said>) -> Self {
@@ -350,13 +435,8 @@ impl ChildAgent {
         }
         let child = lock(&self.child).take();
         if let Some(mut child) = child {
-            #[cfg(unix)]
-            if let Some(id) = child.id() {
-                // Only the process group captured when this driver spawned it.
-                unsafe {
-                    libc::killpg(id as libc::pid_t, libc::SIGKILL);
-                }
-            }
+            // Only the process group captured when this driver spawned it.
+            end_group(&child);
             #[cfg(windows)]
             drop(lock(&self.job).take());
             let _ = child.start_kill();
@@ -411,10 +491,8 @@ impl ChildAgent {
             task.abort();
         }
         let child = lock(&self.child).take();
-        #[cfg(unix)]
-        if let Some(id) = child.as_ref().and_then(tokio::process::Child::id) {
-            // Safety: the group is the one this driver made for its child.
-            unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) };
+        if let Some(child) = &child {
+            end_group(child);
         }
         #[cfg(windows)]
         drop(lock(&self.job).take());
@@ -713,6 +791,31 @@ impl Live {
                 self.report(SubagentReport::Ended { child, status });
             }
         }
+    }
+
+    /// The agent closed a cycle while the prompt stays open for subagents it
+    /// started. Claude's adapter holds `session/prompt` until its background
+    /// subagents finish, and marks the end of each cycle with the usage report
+    /// that carries its cost: the one word an agent gives that its message is
+    /// whole. So the message is closed, and the turn told it has nothing more
+    /// to say until a subagent reports or the person speaks. An agent whose
+    /// last words were not a message is still working, and one with no
+    /// subagents open is about to answer the prompt, so neither parks.
+    async fn park_for_subagents(&self) {
+        if lock(&self.updates).is_none()
+            || lock(&self.unprompted_open).is_some()
+            || lock(&self.children).is_empty()
+        {
+            return;
+        }
+        let speaking = lock(&self.open)
+            .as_ref()
+            .is_some_and(|message| message.kind == MessageKind::Agent);
+        if !speaking {
+            return;
+        }
+        self.flush().await;
+        self.emit(Update::Parked).await;
     }
 
     /// Answers every permission still waiting, which is what the end of a turn
@@ -1136,7 +1239,7 @@ fn proxy_error(status: StatusCode, message: &str) -> Response {
 
 /// The child goes when the driver does, and takes whatever it started with it.
 ///
-/// The process is its own group leader (see [`Driver::start`]), so this
+/// The process is its own group leader (see [`ChildAgent::spawn`]), so this
 /// reaches the real agent behind a wrapper launcher — `npx` spawning node,
 /// `uvx` spawning python — where killing the immediate child would only orphan
 /// it, leaving it reparented to pid 1 and not exiting on stdin EOF.
@@ -1177,44 +1280,18 @@ impl Driver for ChildAgent {
         registry::install(&self.root, &self.backend_id).await?;
         let launch = registry::launch(&self.root, &self.backend_id)?;
         *lock(&self.launch) = Some(launch.clone());
-        let mut command = tokio::process::Command::new(&launch.command);
-        command
-            .args(&launch.args)
-            .envs(launch.env.iter().cloned())
-            .current_dir(&persona.cwd)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true);
-        #[cfg(unix)]
-        command.process_group(0);
-
-        #[cfg(windows)]
-        crate::process_windows::prepare(&mut command);
-        let mut child = command
-            .spawn()
-            .map_err(|error| format!("Could not start {}: {error}", launch.command))?;
-        #[cfg(windows)]
-        let job = crate::process_windows::Job::attach(child.id())
-            .map_err(|error| format!("Could not contain the agent process tree: {error}"))?;
-        let (stdin, stdout, stderr) =
-            match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
-                (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
-                _ => return Err(format!("{} gave no pipes to speak over.", launch.command)),
-            };
-        pump_stderr(self.live.clone(), stderr);
-        *lock(&self.child) = Some(child);
-        #[cfg(windows)]
-        {
-            *lock(&self.job) = Some(job);
+        *lock(&self.persona) = Some(persona.clone());
+        let bound = if registry::started_before(&self.root, &launch) {
+            self.start_bounds.known
+        } else {
+            self.start_bounds.first
+        };
+        let Ok(result) = tokio::time::timeout(bound, self.spawn(persona, &launch)).await else {
+            return Ok(self.stalled(&launch, bound));
+        };
+        if result.is_ok() {
+            registry::mark_started(&self.root, &launch, true);
         }
-
-        let result = self
-            .handshake(
-                persona,
-                ByteStreams::new(stdin.compat_write(), stdout.compat()),
-            )
-            .await;
         if result.is_ok()
             && let Err(error) = self.check_capability()
         {
@@ -1556,6 +1633,88 @@ impl Driver for ChildAgent {
 }
 
 impl ChildAgent {
+    /// Starts the child in a process group of its own and runs the handshake
+    /// over its pipes. [`Driver::start`] bounds the whole of it.
+    async fn spawn(
+        &self,
+        persona: &Persona,
+        launch: &registry::Launch,
+    ) -> Result<DriverInfo, String> {
+        let mut command = tokio::process::Command::new(&launch.command);
+        command
+            .args(&launch.args)
+            .envs(launch.env.iter().cloned())
+            .current_dir(&persona.cwd)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        #[cfg(unix)]
+        command.process_group(0);
+
+        #[cfg(windows)]
+        crate::process_windows::prepare(&mut command);
+        let mut child = command
+            .spawn()
+            .map_err(|error| format!("Could not start {}: {error}", launch.command))?;
+        #[cfg(unix)]
+        if let Some(id) = child.id() {
+            lock(&GROUPS).push(id as libc::pid_t);
+        }
+        #[cfg(windows)]
+        let job = crate::process_windows::Job::attach(child.id())
+            .map_err(|error| format!("Could not contain the agent process tree: {error}"))?;
+        let (stdin, stdout, stderr) =
+            match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
+                (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
+                _ => {
+                    end_group(&child);
+                    return Err(format!("{} gave no pipes to speak over.", launch.command));
+                }
+            };
+        pump_stderr(self.live.clone(), stderr);
+        *lock(&self.child) = Some(child);
+        #[cfg(windows)]
+        {
+            *lock(&self.job) = Some(job);
+        }
+
+        self.handshake(
+            persona,
+            ByteStreams::new(stdin.compat_write(), stdout.compat()),
+        )
+        .await
+    }
+
+    /// A start that ran out its bound: the process group is killed, and the
+    /// teammate comes up failed, with the sentence on its tape as an error
+    /// card, the way an expired sign-in does. The next message starts it
+    /// again, which is the retry.
+    fn stalled(&self, launch: &registry::Launch, bound: Duration) -> DriverInfo {
+        self.kill_child();
+        lock(&self.live.connection).take();
+        registry::mark_started(&self.root, launch, false);
+        let name = registry::known(&self.root, &self.backend_id)
+            .map_or_else(|| self.backend_id.clone(), |backend| backend.name);
+        let sentence = format!(
+            "{name} didn't start within {} ({}). Check that the command runs in a terminal.{}",
+            spoken(bound),
+            launch.line(),
+            self.live.stderr_hint()
+        );
+        let failure = super::failure::Failure::startup(sentence);
+        // The details, which are redacted: the stderr tail is the agent's.
+        eprintln!("[acp] {}", failure.details);
+        *lock(&self.live.startup_failure) = Some(failure.notice());
+        self.live.failed.store(true, Ordering::SeqCst);
+        {
+            let mut session = lock(&self.live.session);
+            session.id = None;
+            session.info.session_id = None;
+        }
+        self.live.publish_info()
+    }
+
     /// Everything after the child exists: the connection, the handshake, and
     /// the conversation this teammate is joining.
     ///
@@ -2265,6 +2424,7 @@ async fn between_turns(live: &Arc<Live>, update: SessionUpdate) {
     translate(live, update).await;
     if ends {
         live.end_unprompted().await;
+        live.park_for_subagents().await;
     }
 }
 
@@ -3886,6 +4046,193 @@ mod tests {
                 },
             ]
         );
+    }
+
+    /// An agent that answers in one cycle, closes it with the usage report
+    /// that carries its cost, and holds the prompt open until `release`, as
+    /// Claude's adapter holds it for its background subagents. With `spawns`
+    /// it started one first, which ends on release and is followed by one
+    /// more cycle of the agent's own words.
+    fn holding_agent(
+        spawns: bool,
+        release: Arc<tokio::sync::Notify>,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static {
+        let transport = agent_pipes();
+        async move {
+            let running = agent_client_protocol::Agent
+                .builder()
+                .name("holding")
+                .on_receive_request(
+                    async move |request: InitializeRequest, responder, _cx| {
+                        responder.respond(InitializeResponse::new(request.protocol_version))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |_request: NewSessionRequest,
+                                responder: Responder<NewSessionResponse>,
+                                _cx| {
+                        responder.respond(NewSessionResponse::new(SessionId::new("parent")))
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .on_receive_request(
+                    move |_request: PromptRequest,
+                          responder: Responder<PromptResponse>,
+                          cx: ConnectionTo<Client>| {
+                        let release = release.clone();
+                        async move {
+                            let later = cx.clone();
+                            cx.spawn(async move {
+                                let say = |update: Value| {
+                                    later.send_notification(RawSessionUpdate {
+                                        session_id: "parent".to_string(),
+                                        update,
+                                    })
+                                };
+                                let closes = || {
+                                    serde_json::json!({
+                                        "sessionUpdate": "usage_update",
+                                        "used": 1000,
+                                        "size": 200000,
+                                        "cost": { "amount": 0.01, "currency": "USD" },
+                                    })
+                                };
+                                if spawns {
+                                    say(serde_json::json!({
+                                        "sessionUpdate": "subagent_spawned",
+                                        "subagentSessionId": "child-1",
+                                        "name": "Edge cases",
+                                        "task": "Check the edge cases",
+                                        "capabilities": {},
+                                    }))?;
+                                }
+                                say(serde_json::json!({
+                                    "sessionUpdate": "agent_message_chunk",
+                                    "content": { "type": "text", "text": "The lift is in crane.rs." },
+                                }))?;
+                                say(closes())?;
+                                release.notified().await;
+                                if spawns {
+                                    say(serde_json::json!({
+                                        "sessionUpdate": "subagent_state_update",
+                                        "subagentSessionId": "child-1",
+                                        "state": "completed",
+                                    }))?;
+                                    say(serde_json::json!({
+                                        "sessionUpdate": "agent_message_chunk",
+                                        "content": { "type": "text", "text": "The edge cases pass." },
+                                    }))?;
+                                    say(closes())?;
+                                }
+                                responder.respond(PromptResponse::new(StopReason::EndTurn))
+                            })?;
+                            Ok(())
+                        }
+                    },
+                    agent_client_protocol::on_receive_request!(),
+                )
+                .connect_to(transport)
+                .await;
+            if let Err(error) = running {
+                eprintln!("the holding agent ended: {error}");
+            }
+        }
+    }
+
+    /// The agent's words as the turn hears them: deltas left out, a message
+    /// by its text, a park and the turn's end by name.
+    fn heard_of(update: &Update) -> Option<String> {
+        match update {
+            Update::Message { text, .. } => Some(text.clone()),
+            Update::Parked => Some("parked".to_string()),
+            Update::Turn { stop_reason, .. } => Some(stop_reason.clone()),
+            _ => None,
+        }
+    }
+
+    /// A prompt held open for a subagent: once the agent closes the cycle its
+    /// reply was in, the reply is a whole message and the turn parks, and
+    /// what it says once the subagent is done is a reply of its own.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_prompt_held_for_a_subagent_parks_on_the_finished_reply() {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let agent = holding_agent(true, release.clone());
+        let held = room("held-for-subagent");
+        let ada = persona(&scratch_cwd(), Vec::new());
+        let driver = ChildAgent::new(
+            scratch("held-for-subagent"),
+            "claude".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+        let _reports = Driver::subscribe_subagents(&driver).unwrap();
+        driver.handshake(&ada, client_transport()).await.unwrap();
+        let mut updates = driver
+            .prompt(
+                "where is the lift".to_string(),
+                Vec::new(),
+                Reach::Workspace,
+            )
+            .await;
+        let mut heard = Vec::new();
+        while heard.last().map(String::as_str) != Some("parked") {
+            heard.extend(heard_of(&next(&mut updates).await));
+        }
+        assert_eq!(heard, ["The lift is in crane.rs.", "parked"]);
+
+        release.notify_one();
+        let mut after = Vec::new();
+        while after.last().map(String::as_str) != Some("end_turn") {
+            after.extend(heard_of(&next(&mut updates).await));
+        }
+        assert_eq!(
+            after,
+            ["The edge cases pass.", "end_turn"],
+            "the last subagent is done, so the closing cycle does not park"
+        );
+    }
+
+    /// An agent with no subagent open that closes a cycle and keeps the
+    /// prompt a moment longer is a turn like any other: its words stay open
+    /// until the turn ends, and nothing parks.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_prompt_with_no_subagent_open_never_parks() {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let agent = holding_agent(false, release.clone());
+        let held = room("held-without-subagent");
+        let ada = persona(&scratch_cwd(), Vec::new());
+        let driver = ChildAgent::new(
+            scratch("held-without-subagent"),
+            "claude".to_string(),
+            String::new(),
+            TeammateTools::new(&held, "ada"),
+        );
+        tokio::spawn(agent);
+        let _reports = Driver::subscribe_subagents(&driver).unwrap();
+        driver.handshake(&ada, client_transport()).await.unwrap();
+        let mut updates = driver
+            .prompt(
+                "where is the lift".to_string(),
+                Vec::new(),
+                Reach::Workspace,
+            )
+            .await;
+        assert!(
+            matches!(next(&mut updates).await, Update::Delta { text, .. } if text == "The lift is in crane.rs.")
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            updates.try_recv().is_err(),
+            "nothing more until the turn ends"
+        );
+        release.notify_one();
+        let mut heard = Vec::new();
+        while heard.last().map(String::as_str) != Some("end_turn") {
+            heard.extend(heard_of(&next(&mut updates).await));
+        }
+        assert_eq!(heard, ["The lift is in crane.rs.", "end_turn"]);
     }
 
     #[test]

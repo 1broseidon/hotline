@@ -18,8 +18,9 @@ const POPULAR: { name: string; title: string; by?: string }[] = [
 ];
 
 /**
- * Choosing a service to connect, the same in the welcome and in Settings ›
- * Providers: six cards, then "N more services" opening the rest as a list.
+ * Choosing the first service to connect, in the welcome: six cards, then
+ * "N more services" opening the rest as a list. Settings › Providers lists
+ * every service by name instead.
  * A service already connected shows as done on its card and leaves the list.
  */
 export function ServicePicker({

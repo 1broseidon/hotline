@@ -84,6 +84,18 @@ One family, **Workbench**, for every screen:
   more (the goal is on the inspector); then their model and effort and
   the tools. The name opens the inspector, where
   everything else about a teammate — its mode included — lives.
+- What a teammate left running stands on the composer's **corner**, its
+  top right, in the row the mark rises into: the mark at the left, the
+  corner at the right. Today that is its subagents, as keys on the pop
+  plane because the conversation scrolls under them: one is named
+  ("Subagent · Edge cases"), several are counted ("2 subagents") with a
+  menu, and each opens its run in the right-hand pane. A long name
+  truncates before it reaches the mark, and the conversation's foot keeps
+  the same room for them as for the mark. A turn whose reply is said and
+  that is open only for its subagents is over as far as the window shows:
+  no mark, no Interrupt, the reply in the conversation. Side threads are
+  conversations of their own, not the turn's work, so their chips stay in
+  the band.
 - Menus and the search panel are pop-plane surfaces that borrow the
   composer's shadow while they are open, and nothing else.
 

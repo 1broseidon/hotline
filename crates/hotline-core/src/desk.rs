@@ -38,6 +38,7 @@ use tokio_util::sync::CancellationToken;
 struct DeskCredentials {
     vault: Arc<Vault>,
     log: Log,
+    budget: Arc<crate::voice::metering::Budget>,
 }
 
 impl ProviderKeys for DeskCredentials {
@@ -63,6 +64,10 @@ impl ProviderKeys for DeskCredentials {
 
     fn web_search_keys(&self) -> crate::websearch::Keys {
         self.vault.web_search_keys()
+    }
+
+    fn budget(&self) -> Option<Arc<crate::voice::metering::Budget>> {
+        Some(self.budget.clone())
     }
 }
 
@@ -125,6 +130,23 @@ impl Desk {
             store,
             services,
             crate::voice::speech::local::catalogue(),
+            Default::default(),
+        )
+    }
+
+    /// Open giving an ACP agent's command these bounds to start in, for a
+    /// harness whose agent never answers and should not take a minute to say so.
+    pub fn open_with_acp_start_bounds(
+        root: &Path,
+        store: Arc<dyn crate::credentials::SecretStore>,
+        bounds: crate::driver::acp::StartBounds,
+    ) -> io::Result<Desk> {
+        Self::open_inner(
+            root,
+            store,
+            None,
+            crate::voice::speech::local::catalogue(),
+            bounds,
         )
     }
 
@@ -135,7 +157,7 @@ impl Desk {
         store: Arc<dyn crate::credentials::SecretStore>,
         models: Vec<crate::voice::speech::local::Model>,
     ) -> io::Result<Desk> {
-        Self::open_inner(root, store, None, models)
+        Self::open_inner(root, store, None, models, Default::default())
     }
 
     fn open_inner(
@@ -143,16 +165,21 @@ impl Desk {
         store: Arc<dyn crate::credentials::SecretStore>,
         services: Option<crate::voice::Services>,
         models: Vec<crate::voice::speech::local::Model>,
+        acp_start: crate::driver::acp::StartBounds,
     ) -> io::Result<Desk> {
         install_crypto_provider();
         let log = Log::open(root);
         log.migrate_backend_id()?;
         let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
+        // One budget for the desk: voice, the call assistant and teammates'
+        // turns all reserve through it, so none can spend what another did.
+        let budget = Arc::new(crate::voice::metering::Budget::open(log.clone()));
         let keys = Arc::new(DeskCredentials {
             vault: vault.clone(),
             log: log.clone(),
+            budget: budget.clone(),
         });
-        let room = Room::new_with_mcp(log.clone(), keys, vault.clone());
+        let room = Room::new_with_mcp(log.clone(), keys, vault.clone(), acp_start);
         let mcp_oauth = Arc::new(McpOAuthService::new(vault.clone()));
         let room_for_oauth = Arc::downgrade(&room);
         mcp_oauth.set_on_complete(Arc::new(move || {
@@ -173,6 +200,7 @@ impl Desk {
             Arc::downgrade(&room),
             services,
             models,
+            budget,
         );
         room.set_voice(&voice);
         Ok(Desk {
@@ -292,7 +320,7 @@ impl RoomHandle for Desk {
             &self.vault,
             &self.log,
             self.room.spending_summary(),
-            self.voice.balance(),
+            &self.voice.budget(),
         )
         .await)
     }

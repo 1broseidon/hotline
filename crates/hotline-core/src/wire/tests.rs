@@ -51,6 +51,7 @@ fn idle(persona_id: &str) -> SessionInfo {
             additional_directories: false,
         },
         error: None,
+        awaiting_subagents: false,
     }
 }
 
@@ -4127,7 +4128,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
         ),
     ];
     for (cmd, params) in &commands {
-        let frame = json!({"id":1,"cmd":cmd,"params":params}).to_string();
+        let frame = json!({"id":1,"cmd":cmd,"params":params});
         answer(
             &frame,
             Seat::Phone,
@@ -4204,16 +4205,7 @@ async fn remote_control_answer(
         max: usize::MAX,
     };
     let mut subscriptions = HashMap::new();
-    answer(
-        &frame.to_string(),
-        seat,
-        log,
-        room,
-        &outbox,
-        &mut subscriptions,
-        None,
-    )
-    .await;
+    answer(&frame, seat, log, room, &outbox, &mut subscriptions, None).await;
     let response = serde_json::from_str(&frames.recv().await.unwrap()).unwrap();
     for handle in subscriptions.into_values() {
         handle.abort();
@@ -5107,7 +5099,28 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
     }
     assert_eq!(
         result["spending"],
-        json!({"dayUsd": 2.0, "monthUsd": 20.0, "spentDayUsd": 0.0, "spentMonthUsd": 0.0})
+        json!({"budgets": [
+            {
+                "kind": "chat", "dayUsd": null, "monthUsd": null,
+                "spentDayUsd": 0.0, "spentMonthUsd": 0.0,
+                "lines": [
+                    {"kind": "teammates", "dayUsd": 0.0, "monthUsd": 0.0},
+                    {"kind": "callAssistant", "dayUsd": 0.0, "monthUsd": 0.0},
+                ]
+            },
+            {
+                "kind": "voice", "dayUsd": null, "monthUsd": null,
+                "spentDayUsd": 0.0, "spentMonthUsd": 0.0,
+                "lines": [
+                    {"kind": "transcription", "dayUsd": 0.0, "monthUsd": 0.0},
+                    {"kind": "speech", "dayUsd": 0.0, "monthUsd": 0.0},
+                ]
+            },
+            {
+                "kind": "images", "dayUsd": null, "monthUsd": null,
+                "spentDayUsd": 0.0, "spentMonthUsd": 0.0, "lines": []
+            },
+        ]})
     );
 
     let secret = "capabilities-private-credential";
@@ -5161,7 +5174,7 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
         json!({"id": 2, "cmd": "settings.update", "params": {"patch": {
             "images": {"provider": "openai", "model": "gpt-image-1-mini"},
             "voice": {"tts": {"provider": "openai", "voice": "cedar"}},
-            "spending": {"dayUsd": 0.5, "monthUsd": 5.0}
+            "spending": {"chat": {"dayUsd": 3.0}, "voice": {"dayUsd": 0.5, "monthUsd": 5.0}}
         }}}),
     )
     .await;
@@ -5173,17 +5186,23 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
     assert_eq!(result["tts"]["selected"]["voice"], "cedar");
     assert_eq!(result["tts"]["automatic"]["providerId"], "groq");
     assert!(result["stt"].get("selected").is_none());
-    assert_eq!(result["spending"]["dayUsd"], 0.5);
-    assert_eq!(result["spending"]["monthUsd"], 5.0);
+    let budgets = &result["spending"]["budgets"];
+    assert_eq!(budgets[0]["kind"], "chat");
+    assert_eq!(budgets[0]["dayUsd"], 3.0);
+    assert_eq!(budgets[0]["monthUsd"], Value::Null);
+    assert_eq!(budgets[1]["kind"], "voice");
+    assert_eq!(budgets[1]["dayUsd"], 0.5);
+    assert_eq!(budgets[1]["monthUsd"], 5.0);
+    assert_eq!(budgets[2]["dayUsd"], Value::Null);
 }
 
 #[tokio::test]
-async fn capabilities_options_add_the_image_and_voice_tallies_into_one_spent_figure() {
+async fn capabilities_options_report_each_budget_from_its_own_tally() {
     use crate::credentials::tests::MemoryStore;
-    use crate::spending::{SpendLedger, SpendingSettings};
+    use crate::spending::SpendLedger;
     let root = tempfile::tempdir().unwrap();
     SpendLedger::new(root.path().to_path_buf())
-        .reserve(&SpendingSettings::default(), 0.25)
+        .reserve(&crate::spending::BudgetLimits::default(), 0.25)
         .unwrap()
         .charge(0.125)
         .unwrap();
@@ -5192,8 +5211,19 @@ async fn capabilities_options_add_the_image_and_voice_tallies_into_one_spent_fig
         json!({
             "day": chrono::Local::now().format("%Y-%m-%d").to_string(),
             "month": chrono::Local::now().format("%Y-%m").to_string(),
-            "daySpend": {"stt": 0.0, "tts": 0.25, "dispatcher": 0.0},
-            "monthSpend": {"stt": 0.0, "tts": 0.5, "dispatcher": 0.0}
+            "daySpend": {"stt": 0.0, "tts": 0.25, "dispatcher": 0.0625},
+            "monthSpend": {"stt": 0.125, "tts": 0.5, "dispatcher": 0.0625}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        root.path().join("chat-ledger.json"),
+        json!({
+            "day": chrono::Local::now().format("%Y-%m-%d").to_string(),
+            "month": chrono::Local::now().format("%Y-%m").to_string(),
+            "daySpend": {"stt": 0.0, "tts": 0.0, "dispatcher": 0.0, "teammates": 1.0},
+            "monthSpend": {"stt": 0.0, "tts": 0.0, "dispatcher": 0.0, "teammates": 3.0}
         })
         .to_string(),
     )
@@ -5209,11 +5239,21 @@ async fn capabilities_options_add_the_image_and_voice_tallies_into_one_spent_fig
         json!({"id": 1, "cmd": "capabilities.options", "params": {}}),
     )
     .await;
+    let budgets = &answer["result"]["spending"]["budgets"];
+    assert_eq!(budgets[0]["spentDayUsd"], 1.0625, "{answer}");
+    assert_eq!(budgets[0]["spentMonthUsd"], 3.0625);
     assert_eq!(
-        answer["result"]["spending"]["spentDayUsd"], 0.375,
-        "{answer}"
+        budgets[0]["lines"][0],
+        json!({"kind": "teammates", "dayUsd": 1.0, "monthUsd": 3.0})
     );
-    assert_eq!(answer["result"]["spending"]["spentMonthUsd"], 0.625);
+    assert_eq!(budgets[0]["lines"][1]["kind"], "callAssistant");
+    assert_eq!(budgets[0]["lines"][1]["monthUsd"], 0.0625);
+    assert_eq!(budgets[1]["spentDayUsd"], 0.25);
+    assert_eq!(budgets[1]["spentMonthUsd"], 0.625);
+    assert_eq!(budgets[1]["lines"][0]["monthUsd"], 0.125);
+    assert_eq!(budgets[2]["spentDayUsd"], 0.125);
+    assert_eq!(budgets[2]["spentMonthUsd"], 0.125);
+    assert!(answer["result"]["spending"].get("unavailable").is_none());
 }
 
 #[tokio::test]
@@ -5396,7 +5436,7 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
     assert_eq!(defaults["result"]["images"], json!({}));
     assert_eq!(
         defaults["result"]["spending"],
-        json!({"dayUsd": 2.0, "monthUsd": 20.0})
+        json!({"chat": {}, "voice": {}, "images": {}})
     );
 
     let updated = remote_control_answer(Seat::Owner, &handle, &log, json!({
@@ -5411,9 +5451,14 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
         updated["result"]["images"],
         json!({"provider": "openai", "model": "gpt-image-1-mini"})
     );
+    // The shared limits of earlier versions are written as voice's and images'.
     assert_eq!(
         updated["result"]["spending"],
-        json!({"dayUsd": 0.0, "monthUsd": 0.0})
+        json!({
+            "chat": {},
+            "voice": {"dayUsd": 0.0, "monthUsd": 0.0},
+            "images": {"dayUsd": 0.0, "monthUsd": 0.0}
+        })
     );
     assert_eq!(updated["result"]["futureSetting"], json!({"enabled": true}));
     assert!(
@@ -5428,7 +5473,8 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
         &log,
         json!({
             "id": 3, "cmd": "settings.update", "params": {"patch": {
-                "images": {"model": "gpt-image-1-mini"}, "spending": {"monthUsd": 7.5}
+                "images": {"model": "gpt-image-1-mini"},
+                "spending": {"chat": {"monthUsd": 7.5}, "voice": {"dayUsd": null}}
             }}
         }),
     )
@@ -5440,7 +5486,7 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
     );
     assert_eq!(
         partial["result"]["spending"],
-        json!({"dayUsd": 2.0, "monthUsd": 7.5})
+        json!({"chat": {"monthUsd": 7.5}, "voice": {}, "images": {}})
     );
 
     let reset = remote_control_answer(Seat::Owner, &handle, &log, json!({
@@ -5450,7 +5496,7 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
     assert_eq!(reset["result"]["images"], json!({}));
     assert_eq!(
         reset["result"]["spending"],
-        json!({"dayUsd": 2.0, "monthUsd": 20.0})
+        json!({"chat": {}, "voice": {}, "images": {}})
     );
     assert_eq!(reset["result"]["futureSetting"], json!({"enabled": true}));
     let before = log.load(&StreamId::Room);
@@ -5470,12 +5516,12 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
 #[tokio::test]
 async fn images_status_reports_recorded_spending_without_creating_or_writing_a_ledger() {
     use crate::credentials::tests::MemoryStore;
-    use crate::spending::{SpendLedger, SpendingSettings};
+    use crate::spending::SpendLedger;
     let root = tempfile::tempdir().unwrap();
     {
         let ledger = SpendLedger::new(root.path().to_path_buf());
         ledger
-            .reserve(&SpendingSettings::default(), 0.25)
+            .reserve(&crate::spending::BudgetLimits::default(), 0.25)
             .unwrap()
             .charge(0.125)
             .unwrap();
@@ -5642,7 +5688,10 @@ async fn invalid_image_or_spending_settings_do_not_write_any_patch_key() {
         ("spending", json!({"dayUsd": -1})),
         ("spending", json!({"monthUsd": -1})),
         ("spending", json!({"dayUsd": "2"})),
-        ("spending", json!({"monthUsd": null})),
+        ("spending", json!({"voice": {"dayUsd": -1}})),
+        ("spending", json!({"chat": {"monthUsd": "2"}})),
+        ("spending", json!({"images": "off"})),
+        ("spending", json!({"dayUsd": 1, "voice": {"dayUsd": 2}})),
     ] {
         let mut patch = serde_json::Map::new();
         patch.insert("theme".into(), json!("dark"));

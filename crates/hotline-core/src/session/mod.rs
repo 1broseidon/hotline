@@ -203,6 +203,13 @@ pub trait ProviderKeys: Send + Sync {
     fn web_search_keys(&self) -> crate::websearch::Keys {
         HashMap::new()
     }
+
+    /// The desk's spending budgets, which a teammate's turn on a per-token
+    /// key is metered against (the Chat budget). Test doubles have none, so
+    /// their turns are neither metered nor refused.
+    fn budget(&self) -> Option<Arc<crate::voice::metering::Budget>> {
+        None
+    }
 }
 
 /// What the room asks a model for: an agent to run a teammate's turns, and a
@@ -242,6 +249,7 @@ struct DeskAgents {
     root: PathBuf,
     log: Log,
     mcp_vault: Option<Arc<Vault>>,
+    acp_start: acp::StartBounds,
 }
 
 #[async_trait]
@@ -291,7 +299,8 @@ impl Agents for DeskAgents {
             tools,
         )
         .with_history(said)
-        .with_mcp(grant.servers, grant.missing);
+        .with_mcp(grant.servers, grant.missing)
+        .with_start_bounds(self.acp_start);
         let driver = match &self.mcp_vault {
             Some(vault) => driver.with_mcp_vault(vault.clone()),
             None => driver,
@@ -350,6 +359,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
             additional_directories: false,
         },
         error: None,
+        awaiting_subagents: false,
     }
 }
 
@@ -653,6 +663,7 @@ impl Room {
             root: log.root().to_path_buf(),
             log: log.clone(),
             mcp_vault: None,
+            acp_start: acp::StartBounds::default(),
         });
         Self::with_agents(log, keys, agents)
     }
@@ -663,12 +674,14 @@ impl Room {
         log: Log,
         keys: Arc<dyn ProviderKeys>,
         vault: Arc<Vault>,
+        acp_start: acp::StartBounds,
     ) -> Arc<Self> {
         let agents = Arc::new(DeskAgents {
             keys: keys.clone(),
             root: log.root().to_path_buf(),
             log: log.clone(),
             mcp_vault: Some(vault.clone()),
+            acp_start,
         });
         Self::with_agents_computers_and_vault(log, keys, agents, Computer::new(), Some(vault))
     }
@@ -1987,6 +2000,7 @@ impl Room {
         let info = {
             let mut info = lock(&session.info);
             info.state = SessionState::Stopped;
+            info.awaiting_subagents = false;
             info.clone()
         };
         let _ = self.info_changes.send(info);
@@ -4389,6 +4403,31 @@ impl Room {
         let info = {
             let mut info = lock(&session.info);
             info.state = state;
+            // A turn beginning or ending is the end of any wait on subagents.
+            info.awaiting_subagents = false;
+            info.clone()
+        };
+        let _ = self.info_changes.send(info);
+    }
+
+    /// Says whether the turn in flight reads as done: the agent has said its
+    /// reply and the turn is open only for subagents it started. A display
+    /// fact, told to the roster when it changes; the turn is still running,
+    /// so `state` stays `thinking` and nothing that waits on a turn's end
+    /// (a chapter's close, a computer's swap) stops waiting.
+    fn await_subagents(&self, session: &Arc<Session>, awaiting: bool) {
+        let _lifecycle = lock(&self.lifecycle);
+        if !session.capability.is_current() || !self.current_session(session) {
+            return;
+        }
+        let info = {
+            let mut info = lock(&session.info);
+            if info.awaiting_subagents == awaiting
+                || (awaiting && info.state != SessionState::Thinking)
+            {
+                return;
+            }
+            info.awaiting_subagents = awaiting;
             info.clone()
         };
         let _ = self.info_changes.send(info);

@@ -1874,6 +1874,242 @@ async fn a_turn_reaches_the_phone_once_with_its_report() {
     assert_eq!(sent[0]["data"]["personaId"], "ada");
 }
 
+/// Waits for the teammate's session to say whether its turn is open only
+/// for subagents.
+async fn until_awaiting(room: &Room, persona_id: &str, want: bool) {
+    for _ in 0..200 {
+        if room.info(persona_id).awaiting_subagents == want {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("awaiting_subagents never became {want}");
+}
+
+/// A turn whose agent has said its reply and is open only for a subagent it
+/// started reads as done: the reply is chat on the tape and on the phone, not
+/// a step, and the session says it is waiting on subagents while the turn is
+/// still running. Tool work again is working again, and the reply after it
+/// lands as any reply does.
+#[tokio::test]
+async fn a_turn_left_open_only_for_subagents_reads_as_done_until_the_agent_works_again() {
+    let says = |id: &str, text: &str| Update::Message {
+        kind: MessageKind::Agent,
+        id: id.to_string(),
+        text: text.to_string(),
+    };
+    let turn = vec![
+        Update::ToolCall {
+            call_id: "c1".to_string(),
+            title: "Read crane.rs".to_string(),
+            kind: "read".to_string(),
+        },
+        Update::ToolResult {
+            call_id: "c1".to_string(),
+            ok: true,
+            output: "fn lift()".to_string(),
+            images: Vec::new(),
+        },
+        // Hotline Agent's subagent: its call stays running until the run
+        // reports.
+        Update::ToolCall {
+            call_id: "s1".to_string(),
+            title: "Check the edge cases".to_string(),
+            kind: crate::session::jobs::SUBAGENT.to_string(),
+        },
+        says(
+            "m-reply",
+            "The lift is in crane.rs; a subagent is checking the edge cases.",
+        ),
+        Update::Parked,
+        // The subagent reports, and the agent works on what it found.
+        Update::ToolResult {
+            call_id: "s1".to_string(),
+            ok: true,
+            output: "Two edge cases fail.".to_string(),
+            images: Vec::new(),
+        },
+        Update::ToolCall {
+            call_id: "c2".to_string(),
+            title: "cargo test".to_string(),
+            kind: "bash".to_string(),
+        },
+        Update::ToolResult {
+            call_id: "c2".to_string(),
+            ok: true,
+            output: "ok".to_string(),
+            images: Vec::new(),
+        },
+        says("m-after", "Fixed both edge cases."),
+        Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        },
+    ];
+    let gate = Arc::new(Semaphore::new(0));
+    let room = room(
+        "awaiting-subagents",
+        Fake::new(Scripted::turns(vec![turn]).gated(gate.clone())),
+    );
+    std::fs::write(
+        room.log.root().join("remote.json"),
+        json!({
+            "desktopId": "desk-1",
+            "host": "desk.local",
+            "enabled": true,
+            "grants": [{
+                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0, "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
+                "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "where is the lift", None, None)
+        .await
+        .unwrap();
+
+    // Up to the park: the reply is chat, not a thought.
+    gate.add_permits(5);
+    until_awaiting(&room, "ada", true).await;
+    assert_eq!(room.info("ada").state, SessionState::Thinking);
+    let events = settled(&room, "ada", 4).await;
+    let reply = events
+        .iter()
+        .find(|event| event["id"] == "m-reply")
+        .expect("the reply is on the tape");
+    assert_eq!(reply["kind"], "agent", "{events:?}");
+    assert!(!events.iter().any(|event| event["kind"] == "turn"));
+    let mut sent = Vec::new();
+    for _ in 0..200 {
+        sent = lock(&room.push.sent).clone();
+        if !sent.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(sent.len(), 1, "the phone hears the reply now: {sent:?}");
+    assert_eq!(
+        sent[0]["body"],
+        "The lift is in crane.rs; a subagent is checking the edge cases."
+    );
+
+    // The subagent's report wakes the agent, and the work is working.
+    gate.add_permits(1);
+    until_awaiting(&room, "ada", false).await;
+    assert_eq!(room.info("ada").state, SessionState::Thinking);
+
+    gate.add_permits(5);
+    until_state(&room, "ada", SessionState::Ready).await;
+    assert!(!room.info("ada").awaiting_subagents);
+    let events = tape(&room, "ada");
+    let after = events
+        .iter()
+        .find(|event| event["id"] == "m-after")
+        .expect("the reply after the work is on the tape");
+    assert_eq!(after["kind"], "agent");
+    for _ in 0..200 {
+        sent = lock(&room.push.sent).clone();
+        if sent.len() > 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    assert_eq!(sent[1]["body"], "Fixed both edge cases.");
+}
+
+/// A turn that parks with a command of its own still running is still at
+/// work: what it said is its report, but it is not waiting only on
+/// subagents. And a turn that never parks holds its last words as it
+/// always has, until the turn ends.
+#[tokio::test]
+async fn a_turn_with_other_work_open_or_no_subagents_reads_as_working() {
+    let says = |id: &str, text: &str| Update::Message {
+        kind: MessageKind::Agent,
+        id: id.to_string(),
+        text: text.to_string(),
+    };
+    let command = vec![
+        Update::ToolCall {
+            call_id: "c1".to_string(),
+            title: "cargo build".to_string(),
+            kind: "shell".to_string(),
+        },
+        says("m-building", "The build is running."),
+        Update::Parked,
+        Update::ToolResult {
+            call_id: "c1".to_string(),
+            ok: true,
+            output: "built".to_string(),
+            images: Vec::new(),
+        },
+        Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        },
+    ];
+    let plain = vec![
+        Update::ToolCall {
+            call_id: "c2".to_string(),
+            title: "Read crane.rs".to_string(),
+            kind: "read".to_string(),
+        },
+        Update::ToolResult {
+            call_id: "c2".to_string(),
+            ok: true,
+            output: "fn lift()".to_string(),
+            images: Vec::new(),
+        },
+        says("m-plain", "It is in crane.rs."),
+        Update::Turn {
+            stop_reason: "end_turn".to_string(),
+            usage: None,
+        },
+    ];
+    let gate = Arc::new(Semaphore::new(0));
+    let room = room(
+        "working-not-awaiting",
+        Fake::new(Scripted::turns(vec![command, plain]).gated(gate.clone())),
+    );
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "build it", None, None).await.unwrap();
+    gate.add_permits(3);
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(
+        events.last().unwrap()["id"],
+        "m-building",
+        "the report is said: {events:?}"
+    );
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(!room.info("ada").awaiting_subagents);
+    assert_eq!(room.info("ada").state, SessionState::Thinking);
+    gate.add_permits(2);
+    until_state(&room, "ada", SessionState::Ready).await;
+
+    room.prompt("ada", "where is the lift", None, None)
+        .await
+        .unwrap();
+    gate.add_permits(3);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        !tape(&room, "ada")
+            .iter()
+            .any(|event| event["id"] == "m-plain"),
+        "the last words wait for the turn's end"
+    );
+    assert!(!room.info("ada").awaiting_subagents);
+    gate.add_permits(1);
+    until_state(&room, "ada", SessionState::Ready).await;
+    let events = tape(&room, "ada");
+    let plain = events
+        .iter()
+        .find(|event| event["id"] == "m-plain")
+        .expect("the reply lands at the turn's end");
+    assert_eq!(plain["kind"], "agent");
+}
+
 /// What a teammate says about work it left running, once its turn is over,
 /// reaches the chat and the phone when it is said, and the teammate is shown
 /// working while it says it.

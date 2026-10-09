@@ -311,6 +311,20 @@ settings, streams, tapes or agent descriptors.
 Tests use temporary directories of their own. Never point a test, a
 harness, or `HOTLINE_DATA_DIR` at a real Hotline data directory.
 
+The app's own output — `[startup]` lines, an agent that would not start, a
+panic — goes to `<data dir>/logs/hotline.log` whenever its stderr is not a
+terminal, which is every launch from the Finder, the Start menu or a desktop
+launcher, where it would otherwise be lost (`hotline_core::log_file`). The
+process's stdout and stderr are pointed at the file itself, so everything
+printed with `eprintln!` and the panic hook's message land there, and nothing
+is buffered in the process. The file is capped at 5 MB: it is moved to
+`hotline.log.1` at launch and every five minutes once it reaches that, and
+only that one previous file is kept. Started from a terminal, as `make dev`
+and running the bundle's binary by hand do, the output stays in the terminal
+and no log is written. Nothing secret is printed, so nothing secret is logged:
+keep it that way, and never `eprintln!` a key, a token or a request body.
+`hotline serve` logs to its journal.
+
 One desk runs per data directory. Before the room opens, every process
 that writes it — the app, `hotline serve`, `hotline-import` — takes an
 exclusive lock on `desk.lock` there (`hotline_core::room_lock`), in every

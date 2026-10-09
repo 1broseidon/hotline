@@ -1,4 +1,4 @@
-import { type PointerEvent as ButtonPointerEvent, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type PointerEvent as ButtonPointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
@@ -49,6 +49,7 @@ export function isDown(state: SessionState): boolean {
  * head of the pill, and chips there are files picked, dropped or pasted,
  * never a path typed or pasted into it as words. Escape gives up a dictation
  * first, then puts the chips down, then the quote, then it interrupts a turn.
+ * What the teammate left running stands at the pill's top right (`corner`).
  */
 export function Composer({
 	personaId,
@@ -61,6 +62,7 @@ export function Composer({
 	onCancel,
 	onClearReply,
 	onDraftChange,
+	corner,
 	embedded = false,
 }: {
 	personaId: string;
@@ -74,6 +76,8 @@ export function Composer({
 	onCancel(): void;
 	onClearReply(): void;
 	onDraftChange?(hasContent: boolean): void;
+	/** Keys that sit on the pill's top right, over the conversation's foot. */
+	corner?: ReactNode;
 	/**
 	 * Inside another composer's window (a side thread's): the same size and
 	 * place as the conversation's, and it leaves file drops to the conversation's own composer, which is the one a drop
@@ -326,148 +330,151 @@ export function Composer({
 		/* Positioned, so it paints over the scroller before it, which is
 		   positioned too and would otherwise sit on the pill's top edge. */
 		<div className="relative shrink-0 px-6 pb-4">
-			<div className="composer mx-auto w-full max-w-[46rem]">
-				<button type="button" className="composer-key composer-attach" title="Attach a file" aria-label="Attach a file" onClick={() => void attach()}>
-					<PlusIcon />
-				</button>
-				<div className="composer-body">
-					{sendingSince !== null && (
-						<p className="composer-sending" role="status">
-							<svg key={sendingSince} className="send-ring" viewBox="0 0 16 16" aria-hidden="true">
-								<circle cx="8" cy="8" r="6" pathLength="1" style={{ animationDuration: `${SEND_AFTER_MS}ms` }} />
-							</svg>
-							<span className="min-w-0 flex-1 truncate">Sending to {name}…</span>
-							<span className="text-ink-3">Esc to cancel</span>
-						</p>
-					)}
-					{replyQuote !== null && (
-						<div className="flex items-center gap-2 pt-1">
-							<p className="quote mb-0 min-w-0 flex-1">
-								<span className="text-ink-3">Replying to </span>
-								{replyQuote}
+			<div className="relative mx-auto w-full max-w-[46rem]">
+				{corner !== undefined && <div className="composer-corner">{corner}</div>}
+				<div className="composer">
+					<button type="button" className="composer-key composer-attach" title="Attach a file" aria-label="Attach a file" onClick={() => void attach()}>
+						<PlusIcon />
+					</button>
+					<div className="composer-body">
+						{sendingSince !== null && (
+							<p className="composer-sending" role="status">
+								<svg key={sendingSince} className="send-ring" viewBox="0 0 16 16" aria-hidden="true">
+									<circle cx="8" cy="8" r="6" pathLength="1" style={{ animationDuration: `${SEND_AFTER_MS}ms` }} />
+								</svg>
+								<span className="min-w-0 flex-1 truncate">Sending to {name}…</span>
+								<span className="text-ink-3">Esc to cancel</span>
 							</p>
-							<button type="button" className="chip-x" aria-label="Stop replying" onClick={onClearReply}>
-								<CloseIcon />
-							</button>
-						</div>
-					)}
-					{attachments.length > 0 && (
-						<ul className="flex flex-wrap gap-1.5 pt-1.5">
-							{attachments.map((item) => (
-								<li key={item.path} className="chip" title={item.path}>
-									<span className="chip-name">{item.name}</span>
-									{item.size !== undefined && <span className="chip-size">{sizeText(item.size)}</span>}
-									<button
-										type="button"
-										className="chip-x"
-										aria-label={`Remove ${item.name}`}
-										onClick={() => setAttachments((known) => known.filter((one) => one.path !== item.path))}
-									>
-										<CloseIcon />
-									</button>
-								</li>
-							))}
-						</ul>
-					)}
-					<textarea
-						ref={area}
-						rows={1}
-						value={text}
-						aria-label={`Message ${name}`}
-						placeholder={heard.phase === "listening" ? "Listening…" : heard.phase === "starting" ? "Getting ready to listen…" : "Message"}
-						readOnly={heard.phase === "listening" || heard.phase === "finishing"}
-						onChange={(event) => {
-							setText(event.target.value);
-							dictation.clearError();
-							countdown.cancel();
-						}}
-						onPointerDown={() => countdown.cancel()}
-						onPaste={(event) => {
-							const files = Array.from(event.clipboardData.files);
-							if (files.length > 0) {
-								event.preventDefault();
-								void paste(files);
-								return;
-							}
-							// Some webviews (WebKitGTK) keep a copied picture from the page; the
-							// shell can still read it when there is no text.
-							if (event.clipboardData.getData("text/plain") === "") {
-								void shellPicture().then((file) => file && paste([file]));
-							}
-						}}
-						onKeyDown={(event) => {
-							// While dictating, Enter stops, as a tap would.
-							if (dictating && event.key === "Enter") {
-								event.preventDefault();
-								if (heard.phase === "listening") void dictation.stop();
-								return;
-							}
-							if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-								event.preventDefault();
-								submit();
-								return;
-							}
-							// Chips are put down on the window first (capture), so
-							// Escape clears them before this field sees the key.
-							if (event.key === "Escape" && replyQuote !== null) {
-								event.preventDefault();
-								onClearReply();
-								return;
-							}
-							// Interrupting with nothing to say is still just Escape,
-							// whatever is sitting half-written in the field.
-							if (event.key === "Escape" && working) {
-								event.preventDefault();
-								onCancel();
-							}
-						}}
-					/>
-					{pasteFailed !== null && <p className="pt-1 text-xs text-danger">{pasteFailed}</p>}
-					{heard.error !== null && <p className="pt-1 text-xs text-danger">{heard.error}</p>}
-				</div>
-				{working && (
-					<button type="button" className="composer-key composer-stop" title="Interrupt (Esc)" aria-label="Interrupt" onClick={onCancel}>
-						<StopIcon />
-					</button>
-				)}
-				{dictating ? (
-					<button
-						type="button"
-						className="composer-key composer-send composer-dictating"
-						title={heard.phase === "starting" ? "Stop (Esc)" : withKeys("Stop dictating", dictateKeys)}
-						aria-label={heard.phase === "starting" ? "Stop" : "Stop dictating"}
-						data-shown="true"
-						disabled={heard.phase === "finishing"}
-						onPointerDown={pressKey}
-						// A pointer acted on the way down; this is the keyboard's Enter or Space.
-						onClick={(event) => {
-							if (event.detail === 0) dictation.toggle();
-						}}
-					>
-						<VoiceMeter
-							source={dictation.watchLevel}
-							state={heard.phase === "listening" ? "listening" : heard.phase === "finishing" ? "finishing" : "waiting"}
+						)}
+						{replyQuote !== null && (
+							<div className="flex items-center gap-2 pt-1">
+								<p className="quote mb-0 min-w-0 flex-1">
+									<span className="text-ink-3">Replying to </span>
+									{replyQuote}
+								</p>
+								<button type="button" className="chip-x" aria-label="Stop replying" onClick={onClearReply}>
+									<CloseIcon />
+								</button>
+							</div>
+						)}
+						{attachments.length > 0 && (
+							<ul className="flex flex-wrap gap-1.5 pt-1.5">
+								{attachments.map((item) => (
+									<li key={item.path} className="chip" title={item.path}>
+										<span className="chip-name">{item.name}</span>
+										{item.size !== undefined && <span className="chip-size">{sizeText(item.size)}</span>}
+										<button
+											type="button"
+											className="chip-x"
+											aria-label={`Remove ${item.name}`}
+											onClick={() => setAttachments((known) => known.filter((one) => one.path !== item.path))}
+										>
+											<CloseIcon />
+										</button>
+									</li>
+								))}
+							</ul>
+						)}
+						<textarea
+							ref={area}
+							rows={1}
+							value={text}
+							aria-label={`Message ${name}`}
+							placeholder={heard.phase === "listening" ? "Listening…" : heard.phase === "starting" ? "Getting ready to listen…" : "Message"}
+							readOnly={heard.phase === "listening" || heard.phase === "finishing"}
+							onChange={(event) => {
+								setText(event.target.value);
+								dictation.clearError();
+								countdown.cancel();
+							}}
+							onPointerDown={() => countdown.cancel()}
+							onPaste={(event) => {
+								const files = Array.from(event.clipboardData.files);
+								if (files.length > 0) {
+									event.preventDefault();
+									void paste(files);
+									return;
+								}
+								// Some webviews (WebKitGTK) keep a copied picture from the page; the
+								// shell can still read it when there is no text.
+								if (event.clipboardData.getData("text/plain") === "") {
+									void shellPicture().then((file) => file && paste([file]));
+								}
+							}}
+							onKeyDown={(event) => {
+								// While dictating, Enter stops, as a tap would.
+								if (dictating && event.key === "Enter") {
+									event.preventDefault();
+									if (heard.phase === "listening") void dictation.stop();
+									return;
+								}
+								if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+									event.preventDefault();
+									submit();
+									return;
+								}
+								// Chips are put down on the window first (capture), so
+								// Escape clears them before this field sees the key.
+								if (event.key === "Escape" && replyQuote !== null) {
+									event.preventDefault();
+									onClearReply();
+									return;
+								}
+								// Interrupting with nothing to say is still just Escape,
+								// whatever is sitting half-written in the field.
+								if (event.key === "Escape" && working) {
+									event.preventDefault();
+									onCancel();
+								}
+							}}
 						/>
-						<StopIcon className="composer-dictating-stop" />
-					</button>
-				) : (!working || actionShown) && (
-					<button
-						type="button"
-						className={`composer-key composer-send${voice || mic ? " composer-voice" : ""}`}
-						title={mic ? withKeys("Dictate", dictateKeys) : voice ? `Talk to ${name}` : "Send (Enter)"}
-						aria-label={mic ? "Dictate" : voice ? `Talk to ${name}` : "Send"}
-						aria-hidden={!actionShown}
-						tabIndex={actionShown ? 0 : -1}
-						data-shown={actionShown ? "true" : undefined}
-						disabled={!voice && !mic && !hasContent}
-						onPointerDown={mic ? pressKey : undefined}
-						onClick={mic ? (event) => {
-							if (event.detail === 0) dictation.toggle();
-						} : voice ? onCall : submit}
-					>
-						{mic ? <MicIcon /> : voice ? <VoiceIcon /> : <ArrowUpIcon />}
-					</button>
-				)}
+						{pasteFailed !== null && <p className="pt-1 text-xs text-danger">{pasteFailed}</p>}
+						{heard.error !== null && <p className="pt-1 text-xs text-danger">{heard.error}</p>}
+					</div>
+					{working && (
+						<button type="button" className="composer-key composer-stop" title="Interrupt (Esc)" aria-label="Interrupt" onClick={onCancel}>
+							<StopIcon />
+						</button>
+					)}
+					{dictating ? (
+						<button
+							type="button"
+							className="composer-key composer-send composer-dictating"
+							title={heard.phase === "starting" ? "Stop (Esc)" : withKeys("Stop dictating", dictateKeys)}
+							aria-label={heard.phase === "starting" ? "Stop" : "Stop dictating"}
+							data-shown="true"
+							disabled={heard.phase === "finishing"}
+							onPointerDown={pressKey}
+							// A pointer acted on the way down; this is the keyboard's Enter or Space.
+							onClick={(event) => {
+								if (event.detail === 0) dictation.toggle();
+							}}
+						>
+							<VoiceMeter
+								source={dictation.watchLevel}
+								state={heard.phase === "listening" ? "listening" : heard.phase === "finishing" ? "finishing" : "waiting"}
+							/>
+							<StopIcon className="composer-dictating-stop" />
+						</button>
+					) : (!working || actionShown) && (
+						<button
+							type="button"
+							className={`composer-key composer-send${voice || mic ? " composer-voice" : ""}`}
+							title={mic ? withKeys("Dictate", dictateKeys) : voice ? `Talk to ${name}` : "Send (Enter)"}
+							aria-label={mic ? "Dictate" : voice ? `Talk to ${name}` : "Send"}
+							aria-hidden={!actionShown}
+							tabIndex={actionShown ? 0 : -1}
+							data-shown={actionShown ? "true" : undefined}
+							disabled={!voice && !mic && !hasContent}
+							onPointerDown={mic ? pressKey : undefined}
+							onClick={mic ? (event) => {
+								if (event.detail === 0) dictation.toggle();
+							} : voice ? onCall : submit}
+						>
+							{mic ? <MicIcon /> : voice ? <VoiceIcon /> : <ArrowUpIcon />}
+						</button>
+					)}
+				</div>
 			</div>
 		</div>
 	);

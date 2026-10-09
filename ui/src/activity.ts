@@ -1,5 +1,15 @@
-import type { TranscriptEvent } from "./generated/contract";
+import type { SessionInfo, SessionState, TranscriptEvent } from "./generated/contract";
 import type { Streaming } from "./tape";
+
+/**
+ * The state a session reads as. A turn the core says is open only for
+ * subagents it started (`awaitingSubagents`) reads as done: its reply is in
+ * the chat, nothing works under the conversation, and the composer is as it
+ * is between turns, while the subagents show at the composer's corner.
+ */
+export function shownState(session: Pick<SessionInfo, "state" | "awaitingSubagents">): SessionState {
+	return session.state === "thinking" && session.awaitingSubagents === true ? "ready" : session.state;
+}
 
 /**
  * What a teammate is doing right now, at the grain the mark can show it.

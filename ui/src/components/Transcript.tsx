@@ -78,6 +78,7 @@ export function Transcript({
 	events,
 	streaming,
 	live,
+	cornered = false,
 	focus,
 	speakers,
 	onReply,
@@ -104,6 +105,12 @@ export function Transcript({
 	streaming: Streaming[];
 	/** A turn is running: the mark is up, above the composer. */
 	live: boolean;
+	/**
+	 * Something stands at the composer's top right, over the foot of the
+	 * conversation: the last line keeps clear of it as it does of the mark,
+	 * and the way back down sits above it.
+	 */
+	cornered?: boolean;
 	/** A search hit to land on. `at` is a nonce so picking the same id twice still jumps. */
 	focus: { eventId: string; at: number } | null;
 	/** A peer thread, or a handoff, names both sides; the tape with the person does not. */
@@ -345,9 +352,10 @@ export function Transcript({
 			    the landing and the sleep, not just the turn — so the last bubble
 			    never slides under it. It opens before the mark rises into it
 			    (`wake` waits 200ms) and closes once the mark is gone, at once:
-			    easing it would reflow every row for the length of the ease. */}
+			    easing it would reflow every row for the length of the ease.
+			    Subagents at the composer's corner keep the same room. */}
 			<div
-				className={`mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${activity !== null ? "pb-14" : "pb-6"}`}
+				className={`mx-auto flex min-h-full w-full max-w-[46rem] flex-col justify-end px-6 pt-6 ${activity !== null || cornered ? "pb-14" : "pb-6"}`}
 			>
 				{/* Scrolling up loads these on its own; the key is for a window
 				    whose loaded lines are too short to scroll. */}
@@ -434,7 +442,7 @@ export function Transcript({
 		{!following && (
 			<button
 				type="button"
-				className="control btn send jump-latest absolute bottom-3 right-8"
+				className={`control btn send jump-latest absolute right-8 ${cornered ? "bottom-12" : "bottom-3"}`}
 				title="Jump to the latest"
 				aria-label="Jump to the latest"
 				onClick={() => {

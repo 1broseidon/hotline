@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import type { Attachment, ConfigChoice, ScheduledJob, ThreadId, TranscriptEvent } from "../generated/contract";
+import type { Attachment, ConfigChoice, RunningSubagent, ScheduledJob, ThreadId, TranscriptEvent } from "../generated/contract";
+import { shownState } from "../activity";
 import { sideTitle } from "../links";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
@@ -100,6 +101,8 @@ export function Conversation({
 	dock?: ReactNode;
 }) {
 	const { persona, session } = entry;
+	/* A turn open only for its subagents reads as done; see `shownState`. */
+	const state = shownState(session);
 	const people = usePeople(roster);
 	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const subagents = entry.subagents ?? [];
@@ -319,13 +322,13 @@ export function Conversation({
 					// The name is the one way into the teammate's pane, the way a
 					// messages app opens a contact from its header.
 					title={`Teammate (${chordKeys("teammate")})`}
-					aria-label={session.state === "thinking" ? `${persona.name}, working` : persona.name}
+					aria-label={state === "thinking" ? `${persona.name}, working` : persona.name}
 					aria-expanded={inspectorOpen}
 					onClick={onToggleInspector}
 				>
 					<Avatar id={persona.id} name={persona.name} size={20} hash={persona.avatar?.hash} />
 					<span className="shrink-0 text-lg font-semibold text-ink">{persona.name}</span>
-					{session.state === "thinking" && (
+					{state === "thinking" && (
 						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
 					)}
 				</button>
@@ -334,43 +337,12 @@ export function Conversation({
 
 				<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} />
 
-				{/* Subagents still running, wherever their lines have scrolled to:
-				 * one is named, several are counted, and each opens its run in
-				 * the pane. They leave the band when they finish; their
-				 * lines in the conversation keep how each went. */}
-				{subagents.length === 1 ? (
-					<button
-						type="button"
-						className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
-						title="Open the subagent's run"
-						aria-label={`Subagent working: ${subagents[0]!.title}`}
-						aria-pressed={opened({ kind: "run", key: subagents[0]!.runId })}
-						onClick={() => onOpenThread({ thread: { kind: "run", key: subagents[0]!.runId }, title: subagents[0]!.title })}
-					>
-						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-						<span className="truncate">{narrow ? "Subagent" : `Subagent · ${subagents[0]!.title}`}</span>
-					</button>
-				) : subagents.length > 1 ? (
-					<MenuButton
-						className="control btn-quiet shrink-0 gap-1.5 px-2 text-sm"
-						label={`${subagents.length} subagents working`}
-						entries={subagents.map((run) => ({
-							kind: "item",
-							id: run.runId,
-							text: run.title,
-							checked: opened({ kind: "run", key: run.runId }),
-							onSelect: () => onOpenThread({ thread: { kind: "run", key: run.runId }, title: run.title }),
-						}))}
-					>
-						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-						{`${subagents.length} subagents`}
-					</MenuButton>
-				) : null}
-
-				{/* Side threads still live: a chip each, next to the subagents.
-				 * They leave the band when archived; the conversation's own line
-				 * keeps what came of each. With the pane open they are in its
-				 * list, and the band has no room to name them. */}
+				{/* Side threads still live: a chip each. They are conversations of
+				 * their own rather than this turn's work, so they stay in the band
+				 * when the subagents sit at the composer. They leave the band when
+				 * archived; the conversation's own line keeps what came of each.
+				 * With the pane open they are in its list, and the band has no
+				 * room to name them. */}
 				{paneOpen ? null : sides.length === 1 ? (
 					<button
 						type="button"
@@ -474,7 +446,8 @@ export function Conversation({
 					people={people}
 					events={shown}
 					streaming={streaming}
-					live={session.state === "thinking"}
+					live={state === "thinking"}
+					cornered={subagents.length > 0}
 					focus={focus}
 					onReply={setReplying}
 					onReact={react}
@@ -496,13 +469,16 @@ export function Conversation({
 					onDraftChange={setDraftHasContent}
 					personaId={personaId}
 					name={persona.name}
-					state={session.state}
+					state={state}
 					replyQuote={replying?.text ?? null}
 					onSend={send}
 					onCall={onCall}
 					{...(refill !== null ? { refill } : {})}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}
+					{...(subagents.length > 0
+						? { corner: <SubagentChips subagents={subagents} opened={(runId) => opened({ kind: "run", key: runId })} onOpenThread={onOpenThread} /> }
+						: {})}
 				/>
 				{dock !== undefined && <div className="work-dock">{dock}</div>}
 				{searchOpen && (
@@ -510,6 +486,58 @@ export function Conversation({
 				)}
 			</div>
 		</section>
+	);
+}
+
+/**
+ * Subagents still running, wherever their lines have scrolled to, at the
+ * composer's top right: what the teammate left going is beside where you
+ * would speak to it. One is named, several are counted with a menu, and each
+ * opens its run in the pane. They go when they finish; their lines in the
+ * conversation keep how each went.
+ */
+export function SubagentChips({
+	subagents,
+	opened,
+	onOpenThread,
+}: {
+	subagents: RunningSubagent[];
+	/** Whether a run is the one open in the pane. */
+	opened(runId: string): boolean;
+	onOpenThread(thread: ThreadRef): void;
+}) {
+	const open = (run: RunningSubagent) => onOpenThread({ thread: { kind: "run", key: run.runId }, title: run.title });
+	if (subagents.length === 1) {
+		const run = subagents[0]!;
+		return (
+			<button
+				type="button"
+				className="control btn btn-sm min-w-0 shrink gap-1.5"
+				title="Open the subagent's run"
+				aria-label={`Subagent working: ${run.title}`}
+				aria-pressed={opened(run.runId)}
+				onClick={() => open(run)}
+			>
+				<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+				<span className="truncate">{`Subagent · ${run.title}`}</span>
+			</button>
+		);
+	}
+	return (
+		<MenuButton
+			className="control btn btn-sm shrink-0 gap-1.5"
+			label={`${subagents.length} subagents working`}
+			entries={subagents.map((run) => ({
+				kind: "item",
+				id: run.runId,
+				text: run.title,
+				checked: opened(run.runId),
+				onSelect: () => open(run),
+			}))}
+		>
+			<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+			{`${subagents.length} subagents`}
+		</MenuButton>
 	);
 }
 

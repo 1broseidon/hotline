@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import { useNarrow } from "./narrow";
+import { shownState } from "./activity";
 import type { ConfigChoice } from "./generated/contract";
 import { About } from "./components/About";
 import { Conversation } from "./components/Conversation";
@@ -583,7 +584,7 @@ export function App() {
 			key={`work-${entry.persona.id}`}
 			open={open}
 			name={entry.persona.name}
-			live={entry.session.state === "thinking"}
+			live={shownState(entry.session) === "thinking"}
 			docked={dockWork}
 			onClose={() => closeWork(entry.persona.id)}
 		/>

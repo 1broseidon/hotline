@@ -9,8 +9,8 @@ pub mod settings;
 pub mod speech;
 
 use crate::contract::{
-    SpeechModel, VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceInputMode, VoiceModel,
-    VoiceState, VoiceStatus,
+    BudgetKind, SpeechModel, VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceInputMode,
+    VoiceModel, VoiceState, VoiceStatus,
 };
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -58,29 +58,33 @@ struct CallSpeech {
 }
 
 /**
- * A cap with nothing left turns paid voice off. A call that would hear or
- * speak through a provider that charges cannot run then: it would be
- * refused at its first reservation. One heard and spoken for free — a
- * subscription, or the desk's own engine — runs whatever the caps say.
+ * The kinds of paid work a call can do, each spent against its own budget:
+ * hearing and speaking against Voice when their provider charges, and the
+ * call assistant against Chat when its model is billed per token. A call
+ * heard, spoken and answered for free (a subscription, the desk's own
+ * engine, a signed-in model) names none, so no budget can stop it.
  */
-fn paid_voice_off(budget: &ledger::Budget, speech: Option<&CallSpeech>) -> Option<String> {
-    let speech = speech?;
-    let none_left =
-        budget.spent_day_usd >= budget.day_usd || budget.spent_month_usd >= budget.month_usd;
-    (none_left && !speech.free()).then(|| {
-        "Paid voice is off: there is no spending limit left. Raise the limit, or use a free voice.".to_string()
-    })
+fn paid_kinds(speech: Option<&CallSpeech>, assistant: Option<&dyn Dispatcher>) -> Vec<Kind> {
+    let mut kinds = Vec::new();
+    if let Some(speech) = speech {
+        if speech
+            .stt
+            .as_ref()
+            .is_some_and(|stt| !ledger::is_free(&stt.id().provider_id))
+        {
+            kinds.push(Kind::Stt);
+        }
+        if !ledger::is_free(&speech.tts.id().provider_id) {
+            kinds.push(Kind::Tts);
+        }
+    }
+    if assistant.is_some_and(|assistant| !assistant.free()) {
+        kinds.push(Kind::Dispatcher);
+    }
+    kinds
 }
 
 impl CallSpeech {
-    /** Whether hearing and speaking both cost nothing; a paid fallback voice is never used for a free one. */
-    fn free(&self) -> bool {
-        self.stt
-            .as_ref()
-            .is_none_or(|stt| ledger::is_free(&stt.id().provider_id))
-            && ledger::is_free(&self.tts.id().provider_id)
-    }
-
     fn audio(speech: SpeechSet) -> Self {
         Self {
             stt: Some(speech.stt),
@@ -251,6 +255,27 @@ struct Delivery {
     text: String,
 }
 
+/// A reply that arrives sentence by sentence: the one line it is shown and
+/// kept as, and its words so far.
+#[derive(Default)]
+struct Reply {
+    line: String,
+    text: String,
+}
+
+impl Reply {
+    /// Adds a sentence, and says the line and the reply so far.
+    fn add(&mut self, sentence: &str) -> (String, String) {
+        if self.line.is_empty() {
+            self.line = Uuid::new_v4().to_string();
+        } else {
+            self.text.push(' ');
+        }
+        self.text.push_str(sentence);
+        (self.line.clone(), self.text.clone())
+    }
+}
+
 enum Work {
     Text {
         seq: u32,
@@ -307,7 +332,8 @@ impl Calls {
         room: Weak<Room>,
         injected: Option<Services>,
     ) -> Arc<Self> {
-        Self::with_models(log, vault, room, injected, local::catalogue())
+        let budget = Arc::new(Budget::open(log.clone()));
+        Self::with_models(log, vault, room, injected, local::catalogue(), budget)
     }
 
     /// With the speech models offered for download named, for a harness that serves its own.
@@ -317,9 +343,10 @@ impl Calls {
         room: Weak<Room>,
         injected: Option<Services>,
         models: Vec<local::Model>,
+        ledger: Arc<Budget>,
     ) -> Arc<Self> {
         Arc::new(Self {
-            ledger: Arc::new(Budget::open(log.clone())),
+            ledger,
             installs: Installs::new(vault.root(), models),
             log,
             vault,
@@ -413,9 +440,28 @@ impl Calls {
         ProviderDispatcher::resolve(self.vault.clone(), &self.log)
     }
 
-    /// What voice has spent so far against its caps, from its own tally.
-    pub(crate) fn balance(&self) -> ledger::Budget {
-        self.ledger.balance()
+    /// The desk's voice and call-assistant budget.
+    pub(crate) fn budget(&self) -> Arc<Budget> {
+        self.ledger.clone()
+    }
+
+    /// The call assistant a call uses: always on a desk call, and on a direct
+    /// call only when it speaks for the teammate.
+    fn assistant_for(&self, target: Option<&str>) -> Option<Arc<dyn Dispatcher>> {
+        self.dispatcher()
+            .ok()
+            .filter(|dispatcher| target.is_none() || dispatcher.fronts())
+    }
+
+    /// Whether the call's paid work may go on: each budget it spends against
+    /// has something left.
+    fn ready_for(&self, id: &str) -> Result<(), String> {
+        let speech = self.speech_for(id)?;
+        let target = self.change(id, |call| Ok(call.target.clone()))?;
+        let assistant = self.assistant_for(target.as_deref());
+        self.ledger
+            .ready(&paid_kinds(Some(&speech), assistant.as_deref()))
+            .map_err(|_| BUDGET_ERROR.to_string())
     }
 
     pub fn status(&self) -> VoiceStatus {
@@ -423,15 +469,29 @@ impl Calls {
     }
 
     pub fn status_for(&self, input_mode: VoiceInputMode) -> VoiceStatus {
-        let budget = self.ledger.balance();
         let speech = self.resolve_speech(input_mode, None);
         let dispatcher = self.dispatcher();
         let budget_error = self
             .ledger
-            .check()
+            .ready(&paid_kinds(
+                speech.as_ref().ok(),
+                dispatcher.as_deref().ok(),
+            ))
             .err()
-            .map(|e| e.to_string())
-            .or_else(|| paid_voice_off(&budget, speech.as_ref().ok()));
+            .map(|e| e.to_string());
+        let limits = self.ledger.limits(BudgetKind::Voice);
+        let spent = self.ledger.spent();
+        // A tally that cannot be read reports its limits spent.
+        let (spent_day_usd, spent_month_usd) = match spent {
+            Ok(spent) => (
+                spent.day.budget(BudgetKind::Voice),
+                spent.month.budget(BudgetKind::Voice),
+            ),
+            Err(_) => (
+                limits.day_usd.unwrap_or(0.0),
+                limits.month_usd.unwrap_or(0.0),
+            ),
+        };
         let direct_available = speech.is_ok() && budget_error.is_none();
         let unavailable = speech
             .as_ref()
@@ -455,10 +515,10 @@ impl Calls {
                 .and_then(|s| s.fallback_tts.as_ref().map(|s| model(s.id()))),
             dispatcher: dispatcher.as_ref().ok().map(|d| d.id()),
             budget: VoiceBudget {
-                day_usd: budget.day_usd,
-                month_usd: budget.month_usd,
-                spent_day_usd: budget.spent_day_usd,
-                spent_month_usd: budget.spent_month_usd,
+                day_usd: limits.day_usd,
+                month_usd: limits.month_usd,
+                spent_day_usd,
+                spent_month_usd,
             },
         }
     }
@@ -511,10 +571,11 @@ impl Calls {
             if target.is_none() {
                 self.dispatcher()?;
             }
-            self.ledger.check().map_err(|e| e.to_string())?;
-            if let Some(off) = paid_voice_off(&self.ledger.balance(), Some(&speech_services)) {
-                return Err(off);
-            }
+            // Only the budgets this call would pay into can refuse it.
+            let assistant = self.assistant_for(target.as_deref());
+            self.ledger
+                .ready(&paid_kinds(Some(&speech_services), assistant.as_deref()))
+                .map_err(|e| e.to_string())?;
             for call in calls
                 .iter_mut()
                 .filter(|call| call.state != VoiceState::Ended)
@@ -1130,8 +1191,8 @@ impl Calls {
                     }
                 }
             };
-            let budget_failed = self.ledger.check().is_err()
-                || result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR);
+            // A refused reservation is what ends a call on its budget.
+            let budget_failed = result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR);
             if !context.cancel.is_cancelled() {
                 if budget_failed {
                     self.system_line(&id, BUDGET_LINE, include_bytes!("assets/budget.wav"), None);
@@ -1280,7 +1341,7 @@ impl Calls {
             let _ = self.finish(id, VoiceEndReason::Goodbye);
             return Ok(());
         }
-        self.ledger.check().map_err(|_| BUDGET_ERROR.to_string())?;
+        self.ready_for(id)?;
         let origin = Origin {
             call_id: id.into(),
             seq,
@@ -1308,31 +1369,17 @@ impl Calls {
             .await
             .map_err(|_| "The voice dispatcher timed out.".to_string())?
         };
-        let consume = async {
-            let mut failure = None;
-            while let Some(sentence) = answers.recv().await {
-                if failure.is_some() {
-                    // Speech may fail; keep recording the rest of the answer as text.
-                    let silent = CancellationToken::new();
-                    silent.cancel();
-                    let _ = self.say(id, &sentence, &silent, &context.cancel).await;
-                } else if let Err(error) = self
-                    .say(id, &sentence, speech_cancel, &context.cancel)
-                    .await
-                {
-                    failure = Some(error);
-                }
-            }
-            failure.map_or(Ok(()), Err)
-        };
+        let reply = Mutex::new(Reply::default());
+        let consume = self.say_reply(id, &mut answers, &reply, speech_cancel, &context.cancel);
         tokio::select! {
             _ = context.cancel.cancelled() => Ok(()),
             result = async {
                 let (produced, spoken) = tokio::join!(produce, consume);
+                let kept = self.keep_reply(id, Speaker::Voice, std::mem::take(&mut *lock(&reply)));
                 if [&produced, &spoken].iter().any(|result| result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR)) {
                     Err(BUDGET_ERROR.to_string())
                 } else {
-                    produced.and(spoken)
+                    produced.and(spoken).and(kept)
                 }
             } => result,
         }
@@ -1500,7 +1547,7 @@ impl Calls {
                                 persona: target.clone(),
                                 event: String::new(),
                                 name: name.clone(),
-                                text: "That didn't reach my session. Check our conversation before you try again.".into(),
+                                text: "I couldn't start on that. Check our conversation before you try again.".into(),
                             },
                             notices.child_token(),
                         ));
@@ -1537,25 +1584,19 @@ impl Calls {
             .await
             .map_err(|_| "The voice timed out.".to_string())?
         };
-        let consume = async {
-            let mut failure = None;
-            while let Some(sentence) = answers.recv().await {
-                if failure.is_none()
-                    && let Err(error) = self
-                        .say(id, &sentence, speech_cancel, &context.cancel)
-                        .await
-                {
-                    failure = Some(error);
-                }
-            }
-            failure.map_or(Ok(()), Err)
-        };
+        let reply = Mutex::new(Reply::default());
+        let consume = self.say_reply(id, &mut answers, &reply, speech_cancel, &context.cancel);
         // Speaking over the voice drops what it was about to say; a handoff it
-        // already made stands, as accepted work does without a front.
-        let (produced, spoken) = tokio::select! {
-            _ = context.cancel.cancelled() => return Ok(()),
-            _ = speech_cancel.cancelled() => return Ok(()),
-            done = async { tokio::join!(produce, consume) } => done,
+        // already made stands, as accepted work does without a front. What it
+        // had said by then is kept as its reply.
+        let done = tokio::select! {
+            _ = context.cancel.cancelled() => None,
+            _ = speech_cancel.cancelled() => None,
+            done = async { tokio::join!(produce, consume) } => Some(done),
+        };
+        let kept = self.keep_reply(id, Speaker::Voice, std::mem::take(&mut *lock(&reply)));
+        let Some((produced, spoken)) = done else {
+            return Ok(());
         };
         if [&produced, &spoken]
             .iter()
@@ -1570,7 +1611,7 @@ impl Calls {
             hand_off()?;
             return Ok(());
         }
-        produced.and(spoken)
+        produced.and(spoken).and(kept)
     }
 
     async fn summary(&self, delivery: &Delivery) -> Result<String, String> {
@@ -1640,7 +1681,7 @@ impl Calls {
         delivery: &Delivery,
         speech: &CancellationToken,
     ) -> Result<(), String> {
-        self.ledger.check().map_err(|_| BUDGET_ERROR.to_string())?;
+        self.ready_for(id)?;
         // The call's own voice already acknowledged the request; a turn that
         // ends on the teammate's bare "on it" would say it twice.
         if acknowledgement(&delivery.text)
@@ -1688,13 +1729,38 @@ impl Calls {
     /// is what the clients know it by; the write is made behind the call.
     fn keep(&self, id: &str, speaker: Speaker, text: &str) -> String {
         let line = Uuid::new_v4().to_string();
+        self.keep_as(id, speaker, &line, text);
+        line
+    }
+
+    fn keep_as(&self, id: &str, speaker: Speaker, line: &str, text: &str) {
         let _ = self.change(id, |call| {
             if let Some(record) = &call.record {
-                record.said(speaker, &line, text);
+                record.said(speaker, line, text);
             }
             Ok(())
         });
-        line
+    }
+
+    /// A reply said sentence by sentence, kept once and whole: on a direct
+    /// call as one line of the call's thread under the id the clients were
+    /// shown, and on a desk call as one line of the dispatcher's tape.
+    fn keep_reply(&self, id: &str, speaker: Speaker, reply: Reply) -> Result<(), String> {
+        if reply.text.is_empty() {
+            return Ok(());
+        }
+        let direct = self.change(id, |call| {
+            if call.target.is_some() {
+                lock(&call.exchange).push(speaker, &reply.text);
+            }
+            Ok(call.target.is_some())
+        })?;
+        if direct {
+            self.keep_as(id, speaker, &reply.line, &reply.text);
+        } else {
+            self.record("agent", &reply.text)?;
+        }
+        Ok(())
     }
 
     fn record(&self, kind: &str, text: &str) -> Result<String, String> {
@@ -1704,9 +1770,13 @@ impl Calls {
             .voice_record(kind, text)
     }
 
+    /// Speech is priced from what is sent (seconds of audio, characters of
+    /// text) and no provider reports usage back, so the reservation is the
+    /// charge and nothing is settled afterwards.
     fn pay(&self, kind: Kind, usd: f64) -> Result<(), String> {
         self.ledger
             .reserve(kind, usd)
+            .map(drop)
             .map_err(|_| BUDGET_ERROR.to_string())
     }
 
@@ -1783,46 +1853,156 @@ impl Calls {
                 text,
             },
         );
+        self.speaking(id, interrupted);
+        let speech = self.speech_for(id)?;
+        let streaming = self.change(id, |call| Ok(call.stream_audio))?;
+        let mut index = 0;
+        for (at, sentence) in sentences.iter().enumerate() {
+            if interrupted.is_cancelled() || ended.is_cancelled() {
+                return Ok(());
+            }
+            let last = at + 1 == sentences.len();
+            self.speak_sentence(
+                id,
+                &line,
+                &speech,
+                streaming,
+                sentence,
+                &mut index,
+                last,
+                interrupted,
+                ended,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Says a reply as the dispatcher writes it, sentence by sentence, as one
+    /// line: each sentence is spoken as soon as it arrives, the clients are
+    /// shown the line growing under one id, and its audio carries on under
+    /// that id until an empty final clip closes it. The words are gathered in
+    /// `reply` for [`Self::keep_reply`], which keeps them once, whole, even
+    /// when the person speaks over the reply. Speech that fails stops the
+    /// speaking, not the words.
+    async fn say_reply(
+        &self,
+        id: &str,
+        answers: &mut mpsc::Receiver<String>,
+        reply: &Mutex<Reply>,
+        interrupted: &CancellationToken,
+        ended: &CancellationToken,
+    ) -> Result<(), String> {
+        let mut failure = None;
+        let mut speech = None;
+        let mut index = 0;
+        while let Some(sentence) = answers.recv().await {
+            let sentence = sentence.trim();
+            if sentence.is_empty() {
+                continue;
+            }
+            let (line, text) = lock(reply).add(sentence);
+            self.emit(
+                id,
+                VoiceEvent::Said {
+                    id: line.clone(),
+                    text,
+                },
+            );
+            if failure.is_some() || interrupted.is_cancelled() || ended.is_cancelled() {
+                continue;
+            }
+            if speech.is_none() {
+                self.speaking(id, interrupted);
+                let services = self.speech_for(id).and_then(|services| {
+                    Ok((services, self.change(id, |call| Ok(call.stream_audio))?))
+                });
+                match services {
+                    Ok(services) => speech = Some(services),
+                    Err(error) => {
+                        failure = Some(error);
+                        continue;
+                    }
+                }
+            }
+            let (services, streaming) = speech.as_ref().expect("resolved above");
+            if let Err(error) = self
+                .speak_sentence(
+                    id,
+                    &line,
+                    services,
+                    *streaming,
+                    sentence,
+                    &mut index,
+                    false,
+                    interrupted,
+                    ended,
+                )
+                .await
+            {
+                failure = Some(error);
+            }
+        }
+        if failure.is_none() && index > 0 && !interrupted.is_cancelled() && !ended.is_cancelled() {
+            let line = lock(reply).line.clone();
+            self.clip(
+                id,
+                &line,
+                index,
+                true,
+                &Clip {
+                    mime: "audio/wav".into(),
+                    bytes: Vec::new(),
+                },
+                Some(interrupted),
+            );
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
+    /// The call is speaking, unless it is held or was just spoken over.
+    fn speaking(&self, id: &str, interrupted: &CancellationToken) {
         let _ = self.change(id, |call| {
             if call.state != VoiceState::Held && !interrupted.is_cancelled() {
                 call.state(VoiceState::Speaking, None);
             }
             Ok(())
         });
-        let speech = self.speech_for(id)?;
-        let streaming = self.change(id, |call| Ok(call.stream_audio))?;
-        let mut chunk_index = 0;
-        for (index, sentence) in sentences.iter().enumerate() {
-            if interrupted.is_cancelled() || ended.is_cancelled() {
-                return Ok(());
-            }
-            let sentence = &speakable(sentence);
-            if streaming {
-                tokio::select! {
-                    _ = interrupted.cancelled() => return Ok(()),
-                    _ = ended.cancelled() => return Ok(()),
-                    result = self.synthesize_stream(id, &line, &speech, sentence, &mut chunk_index, index + 1 == sentences.len(), interrupted) => result?,
-                }
-                continue;
-            }
-            let clip = tokio::select! {
-                _ = interrupted.cancelled() => return Ok(()),
-                _ = ended.cancelled() => return Ok(()),
-                clip = self.synthesize(&speech, sentence) => clip?,
+    }
+
+    /// One sentence of `line`, sent as its next clip or clips from `index`.
+    #[allow(clippy::too_many_arguments)]
+    async fn speak_sentence(
+        &self,
+        id: &str,
+        line: &str,
+        speech: &CallSpeech,
+        streaming: bool,
+        sentence: &str,
+        index: &mut u32,
+        last: bool,
+        interrupted: &CancellationToken,
+        ended: &CancellationToken,
+    ) -> Result<(), String> {
+        let sentence = &speakable(sentence);
+        if streaming {
+            return tokio::select! {
+                _ = interrupted.cancelled() => Ok(()),
+                _ = ended.cancelled() => Ok(()),
+                result = self.synthesize_stream(id, line, speech, sentence, index, last, interrupted) => result,
             };
-            // A hold/interrupt can arrive at the same time as the provider.
-            if interrupted.is_cancelled() || ended.is_cancelled() {
-                return Ok(());
-            }
-            self.clip(
-                id,
-                &line,
-                index as u32,
-                index + 1 == sentences.len(),
-                &clip,
-                Some(interrupted),
-            );
         }
+        let clip = tokio::select! {
+            _ = interrupted.cancelled() => return Ok(()),
+            _ = ended.cancelled() => return Ok(()),
+            clip = self.synthesize(speech, sentence) => clip?,
+        };
+        // A hold/interrupt can arrive at the same time as the provider.
+        if interrupted.is_cancelled() || ended.is_cancelled() {
+            return Ok(());
+        }
+        self.clip(id, line, *index, last, &clip, Some(interrupted));
+        *index += 1;
         Ok(())
     }
 
@@ -2017,8 +2197,11 @@ impl Calls {
         if origin.is_some_and(|origin| origin.direct)
             || !from_voice
             || self.resolve_speech(VoiceInputMode::Text, None).is_err()
-            || self.dispatcher().is_err()
-            || self.ledger.check().is_err()
+            || self.dispatcher().map_or(true, |assistant| {
+                self.ledger
+                    .ready(&paid_kinds(None, Some(assistant.as_ref())))
+                    .is_err()
+            })
         {
             return false;
         }

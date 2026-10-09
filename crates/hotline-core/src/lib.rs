@@ -21,9 +21,11 @@ mod images;
 pub mod import;
 pub mod link_preview;
 pub mod log;
+pub mod log_file;
 pub mod mcp;
 pub mod models;
 pub mod paths;
+pub(crate) mod pricing;
 #[cfg(windows)]
 mod process_windows;
 mod providers;

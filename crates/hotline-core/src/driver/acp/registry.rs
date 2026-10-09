@@ -48,6 +48,56 @@ pub struct Launch {
     pub env: Vec<(String, String)>,
 }
 
+impl Launch {
+    /// The command as a person would type it to try it in a terminal. The
+    /// environment is left out: it is the catalogue's, and may carry keys.
+    pub fn line(&self) -> String {
+        std::iter::once(self.command.as_str())
+            .chain(self.args.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+/// Whether this launch has answered on this machine before. One that has not
+/// may be `npx` or `uvx` fetching its package, which is a download and not a
+/// hang, so its start is given longer (see `StartBounds`).
+pub fn started_before(root: &Path, launch: &Launch) -> bool {
+    read_started(root).contains(&launch.line())
+}
+
+/// Records that this launch answered, or forgets that it did. A launch that
+/// stopped answering is forgotten, because its package may have been evicted
+/// from the cache and be downloading again; its next start gets the longer
+/// bound.
+pub fn mark_started(root: &Path, launch: &Launch, started: bool) {
+    let line = launch.line();
+    let mut lines = read_started(root);
+    if lines.contains(&line) == started {
+        return;
+    }
+    if started {
+        lines.push(line);
+    } else {
+        lines.retain(|known| *known != line);
+    }
+    let path = paths::acp_started_path(root);
+    let written = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(&path, serde_json::to_vec(&lines).unwrap_or_default()));
+    if let Err(error) = written {
+        eprintln!("[acp] {} could not be written: {error}", path.display());
+    }
+}
+
+fn read_started(root: &Path) -> Vec<String> {
+    std::fs::read(paths::acp_started_path(root))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
 /// A prebuilt archive the catalogue publishes for this machine, and the
 /// folder it unpacks into. The launch command lives inside `dir`.
 #[derive(Clone, Debug, PartialEq, Eq)]

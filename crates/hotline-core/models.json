@@ -1,6 +1,6 @@
 {
   "source": "https://models.dev/api.json",
-  "synced": "2026-10-06",
+  "synced": "2026-10-09",
   "providers": {
     "anthropic": {
       "name": "Anthropic",
@@ -82,6 +82,29 @@
           "limit": {
             "context": 200000,
             "output": 64000
+          }
+        },
+        "claude-haiku-5-5": {
+          "name": "Claude Haiku 5.5",
+          "release_date": "2026-10-07",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
           }
         },
         "claude-opus-4-5": {
@@ -252,7 +275,7 @@
             "cache_write": 3.75
           },
           "limit": {
-            "context": 1000000,
+            "context": 200000,
             "output": 64000
           }
         },
@@ -268,7 +291,7 @@
             "cache_write": 3.75
           },
           "limit": {
-            "context": 1000000,
+            "context": 200000,
             "output": 64000
           }
         },
@@ -332,7 +355,7 @@
           "cost": {
             "input": 2.0,
             "output": 10.0,
-            "cache_read": 0.2,
+            "cache_read": 0.1,
             "cache_write": 2.5
           },
           "limit": {
@@ -452,6 +475,29 @@
           "limit": {
             "context": 200000,
             "output": 64000
+          }
+        },
+        "claude-haiku-5.5": {
+          "name": "Claude Haiku 5.5",
+          "release_date": "2026-10-07",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
           }
         },
         "claude-opus-4.7": {
@@ -606,7 +652,7 @@
           "cost": {
             "input": 2.0,
             "output": 10.0,
-            "cache_read": 0.2,
+            "cache_read": 0.1,
             "cache_write": 2.5
           },
           "limit": {
@@ -1572,6 +1618,21 @@
       "name": "Mistral",
       "doc": "https://docs.mistral.ai/getting-started/models/",
       "models": {
+        "codestral-2508": {
+          "name": "Codestral 25.08",
+          "release_date": "2025-07-30",
+          "reasoning": false,
+          "attachment": false,
+          "cost": {
+            "input": 0.3,
+            "output": 0.9,
+            "cache_read": 0.03
+          },
+          "limit": {
+            "context": 256000,
+            "output": 8192
+          }
+        },
         "codestral-latest": {
           "name": "Codestral (latest)",
           "release_date": "2024-05-29",
@@ -1587,60 +1648,77 @@
             "output": 4096
           }
         },
-        "magistral-medium-latest": {
-          "name": "Magistral Medium (latest)",
-          "release_date": "2025-03-17",
-          "reasoning": true,
-          "attachment": false,
+        "ministral-14b-2512": {
+          "name": "Ministral 3 14B",
+          "release_date": "2025-12-02",
+          "reasoning": false,
+          "attachment": true,
           "cost": {
-            "input": 2.0,
-            "output": 5.0
+            "input": 0.2,
+            "output": 0.2,
+            "cache_read": 0.02
           },
           "limit": {
-            "context": 128000,
-            "output": 16384
+            "context": 262144,
+            "output": 262144
+          }
+        },
+        "ministral-3b-2512": {
+          "name": "Ministral 3 3B",
+          "release_date": "2025-12-02",
+          "reasoning": false,
+          "attachment": true,
+          "cost": {
+            "input": 0.1,
+            "output": 0.1,
+            "cache_read": 0.01
+          },
+          "limit": {
+            "context": 131072,
+            "output": 262144
           }
         },
         "ministral-3b-latest": {
           "name": "Ministral 3B (latest)",
           "release_date": "2024-10-01",
           "reasoning": false,
-          "attachment": false,
+          "attachment": true,
           "cost": {
             "input": 0.04,
             "output": 0.04
           },
           "limit": {
-            "context": 128000,
+            "context": 131072,
             "output": 128000
+          }
+        },
+        "ministral-8b-2512": {
+          "name": "Ministral 3 8B",
+          "release_date": "2025-12-02",
+          "reasoning": false,
+          "attachment": true,
+          "cost": {
+            "input": 0.15,
+            "output": 0.15,
+            "cache_read": 0.015
+          },
+          "limit": {
+            "context": 262144,
+            "output": 262144
           }
         },
         "ministral-8b-latest": {
           "name": "Ministral 8B (latest)",
           "release_date": "2024-10-01",
           "reasoning": false,
-          "attachment": false,
+          "attachment": true,
           "cost": {
             "input": 0.1,
             "output": 0.1
           },
           "limit": {
-            "context": 128000,
+            "context": 262144,
             "output": 128000
-          }
-        },
-        "mistral-large-2411": {
-          "name": "Mistral Large 2.1",
-          "release_date": "2024-11-18",
-          "reasoning": false,
-          "attachment": false,
-          "cost": {
-            "input": 2.0,
-            "output": 6.0
-          },
-          "limit": {
-            "context": 131072,
-            "output": 16384
           }
         },
         "mistral-large-2512": {
@@ -1658,6 +1736,26 @@
             "output": 262144
           }
         },
+        "mistral-large-4": {
+          "name": "Mistral Large 4",
+          "release_date": "2026-10-06",
+          "status": "beta",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "high"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.68,
+            "output": 2.09,
+            "cache_read": 0.07
+          },
+          "limit": {
+            "context": 1048576,
+            "output": 262144
+          }
+        },
         "mistral-large-latest": {
           "name": "Mistral Large (latest)",
           "release_date": "2024-11-01",
@@ -1667,34 +1765,6 @@
             "input": 0.5,
             "output": 1.5,
             "cache_read": 0.05
-          },
-          "limit": {
-            "context": 262144,
-            "output": 262144
-          }
-        },
-        "mistral-medium-2505": {
-          "name": "Mistral Medium 3",
-          "release_date": "2025-05-07",
-          "reasoning": false,
-          "attachment": true,
-          "cost": {
-            "input": 0.4,
-            "output": 2.0
-          },
-          "limit": {
-            "context": 131072,
-            "output": 131072
-          }
-        },
-        "mistral-medium-2508": {
-          "name": "Mistral Medium 3.1",
-          "release_date": "2025-08-12",
-          "reasoning": false,
-          "attachment": true,
-          "cost": {
-            "input": 0.4,
-            "output": 2.0
           },
           "limit": {
             "context": 262144,
@@ -1739,34 +1809,6 @@
             "output": 262144
           }
         },
-        "mistral-nemo": {
-          "name": "Mistral Nemo",
-          "release_date": "2024-07-01",
-          "reasoning": false,
-          "attachment": false,
-          "cost": {
-            "input": 0.15,
-            "output": 0.15
-          },
-          "limit": {
-            "context": 128000,
-            "output": 128000
-          }
-        },
-        "mistral-small-2506": {
-          "name": "Mistral Small 3.2",
-          "release_date": "2025-06-20",
-          "reasoning": false,
-          "attachment": false,
-          "cost": {
-            "input": 0.1,
-            "output": 0.3
-          },
-          "limit": {
-            "context": 128000,
-            "output": 16384
-          }
-        },
         "mistral-small-2603": {
           "name": "Mistral Small 4",
           "release_date": "2026-03-16",
@@ -1782,7 +1824,7 @@
             "cache_read": 0.015
           },
           "limit": {
-            "context": 256000,
+            "context": 262144,
             "output": 256000
           }
         },
@@ -1801,78 +1843,22 @@
             "cache_read": 0.015
           },
           "limit": {
-            "context": 256000,
+            "context": 262144,
             "output": 256000
           }
         },
-        "open-mistral-7b": {
-          "name": "Mistral 7B",
-          "release_date": "2023-09-27",
+        "voxtral-small-2507": {
+          "name": "Voxtral Small",
+          "release_date": "2025-07-15",
           "reasoning": false,
-          "attachment": false,
+          "attachment": true,
           "cost": {
-            "input": 0.25,
-            "output": 0.25
+            "input": 0.1,
+            "output": 0.4
           },
           "limit": {
-            "context": 8000,
-            "output": 8000
-          }
-        },
-        "open-mixtral-8x22b": {
-          "name": "Mixtral 8x22B",
-          "release_date": "2024-04-17",
-          "reasoning": false,
-          "attachment": false,
-          "cost": {
-            "input": 2.0,
-            "output": 6.0
-          },
-          "limit": {
-            "context": 64000,
-            "output": 64000
-          }
-        },
-        "open-mixtral-8x7b": {
-          "name": "Mixtral 8x7B",
-          "release_date": "2023-12-11",
-          "reasoning": false,
-          "attachment": false,
-          "cost": {
-            "input": 0.7,
-            "output": 0.7
-          },
-          "limit": {
-            "context": 32000,
+            "context": 32768,
             "output": 32000
-          }
-        },
-        "pixtral-12b": {
-          "name": "Pixtral 12B",
-          "release_date": "2024-09-01",
-          "reasoning": false,
-          "attachment": true,
-          "cost": {
-            "input": 0.15,
-            "output": 0.15
-          },
-          "limit": {
-            "context": 128000,
-            "output": 128000
-          }
-        },
-        "pixtral-large-latest": {
-          "name": "Pixtral Large (latest)",
-          "release_date": "2024-11-01",
-          "reasoning": false,
-          "attachment": true,
-          "cost": {
-            "input": 2.0,
-            "output": 6.0
-          },
-          "limit": {
-            "context": 128000,
-            "output": 128000
           }
         },
         "voxtral-small-latest": {
@@ -1885,29 +1871,8 @@
             "output": 0.3
           },
           "limit": {
-            "context": 32000,
+            "context": 32768,
             "output": 32000
-          }
-        },
-        "zai-glm-5-2": {
-          "name": "GLM-5.2",
-          "release_date": "2026-06-13",
-          "status": "beta",
-          "reasoning": true,
-          "efforts": [
-            "none",
-            "high",
-            "max"
-          ],
-          "attachment": false,
-          "cost": {
-            "input": 1.4,
-            "output": 4.4,
-            "cache_read": 0.14
-          },
-          "limit": {
-            "context": 1000000,
-            "output": 131072
           }
         },
         "zai-glm-5-3": {
@@ -1926,7 +1891,7 @@
             "cache_read": 0.14
           },
           "limit": {
-            "context": 1000000,
+            "context": 1048576,
             "output": 131072
           }
         }
@@ -2283,6 +2248,25 @@
           },
           "limit": {
             "context": 262144,
+            "output": 262144
+          }
+        },
+        "mistral-large-4": {
+          "name": "Mistral Large 4",
+          "release_date": "2026-10-06",
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "high"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 1.36,
+            "output": 4.18,
+            "cache_read": 0.14
+          },
+          "limit": {
+            "context": 1048576,
             "output": 262144
           }
         },
@@ -3387,6 +3371,29 @@
             "output": 64000
           }
         },
+        "anthropic/claude-haiku-5.5": {
+          "name": "Claude Haiku 5.5",
+          "release_date": "2026-10-07",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          }
+        },
         "anthropic/claude-opus-4.1": {
           "name": "Claude Opus 4.1 (latest)",
           "release_date": "2025-08-05",
@@ -3625,7 +3632,7 @@
           "cost": {
             "input": 2.0,
             "output": 10.0,
-            "cache_read": 0.2,
+            "cache_read": 0.1,
             "cache_write": 2.5
           },
           "limit": {
@@ -3826,12 +3833,12 @@
           "reasoning": false,
           "attachment": false,
           "cost": {
-            "input": 0.2574,
-            "output": 1.0287
+            "input": 0.32,
+            "output": 0.89
           },
           "limit": {
             "context": 163840,
-            "output": 16000
+            "output": 16384
           }
         },
         "deepseek/deepseek-chat-v3-0324": {
@@ -3913,13 +3920,13 @@
           "reasoning": true,
           "attachment": false,
           "cost": {
-            "input": 0.28,
+            "input": 0.259,
             "output": 0.42,
-            "cache_read": 0.028
+            "cache_read": 0.135
           },
           "limit": {
             "context": 163840,
-            "output": 65536
+            "output": 147456
           }
         },
         "deepseek/deepseek-v3.2-exp": {
@@ -3946,9 +3953,9 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.0031,
+            "input": 0.0099,
             "output": 1.28,
-            "cache_read": 0.0031
+            "cache_read": 0.0099
           },
           "limit": {
             "context": 1048576,
@@ -3966,9 +3973,9 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.009,
+            "input": 0.018,
             "output": 1.28,
-            "cache_read": 0.009
+            "cache_read": 0.018
           },
           "limit": {
             "context": 1048576,
@@ -4005,9 +4012,9 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.2088,
-            "output": 0.4176,
-            "cache_read": 0.0174
+            "input": 0.2871,
+            "output": 0.5742,
+            "cache_read": 0.023925
           },
           "limit": {
             "context": 1048576,
@@ -4045,9 +4052,9 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 0.0495,
-            "output": 1.32,
-            "cache_read": 0.0165
+            "input": 0.3,
+            "output": 1.2,
+            "cache_read": 0.006
           },
           "limit": {
             "context": 1048576,
@@ -4547,14 +4554,15 @@
             "output": 32768
           }
         },
-        "inclusionai/ling-3.0-flash-sante:free": {
-          "name": "Ling 3.0 Flash Sante (free)",
+        "inclusionai/ling-3.0-flash-sante": {
+          "name": "Ling 3.0 Flash Sante",
           "release_date": "2026-09-04",
           "reasoning": true,
           "attachment": false,
           "cost": {
-            "input": 0.0,
-            "output": 0.0
+            "input": 0.042,
+            "output": 0.1232,
+            "cache_read": 0.0084
           },
           "limit": {
             "context": 262144,
@@ -4588,21 +4596,6 @@
           "limit": {
             "context": 262144,
             "output": 32768
-          }
-        },
-        "kwaipilot/kat-coder-pro-v2.5": {
-          "name": "KAT-Coder-Pro V2.5",
-          "release_date": "2026-07-10",
-          "reasoning": false,
-          "attachment": false,
-          "cost": {
-            "input": 0.74,
-            "output": 2.96,
-            "cache_read": 0.15
-          },
-          "limit": {
-            "context": 262144,
-            "output": 235929
           }
         },
         "liquid/lfm-2.5-2.6b:free": {
@@ -4929,8 +4922,8 @@
           }
         },
         "mistralai/codestral-2508": {
-          "name": "Codestral 2508",
-          "release_date": "2025-08-01",
+          "name": "Codestral 25.08",
+          "release_date": "2025-07-30",
           "reasoning": false,
           "attachment": true,
           "cost": {
@@ -5051,7 +5044,11 @@
         "mistralai/mistral-large-4-0": {
           "name": "Mistral Large 4",
           "release_date": "2026-10-06",
-          "reasoning": false,
+          "reasoning": true,
+          "efforts": [
+            "none",
+            "high"
+          ],
           "attachment": true,
           "cost": {
             "input": 0.68,
@@ -5059,7 +5056,7 @@
             "cache_read": 0.07
           },
           "limit": {
-            "context": 524288,
+            "context": 1048576,
             "output": 262144
           }
         },
@@ -5117,7 +5114,7 @@
           "reasoning": false,
           "attachment": false,
           "cost": {
-            "input": 0.019,
+            "input": 0.029,
             "output": 0.03
           },
           "limit": {
@@ -5280,9 +5277,9 @@
           "reasoning": true,
           "attachment": true,
           "cost": {
-            "input": 0.95,
-            "output": 4.0,
-            "cache_read": 0.16
+            "input": 0.4357,
+            "output": 2.45,
+            "cache_read": 0.1205
           },
           "limit": {
             "context": 262144,
@@ -5315,9 +5312,9 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 0.83,
-            "output": 14.0,
-            "cache_read": 0.27
+            "input": 0.5,
+            "output": 12.0,
+            "cache_read": 0.3
           },
           "limit": {
             "context": 1048576,
@@ -5350,9 +5347,8 @@
           "reasoning": true,
           "attachment": false,
           "cost": {
-            "input": 0.05,
-            "output": 0.2,
-            "cache_read": 0.03
+            "input": 0.06,
+            "output": 0.24
           },
           "limit": {
             "context": 262144,
@@ -5452,13 +5448,13 @@
           "reasoning": true,
           "attachment": false,
           "cost": {
-            "input": 0.06,
-            "output": 0.16,
-            "cache_read": 0.03
+            "input": 0.0469,
+            "output": 0.134,
+            "cache_read": 0.02345
           },
           "limit": {
             "context": 262144,
-            "output": 32768
+            "output": 131072
           }
         },
         "nvidia/nemotron-3.5-lightning:free": {
@@ -7132,12 +7128,12 @@
           "reasoning": true,
           "attachment": true,
           "cost": {
-            "input": 0.195,
-            "output": 1.56
+            "input": 0.26,
+            "output": 2.6
           },
           "limit": {
             "context": 262144,
-            "output": 65536
+            "output": 81920
           }
         },
         "qwen/qwen3.5-35b-a3b": {
@@ -7161,13 +7157,13 @@
           "reasoning": true,
           "attachment": true,
           "cost": {
-            "input": 0.45,
-            "output": 3.0,
-            "cache_read": 0.22
+            "input": 0.55,
+            "output": 3.5,
+            "cache_read": 0.225
           },
           "limit": {
             "context": 262144,
-            "output": 81920
+            "output": 235929
           }
         },
         "qwen/qwen3.5-9b": {
@@ -7233,13 +7229,12 @@
           "reasoning": true,
           "attachment": true,
           "cost": {
-            "input": 0.32,
-            "output": 3.25,
-            "cache_read": 0.03
+            "input": 0.45,
+            "output": 2.7
           },
           "limit": {
             "context": 262144,
-            "output": 262140
+            "output": 65536
           }
         },
         "qwen/qwen3.6-35b-a3b": {
@@ -7574,20 +7569,6 @@
             "output": 65536
           }
         },
-        "sao10k/l3.1-euryale-70b": {
-          "name": "Llama 3.1 Euryale 70B v2.2",
-          "release_date": "2024-08-28",
-          "reasoning": false,
-          "attachment": false,
-          "cost": {
-            "input": 0.85,
-            "output": 0.85
-          },
-          "limit": {
-            "context": 131072,
-            "output": 16384
-          }
-        },
         "stepfun/step-3.5-flash": {
           "name": "Step 3.5 Flash",
           "release_date": "2026-01-29",
@@ -7620,6 +7601,26 @@
           "limit": {
             "context": 262144,
             "output": 230400
+          }
+        },
+        "stepfun/step-5-preview": {
+          "name": "Step 5 Preview",
+          "release_date": "2026-09-16",
+          "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "attachment": true,
+          "cost": {
+            "input": 1.0,
+            "output": 2.7,
+            "cache_read": 0.05
+          },
+          "limit": {
+            "context": 1000000,
+            "output": 64000
           }
         },
         "tencent/hy3": {
@@ -7696,13 +7697,13 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 0.95,
+            "input": 1.0,
             "output": 4.05,
-            "cache_read": 0.16
+            "cache_read": 0.17
           },
           "limit": {
             "context": 524288,
-            "output": 262144
+            "output": 471859
           }
         },
         "thinkingmachines/inkling-small": {
@@ -8128,7 +8129,7 @@
           "cost": {
             "input": 0.3,
             "output": 0.9,
-            "cache_read": 0.05
+            "cache_read": 0.055
           },
           "limit": {
             "context": 131072,
@@ -8200,13 +8201,13 @@
           "reasoning": true,
           "attachment": false,
           "cost": {
-            "input": 1.4,
-            "output": 4.4,
-            "cache_read": 0.26
+            "input": 0.966,
+            "output": 3.036,
+            "cache_read": 0.1794
           },
           "limit": {
             "context": 204800,
-            "output": 131072
+            "output": 128000
           }
         },
         "z-ai/glm-5.2": {
@@ -8219,13 +8220,13 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.152,
-            "output": 12.0,
-            "cache_read": 0.15
+            "input": 0.06,
+            "output": 6.0,
+            "cache_read": 0.059
           },
           "limit": {
             "context": 1048576,
-            "output": 131072
+            "output": 943718
           }
         },
         "z-ai/glm-5.3": {
@@ -8239,9 +8240,9 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.07,
-            "output": 7.0,
-            "cache_read": 0.065
+            "input": 0.04,
+            "output": 3.6,
+            "cache_read": 0.039
           },
           "limit": {
             "context": 1048576,
@@ -8350,16 +8351,23 @@
           "name": "Claude Haiku Latest",
           "release_date": "2026-04-27",
           "reasoning": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "attachment": true,
           "cost": {
-            "input": 1.0,
-            "output": 5.0,
-            "cache_read": 0.1,
-            "cache_write": 1.25
+            "input": 0.1,
+            "output": 0.5,
+            "cache_read": 0.01,
+            "cache_write": 0.125
           },
           "limit": {
-            "context": 200000,
-            "output": 64000
+            "context": 1000000,
+            "output": 128000
           }
         },
         "~anthropic/claude-opus-latest": {
@@ -8400,7 +8408,7 @@
           "cost": {
             "input": 2.0,
             "output": 10.0,
-            "cache_read": 0.2,
+            "cache_read": 0.1,
             "cache_write": 2.5
           },
           "limit": {
@@ -8419,9 +8427,9 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 0.0395,
+            "input": 0.016,
             "output": 1.2,
-            "cache_read": 0.015
+            "cache_read": 0.01
           },
           "limit": {
             "context": 1048576,
@@ -8439,9 +8447,9 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.2444,
-            "output": 4.2,
-            "cache_read": 0.24
+            "input": 0.1282,
+            "output": 8.0,
+            "cache_read": 0.13
           },
           "limit": {
             "context": 1048576,
@@ -8459,9 +8467,9 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.009,
-            "output": 1.28,
-            "cache_read": 0.009
+            "input": 0.0144,
+            "output": 0.03408,
+            "cache_read": 0.0096
           },
           "limit": {
             "context": 1048576,
@@ -8521,9 +8529,9 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 0.82,
+            "input": 0.49,
             "output": 13.0,
-            "cache_read": 0.45
+            "cache_read": 0.3
           },
           "limit": {
             "context": 1048576,
@@ -8678,13 +8686,13 @@
           ],
           "attachment": true,
           "cost": {
-            "input": 0.0214,
-            "output": 0.5,
-            "cache_read": 0.0214
+            "input": 0.032,
+            "output": 0.326813,
+            "cache_read": 0.02
           },
           "limit": {
             "context": 1048576,
-            "output": 131072
+            "output": 943718
           }
         },
         "~z-ai/glm-latest": {
@@ -8698,9 +8706,9 @@
           ],
           "attachment": false,
           "cost": {
-            "input": 0.03,
-            "output": 12.0,
-            "cache_read": 0.03
+            "input": 0.0312,
+            "output": 4.4,
+            "cache_read": 0.029
           },
           "limit": {
             "context": 1048576,

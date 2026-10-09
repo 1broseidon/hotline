@@ -1158,6 +1158,7 @@ where
     });
 
     let mut subscriptions: HashMap<i64, JoinHandle<()>> = HashMap::new();
+    let mut lanes: HashMap<String, mpsc::UnboundedSender<Value>> = HashMap::new();
     let result = loop {
         // A lean phone pings; one that has said nothing for this long is a
         // link that died without closing, and its subscriptions are work
@@ -1179,26 +1180,36 @@ where
             None | Some(Ok(Message::Close(_))) => break Ok(()),
             Some(Err(error)) => break Err(error),
             Some(Ok(Message::Text(text))) => {
-                // The person is at this computer in the desktop app, or
-                // away from it on a paired device; a message carries which.
-                let client = if seat.is_remote() {
-                    crate::contract::Client::Phone
-                } else {
-                    crate::contract::Client::Desktop
+                let Ok(frame) = serde_json::from_str::<Value>(&text) else {
+                    continue;
                 };
-                let answer = commands::PROMPT_CLIENT.scope(
-                    client,
-                    commands::THREADS2.scope(
-                        sender.threads2(),
-                        answer(
-                            &text,
+                // A command about one teammate waits behind that teammate's
+                // earlier commands and nobody else's: an agent that never
+                // finishes starting holds up its own lane, not the desk.
+                if let Some(teammate) = lane_of(&frame) {
+                    let lane = lanes.entry(teammate).or_insert_with(|| {
+                        open_lane(
                             seat,
-                            &log,
-                            &room,
-                            &sender,
-                            &mut subscriptions,
-                            phone.as_ref(),
-                        ),
+                            log.clone(),
+                            room.clone(),
+                            sender.clone(),
+                            phone.clone(),
+                        )
+                    });
+                    let _ = lane.send(frame);
+                    continue;
+                }
+                let answer = scoped(
+                    seat,
+                    &sender,
+                    answer(
+                        &frame,
+                        seat,
+                        &log,
+                        &room,
+                        &sender,
+                        &mut subscriptions,
+                        phone.as_ref(),
                     ),
                 );
                 if seat.is_remote() {
@@ -1241,10 +1252,90 @@ where
     result
 }
 
+/// The teammate a command frame is about, when it names one: by `personaId`,
+/// by a thread (a DM is its teammate's), by a side thread, or as the record a
+/// `persona.*` command changes. Subscriptions are never on a lane; they wait
+/// on nothing.
+fn lane_of(frame: &Value) -> Option<String> {
+    let cmd = frame.get("cmd")?.as_str()?;
+    let params = frame.get("params")?;
+    let named = |field: &str| params.get(field).and_then(Value::as_str);
+    if let Some(persona_id) = named("personaId") {
+        return Some(persona_id.to_owned());
+    }
+    if let Some(thread) = params.get("thread") {
+        let kind = thread.get("kind")?.as_str()?;
+        let key = thread.get("key")?.as_str()?;
+        return Some(if kind == "dm" {
+            key.to_owned()
+        } else {
+            format!("{kind}:{key}")
+        });
+    }
+    if let Some(side_id) = named("sideId") {
+        return Some(format!("side:{side_id}"));
+    }
+    if cmd.starts_with("persona.") {
+        return named("id").map(str::to_owned);
+    }
+    None
+}
+
+/// One teammate's commands from one socket, answered in the order they came.
+/// The lane ends when the socket's loop drops its sender: a desk finishes what
+/// it was asked, and a revoked companion stops at once.
+fn open_lane(
+    seat: Seat,
+    log: Log,
+    room: Arc<dyn RoomHandle>,
+    sender: Outbox,
+    phone: Option<crate::remote::Phone>,
+) -> mpsc::UnboundedSender<Value> {
+    let (lane, mut frames) = mpsc::unbounded_channel::<Value>();
+    tokio::spawn(async move {
+        while let Some(frame) = frames.recv().await {
+            let Some(id) = frame.get("id").and_then(Value::as_i64) else {
+                continue;
+            };
+            let answered = scoped(
+                seat,
+                &sender,
+                command(id, &frame, seat, &log, &room, &sender, phone.as_ref()),
+            );
+            if seat.is_remote() {
+                tokio::select! {
+                    biased;
+                    _ = sender.cancel.cancelled() => break,
+                    _ = answered => {}
+                }
+            } else {
+                answered.await;
+            }
+        }
+    });
+    lane
+}
+
+/// A frame's work, told who sent it: the person at this computer in the
+/// desktop app, or away from it on a paired device, and whether that client
+/// reads threads.
+fn scoped<F: std::future::Future<Output = ()>>(
+    seat: Seat,
+    sender: &Outbox,
+    work: F,
+) -> impl std::future::Future<Output = ()> {
+    let client = if seat.is_remote() {
+        crate::contract::Client::Phone
+    } else {
+        crate::contract::Client::Desktop
+    };
+    commands::PROMPT_CLIENT.scope(client, commands::THREADS2.scope(sender.threads2(), work))
+}
+
 /// One frame in, its answer queued. A frame with no id is nobody's question,
 /// so there is nowhere to put an answer and it is dropped.
 async fn answer(
-    text: &str,
+    frame: &Value,
     seat: Seat,
     log: &Log,
     room: &Arc<dyn RoomHandle>,
@@ -1252,262 +1343,12 @@ async fn answer(
     subscriptions: &mut HashMap<i64, JoinHandle<()>>,
     phone: Option<&crate::remote::Phone>,
 ) {
-    let Ok(frame) = serde_json::from_str::<Value>(text) else {
-        return;
-    };
     let Some(id) = frame.get("id").and_then(Value::as_i64) else {
         return;
     };
 
     if frame.get("cmd").is_some() {
-        match read_command(&frame) {
-            Ok(command) if !seat.permits(&command) => {
-                decline(
-                    sender,
-                    id,
-                    Refused::because(FORBIDDEN, "That seat may not run this command."),
-                );
-            }
-            // A card waits on somebody else's server, and this loop answers one
-            // frame before it reads the next. Replies are matched by id, so
-            // this one may arrive after the commands that followed it.
-            Ok(Command::LinkPreview { url }) => {
-                let sender = sender.clone();
-                tokio::spawn(async move {
-                    let card = crate::link_preview::preview(&url).await;
-                    reply(&sender, id, Ok(json!(card)));
-                });
-            }
-            // A picture is read from disk, and a conversation full of them
-            // asks for many at once; none of them may hold up the commands
-            // behind it, such as the thread list of the teammate just opened.
-            Ok(command @ (Command::FileRead { .. } | Command::AvatarRead { .. })) => {
-                let (sender, log, room) = (sender.clone(), log.clone(), Arc::clone(room));
-                tokio::spawn(async move {
-                    let result = commands::run(command, &log, &room).await;
-                    reply(&sender, id, result);
-                });
-            }
-            Ok(command) => {
-                // `teammate.tools` answers JSON null when there is no ledger,
-                // and that null is a value, not a void — collapsing it would
-                // make a missing ledger look like delete or stop.
-                let keep_null = matches!(
-                    command,
-                    Command::TeammateTools { .. }
-                        | Command::RemotePairing {
-                            id: Some(_),
-                            cancel: false,
-                            ..
-                        }
-                );
-                let result = match (&command, phone) {
-                    (
-                        Command::FilesUploadStart(_)
-                        | Command::FilesUploadChunk { .. }
-                        | Command::FilesUploadFinish { .. }
-                        | Command::FilesUploadCancel { .. },
-                        _,
-                    ) => {
-                        files::upload(
-                            command,
-                            log.root().to_path_buf(),
-                            sender.uploads.clone(),
-                            sender.cancel.clone(),
-                        )
-                        .await
-                    }
-                    (
-                        Command::RemotePairing {
-                            id: None,
-                            cancel: false,
-                            ..
-                        },
-                        _,
-                    ) => {
-                        let result = commands::run(command, log, room).await;
-                        if let Ok(value) = &result
-                            && let Some(id) = value.get("id").and_then(Value::as_str)
-                        {
-                            *sender
-                                .pairing
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                                Some(id.to_owned());
-                        }
-                        result
-                    }
-                    (
-                        Command::AgentAuthStart {
-                            persona_id,
-                            method_id,
-                        },
-                        _,
-                    ) => room
-                        .agent_auth_start(persona_id, method_id, sender.cancel.clone())
-                        .await
-                        .map(|id| {
-                            sender
-                                .auth_attempts
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .insert(persona_id.clone(), id.clone());
-                            json!({"id": id})
-                        }),
-                    (
-                        Command::AgentAuthPoll {
-                            persona_id,
-                            id: attempt_id,
-                        }
-                        | Command::AgentAuthInput {
-                            persona_id,
-                            id: attempt_id,
-                            ..
-                        }
-                        | Command::AgentAuthCancel {
-                            persona_id,
-                            id: attempt_id,
-                        },
-                        _,
-                    ) => {
-                        let owned = sender
-                            .auth_attempts
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .get(persona_id)
-                            .is_some_and(|owned| owned == attempt_id);
-                        if !owned || sender.cancel.is_cancelled() {
-                            Err("That sign-in belongs to another desktop connection.".into())
-                        } else {
-                            match &command {
-                                Command::AgentAuthPoll { .. } => room
-                                    .agent_auth_poll(persona_id, attempt_id)
-                                    .and_then(|status| {
-                                        serde_json::to_value(status)
-                                            .map_err(|_| "Could not read sign-in status.".into())
-                                    }),
-                                Command::AgentAuthInput { input, .. } => room
-                                    .agent_auth_input(persona_id, attempt_id, input)
-                                    .map(|()| Value::Null),
-                                Command::AgentAuthCancel { .. } => room
-                                    .agent_auth_cancel(persona_id, attempt_id)
-                                    .map(|()| Value::Null),
-                                _ => unreachable!(),
-                            }
-                        }
-                    }
-                    (
-                        Command::MobilePrompt {
-                            operation_id,
-                            persona_id,
-                            text,
-                            attachment_ids,
-                            reply_to,
-                            thread,
-                        },
-                        Some(phone),
-                    ) => {
-                        phone
-                            .prompt(
-                                operation_id,
-                                persona_id,
-                                text,
-                                attachment_ids,
-                                reply_to.as_deref(),
-                                thread.as_ref(),
-                            )
-                            .await
-                    }
-                    (Command::MobileAttachment { upload }, Some(phone)) => {
-                        phone.upload(upload).await
-                    }
-                    // A companion is listed what it could read: no pairs, which
-                    // `peers.list` would not show it either, and no calls.
-                    (Command::ThreadList { persona_id }, _) => {
-                        threads::list(log, room, persona_id.as_deref(), seat == Seat::Phone)
-                    }
-                    (Command::ClientHello { capabilities }, _) => {
-                        sender.threads2.store(
-                            capabilities.iter().any(|name| name == THREADS2),
-                            std::sync::atomic::Ordering::Relaxed,
-                        );
-                        sender.lean.store(
-                            seat.is_remote() && capabilities.iter().any(|name| name == LEAN),
-                            std::sync::atomic::Ordering::Relaxed,
-                        );
-                        Ok(json!({ "capabilities": seat.capabilities_for(room.as_ref()) }))
-                    }
-                    (Command::MobilePushRegister { token, platform }, Some(phone)) => {
-                        phone.register_push(token.clone(), platform.clone())
-                    }
-                    // A harness may serve anything it likes as a config, and a
-                    // phone cannot know which of them decide what a teammate
-                    // may do. Only the one the contract names is allowed.
-                    (
-                        Command::SessionSetConfig {
-                            persona_id,
-                            config_id,
-                            ..
-                        },
-                        Some(_),
-                    ) if seat == Seat::Phone && !effort_config(room, persona_id, config_id) => {
-                        Err("Change that on your desktop.".to_string())
-                    }
-                    // A page of older lines is cut for the phone the way its
-                    // snapshot is: long text shortened, frames made phone-sized.
-                    (Command::TapePage { .. } | Command::ThreadPage { .. }, Some(_))
-                        if seat == Seat::Phone || sender.lean() =>
-                    {
-                        commands::run(command, log, room).await.map(|mut page| {
-                            if let Some(events) =
-                                page.get_mut("events").and_then(Value::as_array_mut)
-                            {
-                                *events = phone_budget(std::mem::take(events));
-                            }
-                            page
-                        })
-                    }
-                    // Why a harness is unavailable can name the machine's
-                    // accounts and folders. That is the owner's to read; a
-                    // companion sees that it is unavailable, not why.
-                    (Command::BackendsList {}, _) if seat == Seat::Phone => {
-                        commands::run(command, log, room).await.map(|mut list| {
-                            for backend in list.as_array_mut().into_iter().flatten() {
-                                if let Some(reason) = backend.get_mut("unavailable")
-                                    && !PLAIN_REASONS.contains(&reason.as_str().unwrap_or_default())
-                                {
-                                    *reason = Value::from(PRIVATE_REASON);
-                                }
-                            }
-                            list
-                        })
-                    }
-                    // The viewer is a loopback URL with the computer's bearer
-                    // in its fragment; it never leaves this machine.
-                    (Command::ComputerStatus { .. }, Some(_)) => {
-                        commands::run(command, log, room).await.map(|mut status| {
-                            if let Some(fields) = status.as_object_mut() {
-                                fields.remove("viewer");
-                            }
-                            status
-                        })
-                    }
-                    (Command::VoiceCallStart { call_id, .. }, _) => {
-                        let call_id = call_id.clone();
-                        let result = commands::run(command, log, room).await;
-                        if result.is_ok()
-                            && let Some(voice) = room.voice()
-                        {
-                            voice.bind_connection(call_id, sender.cancel.clone());
-                        }
-                        result
-                    }
-                    _ => commands::run(command, log, room).await,
-                };
-                reply_to(sender, id, result, keep_null);
-            }
-            Err(error) => reply(sender, id, Err(error)),
-        }
+        command(id, frame, seat, log, room, sender, phone).await;
         return;
     }
     if let Some(target) = frame.get("sub") {
@@ -1539,6 +1380,262 @@ async fn answer(
         id,
         Err("A frame is a command, a subscription or an unsubscribe.".to_string()),
     );
+}
+
+/// A command frame's answer, queued on the socket's outbox.
+async fn command(
+    id: i64,
+    frame: &Value,
+    seat: Seat,
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    sender: &Outbox,
+    phone: Option<&crate::remote::Phone>,
+) {
+    match read_command(frame) {
+        Ok(command) if !seat.permits(&command) => {
+            decline(
+                sender,
+                id,
+                Refused::because(FORBIDDEN, "That seat may not run this command."),
+            );
+        }
+        // A card waits on somebody else's server, and the read loop or a lane answers one
+        // frame before it reads the next. Replies are matched by id, so
+        // this one may arrive after the commands that followed it.
+        Ok(Command::LinkPreview { url }) => {
+            let sender = sender.clone();
+            tokio::spawn(async move {
+                let card = crate::link_preview::preview(&url).await;
+                reply(&sender, id, Ok(json!(card)));
+            });
+        }
+        // A picture is read from disk, and a conversation full of them
+        // asks for many at once; none of them may hold up the commands
+        // behind it, such as the thread list of the teammate just opened.
+        Ok(command @ (Command::FileRead { .. } | Command::AvatarRead { .. })) => {
+            let (sender, log, room) = (sender.clone(), log.clone(), Arc::clone(room));
+            tokio::spawn(async move {
+                let result = commands::run(command, &log, &room).await;
+                reply(&sender, id, result);
+            });
+        }
+        Ok(command) => {
+            // `teammate.tools` answers JSON null when there is no ledger,
+            // and that null is a value, not a void — collapsing it would
+            // make a missing ledger look like delete or stop.
+            let keep_null = matches!(
+                command,
+                Command::TeammateTools { .. }
+                    | Command::RemotePairing {
+                        id: Some(_),
+                        cancel: false,
+                        ..
+                    }
+            );
+            let result = match (&command, phone) {
+                (
+                    Command::FilesUploadStart(_)
+                    | Command::FilesUploadChunk { .. }
+                    | Command::FilesUploadFinish { .. }
+                    | Command::FilesUploadCancel { .. },
+                    _,
+                ) => {
+                    files::upload(
+                        command,
+                        log.root().to_path_buf(),
+                        sender.uploads.clone(),
+                        sender.cancel.clone(),
+                    )
+                    .await
+                }
+                (
+                    Command::RemotePairing {
+                        id: None,
+                        cancel: false,
+                        ..
+                    },
+                    _,
+                ) => {
+                    let result = commands::run(command, log, room).await;
+                    if let Ok(value) = &result
+                        && let Some(id) = value.get("id").and_then(Value::as_str)
+                    {
+                        *sender
+                            .pairing
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                            Some(id.to_owned());
+                    }
+                    result
+                }
+                (
+                    Command::AgentAuthStart {
+                        persona_id,
+                        method_id,
+                    },
+                    _,
+                ) => room
+                    .agent_auth_start(persona_id, method_id, sender.cancel.clone())
+                    .await
+                    .map(|id| {
+                        sender
+                            .auth_attempts
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .insert(persona_id.clone(), id.clone());
+                        json!({"id": id})
+                    }),
+                (
+                    Command::AgentAuthPoll {
+                        persona_id,
+                        id: attempt_id,
+                    }
+                    | Command::AgentAuthInput {
+                        persona_id,
+                        id: attempt_id,
+                        ..
+                    }
+                    | Command::AgentAuthCancel {
+                        persona_id,
+                        id: attempt_id,
+                    },
+                    _,
+                ) => {
+                    let owned = sender
+                        .auth_attempts
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .get(persona_id)
+                        .is_some_and(|owned| owned == attempt_id);
+                    if !owned || sender.cancel.is_cancelled() {
+                        Err("That sign-in belongs to another desktop connection.".into())
+                    } else {
+                        match &command {
+                            Command::AgentAuthPoll { .. } => room
+                                .agent_auth_poll(persona_id, attempt_id)
+                                .and_then(|status| {
+                                    serde_json::to_value(status)
+                                        .map_err(|_| "Could not read sign-in status.".into())
+                                }),
+                            Command::AgentAuthInput { input, .. } => room
+                                .agent_auth_input(persona_id, attempt_id, input)
+                                .map(|()| Value::Null),
+                            Command::AgentAuthCancel { .. } => room
+                                .agent_auth_cancel(persona_id, attempt_id)
+                                .map(|()| Value::Null),
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+                (
+                    Command::MobilePrompt {
+                        operation_id,
+                        persona_id,
+                        text,
+                        attachment_ids,
+                        reply_to,
+                        thread,
+                    },
+                    Some(phone),
+                ) => {
+                    phone
+                        .prompt(
+                            operation_id,
+                            persona_id,
+                            text,
+                            attachment_ids,
+                            reply_to.as_deref(),
+                            thread.as_ref(),
+                        )
+                        .await
+                }
+                (Command::MobileAttachment { upload }, Some(phone)) => phone.upload(upload).await,
+                // A companion is listed what it could read: no pairs, which
+                // `peers.list` would not show it either, and no calls.
+                (Command::ThreadList { persona_id }, _) => {
+                    threads::list(log, room, persona_id.as_deref(), seat == Seat::Phone)
+                }
+                (Command::ClientHello { capabilities }, _) => {
+                    sender.threads2.store(
+                        capabilities.iter().any(|name| name == THREADS2),
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                    sender.lean.store(
+                        seat.is_remote() && capabilities.iter().any(|name| name == LEAN),
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
+                    Ok(json!({ "capabilities": seat.capabilities_for(room.as_ref()) }))
+                }
+                (Command::MobilePushRegister { token, platform }, Some(phone)) => {
+                    phone.register_push(token.clone(), platform.clone())
+                }
+                // A harness may serve anything it likes as a config, and a
+                // phone cannot know which of them decide what a teammate
+                // may do. Only the one the contract names is allowed.
+                (
+                    Command::SessionSetConfig {
+                        persona_id,
+                        config_id,
+                        ..
+                    },
+                    Some(_),
+                ) if seat == Seat::Phone && !effort_config(room, persona_id, config_id) => {
+                    Err("Change that on your desktop.".to_string())
+                }
+                // A page of older lines is cut for the phone the way its
+                // snapshot is: long text shortened, frames made phone-sized.
+                (Command::TapePage { .. } | Command::ThreadPage { .. }, Some(_))
+                    if seat == Seat::Phone || sender.lean() =>
+                {
+                    commands::run(command, log, room).await.map(|mut page| {
+                        if let Some(events) = page.get_mut("events").and_then(Value::as_array_mut) {
+                            *events = phone_budget(std::mem::take(events));
+                        }
+                        page
+                    })
+                }
+                // Why a harness is unavailable can name the machine's
+                // accounts and folders. That is the owner's to read; a
+                // companion sees that it is unavailable, not why.
+                (Command::BackendsList {}, _) if seat == Seat::Phone => {
+                    commands::run(command, log, room).await.map(|mut list| {
+                        for backend in list.as_array_mut().into_iter().flatten() {
+                            if let Some(reason) = backend.get_mut("unavailable")
+                                && !PLAIN_REASONS.contains(&reason.as_str().unwrap_or_default())
+                            {
+                                *reason = Value::from(PRIVATE_REASON);
+                            }
+                        }
+                        list
+                    })
+                }
+                // The viewer is a loopback URL with the computer's bearer
+                // in its fragment; it never leaves this machine.
+                (Command::ComputerStatus { .. }, Some(_)) => {
+                    commands::run(command, log, room).await.map(|mut status| {
+                        if let Some(fields) = status.as_object_mut() {
+                            fields.remove("viewer");
+                        }
+                        status
+                    })
+                }
+                (Command::VoiceCallStart { call_id, .. }, _) => {
+                    let call_id = call_id.clone();
+                    let result = commands::run(command, log, room).await;
+                    if result.is_ok()
+                        && let Some(voice) = room.voice()
+                    {
+                        voice.bind_connection(call_id, sender.cancel.clone());
+                    }
+                    result
+                }
+                _ => commands::run(command, log, room).await,
+            };
+            reply_to(sender, id, result, keep_null);
+        }
+        Err(error) => reply(sender, id, Err(error)),
+    }
 }
 
 /// The command frame's `cmd` and `params` are this enum's tag and content, so

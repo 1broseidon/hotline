@@ -22,6 +22,13 @@ pub(crate) enum Kind {
     Acp,
     Transport,
     Provider,
+    /// The Chat budget has no room for a paid request. Sending again does
+    /// not help until the budget is raised or a new day or month begins.
+    Budget,
+    /// An ACP harness's command never finished starting: it did not answer
+    /// `initialize` and open a session within the start bound. Sending
+    /// another message starts it again.
+    Startup,
     Unknown,
 }
 
@@ -199,6 +206,44 @@ impl Failure {
         failure
     }
 
+    /// A paid request the Chat budget refused, before it was sent.
+    pub fn budget(refused: crate::voice::ledger::Exhausted) -> Self {
+        let mut failure = Self {
+            kind: Kind::Budget,
+            title: "",
+            summary: "",
+            details: refused.to_string(),
+            phase: "budget",
+            status: None,
+            code: None,
+            retry_after_seconds: None,
+            tools_may_have_run: false,
+            sign_in: None,
+        };
+        failure.set_kind(Kind::Budget);
+        failure
+    }
+
+    /// An agent whose command did not finish starting in time. The details
+    /// are the sentence naming the command, which is what the person needs to
+    /// try it in a terminal.
+    pub fn startup(details: String) -> Self {
+        let mut failure = Self {
+            kind: Kind::Startup,
+            title: "",
+            summary: "",
+            details: sanitize(&details),
+            phase: "acp_start",
+            status: None,
+            code: None,
+            retry_after_seconds: None,
+            tools_may_have_run: false,
+            sign_in: None,
+        };
+        failure.set_kind(Kind::Startup);
+        failure
+    }
+
     pub fn after_tools(mut self, may_have_run: bool) -> Self {
         self.tools_may_have_run = may_have_run;
         self
@@ -264,6 +309,14 @@ impl Failure {
             Kind::Provider => (
                 "Provider unavailable",
                 "The provider encountered an error while answering.",
+            ),
+            Kind::Budget => (
+                "Chat budget spent",
+                "This teammate's model is paid per token, and the Chat budget has no room for another request. Raise it in Settings › Budgets.",
+            ),
+            Kind::Startup => (
+                "Agent did not start",
+                "Its command never answered, so it was stopped. Sending another message starts it again.",
             ),
             Kind::Unknown => (
                 "Turn failed",

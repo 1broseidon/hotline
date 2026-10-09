@@ -18,6 +18,22 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   address, paired phones learn it and use it away from home. Pairing still
   happens on your own network.
 
+### Changed
+
+- Every Settings screen now looks and works like the setup wizard and New
+  teammate. Lists are rounded cards with roomier rows. A setting with a
+  good default shows what it is now and opens only to change it (who new
+  teammates think with, what computers run on, hearing). Two or three
+  options are chips instead of menus (theme, after you stop talking, how a
+  tool server runs and signs in). Hints are one line.
+- Tools keeps a web search key behind Add key instead of four key boxes,
+  and a tool server's environment is written as NAME=value lines.
+- Providers adds a service from the same cards as the welcome. A
+  provider's page shows its connection at the top and offers All or Only
+  some models, each switched on or off and saved at once.
+- Secrets adds a variable or a login from one form, with the two-step code
+  folded away.
+
 ### Fixed
 
 - Settings › Updates shows a release's notes as formatted text instead of

@@ -38,6 +38,14 @@ jobs:
         with:
           key: workspace-isolation-${{ matrix.runner }}
           cache-on-failure: true
+
+      # The cache keeps the speech engine's build-script output and its
+      # target/sherpa-onnx-prebuilt folder, but not the library unpacked into
+      # it, and the script only unpacks into a folder that is not there.
+      # Forgetting both makes the build unpack the pinned archive again.
+      - name: Unpack the speech engine again
+        shell: bash
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |

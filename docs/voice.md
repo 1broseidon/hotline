@@ -184,12 +184,12 @@ window uses the desk's. The meter reads any stream of 0 to 1 levels
 
 ## Shortcuts from any app
 
-Two shortcuts work while Hotline is in the background, through the
+Three shortcuts work while Hotline is in the background, through the
 `global-shortcut` plugin (`ui/src/hotkeys.ts`): Dictate, `Control+Option+H`
-(⌃⌥H) unless changed, offered only where the window can dictate; and
-Conversation, off until set. Both are this computer's, kept in the
-window's `localStorage` under `hotline.hotkeys` (Conversation read from
-`call` where it was stored under that name), and set in Settings ›
+(⌃⌥H) unless changed, offered only where the window can dictate; Call your
+agent; and Call the desk, both off until set. All are this computer's, kept
+in the window's `localStorage` under `hotline.hotkeys` (Call your agent as
+`conversation`, read from `call` where it was stored under that name), and set in Settings ›
 General › Shortcuts, where a row records new keys (at least one of
 Control, Option or Command, or Ctrl or Alt elsewhere, with a key; Escape
 gives up), turns the shortcut off, and says when the system would not
@@ -201,15 +201,15 @@ The plugin reports each press and release. A Dictate press brings the
 main window forward and goes, with its release, to the open
 conversation's composer, as a tap or a hold as above; with a pane open in
 its place, the pane closes and the last teammate's conversation opens and
-takes it; with no teammate selected it does nothing. A Conversation press
-hangs up a live call where the person is, without bringing the window
-forward, or else brings it forward and calls the open teammate when the
-desk can. The window comes forward from the page (`showWindow`), which is
+takes it; with no teammate selected it does nothing. A Call your agent or
+Call the desk press hangs up a live call where the person is, without
+bringing the window forward, or else brings it forward and calls the open
+teammate, or the desk, when the desk can. The window comes forward from the page (`showWindow`), which is
 why the main window may show and unminimize itself. The window registers
 the shortcuts on startup, again whenever they change, and lets them go
 when they are turned off; a reloaded page first lets go of the ones its
 previous load held. Only the main window may register shortcuts. Help ›
-Keyboard shortcuts lists both, with their current keys, under Anywhere on
+Keyboard shortcuts lists them, with their current keys, under Anywhere on
 this computer.
 
 ## Hearing on the desk

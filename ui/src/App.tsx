@@ -530,8 +530,9 @@ export function App() {
 	/* The shortcuts heard anywhere on this computer (hotkeys.ts). Dictate
 	 * brings the window forward and hands its press and release to the open
 	 * conversation's composer, or the last teammate's when a pane stands in
-	 * its place, which tells a tap from a hold. Conversation calls the open
-	 * teammate, coming forward to do it, or hangs up where the person is. */
+	 * its place, which tells a tap from a hold. Call your agent calls the
+	 * open teammate and Call the desk calls the desk, each coming forward to
+	 * do it; either hangs up a live call where the person is. */
 	const hotkeyPressed = useRef<(id: HotkeyId, state: KeyState) => void>(() => {});
 	hotkeyPressed.current = (id, state) => {
 		if (id === "dictate") {
@@ -548,6 +549,12 @@ export function App() {
 			closeCall();
 			return;
 		}
+		if (id === "desk") {
+			if (!voice) return;
+			void showWindow();
+			void startCall(nameOf);
+			return;
+		}
 		if (selected === null || !directCalls) return;
 		void showWindow();
 		callTeammate(selected);
@@ -557,7 +564,7 @@ export function App() {
 	const recordingKeys = useRecording();
 	const dictationHere = useDictationAvailable();
 	useEffect(() => {
-		void hotkeyRegistrar()?.sync(recordingKeys ? {} : { dictate: dictationHere ? bindings.dictate : "", conversation: bindings.conversation });
+		void hotkeyRegistrar()?.sync(recordingKeys ? {} : { dictate: dictationHere ? bindings.dictate : "", conversation: bindings.conversation, desk: bindings.desk });
 	}, [bindings, recordingKeys, dictationHere]);
 	/* A narrow window has room for faces beside the pane and no more. */
 	const faces = narrow || railSize.compact;

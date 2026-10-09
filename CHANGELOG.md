@@ -33,6 +33,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   some models, each switched on or off and saved at once.
 - Secrets adds a variable or a login from one form, with the two-step code
   folded away.
+- The Conversation shortcut is now **Call your agent**, and a new **Call
+  the desk** shortcut calls the desk from any app. Both are off until you
+  set their keys, and pressing either during a call hangs up.
 
 ### Fixed
 

@@ -82,11 +82,11 @@ describe("global shortcuts", () => {
 	});
 
 	test("stored keys are read back, Conversation from its old name too, and nonsense is the default", () => {
-		expect(readHotkeys(null)).toEqual({ dictate: "Control+Alt+KeyH", conversation: "" });
-		expect(readHotkeys(JSON.stringify({ dictate: "", call: "Control+Alt+KeyK" }))).toEqual({ dictate: "", conversation: "Control+Alt+KeyK" });
+		expect(readHotkeys(null)).toEqual({ dictate: "Control+Alt+KeyH", conversation: "", desk: "" });
+		expect(readHotkeys(JSON.stringify({ dictate: "", call: "Control+Alt+KeyK" }))).toEqual({ dictate: "", conversation: "Control+Alt+KeyK", desk: "" });
 		expect(readHotkeys(JSON.stringify({ conversation: "Super+KeyJ", call: "Control+Alt+KeyK" })).conversation).toBe("Super+KeyJ");
 		expect(readHotkeys(JSON.stringify({ dictate: "Hyper+Banana" })).dictate).toBe("Control+Alt+KeyH");
-		expect(readHotkeys("not json")).toEqual({ dictate: "Control+Alt+KeyH", conversation: "" });
+		expect(readHotkeys("not json")).toEqual({ dictate: "Control+Alt+KeyH", conversation: "", desk: "" });
 	});
 
 	test("keys the system refused are said, asked for again, and forgotten when turned off", async () => {

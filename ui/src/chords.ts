@@ -69,7 +69,8 @@ export const CHORDS: readonly Chord[] = [
 	{ id: "sidebar", group: "panes", label: "Team", keys: mod("B"), match: { mod: true, key: "b", code: "KeyB" } },
 	{ id: "close", group: "panes", label: "Close", keys: "Esc", match: { key: "Escape" } },
 	{ id: "dictate", group: "anywhere", label: "Dictate: tap to start and stop, or hold to talk", keys: "", hotkey: "dictate" },
-	{ id: "conversation", group: "anywhere", label: "Conversation: call the open teammate, or hang up", keys: "", hotkey: "conversation" },
+	{ id: "conversation", group: "anywhere", label: "Call your agent: the open teammate, or hang up", keys: "", hotkey: "conversation" },
+	{ id: "desk", group: "anywhere", label: "Call the desk, or hang up", keys: "", hotkey: "desk" },
 ];
 
 /** A row with its keys as they are now: a system-wide one's are the person's. */

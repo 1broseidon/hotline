@@ -13,11 +13,13 @@ import { isDesktop, platform } from "./native";
  * tap from a hold (voice/dictation.ts).
  */
 
-export type HotkeyId = "dictate" | "conversation";
+export type HotkeyId = "dictate" | "conversation" | "desk";
 
+/** `conversation` keeps its stored name; the person knows it as Call your agent. */
 export const HOTKEYS: readonly { id: HotkeyId; label: string; fallback: string }[] = [
 	{ id: "dictate", label: "Dictate", fallback: "Control+Alt+KeyH" },
-	{ id: "conversation", label: "Conversation", fallback: "" },
+	{ id: "conversation", label: "Call your agent", fallback: "" },
+	{ id: "desk", label: "Call the desk", fallback: "" },
 ];
 
 /** Conversation was stored as `call` before it had its name. */

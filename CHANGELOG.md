@@ -8,6 +8,57 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.35.1] - 2026-10-09
+
+### Added
+
+- When a new version is out, a small card in the window's bottom-right
+  corner says "Update available", with Update… to open Settings › Updates.
+  Closing it hides that version until a newer one arrives.
+- When a teammate's turn fails on the network, at the provider or on a rate
+  limit, its error card offers **Try again**, which runs the same request
+  again without repeating your message in the conversation.
+- Settings › Remote can keep an optional **Public address**. When
+  Cloudflare Tunnel, ngrok or a forwarded port gives the desk an https
+  address, paired phones learn it and use it away from home. Pairing still
+  happens on your own network.
+
+### Changed
+
+- Every Settings screen now looks and works like the setup wizard and New
+  teammate. Lists are rounded cards with roomier rows. A setting with a
+  good default shows what it is now and opens only to change it (who new
+  teammates think with, what computers run on, hearing). Two or three
+  options are chips instead of menus (theme, after dictating, how a
+  tool server runs and signs in). Hints are one line.
+- Tools keeps a web search key behind Add key instead of four key boxes,
+  and a tool server's environment is written as NAME=value lines.
+- Providers adds a service from the same cards as the welcome. A
+  provider's page shows its connection at the top and offers All or Only
+  some models, each switched on or off and saved at once.
+- Secrets adds a variable or a login from one form, with the two-step code
+  folded away.
+- The Conversation shortcut is now **Call your agent**, and a new **Call
+  the desk** shortcut calls the desk from any app. Both are off until you
+  set their keys, and pressing either during a call hangs up.
+
+- The conversation's header shows the teammate's name without repeating
+  its goal, which stays on the teammate's pane.
+- The teammate's pane calls its own folder **Main workspace** and drops the
+  "Also let it read" strip above extra folders.
+- Settings › Computer links to how a teammate's computer is built.
+
+### Fixed
+
+- Settings › Updates shows a release's notes as formatted text instead of
+  raw markdown, and each release now has notes written for people rather
+  than GitHub's list of pull requests. The GitHub Release adds the full
+  changelog beneath them.
+- The update card and a call's card keep clear of the message box and the
+  teammate's pane.
+- The server installer edits its service file in a way both Linux and
+  macOS `sed` accept, so its tests pass on a Mac.
+
 ## [0.35.0] - 2026-10-08
 
 ### Added

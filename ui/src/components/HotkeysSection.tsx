@@ -3,12 +3,12 @@ import { matchChord, withCurrentKeys, CHORDS } from "../chords";
 import { HOTKEYS, hotkeyFromPress, hotkeyLabel, setHotkey, setRecording, useHotkeyRefusals, useHotkeys, type HotkeyId } from "../hotkeys";
 import { CloseIcon } from "../icons";
 import { isDesktop, platform } from "../native";
-import { Picker } from "../ui/Menu";
+import { Chips } from "../ui/Chips";
 import { SEND_AFTER_MS, setAfterDictation, useAfterDictation, useDictationAvailable, type AfterDictation } from "../voice/dictation";
 
-const AFTER_CHOICES: { id: AfterDictation; name: string }[] = [
-	{ id: "leave", name: "Leave it in the box" },
-	{ id: "send", name: `Send after ${SEND_AFTER_MS / 1000} seconds` },
+const AFTER_CHOICES: { id: AfterDictation; name: string; title: string }[] = [
+	{ id: "send", name: "Send", title: `Sent ${SEND_AFTER_MS / 1000} seconds after you stop, unless you press Esc` },
+	{ id: "leave", name: "Don't send", title: "The words stay in the box for you to send" },
 ];
 
 const HOLD = platform() === "macos" ? "Hold Control, Option or Command, then press a key." : "Hold Ctrl or Alt, then press a key.";
@@ -43,15 +43,9 @@ export function HotkeysSection() {
 						{hotkey.id === "dictate" && (
 							<div className="group-row">
 								<span className="group-row-text">
-									<span className="group-row-title">After you stop talking</span>
+									<span className="group-row-title">After dictating</span>
 								</span>
-								<Picker
-									value={after}
-									choices={AFTER_CHOICES}
-									placeholder="Leave it in the box"
-									label="After you stop talking"
-									onChange={(id) => setAfterDictation(id as AfterDictation)}
-								/>
+								<Chips value={after} choices={AFTER_CHOICES} label="After dictating" onChange={setAfterDictation} />
 							</div>
 						)}
 					</Fragment>
@@ -59,8 +53,8 @@ export function HotkeysSection() {
 			</div>
 			<p className="group-hint">
 				{dictation
-					? "They work from any app. Dictate brings Hotline forward: tap it to start and again to stop, or hold it while you talk. Conversation calls the open teammate hands-free, or hangs up."
-					: "It works from any app. Conversation calls the open teammate hands-free, or hangs up."}
+					? "Work from any app. Tap Dictate to start and stop, or hold it while you talk."
+					: "Work from any app. Press again to hang up."}
 			</p>
 		</section>
 	);

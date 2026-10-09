@@ -2091,6 +2091,15 @@ fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
     assert!(!Seat::Phone.permits(&Command::ComputerRuntimes {}));
 }
 
+/// A failed turn is tried again from wherever the person is: the line is
+/// already on the tape, so the phone resends nothing it had not sent.
+#[test]
+fn the_phone_seat_may_try_a_failed_turn_again() {
+    assert!(Seat::Phone.permits(&Command::SessionRetry {
+        persona_id: "ada".to_string()
+    }));
+}
+
 /// Who a teammate is — its name and goal — and whether it stays are the
 /// person's to change from anywhere; the patch that reaches its grants is
 /// not, so the phone gets a narrow edit and never `persona.update`.
@@ -4232,6 +4241,10 @@ async fn remote_controls_are_denied_to_companions() {
             ("remote.devices", json!({})),
             ("remote.revoke", json!({"deviceId":"any"})),
             ("remote.relay", json!({"deskId":"any"})),
+            (
+                "remote.public_url",
+                json!({"url":"https://desk.example.com"}),
+            ),
             ("remote.pairing", json!({})),
             ("remote.pairing", json!({"role":"companion"})),
             ("remote.pairing", json!({"id":"any"})),

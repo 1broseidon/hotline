@@ -10,6 +10,7 @@ import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { Titlebar } from "./ui/Titlebar";
 import { CallFloat } from "./components/Call";
+import { UpdateFloat } from "./components/UpdateFloat";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
 import { Teammate } from "./components/Teammate";
@@ -529,8 +530,9 @@ export function App() {
 	/* The shortcuts heard anywhere on this computer (hotkeys.ts). Dictate
 	 * brings the window forward and hands its press and release to the open
 	 * conversation's composer, or the last teammate's when a pane stands in
-	 * its place, which tells a tap from a hold. Conversation calls the open
-	 * teammate, coming forward to do it, or hangs up where the person is. */
+	 * its place, which tells a tap from a hold. Call your agent calls the
+	 * open teammate and Call the desk calls the desk, each coming forward to
+	 * do it; either hangs up a live call where the person is. */
 	const hotkeyPressed = useRef<(id: HotkeyId, state: KeyState) => void>(() => {});
 	hotkeyPressed.current = (id, state) => {
 		if (id === "dictate") {
@@ -547,6 +549,12 @@ export function App() {
 			closeCall();
 			return;
 		}
+		if (id === "desk") {
+			if (!voice) return;
+			void showWindow();
+			void startCall(nameOf);
+			return;
+		}
 		if (selected === null || !directCalls) return;
 		void showWindow();
 		callTeammate(selected);
@@ -556,7 +564,7 @@ export function App() {
 	const recordingKeys = useRecording();
 	const dictationHere = useDictationAvailable();
 	useEffect(() => {
-		void hotkeyRegistrar()?.sync(recordingKeys ? {} : { dictate: dictationHere ? bindings.dictate : "", conversation: bindings.conversation });
+		void hotkeyRegistrar()?.sync(recordingKeys ? {} : { dictate: dictationHere ? bindings.dictate : "", conversation: bindings.conversation, desk: bindings.desk });
 	}, [bindings, recordingKeys, dictationHere]);
 	/* A narrow window has room for faces beside the pane and no more. */
 	const faces = narrow || railSize.compact;
@@ -734,14 +742,28 @@ export function App() {
 							onOpenTeammate={select}
 						/>
 					)}
-					{/* What floats over the window runs down its right edge: a turn's work at the top, the call at the bottom. */}
-				{(floatWork !== null || call !== null) && (
-					<div className="float-stack" style={dock !== null && pane !== "settings" && !dockOverlay ? { right: dockWidth + 24 } : undefined}>
+					{/* What floats over the window runs down its right edge: a turn's work at the top, the call and a new version at the bottom. */}
+				{(floatWork !== null || call !== null || pane !== "settings") && (
+					<div
+						className="float-stack"
+						style={
+							dock !== null && pane !== "settings" && !dockOverlay
+								? { right: dockWidth + 24 }
+								: inspector && selected !== null && pane === null
+									? { right: INSPECTOR_WIDTH + 24 }
+									: undefined
+						}
+					>
 						{floatWork}
 						{call !== null && <CallFloat call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => {
 							if (call.deskId == null || call.deskId === activeDeskId()) { select(personaId); return; }
 							try { localStorage.setItem(deskKey(SELECTED_KEY, call.deskId), personaId); } catch { /* Private mode. */ }
 							setActiveDesk(call.deskId);
+						}} />}
+						{/* Settings › Updates says it already, with the notes and the install. */}
+						{pane !== "settings" && <UpdateFloat onOpen={() => {
+							setSettingsSection("updates");
+							setPane("settings");
 						}} />}
 					</div>
 				)}
@@ -752,6 +774,9 @@ export function App() {
 		</div>
 	);
 }
+
+/** The teammate's pane (`.inspector` in index.css); what floats keeps clear of it. */
+const INSPECTOR_WIDTH = 320;
 
 /** The menu bar and the window both hear the same chord; one press is one
  * action, even when both fire. */

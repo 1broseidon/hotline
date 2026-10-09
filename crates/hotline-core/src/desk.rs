@@ -349,6 +349,10 @@ impl RoomHandle for Desk {
         self.room.stop(persona_id)
     }
 
+    async fn retry(&self, persona_id: &str) -> Result<(), String> {
+        self.room.retry(persona_id).await
+    }
+
     fn invalidate(&self, persona_id: &str) -> Result<(), String> {
         self.room.invalidate(persona_id)
     }

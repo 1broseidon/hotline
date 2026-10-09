@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { appVersion, cancelUpdate, checkUpdate, installUpdate, openLink, updateStatus, watchUpdates, type UpdateStatus } from "../native";
 import { Refusal } from "../ui/Refusal";
+import { Markdown } from "./Markdown";
 
 const RELEASES = "https://github.com/1Broseidon/hotline/releases/latest";
 const describe = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -30,45 +31,54 @@ export function UpdatesSection() {
 	const installing = phase === "installing" || phase === "restarting";
 	const problem = error ?? status?.error;
 
+	const checked = status?.checkedAt ? new Date(status.checkedAt * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : null;
+	const state =
+		phase === "checking"
+			? "Checking…"
+			: available
+				? `${available.version} is available`
+				: (status?.disabledReason ?? (checked !== null && !problem ? `Up to date · checked ${checked}` : "Checks every six hours"));
+
 	return (
 		<section aria-label="Application updates">
-			<h3 className="group-title">Hotline {status?.current || appVersion()}</h3>
 			<div className="grouped">
-				<div className="group-row">
-					<div className="group-row-text">
-						<span className="group-row-title">
-							{phase === "checking" ? "Checking for updates…" : available ? `Version ${available.version} is available` : status?.checkedAt && !problem ? "You’re up to date" : "Application updates"}
-						</span>
-						<span className="group-row-detail">
-							{status?.disabledReason ?? "Checks every six hours. You choose when to install."}
-						</span>
-					</div>
-					<button type="button" className="control btn shrink-0" disabled={busy || !status || !!status.disabledReason} onClick={() => void run(checkUpdate)}>
+				<div className="nt-fold-row">
+					<span className="nt-fold-title">Hotline {status?.current || appVersion()}</span>
+					<span className="nt-fold-value">{state}</span>
+					<button type="button" className="nt-fold-action" disabled={busy || !status || !!status.disabledReason} onClick={() => void run(checkUpdate)}>
 						{phase === "checking" ? "Checking…" : "Check now"}
 					</button>
 				</div>
 				{available && (
-					<div className="flex flex-col gap-4 px-4 py-4">
-						{available.notes && <div className="whitespace-pre-wrap text-sm text-ink-2" aria-label="Release notes">{available.notes}</div>}
-						<button type="button" className="text-left text-sm text-accent-ink hover:underline" onClick={() => void openLink(`https://github.com/1Broseidon/hotline/releases/tag/desktop-v${encodeURIComponent(available.version)}`)}>Full release notes ↗</button>
+					<div className="nt-fold-body pt-3">
+						{available.notes && <div className="update-notes" aria-label="Release notes"><Markdown text={available.notes} /></div>}
 						{downloading && <div className="flex flex-col gap-2">
 							<progress className="w-full accent-[var(--accent)]" aria-label="Update download" max={status?.total ?? undefined} value={status?.total ? status.downloaded : undefined} />
 							<p className="text-sm text-ink-2" role="status">Downloading {mb(status?.downloaded ?? 0)}{status?.total ? ` of ${mb(status.total)}` : ""}…</p>
 						</div>}
 						{installing && <p className="text-sm text-ink-2" role="status">{phase === "restarting" ? "Restarting Hotline…" : "Installing… Complete any system permission prompt to continue."}</p>}
-						<p className="text-sm text-ink-3">Teammates must finish their work before updating. Conversations, settings, and providers are kept.</p>
-						<div className="flex items-center gap-2">
-							<button type="button" className="control btn-primary" disabled={busy || !!status?.disabledReason} onClick={() => void run(() => installUpdate(available.version))}>
-								{installing ? "Updating…" : downloading ? "Downloading…" : "Download, install and restart"}
+						<div className="flex items-center gap-3">
+							<button type="button" className="control btn btn-primary nt-submit" disabled={busy || !!status?.disabledReason} onClick={() => void run(() => installUpdate(available.version))}>
+								{installing ? "Updating…" : downloading ? "Downloading…" : "Update and restart"}
 							</button>
-							{downloading && <button type="button" className="control btn" onClick={() => void cancelUpdate().catch((error) => setError(describe(error)))}>Cancel download</button>}
+							{downloading && <button type="button" className="control btn-quiet" onClick={() => void cancelUpdate().catch((error) => setError(describe(error)))}>Cancel</button>}
+							<span className="min-w-0 flex-1 text-sm text-ink-3">Waits for teammates to finish. Nothing is lost.</span>
 						</div>
 					</div>
 				)}
+				<div className="nt-fold-row">
+					<span className="nt-fold-title">Release notes</span>
+					<span className="nt-fold-value">{available ? `For ${available.version}, on GitHub` : "Every version, on GitHub"}</span>
+					<button
+						type="button"
+						className="nt-fold-action"
+						onClick={() => void openLink(available ? `https://github.com/1Broseidon/hotline/releases/tag/desktop-v${encodeURIComponent(available.version)}` : RELEASES)}
+					>
+						Open ↗
+					</button>
+				</div>
 			</div>
-			{status?.checkedAt && <p className="group-hint">Last checked {new Date(status.checkedAt * 1000).toLocaleString()}.</p>}
 			{problem && <Refusal message={problem} />}
-			{(!available || status?.disabledReason) && <button type="button" className="mt-3 text-sm text-accent-ink hover:underline" onClick={() => void openLink(RELEASES)}>Open release page ↗</button>}
 		</section>
 	);
 }

@@ -115,6 +115,7 @@ type Results = {
     "remote.devices": RemoteDevice[];
     "remote.revoke": RemoteStatus;
     "remote.relay": RemoteStatus;
+    "remote.public_url": RemoteStatus;
     "remote.pairing": SealedPairing | RemoteDevice | null;
     "agent.auth.start": { id: string };
     "agent.auth.poll": { state: "running" | "succeeded" | "failed"; output: string; error?: string };
@@ -162,6 +163,7 @@ type Results = {
 	"models.efforts": EffortChoices;
 	"session.start": SessionInfo;
 	"session.stop": null;
+	"session.retry": null;
 	"session.prompt": null;
 	"mobile.prompt": { state: "accepted" | "unknown" };
 	"mobile.attachment": { offset: number; complete: boolean };

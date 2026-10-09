@@ -147,10 +147,9 @@ a time: starting another cancels the first, and a call that starts lets
 the dictation go, keeping its words. The empty composer offers no Dictate
 while a call is live.
 
-What happens next is Settings › General › Shortcuts › After you stop
-talking, kept per computer in `localStorage` under
-`hotline.dictation.after`. Leave it in the box, the default, sends
-nothing. Send after 1.5 seconds counts down once a dictation the person
+What happens next is Settings › General › Shortcuts › After dictating,
+kept per computer in `localStorage` under `hotline.dictation.after`.
+**Don't send**, the default, sends nothing. **Send** counts down 1.5 seconds once a dictation the person
 stopped heard at least two characters besides spaces (`SendCountdown`):
 a line at the head of the composer reads "Sending to <name>…" beside a
 ring that fills over the wait, and "Esc to cancel". Escape, typing in the
@@ -185,12 +184,12 @@ window uses the desk's. The meter reads any stream of 0 to 1 levels
 
 ## Shortcuts from any app
 
-Two shortcuts work while Hotline is in the background, through the
+Three shortcuts work while Hotline is in the background, through the
 `global-shortcut` plugin (`ui/src/hotkeys.ts`): Dictate, `Control+Option+H`
-(⌃⌥H) unless changed, offered only where the window can dictate; and
-Conversation, off until set. Both are this computer's, kept in the
-window's `localStorage` under `hotline.hotkeys` (Conversation read from
-`call` where it was stored under that name), and set in Settings ›
+(⌃⌥H) unless changed, offered only where the window can dictate; Call your
+agent; and Call the desk, both off until set. All are this computer's, kept
+in the window's `localStorage` under `hotline.hotkeys` (Call your agent as
+`conversation`, read from `call` where it was stored under that name), and set in Settings ›
 General › Shortcuts, where a row records new keys (at least one of
 Control, Option or Command, or Ctrl or Alt elsewhere, with a key; Escape
 gives up), turns the shortcut off, and says when the system would not
@@ -202,15 +201,15 @@ The plugin reports each press and release. A Dictate press brings the
 main window forward and goes, with its release, to the open
 conversation's composer, as a tap or a hold as above; with a pane open in
 its place, the pane closes and the last teammate's conversation opens and
-takes it; with no teammate selected it does nothing. A Conversation press
-hangs up a live call where the person is, without bringing the window
-forward, or else brings it forward and calls the open teammate when the
-desk can. The window comes forward from the page (`showWindow`), which is
+takes it; with no teammate selected it does nothing. A Call your agent or
+Call the desk press hangs up a live call where the person is, without
+bringing the window forward, or else brings it forward and calls the open
+teammate, or the desk, when the desk can. The window comes forward from the page (`showWindow`), which is
 why the main window may show and unminimize itself. The window registers
 the shortcuts on startup, again whenever they change, and lets them go
 when they are turned off; a reloaded page first lets go of the ones its
 previous load held. Only the main window may register shortcuts. Help ›
-Keyboard shortcuts lists both, with their current keys, under Anywhere on
+Keyboard shortcuts lists them, with their current keys, under Anywhere on
 this computer.
 
 ## Hearing on the desk
@@ -272,11 +271,11 @@ so a phone that streams its microphone keeps streaming it. It takes at most a
 minute at a time and never speaks. Its price is zero, so a zero spending
 limit never stops it.
 
-In the window the models are rows under Hearing, in Settings › Providers ›
-Use for › Voice's More (`ui/src/components/DeskModels.tsx`), which opens even
-when nothing can speak yet. While nothing can hear and More is folded, a
-line under Voice says "To talk without a key, download a free speech
-model" and unfolds it. A row says what the model hears and its download
+In the window the models are rows in Settings › Providers › Use for ›
+Hearing (`ui/src/components/DeskModels.tsx`), a fold under Voice that opens
+even when nothing can speak yet. Folded, it says what hears you now; while
+nothing can, it reads "None yet. Download a free speech model." with Set up.
+Open, it holds Hears with, the models and the call assistant. A row says what the model hears and its download
 size, and its Download button names the size; while it downloads the row
 shows how much has arrived over a bar and offers Cancel, and once installed
 it shows its size on the desk and offers Remove. The window asks

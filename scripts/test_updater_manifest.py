@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 import unittest
-from updater_manifest import PACKAGES, manifest
+from updater_manifest import MAX_NOTES, PACKAGES, manifest
 
 
 class ManifestTests(unittest.TestCase):
@@ -24,6 +24,13 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("/desktop-v0.6.0/", deb["url"])
         self.assertNotIn("linux-x86_64", data["platforms"])
         self.assertEqual(data["notes"], "Release notes")
+
+    def test_long_notes_end_on_a_whole_line_under_the_desktops_limit(self):
+        notes = "".join(f"- Item {n} of a long changelog.\n" for n in range(1000))
+        short = manifest(self.root, "0.6.0", "1Broseidon/hotline", notes)["notes"]
+        self.assertLessEqual(len(short), MAX_NOTES + 4)
+        self.assertTrue(short.endswith(".\n\n…\n"))
+        self.assertTrue(notes.startswith(short[: -len("\n\n…\n")]))
 
     def test_a_missing_target_or_signature_cannot_publish_latest(self):
         for suffix in PACKAGES.values():

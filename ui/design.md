@@ -80,9 +80,9 @@ One family, **Workbench**, for every screen:
   stays and watches it — on the line — and when it lands the line reels
   back into the handset, which hangs up and winks before the mark goes. A
   press on the mark opens the work behind it for that turn. The band is
-  the one place that says who this is: the face, the name and one quiet
-  line of what they are doing or, at rest, what they are for; then their
-  model and effort and the tools. The name opens the inspector, where
+  the one place that says who this is: the face and the name, nothing
+  more (the goal is on the inspector); then their model and effort and
+  the tools. The name opens the inspector, where
   everything else about a teammate — its mode included — lives.
 - Menus and the search panel are pop-plane surfaces that borrow the
   composer's shadow while they are open, and nothing else.
@@ -194,7 +194,9 @@ the loudest colour in the rail; red is absent.
 A 4px grid, expressed as Tailwind's spacing. Radii are concentric from the
 OS window inward: pane 10 · card 8 · control 6 · chip 4; a circle for a
 face or a mark; the one bubble is 12 because it is a shape, not a
-container. Nothing is rounder than what holds it.
+container. Nothing is rounder than what holds it, except a group in a pane
+column (a settings list, a fold of choices, a wizard card): it is a surface
+of its own set well in from the pane's edge, and gets 14.
 
 Controls are 26px high; a field is 28px and is sunk into its surface (the
 well's colour, an inset hairline), while a key is raised (the pop plane,
@@ -260,7 +262,7 @@ transition and animation, and holds the mark still.
   does: the face, the name at the heading's size and the goal under it
   like a bio, each plain text until pointed at, when it shows the field
   it is. The working directory is a row of its own, the folder's name
-  (Its own folder when it is the teammate's) and three quiet keys (the
+  (Main workspace when it is the teammate's) and three quiet keys (the
   full path, choose, reveal), never a path field. Every grant is one row
   in one of three lists, ordered authority, equipment, outcome:
   Permissions (reach, background work and collaboration, each with an
@@ -293,10 +295,20 @@ there is one, and never in the row.
 - The conversation alone has the floating composer.
 - The rail alone has no pane round it.
 - Settings may carry raised grouped lists; the tape may carry raised cards.
+  Settings, New teammate and the welcome speak one language: a group is a
+  14px card of 48px rows; a choice with a good default is a fold row
+  (title · what it is now · Change), opened only to change it; two to four
+  options are chips, not a menu; a form is rows of a label and its field
+  with its buttons in the card's foot; adding is the accent row at a
+  list's head. A pane carries no paragraph: a hint is one line, and the
+  rest lives in the docs.
 - Nothing may carry an illustration, a gradient other than a scroll fade,
   or a shadow other than the float.
 
 ## Log
+
+- 2026-10-09 Settings take the wizard's language (0.35.1): 14px groups,
+  fold rows, chips, form cards, one-line hints.
 
 - 2026-09-02 LOCKED. Hue lane 250, accent kept green, Plex bundled, dark
   first with light re-valued. Ancestor: the previous edition's `tokens.css`.

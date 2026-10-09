@@ -5,7 +5,8 @@ import { useRoomSettings } from "../room";
 import { HotlineMark } from "../ui/HotlineMark";
 import { Refusal } from "../ui/Refusal";
 import { wire, type Connection } from "../wire";
-import { ConnectProvider, ProviderRow, connectionMethod } from "./ConnectProvider";
+import { ConnectProvider } from "./ConnectProvider";
+import { ServicePicker } from "./ServicePicker";
 import { NewTeammateForm } from "./NewTeammate";
 
 /**
@@ -97,8 +98,6 @@ export function Welcome({
 	const [connecting, setConnecting] = useState<Provider | null>(null);
 	// With one service connected the choices fold away; this opens them for another.
 	const [adding, setAdding] = useState(false);
-	// The popular services are cards; the long tail waits behind More.
-	const [more, setMore] = useState(false);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const [connection, setConnection] = useState<Connection>("connecting");
@@ -305,43 +304,7 @@ export function Welcome({
 						)}
 						{(connected.length === 0 || adding) && (
 							<>
-								<div className="welcome-services">
-									{popular(providers).map(({ provider, title, by }) => {
-										const done = connected.includes(provider.name);
-										return (
-											<button
-												key={provider.id}
-												type="button"
-												className="welcome-service"
-												data-done={done ? "" : undefined}
-												disabled={busy || done}
-												onClick={() => setConnecting(provider)}
-											>
-												<span className="welcome-service-title">
-													{title}
-													{done && <CheckIcon className="text-accent" />}
-												</span>
-												<span className="welcome-service-text">
-													{done ? "Connected" : [by, provider.credentialKinds.map(connectionMethod).join(" or ")].filter(Boolean).join(" · ")}
-												</span>
-											</button>
-										);
-									})}
-								</div>
-								{providers.length > 0 && (
-									<button type="button" className="control btn-quiet self-center" aria-expanded={more} onClick={() => setMore((was) => !was)}>
-										{more ? "Fewer services" : `${rest(providers).length} more services, like Gemini and Mistral`}
-									</button>
-								)}
-								{more && (
-									<div className="grouped welcome-list">
-										{rest(providers)
-											.filter((provider) => !connected.includes(provider.name))
-											.map((provider) => (
-												<ProviderRow key={provider.id} provider={provider} disabled={busy} onPick={() => setConnecting(provider)} />
-											))}
-									</div>
-								)}
+								<ServicePicker providers={providers} connected={connected} disabled={busy} onPick={setConnecting} />
 							</>
 						)}
 						<p className="welcome-note">
@@ -404,31 +367,6 @@ export function Welcome({
 			)}
 		</Stage>
 	);
-}
-
-/**
- * The services most people already pay for, by the name the desk lists
- * them under, with the name people call them by. They are cards; the rest
- * of the desk's list waits behind More, so the page fits without scrolling.
- */
-const POPULAR: { name: string; title: string; by?: string }[] = [
-	{ name: "Anthropic", title: "Anthropic", by: "Claude" },
-	{ name: "ChatGPT", title: "ChatGPT", by: "Your plan" },
-	{ name: "OpenRouter", title: "OpenRouter", by: "Every model" },
-	{ name: "xAI", title: "xAI", by: "Grok" },
-	{ name: "Ollama Local", title: "Ollama", by: "On this computer" },
-	{ name: "GitHub Copilot", title: "Copilot", by: "GitHub" },
-];
-
-function popular(providers: Provider[]): { provider: Provider; title: string; by: string | undefined }[] {
-	return POPULAR.flatMap((one) => {
-		const provider = providers.find((candidate) => candidate.name === one.name);
-		return provider === undefined ? [] : [{ provider, title: one.title, by: one.by }];
-	});
-}
-
-function rest(providers: Provider[]): Provider[] {
-	return providers.filter((provider) => !POPULAR.some((one) => one.name === provider.name));
 }
 
 /** The tools people know by name, in this order, when this machine has them; the rest are counted, not listed. */

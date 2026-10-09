@@ -3,19 +3,23 @@ import type { BackendChoice, CapabilityOptions, CatalogModel, ComputerReleases, 
 import { openLink, pinnedComputerImage } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
+import { envToLines, linesToEnv } from "../envLines";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import type { McpOAuthStatus } from "../wire";
 import { DEFAULT_IDLE_HOURS, useModelsRevision, useRawSetting, useRoomSettings } from "../room";
 import { recheckVoiceSupport } from "../voice/call";
 import { BackKey, Band } from "../ui/Band";
+import { Chips } from "../ui/Chips";
+import { Fold, toggled } from "../ui/Fold";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
-import { setTheme, THEMES, useTheme, type Theme } from "../theme";
+import { setTheme, THEMES, useTheme } from "../theme";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
-import { ConnectProvider, ProviderRow } from "./ConnectProvider";
+import { ConnectProvider } from "./ConnectProvider";
+import { ServicePicker } from "./ServicePicker";
 import { SecretsSection } from "./Secrets";
 import { McpPasteBack } from "./McpPasteBack";
 import { SkillsSection } from "./Skills";
@@ -176,10 +180,9 @@ function AppearanceSection() {
 					<span className="group-row-text">
 						<span className="group-row-title">Theme</span>
 					</span>
-					<Picker value={theme} choices={THEMES} placeholder="System" label="Theme" onChange={(id) => setTheme(id as Theme)} />
+					<Chips value={theme} choices={THEMES} label="Theme" onChange={setTheme} />
 				</div>
 			</div>
-			<p className="group-hint">System follows your computer's light or dark setting.</p>
 		</section>
 	);
 }
@@ -236,16 +239,49 @@ function GeneralSection({
 		if (next !== idleHours) onIdleHours(next);
 	};
 
+	const [open, setOpen] = useState<"agent" | "model" | null>(null);
+	const agentName = backends.find((one) => one.id === defaultBackendId)?.name ?? "Hotline Agent";
+	const modelName = defaultModelId === null ? "Last used" : (models.find((one) => one.id === defaultModelId)?.name ?? defaultModelId);
+
 	return (
 		<>
 			<AppearanceSection />
 			<HotkeysSection />
 			<section>
-				<h3 className="group-title">Chapters</h3>
+				<h3 className="group-title">New teammates</h3>
+				<div className="grouped">
+					<Fold title="Thinks with" value={agentName} open={open === "agent"} onToggle={() => setOpen((was) => toggled(was, "agent"))}>
+						{backends.length > 0 ? (
+							<BackendPicker
+								backends={backends}
+								selected={defaultBackendId}
+								name="setting-backend"
+								labelledBy="setting-backend"
+								onSelect={onBackend}
+								onProviders={onProviders}
+							/>
+						) : (
+							<p className="text-sm text-ink-3">Reading which agents this computer can start…</p>
+						)}
+					</Fold>
+					{(defaultBackendId === "hotline" || defaultBackendId === "") && <Fold title="Model" value={modelName} open={open === "model"} onToggle={() => setOpen((was) => toggled(was, "model"))}>
+						<Picker
+							field
+							value={defaultModelId ?? ""}
+							choices={[{ id: "", name: "Last used" }, ...models]}
+							placeholder="Last used"
+							label="Default model"
+							onChange={(id) => onDefaultModel(id === "" ? null : id)}
+						/>
+					</Fold>}
+				</div>
+			</section>
+			<section>
+				<h3 className="group-title">Conversations</h3>
 				<div className="grouped">
 					<div className="group-row">
 						<label className="group-row-text" htmlFor="setting-idle">
-							<span className="group-row-title">Close a chapter after</span>
+							<span className="group-row-title">Start a new chapter after</span>
 						</label>
 						<span className="flex items-center gap-2 text-sm text-ink-2">
 							<input
@@ -255,48 +291,12 @@ function GeneralSection({
 								min={MIN_IDLE_HOURS}
 								max={MAX_IDLE_HOURS}
 								step={1}
+								placeholder={String(DEFAULT_IDLE_HOURS)}
 								value={hours}
 								onChange={(event) => commitHours(event.target.value)}
 							/>
-							hours
+							quiet hours
 						</span>
-					</div>
-				</div>
-				<p className="group-hint">The default is {DEFAULT_IDLE_HOURS}.</p>
-			</section>
-			<section>
-				<h3 className="group-title" id="setting-backend">
-					New teammates use
-				</h3>
-				{backends.length > 0 ? (
-					<BackendPicker
-						backends={backends}
-						selected={defaultBackendId}
-						name="setting-backend"
-						labelledBy="setting-backend"
-						onSelect={onBackend}
-						onProviders={onProviders}
-					/>
-				) : (
-					<div className="grouped">
-						<p className="group-row text-sm text-ink-3">Reading which harnesses this machine can start…</p>
-					</div>
-				)}
-			</section>
-			<section>
-				<h3 className="group-title">Default model</h3>
-				<div className="grouped">
-					<div className="group-row">
-						<span className="group-row-text">
-							<span className="group-row-title">Hotline Agent starts on</span>
-						</span>
-						<Picker
-							value={defaultModelId ?? ""}
-							choices={[{ id: "", name: "Last used" }, ...models]}
-							placeholder="Last used"
-							label="Default model"
-							onChange={(id) => onDefaultModel(id === "" ? null : id)}
-						/>
 					</div>
 				</div>
 			</section>
@@ -343,6 +343,8 @@ function runtimeAdvice(report: RuntimeReport): string | null {
 
 /** The Release picker's entry that opens the free-text image field. */
 const CUSTOM_IMAGE = "custom";
+/** Where a teammate's computer is built and explained. */
+const COMPUTER_REPO = "https://github.com/1broseidon/hotline-computer";
 
 /** A wall-clock time for the strip, in the viewer's own locale. */
 function clock(ms: number): string {
@@ -470,135 +472,129 @@ function ComputerSection({
 		})),
 	];
 
+	const [open, setOpen] = useState<"runs" | "image" | null>(null);
+	const readyName = reports?.find((one) => one.state === "ready")?.runtime;
+	const runsOn =
+		chosen === ""
+			? `Automatic${readyName !== undefined ? ` · ${RUNTIME_NAMES[readyName]}` : ""}`
+			: (RUNTIME_NAMES[chosen as ComputerRuntime] ?? chosen);
+	const imageWords =
+		pickedRelease === ""
+			? releases?.newest !== undefined
+				? `Newest · ${releases.newest}`
+				: "Newest"
+			: pickedRelease === CUSTOM_IMAGE
+				? draft.trim() || "Custom image"
+				: `${pickedRelease} · pinned`;
+
 	return (
-		<>
-			<section>
-				<h3 className="group-title" id="setting-computer-runtime">
-					Runs on
-				</h3>
-				{reports === undefined ? (
-					<div className="grouped">
-						<p className="group-row text-sm text-ink-3">Looking for a container runtime…</p>
-					</div>
-				) : (
-					<div role="radiogroup" aria-labelledby="setting-computer-runtime" className="grouped">
-						{rows.map((row) => {
-							const advice = row.report === undefined ? null : runtimeAdvice(row.report);
-							const more = row.report !== undefined && (row.report.detail !== undefined || advice !== null);
-							const open = more && shown === row.report?.runtime;
-							return (
-								<Fragment key={row.id}>
-									<label className="group-row group-row-choice" data-off={row.off ? "true" : undefined}>
-										<input
-											type="radio"
-											className="radio"
-											name="setting-computer-runtime"
-											checked={chosen === row.id}
-											aria-disabled={row.off ? true : undefined}
-											onChange={() => {
-												if (row.off) return;
-												onRuntime(row.id === "" ? null : row.id);
-											}}
-										/>
-										<span className="group-row-text">
-											<span className="group-row-title">{row.name}</span>
-											<span className="group-row-detail">{row.detail}</span>
-										</span>
-										{more && (
-											<button
-												type="button"
-												className="control btn-icon"
-												title="Why"
-												aria-label={`Why ${row.name} is ${row.detail.toLowerCase()}`}
-												aria-expanded={open}
-												onClick={(event) => {
-													event.preventDefault();
-													setShown(open ? null : (row.report?.runtime ?? null));
-												}}
-											>
-												<InfoIcon />
-											</button>
-										)}
-									</label>
-									{open && row.report !== undefined && (
-										<div className="group-row flex-col items-stretch gap-1.5 pl-10">
-											{advice !== null && <span className="text-sm text-ink-2">{advice}</span>}
-											{row.report.detail !== undefined && (
-												<pre className="refusal-detail selectable">{row.report.detail}</pre>
-											)}
-											<button
-												type="button"
-												className="self-start text-sm underline"
-												onClick={() => void openLink(RUNTIME_HELP[row.report?.runtime ?? "docker"].docs)}
-											>
-												{row.name} docs
-											</button>
-										</div>
-									)}
-								</Fragment>
-							);
-						})}
-					</div>
-				)}
-				<p className="group-hint">A teammate&rsquo;s computer is a Linux desktop in a container.</p>
-			</section>
-			<section>
-				<h3 className="group-title">Image</h3>
-				<div className="grouped">
-					<div className="group-row">
-						<span className="group-row-text" id="setting-computer-release">
-							<span className="group-row-title">Release</span>
-						</span>
-						<div className="w-72 min-w-0">
-							<Picker
-								field
-								value={pickedRelease}
-								choices={releaseChoices}
-								placeholder="Release"
-								label="Release"
-								onChange={pickRelease}
-							/>
+		<section>
+			<h3 className="group-title">Teammate computers</h3>
+			<div className="grouped">
+				<Fold title="Runs on" value={runsOn} open={open === "runs"} onToggle={() => setOpen((was) => toggled(was, "runs"))}>
+					{reports === undefined ? (
+						<div className="grouped">
+							<p className="group-row text-sm text-ink-3">Looking for a container runtime…</p>
 						</div>
-					</div>
-					{pickedRelease === CUSTOM_IMAGE && (
-						<div className="group-row">
-							<label className="group-row-text" htmlFor="setting-computer-image">
-								<span className="group-row-title">Desktop image</span>
-							</label>
-							<input
-								id="setting-computer-image"
-								className="field w-72 min-w-0 font-mono text-sm"
-								placeholder={pinnedComputerImage() || "registry/name:tag"}
-								autoComplete="off"
-								spellCheck={false}
-								autoFocus={custom}
-								value={draft}
-								onChange={(event) => setDraft(event.target.value)}
-								onBlur={commitImage}
-								onKeyDown={(event) => {
-									if (event.key !== "Enter") return;
-									event.preventDefault();
-									commitImage();
-								}}
-							/>
+					) : (
+						<div role="radiogroup" aria-labelledby="setting-computer-runtime" className="grouped">
+							{rows.map((row) => {
+								const advice = row.report === undefined ? null : runtimeAdvice(row.report);
+								const more = row.report !== undefined && (row.report.detail !== undefined || advice !== null);
+								const open = more && shown === row.report?.runtime;
+								return (
+									<Fragment key={row.id}>
+										<label className="group-row group-row-choice" data-off={row.off ? "true" : undefined}>
+											<input
+												type="radio"
+												className="radio"
+												name="setting-computer-runtime"
+												checked={chosen === row.id}
+												aria-disabled={row.off ? true : undefined}
+												onChange={() => {
+													if (row.off) return;
+													onRuntime(row.id === "" ? null : row.id);
+												}}
+											/>
+											<span className="group-row-text">
+												<span className="group-row-title">{row.name}</span>
+												<span className="group-row-detail">{row.detail}</span>
+											</span>
+											{more && (
+												<button
+													type="button"
+													className="control btn-icon"
+													title="Why"
+													aria-label={`Why ${row.name} is ${row.detail.toLowerCase()}`}
+													aria-expanded={open}
+													onClick={(event) => {
+														event.preventDefault();
+														setShown(open ? null : (row.report?.runtime ?? null));
+													}}
+												>
+													<InfoIcon />
+												</button>
+											)}
+										</label>
+										{open && row.report !== undefined && (
+											<div className="group-row flex-col items-stretch gap-1.5 pl-10">
+												{advice !== null && <span className="text-sm text-ink-2">{advice}</span>}
+												{row.report.detail !== undefined && (
+													<pre className="refusal-detail selectable">{row.report.detail}</pre>
+												)}
+												<button
+													type="button"
+													className="self-start text-sm underline"
+													onClick={() => void openLink(RUNTIME_HELP[row.report?.runtime ?? "docker"].docs)}
+												>
+													{row.name} docs
+												</button>
+											</div>
+										)}
+									</Fragment>
+								);
+							})}
 						</div>
 					)}
-					<div className="group-row">
-						<span className="group-row-text">
-							<span className="group-row-title">Updates</span>
-							<span className="group-row-detail selectable">{checkedWords}</span>
-						</span>
-						<button type="button" className="control btn" disabled={checking} onClick={() => void checkReleases()}>
-							{checking ? "Checking…" : "Check now"}
-						</button>
-					</div>
+				</Fold>
+				<Fold title="Image" value={imageWords} open={open === "image"} onToggle={() => setOpen((was) => toggled(was, "image"))}>
+					<Picker field value={pickedRelease} choices={releaseChoices} placeholder="Release" label="Release" onChange={pickRelease} />
+					{pickedRelease === CUSTOM_IMAGE && (
+						<input
+							id="setting-computer-image"
+							aria-label="Desktop image"
+							className="field font-mono text-sm"
+							placeholder={pinnedComputerImage() || "registry/name:tag"}
+							autoComplete="off"
+							spellCheck={false}
+							autoFocus={custom}
+							value={draft}
+							onChange={(event) => setDraft(event.target.value)}
+							onBlur={commitImage}
+							onKeyDown={(event) => {
+								if (event.key !== "Enter") return;
+								event.preventDefault();
+								commitImage();
+							}}
+						/>
+					)}
+					<p className="hint">Newest follows each release. Pick one to pin it.</p>
+				</Fold>
+				<div className="nt-fold-row">
+					<span className="nt-fold-title">Updates</span>
+					<span className="nt-fold-value selectable">{checkedWords}</span>
+					<button type="button" className="nt-fold-action" disabled={checking} onClick={() => void checkReleases()}>
+						{checking ? "Checking…" : "Check now"}
+					</button>
 				</div>
-				<p className="group-hint">
-					Newest creates new computers on the latest hotline-computer release, checked every six hours
-					{releases !== null ? ` (never below ${releases.floor})` : ""}. A picked release or a custom image pins one; a pinned computer is never offered an update.
-				</p>
-			</section>
-		</>
+			</div>
+			<p className="group-hint">
+				A teammate&rsquo;s computer is a Linux desktop in a container.{" "}
+				<button type="button" className="link-quiet" onClick={() => void openLink(COMPUTER_REPO)}>
+					Read more →
+				</button>
+			</p>
+		</section>
 	);
 }
 
@@ -733,22 +729,18 @@ function ProvidersSection({
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
 					{choosing && (
-						<section>
-							<h3 className="group-title">Add provider</h3>
-							<div className="grouped">
-								{addable.length === 0 ? (
-									<p className="group-row text-sm text-ink-3">Every provider Hotline knows is already here.</p>
-								) : (
-									addable.map((provider) => (
-										<ProviderRow key={provider.id} provider={provider} onPick={() => begin(provider)} />
-									))
-								)}
-								<div className="group-row justify-end">
-									<button type="button" className="control btn-quiet" onClick={() => setChoosing(false)}>
-										Cancel
-									</button>
-								</div>
+						<section className="flex flex-col gap-3">
+							<div className="flex items-center">
+								<h3 className="group-title mb-0 flex-1">Connect a service</h3>
+								<button type="button" className="control btn-quiet" onClick={() => setChoosing(false)}>
+									Cancel
+								</button>
 							</div>
+							{addable.length === 0 ? (
+								<p className="group-hint">Every service Hotline knows is already here.</p>
+							) : (
+								<ServicePicker providers={providers} connected={providers.filter((one) => live.has(one.id)).map((one) => one.name)} onPick={(provider) => begin(provider)} />
+							)}
 						</section>
 					)}
 					{adding !== null && (
@@ -800,7 +792,7 @@ function ProvidersSection({
 								))
 							)}
 						</div>
-						<p className="group-hint">API keys, OpenRouter and Grok sign-ins use your OS credential store. ChatGPT and Copilot keep tokens in permission-restricted files.</p>
+						<p className="group-hint">Keys and sign-ins stay on this computer.</p>
 					</section>
 					{capabilities !== null && <UseFor options={capabilities} voice={voice} onChanged={() => void reloadCapabilities()} />}
 					{refusal !== null && <Refusal message={refusal} />}
@@ -853,6 +845,9 @@ function ProviderPage({
 	const [query, setQuery] = useState("");
 	const [on, setOn] = useState<Set<string>>(new Set());
 	const [busy, setBusy] = useState(false);
+	// A filter is a choice of some models; no filter is every model.
+	const [some, setSome] = useState(enabledModels[providerId] !== undefined);
+	const [adding, setAdding] = useState(false);
 
 	const applyCatalog = (list: CatalogModel[], preserveSelections = false) => {
 		setCatalog(list);
@@ -898,7 +893,7 @@ function ProviderPage({
 	const refresh = () =>
 		run(async () => {
 			applyCatalog(await wire.command("credential.refresh_models", { providerId }), true);
-			setNotice("Model list refreshed. Your model selection is unchanged.");
+			setNotice("Model list refreshed. Your choice is unchanged.");
 		});
 
 	const setManualModels = async (modelIds: string[]) => {
@@ -912,29 +907,36 @@ function ProviderPage({
 		if (!id || catalog === null) return;
 		const list = await setManualModels([...new Set([...catalog.filter((model) => model.manual).map((model) => model.id), id])]);
 		setManualId("");
-		setNotice(list.find((model) => model.id === id)?.enabled
-			? "Model ID added to this connection."
-			: "Model ID added. Check it under Models shown and save to include it in the picker.");
+		setNotice(list.find((model) => model.id === id)?.enabled ? "Model added." : "Model added. Switch it on under Only some to use it.");
 	});
 
 	const removeManualModel = (id: string) => run(async () => {
 		if (catalog === null) return;
 		await setManualModels(catalog.filter((model) => model.manual && model.id !== id).map((model) => model.id));
-		setNotice("Manual entry removed. A model listed by the provider or catalogue can still appear.");
 	});
 
-	const save = () =>
+	/* Every change is written at once: no filter for every model, else the ones switched on. */
+	const write = (nextSome: boolean, nextOn: Set<string>) =>
 		run(async () => {
 			if (catalog === null) return;
 			const next: Record<string, string[]> = { ...enabledModels };
-			if (on.size === catalog.length && catalog.every((model) => on.has(model.id))) {
-				delete next[providerId];
-			} else {
-				next[providerId] = [...on];
-			}
+			if (!nextSome) delete next[providerId];
+			else next[providerId] = [...nextOn];
 			await wire.command("settings.update", { patch: { enabledModels: next } });
-			onBack();
 		});
+
+	const choose = (nextSome: boolean) => {
+		setSome(nextSome);
+		void write(nextSome, on);
+	};
+
+	const flip = (id: string, value: boolean) => {
+		const next = new Set(on);
+		if (value) next.add(id);
+		else next.delete(id);
+		setOn(next);
+		void write(true, next);
+	};
 
 	const remove = () =>
 		run(async () => {
@@ -943,14 +945,22 @@ function ProviderPage({
 		});
 
 	const needle = query.trim().toLowerCase();
+	// The ones in the picker lead, in the order they were when the list came;
+	// a switch flipped now does not move its row out from under the pointer.
+	const [lead] = useState(() => new Set(enabledModels[providerId] ?? []));
+	const listed = catalog === null ? [] : [...catalog].sort((a, b) => Number(lead.has(b.id)) - Number(lead.has(a.id)));
 	const visible =
-		catalog === null
-			? []
-			: needle === ""
-				? catalog
-				: catalog.filter(
-						(model) => model.id.toLowerCase().includes(needle) || model.name.toLowerCase().includes(needle),
-					);
+		needle === ""
+			? listed
+			: listed.filter((model) => model.id.toLowerCase().includes(needle) || model.name.toLowerCase().includes(needle));
+	const how = custom
+		? `${custom.api === "responses" ? "Responses" : "Chat Completions"} · ${credential.baseUrl ?? ""}`
+		: oauth
+			? "Signed in"
+			: local
+				? (credential.baseUrl ?? "Server")
+				: "API key";
+	const manual = catalog?.filter((model) => model.manual) ?? [];
 
 	return (
 		<div className="pane">
@@ -960,145 +970,166 @@ function ProviderPage({
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
-					{custom && <section>
-						<h3 className="group-title">Connection</h3>
-						<div className="grouped"><div className="group-row"><span className="group-row-text">
-							<span className="group-row-title">{custom.api === "responses" ? "Responses" : "Chat Completions"}</span>
-							<span className="group-row-detail break-all">{credential.baseUrl}</span>
-						</span></div></div>
-					</section>}
-					{credential.revoked ? (
+					<section className="nt-card">
+						<div className="flex items-center gap-3">
+							<span className="nt-avatar" aria-hidden="true">
+								{name.charAt(0).toUpperCase()}
+							</span>
+							<span className="flex min-w-0 flex-1 flex-col">
+								<span className="welcome-card-title">{name}</span>
+								<span className="truncate text-sm text-ink-2">
+									{credential.revoked ? (oauth ? "Signed out. The login no longer works." : local ? "Disconnected." : "The key no longer works.") : how}
+								</span>
+							</span>
+						</div>
+						<div className="flex flex-wrap items-center justify-end gap-2">
+							{credential.revoked && (oauth || custom) ? (
+								<button type="button" className="control btn btn-primary" disabled={busy} onClick={onSignIn}>
+									{custom ? "Add connection again" : "Sign in again"}
+								</button>
+							) : (
+								<button type="button" className="control btn" disabled={busy} onClick={onSignIn}>
+									{custom ? "Edit connection" : "Change connection"}
+								</button>
+							)}
+							<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void remove()}>
+								{oauth ? "Sign out" : custom ? "Remove connection" : local ? "Disconnect" : "Remove key"}
+							</button>
+						</div>
+					</section>
+					{!credential.revoked && (
 						<section>
+							<h3 className="group-title">Models in the picker</h3>
 							<div className="grouped">
 								<div className="group-row">
 									<span className="group-row-text">
-										<span className="group-row-title">{oauth ? "Signed out" : local ? "Disconnected" : "Key revoked"}</span>
-										<span className="group-row-detail">
-											{oauth ? "The login no longer works." : local ? "Connect the server again to use its models." : "The key no longer works."}
+										<span className="group-row-title">
+											{catalog === null
+												? refusal
+													? "Model list unavailable"
+													: "Reading…"
+												: catalog.length === 0 && providerId === "ollama"
+													? "No models yet. Pull one with Ollama, then refresh."
+													: some
+														? `${catalog.filter((model) => on.has(model.id)).length} of ${catalog.length}`
+														: `All ${catalog.length}`}
 										</span>
 									</span>
-									{(oauth || custom) && (
-										<button type="button" className="control btn-primary" disabled={busy} onClick={onSignIn}>
-											{custom ? "Add connection again" : "Sign in again"}
-										</button>
-									)}
-								</div>
-							</div>
-						</section>
-					) : (
-						<section>
-							<h3 className="group-title">Models shown</h3>
-							<div className="grouped">
-								<div className="group-row">
-									<input
-										type="search"
-										className="field flex-1"
-										placeholder="Search"
-										value={query}
-										onChange={(event) => setQuery(event.target.value)}
-										aria-label="Search models"
-									/>
-									<button
-										type="button"
-										className="control btn-quiet"
-										disabled={catalog === null}
-										onClick={() => catalog && setOn(new Set(catalog.map((model) => model.id)))}
-									>
-										All
-									</button>
-									<button type="button" className="control btn-quiet" disabled={catalog === null} onClick={() => setOn(new Set())}>
-										None
-									</button>
 									{discover && (
-										<button
-											type="button"
-											className="control btn-quiet"
-											disabled={busy}
-											aria-label="Refresh provider models"
-											onClick={() => void refresh()}
-										>
+										<button type="button" className="control btn-quiet btn-sm" disabled={busy} aria-label="Refresh provider models" onClick={() => void refresh()}>
 											Refresh
 										</button>
 									)}
-								</div>
-								<p className="group-row text-sm text-ink-3">
-									{catalog === null ? (refusal ? "Model list unavailable." : "Reading…") : catalog.length === 0 && providerId === "ollama" ? "No models found. Pull a model with Ollama, then refresh." : `${catalog.filter((model) => on.has(model.id)).length} of ${catalog.length} shown`}
-								</p>
-								{visible.map((model) => (
-									<label key={model.id} className="group-row group-row-choice">
-										<span className="group-row-text">
-											<span className="group-row-title">{model.name}</span>
-											<span className="group-row-detail font-mono">{model.id}</span>
-											{((model.contextLimit ?? 0) > 0 || (model.outputLimit ?? 0) > 0) && <span className="group-row-detail">{[model.contextLimit ? `${model.contextLimit.toLocaleString()} context tokens` : null, model.outputLimit ? `${model.outputLimit.toLocaleString()} output tokens` : null].filter(Boolean).join(" · ")}</span>}
-											{(model.manual || !model.metadataKnown) && <span className="group-row-detail">{[model.manual ? "Manually added" : null, !model.metadataKnown ? "Catalogue metadata unavailable" : null].filter(Boolean).join(" · ")}</span>}
-										</span>
-										<input
-											type="checkbox"
-											className="check"
-											checked={on.has(model.id)}
-											onChange={(event) => {
-												setOn((known) => {
-													const next = new Set(known);
-													if (event.target.checked) next.add(model.id);
-													else next.delete(model.id);
-													return next;
-												});
-											}}
-										/>
-									</label>
-								))}
-								<div className="group-row justify-end">
-									<button
-										type="button"
-										className="control btn-primary"
+									<Chips
+										value={some ? "some" : "all"}
+										choices={[
+											{ id: "all", name: "All" },
+											{ id: "some", name: "Only some" },
+										]}
+										label="Which models are in the picker"
 										disabled={busy || catalog === null}
-										aria-label="Save model visibility"
-										onClick={() => void save()}
-									>
-										{busy ? "Saving…" : "Save"}
-									</button>
+										onChange={(id) => choose(id === "some")}
+									/>
 								</div>
+								{some && catalog !== null && catalog.length > 6 && (
+									<div className="group-row">
+										<input
+											type="search"
+											className="field flex-1"
+											placeholder="Search models"
+											value={query}
+											onChange={(event) => setQuery(event.target.value)}
+											aria-label="Search models"
+										/>
+									</div>
+								)}
+								{some &&
+									visible.map((model) => (
+										<label key={model.id} className="group-row group-row-choice">
+											<span className="group-row-text">
+												<span className="group-row-title">{model.name}</span>
+												<span className="group-row-detail">
+													<span className="font-mono">{model.id}</span>
+													{tokensText(model) !== "" && ` · ${tokensText(model)}`}
+													{model.manual && " · added by you"}
+												</span>
+											</span>
+											<input
+												type="checkbox"
+												role="switch"
+												className="switch"
+												aria-label={model.name}
+												checked={on.has(model.id)}
+												disabled={busy}
+												onChange={(event) => flip(model.id, event.target.checked)}
+											/>
+										</label>
+									))}
+								{!custom && (
+									<Fold
+										title="A model by ID"
+										value={manual.length === 0 ? "For one this list is missing" : manual.map((model) => model.id).join(", ")}
+										action="Add"
+										open={adding}
+										onToggle={() => setAdding((was) => !was)}
+									>
+										<form
+											className="flex gap-2"
+											onSubmit={(event) => {
+												event.preventDefault();
+												void addManualModel();
+											}}
+										>
+											<input
+												className="field min-w-0 flex-1 font-mono text-sm"
+												aria-label="Model ID to add"
+												placeholder="Exact model ID"
+												value={manualId}
+												onChange={(event) => setManualId(event.target.value)}
+												spellCheck={false}
+												autoComplete="off"
+												disabled={busy || catalog === null}
+											/>
+											<button type="submit" className="control btn" disabled={busy || catalog === null || !manualId.trim()}>
+												Add
+											</button>
+										</form>
+										{manual.map((model) => (
+											<div className="flex items-center gap-2" key={model.id}>
+												<span className="min-w-0 flex-1 truncate font-mono text-sm">{model.id}</span>
+												<button type="button" className="control btn-quiet btn-sm" disabled={busy} aria-label={`Remove manual model ${model.id}`} onClick={() => void removeManualModel(model.id)}>
+													Remove
+												</button>
+											</div>
+										))}
+										<p className="hint">
+											{providerId === "github-copilot"
+												? "It must also be in your Copilot account's model list."
+												: "Use one that supports chat and tools."}
+										</p>
+									</Fold>
+								)}
 							</div>
-							<p className="group-hint">Every model checked is the same as no filter.</p>
 						</section>
 					)}
-					{!credential.revoked && !custom && <section>
-						<h3 className="group-title">Manual model IDs</h3>
-						<div className="grouped">
-							<form className="group-row" onSubmit={(event) => { event.preventDefault(); void addManualModel(); }}>
-								<input className="field min-w-0 flex-1 font-mono text-sm" aria-label="Model ID to add" placeholder="Exact model ID" value={manualId} onChange={(event) => setManualId(event.target.value)} spellCheck={false} autoComplete="off" disabled={busy || catalog === null} />
-								<button type="submit" className="control btn-quiet" disabled={busy || catalog === null || !manualId.trim()}>Add model</button>
-							</form>
-							{catalog?.filter((model) => model.manual).map((model) => <div className="group-row" key={model.id}>
-								<span className="group-row-text"><span className="group-row-title font-mono">{model.id}</span></span>
-								<button type="button" className="control btn-quiet" disabled={busy} aria-label={`Remove manual model ${model.id}`} onClick={() => void removeManualModel(model.id)}>Remove</button>
-							</div>)}
-						</div>
-						<p className="group-hint">Add an ID from this provider when it is missing above. Use a model that supports chat and tools. Entries save immediately and survive refreshes and app updates.</p>
-						{providerId === "github-copilot" && <p className="group-hint">Copilot IDs must also appear in your account’s refreshed model list.</p>}
-					</section>}
-					{notice !== null && <p className="group-hint" role="status">{notice}</p>}
-					<section>
-						<div className="grouped">
-							<div className="group-row">
-								<span className="group-row-text">
-									<span className="group-row-title">{custom ? "Remove connection" : oauth ? "Sign out" : local ? "Disconnect server" : "Remove key"}</span>
-									<span className="group-row-detail">
-										{oauth ? "Forgets the login on this machine." : local ? credential.baseUrl : "Forgets the key on this machine."}
-									</span>
-								</span>
-								<button type="button" className="control btn-quiet" disabled={busy} onClick={onSignIn}>{custom ? "Edit connection" : "Change connection"}</button>
-								<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void remove()}>
-									{oauth ? "Sign out" : "Remove"}
-								</button>
-							</div>
-						</div>
-					</section>
+					{notice !== null && (
+						<p className="group-hint" role="status">
+							{notice}
+						</p>
+					)}
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>
 		</div>
 	);
+}
+
+/** A model's limits in a few characters: "1M context · 128K out". */
+function tokensText(model: CatalogModel): string {
+	const short = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}K` : String(n));
+	return [model.contextLimit ? `${short(model.contextLimit)} context` : null, model.outputLimit ? `${short(model.outputLimit)} out` : null]
+		.filter(Boolean)
+		.join(" · ");
 }
 
 type AuthMode = "none" | "oauth" | "bearer" | "header";
@@ -1236,14 +1267,16 @@ function ToolsSection({
 
 /**
  * Web search: every teammate has it, keyless. A row per provider, tried in
- * this order: the switch is the desk's (off stays off for every teammate), and
- * the optional key is kept in the keychain, never shown again. A provider with
- * a key is tried first.
+ * this order: the switch is the desk's (off stays off for every teammate).
+ * A key is optional, so it is one quiet action on the row; the field opens
+ * only to add or change one, and the key goes to the keychain, never shown
+ * again. A provider with a key is tried first.
  */
 function WebSearchGroup() {
 	const [providers, setProviders] = useState<WebSearchProviderStatus[] | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
+	const [editing, setEditing] = useState<string | null>(null);
 
 	useEffect(() => {
 		void wire
@@ -1275,11 +1308,20 @@ function WebSearchGroup() {
 				) : (
 					providers.map((one) => (
 						<Fragment key={one.provider}>
-							<label className="group-row group-row-choice">
+							<div className="group-row">
 								<span className="group-row-text">
 									<span className="group-row-title">{one.name}</span>
-									<span className="group-row-detail">{one.hasKey ? "Key set" : "Keyless"}</span>
+									<span className="group-row-detail">{one.hasKey ? "Your key" : "Keyless"}</span>
 								</span>
+								<button
+									type="button"
+									className="control btn-quiet btn-sm text-accent-ink"
+									aria-expanded={editing === one.provider}
+									disabled={busy}
+									onClick={() => setEditing((was) => (was === one.provider ? null : one.provider))}
+								>
+									{editing === one.provider ? "Cancel" : one.hasKey ? "Change key" : "Add key"}
+								</button>
 								<input
 									type="checkbox"
 									role="switch"
@@ -1289,23 +1331,30 @@ function WebSearchGroup() {
 									disabled={busy}
 									onChange={(event) => void apply(() => wire.command("websearch.set_enabled", { provider: one.provider, enabled: event.target.checked }))}
 								/>
-							</label>
-							<WebSearchKey
-								provider={one}
-								busy={busy}
-								onSave={(key) => apply(() => wire.command("websearch.set_key", key === null ? { provider: one.provider } : { provider: one.provider, key }))}
-							/>
+							</div>
+							{editing === one.provider && (
+								<WebSearchKey
+									provider={one}
+									busy={busy}
+									onSave={(key) =>
+										apply(() => wire.command("websearch.set_key", key === null ? { provider: one.provider } : { provider: one.provider, key })).then((saved) => {
+											if (saved) setEditing(null);
+											return saved;
+										})
+									}
+								/>
+							)}
 						</Fragment>
 					))
 				)}
 			</div>
-			<p className="group-hint">Tried in this order, the next when one fails. A provider with a key goes first. One switched off here is off for every teammate.</p>
+			<p className="group-hint">Tried in order, one with a key first. Off here is off for every teammate.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
 }
 
-/** One provider's optional key: saved on Enter or when the field is left, then never shown again. */
+/** One provider's key, opened from its row: saved with Save or Enter, then never shown again. */
 function WebSearchKey({
 	provider,
 	busy,
@@ -1316,38 +1365,37 @@ function WebSearchKey({
 	onSave(key: string | null): Promise<boolean>;
 }) {
 	const [draft, setDraft] = useState("");
-
-	const save = () => {
-		const key = draft.trim();
-		if (key === "") return;
-		void onSave(key).then((saved) => saved && setDraft(""));
-	};
+	const key = draft.trim();
 
 	return (
-		<div className="group-row pl-7 gap-2">
+		<form
+			className="group-row gap-2"
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (key !== "") void onSave(key);
+			}}
+		>
 			<input
 				type="password"
 				className="field min-w-0 flex-1 font-mono text-sm"
 				aria-label={`${provider.name} API key`}
-				placeholder={provider.hasKey ? "Paste a new key to replace it" : "API key (optional)"}
+				placeholder={provider.hasKey ? "Paste a new key" : `${provider.name} API key`}
 				autoComplete="new-password"
+				autoFocus
 				spellCheck={false}
 				value={draft}
 				disabled={busy}
 				onChange={(event) => setDraft(event.target.value)}
-				onBlur={save}
-				onKeyDown={(event) => {
-					if (event.key !== "Enter") return;
-					event.preventDefault();
-					save();
-				}}
 			/>
+			<button type="submit" className="control btn btn-primary shrink-0" disabled={busy || key === ""}>
+				Save
+			</button>
 			{provider.hasKey && (
-				<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void onSave(null)}>
-					Clear
+				<button type="button" className="control btn-quiet shrink-0 text-danger" disabled={busy} onClick={() => void onSave(null)}>
+					Remove
 				</button>
 			)}
-		</div>
+		</form>
 	);
 }
 
@@ -1574,7 +1622,8 @@ function ServerForm({
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const savedLaunch = server?.type === "stdio" && (!!server.credentialRef || !!server.launchValuesPending);
 	const [replaceLaunch, setReplaceLaunch] = useState(false);
-	const [environment, setEnvironment] = useState(() => server?.type === "stdio" && server.env ? JSON.stringify(server.env, null, 2) : "{}");
+	const [environment, setEnvironment] = useState(() => (server?.type === "stdio" ? envToLines(server.env) : ""));
+	const [showEnvironment, setShowEnvironment] = useState(false);
 	const keepLaunch = savedLaunch && !replaceLaunch;
 	const nameField = useRef<HTMLInputElement>(null);
 	useEffect(() => {
@@ -1593,15 +1642,14 @@ function ServerForm({
 		const name = draft.name.trim();
 		let next = draft.kind === "stdio" ? stdioFromDraft(name, draft.command, server) : httpFromDraft(name, draft.url, draft, server);
 		if (next.type === "stdio" && !keepLaunch) {
-			try {
-				const env: unknown = JSON.parse(environment);
-				if (!env || typeof env !== "object" || Array.isArray(env) || !Object.values(env).every((value) => typeof value === "string")) throw new Error("Use a JSON object with string values for environment variables.");
-				const { credentialRef: _savedReference, launchValuesPending: _pendingValues, ...launch } = next;
-				next = { ...launch, env: env as Record<string, string> };
-			} catch (error) {
-				setRefusal(error instanceof Error ? error.message : String(error));
+			const parsed = linesToEnv(environment);
+			if ("error" in parsed) {
+				setRefusal(parsed.error);
+				setShowEnvironment(true);
 				return;
 			}
+			const { credentialRef: _savedReference, launchValuesPending: _pendingValues, ...launch } = next;
+			next = { ...launch, env: parsed.env };
 		}
 		/* The token goes to the vault first, so the settings write that
 		 * follows reattaches teammates with it in hand. */
@@ -1629,20 +1677,16 @@ function ServerForm({
 			<h3 className="group-title">{title}</h3>
 			<div className="grouped">
 				<div className="group-row">
-					<label className="w-24 shrink-0 text-sm text-ink-2">Type</label>
-					<div className="flex-1">
-						<Picker
-							field
-							value={draft.kind}
-							choices={[
-								{ id: "stdio", name: "Command", detail: "Started on this machine and spoken to over stdio" },
-								{ id: "http", name: "HTTP", detail: "Reached at a URL" },
-							]}
-							placeholder="Type"
-							label="Server type"
-							onChange={(kind) => setDraft({ ...draft, kind: kind === "http" ? "http" : "stdio" })}
-						/>
-					</div>
+					<span className="w-24 shrink-0 text-sm text-ink-2">Runs</span>
+					<Chips
+						value={draft.kind}
+						choices={[
+							{ id: "stdio", name: "On this computer", title: "A command Hotline starts and talks to over stdio" },
+							{ id: "http", name: "At a URL", title: "A server reached over HTTP" },
+						]}
+						label="Where the server runs"
+						onChange={(kind) => setDraft({ ...draft, kind })}
+					/>
 				</div>
 				<div className="group-row">
 					<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-name">
@@ -1699,37 +1743,48 @@ function ServerForm({
 					</div>
 				)}
 				{draft.kind === "stdio" && !keepLaunch && (
-					<div className="group-row items-start">
-						<label htmlFor="tool-environment" className="w-24 shrink-0 text-sm text-ink-2">Environment</label>
-						<textarea id="tool-environment" className="field flex-1 font-mono text-sm" rows={3} spellCheck={false} value={environment} onChange={(event) => setEnvironment(event.target.value)} />
-					</div>
+					<Fold
+						label
+						title="Environment"
+						value={(() => {
+							const parsed = linesToEnv(environment);
+							const names = "env" in parsed ? Object.keys(parsed.env) : [];
+							return names.length === 0 ? "None" : names.join(", ");
+						})()}
+						action={environment.trim() === "" ? "Add" : "Change"}
+						open={showEnvironment}
+						onToggle={() => setShowEnvironment((was) => !was)}
+					>
+						<textarea
+							id="tool-environment"
+							aria-label="Environment variables"
+							className="field font-mono text-sm"
+							rows={3}
+							spellCheck={false}
+							placeholder={"API_KEY=…\nROOT=/some/path"}
+							value={environment}
+							onChange={(event) => setEnvironment(event.target.value)}
+						/>
+						<p className="hint">One NAME=value per line. Kept in the keychain.</p>
+					</Fold>
 				)}
 				{draft.kind === "http" && server?.type === "http" && server.urlNeedsRepair && (
 					<div className="group-row text-sm text-ink-2">Re-enter the endpoint without credentials, a query, or a fragment. Put tokens in the authentication fields below.</div>
 				)}
 				{draft.kind === "http" && (
 					<div className="group-row">
-						<label className="w-24 shrink-0 text-sm text-ink-2">Auth</label>
-						<div className="flex-1">
-							<Picker
-								field
-								value={draft.authMode}
-								choices={[
-									{ id: "none", name: "None", detail: "Connect without credentials" },
-									{ id: "oauth", name: "OAuth 2.1", detail: "Sign in with the server's authorization page" },
-									{ id: "bearer", name: "Bearer token", detail: "Send a token you paste as Authorization: Bearer" },
-									{ id: "header", name: "Custom header", detail: "Send a token you paste in a header you name" },
-								]}
-								placeholder="Authentication"
-								label="HTTP authentication"
-								onChange={(authMode) =>
-									setDraft({
-										...draft,
-										authMode: authMode === "oauth" || authMode === "bearer" || authMode === "header" ? authMode : "none",
-									})
-								}
-							/>
-						</div>
+						<span className="w-24 shrink-0 text-sm text-ink-2">Signs in</span>
+						<Chips
+							value={draft.authMode}
+							choices={[
+								{ id: "none", name: "No sign-in", title: "Connect without credentials" },
+								{ id: "oauth", name: "With an account", title: "Sign in on the server's own page (OAuth 2.1)" },
+								{ id: "bearer", name: "Token", title: "Send a token you paste as Authorization: Bearer" },
+								{ id: "header", name: "Header", title: "Send a token you paste in a header you name" },
+							]}
+							label="How the server signs in"
+							onChange={(authMode) => setDraft({ ...draft, authMode })}
+						/>
 					</div>
 				)}
 				{draft.kind === "http" && draft.authMode === "header" && (
@@ -1835,22 +1890,22 @@ function ImportSection({ onRefuse }: { onRefuse(message: string | null): void })
 	return (
 		<>
 			<section>
-				<h3 className="group-title">Bring over a previous edition</h3>
+				<h3 className="group-title">From an earlier edition</h3>
 				<div className="grouped">
-					<div className="group-row flex-col items-stretch gap-1.5">
-						<label className="label mb-0" htmlFor="import-from">
-							Its data directory
+					<div className="group-row">
+						<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="import-from">
+							Its folder
 						</label>
-						<PathField id="import-from" value={from} onChange={setFrom} />
-					</div>
-					<div className="group-row justify-end">
-						<button type="button" className="control btn-primary" disabled={busy || from.trim() === ""} onClick={() => void run()}>
+						<div className="min-w-0 flex-1">
+							<PathField id="import-from" value={from} onChange={setFrom} />
+						</div>
+						<button type="button" className="control btn-primary shrink-0" disabled={busy || from.trim() === ""} onClick={() => void run()}>
 							{busy ? "Importing…" : "Import"}
 						</button>
 					</div>
 				</div>
 				<p className="group-hint">
-					Copies teammates, conversations, schedules, settings and keys from an earlier edition of this app, which kept its data under the name Toad. The source is left as it is.
+					Copies everything from Toad, Hotline's earlier name. The original is left as it is.
 				</p>
 			</section>
 			{report !== null && (

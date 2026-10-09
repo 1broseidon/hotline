@@ -31,6 +31,7 @@ import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { Viewer } from "../ui/Viewer";
+import { failedLast } from "../retryTurn";
 import { wire } from "../wire";
 import { Markdown } from "./Markdown";
 import { askedFor } from "./PasskeyArm";
@@ -183,6 +184,9 @@ export function Transcript({
 			return made.get(noticeId);
 		};
 	}, [events, onRetryMessage]);
+
+	/* The teammate's own conversation can run its failed turn again; a thread's cannot. */
+	const runAgain = useCallback(() => wire.command("session.retry", { personaId }), [personaId]);
 
 	useScrollToEvent(scroller, pinned, landing, events);
 
@@ -388,6 +392,7 @@ export function Transcript({
 									speakers={speakers}
 									people={people}
 									{...(onRetryMessage && !speakers && block.event.kind === "notice" ? { onRetry: retries(block.event.id) } : {})}
+									{...(!speakers && thread === undefined && block.event.kind === "notice" && failedLast(events, block.event.id) ? { onRunAgain: runAgain } : {})}
 									reactions={reacted.on.get(block.event.id)}
 									{...(onReply !== undefined ? { onReply } : {})}
 									{...(onReact !== undefined ? { onReact } : {})}
@@ -711,6 +716,7 @@ const Row = memo(function Row({
 	onReply,
 	onReact,
 	onRetry,
+	onRunAgain,
 	onOpenThread,
 	onOpenScreen,
 	onJump,
@@ -729,6 +735,8 @@ const Row = memo(function Row({
 	/** Emoji the phone or this window sent as lines of their own, folded onto this one. */
 	reactions: string[] | undefined;
 	onRetry?: (() => void) | undefined;
+	/** Runs the failed turn this notice reports again (`session.retry`). */
+	onRunAgain?: (() => Promise<unknown>) | undefined;
 	onReply?(target: ReplyTarget): void;
 	onReact?(target: ReactTarget, emoji: string): void;
 	onOpenThread?(thread: ThreadRef): void;
@@ -774,7 +782,15 @@ const Row = memo(function Row({
 			return <p className="instrument mt-1 text-right text-ink-4">{event.stopReason.replace(/_/g, " ")}</p>;
 
 		case "notice":
-			if (event.level === "error") return <ErrorCard text={event.text} {...(!speakers ? { personaId } : {})} {...(onRetry ? { onRetry } : {})} />;
+			if (event.level === "error")
+				return (
+					<ErrorCard
+						text={event.text}
+						{...(!speakers ? { personaId } : {})}
+						{...(onRetry ? { onRetry } : {})}
+						{...(onRunAgain ? { onRunAgain } : {})}
+					/>
+				);
 			return (
 				<p
 					className="rule-line rule-line-plain gap-1.5"

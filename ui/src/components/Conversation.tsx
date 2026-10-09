@@ -304,11 +304,9 @@ export function Conversation({
 	 * something that was asked for. Why the previous chapter cannot be
 	 * reopened is a standing fact rather than an event, so it stays on the
 	 * greyed menu item, read at the moment somebody goes looking for it. */
-	/* The band is the one place that says who this is, and at rest what
-	 * they are for. While a turn runs the pulse beside the name says so on
-	 * its own; what the turn is doing is in the conversation and the
-	 * terminal, not repeated here. */
-	const status = session.state === "thinking" ? "" : persona.goal.split("\n")[0]!.trim();
+	/* The band says who this is and nothing more: the goal is on the
+	 * teammate's pane, and while a turn runs the pulse beside the name says
+	 * so on its own. */
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
 
@@ -330,7 +328,6 @@ export function Conversation({
 					{session.state === "thinking" && (
 						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
 					)}
-					{status !== "" && <span className="band-status">{status}</span>}
 				</button>
 
 				<span className="min-w-0 flex-1" />

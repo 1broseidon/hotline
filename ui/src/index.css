@@ -340,17 +340,6 @@
 		position: absolute;
 		inset: 0;
 	}
-	/* What the teammate in the band is doing, or what they are for: one
-	 * quiet line after the name, cut off before it crowds the keys. */
-	.band-status {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink-3);
-	}
 	.band-row {
 		position: relative;
 		display: flex;
@@ -653,6 +642,25 @@
 	}
 	.group-row-choice:hover {
 		background: var(--fill-hover);
+	}
+	/* In a pane column (Settings, New teammate) a group is the wizard's
+	 * card: rounder, roomier rows, and its title and hint on the rows' edge. */
+	.pane-column .grouped,
+	.inspector .grouped {
+		border-radius: var(--radius-group);
+	}
+	.pane-column .group-row {
+		min-height: 48px;
+		padding: 10px 16px;
+	}
+	.pane-column .group-title {
+		margin: 0 0 8px 16px;
+	}
+	.pane-column .use-for-nested {
+		padding-left: 32px;
+	}
+	.pane-column .group-hint {
+		margin: 8px 16px 0;
 	}
 	.group-row-choice[data-off="true"] {
 		color: var(--ink-3);
@@ -1957,7 +1965,7 @@
 		align-items: flex-start;
 		gap: 12px;
 		padding: 16px 18px;
-		border-radius: 14px;
+		border-radius: var(--radius-group);
 		background: var(--raised);
 		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 		cursor: default;
@@ -2043,7 +2051,7 @@
 		align-items: center;
 		gap: 14px;
 		padding: 16px 18px;
-		border-radius: 14px;
+		border-radius: var(--radius-group);
 		background: color-mix(in oklch, var(--raised), var(--accent) 7%);
 		box-shadow: inset 0 0 0 1.5px color-mix(in oklch, var(--accent) 55%, transparent);
 	}
@@ -2059,12 +2067,12 @@
 	}
 	.welcome-panel {
 		padding: 20px;
-		border-radius: 14px;
+		border-radius: var(--radius-group);
 		background: var(--raised);
 		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 	}
 	.welcome-list {
-		border-radius: 14px;
+		border-radius: var(--radius-group);
 	}
 	/* New teammate: who it is in one card, then each choice folded to its default. */
 	.nt-card {
@@ -2072,7 +2080,7 @@
 		flex-direction: column;
 		gap: 16px;
 		padding: 18px;
-		border-radius: 14px;
+		border-radius: var(--radius-group);
 		background: var(--raised);
 		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 	}
@@ -2129,7 +2137,7 @@
 	}
 	.nt-folds {
 		overflow: hidden;
-		border-radius: 14px;
+		border-radius: var(--radius-group);
 		background: var(--raised);
 		box-shadow: inset 0 0 0 var(--hairline) var(--line);
 	}
@@ -2171,6 +2179,9 @@
 		font-weight: 600;
 		color: var(--accent-ink);
 	}
+	.nt-fold-action:disabled {
+		color: var(--ink-3);
+	}
 	.nt-fold-body {
 		display: flex;
 		flex-direction: column;
@@ -2179,6 +2190,39 @@
 	}
 	.nt-fold[data-open] .nt-fold-head {
 		background: var(--fill-hover);
+	}
+	/* A fold in a settings group sits among plain rows, and its title is as
+	 * wide as the words. */
+	.grouped > .nt-fold-row + .group-row,
+	.grouped > .nt-fold-row + .nt-fold-row,
+	.grouped > .group-row + .nt-fold-row,
+	.grouped > .nt-fold + .nt-fold-row,
+	.grouped > .nt-fold + .group-row,
+	.grouped > .group-row + .nt-fold,
+	.grouped > .nt-fold + .nt-fold,
+	.grouped > * + .nt-fold {
+		border-top: var(--hairline) solid var(--line);
+	}
+	.grouped .nt-fold-title {
+		width: auto;
+		min-width: 96px;
+		font-size: var(--text-md);
+		font-weight: 400;
+	}
+	.grouped .nt-fold-title.nt-fold-label {
+		width: 96px;
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+	}
+	/* A list opened inside a fold sits within the card that holds it. */
+	.nt-fold-body .grouped {
+		border-radius: var(--radius-pane);
+	}
+	/* A short set of choices in a row: the theme, a filter. */
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
 	}
 	.nt-submit {
 		height: 38px;
@@ -3334,7 +3378,8 @@
 	 * tight one: the float shadow's 32px blur, over a conversation that
 	 * scrolls or streams beneath it, cost WebKit a tenth of a core. */
 	.work-float,
-	.call-float {
+	.call-float,
+	.update-float {
 		background: color-mix(in oklab, var(--pop) 72%, transparent);
 		-webkit-backdrop-filter: blur(20px) saturate(1.4);
 		backdrop-filter: blur(20px) saturate(1.4);
@@ -3355,10 +3400,52 @@
 		padding: 10px 12px 14px;
 		border-radius: var(--radius-pane);
 	}
+	/* A release's notes in Settings › Updates: the changelog's section, smaller than a bubble. */
+	.update-notes {
+		max-height: 320px;
+		overflow-y: auto;
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+	}
+	/* The corner's newest version. Alone it sits at the bottom; under a call, just below it. */
+	.update-float {
+		display: flex;
+		width: 248px;
+		flex-shrink: 0;
+		margin-top: auto;
+		flex-direction: column;
+		gap: 6px;
+		padding: 10px 10px 12px 14px;
+		border-radius: var(--radius-pane);
+	}
+	.call-float + .update-float {
+		margin-top: 0;
+	}
+	.update-top {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: var(--text-md);
+		color: var(--ink);
+	}
+	.update-detail {
+		margin-bottom: 4px;
+		padding-right: 8px;
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+	}
+	/* The update card is wider than the call's and says nothing urgent, so
+	 * it waits above the composer rather than over its keys. */
+	.float-stack > .update-float:last-child {
+		margin-bottom: 68px;
+	}
 	/* In a narrow window the composer runs the full width; sit above it. */
 	@container (max-width: 716px) {
 		.float-stack {
 			bottom: 84px;
+		}
+		.float-stack > .update-float:last-child {
+			margin-bottom: 0;
 		}
 	}
 	.call-top {

@@ -146,6 +146,10 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
+    /// Runs the last turn again when it failed (`Room::retry`).
+    async fn retry(&self, _persona_id: &str) -> Result<(), String> {
+        Err("This desk cannot retry a turn.".into())
+    }
     /// Revokes existing execution before a new policy is written to the log.
     fn invalidate(&self, persona_id: &str) -> Result<(), String>;
     /// A gateway change revokes every session, including cached peer sessions.
@@ -669,6 +673,10 @@ impl Seat {
             // already reads, so the phone reads the file too. `file.read`
             // names a message, never a path, and serves only what the desk
             // kept for that message.
+            //
+            // A turn that failed may be tried again from the phone too:
+            // `session.retry` sends a line already on the tape once more and
+            // writes nothing new, so it is no more than the phone already did.
             Seat::Phone => {
                 phone_thread_command(command)
                     || matches!(
@@ -687,6 +695,7 @@ impl Seat {
                     // ready. Read-only, and carries no credential.
                     | Command::BackendsList { .. }
                     | Command::SessionCancel { .. }
+                    | Command::SessionRetry { .. }
                     | Command::HumanAnswer { .. }
                     | Command::SecretsPasskeyAnswer { .. }
                     | Command::SessionAnswerPermission { .. }
@@ -1575,7 +1584,8 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// a teammate's reach or mode and its background work.
 /// `personaComputer`, also owner-only: `mobile.persona_computer`, enabling
 /// a computer and choosing resource limits. `computer.capacity` is read-only
-/// and available to every phone seat.
+/// and available to every phone seat. `turnRetry`: `session.retry`, trying
+/// a failed turn again, so a phone shows Try again only where it works.
 pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "personaCreate",
     "personaEdit",
@@ -1585,6 +1595,7 @@ pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "threads2",
     "lean",
     "thumbnails",
+    "turnRetry",
 ];
 
 /// The capability a client names in `client.hello` to be sent `link` events

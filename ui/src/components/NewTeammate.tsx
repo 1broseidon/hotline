@@ -5,6 +5,7 @@ import { CloseIcon } from "../icons";
 import { useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
+import { Fold } from "../ui/Fold";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
@@ -385,29 +386,3 @@ const GOALS: { label: string; goal: string }[] = [
 		goal: "Help me write and edit. Keep my voice, make it clear and short, and suggest what to cut.",
 	},
 ];
-
-/** A choice that has a good default: one line saying what it is now, opened only to change it. */
-function Fold({
-	title,
-	value,
-	open,
-	onToggle,
-	children,
-}: {
-	title: string;
-	value: string;
-	open: boolean;
-	onToggle(): void;
-	children: React.ReactNode;
-}) {
-	return (
-		<div className="nt-fold" data-open={open ? "" : undefined}>
-			<button type="button" className="nt-fold-row nt-fold-head" aria-expanded={open} onClick={onToggle}>
-				<span className="nt-fold-title">{title}</span>
-				<span className="nt-fold-value">{value}</span>
-				<span className="nt-fold-action">{open ? "Done" : "Change"}</span>
-			</button>
-			{open && <div className="nt-fold-body">{children}</div>}
-		</div>
-	);
-}

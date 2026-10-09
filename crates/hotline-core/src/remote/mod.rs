@@ -108,6 +108,29 @@ pub fn push_targets(root: &Path) -> PushTargets {
             .collect(),
     }
 }
+/// A pasted public address, as the origin phones dial: https, a host, no
+/// path, credentials, query or fragment. Blank is none.
+fn public_origin(text: &str) -> Result<Option<String>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let refused = || {
+        "Use the https address of your tunnel or proxy, such as https://desk.example.com, with nothing after the name or port.".to_string()
+    };
+    let url = url::Url::parse(text).map_err(|_| refused())?;
+    if url.scheme() != "https"
+        || url.host_str().is_none_or(str::is_empty)
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(refused());
+    }
+    Ok(Some(url.origin().ascii_serialization()))
+}
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Saved {
@@ -120,6 +143,10 @@ struct Saved {
     /// The paired desk whose relay this one stands in on, when it does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     relay: Option<String>,
+    /// An https origin outside this computer that reaches its listener: a
+    /// tunnel, a reverse proxy, a forwarded port. Optional and only advertised.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    public_url: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
 struct Identity {
@@ -141,6 +168,9 @@ pub struct RemoteStatus {
     pub error: Option<String>,
     /// The paired desk carrying visitors to this one, when one is chosen.
     pub relay: Option<relay::RemoteRelay>,
+    /// The person's own public address for this desk, kept whether or not
+    /// Remote is on, and advertised to phones after this computer's own.
+    pub public_url: Option<String>,
 }
 struct Live {
     saved: Saved,
@@ -339,12 +369,42 @@ impl Remote {
             enabled: !s.endpoints.is_empty(),
             host: s.saved.host.clone(),
             endpoint: s.endpoints.first().cloned(),
-            endpoints: s.endpoints.iter().chain(&s.relay.url).cloned().collect(),
+            // A paired phone learns these from the hello and tries them all.
+            // The public address comes after this computer's own, so the QR
+            // keeps pairing on the network the phone is standing in.
+            endpoints: s
+                .endpoints
+                .iter()
+                .chain(
+                    s.saved
+                        .public_url
+                        .iter()
+                        .filter(|_| !s.endpoints.is_empty()),
+                )
+                .chain(&s.relay.url)
+                .cloned()
+                .collect(),
             addresses: Self::addresses(),
             devices: s.saved.grants.iter().map(|g| g.device.clone()).collect(),
             error: s.error.clone(),
             relay: self.relay_status(&s),
+            public_url: s.saved.public_url.clone(),
         }
+    }
+    /// Keeps, replaces or clears (`None` or blank) the public address. It is
+    /// only advertised, so nothing restarts and no phone is disconnected.
+    pub fn set_public_url(&self, url: Option<&str>) -> Result<RemoteStatus, String> {
+        if self.served.is_some() {
+            return Err("A served desk's public URL is set when it starts.".into());
+        }
+        let url = public_origin(url.unwrap_or_default())?;
+        let mut s = self.state.lock().unwrap();
+        let mut saved = s.saved.clone();
+        saved.public_url = url;
+        self.save(&saved)?;
+        s.saved = saved;
+        drop(s);
+        Ok(self.status())
     }
     pub async fn restore(self: &Arc<Self>) {
         if self.served.is_some() {

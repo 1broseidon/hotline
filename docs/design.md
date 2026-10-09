@@ -323,6 +323,18 @@ owns the account and credentials. A successful login reopens the agent session
 without replaying the failed message. The person can put that message back in
 the composer for review; a failed turn may already have performed work.
 
+A turn that failed on the network, at the provider, on a rate limit, in a
+harness or for no reason known can be tried again: the failure card on the
+latest turn offers **Try again**, which is `session.retry`. The room checks
+the tape (the last turn failed and no message came after it) and queues the
+same line again as a retry, writing nothing new. Hotline Agent re-runs on
+the history it kept, which already ends with the person's line and any reply
+shown before the failure, so the model is not asked twice; a history that no
+longer ends there, and every harness, is prompted with the same words. A key,
+quota, context or request failure fails the same way again, so its card does
+not offer it. The driver's own backoff (three tries for transient errors)
+has already run by the time the card appears.
+
 This recovery is desktop-only. Claude's `NO_BROWSER` method starts its interactive
 CLI, not a structured URL/device-code protocol. Hotline does not scrape that TUI
 into a phone login form or relay Claude session tokens. Unsupported methods and
@@ -498,8 +510,9 @@ where it is and copies nothing in, and each entry is offered to teammates by
 a switch under Settings → Skills (the `offeredSkills` setting), so a skill the
 person keeps for their other agents is one switch away from their teammates
 and an edit there is what the teammate reads at its next start. The
-**gateway** is the operator's folder, `skills/` in the data directory, for a
-skill from anywhere else: a folder the person picks is copied in under its
+**gateway** (Settings → Skills calls it **From other folders**) is the
+operator's folder, `skills/` in the data directory, for a skill from anywhere
+else: a folder the person picks is copied in under its
 name, and everything valid there is offered. What is offered — the gateway's
 and the person's own switched on — is granted per teammate with the same
 none / some / all policy MCP servers use; a new teammate gets none, and all

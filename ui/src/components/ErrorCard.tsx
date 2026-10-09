@@ -1,7 +1,16 @@
+import { useState } from "react";
 import { AgentSignIn, type AgentSignInAction } from "./AgentSignIn";
 import { WarningIcon } from "../icons";
 
-export function errorDetails(text: string): { title: string; summary: string; details: string; context?: string; signIn?: AgentSignInAction } {
+/**
+ * The failures a second try can get past: the network, the provider having
+ * a bad moment, a limit that has since lifted, a harness that fell over.
+ * A refused key, a spent quota or a request the model will not take fails
+ * the same way again, so it is not offered.
+ */
+const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "rate_limit", "acp", "unknown"]);
+
+export function errorDetails(text: string): { title: string; summary: string; details: string; context?: string; signIn?: AgentSignInAction; kind?: string } {
     const start = text.indexOf('{"hotlineFailure":');
     if (start !== -1) {
         try {
@@ -13,7 +22,14 @@ export function errorDetails(text: string): { title: string; summary: string; de
                     typeof failure.retryAfterSeconds === "number" ? `Retry after ${failure.retryAfterSeconds}s` : null,
                 ].filter(Boolean).join(" · ");
                 const signIn = signInAction(failure);
-                return { title: failure.title, summary: failure.summary, details: failure.details, context, ...(signIn ? { signIn } : {}) };
+                return {
+                    title: failure.title,
+                    summary: failure.summary,
+                    details: failure.details,
+                    context,
+                    ...(signIn ? { signIn } : {}),
+                    ...(typeof failure.kind === "string" ? { kind: failure.kind } : {}),
+                };
             }
         } catch { /* Older notices are plain text. */ }
     }
@@ -35,8 +51,21 @@ function signInAction(failure: { kind?: unknown; signIn?: unknown }): AgentSignI
     return { harnessName: action.harnessName, methods };
 }
 
-export function ErrorCard({ text, personaId, onRetry }: { text: string; personaId?: string; onRetry?: () => void }) {
+export function ErrorCard({
+    text,
+    personaId,
+    onRetry,
+    onRunAgain,
+}: {
+    text: string;
+    personaId?: string;
+    onRetry?: () => void;
+    /** Runs the failed turn again; offered only on the latest one. */
+    onRunAgain?: () => Promise<unknown>;
+}) {
     const error = errorDetails(text);
+    const [again, setAgain] = useState<"idle" | "trying" | string>("idle");
+    const offerAgain = onRunAgain !== undefined && error.kind !== undefined && WORTH_ANOTHER_TRY.has(error.kind);
     return (
         <section className="my-2 min-w-0 max-w-full rounded-lg border border-line bg-raised p-3" aria-label={error.title}>
             <div className="flex items-center gap-2 text-danger">
@@ -45,6 +74,24 @@ export function ErrorCard({ text, personaId, onRetry }: { text: string; personaI
             </div>
             <p className="mt-1 text-sm text-ink-2">{error.summary}</p>
             {error.signIn && personaId && <AgentSignIn personaId={personaId} action={error.signIn} {...(onRetry ? { onRetry } : {})} />}
+            {offerAgain && (
+                <div className="mt-2 flex items-center gap-3">
+                    <button
+                        type="button"
+                        className="control btn btn-sm"
+                        disabled={again === "trying"}
+                        onClick={() => {
+                            setAgain("trying");
+                            onRunAgain()
+                                .then(() => setAgain("idle"))
+                                .catch((reason: unknown) => setAgain(reason instanceof Error ? reason.message : String(reason)));
+                        }}
+                    >
+                        {again === "trying" ? "Trying again…" : "Try again"}
+                    </button>
+                    {again !== "idle" && again !== "trying" && <span className="text-sm text-ink-3">{again}</span>}
+                </div>
+            )}
             <details className="mt-2 min-w-0">
                 <summary className="cursor-pointer text-xs text-ink-3 focus-visible:outline focus-visible:outline-2">Error details</summary>
                 {error.context && <p className="mt-2 break-words text-xs text-ink-3" style={{ overflowWrap: "anywhere" }}>{error.context}</p>}

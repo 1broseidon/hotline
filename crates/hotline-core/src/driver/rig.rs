@@ -401,125 +401,24 @@ impl Driver for InProcess {
         attachments: Vec<Attachment>,
         reach: Reach,
     ) -> mpsc::Receiver<Update> {
-        let message = Input::Attachments(text, attachments);
-        let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
-        if let Some(capability) = &self.capability
-            && let Err(error) = capability.check()
-        {
-            let _ = sender.try_send(Update::Notice {
-                level: NoticeLevel::Error,
-                text: error,
-            });
-            let _ = sender.try_send(Update::Turn {
-                stop_reason: "revoked".to_string(),
-                usage: None,
-            });
-            return receiver;
-        }
-        // The stop this turn answers to, installed before the turn is spawned
-        // so a Stop pressed the instant the prompt returns still finds it.
-        let stop = Arc::new(Stop::default());
-        *lock(&self.stop) = stop.clone();
-        let steering = Arc::new(turn::Steering::default());
-        *lock(&self.steering) = Some(steering.clone());
-        let mut mcp_tools: Vec<DynamicTool> = self.teammate.as_dynamic();
-        // The computer's tools are definitions; a granted server's are named
-        // in the preamble and reached through two fixed tools.
-        let (granted, computer): (Vec<_>, Vec<_>) = lock(&self.mcp)
-            .as_ref()
-            .map(|connected| connected.tools.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .partition(granted::is_granted);
-        mcp_tools.extend(computer.into_iter().map(mcp_dynamic));
-        let index = granted::index(&granted);
-        if !granted.is_empty() {
-            mcp_tools.extend(granted::tools(granted));
-        }
-        if let Some(escalation) = lock(&self.escalation).take() {
-            mcp_tools.push(tell_person(escalation));
-        }
-        let model = lock(&self.model).clone();
-        let output_limit = self
-            .keys
-            .model_metadata()
-            .get(&model)
-            .and_then(|model| model.output_limit);
-        let turn = Turn {
-            keys: self.keys.provider_auth(),
-            model: model.clone(),
-            output_limit,
-            context_limit: self
-                .keys
-                .model_metadata()
-                .get(&model)
-                .and_then(|m| m.context_limit),
-            effort: lock(&self.effort).clone(),
-            preamble: if index.is_empty() {
-                self.preamble.clone()
-            } else {
-                format!("{}\n\n{index}", self.preamble)
-            },
-            cwd: lock(&self.cwd).clone(),
-            folders: lock(&self.folders).clone(),
-            reach,
-            history: self.history.clone(),
-            stop,
-            steering,
-            output_dir: self.output_dir.clone(),
-            mcp_tools,
-            capability: self.capability.clone(),
-            delegate: self.teammate.delegate(),
-        };
-        let history_origin = self.history_origin.clone();
-        let unconsumed = self.unconsumed.clone();
-        tokio::spawn(async move {
-            let origin = recovery::Origin::of(&turn.model, &turn.keys);
-            let changed = lock(&history_origin)
-                .as_ref()
-                .is_some_and(|previous| previous != &origin);
-            if changed {
-                let mut history = turn.history.lock().await;
-                *history = recovery::fresh(&history, &turn.output_dir);
-            }
-            *lock(&history_origin) = Some(origin);
-            let message = message.prepare(&turn.stop).await;
-            let result = turn.run(&sender, message).await;
-            let pending = turn.steering.close();
-            if !turn.stop.raised.load(Ordering::SeqCst) {
-                for input in pending {
-                    if let Input::Attachments(text, attachments) = input {
-                        lock(&unconsumed).push((text, attachments));
-                    }
-                }
-            }
-            if let Err(mut error) = result {
-                for auth in turn.keys.values() {
-                    match auth {
-                        ProviderAuth::ApiKey(key)
-                        | ProviderAuth::Custom {
-                            api_key: Some(key), ..
-                        } => error.redact_value(key),
-                        _ => {}
-                    }
-                }
-                let _ = sender
-                    .send(Update::Notice {
-                        level: NoticeLevel::Error,
-                        text: error.notice(),
-                    })
-                    .await;
-                send(
-                    &sender,
-                    Update::Turn {
-                        stop_reason: "failed".into(),
-                        usage: None,
-                    },
-                )
-                .await;
-            }
-        });
-        receiver
+        self.start(Some(Input::Attachments(text, attachments)), reach)
+            .await
+    }
+
+    /// The failed turn again on the history it left: the person's line is
+    /// already its last message (with any reply that was shown before the
+    /// failure, and the note saying so), so nothing is added twice. A history
+    /// that no longer ends there, after a restart that lost it, is asked the
+    /// words again.
+    async fn retry(
+        &self,
+        text: String,
+        attachments: Vec<Attachment>,
+        reach: Reach,
+    ) -> mpsc::Receiver<Update> {
+        let resumable = matches!(self.history.lock().await.last(), Some(Message::User { .. }));
+        let message = (!resumable).then(|| Input::Attachments(text, attachments));
+        self.start(message, reach).await
     }
 
     fn steer(&self, text: String, attachments: Vec<Attachment>) -> bool {
@@ -646,6 +545,133 @@ impl Stop {
     }
 }
 
+impl InProcess {
+    /// One turn: a new message, or none to go again on the history as it is.
+    async fn start(&self, message: Option<Input>, reach: Reach) -> mpsc::Receiver<Update> {
+        let (sender, receiver) = mpsc::channel(UPDATE_DEPTH);
+        if let Some(capability) = &self.capability
+            && let Err(error) = capability.check()
+        {
+            let _ = sender.try_send(Update::Notice {
+                level: NoticeLevel::Error,
+                text: error,
+            });
+            let _ = sender.try_send(Update::Turn {
+                stop_reason: "revoked".to_string(),
+                usage: None,
+            });
+            return receiver;
+        }
+        // The stop this turn answers to, installed before the turn is spawned
+        // so a Stop pressed the instant the prompt returns still finds it.
+        let stop = Arc::new(Stop::default());
+        *lock(&self.stop) = stop.clone();
+        let steering = Arc::new(turn::Steering::default());
+        *lock(&self.steering) = Some(steering.clone());
+        let mut mcp_tools: Vec<DynamicTool> = self.teammate.as_dynamic();
+        // The computer's tools are definitions; a granted server's are named
+        // in the preamble and reached through two fixed tools.
+        let (granted, computer): (Vec<_>, Vec<_>) = lock(&self.mcp)
+            .as_ref()
+            .map(|connected| connected.tools.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .partition(granted::is_granted);
+        mcp_tools.extend(computer.into_iter().map(mcp_dynamic));
+        let index = granted::index(&granted);
+        if !granted.is_empty() {
+            mcp_tools.extend(granted::tools(granted));
+        }
+        if let Some(escalation) = lock(&self.escalation).take() {
+            mcp_tools.push(tell_person(escalation));
+        }
+        let model = lock(&self.model).clone();
+        let output_limit = self
+            .keys
+            .model_metadata()
+            .get(&model)
+            .and_then(|model| model.output_limit);
+        let turn = Turn {
+            keys: self.keys.provider_auth(),
+            model: model.clone(),
+            output_limit,
+            context_limit: self
+                .keys
+                .model_metadata()
+                .get(&model)
+                .and_then(|m| m.context_limit),
+            effort: lock(&self.effort).clone(),
+            preamble: if index.is_empty() {
+                self.preamble.clone()
+            } else {
+                format!("{}\n\n{index}", self.preamble)
+            },
+            cwd: lock(&self.cwd).clone(),
+            folders: lock(&self.folders).clone(),
+            reach,
+            history: self.history.clone(),
+            stop,
+            steering,
+            output_dir: self.output_dir.clone(),
+            mcp_tools,
+            capability: self.capability.clone(),
+            delegate: self.teammate.delegate(),
+        };
+        let history_origin = self.history_origin.clone();
+        let unconsumed = self.unconsumed.clone();
+        tokio::spawn(async move {
+            let origin = recovery::Origin::of(&turn.model, &turn.keys);
+            let changed = lock(&history_origin)
+                .as_ref()
+                .is_some_and(|previous| previous != &origin);
+            if changed {
+                let mut history = turn.history.lock().await;
+                *history = recovery::fresh(&history, &turn.output_dir);
+            }
+            *lock(&history_origin) = Some(origin);
+            let message = match message {
+                Some(message) => Some(message.prepare(&turn.stop).await),
+                None => None,
+            };
+            let result = turn.run(&sender, message).await;
+            let pending = turn.steering.close();
+            if !turn.stop.raised.load(Ordering::SeqCst) {
+                for input in pending {
+                    if let Input::Attachments(text, attachments) = input {
+                        lock(&unconsumed).push((text, attachments));
+                    }
+                }
+            }
+            if let Err(mut error) = result {
+                for auth in turn.keys.values() {
+                    match auth {
+                        ProviderAuth::ApiKey(key)
+                        | ProviderAuth::Custom {
+                            api_key: Some(key), ..
+                        } => error.redact_value(key),
+                        _ => {}
+                    }
+                }
+                let _ = sender
+                    .send(Update::Notice {
+                        level: NoticeLevel::Error,
+                        text: error.notice(),
+                    })
+                    .await;
+                send(
+                    &sender,
+                    Update::Turn {
+                        stop_reason: "failed".into(),
+                        usage: None,
+                    },
+                )
+                .await;
+            }
+        });
+        receiver
+    }
+}
+
 /// Everything one turn needs, taken from the session at the moment it starts
 /// so the turn owns it and the driver stays free to answer other calls.
 struct Turn {
@@ -669,10 +695,18 @@ struct Turn {
 }
 
 impl Turn {
+    /// A turn on the history, after `message` when there is one; a retry has
+    /// none, because the line it answers is already the history's last.
     #[allow(clippy::result_large_err)]
-    async fn run(&self, sender: &mpsc::Sender<Update>, message: Message) -> Result<(), Failure> {
+    async fn run(
+        &self,
+        sender: &mpsc::Sender<Update>,
+        message: Option<Message>,
+    ) -> Result<(), Failure> {
         // Keep admitted input even if workspace or provider construction fails.
-        self.history.lock().await.push(message);
+        if let Some(message) = message {
+            self.history.lock().await.push(message);
+        }
         if self.stop.raised.load(Ordering::SeqCst) {
             send(
                 sender,
@@ -1998,10 +2032,21 @@ mod tests {
             delegate: None,
         };
         let (sender, _receiver) = mpsc::channel(8);
-        let result = turn.run(&sender, Message::user("did the crane jam?")).await;
+        let result = turn
+            .run(&sender, Some(Message::user("did the crane jam?")))
+            .await;
         assert!(result.is_err(), "{result:?}");
-        let held = history.lock().await;
-        assert_eq!(*held, vec![Message::user("did the crane jam?")]);
+        assert_eq!(
+            *history.lock().await,
+            vec![Message::user("did the crane jam?")]
+        );
+        // A retry runs on that history as it is: the question is not asked twice.
+        let again = turn.run(&sender, None).await;
+        assert!(again.is_err(), "{again:?}");
+        assert_eq!(
+            *history.lock().await,
+            vec![Message::user("did the crane jam?")]
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -2567,11 +2612,11 @@ mod tests {
         let (sender, mut receiver) = mpsc::channel(256);
         tokio::spawn(async move { while receiver.recv().await.is_some() {} });
         turn()
-            .run(&sender, Message::user("run the standup"))
+            .run(&sender, Some(Message::user("run the standup")))
             .await
             .unwrap();
         turn()
-            .run(&sender, Message::user("have a peek"))
+            .run(&sender, Some(Message::user("have a peek")))
             .await
             .unwrap();
         let mut bodies = Vec::new();

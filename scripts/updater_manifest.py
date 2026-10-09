@@ -18,6 +18,18 @@ PACKAGES = {
 }
 
 
+# Well under the desktop's MAX_NOTES (updater.rs), which refuses an offer whose notes are longer.
+MAX_NOTES = 12_000
+
+
+def shortened(notes: str) -> str:
+    """Notes past the cap end at the last whole line before it, so markdown is not cut mid-item."""
+    if len(notes) <= MAX_NOTES:
+        return notes
+    cut = notes.rfind("\n", 0, MAX_NOTES)
+    return notes[:cut if cut > 0 else MAX_NOTES].rstrip() + "\n\n…\n"
+
+
 def manifest(directory: Path, version: str, repository: str, notes: str) -> dict:
     if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version):
         raise ValueError("Updater releases must use a stable major.minor.patch version")
@@ -39,7 +51,7 @@ def manifest(directory: Path, version: str, repository: str, notes: str) -> dict
             "url": f"https://github.com/{repository}/releases/download/desktop-v{version}/{quote(name)}",
             "signature": signed,
         }
-    return {"version": version, "notes": notes[:4000],
+    return {"version": version, "notes": shortened(notes),
             "pub_date": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "platforms": platforms}
 

@@ -198,6 +198,9 @@ pub(crate) async fn run(
         Command::RemoteDevices {} => Ok(json!(remote(room)?.devices())),
         Command::RemoteRevoke { device_id } => Ok(json!(remote(room)?.revoke(&device_id)?)),
         Command::RemoteRelay { desk_id } => Ok(json!(remote(room)?.relay_through(desk_id)?)),
+        Command::RemotePublicUrl { url } => {
+            Ok(json!(remote(room)?.set_public_url(url.as_deref())?))
+        }
         Command::RemotePairing { role, id, cancel } => {
             let remote = remote(room)?;
             if let Some(id) = id {
@@ -424,6 +427,7 @@ pub(crate) async fn run(
             Ok(json!(info))
         }
         Command::SessionStop { persona_id } => room.stop(&persona_id).map(|()| Value::Null),
+        Command::SessionRetry { persona_id } => room.retry(&persona_id).await.map(|()| Value::Null),
         Command::SessionPrompt {
             persona_id,
             text,

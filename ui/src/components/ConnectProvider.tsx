@@ -324,7 +324,14 @@ function KeyForm({
 						onChange={(event) => setSecret(event.target.value)}
 					/>
 				</div>
-				<div className="group-row justify-end">
+				<div className="group-row">
+					<span className="min-w-0 flex-1">
+						{provider.doc !== undefined && (
+							<button type="button" className="nt-fold-action" onClick={() => void openLink(provider.doc ?? "")}>
+								Where to get a key ↗
+							</button>
+						)}
+					</span>
 					<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
 						Cancel
 					</button>
@@ -333,13 +340,6 @@ function KeyForm({
 					</button>
 				</div>
 			</div>
-			{provider.doc !== undefined && (
-				<p className="group-hint">
-					<button type="button" className="underline" onClick={() => void openLink(provider.doc ?? "")}>
-						Where to get one
-					</button>
-				</p>
-			)}
 		</form>
 	);
 }

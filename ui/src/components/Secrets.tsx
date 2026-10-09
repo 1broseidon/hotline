@@ -2,6 +2,8 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import type { SharedSecret, SharedSecretKind } from "../generated/contract";
 import { CloseIcon, PlusIcon, WarningIcon } from "../icons";
 import { BackKey, Band } from "../ui/Band";
+import { Chips } from "../ui/Chips";
+import { Fold } from "../ui/Fold";
 import { Refusal } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
@@ -120,20 +122,6 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 		}
 	};
 
-	const addRow = (kind: SharedSecretKind, label: string) => (
-		<button
-			type="button"
-			className="group-row group-row-add"
-			disabled={busy}
-			onClick={() => {
-				close();
-				setAdding(kind);
-			}}
-		>
-			<PlusIcon />
-			{label}
-		</button>
-	);
 
 	return (
 		<div className="pane">
@@ -143,15 +131,48 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
+					{adding !== null && (
+						<section>
+							<h3 className="group-title">Add a secret</h3>
+							<div className="grouped">
+								<div className="group-row">
+									<span className="w-24 shrink-0 text-sm text-ink-2">Kind</span>
+									<Chips
+										value={adding === "login" ? "login" : "variable"}
+										choices={[
+											{ id: "variable", name: "Variable", title: "A key or token a teammate's computer finds as an environment variable" },
+											{ id: "login", name: "Login", title: "A username and password its computer types on the sites you name" },
+										]}
+										label="Kind of secret"
+										disabled={busy}
+										onChange={(kind) => setAdding(kind as SharedSecretKind)}
+									/>
+								</div>
+								{adding === "login" ? (
+									<LoginForm key="login" busy={busy} onStore={storeLogin} onCancel={close} />
+								) : (
+									<VariableForm key="variable" busy={busy} onStore={storeVariable} onCancel={close} />
+								)}
+							</div>
+						</section>
+					)}
 					<section>
 						<h3 className="group-title">Stored</h3>
 						<div className="grouped">
-							{adding === "variable" ? (
-								<VariableForm busy={busy} onStore={storeVariable} onCancel={close} />
-							) : (
-								addRow("variable", "Store a variable")
+							{adding === null && (
+								<button
+									type="button"
+									className="group-row group-row-add"
+									disabled={busy}
+									onClick={() => {
+										close();
+										setAdding("variable");
+									}}
+								>
+									<PlusIcon />
+									Add a secret
+								</button>
 							)}
-							{adding === "login" ? <LoginForm busy={busy} onStore={storeLogin} onCancel={close} /> : addRow("login", "Store a login")}
 							{stored === null ? (
 								<p className="group-row text-sm text-ink-3">Reading the keychain…</p>
 							) : stored.length === 0 ? (
@@ -200,20 +221,19 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 											<LoginForm name={secret.name} sites={secret.sites ?? []} username={secret.username ?? ""} busy={busy} onStore={storeLogin} onCancel={close} />
 										)}
 										{removing === secret.name && (
-											<div className={`${NESTED} flex-col items-stretch gap-3 py-3`}>
-												<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-													{secret.kind === "passkey"
-														? `Remove ${secret.name}? The teammate's browser loses it at once and cannot sign in with it again. The site still lists the passkey until you delete it there too.`
-														: `Remove ${secret.name}? A teammate given it loses it from its computer, and the value is kept nowhere else.`}
+											<div className="group-row">
+												<span className="group-row-text">
+													<span className="group-row-title">Remove {secret.name}?</span>
+													<span className="group-row-detail">
+														{secret.kind === "passkey" ? "Its sign-in stops at once. Delete it on the site too." : "It is gone for good, from every teammate."}
+													</span>
 												</span>
-												<div className="flex justify-end gap-2">
-													<button type="button" className="control btn-quiet" disabled={busy} onClick={close}>
-														Cancel
-													</button>
-													<button type="button" className="control btn" disabled={busy} onClick={() => void remove(secret.name)}>
-														Remove
-													</button>
-												</div>
+												<button type="button" className="control btn-quiet" disabled={busy} onClick={close}>
+													Cancel
+												</button>
+												<button type="button" className="control btn text-danger" disabled={busy} onClick={() => void remove(secret.name)}>
+													Remove
+												</button>
 											</div>
 										)}
 									</Fragment>
@@ -221,17 +241,39 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 							)}
 						</div>
 						<p className="group-hint">
-							A variable is an environment variable in a teammate's computer. A login is typed by the computer, only on the
-							login's own sites. A passkey is the teammate's own, made by its computer's browser while you watch, and it signs
-							in by itself. Every value is kept in this machine's keychain, written once and never shown again, here or to a
-							teammate; the computer redacts it from what its tools answer. Give one to a teammate in its pane, under its
-							computer. Take a passkey back from there, from here, or from the site's own security settings: any one of the
-							three ends it.
+							Kept in your keychain. Give one to a teammate's computer in its pane.
 						</p>
 					</section>
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>
+		</div>
+	);
+}
+
+/** A label and its field, as one row of a form card. */
+function FieldRow({ label, htmlFor, top = false, children }: { label: string; htmlFor: string; top?: boolean; children: React.ReactNode }) {
+	return (
+		<div className={top ? "group-row items-start" : "group-row"}>
+			<label className={`w-24 shrink-0 text-sm text-ink-2${top ? " pt-1.5" : ""}`} htmlFor={htmlFor}>
+				{label}
+			</label>
+			<div className="min-w-0 flex-1">{children}</div>
+		</div>
+	);
+}
+
+/** The form's foot: a few words about where the value goes, then its buttons. */
+function FormFoot({ note, busy, ready, label, onCancel, onSubmit }: { note: string; busy: boolean; ready: boolean; label: string; onCancel(): void; onSubmit(): void }) {
+	return (
+		<div className="group-row">
+			<span className="min-w-0 flex-1 text-sm text-ink-3">{note}</span>
+			<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
+				Cancel
+			</button>
+			<button type="button" className="control btn-primary" disabled={busy || !ready} onClick={onSubmit}>
+				{busy ? "Storing…" : label}
+			</button>
 		</div>
 	);
 }
@@ -257,32 +299,30 @@ function VariableForm({
 	};
 
 	return (
-		<div className={`${NESTED} flex-col items-stretch gap-3 py-3`}>
-			<div>
-				<label className="label" htmlFor="secret-name">
-					Name
-				</label>
-				<input
-					id="secret-name"
-					className="field font-mono text-sm"
-					placeholder="GITHUB_TOKEN"
-					autoComplete="off"
-					spellCheck={false}
-					readOnly={fixed !== undefined}
-					value={name}
-					onChange={(event) => setName(event.target.value.toUpperCase())}
-				/>
-			</div>
-			<div>
-				<label className="label" htmlFor="secret-value">
-					Value
-				</label>
+		<>
+			{fixed === undefined && (
+				<FieldRow label="Name" htmlFor="secret-name">
+					<input
+						id="secret-name"
+						className="field font-mono text-sm"
+						placeholder="GITHUB_TOKEN"
+						autoComplete="off"
+						autoFocus
+						spellCheck={false}
+						value={name}
+						onChange={(event) => setName(event.target.value.toUpperCase())}
+					/>
+				</FieldRow>
+			)}
+			<FieldRow label={fixed === undefined ? "Value" : `New value`} htmlFor="secret-value">
 				<input
 					id="secret-value"
 					type="password"
 					className="field text-sm"
 					autoComplete="new-password"
+					autoFocus={fixed !== undefined}
 					spellCheck={false}
+					placeholder="At least eight characters"
 					value={value}
 					onChange={(event) => setValue(event.target.value)}
 					onKeyDown={(event) => {
@@ -291,20 +331,9 @@ function VariableForm({
 						submit();
 					}}
 				/>
-			</div>
-			<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-				{fixed === undefined ? "The name is the environment variable a teammate's computer finds it under. " : ""}
-				At least eight characters, one line. Kept in this machine's keychain and never shown again.
-			</span>
-			<div className="flex justify-end gap-2">
-				<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
-					Cancel
-				</button>
-				<button type="button" className="control btn" disabled={busy || !ready} onClick={submit}>
-					{busy ? "Storing…" : fixed === undefined ? "Store" : "Replace"}
-				</button>
-			</div>
-		</div>
+			</FieldRow>
+			<FormFoot note="Never shown again." busy={busy} ready={ready} label={fixed === undefined ? "Store" : "Replace"} onCancel={onCancel} onSubmit={submit} />
+		</>
 	);
 }
 
@@ -333,6 +362,7 @@ function LoginForm({
 	const [username, setUsername] = useState(knownUsername ?? "");
 	const [password, setPassword] = useState("");
 	const [totp, setTotp] = useState("");
+	const [codes, setCodes] = useState(false);
 	const siteList = sites
 		.split(/\s+/)
 		.map((site) => site.trim())
@@ -344,26 +374,22 @@ function LoginForm({
 	};
 
 	return (
-		<div className={`${NESTED} flex-col items-stretch gap-3 py-3`}>
-			<div>
-				<label className="label" htmlFor="login-name">
-					Name
-				</label>
-				<input
-					id="login-name"
-					className="field font-mono text-sm"
-					placeholder="GITHUB_LOGIN"
-					autoComplete="off"
-					spellCheck={false}
-					readOnly={fixed !== undefined}
-					value={name}
-					onChange={(event) => setName(event.target.value.toUpperCase())}
-				/>
-			</div>
-			<div>
-				<label className="label" htmlFor="login-sites">
-					Sites
-				</label>
+		<>
+			{fixed === undefined && (
+				<FieldRow label="Name" htmlFor="login-name">
+					<input
+						id="login-name"
+						className="field font-mono text-sm"
+						placeholder="GITHUB_LOGIN"
+						autoComplete="off"
+						autoFocus
+						spellCheck={false}
+						value={name}
+						onChange={(event) => setName(event.target.value.toUpperCase())}
+					/>
+				</FieldRow>
+			)}
+			<FieldRow label="Sites" htmlFor="login-sites" top>
 				<textarea
 					id="login-sites"
 					className="field min-h-16 w-full font-mono text-sm"
@@ -373,11 +399,8 @@ function LoginForm({
 					value={sites}
 					onChange={(event) => setSites(event.target.value)}
 				/>
-			</div>
-			<div>
-				<label className="label" htmlFor="login-username">
-					Username
-				</label>
+			</FieldRow>
+			<FieldRow label="Username" htmlFor="login-username">
 				<input
 					id="login-username"
 					className="field text-sm"
@@ -386,11 +409,8 @@ function LoginForm({
 					value={username}
 					onChange={(event) => setUsername(event.target.value)}
 				/>
-			</div>
-			<div>
-				<label className="label" htmlFor="login-password">
-					Password
-				</label>
+			</FieldRow>
+			<FieldRow label="Password" htmlFor="login-password">
 				<input
 					id="login-password"
 					type="password"
@@ -400,18 +420,16 @@ function LoginForm({
 					value={password}
 					onChange={(event) => setPassword(event.target.value)}
 				/>
-			</div>
-			<div>
-				<label className="label" htmlFor="login-totp">
-					Code seed, if the site asks for six digits
-				</label>
+			</FieldRow>
+			<Fold label title="2-step code" value={totp.trim() === "" ? "None" : "Set"} action="Add" open={codes} onToggle={() => setCodes((was) => !was)}>
 				<input
 					id="login-totp"
 					type="password"
+					aria-label="Code seed"
 					className="field font-mono text-sm"
 					autoComplete="off"
 					spellCheck={false}
-					placeholder="The base32 secret behind the QR code, optional"
+					placeholder="The secret behind the site's QR code"
 					value={totp}
 					onChange={(event) => setTotp(event.target.value)}
 					onKeyDown={(event) => {
@@ -420,21 +438,10 @@ function LoginForm({
 						submit();
 					}}
 				/>
-			</div>
-			<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-				One site per line, with its scheme. The computer types this login only on a page of these sites and refuses any
-				other; the teammate is told the name and the sites and never sees the password or a code. Kept in this machine's
-				keychain and never shown again.
-			</span>
-			<div className="flex justify-end gap-2">
-				<button type="button" className="control btn-quiet" disabled={busy} onClick={onCancel}>
-					Cancel
-				</button>
-				<button type="button" className="control btn" disabled={busy || !ready} onClick={submit}>
-					{busy ? "Storing…" : fixed === undefined ? "Store" : "Replace"}
-				</button>
-			</div>
-		</div>
+				<p className="hint">Only if the site asks for six-digit codes.</p>
+			</Fold>
+			<FormFoot note="Typed only on these sites, never shown." busy={busy} ready={ready} label={fixed === undefined ? "Store" : "Replace"} onCancel={onCancel} onSubmit={submit} />
+		</>
 	);
 }
 

@@ -2776,6 +2776,13 @@ pub enum Command {
         #[serde(default)]
         desk_id: Option<String>,
     },
+    /// Keep the https address a tunnel or proxy gives this desk, for phones
+    /// away from home, or clear it with none or a blank one.
+    #[serde(rename = "remote.public_url")]
+    RemotePublicUrl {
+        #[serde(default)]
+        url: Option<String>,
+    },
     /// Start a sealed invitation, or poll/cancel its id.
     #[serde(rename = "remote.pairing")]
     RemotePairing {
@@ -3142,6 +3149,10 @@ pub enum Command {
     SessionStart { persona_id: String },
     #[serde(rename = "session.stop")]
     SessionStop { persona_id: String },
+    /// Runs the teammate's last turn again when it failed, without writing
+    /// the person's message a second time.
+    #[serde(rename = "session.retry")]
+    SessionRetry { persona_id: String },
     /// `replyTo` is the id of the message this one answers, and the
     /// attachments are files handed to the teammate alongside the words.
     #[serde(rename = "session.prompt")]

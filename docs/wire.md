@@ -118,6 +118,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `models.efforts` | `{modelId}` | `EffortChoices` — `choices` that model's effort levels, empty when it has none, and `defaultId` the one a teammate with none stored runs at |
 | `session.start` | `{personaId}` | `SessionInfo` |
 | `session.stop` | `{personaId}` | none |
+| `session.retry` | `{personaId}` | none; runs the last turn again when it failed and nothing was said after it, without writing the person's message again; otherwise refused |
 | `session.prompt` | `{personaId, text, replyTo?, attachments?}` | none |
 | `session.cancel` | `{personaId}` | none |
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
@@ -921,7 +922,8 @@ The phone's socket opens with a hello before any answer:
 `capabilities` names the optional features this desk supports, so a phone
 asks only for what the desk it reached understands. `personaCreate` is
 `mobile.persona_create`; `personaEdit` is `mobile.persona_update` and
-`persona.delete`; `schedules` is the schedules view; `threads` is
+`persona.delete`; `turnRetry` is `session.retry`, so a phone offers Try
+again on a failed turn only where the desk can run it; `schedules` is the schedules view; `threads` is
 reading a thread between two teammates the way a tape is read; `threads2` is
 the `thread.*` commands, `{"threadId": …}`, and, once the phone says it reads
 them with `client.hello`, `link` events and `thread_delta` ([Threads](#threads)). A desk from
@@ -1051,6 +1053,7 @@ Remote controls require an owner or local desk seat, used by the window and CLI:
 | `remote.configure` | `{enabled, host}` | `RemoteStatus`; a served address cannot change |
 | `remote.devices` | `{}` | `RemoteDevice[]` with roles and public keys, never secrets |
 | `remote.revoke` | `{deviceId}` | `RemoteStatus` after immediate revocation |
+| `remote.public_url` | `{url?}` | `RemoteStatus`; keeps an https origin for a tunnel or proxy, or clears it with none or blank; a served desk refuses |
 | `remote.pairing` | `{role?}` | `SealedPairing` with id, QR, URI and expiry; owner by default |
 | `remote.pairing` | `{id}` | paired device, or explicit JSON `null` while waiting |
 | `remote.pairing` | `{id, cancel: true}` | none; ends only the matching invitation |

@@ -359,14 +359,13 @@ Where this differs from the design above:
 **Phase 5.** A direct call (one with a teammate) is a thread of kind `Call`.
 `ThreadId::stream()` is `StreamId::Call`, `calls/<id>.jsonl`, and
 `Threads::write` takes it. `voice/record.rs` is the call's writer: the call
-pushes each person, voice and relayed line (`relayed: true`) on a channel and a
-task of its own appends them in order, so nothing on the live path waits on a
-file or the index. The same task writes the call's link (`Room::call_began`,
+pushes each person and voice line on a channel and a task of its own appends
+them in order, so nothing on the live path waits on a file or the index. The same task writes the call's link (`Room::call_began`,
 `call_ended`, which also queue the closing note) with its `outcome` ("Hung up",
 "Went quiet", ...) and its `end`. `search_teammate` indexes a call's stream
-with side and run lines, named `call:<id>`. `Exchange::from_thread` rebuilds the
-voice's memory from the stream under the exchange's own caps when a call is
-picked up again under an id it had. The call's quiet clock is gone from the
+with side and run lines, named `call:<id>`. The call keeps no memory of its
+own: what was said on it is a turn of the teammate's session, which remembers
+it as its conversation. The call's quiet clock is gone from the
 voice: `Calls::quiet` reports how long each call has been quiet, and
 `Room::sweep` applies the `Call` policy's `Idle::Close(QUIET_MS)`. `settle`
 closes a call the last process left live as stopped, at the time of its last

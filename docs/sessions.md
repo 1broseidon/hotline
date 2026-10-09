@@ -64,6 +64,19 @@ What a line is, and where it came from, is a field of it (`Wired`): its
 no ids. The one id still parsed for provenance is a line kept across a stop
 (`stopping.rs`), which is known by the id it was written under.
 
+A line said on a call to the teammate is a **voice turn**. The driver is
+handed the person's words and, after a blank line, the contract that asks for
+a spoken part and a shown part with `<<<ENDSPEAK>>>` between them
+(`voice::spoken`); the tape keeps the words alone. While the turn's origin is
+that call, the witness hands the call the reply's words as they stream and
+each message as it lands, and the conversation is shown the reply without the
+marker: as it streams, and as it is written, before pacing splits it into
+bubbles (`Witness::shown`). The end of the turn, or its parking on subagents,
+tells the call it can listen. Nothing else about the turn differs from a typed
+one: its chapter, its grants, its metering and what the model sees besides the
+contract are the same. See
+[One brain, two outputs](voice.md#one-brain-two-outputs).
+
 The DM's agent is built by the same `Room::thread_agent` as every other
 thread's, under its policy row: it resumes the teammate's checkpoint, is seeded
 with the open chapter and the wake block, writes the teammate's folder and

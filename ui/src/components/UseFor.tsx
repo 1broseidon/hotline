@@ -181,7 +181,7 @@ export function UseFor({
 						<DeskModels onInstalledChanged={onChanged} />
 					</>
 				)}
-				<JobRow title="Call assistant" detail="Answers on calls and hands work on" job={options.dispatcher}>
+				<JobRow title="Call assistant" detail="Only for calls to the desk; teammates answer their own" job={options.dispatcher}>
 					<Picker
 						value={currentId(options.dispatcher)}
 						choices={shortChoices(options.dispatcher)}

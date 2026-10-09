@@ -8,6 +8,24 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Changed
+
+- On a call, a teammate is itself, not a quick model in front of it. What
+  you say goes straight into its own conversation, in the chapter you are
+  in, so it remembers the call as it remembers the chat and nothing is lost
+  in a handoff. Its first word now waits on its own model.
+- A teammate answers a call in two parts: a short spoken answer, and the
+  detail, code, tables and links, which only show in the chat. The chat
+  shows the whole reply, and your words in it are exactly what you said.
+  An agent that does not split its reply is read up to its first code block
+  or table, a few sentences at most. Links are said as "a link", and money,
+  percentages and arrows are read as words.
+- While a teammate works on what you asked, the call stays on its
+  blip-blip until it is done. Cutting in stops what it is saying, and what
+  you say next goes into the work it already has open.
+- The Call assistant in Settings › Providers › Use for is only for calls to
+  the desk, and says so.
+
 ## [0.35.2] - 2026-10-09
 
 ### Changed

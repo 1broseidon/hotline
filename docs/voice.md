@@ -275,7 +275,9 @@ In the window the models are rows in Settings › Providers › Use for ›
 Hearing (`ui/src/components/DeskModels.tsx`), a fold under Voice that opens
 even when nothing can speak yet. Folded, it says what hears you now; while
 nothing can, it reads "None yet. Download a free speech model." with Set up.
-Open, it holds Hears with, the models and the call assistant. A row says what the model hears and its download
+Open, it holds Hears with and the models. The call assistant is a row of its
+own below the fold, whose line says it is only for calls to the desk, since a
+teammate answers its own calls. A row says what the model hears and its download
 size, and its Download button names the size; while it downloads the row
 shows how much has arrived over a bar and offers Cancel, and once installed
 it shows its size on the desk and offers Remove. The window asks
@@ -392,7 +394,9 @@ hears with that model on the desk, and naming one that is not installed is
 the same error. A `fallbackTts` that cannot be used is no fallback.
 When nothing can hear or speak, `resolve` returns a sentence for a person.
 
-`dispatcher` names the chat model that routes what was said. Without it the
+`dispatcher` names the chat model that routes what was said on a call to the
+desk; Settings › Providers › Use for calls it the call assistant. A call to a
+teammate never uses it. Without that setting the
 desk takes the best-suited quick chat model of the room's default provider: a
 middle-tier one (`flash`, `mini`, `small`, `fast`) first, because the lightest
 tier (`flash-lite`, `nano`, `luna`, `haiku`, `instant`) is too thin to hold a
@@ -403,75 +407,114 @@ not connected is an error, like the speech choices above.
 
 A direct teammate call resolves speech and budget without the dispatcher.
 `VoiceStatus.available` remains desk readiness; `directAvailable` separately
-reports direct readiness. Speech selections remain visible when only the
+reports direct readiness, which needs speech and the Voice budget only.
+Speech selections remain visible when only the
 dispatcher is unavailable. The desktop's secondary call control uses direct
 readiness and retains the desk's availability check for its primary call.
 `voice.status` accepts `inputMode: "text"` to assess output-only readiness;
 omission assesses audio readiness. A direct text call needs output and budget,
 while a desk text call also needs the dispatcher.
 
-When the dispatcher is ready, a direct call answers in the teammate's own
-voice before the teammate does anything. The dispatcher's model speaks as the
-teammate, in the first person, and converses: the system prompt carries the
-teammate's name and goal and the workspace's own `AGENTS.md` when a person
-wrote one (up to 4000 characters; the file Hotline writes is skipped, and a
-linked file is never followed). The call's own exchange (what the person said,
-what the voice said, and the reports it relayed; the newest 30 lines) is sent as
-real user and assistant turns, so the voice keeps the thread of the call. Each
-message also carries, as data, whether the teammate is working, the note its
-latest chapter closed with and the newest 24 entries of its conversation. A
-scheduled prompt, a colleague's message or an answer to a request is named for
-what it is in that data, never as something the person said. A question about
-how the work is going is answered from that and reaches no session.
+## One brain, two outputs
 
-The front is the teammate, not an assistant in front of it. It speaks in the
-first person as one person with one voice, never mentions a session, a main
-agent or a call assistant, and tells what the session did as what it did
-itself. It answers the point directly, the way a colleague on the phone would:
-one reply in natural spoken prose, one to three short sentences unless asked
-for more, with no filler opener ("Good to hear…") or sign-off, and at most one
-question, asked only when it needs the answer. Anything that needs doing or
-looking up (files, sending something to the chat, checking how something
-stands, running something) goes to the session at once with a brief spoken
-acknowledgement; it never says it can't and never promises without handing it
-over.
+A call to a teammate has nothing in front of the teammate
+(`voice/spoken.rs`). Every utterance goes into the teammate's own session as a
+turn of its conversation, in the open chapter of its main thread, the same way
+a typed message does (`Calls::hand_off`, `Room::prompt`): same session, same
+harness, same grants. The tape keeps the person's words exactly as they were
+heard, under an id that marks the line as said on the call
+(`voice:<callId>:<seq>:agent:…`), and the chat shows them like any message.
+Said into a turn that is still running, the words steer it, as typing does.
 
-A reply is spoken sentence by sentence as the model writes it, so the first
-words come quickly, but it is one reply. The call shows it as one line that
-grows under one `said` id, its audio continues under that id and ends with an
-empty final clip, and the call's thread, and so the chat, keeps it once,
-whole, when it is over (or when the person speaks over it, with what was
-said by then). The voice's memory of the call holds it the same way. A desk
-call's answers are kept as one line on the dispatcher's tape likewise.
-The exchange is only what the voice is given: a direct call is a thread
-(`docs/threads.md`), and everything said on it is kept in `calls/<id>.jsonl`,
-indexed for `search_thread`, linked from the teammate's DM and read back after
-the call ends. A call picked up again under its id rebuilds its exchange from
-that thread, under the same caps. A call nobody has spoken on for ten minutes
+What makes the turn a voice turn is one thing the agent is handed after the
+person's words, the contract (`spoken::CONTRACT`):
+
+> One response, two parts, in this order, separated by `<<<ENDSPEAK>>>`.
+> Part 1 is spoken: short, conversational, self-contained, leading with the
+> answer; anything visual described in words and never reproduced, with no
+> code, tables, lists, links or markdown, and no reference to what follows.
+> Part 2 is shown in the chat and never spoken: the full detail, code, tables
+> and links. It may be empty. The marker is always written. Anything written
+> before using a tool is spoken as it comes, so it is a brief line.
+
+The contract travels in the text of the turn the driver is handed, after the
+words and a blank line, and nowhere else. A model setting or a system note
+would reach only Hotline Agent, and an ACP meta field is not something Claude
+Code or Codex read as instructions; the turn's text reaches every driver alike,
+and it rides along when the turn steers one already running. The tape never
+holds it: `Room::prompt` writes what the person said and hands the driver the
+words with the contract, so the conversation, a rebuilt history and a search
+see only the words. Nothing else about the turn changes what the model sees.
+
+The reply is rendered twice from one stream:
+
+- **Said.** The DM's witness hands the call each chunk of the reply's words as
+  the agent writes them (`Calls::reply_delta`), and the whole message when it
+  lands (`Calls::delivery`). `spoken::Spoken` takes the spoken part: the
+  sentences before the marker, each said as soon as it is whole. It holds back
+  the end of a chunk that could be the start of the marker, so no part of the
+  marker is ever said, and it never reads out a fenced code block or a table.
+  A reply with no marker was written to be read, so the call says its opening,
+  up to the first code block or table and at most three sentences, and the
+  rest is only shown; until the marker comes, a sentence the fallback would
+  not say waits for it.
+- **Shown.** The chat shows the whole reply with the marker taken out and the
+  two parts a paragraph apart, as it streams (`spoken::Unmarked`, which holds
+  back a partial marker the same way) and as it is written to the tape
+  (`spoken::unmarked`, before the reply is paced into bubbles). Only the
+  first marker is the reply's. A turn not said on a call is shown as written.
+
+On an agent turn, what the agent writes before its first tool call is said as
+it streams, as the acknowledgement. Its words between tools are narration
+(`session/narration.rs`) and are not said; the call stays `thinking`, and the
+client's blip-blip covers the work. The message that lands as the report is
+said whole when it lands, up to its marker. Each message said is one reply:
+one `said` id, the line growing sentence by sentence, its clips under that id
+closed by an empty final clip, and one line on the call's thread.
+
+The call is `thinking` from an utterance until the teammate's session has
+finished that turn, or left it open only for subagents (`Calls::turn_ended`),
+apart from while it speaks; then it listens. When the person speaks again
+before a turn ends, the call waits for the turn that has their latest words.
+A reply the turn never finished is said as far as it got. While it thinks it
+sends `thinking`
+again every 15 seconds, so a phone, which gives up on a desk it has not heard
+from in 45, does not take a long piece of work for a desk that went quiet.
+
+Speaking over the teammate (`voice.interrupt`) stops what it is saying at once
+and gives the person the floor: the call listens even though the turn is still
+open, the rest of that reply is not said, and what the person says next goes
+into the open turn as a steer. The turn itself is never stopped by the call,
+and what the teammate says after it, such as its report, is said. A hold stops
+a reply too, and a reply cut off by a hold, or that lands while the call is
+held, reaches the phone as a notification instead.
+
+What is said is cleaned for speech first (`spoken::speech_text`): code marks,
+markdown emphasis, headings and list bullets go; a link is "a link", and a
+labelled link is its label; money, scales and percentages are words ("$3.4B"
+is "3.4 billion dollars", "12%" is "12 percent"), "->" and "=>" are "to", "#42"
+is "number 42" and "~5" is "about 5". The line shown on the call keeps the
+words as written. The marker is the only markup the agent is asked for.
+
+The latency of a call to a teammate is the teammate's: its first word waits on
+its model's first sentence. That is accepted. A desk call keeps its router:
+the call assistant answers what was said on the desk, hands work to teammates
+with `session.prompt`, and narrates their replies, as below.
+
+A desk call's dispatcher answers are spoken sentence by sentence as the model
+writes them, as one reply: one line growing under one `said` id, its audio
+continuing under that id and ending with an empty final clip, kept once on the
+`voice-dispatcher` tape when it is over (or when the person speaks over it,
+with what was said by then). A teammate's reply to work the desk handed it is
+narrated by the call assistant, plainly and briefly, when it is too long or
+too marked up to say as written.
+
+A direct call is a thread (`docs/threads.md`): everything said on it is kept in
+`calls/<id>.jsonl`, indexed for `search_thread`, linked from the teammate's DM
+and read back after the call ends. A call nobody has spoken on for ten minutes
 is ended by the room's sweep, and one a restart cut off is closed as stopped.
 The desk's own calls, which name no teammate, are not threads; they stay on the
 `voice-dispatcher` tape, which the dispatcher reads across calls.
-A request for work calls the front's one tool, `hand_to_session`, which hands
-the words to the teammate's session as a call without a front would, at most
-once per utterance; the front then says a short acknowledgement. When the
-model speaks before calling the tool, what it writes after the tool's result
-is not spoken, so the acknowledgement is said once. The session
-hears the call lines it has not yet been told (the person's and the voice's,
-not its own relayed reports) ahead of the person's exact words, framed as the
-call's; the conversation shows only the words. The front never claims work is
-done and never answers an approval. If the front fails before it decides, the
-words are handed over unchanged. A handoff that cannot start the teammate or
-reach its session is reported on the call.
-
-While the front speaks for the call, the teammate's own interim
-acknowledgements are not spoken, nor a turn that ends on a bare one; its
-reply at the end of the turn is. Replies
-to any turn handed off on this call are delivered, not only to the latest one,
-and longer replies are retold in the first person by the dispatcher's model,
-plainly and briefly, under the same voice rules, which summarises lists rather
-than reading them out.
-Short plain replies are spoken as written. Without a dispatcher, a direct call
-hands every utterance to the session and speaks its replies as before.
 
 A teammate may have its own voice (`Persona.voice`: provider, model and
 voice), picked on its card from the voices of the model the desk speaks with.
@@ -555,8 +598,10 @@ A reservation of nothing (a subscription, the desk's own engine, a signed-in
 call assistant) is never refused and never reads the ledger, so free voice
 runs even when the ledger cannot be read. `ready(kinds)` asks the same of
 the kinds a call would pay for before work starts: transcription and speech
-when their provider charges, the call assistant when it is billed per token
-(on a direct call, only when it speaks for the teammate). `voice.call_start`
+when their provider charges, and on a desk call the call assistant when it is
+billed per token. A call to a teammate pays for no call assistant; its turns
+are the teammate's own and are metered by its session, against Chat on a
+per-token key, as typed turns are. `voice.call_start`
 refuses a call whose paid budget is spent with that sentence; during a call
 a refused reservation ends it with the bundled budget line. A call that
 pays for nothing names no kinds, so no budget can end it.

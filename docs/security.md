@@ -167,8 +167,10 @@ internal origin and existing session grants as audio. The core rejects blank
 text, more than 8,000 characters/32,000 UTF-8 bytes, duplicate commits and input
 from the wrong mode before dispatch. Text carries no caller-supplied origin,
 new agent tools or authority. It requires output configuration only, reserves
-no remote STT spend, and retains the Chat and Voice budget gates for a
-billed call assistant and paid speech.
+no remote STT spend, and retains the Chat and Voice budget gates for a desk
+call's billed call assistant and paid speech. A direct call's text is a turn
+of the teammate's session with the session's own grants; the contract added
+after the words is text, not authority.
 
 Live PCM is negotiated, ordered and capped at 20 seconds/640,000 bytes,
 with 32 KiB frames, bounded queues and deadlines. Provider keys stay on the

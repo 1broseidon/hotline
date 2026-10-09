@@ -109,8 +109,10 @@ sidecar. No sidecar, no invented one.
 A direct voice call is a stream of its own, `calls/<callId>.jsonl`, named by the
 UUID the client minted for the call and checked like a side id. It has no
 segments and no sidecar. It holds the call's `link` (rewritten as the call goes),
-then the person's lines (`user`), what the voice said (`agent`) and the
-teammate's reports it retold (`agent` with `relayed: true`). It is kept after the
+then the person's lines (`user`) and what the teammate said on the call, its
+reply's spoken part (`agent`). A call recorded before 0.36 can also hold the
+reports its front retold (`agent` with `relayed: true`), read as any `agent`
+line. It is kept after the
 call ends, and the teammate's search index reads it as it does a side thread. A
 call with no teammate, a desk call, is not here: it is on the `voice-dispatcher`
 tape.

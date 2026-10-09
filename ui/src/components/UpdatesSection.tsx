@@ -57,7 +57,7 @@ export function UpdatesSection() {
 							<p className="text-sm text-ink-2" role="status">Downloading {mb(status?.downloaded ?? 0)}{status?.total ? ` of ${mb(status.total)}` : ""}…</p>
 						</div>}
 						{installing && <p className="text-sm text-ink-2" role="status">{phase === "restarting" ? "Restarting Hotline…" : "Installing… Complete any system permission prompt to continue."}</p>}
-						<p className="text-sm text-ink-3">Teammates must finish their work before updating. Conversations, settings, and providers are kept.</p>
+						<p className="text-sm text-ink-3">Waits for teammates to finish. Nothing is lost.</p>
 						<div className="flex items-center gap-2">
 							<button type="button" className="control btn-primary" disabled={busy || !!status?.disabledReason} onClick={() => void run(() => installUpdate(available.version))}>
 								{installing ? "Updating…" : downloading ? "Downloading…" : "Download, install and restart"}

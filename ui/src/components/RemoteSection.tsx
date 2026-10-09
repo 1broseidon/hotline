@@ -9,6 +9,36 @@ function cancelPairing(id: string) {
 	return wire.command("remote.pairing", { id, cancel: true }).catch(() => {});
 }
 
+/**
+ * Optional, and folded away until someone has one: the https address a
+ * tunnel, a reverse proxy or a forwarded port gives this desk. Phones learn
+ * it and try it after this computer's own addresses, so pairing still
+ * happens on the network the phone is standing in.
+ */
+function PublicAddress({ status, busy, onSave }: { status: RemoteStatus; busy: boolean; onSave: (url: string | null) => Promise<void> }) {
+	const saved = status.publicUrl ?? "";
+	const [text, setText] = useState(saved);
+	const port = status.endpoint ? new URL(status.endpoint).port : null;
+	const changed = text.trim() !== saved;
+	return (
+		<details className="group-hint">
+			<summary className="cursor-pointer">{saved ? <>Public address · <span className="break-all">{saved}</span></> : "Using a tunnel or your own domain?"}</summary>
+			<form className="mt-2 flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); void onSave(text.trim() || null); }}>
+				<p>
+					{port
+						? <>Optional. Point your tunnel at <code>https://localhost:{port}</code> (self-signed).</>
+						: "Optional. Turn Remote access on first."}
+				</p>
+				<div className="flex items-center gap-2">
+					<input className="field min-w-0 flex-1" type="url" inputMode="url" spellCheck={false} placeholder="https://desk.example.com" aria-label="Public address" value={text} disabled={busy} onChange={(e) => setText(e.target.value)} />
+					<button type="submit" className="control btn shrink-0" disabled={busy || !changed}>Save</button>
+					{saved && <button type="button" className="control btn-quiet shrink-0" disabled={busy} onClick={() => void onSave(null)}>Remove</button>}
+				</div>
+			</form>
+		</details>
+	);
+}
+
 export function RemoteSection() {
 	const [status, setStatus] = useState<RemoteStatus | null>(null);
 	const [pairing, setPairing] = useState<SealedPairing | null>(null);
@@ -120,7 +150,7 @@ export function RemoteSection() {
 				<div className="group-row">
 					<label className="group-row-text" htmlFor="remote-address">
 						<span className="group-row-title">Listen on</span>
-						<span className="group-row-detail">All host IPs by default. Choose one to limit access.</span>
+						<span className="group-row-detail">Which network phones use.</span>
 					</label>
 					<select id="remote-address" className="field max-w-56" value={host} disabled={busy || !status} onChange={(e) => void configure(status?.enabled ?? false, e.target.value)}>
 						<option value="all">All host IPs</option>
@@ -142,6 +172,9 @@ export function RemoteSection() {
 			</div>
 			{relay?.error && status?.enabled && <p className="group-hint">{relay.name}: {relay.error}</p>}
 			<p className="group-hint">Turning Remote off disconnects every phone.</p>
+			{status && <PublicAddress key={status.publicUrl ?? ""} status={status} busy={busy} onSave={(url) => run(async () => {
+				setStatus(await wire.command("remote.public_url", url ? { url } : {}));
+			})} />}
 			{status?.enabled && <details className="group-hint">
 				<summary className="cursor-pointer">Listening addresses</summary>
 				<ul className="mt-2 space-y-1">{status.endpoints.map((endpoint) => <li key={endpoint} className="break-all">{endpoint}</li>)}</ul>

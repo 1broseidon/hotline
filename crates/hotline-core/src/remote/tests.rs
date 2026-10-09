@@ -970,6 +970,89 @@ async fn all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls() 
 }
 
 #[tokio::test]
+async fn a_public_address_is_advertised_after_this_computers_own_and_never_replaces_the_pairing_address()
+ {
+    let h = Harness::new().await;
+    let before = h.remote.status();
+    assert_eq!(before.public_url, None);
+    let set = h
+        .remote
+        .set_public_url(Some("  https://Desk.Example.com/  "))
+        .unwrap();
+    assert_eq!(set.public_url.as_deref(), Some("https://desk.example.com"));
+    // This computer's own addresses lead; the public one follows them.
+    let own = before.endpoints.len();
+    assert_eq!(set.endpoints[..own], before.endpoints[..]);
+    assert_eq!(set.endpoints[own], "https://desk.example.com");
+    assert_eq!(set.endpoint, before.endpoint);
+    // Pairing still happens on the network the phone is standing in.
+    let pairing = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let pairing_url = url::Url::parse(&pairing.url).unwrap();
+    let paired_on = pairing_url
+        .query_pairs()
+        .find(|(key, _)| key == "u")
+        .unwrap()
+        .1;
+    assert_eq!(paired_on, before.endpoint.clone().unwrap());
+    // A port is kept; the default one is dropped as the origin spells it.
+    let ported = h
+        .remote
+        .set_public_url(Some("https://desk.example.com:8443"))
+        .unwrap();
+    assert_eq!(
+        ported.public_url.as_deref(),
+        Some("https://desk.example.com:8443")
+    );
+    assert_eq!(
+        h.remote
+            .set_public_url(Some("https://desk.example.com:443"))
+            .unwrap()
+            .public_url
+            .as_deref(),
+        Some("https://desk.example.com")
+    );
+    // Anything that is not a bare https origin is refused, and the kept one stays.
+    for refused in [
+        "http://desk.example.com",
+        "desk.example.com",
+        "https://desk.example.com/hotline",
+        "https://user:pass@desk.example.com",
+        "https://desk.example.com/?a=b",
+        "https://desk.example.com/#x",
+        "wss://desk.example.com",
+        "https://",
+    ] {
+        assert!(h.remote.set_public_url(Some(refused)).is_err(), "{refused}");
+        assert_eq!(
+            h.remote.status().public_url.as_deref(),
+            Some("https://desk.example.com")
+        );
+    }
+    // Kept with Remote off, advertised only while it is on, and kept across a restart.
+    let off = h.remote.configure(false, network::ALL).await.unwrap();
+    assert!(off.endpoints.is_empty());
+    assert_eq!(off.public_url.as_deref(), Some("https://desk.example.com"));
+    let restored = Remote::open_with_store(
+        h.root.path(),
+        h.desk.log.clone(),
+        h.desk.clone(),
+        h.store.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        restored.status().public_url.as_deref(),
+        Some("https://desk.example.com")
+    );
+    // Blank or none clears it.
+    for cleared in [Some("   "), None] {
+        h.remote
+            .set_public_url(Some("https://desk.example.com"))
+            .unwrap();
+        assert_eq!(h.remote.set_public_url(cleared).unwrap().public_url, None);
+    }
+}
+
+#[tokio::test]
 async fn a_saved_loopback_selection_migrates_to_all_host_ips() {
     let h = Harness::new().await;
     h.remote.configure(false, network::ALL).await.unwrap();

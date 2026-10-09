@@ -59,8 +59,8 @@ export function HotkeysSection() {
 			</div>
 			<p className="group-hint">
 				{dictation
-					? "They work from any app. Dictate brings Hotline forward: tap it to start and again to stop, or hold it while you talk. Conversation calls the open teammate hands-free, or hangs up."
-					: "It works from any app. Conversation calls the open teammate hands-free, or hangs up."}
+					? "Work from any app. Tap Dictate to start and stop, or hold it while you talk."
+					: "Works from any app. Calls the open teammate, or hangs up."}
 			</p>
 		</section>
 	);

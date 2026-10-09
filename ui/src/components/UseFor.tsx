@@ -221,7 +221,7 @@ export function UseFor({
 				)}
 				<SpendingRow spending={options.spending} onWrite={write} />
 			</div>
-			<p className="group-hint">Automatic picks the first eligible connected provider, subscriptions before paid keys; hearing uses a model on the desk first when one is downloaded. Dollar limits cover paid images and voice; zero disables paid usage. Subscription limits apply separately.</p>
+			<p className="group-hint">Subscriptions go before paid keys. A limit of 0 turns paid use off.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);

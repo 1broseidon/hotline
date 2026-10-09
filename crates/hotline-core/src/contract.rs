@@ -2776,6 +2776,13 @@ pub enum Command {
         #[serde(default)]
         desk_id: Option<String>,
     },
+    /// Keep the https address a tunnel or proxy gives this desk, for phones
+    /// away from home, or clear it with none or a blank one.
+    #[serde(rename = "remote.public_url")]
+    RemotePublicUrl {
+        #[serde(default)]
+        url: Option<String>,
+    },
     /// Start a sealed invitation, or poll/cancel its id.
     #[serde(rename = "remote.pairing")]
     RemotePairing {

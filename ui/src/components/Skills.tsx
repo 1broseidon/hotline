@@ -173,8 +173,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 							)}
 						</div>
 						<p className="group-hint">
-							Your own skills, in the folder other agents read too. Switch one on to offer it to teammates: each is granted it in
-							its pane and reads it fresh at every start. Nothing is copied here, and an entry that is not a skill says why.
+							Switch one on to offer it. Give it to a teammate in its pane.
 						</p>
 					</section>
 					<section>
@@ -191,8 +190,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 							)}
 						</div>
 						<p className="group-hint">
-							A skill from anywhere else: a folder holding SKILL.md with a name and a description, copied in. Every skill here is
-							offered; grant skills per teammate, in its pane.
+							Any folder with a SKILL.md, copied in and offered to every teammate.
 						</p>
 					</section>
 					<section>

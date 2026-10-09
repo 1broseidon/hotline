@@ -221,12 +221,7 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 							)}
 						</div>
 						<p className="group-hint">
-							A variable is an environment variable in a teammate's computer. A login is typed by the computer, only on the
-							login's own sites. A passkey is the teammate's own, made by its computer's browser while you watch, and it signs
-							in by itself. Every value is kept in this machine's keychain, written once and never shown again, here or to a
-							teammate; the computer redacts it from what its tools answer. Give one to a teammate in its pane, under its
-							computer. Take a passkey back from there, from here, or from the site's own security settings: any one of the
-							three ends it.
+							Kept in your keychain. Give one to a teammate's computer in its pane.
 						</p>
 					</section>
 					{refusal !== null && <Refusal message={refusal} />}

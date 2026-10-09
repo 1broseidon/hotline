@@ -11,8 +11,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 ### Added
 
 - When a new version is out, a small card in the window's bottom-right
-  corner says "Update available", with Update… to open Settings › Updates. Closing it hides
-  that version until a newer one arrives.
+  corner says "Update available", with Update… to open Settings › Updates.
+  Closing it hides that version until a newer one arrives.
+- Settings › Remote can keep an optional public address, folded under
+  "Using a tunnel or your own domain?". When Cloudflare Tunnel, ngrok or a
+  forwarded port gives the desk an https address, paired phones learn it and
+  use it away from home. Pairing still happens on your own network.
 
 ### Fixed
 

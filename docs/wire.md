@@ -1051,6 +1051,7 @@ Remote controls require an owner or local desk seat, used by the window and CLI:
 | `remote.configure` | `{enabled, host}` | `RemoteStatus`; a served address cannot change |
 | `remote.devices` | `{}` | `RemoteDevice[]` with roles and public keys, never secrets |
 | `remote.revoke` | `{deviceId}` | `RemoteStatus` after immediate revocation |
+| `remote.public_url` | `{url?}` | `RemoteStatus`; keeps an https origin for a tunnel or proxy, or clears it with none or blank; a served desk refuses |
 | `remote.pairing` | `{role?}` | `SealedPairing` with id, QR, URI and expiry; owner by default |
 | `remote.pairing` | `{id}` | paired device, or explicit JSON `null` while waiting |
 | `remote.pairing` | `{id, cancel: true}` | none; ends only the matching invitation |

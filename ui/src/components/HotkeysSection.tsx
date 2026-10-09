@@ -3,12 +3,12 @@ import { matchChord, withCurrentKeys, CHORDS } from "../chords";
 import { HOTKEYS, hotkeyFromPress, hotkeyLabel, setHotkey, setRecording, useHotkeyRefusals, useHotkeys, type HotkeyId } from "../hotkeys";
 import { CloseIcon } from "../icons";
 import { isDesktop, platform } from "../native";
-import { Picker } from "../ui/Menu";
+import { Chips } from "../ui/Chips";
 import { SEND_AFTER_MS, setAfterDictation, useAfterDictation, useDictationAvailable, type AfterDictation } from "../voice/dictation";
 
-const AFTER_CHOICES: { id: AfterDictation; name: string }[] = [
-	{ id: "leave", name: "Leave it in the box" },
-	{ id: "send", name: `Send after ${SEND_AFTER_MS / 1000} seconds` },
+const AFTER_CHOICES: { id: AfterDictation; name: string; title: string }[] = [
+	{ id: "leave", name: "Leave it", title: "The words stay in the box for you to send" },
+	{ id: "send", name: "Send it", title: `Sent ${SEND_AFTER_MS / 1000} seconds after you stop, unless you press Esc` },
 ];
 
 const HOLD = platform() === "macos" ? "Hold Control, Option or Command, then press a key." : "Hold Ctrl or Alt, then press a key.";
@@ -45,13 +45,7 @@ export function HotkeysSection() {
 								<span className="group-row-text">
 									<span className="group-row-title">After you stop talking</span>
 								</span>
-								<Picker
-									value={after}
-									choices={AFTER_CHOICES}
-									placeholder="Leave it in the box"
-									label="After you stop talking"
-									onChange={(id) => setAfterDictation(id as AfterDictation)}
-								/>
+								<Chips value={after} choices={AFTER_CHOICES} label="After you stop talking" onChange={setAfterDictation} />
 							</div>
 						)}
 					</Fragment>

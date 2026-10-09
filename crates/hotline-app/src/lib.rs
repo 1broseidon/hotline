@@ -316,10 +316,25 @@ pub fn run() {
             std::process::exit(1);
         }
     };
-    // Still before any thread starts (claiming starts none), which
-    // `set_var` requires.
+    // Launched from the Finder, the Start menu or a desktop launcher, the
+    // app's output goes nowhere. It goes to logs/hotline.log in the data
+    // directory instead, from here on, so the shell PATH's `[startup]` lines
+    // below are kept. Only this desk's own launch gets here, so a second
+    // launch never rotates the log the running one is writing.
+    let logging = match hotline_core::log_file::redirect(&root) {
+        Ok(logging) => logging,
+        Err(error) => {
+            eprintln!("[startup] the log could not be opened: {error}");
+            false
+        }
+    };
+    // Still before any thread starts (claiming starts none, and neither does
+    // the log), which `set_var` requires.
     #[cfg(unix)]
     shell_path::restore(&root);
+    if logging && let Err(error) = hotline_core::log_file::keep_capped(&root) {
+        eprintln!("[startup] the log will not be rotated while Hotline runs: {error}");
+    }
     // The keychain is this app's store, and a room made by `hotline serve
     // --store file` is refused rather than opened on an empty keychain.
     if let Err(error) =

@@ -63,6 +63,10 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   error card that names the command so you can try it in a terminal, and
   your next message to it tries again. Quitting Hotline now also stops
   any agent that was still starting, so none is left running.
+- The desktop app keeps a log, `logs/hotline.log` in its data folder,
+  with what it reports while starting up, why an agent failed to start,
+  and any crash message. It is capped at 5 MB, and the previous file is
+  kept as `hotline.log.1`.
 
 ## [0.35.1] - 2026-10-09
 

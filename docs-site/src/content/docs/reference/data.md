@@ -24,10 +24,21 @@ Set `HOTLINE_DATA_DIR` to put it somewhere else. Inside it:
 - `workspaces/`, the folders of teammates you did not give a folder to;
 - a full-text search index, rebuildable;
 - `cache/`, the day's copy of the agent registry;
+- `logs/hotline.log`, the desktop app's own log;
 - `updater.json`, the last update check.
 
 Back the directory up as a whole. Installing a new version of Hotline never
 touches it.
+
+## The log
+
+When something goes wrong, such as a teammate that never starts or an app that
+quit unexpectedly, look in `logs/hotline.log` in the data directory and attach
+it when you report the problem. It holds what the desktop app noticed while
+starting up, why an agent failed to start, and any crash message. Hotline writes
+no keys or tokens to it, and it is not the conversation; that stays in the tapes. It
+is capped at 5 MB, with the previous file kept as `hotline.log.1`. A server desk
+logs to its service's journal instead (`journalctl -u hotline`).
 
 ## The vault
 

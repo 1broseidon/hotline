@@ -1705,7 +1705,10 @@ impl Calls {
         interrupted: &CancellationToken,
         ended: &CancellationToken,
     ) -> Result<(), String> {
-        let sentences = sentences(text);
+        let sentences: Vec<String> = sentences(text)
+            .into_iter()
+            .filter(|sentence| !spoken::speech_text(sentence).is_empty())
+            .collect();
         if sentences.is_empty() {
             return Err("The dispatcher returned no words.".into());
         }
@@ -1767,7 +1770,7 @@ impl Calls {
         let mut index = 0;
         while let Some(sentence) = answers.recv().await {
             let sentence = sentence.trim();
-            if sentence.is_empty() {
+            if spoken::speech_text(sentence).is_empty() {
                 continue;
             }
             let (line, text) = lock(reply).add(sentence);
@@ -1853,7 +1856,7 @@ impl Calls {
         interrupted: &CancellationToken,
         ended: &CancellationToken,
     ) -> Result<(), String> {
-        let sentence = &speakable(sentence);
+        let sentence = &spoken::speech_text(sentence);
         if streaming {
             return tokio::select! {
                 _ = interrupted.cancelled() => Ok(()),
@@ -2254,25 +2257,7 @@ fn speech_ready(text: &str) -> bool {
         && text.chars().count() <= 320
         && sentences(text).len() <= 2
         && !text.contains(['`', '#', '*', '\n', '[', ']', '|'])
-        && speakable(text) == text
-}
-
-/// What is sent to speech: a link is said as its site, never spelled out
-/// character by character. The line shown on screen keeps the full link.
-fn speakable(text: &str) -> String {
-    static LINK: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r"(?i)\b(?:https?://|www\.)[^\s<>()]+").expect("fixed link regex")
-    });
-    LINK.replace_all(text, |link: &regex::Captures| {
-        let whole = &link[0];
-        // Punctuation that ends the sentence is not part of the link.
-        let link = whole.trim_end_matches(['.', ',', ';', ':', '!', '?']);
-        let rest = link.split_once("://").map_or(link, |(_, rest)| rest);
-        let host = rest.split(['/', '?', '#']).next().unwrap_or(rest);
-        let host = host.strip_prefix("www.").unwrap_or(host);
-        format!("{host}{}", &whole[link.len()..])
-    })
-    .into_owned()
+        && spoken::speech_text(text) == text
 }
 
 fn goodbye(text: &str) -> bool {

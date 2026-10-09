@@ -9,9 +9,13 @@
 //! setting, so Hotline Agent and an ACP agent read it alike, and never in the
 //! tape, so the conversation keeps the person's words as they said them.
 //!
-//! [`Spoken`] takes the part to say from a reply as it streams. [`Unmarked`]
-//! and [`unmarked`] take the marker out of what the chat shows, which is the
-//! whole reply.
+//! [`Spoken`] takes the part to say from a reply as it streams, and
+//! [`speech_text`] turns each sentence of it into what a person would say for
+//! it. [`Unmarked`] and [`unmarked`] take the marker out of what the chat
+//! shows, which is the whole reply.
+
+use regex::{Captures, Regex};
+use std::sync::LazyLock;
 
 /// Between what a reply on a call says and what it only shows.
 pub const MARKER: &str = "<<<ENDSPEAK>>>";
@@ -228,6 +232,71 @@ pub(crate) fn unmarked(text: &str) -> String {
     }
 }
 
+/// What is sent to speech for a sentence: the words a person would say for
+/// what is written. Markdown and code marks go, a link is said as "a link",
+/// and money, percentages and arrows are said as words. The line shown on the
+/// call keeps the text as it was written.
+pub(crate) fn speech_text(text: &str) -> String {
+    fn rule(pattern: &str) -> Regex {
+        Regex::new(pattern).expect("fixed speech rule")
+    }
+    static LABELLED_LINK: LazyLock<Regex> = LazyLock::new(|| rule(r"\[([^\]\n]+)\]\([^)\s]+\)"));
+    static LINK: LazyLock<Regex> = LazyLock::new(|| rule(r"(?i)\b(?:https?://|www\.)[^\s<>()]+"));
+    static LINE_MARK: LazyLock<Regex> =
+        LazyLock::new(|| rule(r"(?m)^\s*(?:#{1,6}\s+|>\s*|[-*+•]\s+|\d{1,3}[.)]\s+)"));
+    static CODE_MARK: LazyLock<Regex> = LazyLock::new(|| rule(r"```[A-Za-z0-9_+-]*|`|\*+|__|~~"));
+    static MONEY: LazyLock<Regex> =
+        LazyLock::new(|| rule(r"([$€£])\s?(\d+(?:,\d{3})*(?:\.\d+)?)(?:\s?(bn|[KkMBT])\b)?"));
+    static SCALED: LazyLock<Regex> =
+        LazyLock::new(|| rule(r"\b(\d+(?:,\d{3})*(?:\.\d+)?)(bn|[KkMBT])\b"));
+    static PERCENT: LazyLock<Regex> = LazyLock::new(|| rule(r"\s*%"));
+    static TOWARDS: LazyLock<Regex> = LazyLock::new(|| rule(r"\s*(?:->|=>|→|⇒)\s*"));
+    static NUMBER_SIGN: LazyLock<Regex> = LazyLock::new(|| rule(r"#(\d)"));
+    static ABOUT: LazyLock<Regex> = LazyLock::new(|| rule(r"(?:~|≈)\s*(\d)"));
+    static SPACES: LazyLock<Regex> = LazyLock::new(|| rule(r"\s+"));
+
+    fn scale(word: &str) -> &'static str {
+        match word {
+            "K" | "k" => "thousand",
+            "M" => "million",
+            "B" | "bn" => "billion",
+            _ => "trillion",
+        }
+    }
+
+    let text = LABELLED_LINK.replace_all(text, "$1");
+    let text = LINK.replace_all(&text, |link: &Captures| {
+        // Punctuation that ends the sentence is not part of the link.
+        let whole = &link[0];
+        let bare = whole.trim_end_matches(['.', ',', ';', ':', '!', '?']);
+        format!("a link{}", &whole[bare.len()..])
+    });
+    let text = LINE_MARK.replace_all(&text, "");
+    let text = CODE_MARK.replace_all(&text, "");
+    let text = MONEY.replace_all(&text, |money: &Captures| {
+        let amount = &money[2];
+        let (one, many) = match &money[1] {
+            "$" => ("dollar", "dollars"),
+            "€" => ("euro", "euros"),
+            _ => ("pound", "pounds"),
+        };
+        match money.get(3) {
+            Some(word) => format!("{amount} {} {many}", scale(word.as_str())),
+            None if amount == "1" => format!("1 {one}"),
+            None => format!("{amount} {many}"),
+        }
+    });
+    let text = SCALED.replace_all(&text, |number: &Captures| {
+        format!("{} {}", &number[1], scale(&number[2]))
+    });
+    let text = PERCENT.replace_all(&text, " percent");
+    let text = TOWARDS.replace_all(&text, " to ");
+    let text = NUMBER_SIGN.replace_all(&text, "number $1");
+    let text = ABOUT.replace_all(&text, "about $1");
+    let text = text.replace(" & ", " and ");
+    SPACES.replace_all(&text, " ").trim().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,5 +437,48 @@ mod tests {
         );
         assert_eq!(unmarked("No marker here."), "No marker here.");
         assert_eq!(unmarked("<<<ENDSPEAK>>>\nOnly shown."), "Only shown.");
+    }
+
+    #[test]
+    fn speech_is_what_a_person_would_say_for_the_text() {
+        for (written, spoken) in [
+            (
+                "Revenue hit $3.4B, up 12% -> a record.",
+                "Revenue hit 3.4 billion dollars, up 12 percent to a record.",
+            ),
+            (
+                "It costs $1 or €20, and £5M later.",
+                "It costs 1 dollar or 20 euros, and 5 million pounds later.",
+            ),
+            ("It came to $1,250,000.", "It came to 1,250,000 dollars."),
+            (
+                "We have 10k users and $2.5 bn in the bank.",
+                "We have 10 thousand users and 2.5 billion dollars in the bank.",
+            ),
+            ("See https://ketch.run/docs?x=1.", "See a link."),
+            (
+                "Read [the guide](https://example.com/guide) first.",
+                "Read the guide first.",
+            ),
+            (
+                "Run `cargo test` and **then** ship.",
+                "Run cargo test and then ship.",
+            ),
+            ("## Summary", "Summary"),
+            ("- The first item", "The first item"),
+            ("2. The second step", "The second step"),
+            (
+                "Fixed in PR #42 => merged",
+                "Fixed in PR number 42 to merged",
+            ),
+            (
+                "It takes ~5 minutes & a coffee.",
+                "It takes about 5 minutes and a coffee.",
+            ),
+            ("Check main.rs in v1.2.", "Check main.rs in v1.2."),
+            ("```rust", ""),
+        ] {
+            assert_eq!(speech_text(written), spoken, "{written}");
+        }
     }
 }

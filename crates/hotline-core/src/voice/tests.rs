@@ -2390,23 +2390,11 @@ async fn a_direct_call_pays_for_no_call_assistant() {
     calls.end(&id).unwrap();
 }
 
+/// A desk call's reply with a link in it is narrated, not read as written.
 #[test]
-fn a_link_is_said_as_its_site_and_shown_in_full() {
-    assert_eq!(
-        speakable(
-            "Here it is: https://ketch.run (GitHub repo: https://github.com/1broseidon/ketch)"
-        ),
-        "Here it is: ketch.run (GitHub repo: github.com)"
-    );
-    assert_eq!(
-        speakable("See www.example.com/docs?x=1."),
-        "See example.com."
-    );
-    assert_eq!(
-        speakable("Check main.rs in v1.2."),
-        "Check main.rs in v1.2."
-    );
+fn a_link_keeps_a_desk_reply_from_being_said_as_written() {
     assert!(!speech_ready("Here it is: https://ketch.run"));
+    assert!(speech_ready("The checks passed."));
 }
 
 /// A desk call's answer, streamed in sentences, is one line on the

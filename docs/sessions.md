@@ -311,7 +311,12 @@ servers** grants every configured server, including ones added later. Existing
 saved choices remain intact. Imported teammates without a valid saved policy
 get no gateway servers. Changing reach never changes an MCP grant.
 
-For an HTTP server marked OAuth 2.1, Settings → Tools discovers protected
+A server either runs **On this computer** (a command Hotline starts and talks
+to over stdio, with its environment written as `NAME=value` lines) or **At a
+URL** (HTTP), and an HTTP server **Signs in** with no sign-in, **With an
+account** (OAuth 2.1), a **Token** or a **Header**.
+
+For an HTTP server that signs in with an account, Settings → Tools discovers protected
 resource and authorization server metadata, requires advertised authorization
 code and PKCE S256 support, and opens a native loopback callback. The rmcp
 client performs DCR only when the server advertises a registration endpoint;

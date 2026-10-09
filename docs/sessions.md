@@ -517,7 +517,9 @@ offers browser sign-in: PKCE issues an API key, kept privately beside the
 login and passed to Rig's existing OpenRouter client. It uses the same
 OpenRouter models and billing as a pasted key. A saved
 `enabledModels` filter narrows what is offered, never the model a
-teammate is on.
+teammate is on. A provider's page sets it under **Models in the picker**:
+**All** is no filter, **Only some** lists the models with a switch each, the
+ones in use first, and every change saves at once.
 
 xAI also offers **Sign in with SuperGrok or X Premium+**. It uses xAI's device
 authorization page and stores access and refresh tokens privately. Hotline
@@ -616,7 +618,7 @@ for the next models.dev snapshot or Hotline release. Listed models can still
 have account or capability restrictions; the provider decides whether a
 request is allowed. A failed refresh preserves the last successful list.
 
-Use **Manual model IDs** on a connected provider's page to add an exact ID
+Use **A model by ID** on a connected provider's page to add an exact ID
 when discovery is unavailable or incomplete. Add and Remove save immediately;
 these entries survive refreshes and app upgrades. The model uses that
 connection's existing credentials and endpoint. Copilot manual IDs must also

@@ -8,7 +8,7 @@
 //! path. The model appears only when its directory is complete, by renaming
 //! it into place, so a crash or a cancel leaves no half model to load.
 
-use super::{FILES, FileHash, Installed, MANIFEST, Manifest, installed, models_dir, unload};
+use super::{Engine, FileHash, Installed, MANIFEST, Manifest, installed, models_dir, unload};
 use crate::contract::{SpeechModel, SpeechModelState};
 use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
@@ -26,46 +26,99 @@ use tokio_util::sync::CancellationToken;
 pub struct Model {
     pub id: String,
     pub name: String,
+    /// A word or two after the name in Settings, to choose by.
+    pub tag: Option<String>,
     pub detail: String,
+    pub engine: Engine,
     pub url: String,
+    /// What the archive's file names carry before the desk's own names:
+    /// Whisper's are `turbo-encoder.int8.onnx` and so on.
+    pub archive_prefix: String,
     /// Lowercase hex of the archive's SHA-256.
     pub sha256: String,
     pub download_bytes: u64,
     pub disk_bytes: u64,
     pub credit: String,
     pub licence_url: String,
+    /// A model offered here that hears more languages, by id, for Settings
+    /// to suggest to someone whose window is not in English while this is
+    /// the only one installed.
+    pub more_languages: Option<String>,
 }
 
 const RELEASES: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models";
 const CC_BY: &str = "https://creativecommons.org/licenses/by/4.0/";
 
-/// The models Hotline offers, the most accurate first: automatic hearing
-/// takes the first one installed.
+/// The models Hotline offers, in the order automatic hearing takes the first
+/// one installed: the multilingual Parakeet, Whisper, which hears more
+/// languages but takes ten times as long, then the English-only ones. For
+/// English, Parakeet English heard as well as Parakeet in people's own use,
+/// in a quarter of the time. Every one runs on the engine the desk links
+/// (sherpa-onnx 1.13.8); Moonshine is its first base model, because the 2026
+/// one fails in this engine on anything longer than a few seconds.
 pub fn catalogue() -> Vec<Model> {
     vec![
         Model {
             id: "parakeet-tdt-0.6b-v3".into(),
             name: "Parakeet".into(),
-            detail: "25 European languages, the most accurate".into(),
+            tag: Some("25 languages".into()),
+            detail: "25 European languages".into(),
+            engine: Engine::Transducer,
             url: format!("{RELEASES}/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"),
+            archive_prefix: String::new(),
             sha256: "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf".into(),
             download_bytes: 487_170_055,
             disk_bytes: 670_478_772,
             credit: "NVIDIA Parakeet TDT 0.6B v3, CC BY 4.0, quantized by sherpa-onnx".into(),
             licence_url: CC_BY.into(),
+            more_languages: None,
+        },
+        Model {
+            id: "whisper-large-v3-turbo".into(),
+            name: "Whisper".into(),
+            tag: Some("99 languages".into()),
+            detail: "99 languages, slower".into(),
+            engine: Engine::Whisper,
+            url: format!("{RELEASES}/sherpa-onnx-whisper-turbo.tar.bz2"),
+            archive_prefix: "turbo-".into(),
+            sha256: "b11acbbcd660b44a8e0df33724feb5aaa709cf65668f2823d59f656312544f22".into(),
+            download_bytes: 563_790_207,
+            disk_bytes: 1_036_613_791,
+            credit: "OpenAI Whisper large-v3-turbo, MIT, quantized by sherpa-onnx".into(),
+            licence_url: "https://github.com/openai/whisper/blob/main/LICENSE".into(),
+            more_languages: None,
         },
         Model {
             id: "parakeet-tdt-110m-en".into(),
             name: "Parakeet English".into(),
+            tag: Some("fast".into()),
             detail: "English only, small and quick".into(),
+            engine: Engine::Transducer,
             url: format!(
                 "{RELEASES}/sherpa-onnx-nemo-parakeet_tdt_transducer_110m-en-36000-int8.tar.bz2"
             ),
+            archive_prefix: String::new(),
             sha256: "f628312e9fdf8686374cb01a69425c41732529d540860311f16f37cbc32cfe9b".into(),
             download_bytes: 108_035_095,
             disk_bytes: 136_490_421,
             credit: "NVIDIA Parakeet TDT 110M, CC BY 4.0, quantized by sherpa-onnx".into(),
             licence_url: CC_BY.into(),
+            more_languages: Some("parakeet-tdt-0.6b-v3".into()),
+        },
+        Model {
+            id: "moonshine-base-en".into(),
+            name: "Moonshine".into(),
+            tag: Some("English only".into()),
+            detail: "English only".into(),
+            engine: Engine::Moonshine,
+            url: format!("{RELEASES}/sherpa-onnx-moonshine-base-en-int8.tar.bz2"),
+            archive_prefix: String::new(),
+            sha256: "21870cecaa2e44e4e2bf63e02d1072bed183ccd10284871353bd9d24dad14e5e".into(),
+            download_bytes: 250_807_309,
+            disk_bytes: 286_929_760,
+            credit: "Useful Sensors Moonshine Base, MIT, quantized by sherpa-onnx".into(),
+            licence_url: "https://github.com/usefulsensors/moonshine/blob/main/LICENSE".into(),
+            more_languages: None,
         },
     ]
 }
@@ -141,6 +194,7 @@ impl Installs {
                 SpeechModel {
                     id: model.id.clone(),
                     name: model.name.clone(),
+                    tag: model.tag.clone(),
                     detail: model.detail.clone(),
                     download_bytes: model.download_bytes,
                     disk_bytes: model.disk_bytes,
@@ -149,6 +203,7 @@ impl Installs {
                     state,
                     received_bytes: job.map(|job| job.received.load(Ordering::SeqCst)),
                     error: failures.get(&model.id).cloned(),
+                    more_languages: model.more_languages.clone(),
                 }
             })
             .collect();
@@ -157,6 +212,7 @@ impl Installs {
                 list.push(SpeechModel {
                     id: model.id,
                     name: model.name,
+                    tag: None,
                     detail: String::new(),
                     download_bytes: 0,
                     disk_bytes: 0,
@@ -165,6 +221,7 @@ impl Installs {
                     state: SpeechModelState::Installed,
                     received_bytes: None,
                     error: None,
+                    more_languages: None,
                 });
             }
         }
@@ -348,6 +405,7 @@ fn unpack(
     std::fs::create_dir_all(&staging).map_err(failed)?;
     let file = std::fs::File::open(archive).map_err(failed)?;
     let mut tar = tar::Archive::new(bzip2::read::BzDecoder::new(std::io::BufReader::new(file)));
+    let files = model.engine.files();
     let mut found: Vec<FileHash> = Vec::new();
     for entry in tar.entries().map_err(failed)? {
         let mut entry = entry.map_err(failed)?;
@@ -358,7 +416,8 @@ fn unpack(
         let Some(name) = path
             .file_name()
             .and_then(|name| name.to_str())
-            .and_then(|name| FILES.iter().find(|file| **file == name))
+            .and_then(|name| name.strip_prefix(model.archive_prefix.as_str()))
+            .and_then(|name| files.iter().find(|file| **file == name))
         else {
             continue;
         };
@@ -375,12 +434,13 @@ fn unpack(
             sha256,
         });
     }
-    if found.len() != FILES.len() {
+    if found.len() != files.len() {
         return Err("The download did not hold the model's files.".into());
     }
     let manifest = Manifest {
         id: model.id.clone(),
         name: model.name.clone(),
+        engine: model.engine,
         files: found,
     };
     std::fs::write(

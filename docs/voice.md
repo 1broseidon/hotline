@@ -177,7 +177,10 @@ an error, or the session's end. This Mac's engine is one adapter
 (`macEngine`), which turns its dBFS into a level. The desk's is another
 (`deskEngine`, `ui/src/voice/desk.ts`): the window opens the microphone
 through the call's audio (`ui/src/voice/audio.ts`), meters each block's
-RMS in dBFS onto the same 0 to 1 scale, and keeps the samples at 16 kHz.
+RMS in dBFS onto the same 0 to 1 scale, and keeps the samples at the
+microphone's rate. A clip is brought down to 16 kHz whole, as a call's
+utterance is: a block at a time would drop what is left over at the end of
+each 2048-frame block, two samples in every block at 48 kHz.
 The desk's model hears whole clips, so about once a second, while no
 answer is outstanding and something new was said, the window sends the
 clip so far to `voice.transcribe` and shows the words as the session's
@@ -229,50 +232,151 @@ The desk can turn speech into text itself, with no provider and no network
 links that release's prebuilt static library, onnxruntime inside, so it runs
 wherever the desk does (macOS arm64 and x86_64, Windows x64, Linux x64 and
 arm64) with nothing installed beside it. It adds about 18 MB to a stripped binary
-on a Mac and 26 to 30 MB on Linux. The models are NVIDIA's Parakeet transducers as sherpa-onnx exports
-them, quantized to eight bits, most accurate first:
+on a Mac and 26 to 30 MB on Linux. The one library runs all three kinds of
+model the desk offers, so no platform needs another library or feature for
+any of them. The models are sherpa-onnx's own exports, quantized to eight
+bits, from its `asr-models` release, in the order automatic hearing takes
+the first one installed:
 
-| Model | id | Hears | Download | On disk |
+| Model | Tag | id | Hears | Download | On disk | Licence |
+| -- | -- | -- | -- | -- | -- | -- |
+| Parakeet | 25 languages | `parakeet-tdt-0.6b-v3` | 25 European languages | 487 MB | 670 MB | CC BY 4.0 |
+| Whisper | 99 languages | `whisper-large-v3-turbo` | 99 languages | 564 MB | 1,037 MB | MIT |
+| Parakeet English | fast | `parakeet-tdt-110m-en` | English | 108 MB | 136 MB | CC BY 4.0 |
+| Moonshine | English only | `moonshine-base-en` | English | 251 MB | 287 MB | MIT |
+
+Parakeet and Parakeet English are NVIDIA's Parakeet TDT transducers;
+Whisper is OpenAI's large-v3-turbo; Moonshine is Useful Sensors' first
+Moonshine Base. The 2026 Moonshine Base in the same release fails in this
+engine on anything longer than a few seconds (an onnxruntime broadcast
+error in its decoder, which sherpa-onnx turns into an empty transcript), so
+it is not offered until the engine moves. Each licence asks for credit:
+Settings' Credits under the models names each model's maker, its licence
+and sherpa-onnx's quantization, and links the licence, and About credits
+them again with sherpa-onnx, ONNX Runtime and Symphonia.
+
+Measured on an M-series Mac, four threads, after the model is loaded, on
+the fixtures and on four longer clips made with macOS `say` (3 to 31
+seconds, with teammates' and product names in them); `local_speech_check`
+gives the same real-time factors:
+
+| Model | Real-time factor | Word errors | Names right | Loads in |
 | -- | -- | -- | -- | -- |
-| Parakeet | `parakeet-tdt-0.6b-v3` | 25 European languages | 487 MB | 670 MB |
-| Parakeet English | `parakeet-tdt-110m-en` | English | 108 MB | 136 MB |
+| Parakeet English | 0.017 | 1.5% | 15 of 18 | 0.25 s |
+| Moonshine | 0.012 to 0.019 | 5.9% | 8 of 18 | 0.2 s |
+| Parakeet | 0.062 | 4.0% | 11 of 18 | 0.55 s |
+| Whisper | 0.2 to 0.65 | 5.4% | 10 of 18 | 0.6 s |
 
-Both are CC BY 4.0, which asks for credit: each model's card in Settings
-names NVIDIA, the licence and sherpa-onnx's quantization, and links the
-licence.
+Parakeet's two rows listen for the names (below); without them Parakeet
+English heard 5 of 18 at 4.0%. Whisper costs about 1.5 seconds however short
+the clip, so it is the model for a language the others do not hear, not
+for speed. In use with real speech, Parakeet English heard English as well
+as Parakeet, in a quarter of the time, so for English it is the one to
+install.
 
 Nothing is installed until the owner asks. `voice.model_install` downloads
-the model's one archive from sherpa-onnx's `asr-models` release into
-`<data dir>/speech-models/<id>.download`, hashing it as it arrives; an archive
-that is not the size and SHA-256 pinned in `local/install.rs` is deleted
-before any of it is read. From a verified archive only the model's four files
-are taken, by name (`encoder.int8.onnx`, `decoder.int8.onnx`,
-`joiner.int8.onnx`, `tokens.txt`), whatever path the archive gives them; links
-and every other entry are skipped. They go into `<id>.unpacking/` beside a
-`model.json` recording each file's size and SHA-256, and the directory is
-renamed to `<id>/` once it is whole, so a model is all there or not there.
-What a run left half done is deleted when the desk starts; nothing resumes.
+the model's one archive into `<data dir>/speech-models/<id>.download`,
+hashing it as it arrives; an archive that is not the size and SHA-256
+pinned in `local/install.rs` is deleted before any of it is read. From a
+verified archive only the model's own files are taken, by name, whatever
+path the archive gives them; links and every other entry are skipped. A
+transducer's are `encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`
+and `tokens.txt`; Whisper's are its encoder, decoder and tokens, which the
+archive names with a `turbo-` in front and the desk keeps under the plain
+names; Moonshine's are `preprocess.onnx`, `encode.int8.onnx`,
+`uncached_decode.int8.onnx`, `cached_decode.int8.onnx` and `tokens.txt`.
+They go into `<id>.unpacking/` beside a `model.json` recording the kind of
+model and each file's size and SHA-256, and the directory is renamed to
+`<id>/` once it is whole, so a model is all there or not there. What a run
+left half done is deleted when the desk starts; nothing resumes.
 `voice.models` reports each model as `available`, `downloading` (with
-`receivedBytes`), `unpacking` or `installed`, with the last failure; the
-window asks again while a download runs. `voice.model_cancel` stops a
-download and throws away what arrived; `voice.model_remove` takes a model off
-the disk, and a call hearing with it finds it gone at its next utterance.
+`receivedBytes`), `unpacking` or `installed`, with its `tag` and the last
+failure; the window asks again while a download runs. `voice.model_cancel`
+stops a download and throws away what arrived; `voice.model_remove` takes a
+model off the disk, and a call hearing with it finds it gone at its next
+utterance.
 
 An installed model is a directory named for its id whose `model.json` lists
-every file at its size, so hearing never reads the download catalogue and a
-model the catalogue later drops still hears and can be removed. The engine is
-C++ behind a C API, and an exception it throws cannot be caught in Rust: it
-would stop the desk. Two inputs make it throw, and neither reaches it. Each
-file is hashed against its record the first time the model loads in a run,
-and a damaged model is refused with a sentence; and audio shorter than a
-tenth of a second is heard as nothing without running the model.
+its kind and every file at its size, so hearing never reads the download
+catalogue and a model the catalogue later drops still hears and can be
+removed. A `model.json` from before there were other kinds names none and is
+a transducer. The engine is C++ behind a C API, and an exception it throws
+cannot be caught in Rust: it would stop the desk. Two inputs make it throw,
+and neither reaches it. Each file is hashed against its record the first
+time the model loads in a run, and a damaged model is refused with a
+sentence; and audio shorter than a tenth of a second is heard as nothing
+without running the model. The engine also ends the process outright on
+some misuses, which the desk never makes: hotwords for a model that is not a
+transducer, a transducer set up for hotwords without its vocabulary file,
+and a hotword line in the engine's own syntax.
 
-One model is in memory at a time. It loads in about half a second (the first
-load of a run also hashes it: about a second more for Parakeet), holds about
-0.4 GB (English) or 1.2 GB (Parakeet), and is let go after five minutes
-unused. Decoding takes up to four threads and one utterance at a time. On an
-M5 Max, 2.4 seconds of speech is heard in about 40 ms by the English model
-and 155 ms by Parakeet.
+One model is in memory at a time. It is let go after five minutes unused,
+and decoding takes up to four threads and one utterance at a time. Whisper
+keeps only the first thirty seconds of a clip, and Moonshine repeats itself
+on a long one, so either hears a clip longer than 28 seconds in pieces, cut
+at the quietest tenth of a second in each piece's last eight seconds, and
+the pieces' words are joined.
+
+### Names it listens for
+
+A small model spells a name it does not know as the nearest common word:
+"Mac" for Mack, "Bricks" for Brix, "Grock" for Groq. A Parakeet model is
+told the words to expect (sherpa-onnx's hotwords, contextual biasing over
+modified beam search), and favours them while it decodes. The words go with
+each utterance (`create_stream_with_hotwords`), so a new teammate or a word
+added in Settings counts from the next utterance, with no reload. Whisper and
+Moonshine cannot be told; they hear as they would.
+
+The words, most wanted first, are the person's own (`voice.listenFor`),
+teammates' names, Hotline and Parakeet, the installed models' names, and
+the names of the connected providers. Each is kept to letters, digits and
+the marks inside names, a word given twice is kept once, and no more than 32
+are used: a word's first piece is favoured wherever a word could begin, and
+the engine does not take that back when the rest of the word does not
+follow, so a long list starts capitalising ordinary words that only begin
+like a name. On the clips 16 words cost nothing, 40 doubled the stray
+capitals and 157 quadrupled them. Each piece is favoured by 1.5,
+sherpa-onnx's default; 2.0 began turning "parka" into "Parka".
+
+Beam search is what can be biased, so a transducer always decodes with it
+(four paths): about a tenth slower than greedy decoding (Parakeet English's
+real-time factor 0.015 becomes 0.017), whatever the number of words. The
+engine's hotword encoder splits a word into pieces from a scored vocabulary,
+which the archives do not carry; the desk writes one beside the model
+(`bpe.vocab`) each time it loads it, from the verified `tokens.txt`, scoring
+every piece at about one so a word becomes the fewest pieces, as the model's
+own BPE mostly spells it. Scoring by merge order instead splits words into
+small pieces the model never emits, and Parakeet heard "Parakeek".
+
+### In Settings
+
+In the window the models are rows in Settings › Providers › Use for ›
+Transcription (`ui/src/components/DeskModels.tsx`), a fold under Voice that
+opens even when nothing can speak yet. Folded, it says what hears you now;
+while nothing can, it reads "None yet. Download a free speech model." with
+Set up. Open, it holds Transcribes with and the models, under one title,
+Free and private local models. The call assistant is a row of its own below
+the fold, whose line says it is only for calls to the desk, since a teammate
+answers its own calls. A row is the model's name with its tag after a dot
+(Parakeet English · fast), from the catalogue, and its Download button names
+the size; while it downloads the row shows how much has arrived over a bar
+and offers Cancel, and once installed it shows its size on the desk and
+offers Remove. While Parakeet English is the only model installed and the
+window's language is not English, its row adds one line, Parakeet hears
+more languages; in English it says nothing, since there Parakeet English
+hears as well. The window asks `voice.models` every half second while
+anything is downloading or unpacking, and asks for the options again when
+what is installed changes, so the Transcribes with picker gains or loses On
+the desk. A failed download's sentence takes the row's second line until
+the next try. Credits opens each model's credit with a link to its licence.
+
+Once a model is installed, Words to listen for is a fold under the models:
+closed it shows the words, open it is one field of words separated by
+commas, and Save writes them to `voice.listenFor`, keeping the rest of the
+voice setting. Its hint says Parakeet listens for them and for teammates'
+names, which are never typed.
+
+### The adapter
 
 The adapter is provider `local`, named On the desk, and hears `audio/wav`
 (mono PCM16 at any rate, which the engine resamples), `audio/mp4` (AAC,
@@ -281,26 +385,15 @@ so a phone that streams its microphone keeps streaming it. It takes at most a
 minute at a time and never speaks. Its price is zero, so a zero Voice
 budget never stops it.
 
-In the window the models are rows in Settings › Providers › Use for ›
-Hearing (`ui/src/components/DeskModels.tsx`), a fold under Voice that opens
-even when nothing can speak yet. Folded, it says what hears you now; while
-nothing can, it reads "None yet. Download a free speech model." with Set up.
-Open, it holds Hears with and the models. The call assistant is a row of its
-own below the fold, whose line says it is only for calls to the desk, since a
-teammate answers its own calls. A row says what the model hears and its download
-size, and its Download button names the size; while it downloads the row
-shows how much has arrived over a bar and offers Cancel, and once installed
-it shows its size on the desk and offers Remove. The window asks
-`voice.models` every half second while anything is downloading or unpacking,
-and asks for the options again when what is installed changes, so the
-Hearing picker gains or loses On the desk. A failed download's sentence takes
-the row's second line until the next try. Under the rows each model's credit
-links its licence, and About credits the models, sherpa-onnx, ONNX Runtime
-and Symphonia.
-
 `voice.transcribe` hears one clip outside any call, for dictation: with the
 model picked for hearing when that is one of the desk's, else the first
-installed. It asks no budget and keeps nothing.
+installed, listening for the same words as a call. It asks no budget and
+keeps nothing.
+
+`cargo run --release -p hotline-core --example local_speech_check -- <id>
+[clip.wav ...]` downloads a model from where the desk would, verifies,
+unpacks and loads it, and hears the fixtures and any clips given, printing
+each one's words, time and real-time factor.
 
 ## Providers
 

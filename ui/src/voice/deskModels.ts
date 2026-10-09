@@ -37,6 +37,19 @@ export function modelLine(model: SpeechModel): string {
 	}
 }
 
+/**
+ * The one line suggesting a model that hears more languages, for a window
+ * not in English, while `model` is the only one installed and the other is
+ * there to download. For English the small model hears as well, and faster.
+ */
+export function languageHint(model: SpeechModel, models: readonly SpeechModel[], language: string): string | null {
+	if (model.state !== "installed" || model.moreLanguages === undefined) return null;
+	if (language.toLowerCase().startsWith("en")) return null;
+	if (models.some((other) => other.id !== model.id && other.state === "installed")) return null;
+	const other = models.find((one) => one.id === model.moreLanguages && one.state === "available");
+	return other === undefined ? null : `${other.name} hears more languages`;
+}
+
 /** Whether the set of installed models differs, which changes what can hear. */
 export function installedChanged(before: readonly SpeechModel[], after: readonly SpeechModel[]): boolean {
 	const ids = (models: readonly SpeechModel[]) =>

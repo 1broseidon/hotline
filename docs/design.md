@@ -474,7 +474,12 @@ headless server, or a phone calling it, need not send what they say to a
 provider. It is sherpa-onnx with NVIDIA's Parakeet transducers: one C library
 with onnxruntime linked in statically, prebuilt for every platform Hotline
 ships, where whisper.cpp would mean building C++ in every job and a model that
-is slower on a CPU for the same accuracy. A model is half a gigabyte, so it is
+is slower on a CPU for the same accuracy. The same library runs Whisper, for
+the languages Parakeet does not hear, and Moonshine, so a second engine is
+never needed. A transducer is told the names it should expect (teammates',
+the person's own words) with each utterance, rather than its transcripts
+being corrected afterwards: a correction can only guess at a word the model
+already lost. A model is half a gigabyte, so it is
 never bundled: the owner downloads it once, the archive is pinned by hash, and
 until then nothing is installed. An installed model is automatic's first
 choice for hearing, before any paid key, because it is free and private and

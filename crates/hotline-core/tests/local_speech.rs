@@ -15,7 +15,7 @@ use axum::Router;
 use axum::body::{Body, Bytes};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
-use hotline_core::voice::speech::local::Model;
+use hotline_core::voice::speech::local::{self, Model};
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -124,13 +124,17 @@ fn offered(id: &str, url: String, bytes: &[u8]) -> Model {
     Model {
         id: id.into(),
         name: format!("Model {id}"),
+        tag: None,
         detail: "For the harness".into(),
+        engine: local::Engine::Transducer,
         url,
+        archive_prefix: String::new(),
         sha256: hex::encode(Sha256::digest(bytes)),
         download_bytes: bytes.len() as u64,
         disk_bytes: 1,
         credit: "Nobody, CC BY 4.0".into(),
         licence_url: "https://creativecommons.org/licenses/by/4.0/".into(),
+        more_languages: None,
     }
 }
 
@@ -349,6 +353,74 @@ async fn a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_t
     assert!(!installed.exists());
     let options = client.ask("capabilities.options", json!({})).await;
     assert!(!hearing_options(&options).contains(&"local".to_string()));
+}
+
+#[tokio::test]
+async fn a_whisper_archive_gives_its_prefixed_files_under_the_desks_own_names() {
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().join("data");
+    let packed = archive(&[
+        // A file of another kind's name is not one of this model's.
+        (
+            "sherpa-onnx-whisper-turbo/encoder.int8.onnx",
+            Some(b"decoy"),
+        ),
+        (
+            "sherpa-onnx-whisper-turbo/turbo-encoder.int8.onnx",
+            Some(b"encoder"),
+        ),
+        (
+            "sherpa-onnx-whisper-turbo/turbo-decoder.int8.onnx",
+            Some(b"decoder"),
+        ),
+        (
+            "sherpa-onnx-whisper-turbo/turbo-tokens.txt",
+            Some(b"tokens"),
+        ),
+        ("sherpa-onnx-whisper-turbo/test_wavs/0.wav", Some(b"RIFF")),
+    ]);
+    let url = serve(vec![("/whisper.tar.bz2", Some(packed.clone()))]).await;
+    let mut whisper = offered("whisper", format!("{url}/whisper.tar.bz2"), &packed);
+    whisper.engine = local::Engine::Whisper;
+    whisper.archive_prefix = "turbo-".into();
+    whisper.tag = Some("99 languages".into());
+    let mut english = offered("english", format!("{url}/missing.tar.bz2"), b"");
+    english.more_languages = Some("whisper".into());
+    let mut client = open(&data, vec![whisper, english]).await;
+
+    let models = client.models_until(|_| true).await;
+    assert_eq!(model(&models, "whisper")["tag"], "99 languages");
+    assert_eq!(model(&models, "english")["moreLanguages"], "whisper");
+    assert!(model(&models, "english").get("tag").is_none());
+
+    client
+        .ask("voice.model_install", json!({"modelId":"whisper"}))
+        .await;
+    client
+        .models_until(|models| model(models, "whisper")["state"] == "installed")
+        .await;
+    let dir = data.join("speech-models").join("whisper");
+    let mut files: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .collect();
+    files.sort();
+    assert_eq!(
+        files,
+        [
+            "decoder.int8.onnx",
+            "encoder.int8.onnx",
+            "model.json",
+            "tokens.txt"
+        ]
+    );
+    assert_eq!(
+        std::fs::read(dir.join("encoder.int8.onnx")).unwrap(),
+        b"encoder"
+    );
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("model.json")).unwrap()).unwrap();
+    assert_eq!(manifest["engine"], "whisper");
 }
 
 #[tokio::test]

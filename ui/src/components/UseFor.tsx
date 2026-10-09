@@ -5,6 +5,7 @@ import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { deviceTranscription } from "../voice/transcription";
 import { setHearOnThisMac, useHearOnThisMac } from "../voice/hearing";
+import { Fold } from "../ui/Fold";
 import { DeskModels } from "./DeskModels";
 
 /** The Transcription picker's own choice: this Mac, not a provider. Provider ids never start with a bar. */
@@ -18,6 +19,9 @@ import {
 	currentId,
 	effortChoices,
 	effortsOf,
+	listenForOf,
+	listenForPatch,
+	parseWords,
 	type PickerChoice,
 	shortModel,
 	splitPickId,
@@ -172,6 +176,9 @@ export function UseFor({
 							</JobRow>
 						)}
 						<DeskModels onInstalledChanged={onChanged} />
+						{options.stt.options.some((one) => one.providerId === ON_THE_DESK) && (
+							<ListenFor saved={listenForOf(voice)} onSave={(words) => write({ voice: listenForPatch(voice, words) })} />
+						)}
 					</>
 				)}
 				<JobRow title="Call assistant" detail="When calling the desk, use this assistant. Teammates use their configured model." job={options.dispatcher} wrap>
@@ -279,6 +286,44 @@ function currentVoiceId(job: CapabilityJob): string {
  * sentence that says what to connect. `always` stays when there is nothing
  * to pick, so what is under the row can still be opened.
  */
+/**
+ * The words the desk's own models listen for besides teammates' names:
+ * names and product words a small model would otherwise spell as the
+ * nearest common word (voice.md, Hearing on the desk).
+ */
+function ListenFor({ saved, onSave }: { saved: string[]; onSave(words: string[]): void }) {
+	const [open, setOpen] = useState(false);
+	const [text, setText] = useState(saved.join(", "));
+	const changed = parseWords(text).join("\n") !== saved.join("\n");
+	return (
+		<Fold
+			title="Words to listen for"
+			value={saved.length === 0 ? "None" : saved.join(", ")}
+			action={saved.length === 0 ? "Add" : "Change"}
+			open={open}
+			onToggle={() => {
+				setText(saved.join(", "));
+				setOpen((was) => !was);
+			}}
+		>
+			<form
+				className="flex items-center gap-2"
+				onSubmit={(event) => {
+					event.preventDefault();
+					onSave(parseWords(text));
+					setOpen(false);
+				}}
+			>
+				<input className="field min-w-0 flex-1" spellCheck={false} placeholder="Ophelia, Groq, Kubernetes" aria-label="Words to listen for" value={text} onChange={(event) => setText(event.target.value)} />
+				<button type="submit" className="control btn btn-primary shrink-0" disabled={!changed}>
+					Save
+				</button>
+			</form>
+			<p className="hint">Parakeet listens for these, separated by commas, and for your teammates' names.</p>
+		</Fold>
+	);
+}
+
 function JobRow({
 	title,
 	detail,

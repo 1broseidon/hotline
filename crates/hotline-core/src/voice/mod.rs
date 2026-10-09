@@ -456,15 +456,18 @@ impl Calls {
         let bytes = STANDARD
             .decode(data)
             .map_err(|_| "Audio must be standard base64.".to_string())?;
-        let picked = self
-            .settings()
+        let settings = self.settings();
+        let picked = settings
             .stt
+            .as_ref()
             .filter(|pick| pick.provider_id == local::PROVIDER_ID)
-            .and_then(|pick| pick.model_id);
-        let model = local::chosen(self.vault.root(), picked.as_deref())
+            .and_then(|pick| pick.model_id.as_deref());
+        let model = local::chosen(self.vault.root(), picked)
             .or_else(|| local::chosen(self.vault.root(), None))
             .ok_or("Download a speech model in Settings › Providers for the desk to hear you.")?;
+        let words = speech::listens_for(&self.vault, &settings);
         local::Local::new(model)
+            .listening_for(&words)
             .transcribe(Clip {
                 mime: mime.to_string(),
                 bytes,

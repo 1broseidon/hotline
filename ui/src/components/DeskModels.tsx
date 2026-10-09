@@ -3,7 +3,7 @@ import type { SpeechModel } from "../generated/contract";
 import { openLink } from "../native";
 import { Refusal } from "../ui/Refusal";
 import { noteDeskModels } from "../voice/desk";
-import { busy, installedChanged, megabytes, modelLine, progress } from "../voice/deskModels";
+import { busy, installedChanged, languageHint, megabytes, modelLine, progress } from "../voice/deskModels";
 import { wire } from "../wire";
 
 /** How often a download under way is asked after. */
@@ -58,6 +58,9 @@ export function DeskModels({ onInstalledChanged }: { onInstalledChanged(): void 
 	};
 
 	if (models === null || models.length === 0) return refusal === null ? null : <Refusal message={refusal} />;
+	const language = typeof navigator === "undefined" ? "en" : navigator.language;
+	const line = (model: SpeechModel) =>
+		model.error ?? [modelLine(model), languageHint(model, models, language) ?? ""].filter((part) => part !== "").join(" · ");
 	const credited = [...new Map(models.filter((model) => model.credit !== "").map((model) => [model.credit, model])).values()];
 	return (
 		<>
@@ -75,10 +78,13 @@ export function DeskModels({ onInstalledChanged }: { onInstalledChanged(): void 
 			{models.map((model) => (
 				<div key={model.id} className="group-row use-for-nested">
 					<span className="group-row-text min-w-0">
-						<span className="group-row-title">{model.name}</span>
-						{(model.error ?? modelLine(model)) !== "" && (
+						<span className="group-row-title">
+							{model.name}
+							{model.tag !== undefined && <span className="text-ink-3"> · {model.tag}</span>}
+						</span>
+						{line(model) !== "" && (
 							<span className="group-row-detail" style={model.error === undefined ? undefined : { whiteSpace: "normal" }}>
-								{model.error ?? modelLine(model)}
+								{line(model)}
 							</span>
 						)}
 						{model.state === "downloading" && (

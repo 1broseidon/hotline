@@ -2645,6 +2645,9 @@ pub enum SpeechModelState {
 pub struct SpeechModel {
     pub id: String,
     pub name: String,
+    /// A word or two shown after the name to choose by ("fast", "English only").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
     /// What it hears and how it trades accuracy for speed, in a few words.
     pub detail: String,
     pub download_bytes: u64,
@@ -2660,6 +2663,11 @@ pub struct SpeechModel {
     /// Why the last download failed, until the next one starts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The id of a model in this list that hears more languages, which
+    /// Settings suggests to someone whose window is not in English while
+    /// this one is the only one installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub more_languages: Option<String>,
 }
 
 /// What the desk's own model heard in one clip.

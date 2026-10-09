@@ -1342,6 +1342,10 @@ export type SlashCommand = { name: string, description?: string, hint?: string, 
  */
 export type SpeechModel = { id: string, name: string, 
 /**
+ * A word or two shown after the name to choose by ("fast", "English only").
+ */
+tag?: string, 
+/**
  * What it hears and how it trades accuracy for speed, in a few words.
  */
 detail: string, downloadBytes: number, 
@@ -1360,7 +1364,13 @@ receivedBytes?: number,
 /**
  * Why the last download failed, until the next one starts.
  */
-error?: string, };
+error?: string, 
+/**
+ * The id of a model in this list that hears more languages, which
+ * Settings suggests to someone whose window is not in English while
+ * this one is the only one installed.
+ */
+moreLanguages?: string, };
 
 /**
  * Where one of the desk's own speech models stands.

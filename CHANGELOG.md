@@ -8,6 +8,24 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- The desk's own speech models listen for names. Parakeet hears your
+  teammates' names, Hotline and the providers you use as names rather than
+  the nearest common word ("Mack", not "Mac"), and Settings › Providers ›
+  Transcription has Words to listen for, for anything else it should
+  expect. Changes count from the next thing you say.
+- Two more free local models: Whisper (large-v3-turbo, 99 languages, slower)
+  and Moonshine (English). Each model's row says what it is for in a word
+  or two after its name, and a window not in English with only Parakeet
+  English installed is told that Parakeet hears more languages.
+
+### Fixed
+
+- Dictation heard by the desk's model brings the microphone down to 16 kHz
+  in one piece, as a call does, instead of a block at a time, which dropped
+  a little of every block.
+
 ### Changed
 
 - On a call, a teammate is itself, not a quick model in front of it. What

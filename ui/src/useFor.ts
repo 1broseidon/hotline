@@ -170,6 +170,32 @@ export function voicePatch(current: unknown, job: "stt" | "tts" | "dispatcher", 
 	return Object.keys(voice).length === 0 ? null : voice;
 }
 
+/** The words to listen for as typed: split at commas and new lines, trimmed, each once. */
+export function parseWords(text: string): string[] {
+	const words: string[] = [];
+	for (const part of text.split(/[,\n]/)) {
+		const word = part.trim();
+		if (word !== "" && !words.some((one) => one.toLowerCase() === word.toLowerCase())) words.push(word);
+	}
+	return words;
+}
+
+/** The words `settings.voice` says to listen for (`listenFor`). */
+export function listenForOf(voice: unknown): string[] {
+	if (voice === null || typeof voice !== "object" || Array.isArray(voice)) return [];
+	const words = (voice as Record<string, unknown>).listenFor;
+	return Array.isArray(words) ? words.filter((word): word is string => typeof word === "string") : [];
+}
+
+/** `settings.voice` with its words to listen for replaced, keeping the rest; none takes the key away. */
+export function listenForPatch(current: unknown, words: string[]): Record<string, unknown> | null {
+	const voice: Record<string, unknown> =
+		current !== null && typeof current === "object" && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
+	if (words.length === 0) delete voice.listenFor;
+	else voice.listenFor = words;
+	return Object.keys(voice).length === 0 ? null : voice;
+}
+
 /**
  * Speech a sign-in pays for is listed under an id of its own, so voice can
  * say which it is using, but it comes from that provider's one connection.

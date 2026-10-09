@@ -20,6 +20,8 @@ const CREDITS = [
 		name: "CC BY 4.0",
 		licence: "https://creativecommons.org/licenses/by/4.0/",
 	},
+	{ what: "Speech model", who: "OpenAI Whisper large-v3-turbo, quantized by sherpa-onnx", name: "MIT", licence: "https://github.com/openai/whisper/blob/main/LICENSE" },
+	{ what: "Speech model", who: "Useful Sensors Moonshine Base, quantized by sherpa-onnx", name: "MIT", licence: "https://github.com/usefulsensors/moonshine/blob/main/LICENSE" },
 	{ what: "Speech engine", who: "sherpa-onnx, by k2-fsa", name: "Apache 2.0", licence: "https://github.com/k2-fsa/sherpa-onnx/blob/master/LICENSE" },
 	{ what: "Model runtime", who: "ONNX Runtime, by Microsoft", name: "MIT", licence: "https://github.com/microsoft/onnxruntime/blob/main/LICENSE" },
 	{ what: "AAC decoding", who: "Symphonia", name: "MPL 2.0", licence: "https://github.com/pdeljanov/Symphonia/blob/master/LICENSE" },
@@ -60,7 +62,7 @@ export function About({ onClose }: { onClose(): void }) {
 						<h3 className="group-title">Credits</h3>
 						<div className="grouped">
 							{CREDITS.map((credit) => (
-								<div key={credit.what} className="group-row">
+								<div key={credit.who} className="group-row">
 									<span className="group-row-text min-w-0">
 										<span className="group-row-title">{credit.what}</span>
 										<span className="group-row-detail" style={{ whiteSpace: "normal" }}>

@@ -7,8 +7,8 @@ import { Chips } from "../ui/Chips";
 import { SEND_AFTER_MS, setAfterDictation, useAfterDictation, useDictationAvailable, type AfterDictation } from "../voice/dictation";
 
 const AFTER_CHOICES: { id: AfterDictation; name: string; title: string }[] = [
-	{ id: "leave", name: "Leave it", title: "The words stay in the box for you to send" },
-	{ id: "send", name: "Send it", title: `Sent ${SEND_AFTER_MS / 1000} seconds after you stop, unless you press Esc` },
+	{ id: "send", name: "Send", title: `Sent ${SEND_AFTER_MS / 1000} seconds after you stop, unless you press Esc` },
+	{ id: "leave", name: "Don't send", title: "The words stay in the box for you to send" },
 ];
 
 const HOLD = platform() === "macos" ? "Hold Control, Option or Command, then press a key." : "Hold Ctrl or Alt, then press a key.";
@@ -43,9 +43,9 @@ export function HotkeysSection() {
 						{hotkey.id === "dictate" && (
 							<div className="group-row">
 								<span className="group-row-text">
-									<span className="group-row-title">After you stop talking</span>
+									<span className="group-row-title">After dictating</span>
 								</span>
-								<Chips value={after} choices={AFTER_CHOICES} label="After you stop talking" onChange={setAfterDictation} />
+								<Chips value={after} choices={AFTER_CHOICES} label="After dictating" onChange={setAfterDictation} />
 							</div>
 						)}
 					</Fragment>

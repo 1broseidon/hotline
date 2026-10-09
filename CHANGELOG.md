@@ -24,7 +24,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   teammate. Lists are rounded cards with roomier rows. A setting with a
   good default shows what it is now and opens only to change it (who new
   teammates think with, what computers run on, hearing). Two or three
-  options are chips instead of menus (theme, after you stop talking, how a
+  options are chips instead of menus (theme, after dictating, how a
   tool server runs and signs in). Hints are one line.
 - Tools keeps a web search key behind Add key instead of four key boxes,
   and a tool server's environment is written as NAME=value lines.

@@ -147,10 +147,9 @@ a time: starting another cancels the first, and a call that starts lets
 the dictation go, keeping its words. The empty composer offers no Dictate
 while a call is live.
 
-What happens next is Settings › General › Shortcuts › After you stop
-talking, kept per computer in `localStorage` under
-`hotline.dictation.after`. **Leave it**, the default, sends nothing.
-**Send it** counts down 1.5 seconds once a dictation the person
+What happens next is Settings › General › Shortcuts › After dictating,
+kept per computer in `localStorage` under `hotline.dictation.after`.
+**Don't send**, the default, sends nothing. **Send** counts down 1.5 seconds once a dictation the person
 stopped heard at least two characters besides spaces (`SendCountdown`):
 a line at the head of the composer reads "Sending to <name>…" beside a
 ring that fills over the wait, and "Esc to cancel". Escape, typing in the

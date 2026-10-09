@@ -11,9 +11,16 @@ export function limitsOf(budget: SpendingBudget): Limits {
 /** A limit as the row says it: none set is no limit, not zero. */
 export function limitText(budget: SpendingBudget): string {
 	if (budget.dayUsd === null && budget.monthUsd === null) return "No limit";
-	return [budget.dayUsd === null ? undefined : `${usd(budget.dayUsd)} a day`, budget.monthUsd === null ? undefined : `${usd(budget.monthUsd)} a month`]
+	// Either limit at 0 refuses every paid request, whatever the other says.
+	if (budget.dayUsd === 0 || budget.monthUsd === 0) return "Off";
+	return [budget.dayUsd === null ? undefined : `${dollars(budget.dayUsd)}/day`, budget.monthUsd === null ? undefined : `${dollars(budget.monthUsd)}/month`]
 		.filter(Boolean)
 		.join(", ");
+}
+
+/** A limit is a round figure more often than not: $10, not $10.00. */
+function dollars(amount: number): string {
+	return Number.isInteger(amount) ? `$${amount}` : usd(amount);
 }
 
 /** The whole `spending` setting with one budget's limits changed, so a write keeps the others. */

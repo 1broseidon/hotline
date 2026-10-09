@@ -179,10 +179,12 @@ describe("the three budgets", () => {
 	});
 	const spending = { budgets: [budget("chat", null, null), budget("voice", 10, 20), budget("images", 0, null)] };
 
-	test("a budget with nothing set says it has no limit, and 0 is a limit", () => {
+	test("a budget with nothing set says it has no limit, and a limit of 0 says it is off", () => {
 		expect(limitText(budget("chat", null, null))).toBe("No limit");
-		expect(limitText(budget("voice", 10, 20))).toBe("$10.00 a day, $20.00 a month");
-		expect(limitText(budget("images", 0, null))).toBe("$0.00 a day");
+		expect(limitText(budget("voice", 10, 20))).toBe("$10/day, $20/month");
+		expect(limitText(budget("chat", 2.5, null))).toBe("$2.50/day");
+		expect(limitText(budget("images", 0, null))).toBe("Off");
+		expect(limitText(budget("images", 5, 0))).toBe("Off");
 	});
 
 	test("changing one budget writes all three, keeping the others as they were", () => {

@@ -196,7 +196,7 @@ impl Room {
                 None
             } else {
                 Some(
-                    tokio::task::spawn_blocking(move || ledger.reserve(&current, estimate))
+                    tokio::task::spawn_blocking(move || ledger.reserve(&current.images, estimate))
                         .await
                         .map_err(|_| "The image's spending could not be reserved.".to_string())??,
                 )

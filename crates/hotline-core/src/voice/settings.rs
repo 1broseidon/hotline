@@ -1,8 +1,7 @@
 //! What the owner has said about voice, read from the room's `voice` setting:
 //!
 //! ```json
-//! { "dayUsd": 2, "monthUsd": 20,
-//!   "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
+//! { "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
 //!   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "marin" },
 //!   "fallbackTts": { "provider": "google" },
 //!   "dispatcher": { "provider": "openai", "model": "gpt-5-mini", "effort": "low" } }
@@ -11,16 +10,15 @@
 //! Every key is optional. A value that cannot be read costs its own
 //! preference and nothing else, like the other room settings.
 //!
-//! The caps are shared with images: when the owner has set `settings.spending`
-//! (`{ "dayUsd": 2, "monthUsd": 20 }`) its limits govern voice too, and
-//! `dayUsd` and `monthUsd` here are only the fallback for a room that never
-//! did. Voice and images still keep separate tallies of what they spent.
+//! What voice may spend comes from the room's `spending` setting: the Voice
+//! budget covers transcription and speech, and the Chat budget the call
+//! assistant. Neither has a limit unless the owner set one. A room that never
+//! set `spending` but kept the voice-only `dayUsd` and `monthUsd` of early
+//! versions here has those as its Voice limits.
 
+use crate::contract::{BudgetLimits, SpendingSettings};
 use crate::log::Log;
 use serde_json::{Map, Value};
-
-pub const DEFAULT_DAY_USD: f64 = 2.0;
-pub const DEFAULT_MONTH_USD: f64 = 20.0;
 
 /// The owner's pick for one job: a connected provider, and optionally the
 /// model and voice to use there instead of that provider's defaults.
@@ -33,10 +31,12 @@ pub struct Choice {
     pub effort: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct VoiceSettings {
-    pub day_usd: f64,
-    pub month_usd: f64,
+    /// The Chat budget's limits, which the call assistant spends against.
+    pub chat: BudgetLimits,
+    /// The Voice budget's limits, for transcription and speech.
+    pub voice: BudgetLimits,
     pub stt: Option<Choice>,
     pub tts: Option<Choice>,
     pub fallback_tts: Option<Choice>,
@@ -44,19 +44,6 @@ pub struct VoiceSettings {
     /// desk pick that provider's quickest model; without this the desk uses
     /// the room's default provider.
     pub dispatcher: Option<Choice>,
-}
-
-impl Default for VoiceSettings {
-    fn default() -> Self {
-        VoiceSettings {
-            day_usd: DEFAULT_DAY_USD,
-            month_usd: DEFAULT_MONTH_USD,
-            stt: None,
-            tts: None,
-            fallback_tts: None,
-            dispatcher: None,
-        }
-    }
 }
 
 impl VoiceSettings {
@@ -79,16 +66,27 @@ impl VoiceSettings {
             .get("voice")
             .and_then(Value::as_object)
             .unwrap_or(&empty);
-        let shared = settings.get("spending").and_then(Value::as_object);
-        // The shared caps win when they are there; a cap that cannot be read
-        // falls back to voice's own, then to the default.
-        let limit = |key: &str, default: f64| {
-            let own = cap(voice, key, default);
-            shared.map_or(own, |shared| cap(shared, key, own))
+        let (chat, voice_limits) = match settings.get("spending") {
+            Some(spending) => match serde_json::from_value::<SpendingSettings>(spending.clone())
+                .ok()
+                .filter(|spending| spending.validate().is_ok())
+            {
+                Some(spending) => (spending.chat, spending.voice),
+                // A spending setting that cannot be read turns paid chat and
+                // voice off rather than leaving them without limits.
+                None => {
+                    let off = BudgetLimits::new(Some(0.0), Some(0.0));
+                    (off, off)
+                }
+            },
+            None => (
+                BudgetLimits::default(),
+                BudgetLimits::new(cap(voice, "dayUsd"), cap(voice, "monthUsd")),
+            ),
         };
         VoiceSettings {
-            day_usd: limit("dayUsd", DEFAULT_DAY_USD),
-            month_usd: limit("monthUsd", DEFAULT_MONTH_USD),
+            chat,
+            voice: voice_limits,
             stt: choice(voice, "stt"),
             tts: choice(voice, "tts"),
             fallback_tts: choice(voice, "fallbackTts"),
@@ -97,13 +95,13 @@ impl VoiceSettings {
     }
 }
 
-/// Zero is a cap (voice is off); a negative or non-numeric one is not.
-fn cap(source: &Map<String, Value>, key: &str, default: f64) -> f64 {
+/// An early version's voice-only cap. Zero is a cap (paid voice is off); a
+/// negative or non-numeric one is none.
+fn cap(source: &Map<String, Value>, key: &str) -> Option<f64> {
     source
         .get(key)
         .and_then(Value::as_f64)
         .filter(|usd| usd.is_finite() && *usd >= 0.0)
-        .unwrap_or(default)
 }
 
 fn choice(voice: &Map<String, Value>, key: &str) -> Option<Choice> {
@@ -135,13 +133,11 @@ mod tests {
     }
 
     #[test]
-    fn a_room_that_never_set_voice_gets_the_default_caps_and_no_picks() {
-        assert_eq!(
-            VoiceSettings::from_room(&Map::new()),
-            VoiceSettings::default()
-        );
-        assert_eq!(VoiceSettings::default().day_usd, 2.0);
-        assert_eq!(VoiceSettings::default().month_usd, 20.0);
+    fn a_room_that_never_set_voice_or_spending_has_no_limits_and_no_picks() {
+        let settings = VoiceSettings::from_room(&Map::new());
+        assert_eq!(settings, VoiceSettings::default());
+        assert_eq!(settings.chat, BudgetLimits::default());
+        assert_eq!(settings.voice, BudgetLimits::default());
     }
 
     #[test]
@@ -153,8 +149,8 @@ mod tests {
             "tts": {"provider": "openai", "model": " gpt-4o-mini-tts ", "voice": "cedar"},
             "fallbackTts": {"provider": "google", "voice": ""},
         })));
-        assert_eq!(settings.day_usd, 0.5);
-        assert_eq!(settings.month_usd, 7.0);
+        assert_eq!(settings.voice, BudgetLimits::new(Some(0.5), Some(7.0)));
+        assert_eq!(settings.chat, BudgetLimits::default());
         assert_eq!(
             settings.stt,
             Some(Choice {
@@ -210,19 +206,29 @@ mod tests {
     }
 
     #[test]
-    fn the_shared_spending_caps_win_over_voices_own() {
+    fn the_spending_setting_replaces_voices_own_caps() {
         let mut settings = room(json!({"dayUsd": 5, "monthUsd": 50}));
+        settings.insert(
+            "spending".into(),
+            json!({"chat": {"dayUsd": 1}, "voice": {"monthUsd": 3}, "images": {}}),
+        );
+        let voice = VoiceSettings::from_room(&settings);
+        assert_eq!(voice.chat, BudgetLimits::new(Some(1.0), None));
+        assert_eq!(voice.voice, BudgetLimits::new(None, Some(3.0)));
+        // The shared limits of earlier versions are voice's, and chat's none.
         settings.insert("spending".into(), json!({"dayUsd": 0.25, "monthUsd": 3}));
         let voice = VoiceSettings::from_room(&settings);
-        assert_eq!((voice.day_usd, voice.month_usd), (0.25, 3.0));
-        // One the shared setting cannot give falls back to voice's own.
+        assert_eq!(voice.voice, BudgetLimits::new(Some(0.25), Some(3.0)));
+        assert_eq!(voice.chat, BudgetLimits::default());
+        // One that cannot be read turns paid use off.
         settings.insert("spending".into(), json!({"dayUsd": -1, "monthUsd": 3}));
         let voice = VoiceSettings::from_room(&settings);
-        assert_eq!((voice.day_usd, voice.month_usd), (5.0, 3.0));
+        assert!(voice.voice.off() && voice.chat.off());
         // With no spending setting at all, voice's own caps stand.
         settings.remove("spending");
         let voice = VoiceSettings::from_room(&settings);
-        assert_eq!((voice.day_usd, voice.month_usd), (5.0, 50.0));
+        assert_eq!(voice.voice, BudgetLimits::new(Some(5.0), Some(50.0)));
+        assert_eq!(voice.chat, BudgetLimits::default());
     }
 
     #[test]
@@ -233,8 +239,7 @@ mod tests {
             "stt": "groq",
             "tts": {"model": "gpt-4o-mini-tts"},
         })));
-        assert_eq!(settings.day_usd, 0.0);
-        assert_eq!(settings.month_usd, DEFAULT_MONTH_USD);
+        assert_eq!(settings.voice, BudgetLimits::new(Some(0.0), None));
         assert_eq!(settings.stt, None);
         assert_eq!(settings.tts, None);
         assert_eq!(
@@ -242,8 +247,8 @@ mod tests {
             VoiceSettings::default()
         );
         assert_eq!(
-            VoiceSettings::from_room(&room(json!({"dayUsd": "2"}))).day_usd,
-            DEFAULT_DAY_USD
+            VoiceSettings::from_room(&room(json!({"dayUsd": "2"}))).voice,
+            BudgetLimits::default()
         );
     }
 }

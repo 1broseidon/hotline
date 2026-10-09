@@ -364,25 +364,42 @@ Only changing whether a computer is enabled reattaches the teammate; limit,
 image and mount edits apply on the next container creation, not a restart of
 an existing container. Secret-grant edits are handed to a running computer.
 
-`capabilities.options` feeds Settings > Providers > Use for, and reads the same
-connections `images.status` and `voice.status` resolve from. Its spending
-figures are the caps in `settings.spending`, which govern images and voice
-alike, and the sum of the image tally and voice's own tally, which are still two
-separate files. The `stt` and `tts` options are every speech model each
+`capabilities.options` feeds Settings > Providers > Use for and Settings >
+Budgets, and reads the same connections `images.status` and `voice.status`
+resolve from. Its `spending` is `CapabilitySpending`
+`{budgets: SpendingBudget[], unavailable?}`: always the `chat`, `voice` and
+`images` budgets in that order, each
+`{kind, dayUsd: number|null, monthUsd: number|null, spentDayUsd, spentMonthUsd, lines}`.
+A `null` limit is no limit. `lines` say what the spend went on:
+`teammates` and `callAssistant` for chat, `transcription` and `speech` for
+voice, none for images. Chat and voice come from voice's tally
+(`voice-ledger.json`), images from the image tally (`spending.json`);
+`unavailable` is set when either cannot be read. The `stt` and `tts` options are every speech model each
 connected provider offers, as the provider lists them (cached for a day; the
 provider's default when it cannot be asked), with voices on each speaking
 model and the default model first; see `docs/voice.md`. The command may wait on
-those lists for up to five seconds; starting a call does not. Voice reads `settings.spending` when the owner has set it and
-falls back to `settings.voice.dayUsd` and `monthUsd` otherwise.
+those lists for up to five seconds; starting a call does not. Voice reads
+`settings.spending` when the owner has set it. A room that never set it but
+kept an early version's `settings.voice.dayUsd` and `monthUsd` has those as
+its Voice limits, and no others.
 
 `images` is an `ImageSettings` object `{provider?: string, model?: string}`,
 defaulting to `{}`. An omitted provider selects the first connected provider
 that can make images, on its default model; a model is used only with an
 explicit provider. An unavailable explicit provider is reported rather than
-silently switched. `spending` is a `SpendingSettings` object
-`{dayUsd: number, monthUsd: number}`, defaulting to `$2` per UTC day and `$20`
-per UTC month. Omitted spending fields take their defaults; each limit must
-be finite and non-negative, and either zero limit disables spending. Each object replaces
+silently switched. `spending` is a `SpendingSettings` object with a budget
+each for `chat` (teammates and the call assistant), `voice` (transcription
+and speech) and `images`, each `{dayUsd?: number, monthUsd?: number}`:
+
+```json
+{"chat": {"dayUsd": 5, "monthUsd": 50}, "voice": {"dayUsd": 10}, "images": {}}
+```
+
+An absent or `null` limit is no limit, and the default is no limits at all.
+Each limit must be finite and non-negative; zero turns that budget's paid use
+off. The shared `{dayUsd, monthUsd}` earlier versions wrote is still
+accepted, as the voice and images limits with chat unlimited, and is stored
+in the new shape; mixing it with budget keys is refused. Each object replaces
 the whole setting rather than merging its fields. Top-level `null` restores
 the whole object's defaults. Image selections must be non-blank strings when
 present. Both objects are typed and validated before any key in an update is
@@ -1109,13 +1126,14 @@ Speech comes from connected providers. By default the dispatcher uses the room's
 default provider and prefers its lightweight chat models, excluding speech,
 embedding, image and audio model IDs. `settings.voice.dispatcher` can select a
 provider and model explicitly; catalogues supply no measured latency ranking.
-`settings.voice` also selects speech models, voices and spending caps; see
+`settings.voice` also selects speech models and voices; what voice may spend
+is the Voice and Chat budgets of `settings.spending`. See
 [Voice providers and settings](voice.md).
 No extra speech credential is created.
 
 | Command | Params | Result |
 | --- | --- | --- |
-| `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and budget |
+| `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and `budget`, the Voice budget's limits (`dayUsd`, `monthUsd`, absent when none) and what transcription and speech spent |
 | `voice.call_start` | `{callId,personaId?,streamAudio?,inputMode?:"audio"\|"text"}` | `VoiceCall`: call id, accepted input formats, primary output format, echoed `inputMode`, and optional echoed `personaId` |
 | `voice.text` | `{callId,seq,text}` | void; one finalized device transcript on a negotiated text call |
 | `voice.audio` | `{callId,seq,index,data,final}` | void; negotiated mono PCM16 at 16 kHz |
@@ -1230,7 +1248,14 @@ Each `clip.mimeType` describes that clip, including bundled and fallback clips;
 One failed utterance speaks a bundled “Sorry, say that again.” and returns to
 `listening` (or stays held). Three consecutive failed work items end with a
 bundled explanation and reason `error`; success resets that count. Budget
-failure ends immediately with its bundled line. Failed goodbye synthesis uses
+failure ends immediately with its bundled line. Only a budget the call pays
+into can end it: transcription and speech on a provider that charges spend
+the Voice budget, and a call assistant billed per token the Chat budget. A
+call heard, spoken and answered for free runs whatever the budgets say. At
+`voice.call_start` a call whose paid part's budget is spent or zero is
+refused with a sentence naming it ("The Voice budget for today is spent.
+Raise it in Settings › Budgets."); during a call it ends with reason `budget`
+when a reservation is refused. Failed goodbye synthesis uses
 a bundled “Goodbye.” and still ends with reason `goodbye`. The whole-utterance
 farewell bypass requires at least 400 ms of audio and one byte per millisecond;
 shorter or sparser clips follow the dispatcher path. This size/duration check

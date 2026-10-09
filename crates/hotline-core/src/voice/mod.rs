@@ -9,8 +9,8 @@ pub mod settings;
 pub mod speech;
 
 use crate::contract::{
-    SpeechModel, VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceInputMode, VoiceModel,
-    VoiceState, VoiceStatus,
+    BudgetKind, SpeechModel, VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceInputMode,
+    VoiceModel, VoiceState, VoiceStatus,
 };
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -58,29 +58,33 @@ struct CallSpeech {
 }
 
 /**
- * A cap with nothing left turns paid voice off. A call that would hear or
- * speak through a provider that charges cannot run then: it would be
- * refused at its first reservation. One heard and spoken for free — a
- * subscription, or the desk's own engine — runs whatever the caps say.
+ * The kinds of paid work a call can do, each spent against its own budget:
+ * hearing and speaking against Voice when their provider charges, and the
+ * call assistant against Chat when its model is billed per token. A call
+ * heard, spoken and answered for free (a subscription, the desk's own
+ * engine, a signed-in model) names none, so no budget can stop it.
  */
-fn paid_voice_off(budget: &ledger::Budget, speech: Option<&CallSpeech>) -> Option<String> {
-    let speech = speech?;
-    let none_left =
-        budget.spent_day_usd >= budget.day_usd || budget.spent_month_usd >= budget.month_usd;
-    (none_left && !speech.free()).then(|| {
-        "Paid voice is off: there is no spending limit left. Raise the limit, or use a free voice.".to_string()
-    })
+fn paid_kinds(speech: Option<&CallSpeech>, assistant: Option<&dyn Dispatcher>) -> Vec<Kind> {
+    let mut kinds = Vec::new();
+    if let Some(speech) = speech {
+        if speech
+            .stt
+            .as_ref()
+            .is_some_and(|stt| !ledger::is_free(&stt.id().provider_id))
+        {
+            kinds.push(Kind::Stt);
+        }
+        if !ledger::is_free(&speech.tts.id().provider_id) {
+            kinds.push(Kind::Tts);
+        }
+    }
+    if assistant.is_some_and(|assistant| !assistant.free()) {
+        kinds.push(Kind::Dispatcher);
+    }
+    kinds
 }
 
 impl CallSpeech {
-    /** Whether hearing and speaking both cost nothing; a paid fallback voice is never used for a free one. */
-    fn free(&self) -> bool {
-        self.stt
-            .as_ref()
-            .is_none_or(|stt| ledger::is_free(&stt.id().provider_id))
-            && ledger::is_free(&self.tts.id().provider_id)
-    }
-
     fn audio(speech: SpeechSet) -> Self {
         Self {
             stt: Some(speech.stt),
@@ -413,9 +417,28 @@ impl Calls {
         ProviderDispatcher::resolve(self.vault.clone(), &self.log)
     }
 
-    /// What voice has spent so far against its caps, from its own tally.
-    pub(crate) fn balance(&self) -> ledger::Budget {
-        self.ledger.balance()
+    /// The desk's voice and call-assistant budget.
+    pub(crate) fn budget(&self) -> Arc<Budget> {
+        self.ledger.clone()
+    }
+
+    /// The call assistant a call uses: always on a desk call, and on a direct
+    /// call only when it speaks for the teammate.
+    fn assistant_for(&self, target: Option<&str>) -> Option<Arc<dyn Dispatcher>> {
+        self.dispatcher()
+            .ok()
+            .filter(|dispatcher| target.is_none() || dispatcher.fronts())
+    }
+
+    /// Whether the call's paid work may go on: each budget it spends against
+    /// has something left.
+    fn ready_for(&self, id: &str) -> Result<(), String> {
+        let speech = self.speech_for(id)?;
+        let target = self.change(id, |call| Ok(call.target.clone()))?;
+        let assistant = self.assistant_for(target.as_deref());
+        self.ledger
+            .ready(&paid_kinds(Some(&speech), assistant.as_deref()))
+            .map_err(|_| BUDGET_ERROR.to_string())
     }
 
     pub fn status(&self) -> VoiceStatus {
@@ -423,15 +446,29 @@ impl Calls {
     }
 
     pub fn status_for(&self, input_mode: VoiceInputMode) -> VoiceStatus {
-        let budget = self.ledger.balance();
         let speech = self.resolve_speech(input_mode, None);
         let dispatcher = self.dispatcher();
         let budget_error = self
             .ledger
-            .check()
+            .ready(&paid_kinds(
+                speech.as_ref().ok(),
+                dispatcher.as_deref().ok(),
+            ))
             .err()
-            .map(|e| e.to_string())
-            .or_else(|| paid_voice_off(&budget, speech.as_ref().ok()));
+            .map(|e| e.to_string());
+        let limits = self.ledger.limits(BudgetKind::Voice);
+        let spent = self.ledger.spent();
+        // A tally that cannot be read reports its limits spent.
+        let (spent_day_usd, spent_month_usd) = match spent {
+            Ok(spent) => (
+                spent.day.budget(BudgetKind::Voice),
+                spent.month.budget(BudgetKind::Voice),
+            ),
+            Err(_) => (
+                limits.day_usd.unwrap_or(0.0),
+                limits.month_usd.unwrap_or(0.0),
+            ),
+        };
         let direct_available = speech.is_ok() && budget_error.is_none();
         let unavailable = speech
             .as_ref()
@@ -455,10 +492,10 @@ impl Calls {
                 .and_then(|s| s.fallback_tts.as_ref().map(|s| model(s.id()))),
             dispatcher: dispatcher.as_ref().ok().map(|d| d.id()),
             budget: VoiceBudget {
-                day_usd: budget.day_usd,
-                month_usd: budget.month_usd,
-                spent_day_usd: budget.spent_day_usd,
-                spent_month_usd: budget.spent_month_usd,
+                day_usd: limits.day_usd,
+                month_usd: limits.month_usd,
+                spent_day_usd,
+                spent_month_usd,
             },
         }
     }
@@ -511,10 +548,11 @@ impl Calls {
             if target.is_none() {
                 self.dispatcher()?;
             }
-            self.ledger.check().map_err(|e| e.to_string())?;
-            if let Some(off) = paid_voice_off(&self.ledger.balance(), Some(&speech_services)) {
-                return Err(off);
-            }
+            // Only the budgets this call would pay into can refuse it.
+            let assistant = self.assistant_for(target.as_deref());
+            self.ledger
+                .ready(&paid_kinds(Some(&speech_services), assistant.as_deref()))
+                .map_err(|e| e.to_string())?;
             for call in calls
                 .iter_mut()
                 .filter(|call| call.state != VoiceState::Ended)
@@ -1130,8 +1168,8 @@ impl Calls {
                     }
                 }
             };
-            let budget_failed = self.ledger.check().is_err()
-                || result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR);
+            // A refused reservation is what ends a call on its budget.
+            let budget_failed = result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR);
             if !context.cancel.is_cancelled() {
                 if budget_failed {
                     self.system_line(&id, BUDGET_LINE, include_bytes!("assets/budget.wav"), None);
@@ -1280,7 +1318,7 @@ impl Calls {
             let _ = self.finish(id, VoiceEndReason::Goodbye);
             return Ok(());
         }
-        self.ledger.check().map_err(|_| BUDGET_ERROR.to_string())?;
+        self.ready_for(id)?;
         let origin = Origin {
             call_id: id.into(),
             seq,
@@ -1640,7 +1678,7 @@ impl Calls {
         delivery: &Delivery,
         speech: &CancellationToken,
     ) -> Result<(), String> {
-        self.ledger.check().map_err(|_| BUDGET_ERROR.to_string())?;
+        self.ready_for(id)?;
         // The call's own voice already acknowledged the request; a turn that
         // ends on the teammate's bare "on it" would say it twice.
         if acknowledgement(&delivery.text)
@@ -2021,8 +2059,11 @@ impl Calls {
         if origin.is_some_and(|origin| origin.direct)
             || !from_voice
             || self.resolve_speech(VoiceInputMode::Text, None).is_err()
-            || self.dispatcher().is_err()
-            || self.ledger.check().is_err()
+            || self.dispatcher().map_or(true, |assistant| {
+                self.ledger
+                    .ready(&paid_kinds(None, Some(assistant.as_ref())))
+                    .is_err()
+            })
         {
             return false;
         }

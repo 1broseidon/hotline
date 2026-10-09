@@ -3,30 +3,31 @@
 //! a new connection: a provider is offered only if it is already connected.
 
 use crate::contract::{
-    CapabilityJob, CapabilityModel, CapabilityOptions, CapabilityPick, CapabilityProvider,
-    CapabilitySpending,
+    BudgetKind, CapabilityJob, CapabilityModel, CapabilityOptions, CapabilityPick,
+    CapabilityProvider, CapabilitySpending, SpendingBudget, SpendingKind, SpendingLine,
 };
 use crate::imagegen::{self, ImageSettings};
 use crate::log::Log;
 use crate::spending::{SpendingSettings, SpendingSummary};
 use crate::vault::Vault;
 use crate::voice::dispatcher::{ProviderDispatcher, is_chat};
-use crate::voice::ledger::Budget;
+use crate::voice::metering::Budget;
 use crate::voice::settings::{Choice, VoiceSettings};
 use crate::voice::speech;
 use serde_json::{Map, Value};
 use std::sync::Arc;
 
 /// The options for every job, with the choice made and what automatic would
-/// pick now. `images_spent` is the image tally and `voice_spent` voice's own;
-/// the two are kept apart on disk, so the spending shown is their sum.
+/// pick now. `images_spent` is the image tally, and `voice` the budget that
+/// keeps the tally of voice and the call assistant.
 pub async fn options(
     vault: &Arc<Vault>,
     log: &Log,
     images_spent: Result<SpendingSummary, String>,
-    voice_spent: Budget,
+    voice: &Budget,
 ) -> CapabilityOptions {
     let settings = crate::room::settings(log);
+    let voice_budget = voice;
     let voice = VoiceSettings::from_room(&settings);
     let images: ImageSettings =
         serde_json::from_value(settings["images"].clone()).unwrap_or_default();
@@ -82,7 +83,7 @@ pub async fn options(
             options: speech.tts,
         },
         dispatcher: dispatcher(vault, &settings, &voice),
-        spending: spending(&settings, images_spent, voice_spent),
+        spending: spending(&settings, images_spent, voice_budget),
     }
 }
 
@@ -161,28 +162,70 @@ fn dispatcher(
     }
 }
 
+/// The three budgets, each with its limits, what it has spent and on what.
+/// Chat and voice come from the voice tally (and the room's limits as voice
+/// reads them, legacy voice caps included), images from the image tally.
 fn spending(
     settings: &Map<String, Value>,
     images_spent: Result<SpendingSummary, String>,
-    voice_spent: Budget,
+    voice: &Budget,
 ) -> CapabilitySpending {
-    let caps: SpendingSettings =
+    let limits: SpendingSettings =
         serde_json::from_value(settings["spending"].clone()).unwrap_or_default();
-    let (images, unavailable) = match images_spent {
-        Ok(summary) => (summary, None),
-        Err(error) => (
-            SpendingSummary {
-                day_usd: 0.0,
-                month_usd: 0.0,
-            },
-            Some(error),
-        ),
+    let mut unavailable = None;
+    let images = images_spent.unwrap_or_else(|error| {
+        unavailable = Some(error);
+        SpendingSummary {
+            day_usd: 0.0,
+            month_usd: 0.0,
+        }
+    });
+    let spent = voice.spent().unwrap_or_else(|error| {
+        unavailable.get_or_insert_with(|| error.to_string());
+        Default::default()
+    });
+    let line = |kind, day_usd, month_usd| SpendingLine {
+        kind,
+        day_usd,
+        month_usd,
     };
+    let budget =
+        |kind, limits: crate::contract::BudgetLimits, lines: Vec<SpendingLine>| SpendingBudget {
+            kind,
+            day_usd: limits.day_usd,
+            month_usd: limits.month_usd,
+            spent_day_usd: lines.iter().map(|line| line.day_usd).sum(),
+            spent_month_usd: lines.iter().map(|line| line.month_usd).sum(),
+            lines,
+        };
+    let (day, month) = (spent.day, spent.month);
+    let mut images_budget = budget(BudgetKind::Images, limits.images, Vec::new());
+    images_budget.spent_day_usd = images.day_usd;
+    images_budget.spent_month_usd = images.month_usd;
     CapabilitySpending {
-        day_usd: caps.day_usd,
-        month_usd: caps.month_usd,
-        spent_day_usd: images.day_usd + voice_spent.spent_day_usd,
-        spent_month_usd: images.month_usd + voice_spent.spent_month_usd,
+        budgets: vec![
+            budget(
+                BudgetKind::Chat,
+                voice.limits(BudgetKind::Chat),
+                vec![
+                    line(SpendingKind::Teammates, 0.0, 0.0),
+                    line(
+                        SpendingKind::CallAssistant,
+                        day.dispatcher,
+                        month.dispatcher,
+                    ),
+                ],
+            ),
+            budget(
+                BudgetKind::Voice,
+                voice.limits(BudgetKind::Voice),
+                vec![
+                    line(SpendingKind::Transcription, day.stt, month.stt),
+                    line(SpendingKind::Speech, day.tts, month.tts),
+                ],
+            ),
+            images_budget,
+        ],
         unavailable,
     }
 }

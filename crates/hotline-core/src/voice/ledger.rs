@@ -13,7 +13,7 @@
 //! reservation that is never settled (the request failed, was cancelled, or
 //! came back without usage) stays charged, since it may have been billed.
 
-use crate::voice::settings::VoiceSettings;
+use crate::contract::{BudgetKind, BudgetLimits};
 use chrono::{Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -33,12 +33,27 @@ pub enum Kind {
     Dispatcher,
 }
 
-/// Why voice may not run. Each has a sentence for the dispatcher to say
-/// before it hangs up.
+impl Kind {
+    /// The budget it is spent against: hearing and speaking are Voice, the
+    /// call assistant is Chat.
+    pub fn budget(self) -> BudgetKind {
+        match self {
+            Kind::Stt | Kind::Tts => BudgetKind::Voice,
+            Kind::Dispatcher => BudgetKind::Chat,
+        }
+    }
+}
+
+/// Why paid work may not run. Each has a sentence for a person, naming the
+/// budget that stopped it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Exhausted {
-    Day,
-    Month,
+    /// The budget's daily limit is spent.
+    Day(BudgetKind),
+    /// The budget's monthly limit is spent.
+    Month(BudgetKind),
+    /// A limit of the budget is zero, which turns its paid use off.
+    Off(BudgetKind),
     /// The ledger cannot be read or written, so the balance is not known.
     Unreadable,
 }
@@ -46,16 +61,24 @@ pub enum Exhausted {
 impl fmt::Display for Exhausted {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Exhausted::Day => write!(f, "Today's voice budget is spent. Chat carries on by text."),
-            Exhausted::Month => {
-                write!(
-                    f,
-                    "This month's voice budget is spent. Chat carries on by text."
-                )
-            }
+            Exhausted::Day(budget) => write!(
+                f,
+                "The {} budget for today is spent. Raise it in Settings › Budgets.",
+                budget.name()
+            ),
+            Exhausted::Month(budget) => write!(
+                f,
+                "The {} budget for this month is spent. Raise it in Settings › Budgets.",
+                budget.name()
+            ),
+            Exhausted::Off(budget) => write!(
+                f,
+                "The {} budget is set to zero, so its paid use is off. Raise it in Settings › Budgets.",
+                budget.name()
+            ),
             Exhausted::Unreadable => write!(
                 f,
-                "Voice can't check its budget, so calls are off. Chat carries on by text."
+                "Voice can't check its budget, so paid calls are off. Chat carries on by text."
             ),
         }
     }
@@ -63,26 +86,53 @@ impl fmt::Display for Exhausted {
 
 impl std::error::Error for Exhausted {}
 
-/// The caps and what is spent against them, as `voice.status` reports.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Budget {
-    pub day_usd: f64,
-    pub month_usd: f64,
-    pub spent_day_usd: f64,
-    pub spent_month_usd: f64,
+/// Whether a budget that has spent `day` today and `month` this month has
+/// anything left under `limits`. No limit is never spent; a zero limit is off.
+pub fn left(
+    budget: BudgetKind,
+    limits: BudgetLimits,
+    day: f64,
+    month: f64,
+) -> Result<(), Exhausted> {
+    let spent = |total: f64, limit: Option<f64>| limit.is_some_and(|limit| total >= limit);
+    if limits.off() {
+        Err(Exhausted::Off(budget))
+    } else if spent(month, limits.month_usd) {
+        Err(Exhausted::Month(budget))
+    } else if spent(day, limits.day_usd) {
+        Err(Exhausted::Day(budget))
+    } else {
+        Ok(())
+    }
 }
 
+/// What each kind has spent today and this month.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Spent {
+    pub day: Spend,
+    pub month: Spend,
+}
+
+/// Spend by kind, for a day or a month.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
-struct Spend {
-    stt: f64,
-    tts: f64,
-    dispatcher: f64,
+pub struct Spend {
+    pub stt: f64,
+    pub tts: f64,
+    pub dispatcher: f64,
 }
 
 impl Spend {
-    fn total(&self) -> f64 {
+    pub fn total(&self) -> f64 {
         self.stt + self.tts + self.dispatcher
+    }
+
+    /// What was spent against one budget.
+    pub fn budget(&self, budget: BudgetKind) -> f64 {
+        match budget {
+            BudgetKind::Voice => self.stt + self.tts,
+            BudgetKind::Chat => self.dispatcher,
+            BudgetKind::Images => 0.0,
+        }
     }
 
     fn of(&mut self, kind: Kind) -> &mut f64 {
@@ -154,8 +204,23 @@ pub struct Reservation {
 }
 
 impl Reservation {
+    /// A reservation for work that costs nothing. It is never written down,
+    /// so free work runs whatever the ledger or the budgets say.
+    pub fn free(kind: Kind) -> Self {
+        Reservation {
+            kind,
+            usd: 0.0,
+            day: String::new(),
+            month: String::new(),
+        }
+    }
+
     pub fn usd(&self) -> f64 {
         self.usd
+    }
+
+    pub fn kind(&self) -> Kind {
+        self.kind
     }
 }
 
@@ -194,12 +259,10 @@ impl Ledger {
         }
     }
 
-    /// Whether voice may run: `Err` once today's or this month's cap is spent.
-    /// A cap of zero turns paid voice off, not voice: nothing spent is not
-    /// a spent cap, so a subscription's free voice still runs, and
-    /// [`super::metering::Budget::reserve`] refuses anything that costs.
-    pub fn check(&self, settings: &VoiceSettings) -> Result<(), Exhausted> {
-        self.check_on(today(), settings)
+    /// What has been spent today and this month. `Unreadable` when the file
+    /// cannot be read or the last change could not be written down.
+    pub fn spent(&self) -> Result<Spent, Exhausted> {
+        self.spent_on(today())
     }
 
     /// Writes down a cost.
@@ -208,7 +271,7 @@ impl Ledger {
     }
 
     /// Writes down an estimate to be settled later. `None` when it could not
-    /// be written down, which [`Ledger::check`] then reports.
+    /// be written down, which [`Ledger::spent`] then reports.
     pub fn reserve(&self, kind: Kind, usd: f64) -> Option<Reservation> {
         self.charge_on(today(), kind, usd)
     }
@@ -218,13 +281,7 @@ impl Ledger {
         self.settle_on(today(), reservation, actual_usd);
     }
 
-    /// The caps and the spend, for `voice.status`. A ledger that cannot be
-    /// read reports everything spent.
-    pub fn budget(&self, settings: &VoiceSettings) -> Budget {
-        self.budget_on(today(), settings)
-    }
-
-    fn check_on(&self, today: NaiveDate, settings: &VoiceSettings) -> Result<(), Exhausted> {
+    fn spent_on(&self, today: NaiveDate) -> Result<Spent, Exhausted> {
         if self.still_unsaved() {
             return Err(Exhausted::Unreadable);
         }
@@ -234,14 +291,10 @@ impl Ledger {
             return Err(Exhausted::Unreadable);
         };
         record.roll_to(today);
-        let spent = |total: f64, cap: f64| total > 0.0 && total >= cap;
-        if spent(record.month_spend.total(), settings.month_usd) {
-            Err(Exhausted::Month)
-        } else if spent(record.day_spend.total(), settings.day_usd) {
-            Err(Exhausted::Day)
-        } else {
-            Ok(())
-        }
+        Ok(Spent {
+            day: record.day_spend,
+            month: record.month_spend,
+        })
     }
 
     fn charge_on(&self, today: NaiveDate, kind: Kind, usd: f64) -> Option<Reservation> {
@@ -334,27 +387,6 @@ impl Ledger {
             }
         }
         Some(period)
-    }
-
-    fn budget_on(&self, today: NaiveDate, settings: &VoiceSettings) -> Budget {
-        let known = if self.still_unsaved() {
-            None
-        } else {
-            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            self.load(&mut state).ok();
-            state.record.as_mut().map(|record| {
-                record.roll_to(today);
-                (record.day_spend.total(), record.month_spend.total())
-            })
-        };
-        let (spent_day_usd, spent_month_usd) =
-            known.unwrap_or((settings.day_usd, settings.month_usd));
-        Budget {
-            day_usd: settings.day_usd,
-            month_usd: settings.month_usd,
-            spent_day_usd,
-            spent_month_usd,
-        }
     }
 
     fn load(&self, state: &mut State) -> Result<(), Exhausted> {
@@ -520,11 +552,40 @@ mod tests {
         NaiveDate::from_ymd_opt(year, month, day).unwrap()
     }
 
-    fn settings(day_usd: f64, month_usd: f64) -> VoiceSettings {
-        VoiceSettings {
-            day_usd,
-            month_usd,
-            ..VoiceSettings::default()
+    fn settings(day_usd: f64, month_usd: f64) -> BudgetLimits {
+        BudgetLimits::new(Some(day_usd), Some(month_usd))
+    }
+
+    /// What `budget_on` used to report: the spend of every kind, or the
+    /// limits when the ledger cannot be read.
+    struct Reported {
+        spent_day_usd: f64,
+        spent_month_usd: f64,
+    }
+
+    impl Ledger {
+        /// The Voice budget's check, as the call gates make it.
+        fn check_on(&self, today: NaiveDate, limits: &BudgetLimits) -> Result<(), Exhausted> {
+            let spent = self.spent_on(today)?;
+            left(
+                BudgetKind::Voice,
+                *limits,
+                spent.day.budget(BudgetKind::Voice),
+                spent.month.budget(BudgetKind::Voice),
+            )
+        }
+
+        fn budget_on(&self, today: NaiveDate, limits: &BudgetLimits) -> Reported {
+            match self.spent_on(today) {
+                Ok(spent) => Reported {
+                    spent_day_usd: spent.day.total(),
+                    spent_month_usd: spent.month.total(),
+                },
+                Err(_) => Reported {
+                    spent_day_usd: limits.day_usd.unwrap_or(0.0),
+                    spent_month_usd: limits.month_usd.unwrap_or(0.0),
+                },
+            }
         }
     }
 
@@ -535,11 +596,12 @@ mod tests {
     }
 
     #[test]
-    fn a_fresh_ledger_allows_voice_and_the_defaults_are_two_and_twenty() {
+    fn a_fresh_ledger_has_spent_nothing_and_no_limit_is_never_spent() {
         let (_root, ledger) = ledger();
-        let defaults = VoiceSettings::default();
-        assert_eq!((defaults.day_usd, defaults.month_usd), (2.0, 20.0));
-        assert_eq!(ledger.check_on(date(2026, 9, 30), &defaults), Ok(()));
+        let today = date(2026, 9, 30);
+        assert_eq!(ledger.spent_on(today), Ok(Spent::default()));
+        ledger.charge_on(today, Kind::Tts, 1_000.0);
+        assert_eq!(ledger.check_on(today, &BudgetLimits::default()), Ok(()));
     }
 
     #[test]
@@ -549,10 +611,10 @@ mod tests {
         ledger.charge_on(today, Kind::Stt, 0.5);
         ledger.charge_on(today, Kind::Tts, 1.49);
         assert_eq!(ledger.check_on(today, &settings(2.0, 20.0)), Ok(()));
-        ledger.charge_on(today, Kind::Dispatcher, 0.01);
+        ledger.charge_on(today, Kind::Tts, 0.01);
         assert_eq!(
             ledger.check_on(today, &settings(2.0, 20.0)),
-            Err(Exhausted::Day)
+            Err(Exhausted::Day(BudgetKind::Voice))
         );
     }
 
@@ -563,18 +625,18 @@ mod tests {
         ledger.charge_on(date(2026, 9, 28), Kind::Tts, 2.0);
         assert_eq!(
             ledger.check_on(date(2026, 9, 28), &limits),
-            Err(Exhausted::Day)
+            Err(Exhausted::Day(BudgetKind::Voice))
         );
         assert_eq!(ledger.check_on(date(2026, 9, 29), &limits), Ok(()));
         ledger.charge_on(date(2026, 9, 29), Kind::Tts, 1.0);
         // Three dollars this month, and the month is the tighter statement.
         assert_eq!(
             ledger.check_on(date(2026, 9, 29), &limits),
-            Err(Exhausted::Month)
+            Err(Exhausted::Month(BudgetKind::Voice))
         );
         assert_eq!(
             ledger.check_on(date(2026, 9, 30), &limits),
-            Err(Exhausted::Month)
+            Err(Exhausted::Month(BudgetKind::Voice))
         );
     }
 
@@ -586,18 +648,10 @@ mod tests {
         ledger.charge_on(date(2026, 9, 30), Kind::Tts, 1.5);
         assert_eq!(
             ledger.check_on(date(2026, 9, 30), &limits),
-            Err(Exhausted::Month)
+            Err(Exhausted::Month(BudgetKind::Voice))
         );
         assert_eq!(ledger.check_on(date(2026, 10, 1), &limits), Ok(()));
-        assert_eq!(
-            ledger.budget_on(date(2026, 10, 1), &limits),
-            Budget {
-                day_usd: 2.0,
-                month_usd: 3.0,
-                spent_day_usd: 0.0,
-                spent_month_usd: 0.0
-            }
-        );
+        assert_eq!(ledger.spent_on(date(2026, 10, 1)), Ok(Spent::default()));
     }
 
     #[test]
@@ -606,7 +660,7 @@ mod tests {
         ledger.charge_on(date(2026, 12, 31), Kind::Tts, 5.0);
         assert_eq!(
             ledger.check_on(date(2026, 12, 31), &settings(100.0, 5.0)),
-            Err(Exhausted::Month)
+            Err(Exhausted::Month(BudgetKind::Voice))
         );
         assert_eq!(
             ledger.check_on(date(2027, 1, 1), &settings(100.0, 5.0)),
@@ -620,23 +674,23 @@ mod tests {
         ledger.charge_on(date(2026, 9, 30), Kind::Tts, 2.0);
         assert_eq!(
             ledger.check_on(date(2026, 9, 1), &settings(2.0, 20.0)),
-            Err(Exhausted::Day)
+            Err(Exhausted::Day(BudgetKind::Voice))
         );
     }
 
     #[test]
-    fn a_zero_cap_turns_paid_voice_off_not_free_voice() {
+    fn a_zero_cap_turns_the_budget_off_and_names_it() {
         let (_root, ledger) = ledger();
         let today = date(2026, 9, 30);
-        // Nothing spent: a subscription's free voice still runs.
-        assert_eq!(ledger.check_on(today, &settings(0.0, 20.0)), Ok(()));
-        assert_eq!(ledger.check_on(today, &settings(0.0, 0.0)), Ok(()));
-        // Anything spent against a zero cap has spent it.
-        ledger.charge_on(today, Kind::Tts, 0.01);
         assert_eq!(
-            ledger.check_on(today, &settings(0.0, 20.0)),
-            Err(Exhausted::Day)
+            ledger.check_on(today, &BudgetLimits::new(Some(0.0), None)),
+            Err(Exhausted::Off(BudgetKind::Voice))
         );
+        // The call assistant's spend is Chat's, not Voice's.
+        ledger.charge_on(today, Kind::Dispatcher, 5.0);
+        assert_eq!(ledger.check_on(today, &settings(2.0, 20.0)), Ok(()));
+        assert_eq!(Kind::Dispatcher.budget(), BudgetKind::Chat);
+        assert_eq!(Kind::Stt.budget(), BudgetKind::Voice);
     }
 
     #[test]
@@ -654,11 +708,11 @@ mod tests {
         reopened.charge_on(today, Kind::Stt, 0.75);
         assert_eq!(
             reopened.check_on(today, &settings(2.0, 20.0)),
-            Err(Exhausted::Day)
+            Err(Exhausted::Day(BudgetKind::Voice))
         );
         assert_eq!(
             Ledger::open(root.path()).check_on(today, &settings(2.0, 20.0)),
-            Err(Exhausted::Day)
+            Err(Exhausted::Day(BudgetKind::Voice))
         );
     }
 
@@ -980,17 +1034,6 @@ mod tests {
             .unwrap();
         ledger.settle_on(date(2026, 9, 29), reservation, 0.2);
         close(spent(&ledger, date(2026, 9, 30)), (0.2, 0.2));
-    }
-
-    #[test]
-    fn the_status_budget_serialises_as_the_wire_names_it() {
-        let (_root, ledger) = ledger();
-        let today = date(2026, 9, 30);
-        ledger.charge_on(today, Kind::Tts, 0.25);
-        assert_eq!(
-            serde_json::to_value(ledger.budget_on(today, &settings(2.0, 20.0))).unwrap(),
-            serde_json::json!({"dayUsd": 2.0, "monthUsd": 20.0, "spentDayUsd": 0.25, "spentMonthUsd": 0.25})
-        );
     }
 
     #[test]

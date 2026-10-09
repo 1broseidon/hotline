@@ -10,6 +10,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [0.35.2] - Unreleased
 
+### Changed
+
+- Spending is three budgets, Chat, Voice and Images, each with its own
+  optional daily and monthly limit, and no limit unless you set one. A
+  call is stopped only by a budget it pays into, so a call on a
+  subscription or the desk's own voice is never ended by a spent budget,
+  and a refused call says which budget is spent. An earlier version's
+  shared limits carry over as the Voice and Images limits.
+
 ### Fixed
 
 - The call assistant's spend is what the provider billed. Each request

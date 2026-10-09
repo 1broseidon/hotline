@@ -268,8 +268,8 @@ The adapter is provider `local`, named On the desk, and hears `audio/wav`
 (mono PCM16 at any rate, which the engine resamples), `audio/mp4` (AAC,
 decoded with symphonia) and live PCM, which it gathers until the turn ends,
 so a phone that streams its microphone keeps streaming it. It takes at most a
-minute at a time and never speaks. Its price is zero, so a zero spending
-limit never stops it.
+minute at a time and never speaks. Its price is zero, so a zero Voice
+budget never stops it.
 
 In the window the models are rows in Settings › Providers › Use for ›
 Hearing (`ui/src/components/DeskModels.tsx`), a fold under Voice that opens
@@ -378,8 +378,7 @@ fallback.
 `settings.voice` overrides any of it:
 
 ```json
-{ "dayUsd": 2, "monthUsd": 20,
-  "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
+{ "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "cedar" },
   "fallbackTts": { "provider": "google" },
   "dispatcher": { "provider": "openai", "model": "gpt-5-mini" } }
@@ -502,7 +501,7 @@ Neither is called by the speech layer; the desk asks them beside its own.
 
 `voice/ledger.rs` keeps today's and this month's spend in
 `<data dir>/voice-ledger.json`, split into speech to text, text to speech and
-dispatcher. `check(settings)` returns `Err(Exhausted)` once either cap is spent
+dispatcher. `spent()` reads what each kind has spent today and this month
 and `charge(kind, usd)` records a cost. `reserve(kind, usd)` records an
 estimate and returns a `Reservation` naming the day and month it was charged
 to; `settle(reservation, actual)` replaces it with the actual cost. A cost
@@ -511,21 +510,38 @@ it is refunded from the reservation's own day and month while they are still
 current, so a day that rolled over in between keeps its estimate and its
 month is refunded. A refund never takes a total below zero or a month below
 its day. A reservation that is dropped, or settled with a cost that is not a
-number, stays charged. The caps are `settings.voice.dayUsd`
-and `monthUsd`, $2 and $20 by default. Zero turns paid voice off: a cap
-only counts as spent once something was spent against it, so a subscription's
-free voice still runs and any reservation that costs is refused. Once the owner
-has set `settings.spending`, its `dayUsd` and `monthUsd` govern voice instead,
-so one cap covers images and voice. Voice's ledger and the image ledger are
-still separate tallies; Settings shows their sum.
+number, stays charged.
+
+Each kind is spent against a budget of `settings.spending`: speech to text
+and text to speech against **Voice**, the call assistant against **Chat**
+(which also covers teammates' turns). Images have their own budget and
+ledger. A budget has optional daily and monthly limits and none by default;
+no limit is never spent, and zero turns that budget's paid use off. A room
+that never set `settings.spending` but kept an early version's
+`settings.voice.dayUsd` and `monthUsd` has those as its Voice limits. A
+spending setting that cannot be read turns paid chat and voice off.
+
+`voice/metering.rs` is the gate. `reserve(kind, usd)` is refused with
+`Exhausted::Day(budget)`, `Month(budget)` or `Off(budget)` when the kind's
+own budget would go over a limit, and each says which budget in a sentence
+("The Voice budget for today is spent. Raise it in Settings › Budgets.").
+A reservation of nothing (a subscription, the desk's own engine, a signed-in
+call assistant) is never refused and never reads the ledger, so free voice
+runs even when the ledger cannot be read. `ready(kinds)` asks the same of
+the kinds a call would pay for before work starts: transcription and speech
+when their provider charges, the call assistant when it is billed per token
+(on a direct call, only when it speaks for the teammate). `voice.call_start`
+refuses a call whose paid budget is spent with that sentence; during a call
+a refused reservation ends it with the bundled budget line. A call that
+pays for nothing names no kinds, so no budget can end it.
 
 Days and months are the desk host's local calendar. A clock that goes backwards
 keeps counting against the later day. The ledger fails closed: a file that
 exists and cannot be read or understood, or a charge that could not be written
-down, makes `check` fail until it can. Reading is tried again on every check,
-so mending the file mends the ledger, and so is a write that failed: each
-`check` (and each status read) writes the balance it is holding again, so a disk
-that comes back turns voice back on without a restart. The fsync runs without
+down, makes paid reservations fail until it can. Reading is tried again on
+every read, so mending the file mends the ledger, and so is a write that
+failed: each read (and each status read) writes the balance it is holding
+again, so a disk that comes back turns paid voice back on without a restart. The fsync runs without
 the ledger balance lock held. A healthy direct ledger check need not wait for
 another write, but retrying a failed write still waits for disk. The desk's
 `Budget` gate also serializes checks and reservations through persistence so

@@ -292,7 +292,7 @@ impl RoomHandle for Desk {
             &self.vault,
             &self.log,
             self.room.spending_summary(),
-            self.voice.balance(),
+            &self.voice.budget(),
         )
         .await)
     }

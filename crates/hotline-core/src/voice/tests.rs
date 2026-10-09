@@ -22,6 +22,8 @@ pub(crate) struct Fake {
     pub front: Mutex<Option<Result<(String, bool), String>>>,
     pub fronted: Mutex<Vec<Front>>,
     pub first_person: AtomicUsize,
+    /// Whether the fake call assistant's model costs nothing.
+    pub free_assistant: bool,
 }
 impl Default for Fake {
     fn default() -> Self {
@@ -42,6 +44,7 @@ impl Default for Fake {
             front: Mutex::new(None),
             fronted: Mutex::new(Vec::new()),
             first_person: AtomicUsize::new(0),
+            free_assistant: false,
         }
     }
 }
@@ -107,6 +110,9 @@ impl speech::Speech for Fake {
 }
 #[async_trait]
 impl Dispatcher for Fake {
+    fn free(&self) -> bool {
+        self.free_assistant
+    }
     fn id(&self) -> VoiceModel {
         model(speech::Speech::id(self))
     }
@@ -474,9 +480,106 @@ async fn zero_limits_leave_a_free_voice_ready_and_turn_a_paid_one_off() {
             "subscription {subscription}"
         );
         if !ready {
-            assert!(status.unavailable.unwrap().starts_with("Paid voice is off"));
+            assert_eq!(
+                status.unavailable.unwrap(),
+                "The Voice budget is set to zero, so its paid use is off. Raise it in Settings › Budgets."
+            );
         }
     }
+}
+
+fn spending(desk: &crate::desk::Desk, value: Value) {
+    desk.log
+        .append(
+            &StreamId::Room,
+            &crate::room::room_event("setting", json!({"id": "spending", "value": value})),
+        )
+        .unwrap();
+}
+
+/// Heard, spoken and answered for free, a call runs whatever the budgets
+/// say, and even when their tally cannot be read.
+#[tokio::test]
+async fn a_free_call_is_never_ended_by_a_spent_budget() {
+    for corrupt in [false, true] {
+        let fake = Arc::new(Fake {
+            subscription: true,
+            free_assistant: true,
+            ..Fake::default()
+        });
+        let (_root, desk, calls) = desk(with_fake(fake.clone()));
+        spending(
+            &desk,
+            json!({"chat": {"dayUsd": 0}, "voice": {"dayUsd": 1, "monthUsd": 1}}),
+        );
+        if corrupt {
+            std::fs::write(desk.log.root().join("voice-ledger.json"), "not json").unwrap();
+        } else {
+            calls.ledger.charge(Kind::Tts, 5.0);
+            calls.ledger.charge(Kind::Dispatcher, 5.0);
+        }
+        assert!(calls.status().available, "corrupt {corrupt}");
+        let id = Uuid::new_v4().to_string();
+        calls.start(&id, desk.clone()).unwrap();
+        let (_, mut rx) = calls.subscribe(&id).unwrap();
+        utterance(&calls, &id, 1).unwrap();
+        event(&mut rx, |e| matches!(e, VoiceEvent::Clip { .. })).await;
+        assert_eq!(fake.answers.load(Ordering::SeqCst), 1);
+        assert!(!lock(&fake.spoken).is_empty());
+        assert!(
+            calls
+                .change(&id, |call| Ok(call.state != VoiceState::Ended))
+                .unwrap(),
+            "corrupt {corrupt}"
+        );
+        calls.end(&id).unwrap();
+    }
+}
+
+/// A call that would pay into a spent budget is refused at the start, with
+/// the budget named.
+#[tokio::test]
+async fn a_paid_call_is_refused_naming_the_budget_that_is_spent() {
+    let fake = Arc::new(Fake::default());
+    let (_root, desk, calls) = desk(with_fake(fake.clone()));
+    spending(
+        &desk,
+        json!({"voice": {"dayUsd": 1}, "chat": {"monthUsd": 1}}),
+    );
+    calls.ledger.charge(Kind::Tts, 1.0);
+    let error = calls
+        .start(&Uuid::new_v4().to_string(), desk.clone())
+        .unwrap_err();
+    assert_eq!(
+        error,
+        "The Voice budget for today is spent. Raise it in Settings › Budgets."
+    );
+    spending(&desk, json!({"chat": {"monthUsd": 1}}));
+    calls.ledger.charge(Kind::Dispatcher, 1.0);
+    let error = calls
+        .start(&Uuid::new_v4().to_string(), desk.clone())
+        .unwrap_err();
+    assert_eq!(
+        error,
+        "The Chat budget for this month is spent. Raise it in Settings › Budgets."
+    );
+}
+
+/// Free speech still pays a billed call assistant, so Chat still refuses it.
+#[tokio::test]
+async fn free_speech_with_a_paid_assistant_is_refused_by_chat() {
+    let free_speech = Arc::new(Fake {
+        subscription: true,
+        ..Fake::default()
+    });
+    let (_root, desk, calls) = desk(with_fake(free_speech));
+    spending(&desk, json!({"chat": {"dayUsd": 0}}));
+    assert!(
+        calls
+            .start(&Uuid::new_v4().to_string(), desk.clone())
+            .unwrap_err()
+            .starts_with("The Chat budget is set to zero")
+    );
 }
 
 #[tokio::test]
@@ -546,7 +649,7 @@ async fn a_failed_subscription_never_uses_a_paid_speech_fallback() {
         })
         .await;
         assert!(lock(&paid.spoken).is_empty());
-        assert_eq!(calls.balance().spent_day_usd, 0.0);
+        assert_eq!(calls.ledger.spent().unwrap().day.total(), 0.0);
         calls.end(&id).unwrap();
     }
 }
@@ -766,6 +869,7 @@ async fn interrupt_cancels_audio_without_ending_the_call() {
 async fn budget_failure_speaks_the_bundled_line_and_stops_without_a_model() {
     let fake = Arc::new(Fake::default());
     let (_root, desk, calls) = desk(with_fake(fake.clone()));
+    spending(&desk, json!({"chat": {"dayUsd": 2}}));
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk).unwrap();
     tokio::time::sleep(Duration::from_millis(30)).await;
@@ -1485,7 +1589,7 @@ async fn narration_budget_denial_ends_the_call_without_paid_fallback_speech() {
     .await;
     assert!(lock(&fake.spoken).is_empty());
     assert!(
-        calls.ledger.check().is_ok(),
+        calls.ledger.ready(&[Kind::Tts, Kind::Dispatcher]).is_ok(),
         "a refused reservation need not have spent the remainder"
     );
 }
@@ -2016,7 +2120,7 @@ fn a_teammate_voice_applies_only_to_the_model_it_was_picked_from() {
         ),
         ("xai-subscription", Some("grok-voice-tts-1.0"), Some("ara"))
     );
-    assert_eq!(own.day_usd, desk.day_usd);
+    assert_eq!((own.chat, own.voice), (desk.chat, desk.voice));
     // The desk moved to another provider or model: its own voice stands.
     assert!(own_voice(&desk, &ara, &speaking("xai", "grok-voice-tts-1.0", "eve")).is_none());
     assert!(own_voice(&desk, &ara, &speaking("xai-subscription", "other", "eve")).is_none());

@@ -97,6 +97,18 @@ id: string,
 name: string, };
 
 /**
+ * What paid use is budgeted under: teammates and the call assistant are
+ * chat, hearing and speaking on calls are voice, and drawing is images.
+ */
+export type BudgetKind = "chat" | "voice" | "images";
+
+/**
+ * One budget's limits. An absent limit is no limit; zero turns that
+ * budget's paid use off.
+ */
+export type BudgetLimits = { dayUsd?: number, monthUsd?: number, };
+
+/**
  * Whether a call is still going.
  */
 export type CallStatus = "live" | "ended";
@@ -153,9 +165,13 @@ effort?: string, };
 export type CapabilityProvider = { providerId: string, providerName: string, models: Array<CapabilityModel>, };
 
 /**
- * The shared caps and what has been spent against them so far.
+ * The spending budgets and what has been spent against each so far.
  */
-export type CapabilitySpending = { dayUsd: number, monthUsd: number, spentDayUsd: number, spentMonthUsd: number, 
+export type CapabilitySpending = { 
+/**
+ * Always chat, voice and images, in that order.
+ */
+budgets: Array<SpendingBudget>, 
 /**
  * Set when a tally could not be read, so the spent figures are not whole.
  */
@@ -1345,7 +1361,50 @@ error?: string, };
  */
 export type SpeechModelState = "available" | "downloading" | "unpacking" | "installed";
 
-export type SpendingSettings = { dayUsd: number, monthUsd: number, };
+/**
+ * One budget: its limits, what it has spent, and what that went on.
+ */
+export type SpendingBudget = { kind: BudgetKind, 
+/**
+ * `null` is no limit. Zero turns this budget's paid use off.
+ */
+dayUsd: number | null, 
+/**
+ * `null` is no limit. Zero turns this budget's paid use off.
+ */
+monthUsd: number | null, spentDayUsd: number, spentMonthUsd: number, 
+/**
+ * Chat: teammates, then the call assistant. Voice: transcription, then
+ * speech. Images: none.
+ */
+lines: Array<SpendingLine>, };
+
+/**
+ * Paid use as Budgets names it: teammates' turns and the call assistant
+ * (chat), transcription and speech (voice).
+ */
+export type SpendingKind = "teammates" | "callAssistant" | "transcription" | "speech";
+
+/**
+ * One kind of paid use within a budget and what it has cost today and this
+ * month.
+ */
+export type SpendingLine = { kind: SpendingKind, dayUsd: number, monthUsd: number, };
+
+/**
+ * The room's `spending` setting: a budget each for chat (teammates and the
+ * call assistant), voice (transcription and speech) and images, each with
+ * optional daily and monthly limits. A room that set none has no limits.
+ *
+ * ```json
+ * {"chat": {"dayUsd": 5, "monthUsd": 50}, "voice": {"dayUsd": 10}, "images": {}}
+ * ```
+ *
+ * The shared limits earlier versions wrote, `{"dayUsd": 10, "monthUsd": 20}`,
+ * still read: as the voice and the images limits, with chat unlimited,
+ * since those were the two they covered. Writes are always the new shape.
+ */
+export type SpendingSettings = { chat: BudgetLimits, voice: BudgetLimits, images: BudgetLimits, };
 
 export type SpendingSummary = { dayUsd: number, monthUsd: number, };
 
@@ -1735,7 +1794,19 @@ export type UploadDestination = { name: string, } | { path: string, };
  */
 export type ViewName = "roster";
 
-export type VoiceBudget = { dayUsd: number, monthUsd: number, spentDayUsd: number, spentMonthUsd: number, };
+export type VoiceBudget = { 
+/**
+ * The Voice budget's daily limit; absent when it has none.
+ */
+dayUsd?: number, 
+/**
+ * The Voice budget's monthly limit; absent when it has none.
+ */
+monthUsd?: number, 
+/**
+ * What transcription and speech have spent today.
+ */
+spentDayUsd: number, spentMonthUsd: number, };
 
 export type VoiceCall = { callId: string, input: Array<string>, output: string, inputMode: VoiceInputMode, personaId?: string, };
 

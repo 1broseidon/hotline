@@ -167,7 +167,8 @@ internal origin and existing session grants as audio. The core rejects blank
 text, more than 8,000 characters/32,000 UTF-8 bytes, duplicate commits and input
 from the wrong mode before dispatch. Text carries no caller-supplied origin,
 new agent tools or authority. It requires output configuration only, reserves
-no remote STT spend, and retains dispatcher/TTS budget gates.
+no remote STT spend, and retains the Chat and Voice budget gates for a
+billed call assistant and paid speech.
 
 Live PCM is negotiated, ordered and capped at 20 seconds/640,000 bytes,
 with 32 KiB frames, bounded queues and deadlines. Provider keys stay on the
@@ -258,7 +259,9 @@ next call after storage recovers; a bad ledger keeps refusing until repaired.
 Failed settlements are retained and retried before admitting more spending;
 once replacement succeeds they are not applied twice if directory sync fails.
 A backward clock keeps the future ledger period and its higher totals instead
-of resetting usage. Either zero cap disables it. Reservation and settlement
+of resetting usage. The image ledger is held to the Images budget of
+`settings.spending`; either of its limits at zero disables it, and no limit
+is no limit. Reservation and settlement
 IO, including fsync, run on blocking workers, not async runtime threads.
 No room or ledger mutex stays held across generation. The capability lease
 is checked again before fallback, output writing and conversation posting.

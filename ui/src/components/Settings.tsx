@@ -8,10 +8,11 @@ import type { McpOAuthStatus } from "../wire";
 import { DEFAULT_IDLE_HOURS, useModelsRevision, useRawSetting, useRoomSettings } from "../room";
 import { recheckVoiceSupport } from "../voice/call";
 import { BackKey, Band } from "../ui/Band";
+import { Fold, toggled } from "../ui/Fold";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
-import { setTheme, THEMES, useTheme, type Theme } from "../theme";
+import { setTheme, THEMES, useTheme } from "../theme";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
@@ -176,10 +177,23 @@ function AppearanceSection() {
 					<span className="group-row-text">
 						<span className="group-row-title">Theme</span>
 					</span>
-					<Picker value={theme} choices={THEMES} placeholder="System" label="Theme" onChange={(id) => setTheme(id as Theme)} />
+					<div className="chips" role="radiogroup" aria-label="Theme">
+						{THEMES.map((one) => (
+							<button
+								key={one.id}
+								type="button"
+								role="radio"
+								aria-checked={theme === one.id}
+								className="nt-chip"
+								data-on={theme === one.id ? "" : undefined}
+								onClick={() => setTheme(one.id)}
+							>
+								{one.name}
+							</button>
+						))}
+					</div>
 				</div>
 			</div>
-			<p className="group-hint">System follows your computer's light or dark setting.</p>
 		</section>
 	);
 }
@@ -236,16 +250,49 @@ function GeneralSection({
 		if (next !== idleHours) onIdleHours(next);
 	};
 
+	const [open, setOpen] = useState<"agent" | "model" | null>(null);
+	const agentName = backends.find((one) => one.id === defaultBackendId)?.name ?? "Hotline Agent";
+	const modelName = defaultModelId === null ? "Last used" : (models.find((one) => one.id === defaultModelId)?.name ?? defaultModelId);
+
 	return (
 		<>
 			<AppearanceSection />
 			<HotkeysSection />
 			<section>
-				<h3 className="group-title">Chapters</h3>
+				<h3 className="group-title">New teammates</h3>
+				<div className="grouped">
+					<Fold title="Thinks with" value={agentName} open={open === "agent"} onToggle={() => setOpen((was) => toggled(was, "agent"))}>
+						{backends.length > 0 ? (
+							<BackendPicker
+								backends={backends}
+								selected={defaultBackendId}
+								name="setting-backend"
+								labelledBy="setting-backend"
+								onSelect={onBackend}
+								onProviders={onProviders}
+							/>
+						) : (
+							<p className="text-sm text-ink-3">Reading which agents this computer can start…</p>
+						)}
+					</Fold>
+					{(defaultBackendId === "hotline" || defaultBackendId === "") && <Fold title="Model" value={modelName} open={open === "model"} onToggle={() => setOpen((was) => toggled(was, "model"))}>
+						<Picker
+							field
+							value={defaultModelId ?? ""}
+							choices={[{ id: "", name: "Last used" }, ...models]}
+							placeholder="Last used"
+							label="Default model"
+							onChange={(id) => onDefaultModel(id === "" ? null : id)}
+						/>
+					</Fold>}
+				</div>
+			</section>
+			<section>
+				<h3 className="group-title">Conversations</h3>
 				<div className="grouped">
 					<div className="group-row">
 						<label className="group-row-text" htmlFor="setting-idle">
-							<span className="group-row-title">Close a chapter after</span>
+							<span className="group-row-title">Start a new chapter after</span>
 						</label>
 						<span className="flex items-center gap-2 text-sm text-ink-2">
 							<input
@@ -255,48 +302,12 @@ function GeneralSection({
 								min={MIN_IDLE_HOURS}
 								max={MAX_IDLE_HOURS}
 								step={1}
+								placeholder={String(DEFAULT_IDLE_HOURS)}
 								value={hours}
 								onChange={(event) => commitHours(event.target.value)}
 							/>
-							hours
+							quiet hours
 						</span>
-					</div>
-				</div>
-				<p className="group-hint">The default is {DEFAULT_IDLE_HOURS}.</p>
-			</section>
-			<section>
-				<h3 className="group-title" id="setting-backend">
-					New teammates use
-				</h3>
-				{backends.length > 0 ? (
-					<BackendPicker
-						backends={backends}
-						selected={defaultBackendId}
-						name="setting-backend"
-						labelledBy="setting-backend"
-						onSelect={onBackend}
-						onProviders={onProviders}
-					/>
-				) : (
-					<div className="grouped">
-						<p className="group-row text-sm text-ink-3">Reading which harnesses this machine can start…</p>
-					</div>
-				)}
-			</section>
-			<section>
-				<h3 className="group-title">Default model</h3>
-				<div className="grouped">
-					<div className="group-row">
-						<span className="group-row-text">
-							<span className="group-row-title">Hotline Agent starts on</span>
-						</span>
-						<Picker
-							value={defaultModelId ?? ""}
-							choices={[{ id: "", name: "Last used" }, ...models]}
-							placeholder="Last used"
-							label="Default model"
-							onChange={(id) => onDefaultModel(id === "" ? null : id)}
-						/>
 					</div>
 				</div>
 			</section>

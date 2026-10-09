@@ -107,7 +107,10 @@
 	 * Concentric from the OS window inward: a pane is 10, a card in it is 8,
 	 * a control on the card is 6, a chip in the control is 4. Nothing inside
 	 * is rounder than what holds it, except a circle. A bubble is a shape,
-	 * not a container, and gets 12. */
+	 * not a container, and gets 12. A group in a pane column (a settings
+	 * list, a fold of choices, a wizard card) is a surface of its own, set
+	 * well in from the pane's edge, and gets 14. */
+	--radius-group: 14px;
 	--radius-chip: 4px;
 	--radius-control: 6px;
 	--radius-card: 8px;

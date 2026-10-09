@@ -140,10 +140,8 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
 
     // The whole process group is gone, the grandchild with it.
     assert!(stalled::group_gone(group).await, "the launcher was killed");
-    // Safety: signal 0 only asks whether the process exists.
-    assert_ne!(
-        unsafe { libc::kill(grandchild, 0) },
-        0,
+    assert!(
+        stalled::process_gone(grandchild).await,
         "and what it started"
     );
 

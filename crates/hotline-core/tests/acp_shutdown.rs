@@ -46,10 +46,8 @@ async fn ending_every_agent_kills_a_starting_agents_process_group() {
     hotline_core::driver::acp::end_every_agent();
 
     assert!(stalled::group_gone(group).await, "the launcher was killed");
-    // Safety: signal 0 only asks whether the process exists.
-    assert_ne!(
-        unsafe { libc::kill(grandchild, 0) },
-        0,
+    assert!(
+        stalled::process_gone(grandchild).await,
         "and what it started"
     );
 

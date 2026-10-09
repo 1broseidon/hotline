@@ -108,6 +108,21 @@ pub async fn group_gone(group: i32) -> bool {
     false
 }
 
+/// Waits for one process to be gone. A killed process whose parent died with
+/// it lingers as a zombie until pid 1 reaps it, and a zombie still answers
+/// signal 0, so this asks again until it does not.
+pub async fn process_gone(pid: i32) -> bool {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while tokio::time::Instant::now() < deadline {
+        // Safety: signal 0 only asks whether the process exists.
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    false
+}
+
 /// A model endpoint that answers every streamed request with one line.
 pub async fn model_endpoint(reply: &'static str) -> (String, tokio::task::JoinHandle<()>) {
     let app = axum::Router::new().route(

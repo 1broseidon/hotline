@@ -80,9 +80,9 @@ One family, **Workbench**, for every screen:
   stays and watches it — on the line — and when it lands the line reels
   back into the handset, which hangs up and winks before the mark goes. A
   press on the mark opens the work behind it for that turn. The band is
-  the one place that says who this is: the face, the name and one quiet
-  line of what they are doing or, at rest, what they are for; then their
-  model and effort and the tools. The name opens the inspector, where
+  the one place that says who this is: the face and the name, nothing
+  more (the goal is on the inspector); then their model and effort and
+  the tools. The name opens the inspector, where
   everything else about a teammate — its mode included — lives.
 - Menus and the search panel are pop-plane surfaces that borrow the
   composer's shadow while they are open, and nothing else.

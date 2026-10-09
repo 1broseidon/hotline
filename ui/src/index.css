@@ -340,17 +340,6 @@
 		position: absolute;
 		inset: 0;
 	}
-	/* What the teammate in the band is doing, or what they are for: one
-	 * quiet line after the name, cut off before it crowds the keys. */
-	.band-status {
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--text-sm);
-		line-height: var(--text-sm--line-height);
-		color: var(--ink-3);
-	}
 	.band-row {
 		position: relative;
 		display: flex;

@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Credential, OpenAiApi } from "../generated/contract";
 import { Refusal } from "../ui/Refusal";
 import { wire } from "../wire";
+import { Chips } from "../ui/Chips";
 
 export function CustomProviderForm({ credential, onSaved, onCancel }: {
 	credential: Credential | undefined;
@@ -65,16 +66,32 @@ export function CustomProviderForm({ credential, onSaved, onCancel }: {
 					<input id="custom-url" type="url" className="field min-w-0 flex-1 font-mono text-sm" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="http://localhost:1234/v1" spellCheck={false} autoComplete="off" required />
 				</div>
 				<div className="group-row">
-					<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="custom-api">API</label>
-					<select id="custom-api" className="field min-w-0 flex-1" value={api} onChange={(event) => setApi(event.target.value as OpenAiApi)}>
-						<option value="responses">Responses</option>
-						<option value="chat_completions">Chat Completions</option>
-					</select>
+					<span className="w-24 shrink-0 text-sm text-ink-2">API</span>
+					<Chips
+						value={api}
+						choices={[
+							{ id: "responses" as OpenAiApi, name: "Responses" },
+							{ id: "chat_completions" as OpenAiApi, name: "Chat Completions" },
+						]}
+						label="API"
+						onChange={(id) => setApi(id as OpenAiApi)}
+					/>
 				</div>
-				<label className="group-row text-sm text-ink-2">
-					<input type="checkbox" checked={useKey} onChange={(event) => { setUseKey(event.target.checked); setSecret(""); }} />
-					Use API key authentication
-				</label>
+				<div className="group-row">
+					<span className="w-24 shrink-0 text-sm text-ink-2">Key</span>
+					<Chips
+						value={useKey ? "key" : "none"}
+						choices={[
+							{ id: "none", name: "No key" },
+							{ id: "key", name: "API key" },
+						]}
+						label="Whether the server takes a key"
+						onChange={(id) => {
+							setUseKey(id === "key");
+							setSecret("");
+						}}
+					/>
+				</div>
 				{useKey && <div className="group-row flex-wrap">
 					<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="custom-key">API key</label>
 					<input id="custom-key" type="password" className="field min-w-0 flex-1 font-mono text-sm" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={credential?.credentialKind === "api_key" ? "Leave blank to keep the saved key" : "API key"} autoComplete="off" spellCheck={false} />
@@ -86,7 +103,7 @@ export function CustomProviderForm({ credential, onSaved, onCancel }: {
 						<button type="button" className="control btn-quiet" disabled={!baseUrl.trim()} onClick={() => void discover()}>Discover models</button>
 					</div>
 					<textarea id="custom-models" className="field min-h-32 w-full font-mono text-sm" rows={5} value={models} onChange={(event) => setModels(event.target.value)} placeholder="One model ID per line" spellCheck={false} required />
-					<p className="text-sm text-ink-3">Discover models or enter IDs manually. Discovery replaces this list; review it and add or remove IDs before saving. Choose models that support tool calls.</p>
+					<p className="text-sm text-ink-3">Discover them, or type one per line. Pick ones that can use tools.</p>
 					{discovered !== null && <p className="text-sm text-ink-3" role="status">{discovered === 0 ? "No models were returned. Enter a model ID manually." : `Found ${discovered} models.`}</p>}
 				</div>
 				<div className="group-row justify-end">

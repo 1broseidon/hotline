@@ -31,9 +31,9 @@ export function modelLine(model: SpeechModel): string {
 		case "unpacking":
 			return "Unpacking";
 		case "installed":
-			return [model.detail, model.diskBytes > 0 ? `${megabytes(model.diskBytes)} on the desk` : ""].filter(Boolean).join(" · ");
+			return model.diskBytes > 0 ? `${megabytes(model.diskBytes)} on the desk` : "";
 		case "available":
-			return [model.detail, `${megabytes(model.downloadBytes)} download`].filter(Boolean).join(" · ");
+			return "";
 	}
 }
 

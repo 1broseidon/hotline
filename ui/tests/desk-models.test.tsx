@@ -26,11 +26,11 @@ describe("the desk's speech models in words", () => {
 	});
 
 	test("each state says where the model stands", () => {
-		expect(modelLine(model())).toBe("English only, small and quick · 108 MB download");
+		expect(modelLine(model())).toBe("");
 		expect(modelLine(model({ state: "downloading", receivedBytes: 54_000_000 }))).toBe("Downloading 54 MB of 108 MB");
 		expect(progress(model({ state: "downloading", receivedBytes: 54_017_547 }))).toBeCloseTo(0.5, 3);
 		expect(modelLine(model({ state: "unpacking" }))).toBe("Unpacking");
-		expect(modelLine(model({ state: "installed" }))).toBe("English only, small and quick · 136 MB on the desk");
+		expect(modelLine(model({ state: "installed" }))).toBe("136 MB on the desk");
 		// A model the catalogue no longer lists has nothing more to say.
 		expect(modelLine(model({ state: "installed", detail: "", diskBytes: 0 }))).toBe("");
 	});
@@ -94,6 +94,9 @@ test("a model is downloaded only when asked, followed until it lands, and remove
 		expect(asked.map((one) => one.cmd)).toEqual(["voice.models"]);
 		expect(container.textContent).toContain("Download a speech model for the desk");
 		expect(container.textContent).toContain("Parakeet English");
+		// The credits wait behind a button; the list is titles and sizes.
+		expect(container.textContent).not.toContain("NVIDIA Parakeet TDT 110M, CC BY 4.0");
+		await act(async () => { button("Credits")!.click(); });
 		expect(container.textContent).toContain("NVIDIA Parakeet TDT 110M, CC BY 4.0");
 
 		await act(async () => { button("Download 108 MB")!.click(); });

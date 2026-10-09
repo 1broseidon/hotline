@@ -18,6 +18,7 @@ const POLL_MS = 500;
 export function DeskModels({ onInstalledChanged }: { onInstalledChanged(): void }) {
 	const [models, setModels] = useState<SpeechModel[] | null>(null);
 	const [refusal, setRefusal] = useState<string | null>(null);
+	const [credits, setCredits] = useState(false);
 	const shown = useRef<SpeechModel[] | null>(null);
 	const changed = useRef(onInstalledChanged);
 	changed.current = onInstalledChanged;
@@ -57,16 +58,29 @@ export function DeskModels({ onInstalledChanged }: { onInstalledChanged(): void 
 	};
 
 	if (models === null || models.length === 0) return refusal === null ? null : <Refusal message={refusal} />;
-	const credits = [...new Map(models.filter((model) => model.credit !== "").map((model) => [model.credit, model])).values()];
+	const credited = [...new Map(models.filter((model) => model.credit !== "").map((model) => [model.credit, model])).values()];
 	return (
 		<>
+			{/* A title, not a paragraph: the list grows as models are added. */}
+			<div className="group-row use-for-nested">
+				<span className="group-row-text">
+					<span className="group-row-title">Free and private local models</span>
+				</span>
+				{credited.length > 0 && (
+					<button type="button" className="control btn-quiet btn-sm" aria-expanded={credits} onClick={() => setCredits((was) => !was)}>
+						Credits
+					</button>
+				)}
+			</div>
 			{models.map((model) => (
 				<div key={model.id} className="group-row use-for-nested">
 					<span className="group-row-text min-w-0">
 						<span className="group-row-title">{model.name}</span>
-						<span className="group-row-detail" style={model.error === undefined ? undefined : { whiteSpace: "normal" }}>
-							{model.error ?? modelLine(model)}
-						</span>
+						{(model.error ?? modelLine(model)) !== "" && (
+							<span className="group-row-detail" style={model.error === undefined ? undefined : { whiteSpace: "normal" }}>
+								{model.error ?? modelLine(model)}
+							</span>
+						)}
 						{model.state === "downloading" && (
 							<span
 								role="progressbar"
@@ -99,26 +113,27 @@ export function DeskModels({ onInstalledChanged }: { onInstalledChanged(): void 
 					</span>
 				</div>
 			))}
-			<div className="group-row use-for-nested group-row-detail" style={{ whiteSpace: "normal" }}>
-				<span>
-					Free and private: they run on this computer.{" "}
-					{credits.map((model) => (
-						<span key={model.credit}>
-							{model.credit} (
-							<a
-								href={model.licenceUrl}
-								onClick={(event) => {
-									event.preventDefault();
-									void openLink(model.licenceUrl);
-								}}
-							>
-								licence
-							</a>
-							).{" "}
-						</span>
-					))}
-				</span>
-			</div>
+			{credits && (
+				<div className="group-row use-for-nested group-row-detail" style={{ whiteSpace: "normal" }}>
+					<span>
+						{credited.map((model) => (
+							<span key={model.credit}>
+								{model.credit} (
+								<a
+									href={model.licenceUrl}
+									onClick={(event) => {
+										event.preventDefault();
+										void openLink(model.licenceUrl);
+									}}
+								>
+									licence
+								</a>
+								).{" "}
+							</span>
+						))}
+					</span>
+				</div>
+			)}
 			{refusal !== null && <Refusal message={refusal} />}
 		</>
 	);

@@ -145,13 +145,6 @@ export function UseFor({
 							<div className="group-row use-for-nested">
 								<span className="group-row-text">
 									<span className="group-row-title">Transcribes with</span>
-									<span className="group-row-detail">
-										{hearHere
-											? `Free and private on calls from this Mac${hearingNow !== undefined ? `; other devices use ${hearsOnDesk ? "the desk" : hearingNow.providerName}` : ""}`
-											: hearsOnDesk
-												? "Free and private, on the desk"
-												: "Turns what you say into text"}
-									</span>
 								</span>
 								<span className="flex shrink-0 items-center gap-1">
 									<Picker
@@ -168,7 +161,7 @@ export function UseFor({
 								</span>
 							</div>
 						) : (
-							<JobRow title="Transcribes with" detail={hearsOnDesk ? "Free and private, on the desk" : "Turns what you say into text"} job={options.stt} nested>
+							<JobRow title="Transcribes with" detail="" job={options.stt} nested>
 								<Picker
 									value={currentId(options.stt)}
 									choices={shortChoices(options.stt)}
@@ -309,9 +302,11 @@ function JobRow({
 		<div className={nested ? "group-row use-for-nested" : "group-row"}>
 			<span className="group-row-text">
 				<span className="group-row-title">{title}</span>
-				<span className="group-row-detail" style={nothing || wrap ? { whiteSpace: "normal" } : undefined}>
-					{nothing ? (job.unavailable ?? detail) : detail}
-				</span>
+				{(nothing ? (job.unavailable ?? detail) : detail) !== "" && (
+					<span className="group-row-detail" style={nothing || wrap ? { whiteSpace: "normal" } : undefined}>
+						{nothing ? (job.unavailable ?? detail) : detail}
+					</span>
+				)}
 			</span>
 			{(!nothing || always !== undefined) && (
 				<span className="flex shrink-0 items-center gap-1">

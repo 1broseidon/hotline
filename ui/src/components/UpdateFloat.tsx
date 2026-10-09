@@ -26,7 +26,8 @@ export function updateToShow(status: UpdateStatus | null, dismissed: string | nu
  */
 export function UpdateFloat({ onOpen }: { onOpen: () => void }) {
 	const [status, setStatus] = useState<UpdateStatus | null>(null);
-	const [dismissed, setDismissed] = useState(dismissedVersion);
+	// A preview comes back on every launch; closing it lasts the run.
+	const [dismissed, setDismissed] = useState(() => (PREVIEW ? null : dismissedVersion()));
 	useEffect(() => (PREVIEW ? undefined : watchUpdates(setStatus, () => setStatus(null))), []);
 	const shown: UpdateStatus | null = PREVIEW
 		? { current: appVersion(), available: { version: PREVIEW, notes: "" }, checkedAt: null, phase: "idle", downloaded: 0, total: null, error: null, disabledReason: null }
@@ -34,18 +35,18 @@ export function UpdateFloat({ onOpen }: { onOpen: () => void }) {
 	const version = updateToShow(shown, dismissed);
 	if (version === null) return null;
 	const dismiss = () => {
-		try { localStorage.setItem(DISMISSED, version); } catch { /* Private mode: put away for this run only. */ }
+		if (!PREVIEW) try { localStorage.setItem(DISMISSED, version); } catch { /* Private mode: put away for this run only. */ }
 		setDismissed(version);
 	};
 	return (
 		<aside className="update-float" aria-label="Update available">
 			<div className="update-top">
-				<span className="min-w-0 flex-1 font-medium">Hotline {version} is ready</span>
+				<span className="min-w-0 flex-1 font-medium">Update available</span>
 				<button type="button" className="control btn-icon" aria-label="Not now" title="Not now" onClick={dismiss}>
 					<CloseIcon />
 				</button>
 			</div>
-			<p className="update-detail">You have {shown?.current || appVersion()}. It installs when your teammates are idle.</p>
+			<p className="update-detail">Hotline {version} is available. Update now for the latest features and enhancements.</p>
 			<button type="button" className="control btn-primary btn-sm self-start" onClick={onOpen}>Update…</button>
 		</aside>
 	);

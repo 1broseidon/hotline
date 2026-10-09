@@ -11,7 +11,7 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 ### Added
 
 - When a new version is out, a small card in the window's bottom-right
-  corner says so, with Update… to open Settings › Updates. Closing it hides
+  corner says "Update available", with Update… to open Settings › Updates. Closing it hides
   that version until a newer one arrives.
 
 ## [0.35.0] - 2026-10-08

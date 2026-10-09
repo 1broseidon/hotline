@@ -1584,7 +1584,8 @@ fn reply_to(sender: &Outbox, id: i64, result: Result<Value, String>, keep_null: 
 /// a teammate's reach or mode and its background work.
 /// `personaComputer`, also owner-only: `mobile.persona_computer`, enabling
 /// a computer and choosing resource limits. `computer.capacity` is read-only
-/// and available to every phone seat.
+/// and available to every phone seat. `turnRetry`: `session.retry`, trying
+/// a failed turn again, so a phone shows Try again only where it works.
 pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "personaCreate",
     "personaEdit",
@@ -1594,6 +1595,7 @@ pub(crate) const PHONE_CAPABILITIES: &[&str] = &[
     "threads2",
     "lean",
     "thumbnails",
+    "turnRetry",
 ];
 
 /// The capability a client names in `client.hello` to be sent `link` events

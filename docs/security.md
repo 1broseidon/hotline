@@ -769,8 +769,9 @@ made it so.
   queues the line already on the tape as a retry and writes no new message.
 - **Grant source:** the local desk and owners, as every command; the phone
   seat's allowlist in `Seat::permits` (`wire/mod.rs`) names
-  `Command::SessionRetry`, so a companion may retry too. It can only resend a
-  line the tape already holds, which any paired phone could have sent.
+  `Command::SessionRetry`, so a companion may retry too, and the hello lists
+  `turnRetry`. It can only resend a line the tape already holds, which any
+  paired phone could have sent.
 - **Enforcement:** `Room::retry` refuses unless the tape's last turn failed
   and no message came after it, so an old failure cannot be replayed, and it
   holds the same work lease and chapter as a prompt. The driver runs the turn

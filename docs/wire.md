@@ -922,7 +922,8 @@ The phone's socket opens with a hello before any answer:
 `capabilities` names the optional features this desk supports, so a phone
 asks only for what the desk it reached understands. `personaCreate` is
 `mobile.persona_create`; `personaEdit` is `mobile.persona_update` and
-`persona.delete`; `schedules` is the schedules view; `threads` is
+`persona.delete`; `turnRetry` is `session.retry`, so a phone offers Try
+again on a failed turn only where the desk can run it; `schedules` is the schedules view; `threads` is
 reading a thread between two teammates the way a tape is read; `threads2` is
 the `thread.*` commands, `{"threadId": …}`, and, once the phone says it reads
 them with `client.hello`, `link` events and `thread_delta` ([Threads](#threads)). A desk from

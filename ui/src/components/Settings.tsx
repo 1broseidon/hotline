@@ -470,134 +470,124 @@ function ComputerSection({
 		})),
 	];
 
+	const [open, setOpen] = useState<"runs" | "image" | null>(null);
+	const readyName = reports?.find((one) => one.state === "ready")?.runtime;
+	const runsOn =
+		chosen === ""
+			? `Automatic${readyName !== undefined ? ` · ${RUNTIME_NAMES[readyName]}` : ""}`
+			: (RUNTIME_NAMES[chosen as ComputerRuntime] ?? chosen);
+	const imageWords =
+		pickedRelease === ""
+			? releases?.newest !== undefined
+				? `Newest · ${releases.newest}`
+				: "Newest"
+			: pickedRelease === CUSTOM_IMAGE
+				? draft.trim() || "Custom image"
+				: `${pickedRelease} · pinned`;
+
 	return (
-		<>
-			<section>
-				<h3 className="group-title" id="setting-computer-runtime">
-					Runs on
-				</h3>
-				{reports === undefined ? (
-					<div className="grouped">
-						<p className="group-row text-sm text-ink-3">Looking for a container runtime…</p>
-					</div>
-				) : (
-					<div role="radiogroup" aria-labelledby="setting-computer-runtime" className="grouped">
-						{rows.map((row) => {
-							const advice = row.report === undefined ? null : runtimeAdvice(row.report);
-							const more = row.report !== undefined && (row.report.detail !== undefined || advice !== null);
-							const open = more && shown === row.report?.runtime;
-							return (
-								<Fragment key={row.id}>
-									<label className="group-row group-row-choice" data-off={row.off ? "true" : undefined}>
-										<input
-											type="radio"
-											className="radio"
-											name="setting-computer-runtime"
-											checked={chosen === row.id}
-											aria-disabled={row.off ? true : undefined}
-											onChange={() => {
-												if (row.off) return;
-												onRuntime(row.id === "" ? null : row.id);
-											}}
-										/>
-										<span className="group-row-text">
-											<span className="group-row-title">{row.name}</span>
-											<span className="group-row-detail">{row.detail}</span>
-										</span>
-										{more && (
-											<button
-												type="button"
-												className="control btn-icon"
-												title="Why"
-												aria-label={`Why ${row.name} is ${row.detail.toLowerCase()}`}
-												aria-expanded={open}
-												onClick={(event) => {
-													event.preventDefault();
-													setShown(open ? null : (row.report?.runtime ?? null));
-												}}
-											>
-												<InfoIcon />
-											</button>
-										)}
-									</label>
-									{open && row.report !== undefined && (
-										<div className="group-row flex-col items-stretch gap-1.5 pl-10">
-											{advice !== null && <span className="text-sm text-ink-2">{advice}</span>}
-											{row.report.detail !== undefined && (
-												<pre className="refusal-detail selectable">{row.report.detail}</pre>
-											)}
-											<button
-												type="button"
-												className="self-start text-sm underline"
-												onClick={() => void openLink(RUNTIME_HELP[row.report?.runtime ?? "docker"].docs)}
-											>
-												{row.name} docs
-											</button>
-										</div>
-									)}
-								</Fragment>
-							);
-						})}
-					</div>
-				)}
-				<p className="group-hint">A teammate&rsquo;s computer is a Linux desktop in a container.</p>
-			</section>
-			<section>
-				<h3 className="group-title">Image</h3>
-				<div className="grouped">
-					<div className="group-row">
-						<span className="group-row-text" id="setting-computer-release">
-							<span className="group-row-title">Release</span>
-						</span>
-						<div className="w-72 min-w-0">
-							<Picker
-								field
-								value={pickedRelease}
-								choices={releaseChoices}
-								placeholder="Release"
-								label="Release"
-								onChange={pickRelease}
-							/>
+		<section>
+			<h3 className="group-title">Teammate computers</h3>
+			<div className="grouped">
+				<Fold title="Runs on" value={runsOn} open={open === "runs"} onToggle={() => setOpen((was) => toggled(was, "runs"))}>
+					{reports === undefined ? (
+						<div className="grouped">
+							<p className="group-row text-sm text-ink-3">Looking for a container runtime…</p>
 						</div>
-					</div>
-					{pickedRelease === CUSTOM_IMAGE && (
-						<div className="group-row">
-							<label className="group-row-text" htmlFor="setting-computer-image">
-								<span className="group-row-title">Desktop image</span>
-							</label>
-							<input
-								id="setting-computer-image"
-								className="field w-72 min-w-0 font-mono text-sm"
-								placeholder={pinnedComputerImage() || "registry/name:tag"}
-								autoComplete="off"
-								spellCheck={false}
-								autoFocus={custom}
-								value={draft}
-								onChange={(event) => setDraft(event.target.value)}
-								onBlur={commitImage}
-								onKeyDown={(event) => {
-									if (event.key !== "Enter") return;
-									event.preventDefault();
-									commitImage();
-								}}
-							/>
+					) : (
+						<div role="radiogroup" aria-labelledby="setting-computer-runtime" className="grouped">
+							{rows.map((row) => {
+								const advice = row.report === undefined ? null : runtimeAdvice(row.report);
+								const more = row.report !== undefined && (row.report.detail !== undefined || advice !== null);
+								const open = more && shown === row.report?.runtime;
+								return (
+									<Fragment key={row.id}>
+										<label className="group-row group-row-choice" data-off={row.off ? "true" : undefined}>
+											<input
+												type="radio"
+												className="radio"
+												name="setting-computer-runtime"
+												checked={chosen === row.id}
+												aria-disabled={row.off ? true : undefined}
+												onChange={() => {
+													if (row.off) return;
+													onRuntime(row.id === "" ? null : row.id);
+												}}
+											/>
+											<span className="group-row-text">
+												<span className="group-row-title">{row.name}</span>
+												<span className="group-row-detail">{row.detail}</span>
+											</span>
+											{more && (
+												<button
+													type="button"
+													className="control btn-icon"
+													title="Why"
+													aria-label={`Why ${row.name} is ${row.detail.toLowerCase()}`}
+													aria-expanded={open}
+													onClick={(event) => {
+														event.preventDefault();
+														setShown(open ? null : (row.report?.runtime ?? null));
+													}}
+												>
+													<InfoIcon />
+												</button>
+											)}
+										</label>
+										{open && row.report !== undefined && (
+											<div className="group-row flex-col items-stretch gap-1.5 pl-10">
+												{advice !== null && <span className="text-sm text-ink-2">{advice}</span>}
+												{row.report.detail !== undefined && (
+													<pre className="refusal-detail selectable">{row.report.detail}</pre>
+												)}
+												<button
+													type="button"
+													className="self-start text-sm underline"
+													onClick={() => void openLink(RUNTIME_HELP[row.report?.runtime ?? "docker"].docs)}
+												>
+													{row.name} docs
+												</button>
+											</div>
+										)}
+									</Fragment>
+								);
+							})}
 						</div>
 					)}
-					<div className="group-row">
-						<span className="group-row-text">
-							<span className="group-row-title">Updates</span>
-							<span className="group-row-detail selectable">{checkedWords}</span>
-						</span>
-						<button type="button" className="control btn" disabled={checking} onClick={() => void checkReleases()}>
-							{checking ? "Checking…" : "Check now"}
-						</button>
-					</div>
+				</Fold>
+				<Fold title="Image" value={imageWords} open={open === "image"} onToggle={() => setOpen((was) => toggled(was, "image"))}>
+					<Picker field value={pickedRelease} choices={releaseChoices} placeholder="Release" label="Release" onChange={pickRelease} />
+					{pickedRelease === CUSTOM_IMAGE && (
+						<input
+							id="setting-computer-image"
+							aria-label="Desktop image"
+							className="field font-mono text-sm"
+							placeholder={pinnedComputerImage() || "registry/name:tag"}
+							autoComplete="off"
+							spellCheck={false}
+							autoFocus={custom}
+							value={draft}
+							onChange={(event) => setDraft(event.target.value)}
+							onBlur={commitImage}
+							onKeyDown={(event) => {
+								if (event.key !== "Enter") return;
+								event.preventDefault();
+								commitImage();
+							}}
+						/>
+					)}
+					<p className="hint">Newest follows each release. Pick one to pin it.</p>
+				</Fold>
+				<div className="nt-fold-row">
+					<span className="nt-fold-title">Updates</span>
+					<span className="nt-fold-value selectable">{checkedWords}</span>
+					<button type="button" className="nt-fold-action" disabled={checking} onClick={() => void checkReleases()}>
+						{checking ? "Checking…" : "Check now"}
+					</button>
 				</div>
-				<p className="group-hint">
-					Newest follows each release. Pick one to pin it.
-				</p>
-			</section>
-		</>
+			</div>
+			<p className="group-hint">A teammate&rsquo;s computer is a Linux desktop in a container.</p>
+		</section>
 	);
 }
 

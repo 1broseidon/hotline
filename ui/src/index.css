@@ -2197,6 +2197,7 @@
 	}
 	/* A fold in a settings group sits among plain rows, and its title is as
 	 * wide as the words. */
+	.grouped > .nt-fold + .nt-fold-row,
 	.grouped > .nt-fold + .group-row,
 	.grouped > .group-row + .nt-fold,
 	.grouped > .nt-fold + .nt-fold,
@@ -2213,6 +2214,10 @@
 		width: 96px;
 		font-size: var(--text-sm);
 		color: var(--ink-2);
+	}
+	/* A list opened inside a fold sits within the card that holds it. */
+	.nt-fold-body .grouped {
+		border-radius: var(--radius-pane);
 	}
 	/* A short set of choices in a row: the theme, a filter. */
 	.chips {

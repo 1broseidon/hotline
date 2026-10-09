@@ -478,7 +478,20 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
             said("The lift is in crane.rs; a subagent is checking the edge cases."),
         )
         .await;
-    let waiting = client.next_where(Duration::from_secs(15), row(true)).await;
+    // The row that marks the wait and the row that lists the run can be two
+    // frames when the run is slow to announce itself (Windows CI); take the
+    // row that has both.
+    let waiting = {
+        let row = row(true);
+        client
+            .next_where(Duration::from_secs(15), move |frame: &Value| {
+                row(frame)
+                    && frame["event"]["subagents"]
+                        .as_array()
+                        .is_some_and(|runs| !runs.is_empty())
+            })
+            .await
+    };
     let runs = waiting["event"]["subagents"].as_array().unwrap();
     assert_eq!(runs.len(), 1, "{waiting}");
     assert_eq!(runs[0]["title"], "Edge cases");

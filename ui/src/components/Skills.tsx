@@ -278,56 +278,41 @@ function SkillPage({
 			</Band>
 			<Scroll>
 				<div className="pane-column flex flex-col gap-6">
+					<section className="nt-card">
+						<div className="flex flex-wrap items-center gap-2">
+							<span className="welcome-card-title">{entry.name}</span>
+							<span className="welcome-badge">{skillSourceName(entry)}</span>
+							{entry.version !== undefined && <span className="text-sm text-ink-3">release {entry.version}</span>}
+							{entry.source === "home" && <span className="text-sm text-ink-3">{entry.offered === true ? "Offered to teammates" : "Not offered"}</span>}
+						</div>
+						{entry.invalid !== undefined ? (
+							<p className="text-sm text-danger">{entry.invalid}</p>
+						) : (
+							<p className="selectable text-sm leading-relaxed text-ink-2">{entry.description}</p>
+						)}
+					</section>
 					<section>
 						<div className="grouped">
-							<div className="group-row">
-								<span className="group-row-text">
-									<span className="group-row-title">
-										{skillSourceName(entry)}
-										{entry.version !== undefined && <span className="text-ink-3"> · release {entry.version}</span>}
-										{entry.source === "home" && (
-											<span className="text-ink-3"> · {entry.offered === true ? "offered to teammates" : "not offered"}</span>
-										)}
-									</span>
-									{entry.invalid !== undefined ? (
-										<span className="group-row-detail text-danger">{entry.invalid}</span>
-									) : (
-										<span className="group-row-detail selectable" style={{ whiteSpace: "normal" }}>
-											{entry.description}
-										</span>
-									)}
-								</span>
-							</div>
-							<div className="group-row">
-								<span className="group-row-text">
-									<span className="group-row-title">{entry.source === "builtin" ? "In every workspace at" : "Folder"}</span>
-									<span className="group-row-detail selectable font-mono" style={{ whiteSpace: "normal", wordBreak: "break-all" }}>
-										{entry.path}
-									</span>
-								</span>
+							<div className="nt-fold-row">
+								<span className="nt-fold-title">{entry.source === "builtin" ? "In each workspace" : "Folder"}</span>
+								<span className="nt-fold-value selectable font-mono">{entry.path}</span>
 								{onDisk && (
-									<button type="button" className="control btn-quiet" onClick={() => showPath(entry.path)}>
+									<button type="button" className="nt-fold-action" onClick={() => showPath(entry.path)}>
 										Reveal
 									</button>
 								)}
 							</div>
-						</div>
-					</section>
-					{entry.source === "gateway" && (
-						<section>
-							<div className="grouped">
-								<div className="group-row">
-									<span className="group-row-text">
-										<span className="group-row-title">Remove skill</span>
-										<span className="group-row-detail">Teammates granted it lose it at their next start.</span>
-									</span>
-									<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={onRemove}>
+							{entry.source === "gateway" && (
+								<div className="nt-fold-row">
+									<span className="nt-fold-title">Remove</span>
+									<span className="nt-fold-value">Teammates given it lose it at their next start.</span>
+									<button type="button" className="nt-fold-action text-danger" disabled={busy} onClick={onRemove}>
 										Remove
 									</button>
 								</div>
-							</div>
-						</section>
-					)}
+							)}
+						</div>
+					</section>
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>

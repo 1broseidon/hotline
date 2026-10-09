@@ -343,6 +343,8 @@ function runtimeAdvice(report: RuntimeReport): string | null {
 
 /** The Release picker's entry that opens the free-text image field. */
 const CUSTOM_IMAGE = "custom";
+/** Where a teammate's computer is built and explained. */
+const COMPUTER_REPO = "https://github.com/1broseidon/hotline-computer";
 
 /** A wall-clock time for the strip, in the viewer's own locale. */
 function clock(ms: number): string {
@@ -586,7 +588,12 @@ function ComputerSection({
 					</button>
 				</div>
 			</div>
-			<p className="group-hint">A teammate&rsquo;s computer is a Linux desktop in a container.</p>
+			<p className="group-hint">
+				A teammate&rsquo;s computer is a Linux desktop in a container.{" "}
+				<button type="button" className="link-quiet" onClick={() => void openLink(COMPUTER_REPO)}>
+					Read more →
+				</button>
+			</p>
 		</section>
 	);
 }

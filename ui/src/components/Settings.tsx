@@ -3,11 +3,13 @@ import type { BackendChoice, CapabilityOptions, CatalogModel, ComputerReleases, 
 import { openLink, pinnedComputerImage } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
+import { envToLines, linesToEnv } from "../envLines";
 import { mcpServerDetail, type McpHttpAuth, type McpServer } from "../mcp";
 import type { McpOAuthStatus } from "../wire";
 import { DEFAULT_IDLE_HOURS, useModelsRevision, useRawSetting, useRoomSettings } from "../room";
 import { recheckVoiceSupport } from "../voice/call";
 import { BackKey, Band } from "../ui/Band";
+import { Chips } from "../ui/Chips";
 import { Fold, toggled } from "../ui/Fold";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
@@ -177,21 +179,7 @@ function AppearanceSection() {
 					<span className="group-row-text">
 						<span className="group-row-title">Theme</span>
 					</span>
-					<div className="chips" role="radiogroup" aria-label="Theme">
-						{THEMES.map((one) => (
-							<button
-								key={one.id}
-								type="button"
-								role="radio"
-								aria-checked={theme === one.id}
-								className="nt-chip"
-								data-on={theme === one.id ? "" : undefined}
-								onClick={() => setTheme(one.id)}
-							>
-								{one.name}
-							</button>
-						))}
-					</div>
+					<Chips value={theme} choices={THEMES} label="Theme" onChange={setTheme} />
 				</div>
 			</div>
 		</section>
@@ -1246,14 +1234,16 @@ function ToolsSection({
 
 /**
  * Web search: every teammate has it, keyless. A row per provider, tried in
- * this order: the switch is the desk's (off stays off for every teammate), and
- * the optional key is kept in the keychain, never shown again. A provider with
- * a key is tried first.
+ * this order: the switch is the desk's (off stays off for every teammate).
+ * A key is optional, so it is one quiet action on the row; the field opens
+ * only to add or change one, and the key goes to the keychain, never shown
+ * again. A provider with a key is tried first.
  */
 function WebSearchGroup() {
 	const [providers, setProviders] = useState<WebSearchProviderStatus[] | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
+	const [editing, setEditing] = useState<string | null>(null);
 
 	useEffect(() => {
 		void wire
@@ -1285,11 +1275,20 @@ function WebSearchGroup() {
 				) : (
 					providers.map((one) => (
 						<Fragment key={one.provider}>
-							<label className="group-row group-row-choice">
+							<div className="group-row">
 								<span className="group-row-text">
 									<span className="group-row-title">{one.name}</span>
-									<span className="group-row-detail">{one.hasKey ? "Key set" : "Keyless"}</span>
+									<span className="group-row-detail">{one.hasKey ? "Your key" : "Keyless"}</span>
 								</span>
+								<button
+									type="button"
+									className="control btn-quiet btn-sm text-accent-ink"
+									aria-expanded={editing === one.provider}
+									disabled={busy}
+									onClick={() => setEditing((was) => (was === one.provider ? null : one.provider))}
+								>
+									{editing === one.provider ? "Cancel" : one.hasKey ? "Change key" : "Add key"}
+								</button>
 								<input
 									type="checkbox"
 									role="switch"
@@ -1299,12 +1298,19 @@ function WebSearchGroup() {
 									disabled={busy}
 									onChange={(event) => void apply(() => wire.command("websearch.set_enabled", { provider: one.provider, enabled: event.target.checked }))}
 								/>
-							</label>
-							<WebSearchKey
-								provider={one}
-								busy={busy}
-								onSave={(key) => apply(() => wire.command("websearch.set_key", key === null ? { provider: one.provider } : { provider: one.provider, key }))}
-							/>
+							</div>
+							{editing === one.provider && (
+								<WebSearchKey
+									provider={one}
+									busy={busy}
+									onSave={(key) =>
+										apply(() => wire.command("websearch.set_key", key === null ? { provider: one.provider } : { provider: one.provider, key })).then((saved) => {
+											if (saved) setEditing(null);
+											return saved;
+										})
+									}
+								/>
+							)}
 						</Fragment>
 					))
 				)}
@@ -1315,7 +1321,7 @@ function WebSearchGroup() {
 	);
 }
 
-/** One provider's optional key: saved on Enter or when the field is left, then never shown again. */
+/** One provider's key, opened from its row: saved with Save or Enter, then never shown again. */
 function WebSearchKey({
 	provider,
 	busy,
@@ -1326,38 +1332,37 @@ function WebSearchKey({
 	onSave(key: string | null): Promise<boolean>;
 }) {
 	const [draft, setDraft] = useState("");
-
-	const save = () => {
-		const key = draft.trim();
-		if (key === "") return;
-		void onSave(key).then((saved) => saved && setDraft(""));
-	};
+	const key = draft.trim();
 
 	return (
-		<div className="group-row pl-7 gap-2">
+		<form
+			className="group-row gap-2"
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (key !== "") void onSave(key);
+			}}
+		>
 			<input
 				type="password"
 				className="field min-w-0 flex-1 font-mono text-sm"
 				aria-label={`${provider.name} API key`}
-				placeholder={provider.hasKey ? "Paste a new key to replace it" : "API key (optional)"}
+				placeholder={provider.hasKey ? "Paste a new key" : `${provider.name} API key`}
 				autoComplete="new-password"
+				autoFocus
 				spellCheck={false}
 				value={draft}
 				disabled={busy}
 				onChange={(event) => setDraft(event.target.value)}
-				onBlur={save}
-				onKeyDown={(event) => {
-					if (event.key !== "Enter") return;
-					event.preventDefault();
-					save();
-				}}
 			/>
+			<button type="submit" className="control btn btn-primary shrink-0" disabled={busy || key === ""}>
+				Save
+			</button>
 			{provider.hasKey && (
-				<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void onSave(null)}>
-					Clear
+				<button type="button" className="control btn-quiet shrink-0 text-danger" disabled={busy} onClick={() => void onSave(null)}>
+					Remove
 				</button>
 			)}
-		</div>
+		</form>
 	);
 }
 
@@ -1584,7 +1589,8 @@ function ServerForm({
 	const [refusal, setRefusal] = useState<string | null>(null);
 	const savedLaunch = server?.type === "stdio" && (!!server.credentialRef || !!server.launchValuesPending);
 	const [replaceLaunch, setReplaceLaunch] = useState(false);
-	const [environment, setEnvironment] = useState(() => server?.type === "stdio" && server.env ? JSON.stringify(server.env, null, 2) : "{}");
+	const [environment, setEnvironment] = useState(() => (server?.type === "stdio" ? envToLines(server.env) : ""));
+	const [showEnvironment, setShowEnvironment] = useState(false);
 	const keepLaunch = savedLaunch && !replaceLaunch;
 	const nameField = useRef<HTMLInputElement>(null);
 	useEffect(() => {
@@ -1603,15 +1609,14 @@ function ServerForm({
 		const name = draft.name.trim();
 		let next = draft.kind === "stdio" ? stdioFromDraft(name, draft.command, server) : httpFromDraft(name, draft.url, draft, server);
 		if (next.type === "stdio" && !keepLaunch) {
-			try {
-				const env: unknown = JSON.parse(environment);
-				if (!env || typeof env !== "object" || Array.isArray(env) || !Object.values(env).every((value) => typeof value === "string")) throw new Error("Use a JSON object with string values for environment variables.");
-				const { credentialRef: _savedReference, launchValuesPending: _pendingValues, ...launch } = next;
-				next = { ...launch, env: env as Record<string, string> };
-			} catch (error) {
-				setRefusal(error instanceof Error ? error.message : String(error));
+			const parsed = linesToEnv(environment);
+			if ("error" in parsed) {
+				setRefusal(parsed.error);
+				setShowEnvironment(true);
 				return;
 			}
+			const { credentialRef: _savedReference, launchValuesPending: _pendingValues, ...launch } = next;
+			next = { ...launch, env: parsed.env };
 		}
 		/* The token goes to the vault first, so the settings write that
 		 * follows reattaches teammates with it in hand. */
@@ -1639,20 +1644,16 @@ function ServerForm({
 			<h3 className="group-title">{title}</h3>
 			<div className="grouped">
 				<div className="group-row">
-					<label className="w-24 shrink-0 text-sm text-ink-2">Type</label>
-					<div className="flex-1">
-						<Picker
-							field
-							value={draft.kind}
-							choices={[
-								{ id: "stdio", name: "Command", detail: "Started on this machine and spoken to over stdio" },
-								{ id: "http", name: "HTTP", detail: "Reached at a URL" },
-							]}
-							placeholder="Type"
-							label="Server type"
-							onChange={(kind) => setDraft({ ...draft, kind: kind === "http" ? "http" : "stdio" })}
-						/>
-					</div>
+					<span className="w-24 shrink-0 text-sm text-ink-2">Runs</span>
+					<Chips
+						value={draft.kind}
+						choices={[
+							{ id: "stdio", name: "On this computer", title: "A command Hotline starts and talks to over stdio" },
+							{ id: "http", name: "At a URL", title: "A server reached over HTTP" },
+						]}
+						label="Where the server runs"
+						onChange={(kind) => setDraft({ ...draft, kind })}
+					/>
 				</div>
 				<div className="group-row">
 					<label className="w-24 shrink-0 text-sm text-ink-2" htmlFor="tool-name">
@@ -1709,37 +1710,48 @@ function ServerForm({
 					</div>
 				)}
 				{draft.kind === "stdio" && !keepLaunch && (
-					<div className="group-row items-start">
-						<label htmlFor="tool-environment" className="w-24 shrink-0 text-sm text-ink-2">Environment</label>
-						<textarea id="tool-environment" className="field flex-1 font-mono text-sm" rows={3} spellCheck={false} value={environment} onChange={(event) => setEnvironment(event.target.value)} />
-					</div>
+					<Fold
+						label
+						title="Environment"
+						value={(() => {
+							const parsed = linesToEnv(environment);
+							const names = "env" in parsed ? Object.keys(parsed.env) : [];
+							return names.length === 0 ? "None" : names.join(", ");
+						})()}
+						action={environment.trim() === "" ? "Add" : "Change"}
+						open={showEnvironment}
+						onToggle={() => setShowEnvironment((was) => !was)}
+					>
+						<textarea
+							id="tool-environment"
+							aria-label="Environment variables"
+							className="field font-mono text-sm"
+							rows={3}
+							spellCheck={false}
+							placeholder={"API_KEY=…\nROOT=/some/path"}
+							value={environment}
+							onChange={(event) => setEnvironment(event.target.value)}
+						/>
+						<p className="hint">One NAME=value per line. Kept in the keychain.</p>
+					</Fold>
 				)}
 				{draft.kind === "http" && server?.type === "http" && server.urlNeedsRepair && (
 					<div className="group-row text-sm text-ink-2">Re-enter the endpoint without credentials, a query, or a fragment. Put tokens in the authentication fields below.</div>
 				)}
 				{draft.kind === "http" && (
 					<div className="group-row">
-						<label className="w-24 shrink-0 text-sm text-ink-2">Auth</label>
-						<div className="flex-1">
-							<Picker
-								field
-								value={draft.authMode}
-								choices={[
-									{ id: "none", name: "None", detail: "Connect without credentials" },
-									{ id: "oauth", name: "OAuth 2.1", detail: "Sign in with the server's authorization page" },
-									{ id: "bearer", name: "Bearer token", detail: "Send a token you paste as Authorization: Bearer" },
-									{ id: "header", name: "Custom header", detail: "Send a token you paste in a header you name" },
-								]}
-								placeholder="Authentication"
-								label="HTTP authentication"
-								onChange={(authMode) =>
-									setDraft({
-										...draft,
-										authMode: authMode === "oauth" || authMode === "bearer" || authMode === "header" ? authMode : "none",
-									})
-								}
-							/>
-						</div>
+						<span className="w-24 shrink-0 text-sm text-ink-2">Signs in</span>
+						<Chips
+							value={draft.authMode}
+							choices={[
+								{ id: "none", name: "No sign-in", title: "Connect without credentials" },
+								{ id: "oauth", name: "With an account", title: "Sign in on the server's own page (OAuth 2.1)" },
+								{ id: "bearer", name: "Token", title: "Send a token you paste as Authorization: Bearer" },
+								{ id: "header", name: "Header", title: "Send a token you paste in a header you name" },
+							]}
+							label="How the server signs in"
+							onChange={(authMode) => setDraft({ ...draft, authMode })}
+						/>
 					</div>
 				)}
 				{draft.kind === "http" && draft.authMode === "header" && (

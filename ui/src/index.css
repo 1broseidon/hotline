@@ -2209,6 +2209,11 @@
 		font-size: var(--text-md);
 		font-weight: 400;
 	}
+	.grouped .nt-fold-title.nt-fold-label {
+		width: 96px;
+		font-size: var(--text-sm);
+		color: var(--ink-2);
+	}
 	/* A short set of choices in a row: the theme, a filter. */
 	.chips {
 		display: flex;

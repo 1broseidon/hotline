@@ -11,6 +11,7 @@ export function Fold({
 	open,
 	onToggle,
 	action,
+	label = false,
 	children,
 }: {
 	title: string;
@@ -19,12 +20,14 @@ export function Fold({
 	onToggle(): void;
 	/** The closed row's verb, when Change is not the right word ("Add key"). */
 	action?: string;
+	/** In a form, the title is a field label like the rows around it. */
+	label?: boolean;
 	children: ReactNode;
 }) {
 	return (
 		<div className="nt-fold" data-open={open ? "" : undefined}>
 			<button type="button" className="nt-fold-row nt-fold-head" aria-expanded={open} onClick={onToggle}>
-				<span className="nt-fold-title">{title}</span>
+				<span className={label ? "nt-fold-title nt-fold-label" : "nt-fold-title"}>{title}</span>
 				<span className="nt-fold-value">{value}</span>
 				<span className="nt-fold-action">{open ? "Done" : (action ?? "Change")}</span>
 			</button>

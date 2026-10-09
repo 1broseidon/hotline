@@ -260,6 +260,14 @@ transition and animation, and holds the mark still.
   messages is one quiet caption in the instrument
   voice — a count, closed until pressed; a transcript that hides it
   would lie, one that shouts it is a log.
+- Said aloud: a reply to a call is the version written to be read, an
+  ordinary bubble. What the teammate said for it on the call sits above
+  that bubble as one transcript line in ink-3 at 12/16, the speaker glyph
+  at its left and the words cut to one line, at most the bubble's width;
+  a press opens the whole of it and another folds it. It is a quiet key,
+  so hover and keyboard focus are the hover fill and nothing rings, and a
+  screen reader hears it as "Said on the call" before the words. It is a
+  transcript, not speech: no bubble, no plane, no accent.
 - Needs you: the one card that is a request of the person, live until
   answered. It says what is wanted and offers the answers — Done and
   Decline — and nothing else by default; a note is a quiet affordance
@@ -318,6 +326,9 @@ there is one, and never in the row.
   or a shadow other than the float.
 
 ## Log
+
+- 2026-10-09 A reply to a call carries what was said aloud as a transcript
+  line above its bubble (0.36).
 
 - 2026-10-09 Settings take the wizard's language (0.35.1): 14px groups,
   fold rows, chips, form cards, one-line hints.

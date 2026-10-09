@@ -21,7 +21,7 @@ import { REST, step, type Bubble, type Cadence } from "../cadence";
 import { bubbleId, pacedLive } from "../pacing";
 import { wholeBubbles } from "../reveal";
 import { type Block, type ScheduledEvent, type Step, groupScheduled } from "../scheduledRuns";
-import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, CopyIcon, ReplyIcon, SmileIcon, WarningIcon } from "../icons";
+import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, CopyIcon, ReplyIcon, SmileIcon, SpeakerIcon, WarningIcon } from "../icons";
 import { popupMessageMenu, writeClipboard } from "../native";
 import { answerCard, dmOf, type Streaming } from "../tape";
 import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, threadOfLink } from "../links";
@@ -1132,6 +1132,8 @@ export type { Step };
 /**
  * An agent's line, focusable so R can answer it without a pointer. A file
  * it sent sits under its words, or is the whole bubble when it came alone.
+ * A reply to a call is the version written to be read; what was said aloud
+ * for it rides above it as a transcript line.
  */
 function AgentSay({
 	personaId,
@@ -1158,6 +1160,7 @@ function AgentSay({
 	};
 	return (
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
+			{event.spoken !== undefined && event.spoken.trim() !== "" && <SaidAloud text={event.spoken} />}
 			<div
 				className={`speech said-them ${runClass(run)}`}
 				tabIndex={onReply === undefined ? undefined : 0}
@@ -1180,6 +1183,23 @@ function AgentSay({
 			</div>
 			{link !== null && <LinkCard url={link} always={onlyLink(event.text, link)} />}
 		</div>
+	);
+}
+
+/**
+ * What the teammate said on the call for the reply under it: one quiet line
+ * with a speaker, cut to the column until pressed, then whole. The reply is
+ * the version written to be read; this is the version that was heard, kept
+ * so the conversation shows both.
+ */
+export function SaidAloud({ text }: { text: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<button type="button" className={`said-aloud ${open ? "said-aloud-open" : ""}`} aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+			<SpeakerIcon className="said-aloud-mark" />
+			<span className="sr-only">Said on the call: </span>
+			<span className="said-aloud-text">{text}</span>
+		</button>
 	);
 }
 

@@ -1143,6 +1143,44 @@
 		left: 8px;
 		background: var(--said-me);
 	}
+	/* What a teammate said aloud on a call, above the reply it wrote to be
+	 * read: a transcript in the annotating voice, one line until pressed.
+	 * Hover and keyboard focus are the hover fill; nothing rings. */
+	.said-aloud {
+		display: flex;
+		width: fit-content;
+		max-width: 78%;
+		align-items: flex-start;
+		gap: 6px;
+		margin-bottom: 2px;
+		padding: 2px 6px;
+		border-radius: var(--radius-control);
+		color: var(--ink-3);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		text-align: left;
+	}
+	.said-aloud:hover,
+	.said-aloud:focus-visible {
+		background: var(--fill-hover);
+		outline: none;
+	}
+	.said-aloud-mark {
+		flex-shrink: 0;
+		width: 12px;
+		height: 12px;
+		margin-top: 2px;
+	}
+	.said-aloud-text {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.said-aloud-open .said-aloud-text {
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
 	/* A peer thread names both sides. The tape with the person does not. */
 	.said-name {
 		margin-bottom: 4px;

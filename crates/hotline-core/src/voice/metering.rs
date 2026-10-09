@@ -1,7 +1,7 @@
 //! Serialize reservations across calls and notification narration. The ledger
 //! owns persistence; this coordinator owns permission to begin paid work.
 use super::{
-    ledger::{Budget as Balance, Exhausted, Kind, Ledger},
+    ledger::{Budget as Balance, Exhausted, Kind, Ledger, Reservation},
     settings::VoiceSettings,
 };
 use crate::log::Log;
@@ -34,9 +34,12 @@ impl Budget {
         let _held = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
         self.ledger.budget(&self.settings())
     }
-    /// Persist a conservative estimate before issuing a request. An interrupted
-    /// or lost request keeps its reservation: it may have been billed upstream.
-    pub fn reserve(&self, kind: Kind, usd: f64) -> Result<(), Exhausted> {
+    /// Persist a conservative estimate before issuing a request. Settle it
+    /// with [`Budget::settle`] once the provider reports what it used. One
+    /// that is never settled (the request failed, was interrupted, or came
+    /// back without usage) stays charged: it may have been billed upstream.
+    /// Speech is priced by what is sent, so its reservation is its cost.
+    pub fn reserve(&self, kind: Kind, usd: f64) -> Result<Reservation, Exhausted> {
         let _held = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
         if !usd.is_finite() || usd < 0.0 {
             return Err(Exhausted::Unreadable);
@@ -50,13 +53,34 @@ impl Budget {
         if usd > balance.day_usd - balance.spent_day_usd {
             return Err(Exhausted::Day);
         }
-        self.ledger.charge(kind, usd);
-        match self.ledger.check(&settings) {
-            Err(Exhausted::Unreadable) => Err(Exhausted::Unreadable),
+        let reservation = self.ledger.reserve(kind, usd);
+        match (self.ledger.check(&settings), reservation) {
+            (Err(Exhausted::Unreadable), _) | (_, None) => Err(Exhausted::Unreadable),
             // A successful reservation may spend the last cent. That request
             // is paid for; the next reservation will be refused.
-            _ => Ok(()),
+            (_, Some(reservation)) => Ok(reservation),
         }
+    }
+
+    /// Replaces a reservation with what the request cost. A cost above the
+    /// estimate was spent whatever the caps say, so it is written down in
+    /// full, and `Err` then says the budget will not cover another request.
+    pub fn settle(&self, reservation: Reservation, actual_usd: f64) -> Result<(), Exhausted> {
+        let _held = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
+        let over = actual_usd > reservation.usd();
+        self.ledger.settle(reservation, actual_usd);
+        if over {
+            self.ledger.check(&self.settings())
+        } else {
+            Ok(())
+        }
+    }
+    /// Writes down a cost that had no reservation, then says whether the
+    /// budget covers another request.
+    pub fn spend(&self, kind: Kind, usd: f64) -> Result<(), Exhausted> {
+        let _held = self.gate.lock().unwrap_or_else(PoisonError::into_inner);
+        self.ledger.charge(kind, usd);
+        self.ledger.check(&self.settings())
     }
     #[cfg(test)]
     pub(super) fn charge(&self, kind: Kind, usd: f64) {
@@ -100,8 +124,31 @@ mod tests {
         .unwrap();
         let budget = Budget::open(log);
         assert!(budget.check().is_ok());
-        assert_eq!(budget.reserve(Kind::Tts, 0.0), Ok(()));
-        assert_eq!(budget.reserve(Kind::Tts, 0.01), Err(Exhausted::Month));
+        assert!(budget.reserve(Kind::Tts, 0.0).is_ok());
+        assert_eq!(
+            budget.reserve(Kind::Tts, 0.01).err(),
+            Some(Exhausted::Month)
+        );
         assert_eq!(budget.balance().spent_day_usd, 0.0);
+    }
+
+    #[test]
+    fn a_settled_reservation_frees_the_budget_it_did_not_spend() {
+        let root = tempfile::tempdir().unwrap();
+        let budget = Budget::open(Log::open(root.path()));
+        let reservation = budget.reserve(Kind::Dispatcher, 1.5).unwrap();
+        assert!(budget.reserve(Kind::Dispatcher, 1.0).is_err());
+        budget.settle(reservation, 0.01).unwrap();
+        assert!((budget.balance().spent_day_usd - 0.01).abs() < 1e-12);
+        assert!(budget.reserve(Kind::Dispatcher, 1.0).is_ok());
+    }
+
+    #[test]
+    fn a_cost_above_the_estimate_is_kept_and_can_end_the_budget() {
+        let root = tempfile::tempdir().unwrap();
+        let budget = Budget::open(Log::open(root.path()));
+        let reservation = budget.reserve(Kind::Dispatcher, 0.5).unwrap();
+        assert_eq!(budget.settle(reservation, 2.5), Err(Exhausted::Day));
+        assert!((budget.balance().spent_day_usd - 2.5).abs() < 1e-12);
     }
 }

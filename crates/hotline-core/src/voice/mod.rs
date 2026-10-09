@@ -1704,9 +1704,13 @@ impl Calls {
             .voice_record(kind, text)
     }
 
+    /// Speech is priced from what is sent (seconds of audio, characters of
+    /// text) and no provider reports usage back, so the reservation is the
+    /// charge and nothing is settled afterwards.
     fn pay(&self, kind: Kind, usd: f64) -> Result<(), String> {
         self.ledger
             .reserve(kind, usd)
+            .map(drop)
             .map_err(|_| BUDGET_ERROR.to_string())
     }
 

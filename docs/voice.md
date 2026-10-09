@@ -503,7 +503,15 @@ Neither is called by the speech layer; the desk asks them beside its own.
 `voice/ledger.rs` keeps today's and this month's spend in
 `<data dir>/voice-ledger.json`, split into speech to text, text to speech and
 dispatcher. `check(settings)` returns `Err(Exhausted)` once either cap is spent
-and `charge(kind, usd)` records a cost. The caps are `settings.voice.dayUsd`
+and `charge(kind, usd)` records a cost. `reserve(kind, usd)` records an
+estimate and returns a `Reservation` naming the day and month it was charged
+to; `settle(reservation, actual)` replaces it with the actual cost. A cost
+above the estimate is charged in full to the day it became known. A cost below
+it is refunded from the reservation's own day and month while they are still
+current, so a day that rolled over in between keeps its estimate and its
+month is refunded. A refund never takes a total below zero or a month below
+its day. A reservation that is dropped, or settled with a cost that is not a
+number, stays charged. The caps are `settings.voice.dayUsd`
 and `monthUsd`, $2 and $20 by default. Zero turns paid voice off: a cap
 only counts as spent once something was spent against it, so a subscription's
 free voice still runs and any reservation that costs is refused. Once the owner
@@ -528,10 +536,35 @@ they do not hold a runtime worker.
 Prices in the ledger module are rounded up, since they are a guard and not an
 invoice: speech to text per minute and text to speech per 1,000 characters by
 provider, one high price for a provider not in the table, and zero for the
-desk's own model (`local`). The dispatcher is not
-in that table: `voice/dispatcher.rs` reserves each call from its model's own
-price, the vault's model metadata first, then the bundled catalogue, and $5 per
-million input tokens and $25 per million output tokens when neither has one.
+desk's own model (`local`). Speech is priced from what is sent (seconds of
+audio, characters of text) and no provider reports usage back, so its
+reservation is its charge and is never settled.
+
+The call assistant is not in that table. `voice/dispatcher.rs` prices its
+model from the vault's model metadata first, then the bundled catalogue; a
+sign-in or a local server costs nothing. Each model call reserves an estimate
+before it goes out: the request's bytes (prompt, history, preamble, and 2 KB
+per tool) divided by three as input tokens, plus the request's own output
+ceiling (512 tokens for an answer, 160 for a narration). When the response
+reports usage, the reservation is settled to what it cost: `input_tokens` at
+the input price, cache reads and writes at the catalogue's cache prices, and
+output. Anthropic reports cache tokens beside `input_tokens`; the
+OpenAI-style APIs count them inside it, and are priced net of them. Tokens the
+total holds beyond input and output (a Gemini model's thinking) are priced as
+output. A blocking call settles on its response; a streamed call settles when
+its turn finishes, which includes turns that only call a tool. A call that
+fails, is cancelled, or reports no usage keeps its reservation, since the
+provider may have billed it. A cost above the estimate is written down in
+full and can end the run when it spends the cap.
+
+A model on an API key with no listed price is metered at a guard rate of $5
+per million input tokens and $25 per million output tokens (`UNPRICED`), so
+the caps still bound it. The desk logs once per model that it is doing so
+(`[voice] … has no listed price`), because the budget then runs down faster
+than the bill. The fix is a catalogue entry: run `hotline-models-sync` (see
+[development.md](development.md#the-model-catalogue)). The catalogue holds
+one price per model, so a model priced by prompt length (Claude Haiku 5.5
+above 100,000 prompt tokens) is metered at its base price.
 
 ## Checking against the real endpoints
 

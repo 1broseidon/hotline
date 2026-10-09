@@ -8,6 +8,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.35.2] - Unreleased
+
+### Fixed
+
+- The call assistant's spend is what the provider billed. Each request
+  reserves an estimate and is settled to its reported usage, cache reads
+  and writes included, instead of keeping the estimate. Claude Haiku 5.5
+  has its price, and a model with no listed price is metered at a high
+  guard rate that the desk now logs.
+
 ## [0.35.1] - 2026-10-09
 
 ### Added

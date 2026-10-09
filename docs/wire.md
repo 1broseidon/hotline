@@ -1259,8 +1259,10 @@ roster and rail, but indexed by `search.all` and `search.thread`.
 Speech attempts and conservative dispatcher estimates are reserved before a
 request so cancellation or a lost response cannot erase their cost. Reservations
 serialize across calls and push narration, and cannot exceed the remaining cap.
-Dispatcher estimates count input bytes plus a fixed prompt/tool allowance and the
-output limit; reported usage above the reservation is additionally charged.
+Dispatcher estimates count a third of the request's bytes (prompt, history,
+preamble and tools) as input tokens plus the request's output limit; reported
+usage then settles the reservation to the actual cost, up or down, and a call
+without usage keeps it (see [voice.md](voice.md#the-ledger)).
 These are spending guards, not provider invoices. Each fallback attempt is charged separately.
 An unavailable or exhausted ledger stops work; a bundled spoken system
 line can be played without a further paid request. A whole-utterance

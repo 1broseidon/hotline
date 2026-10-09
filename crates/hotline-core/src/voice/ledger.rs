@@ -6,6 +6,12 @@
 //! written down, ends calls until it can: an unknown balance is not a
 //! balance of zero. Every check tries a write that failed again, so a disk
 //! that comes back turns voice back on without a restart.
+//!
+//! Work whose price is known only afterwards is reserved first and settled
+//! once the provider reports what it used: [`Ledger::reserve`] writes the
+//! estimate down, and [`Ledger::settle`] replaces it with the actual cost. A
+//! reservation that is never settled (the request failed, was cancelled, or
+//! came back without usage) stays charged, since it may have been billed.
 
 use crate::voice::settings::VoiceSettings;
 use chrono::{Local, NaiveDate};
@@ -79,12 +85,22 @@ impl Spend {
         self.stt + self.tts + self.dispatcher
     }
 
-    fn add(&mut self, kind: Kind, usd: f64) {
+    fn of(&mut self, kind: Kind) -> &mut f64 {
         match kind {
-            Kind::Stt => self.stt += usd,
-            Kind::Tts => self.tts += usd,
-            Kind::Dispatcher => self.dispatcher += usd,
+            Kind::Stt => &mut self.stt,
+            Kind::Tts => &mut self.tts,
+            Kind::Dispatcher => &mut self.dispatcher,
         }
+    }
+
+    fn add(&mut self, kind: Kind, usd: f64) {
+        *self.of(kind) += usd;
+    }
+
+    /// Takes back part of a charge, never below `floor`.
+    fn refund(&mut self, kind: Kind, usd: f64, floor: f64) {
+        let spent = self.of(kind);
+        *spent = (*spent - usd).max(floor).max(0.0);
     }
 
     fn sane(&self) -> bool {
@@ -123,6 +139,23 @@ impl Record {
 
     fn sane(&self) -> bool {
         self.day_spend.sane() && self.month_spend.sane()
+    }
+}
+
+/// An estimate written down before the work it pays for, and where it was
+/// written: the day and month it counts against. Settling it moves the spend
+/// to what the work cost; dropping it leaves the estimate charged.
+#[derive(Debug)]
+pub struct Reservation {
+    kind: Kind,
+    usd: f64,
+    day: String,
+    month: String,
+}
+
+impl Reservation {
+    pub fn usd(&self) -> f64 {
+        self.usd
     }
 }
 
@@ -174,6 +207,17 @@ impl Ledger {
         self.charge_on(today(), kind, usd);
     }
 
+    /// Writes down an estimate to be settled later. `None` when it could not
+    /// be written down, which [`Ledger::check`] then reports.
+    pub fn reserve(&self, kind: Kind, usd: f64) -> Option<Reservation> {
+        self.charge_on(today(), kind, usd)
+    }
+
+    /// Replaces a reservation with what the work cost.
+    pub fn settle(&self, reservation: Reservation, actual_usd: f64) {
+        self.settle_on(today(), reservation, actual_usd);
+    }
+
     /// The caps and the spend, for `voice.status`. A ledger that cannot be
     /// read reports everything spent.
     pub fn budget(&self, settings: &VoiceSettings) -> Budget {
@@ -200,25 +244,85 @@ impl Ledger {
         }
     }
 
-    fn charge_on(&self, today: NaiveDate, kind: Kind, usd: f64) {
+    fn charge_on(&self, today: NaiveDate, kind: Kind, usd: f64) -> Option<Reservation> {
         let usd = if usd.is_finite() { usd.max(0.0) } else { 0.0 };
-        let (version, bytes) = {
-            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            if self.load(&mut state).is_err() {
-                eprintln!(
-                    "[voice] the ledger could not be read, so ${usd:.4} for {kind:?} was not recorded"
-                );
-                return;
-            }
-            let Some(record) = state.record.as_mut() else {
-                return;
-            };
-            record.roll_to(today);
+        let changed = self.change_on(today, |record| {
             record.day_spend.add(kind, usd);
             record.month_spend.add(kind, usd);
+        });
+        let Some((day, month)) = changed else {
+            eprintln!(
+                "[voice] the ledger could not be read, so ${usd:.4} for {kind:?} was not recorded"
+            );
+            return None;
+        };
+        Some(Reservation {
+            kind,
+            usd,
+            day,
+            month,
+        })
+    }
+
+    /// Moves a reservation to the actual cost. More than the estimate is
+    /// charged today in full, because it was spent. Less is refunded from the
+    /// day and month the estimate was charged to, while they are still the
+    /// ledger's; a day that has since rolled over keeps its estimate. A month
+    /// never ends up below its day. An unknown cost keeps the reservation.
+    fn settle_on(&self, today: NaiveDate, reservation: Reservation, actual_usd: f64) {
+        if !actual_usd.is_finite() || actual_usd < 0.0 {
+            return;
+        }
+        let Reservation {
+            kind,
+            usd,
+            day,
+            month,
+        } = reservation;
+        if actual_usd >= usd {
+            if actual_usd > usd {
+                self.charge_on(today, kind, actual_usd - usd);
+            }
+            return;
+        }
+        let refund = usd - actual_usd;
+        let changed = self.change_on(today, |record| {
+            if record.day == day {
+                record.day_spend.refund(kind, refund, 0.0);
+            }
+            if record.month == month {
+                let floor = if record.day.starts_with(month.as_str()) {
+                    *record.day_spend.of(kind)
+                } else {
+                    0.0
+                };
+                record.month_spend.refund(kind, refund, floor);
+            }
+        });
+        if changed.is_none() {
+            eprintln!(
+                "[voice] the ledger could not be read, so ${refund:.4} for {kind:?} was not refunded"
+            );
+        }
+    }
+
+    /// Applies a change to the record as of `today` and writes it down. The
+    /// day and month the record is for, or `None` when it could not be read.
+    fn change_on(
+        &self,
+        today: NaiveDate,
+        change: impl FnOnce(&mut Record),
+    ) -> Option<(String, String)> {
+        let (version, bytes, period) = {
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            self.load(&mut state).ok()?;
+            let record = state.record.as_mut()?;
+            record.roll_to(today);
+            change(record);
+            let period = (record.day.clone(), record.month.clone());
             let bytes = serde_json::to_vec_pretty(record);
             state.version += 1;
-            (state.version, bytes)
+            (state.version, bytes, period)
         };
         match bytes {
             Ok(bytes) => self.persist(version, &bytes),
@@ -229,6 +333,7 @@ impl Ledger {
                 self.unsaved.store(true, Ordering::SeqCst);
             }
         }
+        Some(period)
     }
 
     fn budget_on(&self, today: NaiveDate, settings: &VoiceSettings) -> Budget {
@@ -751,6 +856,130 @@ mod tests {
             ledger.budget_on(today, &settings(2.0, 20.0)).spent_day_usd,
             0.0
         );
+    }
+
+    fn spent(ledger: &Ledger, today: NaiveDate) -> (f64, f64) {
+        let budget = ledger.budget_on(today, &settings(100.0, 100.0));
+        (budget.spent_day_usd, budget.spent_month_usd)
+    }
+
+    fn close(actual: (f64, f64), expected: (f64, f64)) {
+        assert!(
+            (actual.0 - expected.0).abs() < 1e-12 && (actual.1 - expected.1).abs() < 1e-12,
+            "{actual:?} is not {expected:?}"
+        );
+    }
+
+    #[test]
+    fn settling_moves_a_reservation_to_the_actual_cost_both_ways() {
+        let (_root, ledger) = ledger();
+        let today = date(2026, 9, 30);
+        ledger.charge_on(today, Kind::Tts, 0.25);
+        let reservation = ledger.charge_on(today, Kind::Dispatcher, 1.0).unwrap();
+        ledger.settle_on(today, reservation, 0.01);
+        close(spent(&ledger, today), (0.26, 0.26));
+
+        let reservation = ledger.charge_on(today, Kind::Dispatcher, 0.1).unwrap();
+        ledger.settle_on(today, reservation, 0.3);
+        close(spent(&ledger, today), (0.56, 0.56));
+
+        // Settled from disk too, not just in memory.
+        close(spent(&Ledger::open(_root.path()), today), (0.56, 0.56));
+    }
+
+    #[test]
+    fn an_unknown_cost_keeps_the_reservation() {
+        let (_root, ledger) = ledger();
+        let today = date(2026, 9, 30);
+        for unknown in [f64::NAN, f64::INFINITY, -1.0] {
+            let reservation = ledger.charge_on(today, Kind::Dispatcher, 0.5).unwrap();
+            ledger.settle_on(today, reservation, unknown);
+        }
+        // A dropped reservation is kept as well.
+        drop(ledger.charge_on(today, Kind::Dispatcher, 0.5));
+        close(spent(&ledger, today), (2.0, 2.0));
+    }
+
+    #[test]
+    fn a_refund_never_takes_another_kind_or_the_totals_below_zero() {
+        let (root, ledger) = ledger();
+        let today = date(2026, 9, 30);
+        ledger.charge_on(today, Kind::Tts, 0.4);
+        let reservation = ledger.charge_on(today, Kind::Dispatcher, 0.5).unwrap();
+        // Something else (a mended file) took the dispatcher's spend away.
+        {
+            let mut state = ledger.state.lock().unwrap();
+            let record = state.record.as_mut().unwrap();
+            record.day_spend.dispatcher = 0.1;
+            record.month_spend.dispatcher = 0.1;
+        }
+        ledger.settle_on(today, reservation, 0.0);
+        close(spent(&ledger, today), (0.4, 0.4));
+        let saved: Record =
+            serde_json::from_slice(&fs::read(root.path().join(FILE)).unwrap()).unwrap();
+        assert_eq!(saved.day_spend.dispatcher, 0.0);
+        assert!((saved.day_spend.tts - 0.4).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_day_that_rolled_over_before_settling_keeps_its_estimate_and_the_month_is_refunded() {
+        let (_root, ledger) = ledger();
+        let (monday, tuesday) = (date(2026, 9, 28), date(2026, 9, 29));
+        ledger.charge_on(monday, Kind::Tts, 0.2);
+        let reservation = ledger.charge_on(monday, Kind::Dispatcher, 1.0).unwrap();
+        ledger.charge_on(tuesday, Kind::Dispatcher, 0.3);
+        ledger.settle_on(tuesday, reservation, 0.1);
+        // Tuesday has only its own spend; the month holds Monday's actual cost.
+        close(spent(&ledger, tuesday), (0.3, 0.6));
+
+        // A cost above the estimate is charged to the day it became known.
+        let reservation = ledger.charge_on(tuesday, Kind::Dispatcher, 0.1).unwrap();
+        ledger.settle_on(date(2026, 9, 30), reservation, 0.4);
+        close(spent(&ledger, date(2026, 9, 30)), (0.3, 1.0));
+    }
+
+    #[test]
+    fn a_month_that_rolled_over_before_settling_is_not_refunded_into_the_new_one() {
+        let (_root, ledger) = ledger();
+        let reservation = ledger
+            .charge_on(date(2026, 9, 30), Kind::Dispatcher, 1.0)
+            .unwrap();
+        ledger.charge_on(date(2026, 10, 1), Kind::Dispatcher, 0.25);
+        ledger.settle_on(date(2026, 10, 1), reservation, 0.0);
+        close(spent(&ledger, date(2026, 10, 1)), (0.25, 0.25));
+    }
+
+    #[test]
+    fn a_month_refund_never_leaves_the_month_below_the_day() {
+        let (_root, ledger) = ledger();
+        let today = date(2026, 9, 30);
+        let reservation = ledger.charge_on(today, Kind::Dispatcher, 1.0).unwrap();
+        // The day says more than the month (an edited file); the refund must
+        // not make that worse.
+        {
+            let mut state = ledger.state.lock().unwrap();
+            let record = state.record.as_mut().unwrap();
+            record.day_spend.dispatcher = 1.0;
+            record.month_spend.dispatcher = 1.0;
+        }
+        let yesterdays = Reservation {
+            day: "2026-09-29".into(),
+            ..reservation
+        };
+        ledger.settle_on(today, yesterdays, 0.0);
+        let (day, month) = spent(&ledger, today);
+        assert!(month >= day, "{month} < {day}");
+        close((day, month), (1.0, 1.0));
+    }
+
+    #[test]
+    fn a_clock_that_went_backwards_still_settles_against_the_later_day() {
+        let (_root, ledger) = ledger();
+        let reservation = ledger
+            .charge_on(date(2026, 9, 30), Kind::Dispatcher, 1.0)
+            .unwrap();
+        ledger.settle_on(date(2026, 9, 29), reservation, 0.2);
+        close(spent(&ledger, date(2026, 9, 30)), (0.2, 0.2));
     }
 
     #[test]

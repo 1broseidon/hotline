@@ -2186,6 +2186,9 @@
 		font-weight: 600;
 		color: var(--accent-ink);
 	}
+	.nt-fold-action:disabled {
+		color: var(--ink-3);
+	}
 	.nt-fold-body {
 		display: flex;
 		flex-direction: column;

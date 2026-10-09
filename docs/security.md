@@ -990,6 +990,28 @@ made it so.
   unbounded connection flood.
 
 
+## A desktop's public address (BRO-265)
+
+- **Default and grant source:** none. An owner or the local desk may keep one
+  https origin in Settings › Remote for a tunnel, reverse proxy or forwarded
+  port. It grants nothing: it is only advertised in the hello, after the
+  computer's own addresses and only while Remote is on. The pairing QR keeps
+  the network address, so pairing still happens beside the desk.
+- **Enforcement:** `Remote::set_public_url` accepts only a bare https origin
+  (no path, credentials, query or fragment); a served desk refuses it, since
+  its `--public-url` is fixed at start. Changing it restarts nothing and
+  disconnects no one. Sessions through it are the same sealed v2 sessions, so a
+  TLS-terminating proxy cannot read, forge or redirect them; the desk's
+  self-signed TLS stays as it is and the proxy must accept it.
+- **Tests:** `remote::tests::a_public_address_is_advertised_after_this_computers_own_and_never_replaces_the_pairing_address`
+  covers the order, the QR, validation, persistence and clearing;
+  `wire::tests::remote_controls_are_denied_to_companions` covers the seat.
+- **Residual risk:** everything in "Remote admission behind a tunnel" applies:
+  every visitor arrives from the proxy's address and shares its pending
+  budget, so a public address needs edge rate rules. The address itself is in
+  every paired phone and is not a secret.
+
+
 ## Desktop clients and owner parity (BRO-145)
 
 - **Default and old records:** Remote remains opt-in. Explicit pairing creates

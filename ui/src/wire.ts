@@ -115,6 +115,7 @@ type Results = {
     "remote.devices": RemoteDevice[];
     "remote.revoke": RemoteStatus;
     "remote.relay": RemoteStatus;
+    "remote.public_url": RemoteStatus;
     "remote.pairing": SealedPairing | RemoteDevice | null;
     "agent.auth.start": { id: string };
     "agent.auth.poll": { state: "running" | "succeeded" | "failed"; output: string; error?: string };

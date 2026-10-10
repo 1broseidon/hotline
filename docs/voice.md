@@ -76,8 +76,18 @@ says this Mac can hear, and `speech_permit` is granted; it then never opens
 the webview's microphone. Otherwise the call is the audio call it always
 was, and a desk that answers a text call without `text/plain` in its input
 is hung up with a message to update it. A recognition session runs only
-while the call listens: the desk speaking or thinking, hold and hang-up
-cancel it, so the engine never hears the desk. Its level events drive the
+while the call listens: the desk speaking or thinking with the floor, hold
+and hang-up cancel it, so the engine never hears the desk. A `thinking` that
+says `listening` is listened through: the call's phase is `listening` while
+the teammate works, the blip-blip goes on, and its levels are not given to
+the detector until each blip-blip and its tail have played (the webview's
+microphone skips those blocks the same way). Speech that plays mid-turn shuts
+the microphone or ends the session as any speech does, and it opens again
+once the speech is done. What the desk begins to say while the person is
+talking does not play over them: it waits until their turn ends, and goes if
+they said something (the desk stops it on taking their words) or plays if it
+was only noise. Clips that arrive after the person's words are sent and before
+the desk has taken them are of a reply they cut off, and are not played. Its level events drive the
 same turn detector as the webview's microphone, with a 100 ms onset because
 the words corroborate a short "yes". Partial text is the person's live line
 once the meter has heard a voice, less any words recognized more than half
@@ -167,7 +177,10 @@ an error, or the session's end. This Mac's engine is one adapter
 (`macEngine`), which turns its dBFS into a level. The desk's is another
 (`deskEngine`, `ui/src/voice/desk.ts`): the window opens the microphone
 through the call's audio (`ui/src/voice/audio.ts`), meters each block's
-RMS in dBFS onto the same 0 to 1 scale, and keeps the samples at 16 kHz.
+RMS in dBFS onto the same 0 to 1 scale, and keeps the samples at the
+microphone's rate. A clip is brought down to 16 kHz whole, as a call's
+utterance is: a block at a time would drop what is left over at the end of
+each 2048-frame block, two samples in every block at 48 kHz.
 The desk's model hears whole clips, so about once a second, while no
 answer is outstanding and something new was said, the window sends the
 clip so far to `voice.transcribe` and shows the words as the session's
@@ -219,50 +232,151 @@ The desk can turn speech into text itself, with no provider and no network
 links that release's prebuilt static library, onnxruntime inside, so it runs
 wherever the desk does (macOS arm64 and x86_64, Windows x64, Linux x64 and
 arm64) with nothing installed beside it. It adds about 18 MB to a stripped binary
-on a Mac and 26 to 30 MB on Linux. The models are NVIDIA's Parakeet transducers as sherpa-onnx exports
-them, quantized to eight bits, most accurate first:
+on a Mac and 26 to 30 MB on Linux. The one library runs all three kinds of
+model the desk offers, so no platform needs another library or feature for
+any of them. The models are sherpa-onnx's own exports, quantized to eight
+bits, from its `asr-models` release, in the order automatic hearing takes
+the first one installed:
 
-| Model | id | Hears | Download | On disk |
+| Model | Tag | id | Hears | Download | On disk | Licence |
+| -- | -- | -- | -- | -- | -- | -- |
+| Parakeet | 25 languages | `parakeet-tdt-0.6b-v3` | 25 European languages | 487 MB | 670 MB | CC BY 4.0 |
+| Whisper | 99 languages | `whisper-large-v3-turbo` | 99 languages | 564 MB | 1,037 MB | MIT |
+| Parakeet English | fast | `parakeet-tdt-110m-en` | English | 108 MB | 136 MB | CC BY 4.0 |
+| Moonshine | English only | `moonshine-base-en` | English | 251 MB | 287 MB | MIT |
+
+Parakeet and Parakeet English are NVIDIA's Parakeet TDT transducers;
+Whisper is OpenAI's large-v3-turbo; Moonshine is Useful Sensors' first
+Moonshine Base. The 2026 Moonshine Base in the same release fails in this
+engine on anything longer than a few seconds (an onnxruntime broadcast
+error in its decoder, which sherpa-onnx turns into an empty transcript), so
+it is not offered until the engine moves. Each licence asks for credit:
+Settings' Credits under the models names each model's maker, its licence
+and sherpa-onnx's quantization, and links the licence, and About credits
+them again with sherpa-onnx, ONNX Runtime and Symphonia.
+
+Measured on an M-series Mac, four threads, after the model is loaded, on
+the fixtures and on four longer clips made with macOS `say` (3 to 31
+seconds, with teammates' and product names in them); `local_speech_check`
+gives the same real-time factors:
+
+| Model | Real-time factor | Word errors | Names right | Loads in |
 | -- | -- | -- | -- | -- |
-| Parakeet | `parakeet-tdt-0.6b-v3` | 25 European languages | 487 MB | 670 MB |
-| Parakeet English | `parakeet-tdt-110m-en` | English | 108 MB | 136 MB |
+| Parakeet English | 0.017 | 1.5% | 15 of 18 | 0.25 s |
+| Moonshine | 0.012 to 0.019 | 5.9% | 8 of 18 | 0.2 s |
+| Parakeet | 0.062 | 4.0% | 11 of 18 | 0.55 s |
+| Whisper | 0.2 to 0.65 | 5.4% | 10 of 18 | 0.6 s |
 
-Both are CC BY 4.0, which asks for credit: each model's card in Settings
-names NVIDIA, the licence and sherpa-onnx's quantization, and links the
-licence.
+Parakeet's two rows listen for the names (below); without them Parakeet
+English heard 5 of 18 at 4.0%. Whisper costs about 1.5 seconds however short
+the clip, so it is the model for a language the others do not hear, not
+for speed. In use with real speech, Parakeet English heard English as well
+as Parakeet, in a quarter of the time, so for English it is the one to
+install.
 
 Nothing is installed until the owner asks. `voice.model_install` downloads
-the model's one archive from sherpa-onnx's `asr-models` release into
-`<data dir>/speech-models/<id>.download`, hashing it as it arrives; an archive
-that is not the size and SHA-256 pinned in `local/install.rs` is deleted
-before any of it is read. From a verified archive only the model's four files
-are taken, by name (`encoder.int8.onnx`, `decoder.int8.onnx`,
-`joiner.int8.onnx`, `tokens.txt`), whatever path the archive gives them; links
-and every other entry are skipped. They go into `<id>.unpacking/` beside a
-`model.json` recording each file's size and SHA-256, and the directory is
-renamed to `<id>/` once it is whole, so a model is all there or not there.
-What a run left half done is deleted when the desk starts; nothing resumes.
+the model's one archive into `<data dir>/speech-models/<id>.download`,
+hashing it as it arrives; an archive that is not the size and SHA-256
+pinned in `local/install.rs` is deleted before any of it is read. From a
+verified archive only the model's own files are taken, by name, whatever
+path the archive gives them; links and every other entry are skipped. A
+transducer's are `encoder.int8.onnx`, `decoder.int8.onnx`, `joiner.int8.onnx`
+and `tokens.txt`; Whisper's are its encoder, decoder and tokens, which the
+archive names with a `turbo-` in front and the desk keeps under the plain
+names; Moonshine's are `preprocess.onnx`, `encode.int8.onnx`,
+`uncached_decode.int8.onnx`, `cached_decode.int8.onnx` and `tokens.txt`.
+They go into `<id>.unpacking/` beside a `model.json` recording the kind of
+model and each file's size and SHA-256, and the directory is renamed to
+`<id>/` once it is whole, so a model is all there or not there. What a run
+left half done is deleted when the desk starts; nothing resumes.
 `voice.models` reports each model as `available`, `downloading` (with
-`receivedBytes`), `unpacking` or `installed`, with the last failure; the
-window asks again while a download runs. `voice.model_cancel` stops a
-download and throws away what arrived; `voice.model_remove` takes a model off
-the disk, and a call hearing with it finds it gone at its next utterance.
+`receivedBytes`), `unpacking` or `installed`, with its `tag` and the last
+failure; the window asks again while a download runs. `voice.model_cancel`
+stops a download and throws away what arrived; `voice.model_remove` takes a
+model off the disk, and a call hearing with it finds it gone at its next
+utterance.
 
 An installed model is a directory named for its id whose `model.json` lists
-every file at its size, so hearing never reads the download catalogue and a
-model the catalogue later drops still hears and can be removed. The engine is
-C++ behind a C API, and an exception it throws cannot be caught in Rust: it
-would stop the desk. Two inputs make it throw, and neither reaches it. Each
-file is hashed against its record the first time the model loads in a run,
-and a damaged model is refused with a sentence; and audio shorter than a
-tenth of a second is heard as nothing without running the model.
+its kind and every file at its size, so hearing never reads the download
+catalogue and a model the catalogue later drops still hears and can be
+removed. A `model.json` from before there were other kinds names none and is
+a transducer. The engine is C++ behind a C API, and an exception it throws
+cannot be caught in Rust: it would stop the desk. Two inputs make it throw,
+and neither reaches it. Each file is hashed against its record the first
+time the model loads in a run, and a damaged model is refused with a
+sentence; and audio shorter than a tenth of a second is heard as nothing
+without running the model. The engine also ends the process outright on
+some misuses, which the desk never makes: hotwords for a model that is not a
+transducer, a transducer set up for hotwords without its vocabulary file,
+and a hotword line in the engine's own syntax.
 
-One model is in memory at a time. It loads in about half a second (the first
-load of a run also hashes it: about a second more for Parakeet), holds about
-0.4 GB (English) or 1.2 GB (Parakeet), and is let go after five minutes
-unused. Decoding takes up to four threads and one utterance at a time. On an
-M5 Max, 2.4 seconds of speech is heard in about 40 ms by the English model
-and 155 ms by Parakeet.
+One model is in memory at a time. It is let go after five minutes unused,
+and decoding takes up to four threads and one utterance at a time. Whisper
+keeps only the first thirty seconds of a clip, and Moonshine repeats itself
+on a long one, so either hears a clip longer than 28 seconds in pieces, cut
+at the quietest tenth of a second in each piece's last eight seconds, and
+the pieces' words are joined.
+
+### Names it listens for
+
+A small model spells a name it does not know as the nearest common word:
+"Mac" for Mack, "Bricks" for Brix, "Grock" for Groq. A Parakeet model is
+told the words to expect (sherpa-onnx's hotwords, contextual biasing over
+modified beam search), and favours them while it decodes. The words go with
+each utterance (`create_stream_with_hotwords`), so a new teammate or a word
+added in Settings counts from the next utterance, with no reload. Whisper and
+Moonshine cannot be told; they hear as they would.
+
+The words, most wanted first, are the person's own (`voice.listenFor`),
+teammates' names, Hotline and Parakeet, the installed models' names, and
+the names of the connected providers. Each is kept to letters, digits and
+the marks inside names, a word given twice is kept once, and no more than 32
+are used: a word's first piece is favoured wherever a word could begin, and
+the engine does not take that back when the rest of the word does not
+follow, so a long list starts capitalising ordinary words that only begin
+like a name. On the clips 16 words cost nothing, 40 doubled the stray
+capitals and 157 quadrupled them. Each piece is favoured by 1.5,
+sherpa-onnx's default; 2.0 began turning "parka" into "Parka".
+
+Beam search is what can be biased, so a transducer always decodes with it
+(four paths): about a tenth slower than greedy decoding (Parakeet English's
+real-time factor 0.015 becomes 0.017), whatever the number of words. The
+engine's hotword encoder splits a word into pieces from a scored vocabulary,
+which the archives do not carry; the desk writes one beside the model
+(`bpe.vocab`) each time it loads it, from the verified `tokens.txt`, scoring
+every piece at about one so a word becomes the fewest pieces, as the model's
+own BPE mostly spells it. Scoring by merge order instead splits words into
+small pieces the model never emits, and Parakeet heard "Parakeek".
+
+### In Settings
+
+In the window the models are rows in Settings › Providers › Use for ›
+Transcription (`ui/src/components/DeskModels.tsx`), a fold under Voice that
+opens even when nothing can speak yet. Folded, it says what hears you now;
+while nothing can, it reads "None yet. Download a free speech model." with
+Set up. Open, it holds Transcribes with and the models, under one title,
+Free and private local models. The call assistant is a row of its own below
+the fold, whose line says it is only for calls to the desk, since a teammate
+answers its own calls. A row is the model's name with its tag after a dot
+(Parakeet English · fast), from the catalogue, and its Download button names
+the size; while it downloads the row shows how much has arrived over a bar
+and offers Cancel, and once installed it shows its size on the desk and
+offers Remove. While Parakeet English is the only model installed and the
+window's language is not English, its row adds one line, Parakeet hears
+more languages; in English it says nothing, since there Parakeet English
+hears as well. The window asks `voice.models` every half second while
+anything is downloading or unpacking, and asks for the options again when
+what is installed changes, so the Transcribes with picker gains or loses On
+the desk. A failed download's sentence takes the row's second line until
+the next try. Credits opens each model's credit with a link to its licence.
+
+Once a model is installed, Words to listen for is a fold under the models:
+closed it shows the words, open it is one field of words separated by
+commas, and Save writes them to `voice.listenFor`, keeping the rest of the
+voice setting. Its hint says Parakeet listens for them and for teammates'
+names, which are never typed.
+
+### The adapter
 
 The adapter is provider `local`, named On the desk, and hears `audio/wav`
 (mono PCM16 at any rate, which the engine resamples), `audio/mp4` (AAC,
@@ -271,24 +385,15 @@ so a phone that streams its microphone keeps streaming it. It takes at most a
 minute at a time and never speaks. Its price is zero, so a zero Voice
 budget never stops it.
 
-In the window the models are rows in Settings › Providers › Use for ›
-Hearing (`ui/src/components/DeskModels.tsx`), a fold under Voice that opens
-even when nothing can speak yet. Folded, it says what hears you now; while
-nothing can, it reads "None yet. Download a free speech model." with Set up.
-Open, it holds Hears with, the models and the call assistant. A row says what the model hears and its download
-size, and its Download button names the size; while it downloads the row
-shows how much has arrived over a bar and offers Cancel, and once installed
-it shows its size on the desk and offers Remove. The window asks
-`voice.models` every half second while anything is downloading or unpacking,
-and asks for the options again when what is installed changes, so the
-Hearing picker gains or loses On the desk. A failed download's sentence takes
-the row's second line until the next try. Under the rows each model's credit
-links its licence, and About credits the models, sherpa-onnx, ONNX Runtime
-and Symphonia.
-
 `voice.transcribe` hears one clip outside any call, for dictation: with the
 model picked for hearing when that is one of the desk's, else the first
-installed. It asks no budget and keeps nothing.
+installed, listening for the same words as a call. It asks no budget and
+keeps nothing.
+
+`cargo run --release -p hotline-core --example local_speech_check -- <id>
+[clip.wav ...]` downloads a model from where the desk would, verifies,
+unpacks and loads it, and hears the fixtures and any clips given, printing
+each one's words, time and real-time factor.
 
 ## Providers
 
@@ -392,7 +497,11 @@ hears with that model on the desk, and naming one that is not installed is
 the same error. A `fallbackTts` that cannot be used is no fallback.
 When nothing can hear or speak, `resolve` returns a sentence for a person.
 
-`dispatcher` names the chat model that routes what was said. Without it the
+`dispatcher` names the chat model that routes what was said on a call to the
+desk; Settings › Providers › Use for calls it the call assistant. On a call to
+a teammate it only says again, to be heard, a reply the teammate wrote
+without a spoken version ([A reply written only to be
+read](#a-reply-written-only-to-be-read)). Without that setting the
 desk takes the best-suited quick chat model of the room's default provider: a
 middle-tier one (`flash`, `mini`, `small`, `fast`) first, because the lightest
 tier (`flash-lite`, `nano`, `luna`, `haiku`, `instant`) is too thin to hold a
@@ -403,81 +512,233 @@ not connected is an error, like the speech choices above.
 
 A direct teammate call resolves speech and budget without the dispatcher.
 `VoiceStatus.available` remains desk readiness; `directAvailable` separately
-reports direct readiness. Speech selections remain visible when only the
+reports direct readiness, which needs speech and the Voice budget only.
+Speech selections remain visible when only the
 dispatcher is unavailable. The desktop's secondary call control uses direct
 readiness and retains the desk's availability check for its primary call.
 `voice.status` accepts `inputMode: "text"` to assess output-only readiness;
 omission assesses audio readiness. A direct text call needs output and budget,
 while a desk text call also needs the dispatcher.
 
-When the dispatcher is ready, a direct call answers in the teammate's own
-voice before the teammate does anything. The dispatcher's model speaks as the
-teammate, in the first person, and converses: the system prompt carries the
-teammate's name and goal and the workspace's own `AGENTS.md` when a person
-wrote one (up to 4000 characters; the file Hotline writes is skipped, and a
-linked file is never followed). The call's own exchange (what the person said,
-what the voice said, and the reports it relayed; the newest 30 lines) is sent as
-real user and assistant turns, so the voice keeps the thread of the call. Each
-message also carries, as data, whether the teammate is working, the note its
-latest chapter closed with and the newest 24 entries of its conversation. A
-scheduled prompt, a colleague's message or an answer to a request is named for
-what it is in that data, never as something the person said. A question about
-how the work is going is answered from that and reaches no session.
+## One brain, two outputs
 
-The front is the teammate, not an assistant in front of it. It speaks in the
-first person as one person with one voice, never mentions a session, a main
-agent or a call assistant, and tells what the session did as what it did
-itself. It answers the point directly, the way a colleague on the phone would:
-one reply in natural spoken prose, one to three short sentences unless asked
-for more, with no filler opener ("Good to hear…") or sign-off, and at most one
-question, asked only when it needs the answer. Anything that needs doing or
-looking up (files, sending something to the chat, checking how something
-stands, running something) goes to the session at once with a brief spoken
-acknowledgement; it never says it can't and never promises without handing it
-over.
+A call to a teammate has nothing in front of the teammate
+(`voice/spoken.rs`). Every utterance goes into the teammate's own session as a
+turn of its conversation, in the open chapter of its main thread, the same way
+a typed message does (`Calls::hand_off`, `Room::prompt`): same session, same
+harness, same grants. The tape keeps the person's words exactly as they were
+heard, under an id that marks the line as said on the call
+(`voice:<callId>:<seq>:agent:…`), and the chat shows them like any message.
+Said into a turn that is still running, the words steer it, as typing does.
 
-A reply is spoken sentence by sentence as the model writes it, so the first
-words come quickly, but it is one reply. The call shows it as one line that
-grows under one `said` id, its audio continues under that id and ends with an
-empty final clip, and the call's thread, and so the chat, keeps it once,
-whole, when it is over (or when the person speaks over it, with what was
-said by then). The voice's memory of the call holds it the same way. A desk
-call's answers are kept as one line on the dispatcher's tape likewise.
-The exchange is only what the voice is given: a direct call is a thread
-(`docs/threads.md`), and everything said on it is kept in `calls/<id>.jsonl`,
-indexed for `search_thread`, linked from the teammate's DM and read back after
-the call ends. A call picked up again under its id rebuilds its exchange from
-that thread, under the same caps. A call nobody has spoken on for ten minutes
+What makes the turn a voice turn is one thing the agent is handed after the
+person's words, the contract (`spoken::CONTRACT`): answer twice, once to be
+heard and once to be read, each version standing alone and neither continuing
+the other. The version to be heard goes between `<spoken>` tags: how you'd
+answer on a phone call, leading with the answer, one to three sentences under
+40 words, plain speech with no code, lists, links or markdown, mentioning the
+written version only as "details are in the chat". The version to be read
+goes between `<written>` tags: the complete answer exactly as if the question
+had been typed, never spoken, not assuming the reader heard the other one. It
+gives one example, and asks for at most one short line before a tool and, when
+the person cut in, an answer to the new words without repeating what was said.
+
+The contract asks for two whole versions rather than one reply cut in two. A
+reply split by a marker into a part to say and a part to show reads to a model
+as an opener and a body, so the chat showed the spoken opener as its first
+bubble and the rest after it: one answer chopped in two, not a desk answer.
+
+The contract travels in the text of the turn the driver is handed, after the
+words and a blank line, and nowhere else. A model setting or a system note
+would reach only Hotline Agent, and an ACP meta field is not something Claude
+Code or Codex read as instructions; the turn's text reaches every driver alike,
+and it rides along when the turn steers one already running. The tape never
+holds it: `Room::prompt` writes what the person said and hands the driver the
+words with the contract, so the conversation, a rebuilt history and a search
+see only the words. Nothing else about the turn changes what the model sees.
+
+The reply is read twice from one stream:
+
+- **Said.** The DM's witness hands the call each chunk of the reply's words as
+  the agent writes them (`Calls::reply_delta`), and the whole message when it
+  lands (`Calls::delivery`). `spoken::Spoken` takes what is inside `<spoken>`,
+  each sentence said as soon as it is whole, cleaned for speech as below, and
+  nothing after it. It holds back the end of a chunk that could be the start
+  of a tag, so no part of a tag is ever said, and it never reads out a fenced
+  code block or a table. Text before a spoken version is not said as it
+  streams, because a reply that never writes one is said differently once it
+  is whole ([A reply written only to be
+  read](#a-reply-written-only-to-be-read)), and its opening must not be heard
+  first. When a spoken
+  version begins, the text before it is said first, read as a reply with no
+  tags is, as the line an agent wrote before its tags.
+- **Shown.** The chat shows the written version alone, as a normal desk
+  answer: as it streams (`spoken::Shown`, which holds back a partial tag the
+  same way and drops the spoken version), and as it is written to the tape
+  (`spoken::versions`, before the reply is paced into bubbles). On a turn said
+  on the call, the reply's first bubble keeps the spoken version beside it, in
+  the agent event's `spoken` field (`docs/wire.md`); the window draws it as a
+  transcript line above the reply (`ui/design.md`).
+
+The tags are read tolerantly. Case and spaces inside the angle brackets do not
+matter. A `<spoken>` never closed ends where `<written>` begins. A reply with
+no `<written>` shows its spoken version, or the text after it when the model
+forgot the tag; text outside both versions after the first tag is shown with
+the written one. A reply with no spoken version at all was written to be
+read, and the chat shows all of it; what the call says of it is below. Only
+the first spoken version is the
+reply's, a written version ends only at its own closing tag, and any other tag
+is stray: it is dropped and the text on both sides kept. Text that only looks
+like a tag (`<spoke>`, `Vec<String>`, `a < b`) is text.
+
+No tag is shown in any agent message, on a call or not
+(`runner::drive_updates` for the words as they stream, `event_of` for what is
+written): the main conversation, a side thread, a subagent's run and a peer
+exchange alike, and the reply the phone is pushed, which is the written
+version. An ACP agent such as Claude Code or Codex keeps the call's contract in
+its own session history, so it may write the tags in a typed reply long after
+the call; that reply is shown and kept as its written version, and keeps no
+spoken version, since nothing was said.
+
+The model is shown both versions again. Hotline Agent rebuilds its history
+from the tape, and a reply with a `spoken` field is presented to it as
+`<spoken>…</spoken>` and `<written>…</written>` on the next line, the bubbles
+of the reply joined inside the written version, so a follow-up or a barge-in
+knows what the person heard and what they could only read. An ACP agent keeps
+its own history, which already has both. The call's thread
+(`calls/<id>.jsonl`) keeps the line that was said, as before.
+
+A written version that reads as the rest of the spoken one rather than a
+version of its own, opening with a continuation ("Also", "Additionally",
+"Here's the rest", "As I said") or with the spoken version again nearly word
+for word, writes one `[voice]` line to the log (`spoken::lazy`). It is a
+diagnostic: nothing shown or said changes.
+
+On an agent turn, what the agent writes before its first tool call is said as
+the acknowledgement: its spoken version as it streams, or, without one, the
+line as written once it is whole, which is when the tool starts. Its words
+between tools are narration (`session/narration.rs`) and are not said; the
+call stays `thinking`, and the client's blip-blip covers the work. The message
+that lands as the report is said when it lands: its spoken version, or, when
+it wrote none, as below. Each message said is one reply:
+one `said` id, the line growing sentence by sentence, its clips under that id
+closed by an empty final clip, and one line on the call's thread.
+
+The call is `thinking` from an utterance until the teammate's session has
+finished that turn, or left it open only for subagents (`Calls::turn_ended`),
+apart from while it speaks; then it listens. Once the desk has handed the
+person's words to the session, that `thinking` says `listening: true`
+(`Call::listening_while_thinking`): the turn is still working, and the call
+takes what the person says, so a client keeps its microphone open while the
+teammate works and nothing is playing, and the person never has to tap to cut
+in. What they say is an utterance like any other: it stops what the call is
+saying and steers into the open turn. While the desk is still taking their
+last words (transcribing them, starting the session), `thinking` has the
+floor and says no such thing, and a desk call never does. A desk that does
+this says `voiceListenWhileThinking` among its capabilities. When the person
+speaks again before a turn ends, the call waits for the turn that has their
+latest words.
+A reply the turn never finished is said as far as it got. While it thinks it
+sends `thinking`
+again every 15 seconds, so a phone, which gives up on a desk it has not heard
+from in 45, does not take a long piece of work for a desk that went quiet.
+
+Speaking over the teammate (`voice.interrupt`) stops what it is saying at once
+and gives the person the floor: the call listens even though the turn is still
+open, the rest of that reply is not said, and what the person says next goes
+into the open turn as a steer. The turn itself is never stopped by the call,
+and what the teammate says after it, such as its report, is said. A hold stops
+a reply too, and a reply cut off by a hold, or that lands while the call is
+held, reaches the phone as a notification instead.
+
+What is said is cleaned for speech first (`spoken::speech_text`): code marks,
+markdown emphasis, headings and list bullets go; a link is "a link", and a
+labelled link is its label; money, scales and percentages are words ("$3.4B"
+is "3.4 billion dollars", "12%" is "12 percent"), "->" and "=>" are "to", "#42"
+is "number 42" and "~5" is "about 5". The line shown on the call keeps the
+words as written. The two pairs of tags are the only markup the agent is asked
+for.
+
+The latency of a call to a teammate is the teammate's: its first word waits on
+its model's first sentence, and for a reply written only to be read, on the
+whole reply and its rewrite. That is accepted. A desk call keeps its router:
+the call assistant answers what was said on the desk, hands work to teammates
+with `session.prompt`, and narrates their replies, as below.
+
+A desk call's dispatcher answers are spoken sentence by sentence as the model
+writes them, as one reply: one line growing under one `said` id, its audio
+continuing under that id and ending with an empty final clip, kept once on the
+`voice-dispatcher` tape when it is over (or when the person speaks over it,
+with what was said by then). A teammate's reply to work the desk handed it is
+narrated by the call assistant, plainly and briefly, when it is too long or
+too marked up to say as written.
+
+A direct call is a thread (`docs/threads.md`): everything said on it is kept in
+`calls/<id>.jsonl`, indexed for `search_thread`, linked from the teammate's DM
+and read back after the call ends. A call nobody has spoken on for ten minutes
 is ended by the room's sweep, and one a restart cut off is closed as stopped.
 The desk's own calls, which name no teammate, are not threads; they stay on the
 `voice-dispatcher` tape, which the dispatcher reads across calls.
-A request for work calls the front's one tool, `hand_to_session`, which hands
-the words to the teammate's session as a call without a front would, at most
-once per utterance; the front then says a short acknowledgement. When the
-model speaks before calling the tool, what it writes after the tool's result
-is not spoken, so the acknowledgement is said once. The session
-hears the call lines it has not yet been told (the person's and the voice's,
-not its own relayed reports) ahead of the person's exact words, framed as the
-call's; the conversation shows only the words. The front never claims work is
-done and never answers an approval. If the front fails before it decides, the
-words are handed over unchanged. A handoff that cannot start the teammate or
-reach its session is reported on the call.
-
-While the front speaks for the call, the teammate's own interim
-acknowledgements are not spoken, nor a turn that ends on a bare one; its
-reply at the end of the turn is. Replies
-to any turn handed off on this call are delivered, not only to the latest one,
-and longer replies are retold in the first person by the dispatcher's model,
-plainly and briefly, under the same voice rules, which summarises lists rather
-than reading them out.
-Short plain replies are spoken as written. Without a dispatcher, a direct call
-hands every utterance to the session and speaks its replies as before.
 
 A teammate may have its own voice (`Persona.voice`: provider, model and
 voice), picked on its card from the voices of the model the desk speaks with.
 A direct call to that teammate speaks in it while the desk still speaks with
 that provider and model; otherwise, or if the provider refuses the voice, the
 call uses the desk's voice. Desk calls always use the desk's voice.
+
+### A reply written only to be read
+
+A reply that writes no `<spoken>` version (`spoken::Ending::Untagged`) is
+said once it is whole, from its written version (`Calls::unspoken`):
+
+- **One short line** is said as it was written (`spoken::said_as_written`):
+  one line of prose, under 40 words and at most three sentences, with no code
+  or table. That is the one short line the contract asks for before a tool,
+  which arrives as a message of its own when the tool starts, and a reply that
+  short has nothing to say again.
+- **Anything longer** the call assistant says again to be heard
+  (`Calls::rewrite`, `Dispatcher::rewrite`): it is handed the written version,
+  its first 8,000 characters with a note that the rest is in the chat, and
+  the person's last words, as escaped untrusted data, and asked to say it as
+  on a phone call, leading with the answer in one to three sentences under 40
+  words of plain speech, mentioning that details are in the chat, and adding
+  nothing. What it writes is said as the reply's line, kept on the call's
+  thread, and kept as the reply's `spoken`, so the window's transcript line
+  and the model's rebuilt history have it: the session has written the reply
+  by then, and the call supersedes that event with the field added
+  (`Room::voice_spoken`), waiting up to two seconds for it to land. While it
+  writes, the call is `thinking`: the person hears the blip-blip, and the
+  15-second heartbeat keeps a phone waiting.
+- **When there is no rewrite** (the desk has no call assistant, the Chat
+  budget refuses it, the request fails, or it takes longer than six seconds)
+  the call says the reply's opening, as it always did: up to its first code
+  block or table, and at most three sentences. Each such case writes one
+  `[voice]` line to the log; none of them ends the call, not even a refused
+  budget.
+
+The rewrite is the call assistant's work and is metered as it is (see
+[The ledger](#the-ledger)): reserved and settled on the Chat budget's call
+assistant line, and never refused on a model that costs nothing.
+
+### How each reply was said
+
+Each reply the call says is counted once, by how it was written and so said
+(`spoken::path`): `both` (a spoken version closed with `</spoken>`, and a
+written one), `spokenOnly` (a closed spoken version and no written one),
+`unclosed` (a `<spoken>` never closed), `untagged` (no spoken version, and its
+opening was said) or `rewritten` (no spoken version, and the call assistant's
+rewrite was said). One short line said as written is not counted: it is what
+the contract asks for before a tool. The count is kept under the agent and
+model that wrote the reply:
+`hotline/<provider>/<model>` for Hotline Agent, and `acp/<adapter>` for an
+ACP agent, followed by `/<model>` when its session reports one. The counts
+live in `<data dir>/voice-replies.json`, written whole and atomically after
+each count (`voice/replies.rs`), each count writes one `[voice]` line to the
+log, and `voice.status` returns them as `replies` (`docs/wire.md`), so a
+client can say how often a model kept to the contract. A reply the person
+spoke over, or a hold cut off, before it was whole is not counted. The counts
+are a diagnostic, so a file that cannot be read starts them again rather
+than stopping a call.
 
 ## Timing
 
@@ -555,8 +816,12 @@ A reservation of nothing (a subscription, the desk's own engine, a signed-in
 call assistant) is never refused and never reads the ledger, so free voice
 runs even when the ledger cannot be read. `ready(kinds)` asks the same of
 the kinds a call would pay for before work starts: transcription and speech
-when their provider charges, the call assistant when it is billed per token
-(on a direct call, only when it speaks for the teammate). `voice.call_start`
+when their provider charges, and on a desk call the call assistant when it is
+billed per token. A call to a teammate names no call assistant; its turns
+are the teammate's own and are metered by its session, against Chat on a
+per-token key, as typed turns are. A rewrite of a reply written only to be
+read reserves on Chat like any call assistant request, and a refusal only
+means the reply's opening is said instead. `voice.call_start`
 refuses a call whose paid budget is spent with that sentence; during a call
 a refused reservation ends it with the bundled budget line. A call that
 pays for nothing names no kinds, so no budget can end it.
@@ -587,7 +852,7 @@ model from the vault's model metadata first, then the bundled catalogue; a
 sign-in or a local server costs nothing. Each model call reserves an estimate
 before it goes out: the request's bytes (prompt, history, preamble, and 2 KB
 per tool) divided by three as input tokens, plus the request's own output
-ceiling (512 tokens for an answer, 160 for a narration). When the response
+ceiling (512 tokens for an answer, 160 for a narration or a rewrite). When the response
 reports usage, the reservation is settled to what it cost: `input_tokens` at
 the input price, cache reads and writes at the catalogue's cache prices, and
 output. Anthropic reports cache tokens beside `input_tokens`; the

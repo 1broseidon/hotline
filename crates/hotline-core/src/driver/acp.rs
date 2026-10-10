@@ -2477,7 +2477,7 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
             pen.flush().await;
             let line = ToolLine {
                 title: clip(&call.title, TITLE_CHARS),
-                kind: kind_of(call.kind),
+                kind: tool_kind(call.kind, call.meta.as_ref()),
                 location: first_location(&call.locations),
             };
             pen.emit(Update::ToolCall {
@@ -2513,9 +2513,16 @@ async fn translate_in(pen: &Pen<'_>, update: SessionUpdate) {
                         .map(|title| clip(title, TITLE_CHARS))
                         .or_else(|| previous.map(|line| line.title.clone()))
                         .unwrap_or_default(),
-                    kind: fields
-                        .kind
-                        .map(kind_of)
+                    // A call announced as a subagent's launch stays one,
+                    // whatever kind a later update gives it.
+                    kind: previous
+                        .map(|line| line.kind.clone())
+                        .filter(|kind| kind == SUBAGENT_LAUNCH)
+                        .or_else(|| {
+                            launches_subagent(update.meta.as_ref())
+                                .then(|| SUBAGENT_LAUNCH.to_string())
+                        })
+                        .or_else(|| fields.kind.map(kind_of))
                         .or_else(|| previous.map(|line| line.kind.clone()))
                         .unwrap_or_default(),
                     location: fields
@@ -2760,6 +2767,29 @@ fn first_location(locations: &[acp::ToolCallLocation]) -> Option<String> {
 /// window's icons and the tape are keyed by.
 fn kind_of(kind: acp::ToolKind) -> String {
     word_of(&kind)
+}
+
+/// The kind a launched subagent's call is kept under, the same as Hotline
+/// Agent's: a turn left open only for such calls reads as done.
+const SUBAGENT_LAUNCH: &str = crate::session::jobs::SUBAGENT;
+
+/// A call's kind, or a subagent's launch when the agent says so. ACP has no
+/// kind for it; Claude's adapter names the tool behind each call in
+/// `_meta.claudeCode.toolName`, and a subagent is launched by `Agent` (once
+/// `Task`), whose call stays open, kind-less, while the subagent works.
+fn tool_kind(kind: acp::ToolKind, meta: Option<&acp::Meta>) -> String {
+    if launches_subagent(meta) {
+        SUBAGENT_LAUNCH.to_string()
+    } else {
+        kind_of(kind)
+    }
+}
+
+fn launches_subagent(meta: Option<&acp::Meta>) -> bool {
+    meta.and_then(|meta| meta.get("claudeCode"))
+        .and_then(|claude| claude.get("toolName"))
+        .and_then(Value::as_str)
+        .is_some_and(|name| matches!(name, "Agent" | "Task"))
 }
 
 fn stop_reason_of(reason: acp::StopReason) -> String {
@@ -3163,6 +3193,30 @@ mod tests {
     use rmcp::ServiceExt;
     use std::sync::atomic::AtomicUsize;
 
+    /// Claude's adapter marks the call that launched a subagent only in
+    /// `_meta`; kept as a launch, a turn left open for it reads as done.
+    #[test]
+    fn a_call_claude_says_launched_a_subagent_is_kept_as_one() {
+        let meta = |name: &str| {
+            serde_json::json!({"claudeCode": {"toolName": name}})
+                .as_object()
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(
+            tool_kind(acp::ToolKind::Other, Some(&meta("Agent"))),
+            SUBAGENT_LAUNCH
+        );
+        assert_eq!(
+            tool_kind(acp::ToolKind::Think, Some(&meta("Task"))),
+            SUBAGENT_LAUNCH
+        );
+        assert_eq!(
+            tool_kind(acp::ToolKind::Execute, Some(&meta("Bash"))),
+            "execute"
+        );
+        assert_eq!(tool_kind(acp::ToolKind::Read, None), "read");
+    }
     #[tokio::test]
     async fn oauth_proxy_requires_its_own_bearer_and_a_live_grant() {
         use rmcp::transport::auth::{

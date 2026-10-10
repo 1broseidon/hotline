@@ -29,14 +29,6 @@ pub(crate) fn voice_origin() -> Option<crate::voice::Origin> {
     CALL_ORIGIN.try_with(Clone::clone).ok()
 }
 
-// What was said on a direct call that the teammate's session has not heard,
-// to go ahead of the person's words. The tape shows only the words.
-tokio::task_local! { pub(crate) static CALL_HEARD: Option<String>; }
-
-pub(crate) fn call_heard() -> Option<String> {
-    CALL_HEARD.try_with(Clone::clone).ok().flatten()
-}
-
 // Set by the door a message came in at, never by the message: whether this
 // socket declared `threads2`, for the commands whose answer carries lines a
 // thread's link is one of.

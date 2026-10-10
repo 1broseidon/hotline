@@ -238,6 +238,14 @@ export const VoiceIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
+/* A speaker, for words the teammate said aloud on a call. */
+export const SpeakerIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<path d="M2.75 6.25h2.5L8.5 3.5v9L5.25 9.75h-2.5z" />
+		<path d="M11 6.1a2.75 2.75 0 0 1 0 3.8M12.9 4.3a5.3 5.3 0 0 1 0 7.4" />
+	</svg>
+);
+
 /* A microphone, for words spoken into the field. */
 export const MicIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>

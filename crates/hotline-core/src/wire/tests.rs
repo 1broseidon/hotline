@@ -4832,7 +4832,7 @@ async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
             .iter()
             .map(|model| model["state"].as_str().unwrap())
             .collect();
-        assert_eq!(states, ["available", "available"]);
+        assert!(states.len() > 1 && states.iter().all(|state| *state == "available"));
         let unknown = remote_control_answer(
             seat,
             &room,

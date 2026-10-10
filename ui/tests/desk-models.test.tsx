@@ -1,7 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { Window } from "happy-dom";
 import type { CapabilityOptions, SpeechModel } from "../src/generated/contract";
-import { busy, installedChanged, megabytes, modelLine, progress } from "../src/voice/deskModels";
+import { busy, installedChanged, languageHint, megabytes, modelLine, progress } from "../src/voice/deskModels";
 
 function model(overrides: Partial<SpeechModel> = {}): SpeechModel {
 	return {
@@ -26,11 +26,11 @@ describe("the desk's speech models in words", () => {
 	});
 
 	test("each state says where the model stands", () => {
-		expect(modelLine(model())).toBe("English only, small and quick · 108 MB download");
+		expect(modelLine(model())).toBe("");
 		expect(modelLine(model({ state: "downloading", receivedBytes: 54_000_000 }))).toBe("Downloading 54 MB of 108 MB");
 		expect(progress(model({ state: "downloading", receivedBytes: 54_017_547 }))).toBeCloseTo(0.5, 3);
 		expect(modelLine(model({ state: "unpacking" }))).toBe("Unpacking");
-		expect(modelLine(model({ state: "installed" }))).toBe("English only, small and quick · 136 MB on the desk");
+		expect(modelLine(model({ state: "installed" }))).toBe("136 MB on the desk");
 		// A model the catalogue no longer lists has nothing more to say.
 		expect(modelLine(model({ state: "installed", detail: "", diskBytes: 0 }))).toBe("");
 	});
@@ -44,6 +44,71 @@ describe("the desk's speech models in words", () => {
 		expect(installedChanged(before, [model({ state: "installed" })])).toBe(true);
 		expect(installedChanged([model({ state: "installed" })], [model()])).toBe(true);
 	});
+});
+
+describe("which model to suggest", () => {
+	const parakeet = model({ id: "parakeet-tdt-0.6b-v3", name: "Parakeet", tag: "25 languages" });
+	const english = model({ state: "installed", tag: "fast", moreLanguages: "parakeet-tdt-0.6b-v3" });
+
+	test("the bigger Parakeet is suggested only to a window not in English, while the English one is all there is", () => {
+		expect(languageHint(english, [parakeet, english], "fr-FR")).toBe("Parakeet hears more languages");
+		// In English the small model hears as well, and faster: nothing to suggest.
+		expect(languageHint(english, [parakeet, english], "en-GB")).toBeNull();
+		expect(languageHint(english, [parakeet, english], "EN")).toBeNull();
+		// Not once the other is coming or there, nor while another model hears.
+		expect(languageHint(english, [{ ...parakeet, state: "downloading" }, english], "de")).toBeNull();
+		expect(languageHint(english, [{ ...parakeet, state: "installed" }, english], "de")).toBeNull();
+		expect(languageHint(english, [parakeet, english, model({ id: "whisper-large-v3-turbo", name: "Whisper", state: "installed" })], "de")).toBeNull();
+		// Not on a row that is not installed, nor one that names no other.
+		expect(languageHint({ ...english, state: "available" }, [parakeet, english], "de")).toBeNull();
+		expect(languageHint(parakeet, [parakeet, english], "de")).toBeNull();
+	});
+});
+
+test("each row names the model with its tag from the catalogue, and a window not in English is offered the model that hears more", async () => {
+	const dom = new Window();
+	Object.defineProperty(dom.navigator, "language", { value: "fr-FR", configurable: true });
+	const restores: (() => void)[] = [];
+	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
+		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
+		restores.push(() => {
+			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+			else Reflect.deleteProperty(globalThis, key);
+		});
+	}
+	const { act } = await import("react");
+	const { createRoot } = await import("react-dom/client");
+	const { DeskModels } = await import("../src/components/DeskModels");
+	const { wire } = await import("../src/wire");
+	const models: SpeechModel[] = [
+		model({ id: "parakeet-tdt-0.6b-v3", name: "Parakeet", tag: "25 languages", downloadBytes: 487_170_055 }),
+		model({ id: "whisper-large-v3-turbo", name: "Whisper", tag: "99 languages" }),
+		model({ state: "installed", tag: "fast", moreLanguages: "parakeet-tdt-0.6b-v3" }),
+		model({ id: "a-retired-model", name: "Old", detail: "", diskBytes: 0, credit: "", state: "installed" }),
+	];
+	const command = spyOn(wire, "command").mockImplementation((async () => models) as typeof wire.command);
+	const container = document.createElement("div");
+	document.body.append(container);
+	const root = createRoot(container);
+	try {
+		await act(async () => { root.render(<DeskModels onInstalledChanged={() => {}} />); });
+		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+		const titles = [...container.querySelectorAll(".group-row-title")].map((node) => node.textContent);
+		expect(titles).toEqual(["Free and private local models", "Parakeet · 25 languages", "Whisper · 99 languages", "Parakeet English · fast", "Old"]);
+		// Another model is installed, so nothing is suggested yet.
+		expect(container.textContent).not.toContain("hears more languages");
+		models.pop();
+		await act(async () => { root.render(<DeskModels onInstalledChanged={() => {}} key="again" />); });
+		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+		const lines = [...container.querySelectorAll(".group-row-detail")].map((node) => node.textContent);
+		expect(lines).toEqual(["136 MB on the desk · Parakeet hears more languages"]);
+	} finally {
+		await act(async () => { root.unmount(); });
+		command.mockRestore();
+		for (const restore of restores.reverse()) restore();
+		await dom.happyDOM.close();
+	}
 });
 
 test("a model is downloaded only when asked, followed until it lands, and removed; Voice opens even with nothing connected", async () => {
@@ -94,6 +159,9 @@ test("a model is downloaded only when asked, followed until it lands, and remove
 		expect(asked.map((one) => one.cmd)).toEqual(["voice.models"]);
 		expect(container.textContent).toContain("Download a speech model for the desk");
 		expect(container.textContent).toContain("Parakeet English");
+		// The credits wait behind a button; the list is titles and sizes.
+		expect(container.textContent).not.toContain("NVIDIA Parakeet TDT 110M, CC BY 4.0");
+		await act(async () => { button("Credits")!.click(); });
 		expect(container.textContent).toContain("NVIDIA Parakeet TDT 110M, CC BY 4.0");
 
 		await act(async () => { button("Download 108 MB")!.click(); });
@@ -119,6 +187,68 @@ test("a model is downloaded only when asked, followed until it lands, and remove
 		await settle();
 		expect(asked.at(-1)).toEqual({ cmd: "voice.model_remove", params: { modelId: "parakeet-tdt-110m-en" } });
 		expect(refreshed).toBe(2);
+	} finally {
+		await act(async () => { root.unmount(); });
+		command.mockRestore();
+		for (const restore of restores.reverse()) restore();
+		await dom.happyDOM.close();
+	}
+});
+
+test("Words to listen for is one fold under the desk's models, and saving writes them beside the voice picks", async () => {
+	const dom = new Window();
+	const restores: (() => void)[] = [];
+	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
+		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
+		restores.push(() => {
+			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+			else Reflect.deleteProperty(globalThis, key);
+		});
+	}
+	const { act } = await import("react");
+	const { createRoot } = await import("react-dom/client");
+	const { UseFor } = await import("../src/components/UseFor");
+	const { wire } = await import("../src/wire");
+	const asked: { cmd: string; params: unknown }[] = [];
+	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: unknown) => {
+		asked.push({ cmd, params });
+		if (cmd === "voice.models") return [model({ state: "installed" })];
+		return {};
+	}) as typeof wire.command);
+	const container = document.createElement("div");
+	document.body.append(container);
+	const root = createRoot(container);
+	const desk = { providerId: "local", providerName: "On the desk", modelId: "parakeet-tdt-110m-en" };
+	const options: CapabilityOptions = {
+		images: { options: [] },
+		stt: { automatic: desk, options: [{ providerId: "local", providerName: "On the desk", models: [{ id: "parakeet-tdt-110m-en", label: "Parakeet English" }] }] },
+		tts: { options: [] },
+		dispatcher: { options: [] },
+		spending: { budgets: [] },
+	};
+	const voice = { stt: { provider: "local", model: "parakeet-tdt-110m-en" }, listenFor: ["Ophelia"] };
+	const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+	const button = (starts: string) => [...container.querySelectorAll<HTMLButtonElement>("button")].find((node) => (node.textContent ?? "").startsWith(starts) || node.getAttribute("aria-label") === starts);
+	try {
+		await act(async () => { root.render(<UseFor options={options} voice={voice} onChanged={() => {}} />); });
+		expect(button("Words to listen for")).toBeUndefined();
+		await act(async () => { button("Transcription")!.click(); });
+		await settle();
+		// Closed, it says what it is now; open, it is one field and Save.
+		expect(button("Words to listen for")!.textContent).toBe("Words to listen forOpheliaChange");
+		await act(async () => { button("Words to listen for")!.click(); });
+		const field = container.querySelector<HTMLInputElement>('input[aria-label="Words to listen for"]')!;
+		expect(field.value).toBe("Ophelia");
+		expect(button("Save")!.disabled).toBe(true);
+		await act(async () => {
+			Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(field, "Ophelia, Groq, ophelia");
+			field.dispatchEvent(new dom.Event("input", { bubbles: true }));
+		});
+		await act(async () => { button("Save")!.click(); });
+		await settle();
+		expect(asked.at(-1)).toEqual({ cmd: "settings.update", params: { patch: { voice: { ...voice, listenFor: ["Ophelia", "Groq"] } } } });
+		expect(container.querySelector('input[aria-label="Words to listen for"]')).toBeNull();
 	} finally {
 		await act(async () => { root.unmount(); });
 		command.mockRestore();

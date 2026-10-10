@@ -10,7 +10,10 @@ import { downsample, encodeWav, rms, toBase64, WAV_RATE } from "./wav";
  * desk), for a window whose machine has no engine of its own, Windows and
  * Linux, or a Mac whose person picked the desk. The window keeps the
  * microphone: it meters each block for the VoiceMeter and gathers the
- * samples at 16 kHz, and the desk hears them with `voice.transcribe`. The
+ * samples as the microphone gives them, and the desk hears them at 16 kHz
+ * with `voice.transcribe`. The clip is brought down to 16 kHz whole, as a
+ * call's utterance is (call.ts): a block at a time would drop the samples
+ * left over at each block's end, a click every 43 ms at 48 kHz. The
  * desk's model hears a whole clip, so words while talking are the clip so
  * far, heard again about once a second while no answer is outstanding.
  * A session ends itself after half a minute, the way a Mac's engine ends
@@ -97,8 +100,10 @@ export function deskEngine(level: (db: number) => number, seams: DeskSeams = win
 	let generation = 0;
 	let mic: Microphone | null = null;
 	let stopPartials: (() => void) | null = null;
+	/** The session's microphone samples, at the microphone's own rate. */
 	let chunks: Float32Array[] = [];
 	let length = 0;
+	let rate = WAV_RATE;
 	/** How much of the session the last asked-for words covered. */
 	let asked = 0;
 	let asking = false;
@@ -112,7 +117,7 @@ export function deskEngine(level: (db: number) => number, seams: DeskSeams = win
 			samples.set(chunk, at);
 			at += chunk.length;
 		}
-		return toBase64(encodeWav(samples, WAV_RATE));
+		return toBase64(encodeWav(downsample(samples, rate), WAV_RATE));
 	};
 
 	const release = () => {
@@ -172,13 +177,14 @@ export function deskEngine(level: (db: number) => number, seams: DeskSeams = win
 			mic = next;
 			try {
 				await next.open(
-					(block, rate) => {
+					(block, blockRate) => {
 						if (!current() || mic === null) return;
-						const heard = downsample(block, rate);
-						chunks.push(heard);
-						length += heard.length;
+						// The webview hands over the same buffer again, so it is copied.
+						chunks.push(block.slice());
+						length += block.length;
+						rate = blockRate;
 						onEvent({ type: "level", level: level(blockDbfs(block)) });
-						if (length >= SESSION_SECONDS * WAV_RATE) full();
+						if (length >= SESSION_SECONDS * rate) full();
 					},
 					() => {
 						if (current()) onEvent({ type: "error", message: DESK_LOST_MICROPHONE });

@@ -8,6 +8,71 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-10-09
+
+### Added
+
+- The desk's own speech models listen for names. Parakeet hears your
+  teammates' names, Hotline and the providers you use as names rather than
+  the nearest common word ("Mack", not "Mac"), and Settings › Providers ›
+  Transcription has Words to listen for, for anything else it should
+  expect. Changes count from the next thing you say.
+- Two more free local models: Whisper (large-v3-turbo, 99 languages, slower)
+  and Moonshine (English). Each model's row says what it is for in a word
+  or two after its name, and a window not in English with only Parakeet
+  English installed is told that Parakeet hears more languages.
+- The desk counts how each teammate reply on a call was said, by the agent
+  and model that wrote it: both versions, a spoken one only, a spoken one
+  never closed, no spoken one, or no spoken one and rewritten by the call
+  assistant. The counts outlast a restart and come back in `voice.status`,
+  ready for a client to say how often a model kept to the format.
+
+### Fixed
+
+- A Claude Code teammate that has answered while only its subagents are
+  still working no longer shows as Working: the step that launched a
+  subagent is known as one, as Hotline Agent's already was.
+- Dictation heard by the desk's model brings the microphone down to 16 kHz
+  in one piece, as a call does, instead of a block at a time, which dropped
+  a little of every block.
+
+### Changed
+
+- On a call, a teammate is itself, not a quick model in front of it. What
+  you say goes straight into its own conversation, in the chapter you are
+  in, so it remembers the call as it remembers the chat and nothing is lost
+  in a handoff. Its first word now waits on its own model.
+- A teammate answers a call twice: a short answer written to be heard, and
+  the complete answer written to be read, with the detail, code, tables and
+  links. The chat shows the written answer as an ordinary reply, with what
+  was said on the call as a quiet line above it that opens in full when
+  pressed, and your words in it are exactly what you said. The teammate
+  remembers both, so a follow-up knows what you heard and what you could
+  only read. An agent that writes only the answer to be read has it said
+  again by the call assistant once it is whole, the answer first and the
+  details left to the chat, while you hear the call thinking, and the
+  transcript line shows what was said. With no call assistant, a spent Chat
+  budget or no answer within six seconds, the call reads it up to its first
+  code block or table, a few sentences at most; a short line such as "Let
+  me check the logs" is said as written. Links are said as "a link",
+  and money, percentages and arrows are read as words. The tags around the
+  two answers never show, not even in a typed reply later from Claude Code
+  or Codex, which remember being asked for them: the chat, side threads,
+  subagent runs and phone notifications show the written answer.
+- In the desktop app, while a teammate works on what you asked, the call stays on its
+  blip-blip until it is done, and keeps listening: just speak, with no tap
+  needed, and what you say goes into the work it already has open.
+  Speaking stops what it is saying. The call never hears its own voice or
+  blip-blip as you, and what it starts to say while you are talking waits
+  until you finish, and is dropped if you said something.
+- Settings › Providers › Transcription lists the desk's own models under
+  one title, Free and private local models, by name and size, with their
+  credits behind a button, and Use for drops its subscriptions hint.
+- The Call assistant in Settings › Providers › Use for answers calls to the
+  desk, and says so. On a call to a teammate it only says again a reply the
+  teammate wrote to be read, metered on the Chat budget as its call
+  assistant line.
+
 ## [0.35.2] - 2026-10-09
 
 ### Changed

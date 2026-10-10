@@ -31,10 +31,23 @@ export function modelLine(model: SpeechModel): string {
 		case "unpacking":
 			return "Unpacking";
 		case "installed":
-			return [model.detail, model.diskBytes > 0 ? `${megabytes(model.diskBytes)} on the desk` : ""].filter(Boolean).join(" · ");
+			return model.diskBytes > 0 ? `${megabytes(model.diskBytes)} on the desk` : "";
 		case "available":
-			return [model.detail, `${megabytes(model.downloadBytes)} download`].filter(Boolean).join(" · ");
+			return "";
 	}
+}
+
+/**
+ * The one line suggesting a model that hears more languages, for a window
+ * not in English, while `model` is the only one installed and the other is
+ * there to download. For English the small model hears as well, and faster.
+ */
+export function languageHint(model: SpeechModel, models: readonly SpeechModel[], language: string): string | null {
+	if (model.state !== "installed" || model.moreLanguages === undefined) return null;
+	if (language.toLowerCase().startsWith("en")) return null;
+	if (models.some((other) => other.id !== model.id && other.state === "installed")) return null;
+	const other = models.find((one) => one.id === model.moreLanguages && one.state === "available");
+	return other === undefined ? null : `${other.name} hears more languages`;
 }
 
 /** Whether the set of installed models differs, which changes what can hear. */

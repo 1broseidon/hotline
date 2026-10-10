@@ -462,6 +462,28 @@ hold and an unfinished preceding turn are refused before work is queued.
 There is no remote STT request or STT budget reservation for device text.
 Dispatcher and speaking costs keep their existing budget and ledger rules.
 
+A teammate on a direct call answers twice, a `<spoken>` version to be heard
+and a `<written>` version to be read, each standing alone, rather than one
+reply split by a marker: a split reads to a model as an opener and a body, and
+the chat then showed one answer cut in two. The written version is the chat's
+message; the spoken one is kept beside it as an optional `spoken` field on the
+reply's first `agent` event, so the tape and segment layout are unchanged, a
+tape from the reference tree reads as before, and an older client shows the
+written text. Hotline Agent's rebuilt history shows the model both, tagged
+([One brain, two outputs](voice.md#one-brain-two-outputs)).
+
+A reply on a direct call that writes no spoken version is not read by its
+opening while it streams. Once it is whole, the call assistant says it again
+to be heard, and that is said and kept as the reply's `spoken`, superseding
+the event the session wrote. The opening of a reply written to be read was
+rarely the answer, and a phone call needs the answer first; holding the
+reply until it is whole is what keeps the person from hearing an opening and
+then the rewrite. One short line is said as written, since it is the line the
+contract asks for before a tool. The rewrite is a fallback, never a gate: no
+call assistant, a refused Chat budget, a failure or six seconds without an
+answer says the opening as before, and the call goes on
+([A reply written only to be read](voice.md#a-reply-written-only-to-be-read)).
+
 A finalized transcript that is wholly a goodbye speaks `Goodbye.` and ends
 either kind of call. Audio goodbye still requires enough genuine audio to
 avoid a tiny hallucinated farewell. Replies use progressive independently
@@ -474,7 +496,12 @@ headless server, or a phone calling it, need not send what they say to a
 provider. It is sherpa-onnx with NVIDIA's Parakeet transducers: one C library
 with onnxruntime linked in statically, prebuilt for every platform Hotline
 ships, where whisper.cpp would mean building C++ in every job and a model that
-is slower on a CPU for the same accuracy. A model is half a gigabyte, so it is
+is slower on a CPU for the same accuracy. The same library runs Whisper, for
+the languages Parakeet does not hear, and Moonshine, so a second engine is
+never needed. A transducer is told the names it should expect (teammates',
+the person's own words) with each utterance, rather than its transcripts
+being corrected afterwards: a correction can only guess at a word the model
+already lost. A model is half a gigabyte, so it is
 never bundled: the owner downloads it once, the archive is pinned by hash, and
 until then nothing is installed. An installed model is automatic's first
 choice for hearing, before any paid key, because it is free and private and

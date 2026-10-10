@@ -1279,6 +1279,7 @@ mod receipts {
             reactions: None,
             ring: None,
             receipt: None,
+            spoken: None,
         }
     }
 

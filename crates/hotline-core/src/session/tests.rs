@@ -783,21 +783,24 @@ async fn a_cancelled_turn_leaves_its_line_sent() {
     assert_eq!(events[0]["receipt"], "sent");
 }
 
-/// What a voice call said before a handoff is heard by the agent ahead of the
-/// person's words, and never shown as theirs.
+/// A turn said on a call to the teammate asks the agent for a spoken part
+/// and a shown one, after the person's words; the tape keeps the words alone.
 #[tokio::test]
-async fn a_handoff_tells_the_agent_the_call_but_the_tape_shows_only_the_words() {
+async fn a_voice_turn_tells_the_agent_the_contract_but_the_tape_shows_only_the_words() {
     let agents = Fake::new(Scripted::new(spoken_turn()));
     let prompts = agents.driver.prompts.clone();
-    let room = room("call-heard", agents);
+    let room = room("voice-turn", agents);
     room.start("ada").await.unwrap();
-    crate::wire::commands::CALL_HEARD
+    let origin = crate::voice::Origin {
+        call_id: uuid::Uuid::new_v4().to_string(),
+        seq: 1,
+        direct: true,
+    };
+    crate::wire::commands::VOICE_COMMAND
         .scope(
-            Some(
-                "Earlier on this voice call:\nThe person: hi\n\nThe person now says, by voice:"
-                    .into(),
-            ),
-            room.prompt("ada", "Check the build.", None, None),
+            (),
+            crate::wire::commands::CALL_ORIGIN
+                .scope(origin, room.prompt("ada", "Check the build.", None, None)),
         )
         .await
         .unwrap();
@@ -808,13 +811,17 @@ async fn a_handoff_tells_the_agent_the_call_but_the_tape_shows_only_the_words() 
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     let heard = lock(&prompts).clone();
+    assert!(heard[0].starts_with("Check the build.\n\n"), "{heard:?}");
     assert!(
-        heard[0].starts_with("Earlier on this voice call:"),
+        heard[0].ends_with(crate::voice::spoken::CONTRACT),
         "{heard:?}"
     );
-    assert!(heard[0].ends_with("\nCheck the build."), "{heard:?}");
     let events = settled(&room, "ada", 2).await;
     assert_eq!(events[0]["text"], "Check the build.");
+    assert!(
+        events[0]["id"].as_str().unwrap().starts_with("voice:"),
+        "the line is marked as said on a call"
+    );
 }
 
 /// The agent's reaction lands on the person's last message and nowhere else.
@@ -1872,6 +1879,173 @@ async fn a_turn_reaches_the_phone_once_with_its_report() {
     assert_eq!(sent.len(), 1, "{sent:?}");
     assert_eq!(sent[0]["body"], "Done, all green.");
     assert_eq!(sent[0]["data"]["personaId"], "ada");
+}
+
+/// An agent asked once on a call for a spoken version and a written one keeps
+/// that in its own history, and may write the tags in a typed reply long
+/// after. The chat, the tape and the phone have the written version and never
+/// a tag, even when one arrives split across chunks, and nothing was said, so
+/// nothing is kept as said.
+#[tokio::test]
+async fn a_typed_reply_is_shown_kept_and_pushed_as_its_written_version() {
+    let delta = |text: &str| Update::Delta {
+        kind: MessageKind::Agent,
+        message_id: "m1".to_string(),
+        text: text.to_string(),
+    };
+    let room = room(
+        "typed-tags",
+        Fake::new(Scripted::new(vec![
+            delta("<spoken>It's green.</spoken>\n<"),
+            delta("written>All 42 checks pass, so the build is green.\n</wri"),
+            delta("tten>"),
+            Update::Message {
+                kind: MessageKind::Agent,
+                id: "m1".to_string(),
+                text: "<spoken>It's green.</spoken>\n<written>All 42 checks pass, so the build is green.\n</written>".to_string(),
+            },
+            Update::Turn {
+                stop_reason: "end_turn".to_string(),
+                usage: None,
+            },
+        ])),
+    );
+    std::fs::write(
+        room.log.root().join("remote.json"),
+        json!({
+            "desktopId": "desk-1",
+            "host": "desk.local",
+            "enabled": true,
+            "grants": [{
+                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0, "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
+                "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut deltas = room.subscribe_deltas();
+    room.start("ada").await.unwrap();
+    room.prompt("ada", "Is the build green?", None, None)
+        .await
+        .unwrap();
+    let events = settled(&room, "ada", 3).await;
+    assert_eq!(kinds(&events), ["user", "agent", "turn"]);
+    assert_eq!(events[0]["text"], "Is the build green?");
+    assert_eq!(
+        events[1]["text"],
+        "All 42 checks pass, so the build is green."
+    );
+    assert!(events[1].get("spoken").is_none(), "{}", events[1]);
+
+    let mut streamed = String::new();
+    while let Ok(delta) = deltas.try_recv() {
+        if let StreamDelta::ThreadDelta { text, .. } = delta {
+            streamed.push_str(&text);
+        }
+    }
+    assert_eq!(streamed, "All 42 checks pass, so the build is green.\n");
+
+    let mut sent = Vec::new();
+    for _ in 0..200 {
+        sent = lock(&room.push.sent).clone();
+        if !sent.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(
+        sent[0]["body"],
+        "All 42 checks pass, so the build is green."
+    );
+}
+
+/// A reply to a turn said on a call is written as its written version, the
+/// message the chat shows, with the version that was said kept beside it on
+/// its first bubble. A history rebuilt from the tape shows the model both,
+/// tagged, so a follow-up knows what was heard and what was only read; a
+/// typed reply after the call keeps only what it showed.
+#[tokio::test]
+async fn a_reply_on_a_call_keeps_what_was_said_beside_what_is_shown() {
+    let (first, second) = (bubble(1), bubble(2));
+    let said_aloud = "Two things are wrong. Both fixes are in the chat.";
+    let reply = format!("<spoken>{said_aloud}</spoken>\n<written>{first}\n\n{second}</written>");
+    let room = room(
+        "voice-versions",
+        Fake::new(Scripted::turns(vec![
+            saying("call", &reply),
+            saying(
+                "typed",
+                "<spoken>Yes.</spoken><written>Yes, it's merged.</written>",
+            ),
+        ])),
+    );
+    room.start("ada").await.unwrap();
+    let origin = crate::voice::Origin {
+        call_id: uuid::Uuid::new_v4().to_string(),
+        seq: 1,
+        direct: true,
+    };
+    crate::wire::commands::VOICE_COMMAND
+        .scope(
+            (),
+            crate::wire::commands::CALL_ORIGIN
+                .scope(origin, room.prompt("ada", "What's wrong?", None, None)),
+        )
+        .await
+        .unwrap();
+    let events = settled(&room, "ada", 4).await;
+    assert_eq!(kinds(&events), ["user", "agent", "agent", "turn"]);
+    assert_eq!(events[1]["text"], first);
+    assert_eq!(events[1]["spoken"], said_aloud);
+    assert_eq!(events[2]["text"], second);
+    assert!(events[2].get("spoken").is_none(), "{}", events[2]);
+
+    room.prompt("ada", "Is it merged?", None, None)
+        .await
+        .unwrap();
+    let events = settled(&room, "ada", 7).await;
+    assert_eq!(events[5]["text"], "Yes, it's merged.");
+    assert!(events[5].get("spoken").is_none(), "{}", events[5]);
+
+    assert_eq!(
+        words(said(&tape(&room, "ada"))),
+        [
+            Said::User("What's wrong?".to_string()),
+            Said::Agent(format!(
+                "<spoken>{said_aloud}</spoken>\n<written>{first}\n\n{second}</written>"
+            )),
+            Said::User("Is it merged?".to_string()),
+            Said::Agent("Yes, it's merged.".to_string()),
+        ]
+    );
+}
+
+/// The line an agent writes before its tools stays its own in the history,
+/// and the bubbles of a reply said on a call stay inside its written version.
+#[test]
+fn a_rebuilt_history_shows_both_versions_of_a_reply_said_on_a_call() {
+    let tape = [
+        json!({"kind": "user", "id": "u1", "text": "Check the build."}),
+        json!({"kind": "agent", "id": "a1", "text": "On it."}),
+        json!({"kind": "agent", "id": "a2", "text": "Two fail:", "spoken": "Two tests fail."}),
+        json!({"kind": "agent", "id": "a2-2", "text": "| test | result |"}),
+        json!({"kind": "user", "id": "u2", "text": "Which?"}),
+        json!({"kind": "agent", "id": "a3", "text": "The config ones."}),
+    ];
+    assert_eq!(
+        said(&tape),
+        [
+            Said::User("Check the build.".to_string()),
+            Said::Agent(
+                "On it.\n\n<spoken>Two tests fail.</spoken>\n<written>Two fail:\n\n| test | result |</written>"
+                    .to_string()
+            ),
+            Said::User("Which?".to_string()),
+            Said::Agent("The config ones.".to_string()),
+        ]
+    );
 }
 
 /// Waits for the teammate's session to say whether its turn is open only
@@ -6874,7 +7048,10 @@ async fn unconsumed_direct_call_steering_keeps_its_origin_when_replayed() {
     })
     .await
     .unwrap();
-    assert_eq!(words_of(&lock(&unconsumed)[0].0), "Update the request.");
+    assert_eq!(
+        words_of(&lock(&unconsumed)[0].0),
+        crate::voice::spoken::voice_turn("Update the request.")
+    );
     gate.add_permits(1);
     tokio::time::timeout(Duration::from_secs(5), async {
         while lock(&prompts).len() < 2 {
@@ -6885,7 +7062,10 @@ async fn unconsumed_direct_call_steering_keeps_its_origin_when_replayed() {
     .unwrap();
     assert_eq!(
         *lock(&prompts),
-        ["Start the original request.", "Update the request."]
+        [
+            "Start the original request.".to_string(),
+            crate::voice::spoken::voice_turn("Update the request.")
+        ]
     );
     gate.add_permits(2);
     tokio::time::timeout(Duration::from_secs(5), async {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DESK_MICROPHONE_BUSY, DESK_MICROPHONE_DENIED, DESK_NO_MICROPHONE, type DeskSeams, PARTIAL_EVERY_MS, SESSION_SECONDS, blockDbfs, deskEngine, microphoneTrouble } from "../src/voice/desk";
 import { DICTATION_DENIED, Dictation, type DictationEngine, type DictationEvent, eitherEngine, levelFromDbfs } from "../src/voice/dictation";
-import { fromBase64 } from "../src/voice/wav";
+import { downsample, encodeWav, fromBase64 } from "../src/voice/wav";
 
 /** A world the desk engine can live in: a microphone the test speaks into, a desk that answers when told, and a clock it turns. */
 function world(options: { available?: boolean; micRefused?: boolean } = {}) {
@@ -11,10 +11,12 @@ function world(options: { available?: boolean; micRefused?: boolean } = {}) {
 	const answers: { resolve(text: string): void; reject(error: Error): void }[] = [];
 	let tick: (() => void) | null = null;
 	let timeout: (() => void) | null = null;
+	const wavs: Uint8Array[] = [];
 	const seams: DeskSeams = {
 		available: async () => options.available ?? true,
 		transcribe: (wav) => {
 			// What was sent: a WAV of this many 16 kHz samples.
+			wavs.push(fromBase64(wav));
 			asked.push((fromBase64(wav).length - 44) / 2);
 			return new Promise<string>((resolve, reject) => answers.push({ resolve, reject }));
 		},
@@ -47,6 +49,11 @@ function world(options: { available?: boolean; micRefused?: boolean } = {}) {
 			const blocks = Math.round((seconds * 48_000) / 2400);
 			for (let i = 0; i < blocks; i++) onBlock?.(new Float32Array(2400).fill(loudness), 48_000);
 		},
+		/** `samples`, in the blocks of `size` the webview's script processor hands over, at `rate`. */
+		play(samples: Float32Array, rate: number, size = 2048) {
+			for (let at = 0; at < samples.length; at += size) onBlock?.(samples.subarray(at, at + size), rate);
+		},
+		wavs,
 		tick: () => tick?.(),
 		ticking: () => tick !== null,
 		answer: (text: string) => answers.shift()!.resolve(text),
@@ -102,6 +109,23 @@ describe("dictation heard by the desk", () => {
 		expect(w.asked).toEqual([32_000]);
 		w.answer("  Ask Mack to check the failing PR.  ");
 		expect(await stopped).toBe("Ask Mack to check the failing PR.");
+	});
+
+	test("the clip is the microphone's samples brought down to 16 kHz whole, as a call's utterance is, not a block at a time", async () => {
+		for (const rate of [48_000, 44_100]) {
+			const w = world();
+			const engine = deskEngine(levelFromDbfs, w.seams);
+			await engine.start(() => {});
+			// Two seconds of a 220 Hz tone, in the webview's 2048-frame blocks.
+			const tone = Float32Array.from({ length: 2 * rate }, (_, i) => 0.5 * Math.sin((2 * Math.PI * 220 * i) / rate));
+			w.play(tone, rate);
+			const stopped = engine.stop();
+			// A block at a time loses what is left of each block: 2 of every 2048 at 48 kHz.
+			expect(w.asked).toEqual([Math.floor((tone.length * 16_000) / rate)]);
+			expect(w.wavs[0]).toEqual(encodeWav(downsample(tone, rate)));
+			w.answer("a tone");
+			expect(await stopped).toBe("a tone");
+		}
 	});
 
 	test("a desk that does not answer in time is a failure, never a partial", async () => {

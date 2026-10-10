@@ -7,17 +7,26 @@
 //!
 //! The writes are made by a task of the call's own, in the order they were
 //! sent, so that the call's path to the person's ear never waits on a file or
-//! the search index: saying a line is pushing it on a channel. The call's
-//! [`Exchange`](super::exchange::Exchange) is what the voice is given from
-//! what was said; this is where all of it is kept.
+//! the search index: saying a line is pushing it on a channel.
+//!
+//! The teammate's session keeps the person's words in its own conversation
+//! too, as the turns they were; this is the call as it was heard and said.
 
-use super::exchange::Speaker;
 use crate::contract::VoiceEndReason;
 use crate::session::{Room, now_ms};
 use crate::thread::End;
 use serde_json::{Value, json};
 use std::sync::Weak;
 use tokio::sync::mpsc;
+
+/// Who said a line on the call.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Speaker {
+    /// The person on the call.
+    Person,
+    /// The teammate, or the desk, speaking on it.
+    Voice,
+}
 
 /// One thing to be written, with the time it happened.
 enum Entry {
@@ -62,17 +71,14 @@ impl Record {
         Self { sender }
     }
 
-    /// A line said on the call. A relayed line is the teammate's own report,
-    /// retold by the voice.
+    /// A line said on the call.
     pub(super) fn said(&self, speaker: Speaker, id: &str, text: &str) {
         let ts = now_ms();
-        let line = match speaker {
-            Speaker::Person => json!({"kind": "user", "id": id, "ts": ts, "text": text}),
-            Speaker::Voice => json!({"kind": "agent", "id": id, "ts": ts, "text": text}),
-            Speaker::Relayed => {
-                json!({"kind": "agent", "id": id, "ts": ts, "text": text, "relayed": true})
-            }
+        let kind = match speaker {
+            Speaker::Person => "user",
+            Speaker::Voice => "agent",
         };
+        let line = json!({"kind": kind, "id": id, "ts": ts, "text": text});
         let _ = self.sender.send(Entry::Line(line));
     }
 

@@ -17,14 +17,19 @@
 //!   through the stamps a prompt left and the quiet window of a schedule, marks
 //!   the person's lines read, keeps the session's checkpoint, says a reply to a
 //!   call and to the phone, and steers: a line said to a driver that takes
-//!   input mid-turn is handed to it when it arrives.
+//!   input mid-turn is handed to it when it arrives. On a turn said on a call
+//!   to the teammate, the reply's words stream to the call as they arrive,
+//!   and the reply is written with the version that was said beside it. The
+//!   chat and the phone show every reply's written version without a tag, on
+//!   a call or not (see [`crate::voice::spoken`] and
+//!   [`super::runner::drive_updates`]).
 //! - **The end of a turn.** What the driver did not take is queued again in its
 //!   order, and a quiet run that found something is escalated.
 //!
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
 
-use super::runner::{Driven, Witness};
+use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
 use super::{
     Glance, PendingTool, Room, Session, Wired, call_origin, escalation, lock, mark, new_id, now_ms,
@@ -34,6 +39,7 @@ use crate::contract::{Reach, Receipt, ScheduledRun, SessionState, TranscriptEven
 use crate::driver::{MessageKind, Update};
 use crate::room;
 use crate::thread::{ThreadId, ThreadKind};
+use crate::voice::spoken::versions;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -182,6 +188,7 @@ impl Occupant for Session {
     fn end(self: &Arc<Self>, room: &Arc<Room>, held: Hold, driven: Driven) -> Then {
         let session = self;
         room.send_glance(session, held.from_voice);
+        room.turn_ended(session);
         if driven.asked {
             // A permission the turn left open is a button nobody is
             // behind. A `request_human` wait is not: the tool is still
@@ -239,6 +246,16 @@ struct Heard<'a> {
     card: Option<(String, crate::push::Waiting)>,
 }
 
+impl Heard<'_> {
+    /// The call to this teammate the turn was said on, when it was: its
+    /// replies are said there as well as shown here.
+    fn on_call(&self) -> Option<crate::voice::Origin> {
+        lock(&self.session.voice_origin)
+            .clone()
+            .filter(|origin| origin.direct)
+    }
+}
+
 impl Witness for Heard<'_> {
     fn heard(&mut self, update: &Update, in_flight: &mut HashMap<String, PendingTool>) {
         let (room, session) = (self.room, self.session);
@@ -289,24 +306,26 @@ impl Witness for Heard<'_> {
                 && !text.trim().is_empty() =>
             {
                 // narration::Voice has committed this as an acknowledgement or
-                // report. Direct callers hear it now rather than waiting for
-                // tool work to end, unless the call has a voice of its own that
-                // already acknowledged it and answers how it is going; then
-                // only the turn's reply is said.
-                if let Some(origin) = lock(&session.voice_origin).clone()
-                    && origin.direct
+                // report. On a call to this teammate it is said now rather than
+                // when tool work ends: the words already said as it streamed
+                // are its start, and the rest of its spoken version follows.
+                let on_call = self.on_call();
+                if let Some(origin) = &on_call
                     && let Some(voice) = lock(&room.voice).upgrade()
-                    && !voice.fronted(&origin)
                 {
                     let name = room
                         .persona(&session.persona_id)
                         .map(|p| p.name)
                         .unwrap_or_else(|_| "Hotline".into());
-                    voice.delivery(&session.persona_id, id, &name, text, true, Some(&origin));
+                    voice.delivery(&session.persona_id, id, &name, text, true, Some(origin));
                 }
+                // The phone is shown the reply as the chat is, its written
+                // version, whether or not this turn was said on a call: the
+                // agent may write the tags in any reply once it has been asked
+                // to.
                 *lock(&session.glance) = Some(Glance {
                     event_id: id.clone(),
-                    text: text.trim().to_string(),
+                    text: versions(text).written.trim().to_string(),
                 });
             }
             // The agent has said what it has to say and the turn stays open
@@ -320,6 +339,7 @@ impl Witness for Heard<'_> {
                     .all(|tool| tool.kind == super::jobs::SUBAGENT) =>
             {
                 room.send_glance(session, self.from_voice);
+                room.turn_ended(session);
                 room.await_subagents(session, true);
             }
             Update::Permission {
@@ -339,7 +359,7 @@ impl Witness for Heard<'_> {
         }
     }
 
-    fn delta(&mut self, kind: MessageKind, message_id: &str, text: &str, muted: bool) {
+    fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
         // A muted turn must not run the writing indicator for a message
         // that will never land, so the delta is demoted with the event it
         // is building; and after the acknowledgement a message may turn
@@ -347,13 +367,30 @@ impl Witness for Heard<'_> {
         let muted = muted
             || (kind == MessageKind::Agent
                 && quiet::mutes_deltas(lock(&self.session.quiet).as_ref(), now_ms()));
+        // Words the window types as they come are said as they come, from
+        // what the agent wrote, tags and all; a message that may yet turn out
+        // to be narration waits to be whole.
+        if let Some(origin) = self.on_call()
+            && kind == MessageKind::Agent
+            && !muted
+            && let Some(voice) = lock(&self.room.voice).upgrade()
+        {
+            voice.reply_delta(&self.session.persona_id, message_id, words.written, &origin);
+        }
+        if words.shown.is_empty() {
+            return;
+        }
         let _ = self.room.deltas.send(super::turns::delta_of(
             &ThreadId::dm(&self.session.persona_id),
             kind,
             message_id,
-            text,
+            words.shown,
             muted,
         ));
+    }
+
+    fn said_on_call(&self) -> bool {
+        self.on_call().is_some()
     }
 
     fn write(&mut self, event: TranscriptEvent, asked: bool) {
@@ -375,6 +412,16 @@ impl Witness for Heard<'_> {
 }
 
 impl Room {
+    /// The turn is over, or open only for its subagents: a call to this
+    /// teammate that it was said on listens once its reply is said.
+    fn turn_ended(&self, session: &Session) {
+        if let Some(origin) = lock(&session.voice_origin).clone()
+            && let Some(voice) = lock(&self.voice).upgrade()
+        {
+            voice.turn_ended(&session.persona_id, &origin);
+        }
+    }
+
     /// A quiet run found something: the teammate is prompted with it in the
     /// open, next, so it answers the person as any reply is answered. The
     /// line is stamped with the job but not quiet, so no window opens over

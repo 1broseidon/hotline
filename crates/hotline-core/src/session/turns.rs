@@ -13,7 +13,7 @@
 //! the DM's is its own (`session/dm.rs`), which also stamps the tape, reads
 //! lines on, and tells the phone.
 
-use super::runner::{Driven, Witness, drive_updates};
+use super::runner::{Driven, Witness, Words, drive_updates};
 use super::threads::Threads;
 use super::{Room, Wired, lock};
 use crate::contract::{Attachment, DeliveryFrom, DeltaKind, Reach, StreamDelta, TranscriptEvent};
@@ -147,15 +147,15 @@ struct Told<'a, F> {
 }
 
 impl<F: Fn() -> bool> Witness for Told<'_, F> {
-    fn delta(&mut self, kind: MessageKind, message_id: &str, text: &str, muted: bool) {
-        if !(self.open)() {
+    fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
+        if words.shown.is_empty() || !(self.open)() {
             return;
         }
         let _ = self.threads.room.deltas.send(delta_of(
             self.seat.thread,
             kind,
             message_id,
-            text,
+            words.shown,
             muted,
         ));
     }

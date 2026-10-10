@@ -1539,6 +1539,7 @@ fn oriented(event: TranscriptEvent, flip: bool) -> TranscriptEvent {
             reactions,
             ring,
             receipt,
+            spoken: None,
         },
         TranscriptEvent::Agent {
             id,
@@ -1548,6 +1549,7 @@ fn oriented(event: TranscriptEvent, flip: bool) -> TranscriptEvent {
             reactions,
             ring,
             receipt,
+            ..
         } => TranscriptEvent::User {
             id,
             ts,
@@ -1851,6 +1853,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             reactions,
             ring,
             receipt,
+            spoken,
         } => TranscriptEvent::Agent {
             id,
             ts,
@@ -1859,6 +1862,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             reactions,
             ring,
             receipt: Some(higher(receipt, rung)),
+            spoken,
         },
         TranscriptEvent::Delivery {
             id,

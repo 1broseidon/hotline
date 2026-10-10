@@ -512,6 +512,39 @@ pub fn resolve(vault: &Vault, settings: &VoiceSettings) -> Result<SpeechSet, Str
     )
 }
 
+/// What the desk's own model is asked to listen for when it hears with
+/// `settings`, for a clip heard outside a call.
+pub fn listens_for(vault: &Vault, settings: &VoiceSettings) -> Vec<String> {
+    words_for(
+        &local::installed(vault.root()),
+        &connections(vault),
+        settings,
+    )
+}
+
+/// The words a small model would otherwise spell as the nearest common
+/// word, most wanted first, since only so many are kept (`local::hotwords`):
+/// the person's own, teammates' names, the desk's name and its models', and
+/// the providers it is connected to.
+fn words_for(
+    local: &[Installed],
+    connections: &[Connection],
+    settings: &VoiceSettings,
+) -> Vec<String> {
+    let desk = ["Hotline", "Parakeet"].map(String::from);
+    let models = local.iter().map(|model| model.name.clone());
+    let providers = connections.iter().map(|connection| connection.name.clone());
+    settings
+        .listen_for
+        .iter()
+        .chain(&settings.teammates)
+        .cloned()
+        .chain(desk)
+        .chain(models)
+        .chain(providers)
+        .collect()
+}
+
 /// A text call needs a voice, with no speech-input provider or credential.
 pub fn resolve_output(vault: &Vault, settings: &VoiceSettings) -> Result<SpeechOutput, String> {
     output_from(&connections(vault), settings, &TurnClock::default())
@@ -634,7 +667,14 @@ fn resolve_from(
     let clock = TurnClock::default();
     let output = output_for(connections, settings, speak_from, voice, &clock)?;
     let stt: Arc<dyn Speech> = match hear_from {
-        Hearing::Local(model) => Arc::new(Local::new((*model).clone()).with_clock(&clock)),
+        Hearing::Local(model) => {
+            let words = words_for(local, connections, settings);
+            Arc::new(
+                Local::new((*model).clone())
+                    .listening_for(&words)
+                    .with_clock(&clock),
+            )
+        }
         Hearing::Provider(connection, model) => listener(connection, model, &clock)?,
     };
     Ok(SpeechSet {
@@ -1145,6 +1185,37 @@ mod tests {
         let none = options_from(&[], &[], &HashMap::new());
         assert!(none.stt.is_empty() && none.tts.is_empty());
         assert!(none.automatic_stt.is_none() && none.automatic_tts.is_none());
+    }
+
+    #[test]
+    fn the_desks_model_listens_for_the_persons_words_then_teammates_then_its_own() {
+        let settings = VoiceSettings {
+            listen_for: vec!["Ophelia".into(), "Groq".into()],
+            teammates: vec!["Mack".into(), "Brix".into(), "ophelia".into()],
+            ..VoiceSettings::default()
+        };
+        let models = [local::listed("parakeet-tdt-110m-en", "Parakeet English")];
+        let connections = [connected("openai"), connected("groq")];
+        assert_eq!(
+            words_for(&models, &connections, &settings),
+            [
+                "Ophelia",
+                "Groq",
+                "Mack",
+                "Brix",
+                "ophelia",
+                "Hotline",
+                "Parakeet",
+                "Parakeet English",
+                connections[0].name.as_str(),
+                connections[1].name.as_str(),
+            ]
+        );
+        // With nothing said, nobody on the team and nothing connected, the desk's own words remain.
+        assert_eq!(
+            words_for(&[], &[], &VoiceSettings::default()),
+            ["Hotline", "Parakeet"]
+        );
     }
 
     #[test]

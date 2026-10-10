@@ -710,6 +710,9 @@ not subscribe to that."` Both seat refusals carry `"code": "forbidden"`.
 | `{"view": "roster"}` | every living teammate's row | `event` for a changed row, `removed` for a tombstone |
 | `{"schedules": id}` | that teammate's jobs and loops | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
 
+An `agent` event on a tape may carry `spoken`, what was said on a call for
+it ([Voice calls](#voice-calls)).
+
 A tape subscription also forwards `StreamDelta`s for that teammate, never
 written down:
 
@@ -1129,11 +1132,12 @@ traffic controls.
 
 Voice commands and `{"call":"<callId>"}` subscriptions are available to the
 local desk and paired owners. Companions receive `code: "forbidden"`.
-An owner hello advertises `voice` and `voiceDirectCalls` when speech and the
-budget permit an audio or text direct call, and `voiceTextInput` when text is
-ready. `VoiceStatus.available` reports desk readiness for the requested mode,
+An owner hello advertises `voice`, `voiceDirectCalls` and
+`voiceListenWhileThinking` when speech and the budget permit an audio or text
+direct call, and `voiceTextInput` when text is ready. `VoiceStatus.available` reports desk readiness for the requested mode,
 including the dispatcher; additive `directAvailable` reports readiness without
-that dispatcher. A direct call can work while desk routing is misconfigured.
+that dispatcher. A direct call can work while desk routing is misconfigured:
+it has no dispatcher, since the teammate's own session answers it.
 Speech comes from connected providers. By default the dispatcher uses the room's
 default provider and prefers its lightweight chat models, excluding speech,
 embedding, image and audio model IDs. `settings.voice.dispatcher` can select a
@@ -1145,7 +1149,7 @@ No extra speech credential is created.
 
 | Command | Params | Result |
 | --- | --- | --- |
-| `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and `budget`, the Voice budget's limits (`dayUsd`, `monthUsd`, absent when none) and what transcription and speech spent |
+| `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and `budget`, the Voice budget's limits (`dayUsd`, `monthUsd`, absent when none) and what transcription and speech spent; optional `replies`, how teammates' replies on calls were said, by model |
 | `voice.call_start` | `{callId,personaId?,streamAudio?,inputMode?:"audio"\|"text"}` | `VoiceCall`: call id, accepted input formats, primary output format, echoed `inputMode`, and optional echoed `personaId` |
 | `voice.text` | `{callId,seq,text}` | void; one finalized device transcript on a negotiated text call |
 | `voice.audio` | `{callId,seq,index,data,final}` | void; negotiated mono PCM16 at 16 kHz |
@@ -1170,11 +1174,45 @@ no provider and no budget, and is refused with a sentence when nothing is
 installed. Like every `voice.*` command these are refused to a companion.
 
 `callId` is a client-generated UUID. Omitting `personaId` calls the desk;
-including it calls that teammate's existing session, chapter and harness.
+including it calls that teammate's existing session, chapter and harness:
+each utterance is a turn of its conversation, said into a turn still running
+as a steer, with the reply's spoken version said on the call and its written
+version shown in the chat ([One brain, two outputs](voice.md#one-brain-two-outputs)).
 Clients require `voiceDirectCalls` before sending a target and check its echo
 in the descriptor. The core validates the target before replacing an active
 call. A direct turn has the same operator origin and standing grants as typed
 input, and its replies must carry that call and turn's internal origin.
+
+A reply to a turn said on a direct call is an `agent` event like any other,
+whose `text` is the written version, and whose first bubble also carries
+`spoken`: the version written to be heard, as the agent wrote it (a line it
+wrote before the version included), before it was cleaned for speech. A reply
+that wrote no spoken version gets `spoken` when the call assistant says it
+again to be heard: the event is written first without it, then written again
+under the same id with it once that has been said. It is
+on the tape and on the wire as an optional field, absent on every other
+message, so a client that does not know it shows `text`, which stands alone.
+The window draws it as a transcript line above the reply. What was actually
+said, cut short or not, is the call's own thread.
+
+```json
+{"kind": "agent", "id": "m2", "ts": 1760000000000, "text": "The build fails for two reasons: ...", "spoken": "Two things are wrong. I've put both fixes in the chat."}
+```
+
+`voice.status` may carry `replies`, read-only counts of how teammates' replies
+on calls to them were said, one `VoiceReplies` per model that has written
+any, sorted by `model`: `hotline/<provider>/<model>` for Hotline Agent, or
+`acp/<adapter>` for an ACP agent, followed by `/<model>` when its session
+reports one. Each reply the call said is counted once under `both` (a closed
+spoken version and a written one), `spokenOnly`, `unclosed` (a `<spoken>`
+never closed), `untagged` (no spoken version, its opening said) or
+`rewritten` (no spoken version, the call assistant's rewrite said). The field is additive and
+absent until a reply has been counted; the desk keeps the counts across
+restarts ([voice.md](voice.md#how-each-reply-was-said)).
+
+```json
+{"replies": [{"model": "acp/claude-code", "both": 47, "spokenOnly": 1, "unclosed": 0, "untagged": 0, "rewritten": 2}]}
+```
 
 Repeating a retained id with the same target and input mode returns the same
 call descriptor, including an ended call; changing either is refused. The desk retains the latest 32 call
@@ -1211,7 +1249,9 @@ conservative estimate, not verification of the encoded audio's duration.
 processing its previous utterance refuses another until it can accept work;
 the caller may retry a refused sequence. Calls end after ten minutes without
 operator activity. An interrupt discards speech without cancelling a teammate's
-turn or the dispatcher's pending text answer. A hold also suppresses clips;
+turn or the dispatcher's pending text answer; on a direct call it also stops
+the reply being said and puts the call back to `listening` while the turn goes
+on. A hold also suppresses clips;
 teammate replies received while held use their ordinary push. Resuming or
 interrupting an unfinished utterance leaves the state `thinking` and refuses
 new utterances until that work finishes. The answer is still recorded and sent
@@ -1222,7 +1262,7 @@ The call subscription starts with a one-element `snapshot` containing its
 
 | Event | Fields |
 | --- | --- |
-| `state` | `state`: `listening`, `thinking`, `speaking`, `held`, `ended`; optional `reason` |
+| `state` | `state`: `listening`, `thinking`, `speaking`, `held`, `ended`; optional `reason`; optional `listening: true` on `thinking` |
 | `heard` | `seq`, `text` |
 | `said` | `id`, `text` |
 | `clip` | matching `id`, `index`, `final`, `mimeType`, base64 `data` |
@@ -1238,20 +1278,34 @@ Provider selections in `VoiceStatus` are optional when unavailable; `unavailable
 is a sentence explaining what the owner needs to change.
 
 
-After a nonempty, non-goodbye `heard`, the desk says nothing until the
-dispatcher answers: the call is `thinking`, and a client covers the wait with
-its own sound (the desktop plays a short blip-blip, repeated while it lasts)
-rather than speech. Dispatcher text streams at sentence boundaries, and one
-answer keeps one `said.id`: each sentence sends `said` again under that id with
-the answer so far, which a client shows in place of the line it had. Its clips
-carry on that id's indices, one whole clip per sentence or, with negotiated
-progressive output, several, and the answer ends with an empty `final: true`
-clip (`data: ""`) once the dispatcher is done. A whole line said at once (a
-narrated reply, a goodbye) marks its own last clip `final` instead. Clients
-must queue clips across successive `said` IDs instead of replacing playback.
+After a nonempty, non-goodbye `heard`, the desk says nothing until there is
+an answer: the call is `thinking`, and a client covers the wait with its own
+sound (the desktop plays a short blip-blip, repeated while it lasts) rather
+than speech. On a desk call the answer is the dispatcher's; on a direct call it
+is the teammate's own reply, and the call stays `thinking` between what it says
+until the teammate's turn is over, sending `thinking` again every 15 seconds
+while it waits. Once the person's words are with the teammate, that
+`thinking` carries `listening: true`: the call takes an utterance now, which
+steers into the open turn and stops what the call is saying, so a client keeps
+its microphone open as on `listening` while nothing plays, and holds what
+begins to play while the person is talking. Absent (and from an older desk),
+`thinking` has the floor: an utterance is refused until it changes. A
+`thinking` with `listening` that a client receives with an utterance of its
+own still on the way is from before the desk took it, so it waits for the
+desk's next state. An answer streams at sentence boundaries, and one answer keeps
+one `said.id`: each sentence sends `said` again under that id with the answer
+so far, which a client shows in place of the line it had. Its clips carry on
+that id's indices, one whole clip per sentence or, with negotiated progressive
+output, several, and the answer ends with an empty `final: true` clip
+(`data: ""`) once it is done. A whole line said at once (a narrated reply, a
+goodbye) marks its own last clip `final` instead. Clients must queue clips
+across successive `said` IDs instead of replacing playback. A direct call's
+`said` and `clip` carry only the reply's spoken part; the marker never reaches
+them.
 
-A completed teammate reply during an active, unheld call is narrated and sent as
-`delivery`, then `said`, then sentence `clip` events. Failed or empty narration
+A completed teammate reply on a desk call, active and unheld, is narrated and
+sent as `delivery`, then `said`, then sentence `clip` events. A direct call
+sends no `delivery`: the teammate is the voice. Failed or empty narration
 falls back to the reply's first sentence, except a budget refusal, which ends
 the call without another paid request. Outside a call, only a reply to a
 handoff made by the voice dispatcher may have a summarized push. Every other
@@ -1295,6 +1349,14 @@ Ordinary operator-created schedules retain their existing behavior.
 Approval requests arrive as `card` and must be answered in the existing UI.
 The dispatcher has no persona: its `voice-dispatcher` tape is hidden from the
 roster and rail, but indexed by `search.all` and `search.thread`.
+
+A direct call has no dispatcher in front of it and pays for none up front:
+its turns are the teammate's, metered by the session against Chat on a
+per-token key, as typed turns are. Its one use of the call assistant is to say
+again, to be heard, a reply the teammate wrote with no spoken version; that
+request reserves on Chat as any call-assistant request does, and a refusal,
+a failure, no call assistant or more than six seconds only means the call
+says the reply's opening instead ([voice.md](voice.md#a-reply-written-only-to-be-read)).
 
 Speech attempts and conservative dispatcher estimates are reserved before a
 request so cancellation or a lost response cannot erase their cost. Reservations

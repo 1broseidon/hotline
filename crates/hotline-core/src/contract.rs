@@ -1140,6 +1140,12 @@ pub enum TranscriptEvent {
         ring: Option<RingIntent>,
         #[serde(skip_serializing_if = "Option::is_none")]
         receipt: Option<Receipt>,
+        /// On a reply to a turn said on a call, the version written to be
+        /// heard, while `text` is the version written to be read. On the
+        /// first bubble of the reply only. A client that does not know it
+        /// shows `text`, which stands alone.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        spoken: Option<String>,
     },
     Thought {
         id: String,
@@ -2468,6 +2474,40 @@ pub struct VoiceStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispatcher: Option<VoiceModel>,
     pub budget: VoiceBudget,
+    /// How teammates' replies on calls to them were said, one entry per
+    /// model that wrote any, by model. Absent before the first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replies: Option<Vec<VoiceReplies>>,
+}
+
+/// How one model's replies on calls to teammates were said: each reply is
+/// counted once, by the way it was written. Read-only, kept by the desk
+/// across restarts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceReplies {
+    /// The teammate's agent and model: `hotline/<provider>/<model>` for
+    /// Hotline Agent, `acp/<adapter>` for an ACP agent, followed by
+    /// `/<model>` when its session names one.
+    pub model: String,
+    /// A spoken version and a written one.
+    #[serde(default)]
+    pub both: u32,
+    /// A spoken version and no written one.
+    #[serde(default)]
+    pub spoken_only: u32,
+    /// A spoken version never closed with `</spoken>`.
+    #[serde(default)]
+    pub unclosed: u32,
+    /// No spoken version, and the call said the reply's opening: there was
+    /// no call assistant to rewrite it, or it failed or took too long.
+    #[serde(default)]
+    pub untagged: u32,
+    /// No spoken version, so the call assistant rewrote the reply to be
+    /// heard, and that was said.
+    #[serde(default)]
+    pub rewritten: u32,
 }
 
 /// A teammate's own voice: one of a speaking model's voices.
@@ -2645,6 +2685,9 @@ pub enum SpeechModelState {
 pub struct SpeechModel {
     pub id: String,
     pub name: String,
+    /// A word or two shown after the name to choose by ("fast", "English only").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
     /// What it hears and how it trades accuracy for speed, in a few words.
     pub detail: String,
     pub download_bytes: u64,
@@ -2660,6 +2703,11 @@ pub struct SpeechModel {
     /// Why the last download failed, until the next one starts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The id of a model in this list that hears more languages, which
+    /// Settings suggests to someone whose window is not in English while
+    /// this one is the only one installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub more_languages: Option<String>,
 }
 
 /// What the desk's own model heard in one clip.
@@ -2729,6 +2777,14 @@ pub enum VoiceEvent {
         state: VoiceState,
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<VoiceEndReason>,
+        /// On `thinking`: the teammate's turn is still working and the call
+        /// takes what the person says, which steers into that turn. A client
+        /// keeps its microphone open, as it does on `listening`, unless it is
+        /// playing speech. Absent, `thinking` means the desk is still taking
+        /// the last thing said and has the floor, as from desks before it.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        #[ts(as = "Option<bool>", optional)]
+        listening: bool,
     },
     Heard {
         seq: u32,
@@ -3917,6 +3973,12 @@ mod tests {
         .unwrap();
         assert!(!old.direct_available);
         assert!(VoiceStatus::decl(&ts_rs::Config::default()).contains("directAvailable?: boolean"));
+        // The counts of how replies were said are additive too.
+        assert_eq!(old.replies, None);
+        assert!(
+            VoiceStatus::decl(&ts_rs::Config::default()).contains("replies?: Array<VoiceReplies>")
+        );
+        assert!(serde_json::to_value(&old).unwrap().get("replies").is_none());
     }
 
     #[test]

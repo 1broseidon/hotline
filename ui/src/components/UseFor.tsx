@@ -5,6 +5,7 @@ import { Picker } from "../ui/Menu";
 import { wire } from "../wire";
 import { deviceTranscription } from "../voice/transcription";
 import { setHearOnThisMac, useHearOnThisMac } from "../voice/hearing";
+import { Fold } from "../ui/Fold";
 import { DeskModels } from "./DeskModels";
 
 /** The Transcription picker's own choice: this Mac, not a provider. Provider ids never start with a bar. */
@@ -18,6 +19,9 @@ import {
 	currentId,
 	effortChoices,
 	effortsOf,
+	listenForOf,
+	listenForPatch,
+	parseWords,
 	type PickerChoice,
 	shortModel,
 	splitPickId,
@@ -145,13 +149,6 @@ export function UseFor({
 							<div className="group-row use-for-nested">
 								<span className="group-row-text">
 									<span className="group-row-title">Transcribes with</span>
-									<span className="group-row-detail">
-										{hearHere
-											? `Free and private on calls from this Mac${hearingNow !== undefined ? `; other devices use ${hearsOnDesk ? "the desk" : hearingNow.providerName}` : ""}`
-											: hearsOnDesk
-												? "Free and private, on the desk"
-												: "Turns what you say into text"}
-									</span>
 								</span>
 								<span className="flex shrink-0 items-center gap-1">
 									<Picker
@@ -168,7 +165,7 @@ export function UseFor({
 								</span>
 							</div>
 						) : (
-							<JobRow title="Transcribes with" detail={hearsOnDesk ? "Free and private, on the desk" : "Turns what you say into text"} job={options.stt} nested>
+							<JobRow title="Transcribes with" detail="" job={options.stt} nested>
 								<Picker
 									value={currentId(options.stt)}
 									choices={shortChoices(options.stt)}
@@ -179,9 +176,12 @@ export function UseFor({
 							</JobRow>
 						)}
 						<DeskModels onInstalledChanged={onChanged} />
+						{options.stt.options.some((one) => one.providerId === ON_THE_DESK) && (
+							<ListenFor saved={listenForOf(voice)} onSave={(words) => write({ voice: listenForPatch(voice, words) })} />
+						)}
 					</>
 				)}
-				<JobRow title="Call assistant" detail="Answers on calls and hands work on" job={options.dispatcher}>
+				<JobRow title="Call assistant" detail="Answers calls to the desk, and rewrites a teammate's reply for speech when needed." job={options.dispatcher} wrap>
 					<Picker
 						value={currentId(options.dispatcher)}
 						choices={shortChoices(options.dispatcher)}
@@ -207,7 +207,6 @@ export function UseFor({
 					)}
 				</JobRow>
 			</div>
-			<p className="group-hint">Subscriptions go before paid keys.</p>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
@@ -287,11 +286,50 @@ function currentVoiceId(job: CapabilityJob): string {
  * sentence that says what to connect. `always` stays when there is nothing
  * to pick, so what is under the row can still be opened.
  */
+/**
+ * The words the desk's own models listen for besides teammates' names:
+ * names and product words a small model would otherwise spell as the
+ * nearest common word (voice.md, Hearing on the desk).
+ */
+function ListenFor({ saved, onSave }: { saved: string[]; onSave(words: string[]): void }) {
+	const [open, setOpen] = useState(false);
+	const [text, setText] = useState(saved.join(", "));
+	const changed = parseWords(text).join("\n") !== saved.join("\n");
+	return (
+		<Fold
+			title="Words to listen for"
+			value={saved.length === 0 ? "None" : saved.join(", ")}
+			action={saved.length === 0 ? "Add" : "Change"}
+			open={open}
+			onToggle={() => {
+				setText(saved.join(", "));
+				setOpen((was) => !was);
+			}}
+		>
+			<form
+				className="flex items-center gap-2"
+				onSubmit={(event) => {
+					event.preventDefault();
+					onSave(parseWords(text));
+					setOpen(false);
+				}}
+			>
+				<input className="field min-w-0 flex-1" spellCheck={false} placeholder="Ophelia, Groq, Kubernetes" aria-label="Words to listen for" value={text} onChange={(event) => setText(event.target.value)} />
+				<button type="submit" className="control btn btn-primary shrink-0" disabled={!changed}>
+					Save
+				</button>
+			</form>
+			<p className="hint">Parakeet listens for these, separated by commas, and for your teammates' names.</p>
+		</Fold>
+	);
+}
+
 function JobRow({
 	title,
 	detail,
 	job,
 	nested = false,
+	wrap = false,
 	always,
 	children,
 }: {
@@ -299,6 +337,8 @@ function JobRow({
 	detail: string;
 	job: CapabilityJob;
 	nested?: boolean;
+	/** The detail is a sentence to read whole, not a value to clip. */
+	wrap?: boolean;
 	always?: React.ReactNode;
 	children: React.ReactNode;
 }) {
@@ -307,9 +347,11 @@ function JobRow({
 		<div className={nested ? "group-row use-for-nested" : "group-row"}>
 			<span className="group-row-text">
 				<span className="group-row-title">{title}</span>
-				<span className="group-row-detail" style={nothing ? { whiteSpace: "normal" } : undefined}>
-					{nothing ? (job.unavailable ?? detail) : detail}
-				</span>
+				{(nothing ? (job.unavailable ?? detail) : detail) !== "" && (
+					<span className="group-row-detail" style={nothing || wrap ? { whiteSpace: "normal" } : undefined}>
+						{nothing ? (job.unavailable ?? detail) : detail}
+					</span>
+				)}
 			</span>
 			{(!nothing || always !== undefined) && (
 				<span className="flex shrink-0 items-center gap-1">

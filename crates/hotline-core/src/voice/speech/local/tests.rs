@@ -6,9 +6,21 @@ use super::*;
 use crate::voice::speech::wav::pcm16_wav;
 use sha2::{Digest, Sha256};
 
+/// A transducer's files, which most tests here place.
+const FILES: [&str; 4] = [
+    "encoder.int8.onnx",
+    "decoder.int8.onnx",
+    "joiner.int8.onnx",
+    "tokens.txt",
+];
+
 /// A model's directory as unpacking leaves it, with `files` present. They are
 /// not a model the engine could load, so no test here lets it try.
 fn place(root: &Path, id: &str, name: &str, files: &[&str]) -> PathBuf {
+    place_as(root, id, name, Engine::Transducer, files)
+}
+
+fn place_as(root: &Path, id: &str, name: &str, engine: Engine, files: &[&str]) -> PathBuf {
     let dir = models_dir(root).join(id);
     std::fs::create_dir_all(&dir).unwrap();
     for file in files {
@@ -17,7 +29,9 @@ fn place(root: &Path, id: &str, name: &str, files: &[&str]) -> PathBuf {
     let manifest = Manifest {
         id: id.into(),
         name: name.into(),
-        files: FILES
+        engine,
+        files: engine
+            .files()
             .iter()
             .map(|file| FileHash {
                 name: file.to_string(),
@@ -104,13 +118,25 @@ fn the_most_accurate_installed_model_comes_first_and_strangers_last() {
 #[test]
 fn every_offered_model_is_pinned_to_one_https_archive_and_a_sha256() {
     let models = catalogue();
-    assert_eq!(models.len(), 2);
-    for model in models {
+    let ids: Vec<&str> = models.iter().map(|model| model.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "parakeet-tdt-0.6b-v3",
+            "whisper-large-v3-turbo",
+            "parakeet-tdt-110m-en",
+            "moonshine-base-en"
+        ]
+    );
+    for model in &models {
         assert!(
-            model.url.starts_with("https://github.com/k2-fsa/"),
+            model
+                .url
+                .starts_with("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"),
             "{}",
             model.url
         );
+        assert!(model.url.ends_with(".tar.bz2"), "{}", model.url);
         assert_eq!(model.sha256.len(), 64);
         assert!(
             model
@@ -119,7 +145,27 @@ fn every_offered_model_is_pinned_to_one_https_archive_and_a_sha256() {
                 .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
         );
         assert!(model.download_bytes > 0 && model.disk_bytes > model.download_bytes);
-        assert!(model.credit.contains("CC BY 4.0"));
+        // The licence asks for credit: who made it, the licence, and where to read it.
+        for licence in ["CC BY 4.0", "MIT"] {
+            if model.credit.contains(licence) {
+                assert!(model.licence_url.starts_with("https://"), "{}", model.id);
+            }
+        }
+        assert!(
+            ["CC BY 4.0", "MIT"]
+                .iter()
+                .any(|licence| model.credit.contains(licence)),
+            "{}",
+            model.credit
+        );
+        assert!(!model.name.is_empty() && !model.detail.is_empty());
+        // A tag is a word or two, never a sentence.
+        let tag = model.tag.as_deref().unwrap_or_default();
+        assert!(tag.split(' ').count() <= 2 && !tag.ends_with('.'), "{tag}");
+        // A suggestion names another model on offer.
+        if let Some(other) = &model.more_languages {
+            assert!(ids.contains(&other.as_str()) && *other != model.id);
+        }
         // A model's id names its directory.
         assert!(
             model
@@ -128,6 +174,153 @@ fn every_offered_model_is_pinned_to_one_https_archive_and_a_sha256() {
                 .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
         );
     }
+    let engines: Vec<Engine> = models.iter().map(|model| model.engine).collect();
+    assert_eq!(
+        engines,
+        [
+            Engine::Transducer,
+            Engine::Whisper,
+            Engine::Transducer,
+            Engine::Moonshine
+        ]
+    );
+}
+
+#[test]
+fn a_manifest_from_before_other_kinds_is_a_transducer_and_each_kind_needs_its_own_files() {
+    let root = tempfile::tempdir().unwrap();
+    let old = place(
+        root.path(),
+        "parakeet-tdt-110m-en",
+        "Parakeet English",
+        &FILES,
+    );
+    let manifest = std::fs::read_to_string(old.join(MANIFEST)).unwrap();
+    let without: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+    let mut without = without.as_object().unwrap().clone();
+    without.remove("engine");
+    std::fs::write(old.join(MANIFEST), serde_json::to_vec(&without).unwrap()).unwrap();
+
+    place_as(
+        root.path(),
+        "whisper-large-v3-turbo",
+        "Whisper",
+        Engine::Whisper,
+        Engine::Whisper.files(),
+    );
+    // A Moonshine missing one of its five files is not a model.
+    place_as(
+        root.path(),
+        "moonshine-base-en",
+        "Moonshine",
+        Engine::Moonshine,
+        &Engine::Moonshine.files()[1..],
+    );
+    let found: Vec<(String, Engine)> = installed(root.path())
+        .into_iter()
+        .map(|model| (model.id, model.engine))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("whisper-large-v3-turbo".to_string(), Engine::Whisper),
+            ("parakeet-tdt-110m-en".to_string(), Engine::Transducer),
+        ]
+    );
+}
+
+#[test]
+fn the_words_listened_for_are_cleaned_of_the_engines_syntax_kept_once_and_capped() {
+    let asked = [
+        "Ophelia",
+        " Mack ",
+        "mack",
+        "Groq/Grok",
+        ":5 Brix",
+        "#hash @at",
+        "New\nline",
+        "nul\0byte",
+        "O'Brien",
+        "gpt-5.1",
+        "...",
+        "",
+        "a word far too long to be a name anyone would ever say aloud",
+    ];
+    assert_eq!(
+        hotwords(asked),
+        [
+            "Ophelia",
+            "Mack",
+            "Groq Grok",
+            "5 Brix",
+            "hash at",
+            "New line",
+            "nul byte",
+            "O'Brien",
+            "gpt-5.1"
+        ]
+    );
+    let many: Vec<String> = (0..100).map(|n| format!("Name{n}")).collect();
+    let kept = hotwords(many.iter().map(String::as_str));
+    assert_eq!(kept.len(), MAX_HOTWORDS);
+    assert_eq!(kept[0], "Name0", "the first asked are the ones kept");
+}
+
+#[test]
+fn a_transducers_vocabulary_is_scored_so_a_word_splits_into_the_fewest_pieces() {
+    let tokens = "<unk> 0\n▁t 1\n▁th 2\nin 3\n\nbroken\n▁Par 4\nake 5\na b c\n<blk> 6\n";
+    let vocabulary = scored_vocabulary(tokens);
+    let lines: Vec<(&str, f64)> = vocabulary
+        .lines()
+        .map(|line| {
+            let (piece, score) = line.split_once(' ').unwrap();
+            (piece, score.parse().unwrap())
+        })
+        .collect();
+    // Only lines of exactly two fields, and never the blank: the encoder
+    // ends the process on a line it cannot read.
+    assert_eq!(
+        lines.iter().map(|(piece, _)| *piece).collect::<Vec<_>>(),
+        ["<unk>", "▁t", "▁th", "in", "▁Par", "ake"]
+    );
+    // Every piece costs about one, and an earlier merge a little less, so two
+    // pieces always cost more than one whatever their place.
+    for window in lines.windows(2) {
+        assert!(window[0].1 > window[1].1);
+    }
+    let (best, worst) = (lines[0].1, lines.last().unwrap().1);
+    assert!(best <= -1.0 && worst > -1.1);
+    assert!(2.0 * best < worst);
+}
+
+#[test]
+fn a_long_clip_is_heard_in_pieces_cut_where_it_is_quietest() {
+    let rate = 1_000;
+    // 40 seconds of sound with one quiet tenth of a second at 25 s.
+    let mut samples = vec![0.5_f32; 40 * rate];
+    for value in &mut samples[25 * rate..25 * rate + rate / 10] {
+        *value = 0.0;
+    }
+    let cut = pieces(&samples, rate, Duration::from_secs(28));
+    assert_eq!(cut.len(), 2);
+    assert_eq!(cut[0].len(), 25 * rate + rate / 20);
+    assert_eq!(
+        cut.iter().map(|piece| piece.len()).sum::<usize>(),
+        samples.len()
+    );
+    // A clip that fits is one piece.
+    assert_eq!(
+        pieces(&samples[..rate], rate, Duration::from_secs(28)).len(),
+        1
+    );
+    // A minute with no quiet in it is still cut, at most 28 seconds a piece.
+    let loud = vec![0.5_f32; 60 * rate];
+    let cut = pieces(&loud, rate, Duration::from_secs(28));
+    assert!(cut.iter().all(|piece| piece.len() <= 28 * rate));
+    assert_eq!(
+        cut.iter().map(|piece| piece.len()).sum::<usize>(),
+        loud.len()
+    );
 }
 
 #[test]

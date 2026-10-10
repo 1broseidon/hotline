@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { CapabilityJob, CapabilityOptions } from "../src/generated/contract";
 import { budgetsPatch, limitText } from "../src/budgets";
-import { AUTOMATIC, carriedEffort, choicesFor, effortChoices, effortsOf, currentId, parseCap, pickId, splitPickId, tagsFor, usd, voiceChoices, voicePatch } from "../src/useFor";
+import { AUTOMATIC, carriedEffort, choicesFor, effortChoices, effortsOf, currentId, listenForOf, listenForPatch, parseCap, parseWords, pickId, splitPickId, tagsFor, usd, voiceChoices, voicePatch } from "../src/useFor";
 
 const images: CapabilityJob = {
 	automatic: { providerId: "openrouter", providerName: "OpenRouter", modelId: "openai/gpt-image-2.5-flare" },
@@ -193,5 +193,26 @@ describe("the three budgets", () => {
 			voice: { dayUsd: 10, monthUsd: 20 },
 			images: { dayUsd: 0, monthUsd: null },
 		});
+	});
+});
+
+describe("the words the desk listens for", () => {
+	test("are what was typed, split at commas and new lines, each once", () => {
+		expect(parseWords(" Ophelia, Groq,,\nKubernetes , groq ")).toEqual(["Ophelia", "Groq", "Kubernetes"]);
+		expect(parseWords("  ")).toEqual([]);
+	});
+
+	test("are written into the voice setting beside its picks, and none takes the key away", () => {
+		const voice = { stt: { provider: "local", model: "parakeet-tdt-110m-en" }, dayUsd: 2 };
+		expect(listenForPatch(voice, ["Ophelia"])).toEqual({ ...voice, listenFor: ["Ophelia"] });
+		expect(listenForPatch({ ...voice, listenFor: ["Ophelia"] }, [])).toEqual(voice);
+		expect(listenForPatch({ listenFor: ["Ophelia"] }, [])).toBeNull();
+		expect(listenForPatch(undefined, ["Groq"])).toEqual({ listenFor: ["Groq"] });
+	});
+
+	test("are read leniently from what the room holds", () => {
+		expect(listenForOf({ listenFor: ["Ophelia", 7, "Groq"] })).toEqual(["Ophelia", "Groq"]);
+		expect(listenForOf({ listenFor: "Ophelia" })).toEqual([]);
+		expect(listenForOf(undefined)).toEqual([]);
 	});
 });

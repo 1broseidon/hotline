@@ -4,7 +4,8 @@
 //! { "stt": { "provider": "groq", "model": "whisper-large-v3-turbo" },
 //!   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "marin" },
 //!   "fallbackTts": { "provider": "google" },
-//!   "dispatcher": { "provider": "openai", "model": "gpt-5-mini", "effort": "low" } }
+//!   "dispatcher": { "provider": "openai", "model": "gpt-5-mini", "effort": "low" },
+//!   "listenFor": ["Ophelia", "Groq"] }
 //! ```
 //!
 //! Every key is optional. A value that cannot be read costs its own
@@ -44,6 +45,12 @@ pub struct VoiceSettings {
     /// desk pick that provider's quickest model; without this the desk uses
     /// the room's default provider.
     pub dispatcher: Option<Choice>,
+    /// Words the desk's own model listens for, as the person wrote them
+    /// under Transcription (`listenFor`).
+    pub listen_for: Vec<String>,
+    /// Teammates' names, which it listens for too. From the roster, so only
+    /// `from_log` fills them.
+    pub teammates: Vec<String>,
 }
 
 impl VoiceSettings {
@@ -55,7 +62,13 @@ impl VoiceSettings {
         if !crate::room::is_set(log, "spending") {
             settings.remove("spending");
         }
-        VoiceSettings::from_room(&settings)
+        VoiceSettings {
+            teammates: crate::room::roster(log)
+                .into_iter()
+                .map(|persona| persona.name)
+                .collect(),
+            ..VoiceSettings::from_room(&settings)
+        }
     }
 
     /// The voice preferences in the room's settings, as `room::settings`
@@ -91,8 +104,24 @@ impl VoiceSettings {
             tts: choice(voice, "tts"),
             fallback_tts: choice(voice, "fallbackTts"),
             dispatcher: choice(voice, "dispatcher"),
+            listen_for: words(voice, "listenFor"),
+            teammates: Vec::new(),
         }
     }
+}
+
+/// A list of words, each trimmed; anything else in it is skipped.
+fn words(source: &Map<String, Value>, key: &str) -> Vec<String> {
+    source
+        .get(key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|word| !word.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// An early version's voice-only cap. Zero is a cap (paid voice is off); a
@@ -249,6 +278,18 @@ mod tests {
         assert_eq!(
             VoiceSettings::from_room(&room(json!({"dayUsd": "2"}))).voice,
             BudgetLimits::default()
+        );
+    }
+
+    #[test]
+    fn the_words_to_listen_for_are_read_and_whatever_is_not_a_word_is_skipped() {
+        let settings = VoiceSettings::from_room(&room(json!({
+            "listenFor": [" Ophelia ", "", 7, "Groq", null],
+        })));
+        assert_eq!(settings.listen_for, ["Ophelia", "Groq"]);
+        assert_eq!(
+            VoiceSettings::from_room(&room(json!({"listenFor": "Ophelia"}))).listen_for,
+            Vec::<String>::new()
         );
     }
 }

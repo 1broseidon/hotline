@@ -182,6 +182,18 @@ export class Call {
 	private started = false;
 	/** The desk's own word on where the call stands. */
 	private desk: "listening" | "thinking" | "speaking" | "held" = "listening";
+	/**
+	 * The desk thinks only because the teammate's turn is still working, and
+	 * takes what the person says, which steers into that turn: the call
+	 * listens while it thinks, unless speech is playing.
+	 */
+	private deskListens = false;
+	/**
+	 * What the desk began to say while the person was talking: it waits until
+	 * they finish, and goes if they said something (they cut in, and the desk
+	 * stops it too) or plays if it was only noise.
+	 */
+	private deferred: { id: string; mimeType: string; data: string }[] = [];
 	/** An utterance is on its way and the desk has not answered with a state yet. */
 	private awaiting = false;
 	private held = false;
@@ -375,6 +387,7 @@ export class Call {
 			this.awaiting = false;
 			this.outputLines.clear();
 			for (const id of this.seen) this.muted.add(id);
+			this.deferred = [];
 			this.audio.stopPlayback();
 			// Let the microphone go, so the system's mic light says so too.
 			this.audio.closeMic();
@@ -405,6 +418,7 @@ export class Call {
 		if (this.closing !== null) return this.end(this.closing);
 		void this.transport.command("voice.interrupt", { callId: this.id }).catch(() => {});
 		for (const id of this.seen) this.muted.add(id);
+		this.deferred = [];
 		this.outputLines.clear();
 		this.endpoint = null;
 		this.audio.stopPlayback();
@@ -423,11 +437,19 @@ export class Call {
 	receive(event: CallEvent): void {
 		if (this.ended) return;
 		switch (event.type) {
-			case "state":
-				this.awaiting = false;
+			case "state": {
+				const listens = event.state === "thinking" && event.listening === true;
+				// The desk answers an utterance with a state that has the floor. A thinking that listens,
+				// said again while the teammate works, may be from before the utterance reached it.
+				if (!listens) this.awaiting = false;
 				// The producer is finished at these authoritative states, including a failed partial TTS stream.
 				if (event.state === "listening" || event.state === "ended") this.outputLines.clear();
 				if (event.state === "ended") {
+					// Words the person was saying have nowhere to go; what the desk said while they did is still said.
+					if (this.snapshot.phase === "hearing") {
+						this.cancelInput();
+						this.playDeferred();
+					}
 					const reason = event.reason ?? "error";
 					// A goodbye, a spent budget or a failure is said before the line goes: let the last sentence finish.
 					if ((reason === "goodbye" || reason === "budget" || reason === "error") && (this.audio.playing || this.outputLines.size > 0)) this.closing = reason;
@@ -435,8 +457,10 @@ export class Call {
 					return;
 				}
 				this.desk = event.state;
+				this.deskListens = listens;
 				this.settle();
 				return;
+			}
 			case "heard":
 				this.line({ kind: "you", id: `heard-${event.seq}`, text: event.text });
 				return;
@@ -456,8 +480,19 @@ export class Call {
 				if (event.index !== (this.clipIndices.get(event.id) ?? 0)) return;
 				this.clipIndices.set(event.id, event.index + 1);
 				if (this.held || this.muted.has(event.id)) return;
+				// Said before the desk had the person's words, which cut it off there too.
+				if (this.awaiting) {
+					this.muted.add(event.id);
+					this.outputLines.delete(event.id);
+					return;
+				}
 				if (event.final) this.outputLines.delete(event.id);
 				else this.outputLines.add(event.id);
+				// The person is talking and keeps the floor; nothing plays over them, so the mic never hears it.
+				if (this.snapshot.phase === "hearing") {
+					if (event.data !== "") this.deferred.push({ id: event.id, mimeType: event.mimeType, data: event.data });
+					return;
+				}
 				try { if (event.data !== "") this.audio.play(event.mimeType, event.data); }
 				catch (error) { this.fail(error instanceof Error ? error.message : String(error)); return; }
 				this.settle();
@@ -492,9 +527,14 @@ export class Call {
 		if (this.unsubscribe === null) return;
 		if (this.held) return this.set({ phase: "held" });
 		if (this.audio.playing) return this.set({ phase: "speaking" });
-		if (this.awaiting || this.outputLines.size > 0 || this.desk === "thinking" || this.desk === "speaking") return this.set({ phase: "thinking" });
 		const phase = this.snapshot.phase;
-		if (phase === "listening" || phase === "hearing") return;
+		// The person is talking: nothing the desk does takes the floor from them.
+		if (phase === "hearing" && !this.awaiting) return;
+		// A teammate still working on a call that listens while it thinks leaves the mic open.
+		const deskBusy = this.desk === "speaking" || (this.desk === "thinking" && !this.deskListens);
+		if (this.awaiting || this.outputLines.size > 0 || deskBusy) return this.set({ phase: "thinking" });
+		// Still listening: the blip-blip follows whether the teammate is working.
+		if (phase === "listening") return this.set({});
 		this.cancelInput();
 		this.detector.reset(this.now());
 		this.set({ phase: "listening" });
@@ -553,6 +593,7 @@ export class Call {
 					// Silence, or a steady noise taken for speech until the floor caught up: nothing to send.
 					this.cancelInput();
 					if (this.snapshot.phase === "hearing") this.set({ phase: "listening" });
+					if (this.playDeferred()) return;
 					break;
 				case "end":
 					this.send();
@@ -563,6 +604,7 @@ export class Call {
 	}
 
 	private send(): void {
+		this.cutIn();
 		this.endpoint = { at: this.now(), seq: this.input !== null ? this.seq : this.seq + 1 };
 		if (this.input !== null) {
 			const input = this.input;
@@ -678,6 +720,7 @@ export class Call {
 						case "drop":
 							// Nobody spoke: a fresh session, so the room's noise never piles up in one.
 							this.cancelInput();
+							if (this.playDeferred()) return;
 							this.listen();
 							return;
 						case "end":
@@ -741,12 +784,13 @@ export class Call {
 		// Held, cut in on or hung up while the engine finished: those words are not sent.
 		if (session !== this.textSession || this.ended || this.held) return;
 		if (text === "") {
-			// A cough or a tap: nothing to say.
+			// A cough or a tap: nothing to say, and what the desk said meanwhile is said.
 			this.endpoint = null;
 			this.awaiting = false;
-			this.settle();
+			if (!this.playDeferred()) this.settle();
 			return;
 		}
+		this.cutIn();
 		const seq = ++this.seq;
 		this.line({ kind: "you", id: `heard-${seq}`, text });
 		// After the engine let the microphone go, so the blip-blip is never transcribed.
@@ -754,6 +798,33 @@ export class Call {
 		this.transport
 			.command("voice.text", { callId: this.id, seq, text })
 			.then(() => this.delivered(), (error: unknown) => this.refused(error));
+	}
+
+	/**
+	 * The person said something over what the desk began to say: it goes, as
+	 * the desk stops it on taking their words.
+	 */
+	private cutIn(): void {
+		for (const { id } of this.deferred) {
+			this.muted.add(id);
+			this.outputLines.delete(id);
+		}
+		this.deferred = [];
+	}
+
+	/** It was only noise: what the desk said meanwhile is said now. Answers whether anything plays. */
+	private playDeferred(): boolean {
+		const deferred = this.deferred.filter(({ id }) => !this.muted.has(id));
+		this.deferred = [];
+		if (deferred.length === 0) return false;
+		try {
+			for (const clip of deferred) this.audio.play(clip.mimeType, clip.data);
+		} catch (error) {
+			this.fail(error instanceof Error ? error.message : String(error));
+			return true;
+		}
+		this.settle();
+		return true;
 	}
 
 	private streamFailed(error: unknown): void {
@@ -815,6 +886,7 @@ export class Call {
 		if (this.ended) return;
 		this.holdGeneration++;
 		this.cancelInput();
+		this.deferred = [];
 		// Before the call settles on text, this stops a language download that asking permission started.
 		if (!this.textInput) void this.transcription?.cancel().catch(() => {});
 		this.outputLines.clear();
@@ -834,14 +906,27 @@ export class Call {
 		setTimeout(() => this.audio.close(), tone * 1000 + 80);
 	}
 
+	/**
+	 * One blip-blip. The microphone may be open, so the detector does not take
+	 * it for the person: the webview's mic skips it, and this Mac's engine's
+	 * levels are let go of until it and its tail have played.
+	 */
+	private blip(): void {
+		const tone = this.audio.chime("think");
+		this.quietUntil = Math.max(this.quietUntil, this.now() + tone * 1000 + 120);
+	}
+
 	private set(patch: Partial<CallSnapshot>): void {
 		this.snapshot = { ...this.snapshot, ...patch };
 		// The desk has the floor or the call is held: the engine lets the microphone go, so it never hears the desk.
 		if (this.recognizing && this.snapshot.phase !== "listening" && this.snapshot.phase !== "hearing") this.stopListening();
-		// The first blip-blip goes with the utterance; these repeat it while the desk is quiet and busy.
-		if (this.snapshot.phase === "thinking" && this.working === null) {
-			this.working = setInterval(() => this.audio.chime("think"), WORKING_EVERY_MS);
-		} else if (this.snapshot.phase !== "thinking" && this.working !== null) {
+		// The first blip-blip goes with the utterance; these repeat it while the desk is quiet and busy,
+		// and while the teammate works on a call that listens meanwhile.
+		const phase = this.snapshot.phase;
+		const working = phase === "thinking" || (phase === "listening" && this.desk === "thinking" && this.deskListens);
+		if (working && this.working === null) {
+			this.working = setInterval(() => this.blip(), WORKING_EVERY_MS);
+		} else if (!working && this.working !== null) {
 			clearInterval(this.working);
 			this.working = null;
 		}

@@ -1342,6 +1342,10 @@ export type SlashCommand = { name: string, description?: string, hint?: string, 
  */
 export type SpeechModel = { id: string, name: string, 
 /**
+ * A word or two shown after the name to choose by ("fast", "English only").
+ */
+tag?: string, 
+/**
  * What it hears and how it trades accuracy for speed, in a few words.
  */
 detail: string, downloadBytes: number, 
@@ -1360,7 +1364,13 @@ receivedBytes?: number,
 /**
  * Why the last download failed, until the next one starts.
  */
-error?: string, };
+error?: string, 
+/**
+ * The id of a model in this list that hears more languages, which
+ * Settings suggests to someone whose window is not in English while
+ * this one is the only one installed.
+ */
+moreLanguages?: string, };
 
 /**
  * Where one of the desk's own speech models stands.
@@ -1624,7 +1634,14 @@ attachments?: Array<Attachment>, reactions?: Array<string>,
 /**
  * An emphasis on this bubble.
  */
-ring?: RingIntent, receipt?: Receipt, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
+ring?: RingIntent, receipt?: Receipt, 
+/**
+ * On a reply to a turn said on a call, the version written to be
+ * heard, while `text` is the version written to be read. On the
+ * first bubble of the reply only. A client that does not know it
+ * shows `text`, which stands alone.
+ */
+spoken?: string, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
 /**
  * How long the pull took, once it is done.
  */
@@ -1818,7 +1835,15 @@ export type VoiceCall = { callId: string, input: Array<string>, output: string, 
 
 export type VoiceEndReason = "client" | "goodbye" | "budget" | "replaced" | "error" | "idle";
 
-export type VoiceEvent = { "type": "state", state: VoiceState, reason?: VoiceEndReason, } | { "type": "heard", seq: number, text: string, } | { "type": "said", id: string, text: string, } | { "type": "clip", id: string, index: number, final: boolean, mimeType: string, data: string, } | { "type": "delivery", personaId: string, eventId: string, text: string, } | { "type": "card", personaId: string, requestId: string, kind: string, };
+export type VoiceEvent = { "type": "state", state: VoiceState, reason?: VoiceEndReason, 
+/**
+ * On `thinking`: the teammate's turn is still working and the call
+ * takes what the person says, which steers into that turn. A client
+ * keeps its microphone open, as it does on `listening`, unless it is
+ * playing speech. Absent, `thinking` means the desk is still taking
+ * the last thing said and has the floor, as from desks before it.
+ */
+listening?: boolean, } | { "type": "heard", seq: number, text: string, } | { "type": "said", id: string, text: string, } | { "type": "clip", id: string, index: number, final: boolean, mimeType: string, data: string, } | { "type": "delivery", personaId: string, eventId: string, text: string, } | { "type": "card", personaId: string, requestId: string, kind: string, };
 
 /**
  * Omission preserves remote audio transcription for existing callers.
@@ -1827,13 +1852,53 @@ export type VoiceInputMode = "audio" | "text";
 
 export type VoiceModel = { providerId: string, modelId: string, voice?: string, };
 
+/**
+ * How one model's replies on calls to teammates were said: each reply is
+ * counted once, by the way it was written. Read-only, kept by the desk
+ * across restarts.
+ */
+export type VoiceReplies = { 
+/**
+ * The teammate's agent and model: `hotline/<provider>/<model>` for
+ * Hotline Agent, `acp/<adapter>` for an ACP agent, followed by
+ * `/<model>` when its session names one.
+ */
+model: string, 
+/**
+ * A spoken version and a written one.
+ */
+both: number, 
+/**
+ * A spoken version and no written one.
+ */
+spokenOnly: number, 
+/**
+ * A spoken version never closed with `</spoken>`.
+ */
+unclosed: number, 
+/**
+ * No spoken version, and the call said the reply's opening: there was
+ * no call assistant to rewrite it, or it failed or took too long.
+ */
+untagged: number, 
+/**
+ * No spoken version, so the call assistant rewrote the reply to be
+ * heard, and that was said.
+ */
+rewritten: number, };
+
 export type VoiceState = "listening" | "thinking" | "speaking" | "held" | "ended";
 
 export type VoiceStatus = { capabilities: Array<string>, available: boolean, 
 /**
  * Direct teammate calls need speech and budget, but no desk dispatcher.
  */
-directAvailable?: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceModel, fallbackTts?: VoiceModel, dispatcher?: VoiceModel, budget: VoiceBudget, };
+directAvailable?: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceModel, fallbackTts?: VoiceModel, dispatcher?: VoiceModel, budget: VoiceBudget, 
+/**
+ * How teammates' replies on calls to them were said, one entry per
+ * model that wrote any, by model. Absent before the first.
+ */
+replies?: Array<VoiceReplies>, };
 
 /**
  * What the desk's own model heard in one clip.

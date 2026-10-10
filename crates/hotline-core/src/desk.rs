@@ -345,6 +345,14 @@ impl RoomHandle for Desk {
         self.room.clear_clip(persona_id, mood).await
     }
 
+    async fn set_drawing(&self, persona_id: &str, svg: &str) -> Result<(), String> {
+        self.room.set_drawing(persona_id, svg).await
+    }
+
+    async fn clear_drawing(&self, persona_id: &str) -> Result<(), String> {
+        self.room.clear_drawing(persona_id).await
+    }
+
     async fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {
         Ok(crate::capabilities::options(
             &self.vault,

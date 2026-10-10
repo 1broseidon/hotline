@@ -1,5 +1,7 @@
-/* A teammate's video face: the clip fills the round face, the big face stands
-   above the conversation, and the small one stands in for the activity mark. */
+/* A teammate's moving face: the clip or drawing fills the round face, the big
+   face stands above the conversation, and the small one stands in for the
+   activity mark. */
 .face-video { display:block; width:100%; height:100%; object-fit:cover; }
 .face-stage { display:flex; justify-content:center; padding:8px 0 4px; flex-shrink:0; }
 .face-mark { width:40px; height:40px; }
+.face-drawn { display:block; width:100%; height:100%; }

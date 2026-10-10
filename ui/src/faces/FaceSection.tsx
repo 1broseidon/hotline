@@ -7,6 +7,7 @@ import { useFacePrefs } from "./prefs";
 const STYLES: { id: LookStyle; name: string; title: string }[] = [
 	{ id: "initial", name: "Initial", title: "The first letter of the name" },
 	{ id: "photo", name: "Photo", title: "A still picture" },
+	{ id: "drawn", name: "Drawn", title: "An SVG drawn to the face rig, moved per mood" },
 	{ id: "video", name: "Video", title: "A video clip per mood" },
 ];
 
@@ -25,8 +26,9 @@ const MOODS: { id: Mood; name: string; when: string }[] = [
 
 /** A picture the desk will square anyway, made small first so it crosses the wire in one message. */
 const SEND_EDGE = 1024;
-/** What the desk keeps for one clip. */
+/** What the desk keeps for one clip, and for a drawing. */
 const MAX_CLIP_BYTES = 4 * 1024 * 1024;
+const MAX_DRAWING_BYTES = 1024 * 1024;
 
 async function pictureData(file: File): Promise<string> {
 	const bitmap = await createImageBitmap(file);
@@ -47,7 +49,7 @@ async function fileData(file: File): Promise<string> {
 
 /**
  * How this teammate's face is drawn: the style, and what each style needs —
- * a picture, or a clip per mood. It is the person's choice and
+ * a picture, a drawing, or a clip per mood. It is the person's choice and
  * lives on the teammate's record; whether this window draws faces at all is
  * Settings → Avatars.
  */
@@ -61,6 +63,7 @@ export function FaceSection({ persona, disabled }: { persona: Persona; disabled:
 	const picture = useRef<HTMLInputElement>(null);
 	const clipFor = useRef<Mood>("idle");
 	const clip = useRef<HTMLInputElement>(null);
+	const drawing = useRef<HTMLInputElement>(null);
 	const busy = disabled || working;
 
 	useEffect(() => {
@@ -101,6 +104,15 @@ export function FaceSection({ persona, disabled }: { persona: Persona; disabled:
 		run(async () => wire.command("look.clip_set", { personaId: persona.id, mood, mimeType: file.type || "video/mp4", data: await fileData(file) }));
 	};
 
+	const chooseDrawing = (file: File | undefined) => {
+		if (file === undefined) return;
+		if (file.size > MAX_DRAWING_BYTES) {
+			setRefusal("That drawing is too large; keep it under 1 MB.");
+			return;
+		}
+		run(async () => wire.command("look.drawing_set", { personaId: persona.id, svg: await file.text() }));
+	};
+
 	return (
 		<section>
 			<h3 className="label">Face</h3>
@@ -108,7 +120,7 @@ export function FaceSection({ persona, disabled }: { persona: Persona; disabled:
 				<div className="group-row">
 					<span className="group-row-text">
 						<span className="group-row-title">Style</span>
-						{!prefs.on && style === "video" && <span className="group-row-detail">Turn on animated avatars in Settings → Avatars to see it</span>}
+						{!prefs.on && (style === "video" || style === "drawn") && <span className="group-row-detail">Turn on animated avatars in Settings → Avatars to see it</span>}
 					</span>
 					<Chips value={style} choices={STYLES} label="Face style" disabled={busy} onChange={setStyle} />
 				</div>
@@ -136,6 +148,35 @@ export function FaceSection({ persona, disabled }: { persona: Persona; disabled:
 							hidden
 							onChange={(event) => {
 								choosePicture(event.target.files?.[0]);
+								event.target.value = "";
+							}}
+						/>
+					</div>
+				)}
+
+				{style === "drawn" && (
+					<div className="group-row">
+						<span className="group-row-text">
+							<span className="group-row-title">Drawing</span>
+							<span className="group-row-detail">{look?.drawing === undefined ? "None yet" : "Added"}</span>
+						</span>
+						<span className="-my-1 flex items-center gap-1">
+							<button type="button" className="control btn-quiet" disabled={busy} onClick={() => drawing.current?.click()}>
+								{look?.drawing === undefined ? "Choose an SVG…" : "Replace"}
+							</button>
+							{look?.drawing !== undefined && (
+								<button type="button" className="control btn-quiet" disabled={busy} onClick={() => run(() => wire.command("look.drawing_clear", { personaId: persona.id }))}>
+									Remove
+								</button>
+							)}
+						</span>
+						<input
+							ref={drawing}
+							type="file"
+							accept="image/svg+xml,.svg"
+							hidden
+							onChange={(event) => {
+								chooseDrawing(event.target.files?.[0]);
 								event.target.value = "";
 							}}
 						/>
@@ -190,6 +231,7 @@ export function FaceSection({ persona, disabled }: { persona: Persona; disabled:
 					}}
 				/>
 			</div>
+			{style === "drawn" && <p className="hint">A 200 × 200 SVG whose eyes, lids, ears, brows and paws are named the way the face rig expects; Hotline's docs/faces.md has the names and a prompt that draws one.</p>}
 			{style === "video" && <p className="hint">A square MP4 or WebM of 2–4 seconds per mood, each starting and ending on the same pose.</p>}
 			{refusal !== null && (
 				<p role="status" className="selectable text-sm text-danger">

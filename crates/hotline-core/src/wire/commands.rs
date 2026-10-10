@@ -601,6 +601,16 @@ pub(crate) async fn run(
                 .await
                 .map(|()| Value::Null)
         }
+        Command::LookDrawingSet { persona_id, svg } => {
+            living(log, &persona_id)?;
+            room.set_drawing(&persona_id, &svg)
+                .await
+                .map(|()| Value::Null)
+        }
+        Command::LookDrawingClear { persona_id } => {
+            living(log, &persona_id)?;
+            room.clear_drawing(&persona_id).await.map(|()| Value::Null)
+        }
         Command::LookClipRead {
             persona_id,
             hash,

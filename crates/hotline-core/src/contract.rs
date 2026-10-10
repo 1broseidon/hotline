@@ -62,6 +62,9 @@ pub enum AvatarBy {
 pub enum LookStyle {
     Initial,
     Photo,
+    /// An SVG the person uploaded, drawn to the rig in `docs/faces.md` so the
+    /// window can move its parts per mood.
+    Drawn,
     Video,
 }
 
@@ -89,7 +92,7 @@ pub enum Mood {
 #[ts(export, export_to = "contract.ts")]
 pub struct Clip {
     pub hash: String,
-    /// `video/mp4` or `video/webm`.
+    /// `video/mp4` or `video/webm`, or `image/svg+xml` for a drawing.
     pub mime_type: String,
 }
 
@@ -102,6 +105,9 @@ pub struct Look {
     /// The video face's clip per mood; a mood without one falls back.
     #[serde(default)]
     pub clips: std::collections::BTreeMap<Mood, Clip>,
+    /// The drawn face's SVG, kept like a clip under its hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drawing: Option<Clip>,
     /// When the look last changed, as an ISO timestamp.
     pub updated_at: String,
 }
@@ -3080,7 +3086,14 @@ pub enum Command {
     /// Removes one mood's clip.
     #[serde(rename = "look.clip_clear")]
     LookClipClear { persona_id: String, mood: Mood },
-    /// A kept clip, by the hash on the teammate's look, a part at a time
+    /// The drawn face's SVG, as text. The desk turns away what is plainly
+    /// not a drawing; the window cleans what it inlines either way.
+    #[serde(rename = "look.drawing_set")]
+    LookDrawingSet { persona_id: String, svg: String },
+    /// Removes the drawn face's SVG.
+    #[serde(rename = "look.drawing_clear")]
+    LookDrawingClear { persona_id: String },
+    /// A kept clip or drawing, by the hash on the teammate's look, a part at a time
     /// from `offset`, as `avatar.read` answers a picture. Any seat may read
     /// one: a clip is no more private than the picture it moves.
     #[serde(rename = "look.clip_read")]

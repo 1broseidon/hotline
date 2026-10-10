@@ -435,6 +435,7 @@ pub fn clip_path(root: &Path, persona_id: &str, hash: &str, mime_type: &str) -> 
     let extension = match mime_type {
         "video/mp4" => "mp4",
         "video/webm" => "webm",
+        "image/svg+xml" => "svg",
         _ => return None,
     };
     genuine_hash(hash).then(|| avatar_dir(root, persona_id).join(format!("{hash}.{extension}")))

@@ -6787,6 +6787,13 @@ fn a_look_is_read_by_every_seat_and_set_only_by_the_owner() {
             persona_id: "ada".to_string(),
             mood: Mood::Done,
         },
+        Command::LookDrawingSet {
+            persona_id: "ada".to_string(),
+            svg: String::new(),
+        },
+        Command::LookDrawingClear {
+            persona_id: "ada".to_string(),
+        },
     ];
     for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
         assert!(seat.permits(&read));

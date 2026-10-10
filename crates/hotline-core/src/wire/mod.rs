@@ -130,6 +130,14 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("This room keeps no looks.".into())
     }
 
+    async fn set_drawing(&self, _persona_id: &str, _svg: &str) -> Result<(), String> {
+        Err("This room keeps no looks.".into())
+    }
+
+    async fn clear_drawing(&self, _persona_id: &str) -> Result<(), String> {
+        Err("This room keeps no looks.".into())
+    }
+
     fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
         None
     }
@@ -743,7 +751,7 @@ impl Seat {
                     | Command::FileRead { .. }
                     // A picture is no more private than the name beside it.
                     | Command::AvatarRead { .. }
-                    // A mood's clip moves that same picture.
+                    // A mood's clip or drawing moves that same picture.
                     | Command::LookClipRead { .. }
                     // Older lines of a tape the phone already reads.
                     | Command::TapePage { .. }

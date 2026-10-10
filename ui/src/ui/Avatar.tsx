@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { type AvatarRead, avatarUrl } from "../avatars";
-import { type Face, useFace } from "../faces/face";
+import { type Moving, moves, useFace } from "../faces/face";
+import { MovingFace } from "../faces/MovingFace";
 import { useHeldMood, useMood } from "../faces/mood";
-import { VideoFace } from "../faces/VideoFace";
 
 /**
  * A teammate's face: its picture in the circle when it has one (`hash` is the
@@ -33,11 +33,11 @@ export function Avatar({
 	read?: AvatarRead | undefined;
 }) {
 	const look = useFace(id);
-	const moving = look?.kind === "video" ? look : undefined;
+	const moving = moves(look) ? look : undefined;
 	const url = usePicture(id, look === null ? hash : undefined, read);
 	const face = moving !== undefined ? (
 		<span aria-hidden="true" className="avatar avatar-face" style={{ width: size, height: size }}>
-			<MovingFace id={id} face={moving} />
+			<MoodFace id={id} face={moving} />
 		</span>
 	) : (
 		<span
@@ -62,8 +62,8 @@ export function Avatar({
 	);
 }
 
-function MovingFace({ id, face }: { id: string; face: Extract<Face, { kind: "video" }> }) {
-	return <VideoFace personaId={id} clips={face.clips} mood={useHeldMood(useMood(id))} />;
+function MoodFace({ id, face }: { id: string; face: Moving }) {
+	return <MovingFace personaId={id} face={face} mood={useHeldMood(useMood(id))} />;
 }
 
 /** The picture's URL once it has arrived; undefined before, and if it cannot be read. */

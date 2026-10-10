@@ -193,7 +193,9 @@ type Results = {
 	"look.set": null;
 	"look.clip_set": null;
 	"look.clip_clear": null;
-	/** One part of a mood's clip, by the hash on the teammate's look. */
+	"look.drawing_set": null;
+	"look.drawing_clear": null;
+	/** One part of a mood's clip or the drawing, by the hash on the teammate's look. */
 	"look.clip_read": FileChunk;
 	"files.browse": {
 		path: string;

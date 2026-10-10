@@ -711,3 +711,15 @@ turn still finishes its animation, and a mood without a clip plays the idle
 one, which a video face therefore needs. Whether a window draws faces at all
 is that window's preference, like its theme, and off by default, so a window
 that never opts in draws every teammate as before.
+
+A drawn face is the fourth style: one SVG the person uploads, drawn to a rig of
+named parts (`docs/faces.md`) that CSS moves per mood. The window never puts
+the drawing into the page. It writes the rig's CSS and the mood into a copy of
+the drawing and shows that as an image, for the reason `Mermaid.tsx` does: an
+SVG shown as an image cannot run script, load anything or follow a link, so a
+drawing needs no cleaning and can do no worse than look wrong. The price is
+that a mood change swaps one image for the next instead of easing between
+them, and the eyes cannot follow the caret, which would take script reaching
+into the drawing. The desk still turns away a drawing with scripts, pages or
+entities, so the file it keeps is one no other reader need fear either.
+

@@ -181,7 +181,7 @@ export function UseFor({
 						)}
 					</>
 				)}
-				<JobRow title="Call assistant" detail="When calling the desk, use this assistant. Teammates use their configured model." job={options.dispatcher} wrap>
+				<JobRow title="Call assistant" detail="Answers calls to the desk, and rewrites a teammate's reply for speech when needed." job={options.dispatcher} wrap>
 					<Picker
 						value={currentId(options.dispatcher)}
 						choices={shortChoices(options.dispatcher)}

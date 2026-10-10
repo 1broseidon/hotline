@@ -546,6 +546,7 @@ mod tests {
             name: "Ada".to_string(),
             goal: String::new(),
             avatar: None,
+            look: None,
             team: None,
             backend_id: "hotline".to_string(),
             cwd: "/tmp/ada".to_string(),

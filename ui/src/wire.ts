@@ -189,6 +189,12 @@ type Results = {
 	/** One part of a teammate's picture, by the hash on its record. */
 	"avatar.read": FileChunk;
 	"avatar.generate": null;
+	"avatar.set": null;
+	"look.set": null;
+	"look.clip_set": null;
+	"look.clip_clear": null;
+	/** One part of a mood's clip, by the hash on the teammate's look. */
+	"look.clip_read": FileChunk;
 	"files.browse": {
 		path: string;
 		parent: string | null;

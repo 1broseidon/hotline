@@ -421,14 +421,29 @@ pub fn avatar_dir(root: &Path, persona_id: &str) -> PathBuf {
     managed_path(&avatars_dir(root), persona_id, "")
 }
 
+/// Whether `hash` is the 64 lowercase hex digits of a SHA-256.
+fn genuine_hash(hash: &str) -> bool {
+    hash.len() == 64
+        && hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Where a mood's clip is kept, beside the teammate's picture, or nothing
+/// when the hash or the kind of video is not one the desk keeps.
+pub fn clip_path(root: &Path, persona_id: &str, hash: &str, mime_type: &str) -> Option<PathBuf> {
+    let extension = match mime_type {
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        _ => return None,
+    };
+    genuine_hash(hash).then(|| avatar_dir(root, persona_id).join(format!("{hash}.{extension}")))
+}
+
 /// Where a picture is kept, or nothing when the hash is not the 64 lowercase
 /// hex digits of one.
 pub fn avatar_path(root: &Path, persona_id: &str, hash: &str) -> Option<PathBuf> {
-    let genuine = hash.len() == 64
-        && hash
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-    genuine.then(|| avatar_dir(root, persona_id).join(format!("{hash}.png")))
+    genuine_hash(hash).then(|| avatar_dir(root, persona_id).join(format!("{hash}.png")))
 }
 
 #[cfg(test)]

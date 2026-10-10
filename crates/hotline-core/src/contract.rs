@@ -52,6 +52,60 @@ pub enum AvatarBy {
     Person,
 }
 
+/// How a teammate's face is drawn, in a window that draws faces at all.
+/// `Photo` is the picture in `avatar`; `Video` is a clip per mood the person
+/// gave it, which needs at least the idle clip and otherwise falls back to the
+/// picture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum LookStyle {
+    Initial,
+    Photo,
+    Video,
+}
+
+/// What an animated face shows. The window works the mood out from the
+/// session and the person's attention; the desk only keeps a clip per mood.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum Mood {
+    Idle,
+    Sleep,
+    Attentive,
+    Think,
+    Work,
+    Done,
+    Grumpy,
+    CrossedArms,
+    Needy,
+}
+
+/// One mood's video, kept under `avatars/<teammate>/<hash>.<ext>` beside the
+/// picture and, like it, never rewritten.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct Clip {
+    pub hash: String,
+    /// `video/mp4` or `video/webm`.
+    pub mime_type: String,
+}
+
+/// How a teammate looks, beyond its picture. Only the person sets it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct Look {
+    pub style: LookStyle,
+    /// The video face's clip per mood; a mood without one falls back.
+    #[serde(default)]
+    pub clips: std::collections::BTreeMap<Mood, Clip>,
+    /// When the look last changed, as an ISO timestamp.
+    pub updated_at: String,
+}
+
 // ---------------------------------------------------------------------------
 // Teammates
 // ---------------------------------------------------------------------------
@@ -78,6 +132,10 @@ pub struct Persona {
     /// which is read past and dropped the next time the record is written.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub avatar: Option<Avatar>,
+    /// How the teammate's face is drawn. Absent is its picture when it has
+    /// one, else its initial: what every teammate looked like before looks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub look: Option<Look>,
     /// The team this teammate sits on — a label, not an entity. Teams are not
     /// agents and never speak: addressing one round-robins to the next
     /// available member, who routes it onward. Distinct labels ARE the teams;
@@ -3000,6 +3058,38 @@ pub enum Command {
     /// person chose the current picture.
     #[serde(rename = "avatar.generate")]
     AvatarGenerate { persona_id: String },
+    /// The person's own picture for a teammate: `data` is the image, base64,
+    /// in any format the desk decodes. It is squared like a teammate's own
+    /// and marked the person's, so the teammate leaves it alone.
+    #[serde(rename = "avatar.set")]
+    AvatarSet { persona_id: String, data: String },
+    /// How a teammate's face is drawn.
+    #[serde(rename = "look.set")]
+    LookSet {
+        persona_id: String,
+        style: LookStyle,
+    },
+    /// One mood's clip for a teammate's video face, base64.
+    #[serde(rename = "look.clip_set")]
+    LookClipSet {
+        persona_id: String,
+        mood: Mood,
+        mime_type: String,
+        data: String,
+    },
+    /// Removes one mood's clip.
+    #[serde(rename = "look.clip_clear")]
+    LookClipClear { persona_id: String, mood: Mood },
+    /// A kept clip, by the hash on the teammate's look, a part at a time
+    /// from `offset`, as `avatar.read` answers a picture. Any seat may read
+    /// one: a clip is no more private than the picture it moves.
+    #[serde(rename = "look.clip_read")]
+    LookClipRead {
+        persona_id: String,
+        hash: String,
+        #[serde(default)]
+        offset: i64,
+    },
     /// Where to notify this phone: the token its push service issued, and
     /// which platform it is for. Sent by the phone after it connects.
     #[serde(rename = "mobile.push_register")]

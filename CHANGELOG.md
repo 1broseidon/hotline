@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-10-09
+
 ### Added
 
 - The desk's own speech models listen for names. Parakeet hears your
@@ -27,6 +29,9 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ### Fixed
 
+- A Claude Code teammate that has answered while only its subagents are
+  still working no longer shows as Working: the step that launched a
+  subagent is known as one, as Hotline Agent's already was.
 - Dictation heard by the desk's model brings the microphone down to 16 kHz
   in one piece, as a call does, instead of a block at a time, which dropped
   a little of every block.
@@ -54,12 +59,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   two answers never show, not even in a typed reply later from Claude Code
   or Codex, which remember being asked for them: the chat, side threads,
   subagent runs and phone notifications show the written answer.
-- While a teammate works on what you asked, the call stays on its
+- In the desktop app, while a teammate works on what you asked, the call stays on its
   blip-blip until it is done, and keeps listening: just speak, with no tap
   needed, and what you say goes into the work it already has open.
   Speaking stops what it is saying. The call never hears its own voice or
   blip-blip as you, and what it starts to say while you are talking waits
   until you finish, and is dropped if you said something.
+- Settings › Providers › Transcription lists the desk's own models under
+  one title, Free and private local models, by name and size, with their
+  credits behind a button, and Use for drops its subscriptions hint.
 - The Call assistant in Settings › Providers › Use for answers calls to the
   desk, and says so. On a call to a teammate it only says again a reply the
   teammate wrote to be read, metered on the Chat budget as its call

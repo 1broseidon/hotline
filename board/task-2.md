@@ -9,9 +9,11 @@ tags:
   - macos
   - computer
   - cookies
+  - 0.36.1
 relatedFiles:
   - crates/hotline-core/src/computer/cookies.rs
 createdAt: "2026-10-11T20:47:12.297Z"
+updatedAt: "2026-10-11T21:24:48.421Z"
 ---
 
 ## Description

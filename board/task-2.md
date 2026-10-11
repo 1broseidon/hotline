@@ -27,3 +27,6 @@ Fix:
 - Cover more macOS browsers: Arc, Vivaldi, Chrome Beta/Canary, Edge Beta/Dev/Canary, Chromium, Helium/Dia. Safari (binarycookies in a sandboxed container) is a separate decision.
 
 Done when: on a clean Mac with Brave or Chrome, the import lists the profiles or says exactly which permission to grant.
+
+## Log
+- 2026-10-11T22:00:59.155Z: [claude] Fixed on release/0.36.1 (54f70eb): detect() lists a refused browser as blocked (HostBrowser.blocked), the picker names it and opens Full Disk Access; macOS Firefox root fixed; Chrome Beta/Dev/Canary, Chromium, Edge previews, Arc, Vivaldi, ~/Applications added. Verified on this Mac: Brave now shows as blocked instead of missing.

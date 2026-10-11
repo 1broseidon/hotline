@@ -21,3 +21,6 @@ Opening a handoff from the handing teammate's conversation (The Dude → Pork Ch
 Cause: ui/src/components/Dock.tsx:510 (HandoffBar) and the thread page use the dock's `teammate` (whose conversation is open) as the receiver. Opened from the opener's side, dock teammate == opener. The receiver should come from the thread itself (its owner), not the dock; same for the speaker labels on the thread's lines.
 
 Done when: from either side the bar reads "<opener> handed this to <receiver>", both faces are right, and lines are labelled by who said them.
+
+## Log
+- 2026-10-11T22:00:58.865Z: [claude] Fixed on release/0.36.1 (9c22505): the thread page and bar use the thread's own teammate (threadOwnerId), and the opener's list says 'to <receiver>'. Tests in ui/tests/dock.test.ts.

@@ -8,6 +8,19 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Fixed
+
+- A handoff opened from the threads of the teammate who handed it over names
+  the teammate doing the work: the bar reads "The Dude handed this to Pork
+  Chop", the reply is labelled Pork Chop, and the row in the list says "to
+  Pork Chop" rather than "from The Dude".
+- Bringing cookies over on a Mac no longer says no browser was found when
+  macOS is keeping Hotline out of the browser's data. The picker names the
+  browsers it can't read and opens Privacy & Security › Full Disk Access,
+  where Hotline can be allowed. It also finds Firefox, which it looked for in
+  the wrong folder on a Mac, and Chrome Beta, Dev and Canary, Chromium, the
+  Edge previews, Arc and Vivaldi, including apps installed in ~/Applications.
+
 ## [0.36.0] - 2026-10-09
 
 ### Added

@@ -13,7 +13,7 @@ description: |-
 
   docs/threads.md § One lifecycle, § Typed links, phase 4.
 
-  ***
+  ---
 
   ## Status at 0.36 (backlog review)
 
@@ -30,5 +30,5 @@ description: |-
   ## Status (2026-10-11 review)
 
   The rest of the Threads epic shipped in 0.32.0; this card holds the leftovers (already in the description).
-updatedAt: "2026-10-11T21:05:59.286Z"
+updatedAt: "2026-10-11T21:20:25.770Z"
 ---

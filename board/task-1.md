@@ -8,9 +8,11 @@ tags:
   - bug
   - ui
   - threads
+  - 0.36.1
 relatedFiles:
   - ui/src/components/Dock.tsx
 createdAt: "2026-10-11T20:47:12.018Z"
+updatedAt: "2026-10-11T21:24:48.127Z"
 ---
 
 ## Description

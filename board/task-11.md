@@ -30,7 +30,7 @@ description: |-
 
   **Done when:** both pickers work in the desktop and phone composers with keyboard and touch; mentions resolve to teammate ids end to end; ACP agent commands appear; CHANGELOG entry under 0.37.
 
-  ***
+  ---
 
   ## Original spec (2026-09-26)
 
@@ -67,5 +67,5 @@ description: |-
   ## Status (2026-10-11 review)
 
   Target 0.37 (already in the description).
-updatedAt: "2026-10-11T21:05:22.445Z"
+updatedAt: "2026-10-11T21:20:16.953Z"
 ---

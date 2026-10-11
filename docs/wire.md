@@ -636,7 +636,7 @@ by hash for good. A teammate sets its own with the `set_avatar` tool;
 field. Neither restarts the session.
 
 A teammate's `look` is `{style, clips, updatedAt}`, and is absent for
-a teammate drawn as before looks: its picture, else its initial. `clips` maps
+a teammate drawn as before: its picture, else its initial. `clips` maps
 a mood (`idle`, `sleep`, `attentive`, `think`, `work`, `done`, `grumpy`,
 `crossed-arms`, `needy`) to `{hash, mimeType}`, kept under
 `avatars/<teammate>/<hash>.mp4` or `.webm` and never rewritten. A video face

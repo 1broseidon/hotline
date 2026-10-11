@@ -22,7 +22,7 @@ description: |-
 
   From the 0.33.4 responsiveness audit.
 
-  ***
+  ---
 
   ## Merged in from BRO-237: roster rows from memory instead of tape tails
 
@@ -45,5 +45,5 @@ description: |-
   Still true at 0.36 (backlog review): `Log::load` reads and folds the whole file; previews still use the 64 KB → 1 MB → 8 MB reach; `vault.rs:366` still reads secrets per call; one global writer.
 
   Migrated from Linear BRO-235: https://linear.app/1broseidon/issue/BRO-235/core-io-in-memory-fold-cache-roster-rows-from-memory-cheap-list-calls (2026-10-11).
-updatedAt: "2026-10-11T21:05:29.924Z"
+updatedAt: "2026-10-11T21:20:20.431Z"
 ---

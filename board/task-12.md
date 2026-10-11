@@ -16,7 +16,7 @@ description: |-
 
   Backend work for 0.30. Follow-up from BRO-153 (hotline-mobile #35).
 
-  ***
+  ---
 
   ## Merged in from BRO-116 (owner phone takes an empty headless room to a first turn)
 
@@ -31,5 +31,5 @@ description: |-
   ## Status (2026-10-11 review)
 
   Also covers the hello fields and honest backends.list (merged from BRO-116). Its parent epic BRO-166 lives on the hotline-mobile board.
-updatedAt: "2026-10-11T21:05:23.455Z"
+updatedAt: "2026-10-11T21:20:17.711Z"
 ---

@@ -52,7 +52,7 @@ description: |-
   * The thread shows on both desks.
   * Unlinking grizzly makes Lou disappear from Clementine's `list_teammates`, and a message to Lou fails with a plain sentence.
 
-  ***
+  ---
 
   ## Merged in from BRO-211 (Relay 5: desktops and server agents collaborate across systems)
 
@@ -67,5 +67,5 @@ description: |-
   Backlog review 2026-10-11: still unbuilt (`PersonaNode` never set, no `Seat::Link`, no ADR 0003). BRO-178 (unified list) stays as the client-only first slice.
 
   Migrated from Linear BRO-177: https://linear.app/1broseidon/issue/BRO-177/linked-desks-teammates-on-different-desks-collaborate-as-if-they (2026-10-11).
-updatedAt: "2026-10-11T21:05:11.152Z"
+updatedAt: "2026-10-11T21:20:15.716Z"
 ---

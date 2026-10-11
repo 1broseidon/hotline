@@ -1,8 +1,6 @@
 ---
 id: task-11
 title: "Composer: @ autocompletes teammates, and / commands work anywhere in a message (desktop and mobile)"
-column: todo
-position: 13
 priority: high
 tags:
   - hotline-mobile
@@ -68,5 +66,6 @@ description: |-
   ## Status (2026-10-11 review)
 
   Target 0.37 (already in the description).
-updatedAt: "2026-10-11T21:24:53.016Z"
+updatedAt: "2026-10-11T21:25:44.115Z"
+completedAt: "2026-10-11T21:25:44.115Z"
 ---

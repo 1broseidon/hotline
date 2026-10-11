@@ -15,7 +15,7 @@ description: |-
 
   Fix: in `ThreadStore.apply` for words, compute the visible projection and notify only when it changes; stable `ts`; memoize blocks/sides/underway; memoize stepRuns and gate the follow effect; split Conversation so the band doesn't re-render with the body; solid background for `.work-float` while working.
 
-  ***
+  ---
 
   ## Merged in from BRO-242: progressive render and virtualization for long conversations
 
@@ -35,5 +35,5 @@ description: |-
   Fix: module-level caches for the room-wide ones, invalidated by `useModelsRevision`; refetch only per-persona computer status. Also replace `:has()` selectors on bubbles (`index.css` \~2671, \~2281) with a data attribute and a parent class.
 
   Migrated from Linear BRO-241: https://linear.app/1broseidon/issue/BRO-241/window-performance-streaming-re-renders-progressive-render-and (2026-10-11).
-updatedAt: "2026-10-11T21:05:32.408Z"
+updatedAt: "2026-10-11T21:20:21.910Z"
 ---

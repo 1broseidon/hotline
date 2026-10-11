@@ -101,4 +101,8 @@
 @keyframes reach { from { opacity:0; transform:translateY(40px) rotate(10deg); } to { opacity:1; transform:translateY(0) rotate(0); } }
 @keyframes wave { 0%,100% { transform:rotate(0); } 30% { transform:rotate(-7deg) translateY(-3px); } 60% { transform:rotate(3deg); } }
 
+/* Still: the mood's pose, nothing moving, for a face no one is watching move. */
+[data-still] * { animation:none !important; }
+[data-still][data-mood="sleep"] [data-part~="zzz"] > * { opacity:1; }
+
 @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }

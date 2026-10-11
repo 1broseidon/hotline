@@ -39,14 +39,19 @@ describe("a drawing's picture of a mood", () => {
 	const drawing = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><g data-part="head"/></svg>';
 
 	test("carries the rig and names its mood on the root", () => {
-		const picture = moodPicture(drawing, "needy", "[data-mood] {}", parser, serializer) ?? "";
+		const picture = moodPicture(drawing, "needy", false, "[data-mood] {}", parser, serializer) ?? "";
 		expect(picture).toContain('data-mood="needy"');
 		expect(picture).toContain("[data-mood] {}");
 		expect(picture).toContain('data-part="head"');
 	});
 
+	test("marks a still picture, and only a still one", () => {
+		expect(moodPicture(drawing, "sleep", true, "", parser, serializer)).toContain("data-still");
+		expect(moodPicture(drawing, "sleep", false, "", parser, serializer)).not.toContain("data-still");
+	});
+
 	test("is nothing for what is not an SVG", () => {
-		expect(moodPicture("<html><body/></html>", "idle", "", parser, serializer)).toBeNull();
-		expect(moodPicture("<svg", "idle", "", parser, serializer)).toBeNull();
+		expect(moodPicture("<html><body/></html>", "idle", false, "", parser, serializer)).toBeNull();
+		expect(moodPicture("<svg", "idle", false, "", parser, serializer)).toBeNull();
 	});
 });

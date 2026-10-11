@@ -723,3 +723,8 @@ them, and the eyes cannot follow the caret, which would take script reaching
 into the drawing. The desk still turns away a drawing with scripts, pages or
 entities, so the file it keeps is one no other reader need fear either.
 
+A moving face costs power, and a teammate's face shows in the rail, the header
+and above the conversation at once. Only the big face and the activity mark
+move; the small copies hold their mood's pose. Every face, video or drawn,
+holds still while the window is in the background, where no one sees it move.
+

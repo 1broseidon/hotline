@@ -46,6 +46,8 @@ Name a part with `data-part`. A space-separated list names several, as
 ## The moods
 
 The window works out the mood itself; the drawing does not need to know it.
+Small copies of a face, and every face while the window is in the
+background, show the mood's pose without moving.
 
 | Mood | When | What the rig does |
 |---|---|---|

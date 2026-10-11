@@ -37,7 +37,7 @@ export function Avatar({
 	const url = usePicture(id, look === null ? hash : undefined, read);
 	const face = moving !== undefined ? (
 		<span aria-hidden="true" className="avatar avatar-face" style={{ width: size, height: size }}>
-			<MoodFace id={id} face={moving} />
+			<MoodFace id={id} face={moving} still={size < MOVES_FROM} />
 		</span>
 	) : (
 		<span
@@ -62,8 +62,15 @@ export function Avatar({
 	);
 }
 
-function MoodFace({ id, face }: { id: string; face: Moving }) {
-	return <MovingFace personaId={id} face={face} mood={useHeldMood(useMood(id))} />;
+/**
+ * The smallest face that moves. A teammate's face shows in the rail and the
+ * header as well as above the conversation; only the big one moves, and the
+ * small ones hold its mood's pose, so one face is animating, not three.
+ */
+const MOVES_FROM = 64;
+
+function MoodFace({ id, face, still }: { id: string; face: Moving; still: boolean }) {
+	return <MovingFace personaId={id} face={face} mood={useHeldMood(useMood(id))} still={still} />;
 }
 
 /** The picture's URL once it has arrived; undefined before, and if it cannot be read. */

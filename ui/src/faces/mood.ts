@@ -95,6 +95,16 @@ function back() {
 	changed();
 }
 
+/**
+ * Whether the window is in front. A face in a window in the background
+ * stands still, since no one is watching it move and moving costs power.
+ */
+export function useWindowFocused(): boolean {
+	useEffect(watchFocus, []);
+	useSyncExternalStore(subscribe, () => version, () => version);
+	return focused;
+}
+
 /** Back in front: he stays asleep this long, then wakes and looks at you this long. */
 const WAKING_AFTER = 1000;
 const WOKEN_FOR = 1800;

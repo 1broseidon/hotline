@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-10-11
+
 ### Fixed
 
 - A handoff opened from the threads of the teammate who handed it over names

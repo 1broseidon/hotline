@@ -1,6 +1,6 @@
 ---
 schema: https://brainfile.md/v2/board.json
-title: My Project
+title: Hotline
 agent:
   instructions:
     - Task files are individual .md files in board/
@@ -14,8 +14,8 @@ columns:
     title: In Progress
 ---
 
-# My Project
+# Hotline
 
-Add your project description here.
+The Hotline desk: the Rust core, the Tauri window, the CLI and the served desk. Phone work lives on the hotline-mobile board.
 
 > Note: Completing a task moves it to `logs/` via `brainfile complete`.

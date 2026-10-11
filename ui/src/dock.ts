@@ -146,14 +146,20 @@ export function withLinks(list: ThreadSummary[], links: LinkEvent[], personaId: 
 /** The kinds a row names, when its title would not: a pair has none, and a run or call is not work. */
 const KIND_WORDS: Record<ThreadKind, string> = { dm: "", side: "", pair: "Pair", run: "Subagent", call: "Call" };
 
-/** Whose hands a thread came from, when a teammate other than its own opened it: "from Mack". */
-export function openerWords(row: ThreadSummary): string {
-	return row.opener !== undefined && row.opener.personaId !== row.personaId ? `from ${row.opener.name}` : "";
+/**
+ * Whose hands a thread came from, when a teammate other than its own opened
+ * it: "from Mack". In the pane of the teammate who handed it over, it says
+ * whose hands it went to instead: "to Poe".
+ */
+export function openerWords(row: ThreadSummary, listedFor: string, nameOf: (personaId: string) => string | undefined): string {
+	if (row.opener === undefined || row.opener.personaId === row.personaId) return "";
+	if (row.opener.personaId === listedFor) return `to ${nameOf(row.personaId) ?? "a teammate"}`;
+	return `from ${row.opener.name}`;
 }
 
-/** The line a row opens with: whose it came from, and what kind it is when that is not obvious. */
-export function rowOpener(row: ThreadSummary): string {
-	return [KIND_WORDS[row.thread.kind], openerWords(row)].filter((part) => part !== "").join(" · ");
+/** The line a row opens with: whose hands it passed through, and what kind it is when that is not obvious. */
+export function rowOpener(row: ThreadSummary, listedFor: string, nameOf: (personaId: string) => string | undefined): string {
+	return [KIND_WORDS[row.thread.kind], openerWords(row, listedFor, nameOf)].filter((part) => part !== "").join(" · ");
 }
 
 /** The other teammate in a pair: its key is the two ids, joined. */
@@ -194,6 +200,16 @@ export function powersOf(kind: ThreadKind, state: LinkState, handedOver = false)
 	if (kind !== "side") return READ;
 	if (handedOver) return { ...READ, stop: state !== "closed" };
 	return state === "closed" ? { ...READ, resume: true } : { ...READ, say: true, close: true };
+}
+
+/**
+ * Whose agent a thread is: the teammate whose pane lists it, except that a
+ * handoff is listed in the pane of the teammate who handed it over too, and
+ * there it is still the receiver's. A pair is both teammates', read from the
+ * side of the pane it is open in.
+ */
+export function threadOwnerId(row: ThreadSummary | undefined, listedFor: string): string {
+	return row === undefined || row.thread.kind === "pair" ? listedFor : row.personaId;
 }
 
 /** The teammate who handed a work thread over, when one did rather than the person. */

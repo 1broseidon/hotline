@@ -21,6 +21,7 @@ import {
 	rowTitle,
 	type ThreadDot,
 	threadDot,
+	threadOwnerId,
 	withLinks,
 } from "../dock";
 import { type Person, usePeople } from "../avatars";
@@ -238,7 +239,7 @@ function ThreadList({
 		const title = rowTitle(one, teammate?.id ?? "", nameOf);
 		const said = one.state === "closed" ? (one.outcome ?? one.preview ?? "") : (one.preview ?? "");
 		// A teammate's handoff sits among the thread's own work, marked by who it came from.
-		const from = rowOpener(one);
+		const from = rowOpener(one, teammate?.id ?? "", nameOf);
 		const line = from === "" ? said : said === "" ? from : `${from} · ${said}`;
 		return (
 			<button
@@ -359,14 +360,17 @@ function ThreadView({
 	const state = row?.state ?? "live";
 	// A teammate's handoff is the two teammates' work, read along and steered through whoever handed it over.
 	const opener = openerOf(row);
+	// Opened from the pane of whoever handed it over, a handoff is still the receiver's: its lines and its bar name them.
+	const ownerId = threadOwnerId(row, teammate.id);
+	const self = ownerId === teammate.id ? teammate : { id: ownerId, name: nameOf(ownerId) ?? "a teammate", avatarHash: people.get(ownerId)?.hash };
 	const powers = powersOf(id.kind, state, opener !== undefined);
 	const closed = state === "closed";
 	const parked = state === "parked";
 	const turning = (working || row?.working === true) && !closed;
-	const other = id.kind === "pair" ? pairWith(id.key, teammate.id) : undefined;
+	const other = id.kind === "pair" ? pairWith(id.key, self.id) : undefined;
 	const withName = open.withName ?? (other === undefined ? undefined : nameOf(other)) ?? "a teammate";
-	const title = row !== undefined ? rowTitle(row, teammate.id, nameOf) : (id.kind === "side" ? sideTitle(open.title) : (open.title ?? (id.kind === "pair" ? `With ${withName}` : "Thread")));
-	const from = row === undefined ? "" : openerWords(row);
+	const title = row !== undefined ? rowTitle(row, self.id, nameOf) : (id.kind === "side" ? sideTitle(open.title) : (open.title ?? (id.kind === "pair" ? `With ${withName}` : "Thread")));
+	const from = row === undefined ? "" : openerWords(row, teammate.id, nameOf);
 	// The link is the thread's own line in the conversation that holds it; here the thread is the page.
 	const lines = useMemo(() => events.filter((event) => event.kind !== "link"), [events]);
 	const [refused, setRefused] = useState<string | null>(null);
@@ -397,15 +401,15 @@ function ThreadView({
 	// A pair's chair is whichever of the key's two ids this teammate is: theirs sit on the right. In a handoff, this teammate's.
 	const speakers =
 		id.kind === "pair"
-			? { me: teammate.name, them: withName, mine: (id.key.split("~")[0] === teammate.id ? "user" : "agent") as "user" | "agent" }
+			? { me: self.name, them: withName, mine: (id.key.split("~")[0] === self.id ? "user" : "agent") as "user" | "agent" }
 			: opener !== undefined
-				? { me: teammate.name, them: opener.name, mine: "agent" as const }
+				? { me: self.name, them: opener.name, mine: "agent" as const }
 				: undefined;
 	// What a handoff asks the person, the oldest first: the one thing they say in it.
 	const asked = opener === undefined ? undefined : lines.find((event): event is Extract<typeof event, { kind: "human_action" }> => event.kind === "human_action" && event.status === "pending");
 
 	return (
-		<div ref={root} className="dock-page" role="region" aria-label={`Thread with ${teammate.name}: ${title}`}>
+		<div ref={root} className="dock-page" role="region" aria-label={`Thread with ${self.name}: ${title}`}>
 			<Band>
 				<button type="button" className="control btn-icon -ml-1" title="Back to threads" aria-label="Back to threads" onClick={onBack}>
 					<ArrowLeftIcon />
@@ -438,10 +442,10 @@ function ThreadView({
 			<div className="relative flex min-h-0 flex-1 flex-col">
 				<Transcript
 					key={`${id.kind}:${id.key}`}
-					personaId={teammate.id}
+					personaId={self.id}
 					thread={id}
-					name={teammate.name}
-					avatarHash={teammate.avatarHash}
+					name={self.name}
+					avatarHash={self.avatarHash}
 					people={people}
 					events={lines}
 					streaming={streaming}
@@ -456,9 +460,9 @@ function ThreadView({
 			{refused !== null && <p className="dock-note selectable" style={{ color: "var(--warn)" }}>{refused}</p>}
 			{opener !== undefined ? (
 				asked !== undefined ? (
-					<AnswerField thread={id} name={teammate.name} actionId={asked.actionId} onRefused={refuse} />
+					<AnswerField thread={id} name={self.name} actionId={asked.actionId} onRefused={refuse} />
 				) : (
-					<HandoffBar opener={opener} teammate={teammate} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />
+					<HandoffBar opener={opener} teammate={self} people={people} onTalk={() => onOpenTeammate(opener.personaId)} />
 				)
 			) : powers.say ? (
 				<>
@@ -470,7 +474,7 @@ function ThreadView({
 					<Composer
 						embedded
 						personaId={`${id.kind}:${id.key}`}
-						name={teammate.name}
+						name={self.name}
 						state={turning ? "thinking" : "ready"}
 						replyQuote={null}
 						onSend={send}

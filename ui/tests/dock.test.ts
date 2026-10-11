@@ -21,6 +21,7 @@ import {
 	rowTitle,
 	saveDockWidth,
 	threadDot,
+	threadOwnerId,
 	withLinks,
 } from "../src/dock";
 
@@ -143,13 +144,21 @@ describe("the list of threads", () => {
 	});
 
 	test("says whose hands a handoff came from, and the kind of what is not work", () => {
+		const names = (id: string) => ({ p: "Poe", mack: "Mack" })[id];
 		const handed = thread("h", "side", { opener: { personaId: "mack", name: "Mack" } });
-		expect(openerWords(handed)).toBe("from Mack");
-		expect(rowOpener(handed)).toBe("from Mack");
-		expect(openerWords(thread("m", "side", { opener: { personaId: "p", name: "Ada" } }))).toBe("");
-		expect(rowOpener(thread("r", "run"))).toBe("Subagent");
-		expect(rowOpener(thread("c", "call"))).toBe("Call");
-		expect(rowOpener(thread("s"))).toBe("");
+		expect(openerWords(handed, "p", names)).toBe("from Mack");
+		expect(rowOpener(handed, "p", names)).toBe("from Mack");
+		expect(openerWords(thread("m", "side", { opener: { personaId: "p", name: "Ada" } }), "p", names)).toBe("");
+		expect(rowOpener(thread("r", "run"), "p", names)).toBe("Subagent");
+		expect(rowOpener(thread("c", "call"), "p", names)).toBe("Call");
+		expect(rowOpener(thread("s"), "p", names)).toBe("");
+	});
+
+	test("says whose hands a handoff went to, in the pane of the teammate who handed it over", () => {
+		const names = (id: string) => ({ p: "Poe", mack: "Mack" })[id];
+		const handed = thread("h", "side", { opener: { personaId: "mack", name: "Mack" } });
+		expect(openerWords(handed, "mack", names)).toBe("to Poe");
+		expect(rowOpener(handed, "mack", () => undefined)).toBe("to a teammate");
 	});
 });
 
@@ -220,6 +229,14 @@ describe("what a person can do in a thread", () => {
 		expect(powersOf("side", "live", true)).toEqual({ ...read, stop: true });
 		expect(powersOf("side", "parked", true)).toEqual({ ...read, stop: true });
 		expect(powersOf("side", "closed", true)).toEqual(read);
+	});
+
+	test("belongs to its own teammate, even listed in the pane of the one who handed it over", () => {
+		const handed = thread("h", "side", { personaId: "poe", opener: { personaId: "mack", name: "Mack" } });
+		expect(threadOwnerId(handed, "mack")).toBe("poe");
+		expect(threadOwnerId(handed, "poe")).toBe("poe");
+		expect(threadOwnerId(thread("ada~mack", "pair", { personaId: "ada" }), "mack")).toBe("mack");
+		expect(threadOwnerId(undefined, "mack")).toBe("mack");
 	});
 
 	test("knows a handoff by a teammate opener other than its own teammate", () => {

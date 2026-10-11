@@ -173,7 +173,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `computer.status` | `{personaId}` | `{state, url?, viewer?}` — a peek, never a wake |
 | `computer.stop` | `{personaId}` | none |
 | `computer.remove` | `{personaId}` | none |
-| `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}]}]` — the host browsers cookies could come from; names only |
+| `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}], blocked}]` — the host browsers cookies could come from; names only. `blocked` marks one that is installed but whose data the host refuses the desk (macOS without Full Disk Access), listed with no profiles so the window can say what to allow |
 | `computer.cookies.preview` | `{browserId, profileId}` | `[{domain, cookies}]` — the sites in that profile and their counts, never a value |
 | `computer.cookies.import` | `{personaId, browserId, profileId, domains}` | `[{domain, cookies}]` — the sites actually imported |
 | `computer.cookies.list` | `{personaId}` | `CookieImport[]` `{browserId, browserName, profileId, profileName, importedAt, sites: [{domain, cookies}]}` — what was brought over to that teammate's computer, by browser and profile; names and counts, never a value |

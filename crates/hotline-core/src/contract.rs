@@ -556,6 +556,12 @@ pub struct HostBrowser {
     /// does not branch on it; it is there for the preview copy.
     pub family: String,
     pub profiles: Vec<BrowserProfile>,
+    /// The browser is installed and has a profile folder, but the host
+    /// refused to let the desk read it (macOS keeps other apps' data from an
+    /// app without Full Disk Access). It is listed with no profiles so the
+    /// window can say what to allow, rather than leaving it out as if absent.
+    #[serde(default)]
+    pub blocked: bool,
 }
 
 /// One profile within a host browser. Only profiles that have a cookie store

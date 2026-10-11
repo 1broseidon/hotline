@@ -3,6 +3,8 @@ import type { CookieImport as CookieImportRecord, CookieSite, HostBrowser } from
 import { invoke } from "@tauri-apps/api/core";
 import { activeDeskId } from "../desks";
 import { CloseIcon } from "../icons";
+import { namesSaid } from "../links";
+import { openLink } from "../native";
 import { onServer } from "../serverFiles";
 import { wire } from "../wire";
 
@@ -11,6 +13,11 @@ const NESTED = "group-row pl-7";
 function reason(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
+
+/** System Settings › Privacy & Security › Full Disk Access, where macOS lets an app read other apps' data. */
+const FULL_DISK_ACCESS = "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
+
+const onMac = () => /Mac/.test(navigator.platform);
 
 /**
  * The operator's cookie picker: choose a browser on this machine, tick the
@@ -53,7 +60,7 @@ export function CookieImport({
 			.then((list) => {
 				if (gone) return;
 				setBrowsers(list);
-				const first = list[0];
+				const first = list.find((entry) => !entry.blocked);
 				if (first) {
 					setBrowserId(first.id);
 					setProfileId(first.profiles[0]?.id ?? "");
@@ -66,6 +73,9 @@ export function CookieImport({
 	}, []);
 
 	const browser = browsers?.find((entry) => entry.id === browserId);
+	// A browser the host will not let the desk read is said apart, with what to allow; it has nothing to pick.
+	const readable = useMemo(() => (browsers ?? []).filter((entry) => !entry.blocked), [browsers]);
+	const blocked = useMemo(() => (browsers ?? []).filter((entry) => entry.blocked).map((entry) => entry.name), [browsers]);
 
 	// The sites in the chosen profile, re-read whenever the choice changes.
 	// Names and counts only; no value is ever requested.
@@ -166,7 +176,22 @@ export function CookieImport({
 				</span>
 			)}
 
-			{browsers !== null && browsers.length > 0 && (
+			{blocked.length > 0 && (
+				<div className="flex flex-col items-start gap-2">
+					<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+						{onMac()
+							? `macOS is keeping Hotline out of ${namesSaid(blocked)}. To bring their sign-ins over, turn on Hotline in Privacy & Security › Full Disk Access, then quit and reopen Hotline.`
+							: `This computer does not let Hotline read ${namesSaid(blocked)}'s data.`}
+					</span>
+					{onMac() && (
+						<button type="button" className="control btn-quiet btn-sm" onClick={() => void openLink(FULL_DISK_ACCESS)}>
+							Open Full Disk Access
+						</button>
+					)}
+				</div>
+			)}
+
+			{readable.length > 0 && (
 				<>
 					<div className="flex gap-2">
 						<select
@@ -174,12 +199,12 @@ export function CookieImport({
 							aria-label="Browser"
 							value={browserId}
 							onChange={(event) => {
-								const next = browsers.find((entry) => entry.id === event.target.value);
+								const next = readable.find((entry) => entry.id === event.target.value);
 								setBrowserId(event.target.value);
 								setProfileId(next?.profiles[0]?.id ?? "");
 							}}
 						>
-							{browsers.map((entry) => (
+							{readable.map((entry) => (
 								<option key={entry.id} value={entry.id}>
 									{entry.name}
 								</option>

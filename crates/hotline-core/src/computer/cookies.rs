@@ -185,39 +185,100 @@ fn candidates() -> Vec<Candidate> {
     #[cfg(target_os = "macos")]
     {
         let support = home.join("Library/Application Support");
-        let app = |bin: &str| PathBuf::from(format!("/Applications/{bin}"));
+        // An app is in /Applications, or in ~/Applications when installed
+        // for this user only.
+        let app = |bin: &str| {
+            let system = format!("/Applications/{bin}");
+            let user = home.join("Applications").join(bin);
+            resolve_binary(&[system.as_str(), user.to_str().unwrap_or_default()])
+        };
         let chromium = |id, name, sub: &str, bin: &str| Candidate {
             id,
             name,
             family: Family::Chromium,
-            binaries: resolve_binary(&[app(bin).to_str().unwrap_or_default()]),
+            binaries: app(bin),
             root: support.join(sub),
             confinement: Confinement::Native,
         };
-        out.push(chromium(
-            "chrome",
-            "Google Chrome",
-            "Google/Chrome",
-            "Google Chrome.app/Contents/MacOS/Google Chrome",
-        ));
-        out.push(chromium(
-            "brave",
-            "Brave",
-            "BraveSoftware/Brave-Browser",
-            "Brave Browser.app/Contents/MacOS/Brave Browser",
-        ));
-        out.push(chromium(
-            "edge",
-            "Microsoft Edge",
-            "Microsoft Edge",
-            "Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-        ));
+        for (id, name, sub, bin) in [
+            (
+                "chrome",
+                "Google Chrome",
+                "Google/Chrome",
+                "Google Chrome.app/Contents/MacOS/Google Chrome",
+            ),
+            (
+                "chrome-beta",
+                "Google Chrome Beta",
+                "Google/Chrome Beta",
+                "Google Chrome Beta.app/Contents/MacOS/Google Chrome Beta",
+            ),
+            (
+                "chrome-dev",
+                "Google Chrome Dev",
+                "Google/Chrome Dev",
+                "Google Chrome Dev.app/Contents/MacOS/Google Chrome Dev",
+            ),
+            (
+                "chrome-canary",
+                "Google Chrome Canary",
+                "Google/Chrome Canary",
+                "Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+            ),
+            (
+                "chromium",
+                "Chromium",
+                "Chromium",
+                "Chromium.app/Contents/MacOS/Chromium",
+            ),
+            (
+                "brave",
+                "Brave",
+                "BraveSoftware/Brave-Browser",
+                "Brave Browser.app/Contents/MacOS/Brave Browser",
+            ),
+            (
+                "edge",
+                "Microsoft Edge",
+                "Microsoft Edge",
+                "Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            ),
+            (
+                "edge-beta",
+                "Microsoft Edge Beta",
+                "Microsoft Edge Beta",
+                "Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta",
+            ),
+            (
+                "edge-dev",
+                "Microsoft Edge Dev",
+                "Microsoft Edge Dev",
+                "Microsoft Edge Dev.app/Contents/MacOS/Microsoft Edge Dev",
+            ),
+            (
+                "edge-canary",
+                "Microsoft Edge Canary",
+                "Microsoft Edge Canary",
+                "Microsoft Edge Canary.app/Contents/MacOS/Microsoft Edge Canary",
+            ),
+            ("arc", "Arc", "Arc/User Data", "Arc.app/Contents/MacOS/Arc"),
+            (
+                "vivaldi",
+                "Vivaldi",
+                "Vivaldi",
+                "Vivaldi.app/Contents/MacOS/Vivaldi",
+            ),
+        ] {
+            out.push(chromium(id, name, sub, bin));
+        }
+        // profiles.ini sits in the Firefox folder itself; its profiles are
+        // under Profiles/, and the paths it lists say so.
         out.push(Candidate {
             id: "firefox",
             name: "Firefox",
             family: Family::Firefox,
-            binaries: resolve_binary(&["/Applications/Firefox.app/Contents/MacOS/firefox"]),
-            root: support.join("Firefox/Profiles"),
+            binaries: app("Firefox.app/Contents/MacOS/firefox"),
+            root: support.join("Firefox"),
             confinement: Confinement::Native,
         });
     }
@@ -290,6 +351,36 @@ impl Candidate {
 
     fn first_binary(&self) -> Option<&Path> {
         self.binaries.first().map(PathBuf::as_path)
+    }
+
+    /// Whether the host refuses to let us read this browser's data. macOS
+    /// keeps an app out of another app's data without Full Disk Access: the
+    /// folder is there, but listing it or opening a file in it fails with
+    /// "Operation not permitted", which reads as no profiles at all.
+    fn refused(&self) -> bool {
+        let probe = match self.family {
+            Family::Chromium => std::fs::read_dir(&self.root).map(drop),
+            Family::Firefox => std::fs::read(self.root.join("profiles.ini")).map(drop),
+        };
+        matches!(probe, Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied)
+    }
+
+    /// The browser as the operator's picker lists it: with its profiles, or
+    /// marked blocked when the host will not let us look; none when it has no
+    /// profile with cookies, or is not installed.
+    fn listed(&self) -> Option<HostBrowser> {
+        if self.first_binary().is_none() && self.family != Family::Firefox {
+            return None;
+        }
+        let profiles = self.profiles();
+        let blocked = profiles.is_empty() && self.refused();
+        (!profiles.is_empty() || blocked).then(|| HostBrowser {
+            id: self.id.to_owned(),
+            name: self.name.to_owned(),
+            family: self.family.wire().to_owned(),
+            profiles,
+            blocked,
+        })
     }
 }
 
@@ -390,23 +481,10 @@ fn firefox_profiles(root: &Path) -> Vec<BrowserProfile> {
     out
 }
 
-/// The browsers on this host that have at least one profile with cookies.
+/// The browsers on this host that have at least one profile with cookies,
+/// and those the host will not let us look into, so the operator is told why.
 pub fn detect() -> Vec<HostBrowser> {
-    candidates()
-        .into_iter()
-        .filter(|candidate| {
-            candidate.first_binary().is_some() || candidate.family == Family::Firefox
-        })
-        .filter_map(|candidate| {
-            let profiles = candidate.profiles();
-            (!profiles.is_empty()).then(|| HostBrowser {
-                id: candidate.id.to_owned(),
-                name: candidate.name.to_owned(),
-                family: candidate.family.wire().to_owned(),
-                profiles,
-            })
-        })
-        .collect()
+    candidates().iter().filter_map(Candidate::listed).collect()
 }
 
 fn find(browser_id: &str) -> Result<Candidate, String> {
@@ -957,6 +1035,77 @@ mod tests {
         // `.example.com` matches; `sub.example.com` is a different site.
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0]["name"], "a");
+    }
+
+    fn installed(family: Family, root: &Path) -> Candidate {
+        Candidate {
+            id: "test",
+            name: "Test Browser",
+            family,
+            // Any file that exists stands in for the browser's binary.
+            binaries: vec![std::env::current_exe().unwrap()],
+            root: root.to_path_buf(),
+            confinement: Confinement::Native,
+        }
+    }
+
+    #[test]
+    fn a_browser_is_listed_with_its_profiles_and_left_out_without_any() {
+        let dir = tempfile::tempdir().unwrap();
+        let candidate = installed(Family::Chromium, dir.path());
+        assert_eq!(candidate.listed(), None);
+
+        std::fs::create_dir_all(dir.path().join("Default")).unwrap();
+        std::fs::write(dir.path().join("Default").join("Cookies"), b"x").unwrap();
+        let listed = candidate.listed().unwrap();
+        assert_eq!(listed.profiles.len(), 1);
+        assert!(!listed.blocked);
+    }
+
+    /// macOS refuses an app another app's data without Full Disk Access; a
+    /// folder the desk may not list stands in for that here.
+    #[cfg(unix)]
+    #[test]
+    fn a_browser_whose_data_the_host_refuses_is_listed_as_blocked() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Brave-Browser");
+        std::fs::create_dir_all(root.join("Default")).unwrap();
+        std::fs::write(root.join("Default").join("Cookies"), b"x").unwrap();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let refused = std::fs::read_dir(&root).is_err();
+
+        let listed = installed(Family::Chromium, &root).listed();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o755)).unwrap();
+        if !refused {
+            return; // Running as root: nothing is refused, so there is nothing to prove.
+        }
+        let listed = listed.unwrap();
+        assert!(listed.blocked);
+        assert!(listed.profiles.is_empty());
+        assert_eq!(serde_json::to_value(&listed).unwrap()["blocked"], true);
+    }
+
+    #[test]
+    fn firefox_profiles_are_found_from_profiles_ini_in_the_firefox_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(
+            root.join("profiles.ini"),
+            "[Profile0]\nName=default-release\nIsRelative=1\nPath=Profiles/abc.default-release\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("Profiles/abc.default-release")).unwrap();
+        std::fs::write(
+            root.join("Profiles/abc.default-release/cookies.sqlite"),
+            b"x",
+        )
+        .unwrap();
+
+        let listed = installed(Family::Firefox, root).listed().unwrap();
+        assert_eq!(listed.profiles.len(), 1);
+        assert_eq!(listed.profiles[0].id, "Profiles/abc.default-release");
+        assert_eq!(listed.profiles[0].name, "default-release");
     }
 
     /// Proves the shipped path against a real browser on the host: launch it

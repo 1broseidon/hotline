@@ -27,7 +27,14 @@
     "window-state:default",
     "dialog:allow-open",
     "dialog:allow-ask",
-    "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+        }
+      ]
+    },
     "opener:allow-reveal-item-in-dir",
     "opener:allow-default-urls",
     "clipboard-manager:allow-write-text",

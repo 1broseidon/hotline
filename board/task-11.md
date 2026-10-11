@@ -8,6 +8,7 @@ tags:
   - hotline-mobile
   - feature
   - bro-136
+  - 0.37.0
 createdAt: "2026-10-11T21:05:22.161Z"
 description: |-
   **Target: 0.37.** Updated 2026-10-11 from George: add @ teammate autocomplete, and let / commands sit anywhere in the sentence (this replaces "a / later in a message is ordinary text" below).
@@ -67,5 +68,5 @@ description: |-
   ## Status (2026-10-11 review)
 
   Target 0.37 (already in the description).
-updatedAt: "2026-10-11T21:20:16.953Z"
+updatedAt: "2026-10-11T21:24:53.016Z"
 ---

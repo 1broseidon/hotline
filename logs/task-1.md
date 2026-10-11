@@ -1,8 +1,6 @@
 ---
 id: task-1
 title: "Handoff page names the wrong teammate: \"The Dude handed this to The Dude\""
-column: todo
-position: 0
 priority: high
 tags:
   - bug
@@ -12,7 +10,8 @@ tags:
 relatedFiles:
   - ui/src/components/Dock.tsx
 createdAt: "2026-10-11T20:47:12.018Z"
-updatedAt: "2026-10-11T21:24:48.127Z"
+updatedAt: "2026-10-11T22:00:59.434Z"
+completedAt: "2026-10-11T22:00:59.434Z"
 ---
 
 ## Description

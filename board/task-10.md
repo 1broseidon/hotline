@@ -26,3 +26,6 @@ description: |-
   Done: phone schedules cancel/quiet, device list/revoke, computer on/off. Left: `requests.pending` ("Answer this on your desktop" still in Message.tsx ~454), schedule failures as facts, companion 8-subscription cap (wire/mod.rs ~1780).
 updatedAt: "2026-10-12T01:56:58.740Z"
 ---
+
+## Log
+- 2026-10-12T01:56:59.018Z: [claude] Split 2026-10-11: the phone half (answering what's pending instead of 'Answer this on your desktop') moved to the hotline-mobile board as task-28; this card is the desk work it needs: the requests.pending view, schedule failures recorded as facts, and the companion 8-subscription cap (wire/mod.rs ~1780).

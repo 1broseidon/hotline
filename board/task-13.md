@@ -23,3 +23,6 @@ description: |-
   Migrated from Linear BRO-167: https://linear.app/1broseidon/issue/BRO-167/harden-the-public-tunnel-and-served-desk (2026-10-11).
 updatedAt: "2026-10-11T21:20:18.483Z"
 ---
+
+## Log
+- 2026-10-12T01:51:04.940Z: [claude] Won't do (2026-10-11 sort): the only thing left is an HTTP→HTTPS redirect on George's grizzly tunnel hostname; native clients already require HTTPS and Noise protects the session.

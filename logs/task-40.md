@@ -1,8 +1,6 @@
 ---
 id: task-40
 title: "Drawn (2D) teammate faces from an uploaded SVG: the risks, for you to weigh"
-column: todo
-position: 42
 tags:
   - bro-276
 createdAt: "2026-10-11T21:06:03.137Z"
@@ -46,7 +44,8 @@ description: |-
   ## Status (2026-10-11 review)
 
   External PRs hotline#176 and #178 (iggyuga) are open; need a review decision.
-updatedAt: "2026-10-11T21:06:03.424Z"
+updatedAt: "2026-10-12T01:51:41.207Z"
+completedAt: "2026-10-12T01:51:41.207Z"
 ---
 
 ## Log

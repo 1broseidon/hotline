@@ -1,8 +1,8 @@
 ---
 id: task-6
 title: A moved data directory should say so instead of asking for every sign-in again
-column: todo
-position: 8
+column: wont-do
+position: 7
 priority: medium
 tags:
   - bro-20
@@ -25,7 +25,7 @@ description: |-
   Brainfile: toad-next/task-67 · Source file: `.brainfile/board/task-67.md` on the Linux desk (gitignored, local only)
 
   Migrated from Linear BRO-20: https://linear.app/1broseidon/issue/BRO-20/a-moved-data-directory-should-say-so-instead-of-asking-for-every-sign (2026-10-11).
-updatedAt: "2026-10-11T21:05:18.143Z"
+updatedAt: "2026-10-12T01:51:08.755Z"
 ---
 
 ## Log

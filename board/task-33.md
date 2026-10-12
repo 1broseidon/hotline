@@ -1,7 +1,7 @@
 ---
 id: task-33
 title: "Decisions: answer routine permission prompts (allow once, never deny)"
-column: wont-do
+column: backlog
 position: 4
 tags:
   - improvement
@@ -25,7 +25,7 @@ description: |-
   Part of BRO-78's decisions capability.
 
   Migrated from Linear BRO-187: https://linear.app/1broseidon/issue/BRO-187/decisions-answer-routine-permission-prompts-allow-once-never-deny (2026-10-11).
-updatedAt: "2026-10-12T01:51:06.955Z"
+updatedAt: "2026-10-12T20:52:36.429Z"
 ---
 
 ## Log

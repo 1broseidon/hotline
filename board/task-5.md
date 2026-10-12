@@ -1,7 +1,7 @@
 ---
 id: task-5
 title: Sign Windows releases with a trusted publisher identity when demand warrants it
-column: wont-do
+column: backlog
 position: 6
 priority: low
 tags:
@@ -17,7 +17,7 @@ description: |-
   Brainfile: toad-next/task-65 · Source file: `.brainfile/board/task-65.md` on the Linux desk (gitignored, local only)
 
   Migrated from Linear BRO-19: https://linear.app/1broseidon/issue/BRO-19/sign-windows-releases-with-a-trusted-publisher-identity-when-demand (2026-10-11).
-updatedAt: "2026-10-12T01:51:08.146Z"
+updatedAt: "2026-10-12T20:52:36.432Z"
 ---
 
 ## Log

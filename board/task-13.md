@@ -1,7 +1,7 @@
 ---
 id: task-13
 title: Harden the public tunnel and served desk
-column: wont-do
+column: backlog
 position: 1
 priority: high
 tags:
@@ -21,7 +21,7 @@ description: |-
   Backlog review 2026-10-11: BRO-163 and BRO-164 shipped in 0.30.0. The only thing left is BRO-165's edge rule, merged here: the docs and rule file exist (`docs/serve.md` \~182-220, `packaging/cloudflare/grizzly-https-redirect.json`) but the rule isn't deployed — `http://grizzly-tunnel.hotline.dev/foo?x=1` returns 403 `native_clients_only` instead of a 301. **Done when:** the Cloudflare redirect rule is deployed and its rule ID recorded.
 
   Migrated from Linear BRO-167: https://linear.app/1broseidon/issue/BRO-167/harden-the-public-tunnel-and-served-desk (2026-10-11).
-updatedAt: "2026-10-12T01:51:05.228Z"
+updatedAt: "2026-10-12T20:52:36.422Z"
 ---
 
 ## Log

@@ -2,7 +2,7 @@
 id: epic-2
 title: Research Jev alternatives to heuristic agent operations
 type: epic
-column: wont-do
+column: backlog
 position: 2
 tags:
   - improvement
@@ -88,7 +88,7 @@ description: |-
   [TypeSafe documentation index](<https://docs.typesafe.ai/llms.txt>) · [Score primitive](<https://docs.typesafe.ai/primitives/score>) · [Speculative fan-out](<https://docs.typesafe.ai/patterns/fan-out>)
 
   Migrated from Linear BRO-78: https://linear.app/1broseidon/issue/BRO-78/research-jev-alternatives-to-heuristic-agent-operations (2026-10-11).
-updatedAt: "2026-10-12T01:51:05.803Z"
+updatedAt: "2026-10-12T20:52:36.424Z"
 ---
 
 ## Log

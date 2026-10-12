@@ -1,7 +1,7 @@
 ---
 id: task-24
 title: "Phone link: compress frames inside the sealed channel and resume from a cursor"
-column: wont-do
+column: backlog
 position: 9
 priority: medium
 tags:
@@ -20,7 +20,7 @@ description: |-
   ## Status (2026-10-11 review)
 
   Needs a native phone build too.
-updatedAt: "2026-10-12T01:51:09.919Z"
+updatedAt: "2026-10-12T20:52:36.438Z"
 ---
 
 ## Log

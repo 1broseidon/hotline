@@ -22,8 +22,9 @@ description: |-
 
   Migrated from Linear BRO-272: https://linear.app/1broseidon/issue/BRO-272/apple-on-device-transcription-fails-silently-when-speech-recognition (2026-10-11).
 
-  ## Status (2026-10-11 review)
+  ## Source audit 2026-10-11
 
-  Only a start failure is reported today (ui/src/voice/call.ts ~115 NO_TRANSCRIPTION); an open mic that produces nothing and fallback to a desk model are unhandled.
-updatedAt: "2026-10-11T21:06:00.939Z"
+  Corrected the earlier review: call.ts:744 handles native error events and ended(error), and dictation.ts:259 does too. Those reporting paths already exist. What remains is reproducing the signature/TCC case where the mic moves without any transcript or error, showing an actionable refusal/unavailable state, and offering/using an installed desk model without silent paid fallback. Do not treat ordinary silence as a permission failure. An active call's input mode is fixed (voice/mod.rs:659); any fallback from device text to desk audio must explicitly replace/restart the call rather than change its mode in place. Verify native refused/unavailable, emitted runtime errors, silent recognition failure and installed-model recovery for both call and dictation.
+updatedAt: "2026-10-12T04:21:43.087Z"
+priority: high
 ---

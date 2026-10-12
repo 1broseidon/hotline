@@ -52,3 +52,6 @@ description: |-
   Children done: BRO-113, BRO-114, BRO-117, BRO-127, BRO-132, BRO-139, BRO-140, BRO-151, BRO-152 (0.26–0.30). Left: BRO-115, BRO-135. BRO-116's leftovers were merged into BRO-160; BRO-138 was canceled.
 updatedAt: "2026-10-11T21:04:56.188Z"
 ---
+
+## Log
+- 2026-10-12T01:51:03.531Z: [claude] Done: Hotline runs headless and is run from the phone — hotline serve, sealed QR pairing and devices (0.26), owner phone settings (0.29–0.31), relay (0.33). Leftovers: task-10 stays as its own card (pending requests from the phone); task-30 moved to Won't do.

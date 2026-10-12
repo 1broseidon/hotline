@@ -29,3 +29,6 @@ description: |-
 updatedAt: "2026-10-12T01:51:40.357Z"
 priority: medium
 ---
+
+## Log
+- 2026-10-12T01:51:40.634Z: [claude] Merged task-40 (drawn SVG faces: the risks) into this card: #178 builds on #176, so they are one review. Issues #175 and #177 describe them.

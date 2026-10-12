@@ -31,5 +31,15 @@ description: |-
   ## Status (2026-10-11 review)
 
   Also covers the hello fields and honest backends.list (merged from BRO-116). Its parent epic BRO-166 lives on the hotline-mobile board.
-updatedAt: "2026-10-11T21:20:17.711Z"
+updatedAt: "2026-10-12T04:21:53.170Z"
+subtasks:
+  - id: task-12-1
+    title: Mark the requesting device in remote.devices
+    completed: false
+  - id: task-12-2
+    title: Expose desk kind/version and paired role in the owner hello
+    completed: false
+  - id: task-12-3
+    title: Report Hotline Agent unavailable when no provider is connected
+    completed: false
 ---

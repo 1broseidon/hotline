@@ -7,6 +7,8 @@ agent:
     - Completed tasks are in logs/
     - Preserve all IDs
     - Make minimal changes
+related:
+  mobile: ../hotline-mobile
 columns:
   - id: todo
     title: Will do

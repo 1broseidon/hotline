@@ -40,3 +40,4 @@ updatedAt: "2026-10-12T01:51:10.509Z"
 
 ## Log
 - 2026-10-12T01:51:10.201Z: [claude] Won't do (2026-10-11 sort): speculative; teammates already ask plainly, and the composer work (epic-4) is the better investment.
+- 2026-10-12T01:56:59.303Z: [claude] Moved to the hotline-mobile board as task-29 (Won't do there).

@@ -90,3 +90,6 @@ description: |-
   Migrated from Linear BRO-78: https://linear.app/1broseidon/issue/BRO-78/research-jev-alternatives-to-heuristic-agent-operations (2026-10-11).
 updatedAt: "2026-10-11T21:20:14.962Z"
 ---
+
+## Log
+- 2026-10-12T01:51:05.507Z: [claude] Won't do (2026-10-11 sort): research epic blocked on a decisions provider that doesn't exist; revisit if Jev or a small local model becomes part of the product.

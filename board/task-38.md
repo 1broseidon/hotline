@@ -28,5 +28,6 @@ description: |-
   * Budgets: routing is the call assistant's line; teammates' turns are their own.
 
   Migrated from Linear BRO-273: https://linear.app/1broseidon/issue/BRO-273/calling-the-desk-a-switchboard-that-puts-you-through-with-the (2026-10-11).
-updatedAt: "2026-10-11T21:06:01.766Z"
+updatedAt: "2026-10-12T04:21:48.621Z"
+priority: medium
 ---

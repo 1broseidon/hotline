@@ -22,3 +22,6 @@ description: |-
   Migrated from Linear BRO-186: https://linear.app/1broseidon/issue/BRO-186/decisions-notify-loudly-only-when-a-report-needs-the-person (2026-10-11).
 updatedAt: "2026-10-11T21:05:56.771Z"
 ---
+
+## Log
+- 2026-10-12T01:51:06.097Z: [claude] Won't do (2026-10-11 sort): child of the parked Jev research (epic-2).

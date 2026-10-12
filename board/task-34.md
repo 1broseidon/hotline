@@ -22,3 +22,6 @@ description: |-
   Migrated from Linear BRO-188: https://linear.app/1broseidon/issue/BRO-188/decisions-choose-what-a-chapter-note-is-written-from (2026-10-11).
 updatedAt: "2026-10-11T21:05:58.453Z"
 ---
+
+## Log
+- 2026-10-12T01:51:07.243Z: [claude] Won't do (2026-10-11 sort): child of the parked Jev research (epic-2).

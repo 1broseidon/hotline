@@ -24,3 +24,6 @@ description: |-
   `hotline status` is a first cut (crates/hotline-cli/src/door.rs ~172); no `desk.status` wire command, so no phone banner.
 updatedAt: "2026-10-11T21:05:55.102Z"
 ---
+
+## Log
+- 2026-10-12T01:51:04.369Z: [claude] Won't do (2026-10-11 sort): hotline status covers desk health on the server; a phone banner isn't worth a new wire command now.

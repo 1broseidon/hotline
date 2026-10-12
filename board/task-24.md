@@ -22,3 +22,6 @@ description: |-
   Needs a native phone build too.
 updatedAt: "2026-10-11T21:05:34.069Z"
 ---
+
+## Log
+- 2026-10-12T01:51:09.617Z: [claude] Won't do (2026-10-11 sort): no evidence the phone link is bandwidth-bound; needs a native build for speculative gain.

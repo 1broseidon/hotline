@@ -1,8 +1,8 @@
 ---
 id: task-32
 title: "Decisions: notify loudly only when a report needs the person"
-column: todo
-position: 34
+column: wont-do
+position: 3
 tags:
   - improvement
   - bro-186
@@ -20,7 +20,7 @@ description: |-
   Part of BRO-78's decisions capability.
 
   Migrated from Linear BRO-186: https://linear.app/1broseidon/issue/BRO-186/decisions-notify-loudly-only-when-a-report-needs-the-person (2026-10-11).
-updatedAt: "2026-10-11T21:05:56.771Z"
+updatedAt: "2026-10-12T01:51:06.387Z"
 ---
 
 ## Log

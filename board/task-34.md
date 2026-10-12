@@ -1,8 +1,8 @@
 ---
 id: task-34
 title: "Decisions: choose what a chapter note is written from"
-column: todo
-position: 36
+column: wont-do
+position: 5
 tags:
   - improvement
   - bro-188
@@ -20,7 +20,7 @@ description: |-
   Part of BRO-78's decisions capability.
 
   Migrated from Linear BRO-188: https://linear.app/1broseidon/issue/BRO-188/decisions-choose-what-a-chapter-note-is-written-from (2026-10-11).
-updatedAt: "2026-10-11T21:05:58.453Z"
+updatedAt: "2026-10-12T01:51:07.539Z"
 ---
 
 ## Log

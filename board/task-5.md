@@ -19,3 +19,6 @@ description: |-
   Migrated from Linear BRO-19: https://linear.app/1broseidon/issue/BRO-19/sign-windows-releases-with-a-trusted-publisher-identity-when-demand (2026-10-11).
 updatedAt: "2026-10-11T21:05:17.318Z"
 ---
+
+## Log
+- 2026-10-12T01:51:07.834Z: [claude] Won't do (2026-10-11 sort): no Windows demand yet; revisit when there is.

@@ -1,6 +1,6 @@
 ---
 id: task-39
-title: "Let the person choose a teammate's face: photo or per-mood video"
+title: "Review iggyuga's teammate-face PRs: photo or per-mood video (#176), and drawn SVG faces (#178)"
 column: todo
 position: 41
 tags:
@@ -26,5 +26,6 @@ description: |-
   ## Status (2026-10-11 review)
 
   External PRs hotline#176 and #178 (iggyuga) are open; need a review decision.
-updatedAt: "2026-10-11T21:06:02.595Z"
+updatedAt: "2026-10-12T01:51:40.357Z"
+priority: medium
 ---

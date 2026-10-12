@@ -1,8 +1,8 @@
 ---
 id: task-9
 title: Add controlled privileged-service API for Linux, macOS, and Windows
-column: todo
-position: 11
+column: wont-do
+position: 8
 priority: low
 tags:
   - hotline-computer
@@ -62,7 +62,7 @@ description: |-
   Unrestricted host-root commands, NOPASSWD: ALL, elevating the whole Hotline application, reusable blanket root sessions, and VM provisioning. Split platform implementation into follow-up subissues as needed; this task captures the common architecture and expected parity.
 
   Migrated from Linear BRO-133: https://linear.app/1broseidon/issue/BRO-133/add-controlled-privileged-service-api-for-linux-macos-and-windows (2026-10-11).
-updatedAt: "2026-10-11T21:05:20.793Z"
+updatedAt: "2026-10-12T01:51:09.322Z"
 ---
 
 ## Log

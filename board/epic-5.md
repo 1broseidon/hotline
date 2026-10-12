@@ -9,12 +9,12 @@ tags:
   - improvement
   - performance
 createdAt: "2026-10-12T01:51:39.966Z"
+updatedAt: "2026-10-12T04:21:50.023Z"
 ---
 
 ## Description
-From the 0.33.4 responsiveness audit. The core folds whole tapes on hot paths and serialises commands; the window re-renders on every streaming frame and remounts long conversations. Children, in rough order of payoff:
+Source-audited 2026-10-11 against Log, wire command lanes, app startup, tape/Transcript and list callers. All remaining slices are real gaps; no child is complete.
 
-- Core I/O: fold cache, roster rows from memory, cheap list calls, per-stream write locks
-- Core: answer a socket's commands concurrently
-- Window: streaming re-renders, progressive render and virtualization, cached room-wide lists
-- Startup: open the window before the core finishes settling
+Recommended execution order: task-19 folded-stream cache; task-46 live roster; task-20 remaining socket command concurrency; task-22 streaming render projection; task-49 long-tape rendering; task-50 shared lists; task-47 cheaper core lists; task-48 writer/indexing isolation; task-21 startup. Measure each slice before adding another cache or worker. Per-teammate command lanes already exist; task-20 owns only the remaining global command stall and related slow setup paths.
+
+Cross-cutting constraint: preserve stream revisions, ordered mutations, capability revocation, restart recovery and per-desk cache isolation. Splits preserve the former BRO-235/241 scope without one oversized implementation card.

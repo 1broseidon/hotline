@@ -64,3 +64,6 @@ description: |-
   Migrated from Linear BRO-133: https://linear.app/1broseidon/issue/BRO-133/add-controlled-privileged-service-api-for-linux-macos-and-windows (2026-10-11).
 updatedAt: "2026-10-11T21:05:20.793Z"
 ---
+
+## Log
+- 2026-10-12T01:51:09.031Z: [claude] Won't do (2026-10-11 sort): a privileged helper on three OSes is a large security surface for a need nobody has hit.

@@ -1,6 +1,6 @@
 ---
 id: task-10
-title: "Run a headless desk for weeks from the phone: schedules, devices, pending requests"
+title: "Phone: answer what's pending instead of 'Answer this on your desktop'"
 column: todo
 position: 12
 priority: medium
@@ -24,5 +24,5 @@ description: |-
   ## Status (2026-10-11 review)
 
   Done: phone schedules cancel/quiet, device list/revoke, computer on/off. Left: `requests.pending` ("Answer this on your desktop" still in Message.tsx ~454), schedule failures as facts, companion 8-subscription cap (wire/mod.rs ~1780).
-updatedAt: "2026-10-11T21:05:21.626Z"
+updatedAt: "2026-10-12T01:51:04.081Z"
 ---

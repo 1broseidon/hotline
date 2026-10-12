@@ -18,5 +18,6 @@ description: |-
   ## Status (2026-10-11 review)
 
   Needs the A/B with George.
-updatedAt: "2026-10-11T21:05:33.240Z"
+updatedAt: "2026-10-12T04:22:26.116Z"
+parentId: epic-5
 ---

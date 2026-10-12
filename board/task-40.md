@@ -48,3 +48,6 @@ description: |-
   External PRs hotline#176 and #178 (iggyuga) are open; need a review decision.
 updatedAt: "2026-10-11T21:06:03.424Z"
 ---
+
+## Log
+- 2026-10-12T01:51:40.920Z: [claude] Merged into task-39: one review covers both PRs (#176 then #178).

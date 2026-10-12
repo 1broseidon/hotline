@@ -1,6 +1,7 @@
 ---
 id: task-21
 title: "Startup: open the window before the core finishes settling"
+parentId: epic-5
 column: todo
 position: 23
 priority: medium

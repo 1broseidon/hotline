@@ -1,6 +1,7 @@
 ---
 id: task-19
 title: "Core I/O: in-memory fold cache, roster rows from memory, cheap list calls, per-stream write locks"
+parentId: epic-5
 column: todo
 position: 21
 priority: high

@@ -1,6 +1,7 @@
 ---
 id: task-20
 title: "Core: answer a socket's commands concurrently"
+parentId: epic-5
 column: todo
 position: 22
 priority: high

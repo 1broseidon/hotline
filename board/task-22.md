@@ -1,6 +1,7 @@
 ---
 id: task-22
 title: "Window performance: streaming re-renders, progressive render and virtualization, cached room-wide lists"
+parentId: epic-5
 column: todo
 position: 24
 priority: high

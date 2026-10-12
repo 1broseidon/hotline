@@ -9,13 +9,17 @@ agent:
     - Make minimal changes
 columns:
   - id: todo
-    title: To Do
+    title: Will do
   - id: in-progress
-    title: In Progress
+    title: In progress
+  - id: wont-do
+    title: Won't do
 ---
 
 # Hotline
 
 The Hotline desk: the Rust core, the Tauri window, the CLI and the served desk. Phone work lives on the hotline-mobile board.
+
+**Will do** is the backlog we mean to ship, ordered by priority, with a release tag (`0.36.1`, `0.37.0`) once it is planned. **Won't do** holds what we decided against or parked, each with a note saying why; move it back if that changes. Done work leaves the board through `brainfile complete`.
 
 > Note: Completing a task moves it to `logs/` via `brainfile complete`.

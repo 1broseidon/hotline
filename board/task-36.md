@@ -28,8 +28,10 @@ description: |-
   * Decide what the composer does on a run (today a run has no composer, or a read-only one). Proposal: none. Steer the run through the agent that started it.
   * Check the phone too: it opens runs as threads. A matching compact work view there could be a follow-up.
 
-  **Also (seen 2026-10-09):** a Claude Code subagent that ends its turn while its own background job (a long test run) is still going is reported as finished, so the chip and run show done. When the job finishes, the subagent wakes and keeps working, but the adapter doesn't announce it again, so Hotline never shows it. The work view should keep tracking a resumed subagent; check whether the adapter sends updates for that child session id after `subagent_state_update: completed`.
 
-  Migrated from Linear BRO-270: https://linear.app/1broseidon/issue/BRO-270/subagent-and-runner-runs-open-as-their-work-not-as-a-chat (2026-10-11).
-updatedAt: "2026-10-11T21:06:00.118Z"
+  The separate completed → resumed ACP lifecycle bug is now task-51; this task owns only the work-view presentation. Audit 2026-10-11: ui/src/components/Dock.tsx still opens runs through Transcript. Keep live step following, collapsed thinking, brief/result sections and Stop; preserve chat presentation for real conversations. A phone work view belongs on the hotline-mobile board.
+
+  Migration source: BRO-270.
+updatedAt: "2026-10-12T04:21:41.439Z"
+priority: medium
 ---

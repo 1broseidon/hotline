@@ -2,8 +2,6 @@
 id: epic-2
 title: Research Jev alternatives to heuristic agent operations
 type: epic
-column: backlog
-position: 2
 tags:
   - improvement
   - bro-78
@@ -88,8 +86,15 @@ description: |-
   [TypeSafe documentation index](<https://docs.typesafe.ai/llms.txt>) · [Score primitive](<https://docs.typesafe.ai/primitives/score>) · [Speculative fan-out](<https://docs.typesafe.ai/patterns/fan-out>)
 
   Migrated from Linear BRO-78: https://linear.app/1broseidon/issue/BRO-78/research-jev-alternatives-to-heuristic-agent-operations (2026-10-11).
-updatedAt: "2026-10-12T20:52:36.424Z"
+updatedAt: "2026-10-12T20:53:18.945Z"
+completedAt: "2026-10-12T20:53:18.945Z"
 ---
 
 ## Log
 - 2026-10-12T01:51:05.507Z: [claude] Won't do (2026-10-11 sort): research epic blocked on a decisions provider that doesn't exist; revisit if Jev or a small local model becomes part of the product.
+
+## Child Tasks
+Summary: 3/3 children completed.
+- task-32: Decisions: notify loudly only when a report needs the person (completed)
+- task-33: Decisions: answer routine permission prompts (allow once, never deny) (completed)
+- task-34: Decisions: choose what a chapter note is written from (completed)

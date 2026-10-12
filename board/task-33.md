@@ -27,3 +27,6 @@ description: |-
   Migrated from Linear BRO-187: https://linear.app/1broseidon/issue/BRO-187/decisions-answer-routine-permission-prompts-allow-once-never-deny (2026-10-11).
 updatedAt: "2026-10-11T21:05:57.615Z"
 ---
+
+## Log
+- 2026-10-12T01:51:06.669Z: [claude] Won't do (2026-10-11 sort): child of the parked Jev research (epic-2).

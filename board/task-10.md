@@ -24,7 +24,17 @@ description: |-
   ## Status (2026-10-11 review)
 
   Done: phone schedules cancel/quiet, device list/revoke, computer on/off. Left: `requests.pending` ("Answer this on your desktop" still in Message.tsx ~454), schedule failures as facts, companion 8-subscription cap (wire/mod.rs ~1780).
-updatedAt: "2026-10-12T01:56:58.740Z"
+updatedAt: "2026-10-12T04:21:51.688Z"
+subtasks:
+  - id: task-10-1
+    title: Expose durable pending requests with duplicate-safe phone answers
+    completed: false
+  - id: task-10-2
+    title: Record schedule attempts and failures as persistent facts
+    completed: false
+  - id: task-10-3
+    title: Prove twelve teammates remain reachable under companion subscription limits
+    completed: false
 ---
 
 ## Log

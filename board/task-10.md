@@ -6,7 +6,6 @@ position: 12
 priority: medium
 tags:
   - bro-135
-parentId: epic-1
 createdAt: "2026-10-11T21:05:21.341Z"
 description: |-
   Slice 3 of BRO-16, alongside BRO-115 (health).

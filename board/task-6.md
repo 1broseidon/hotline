@@ -27,3 +27,6 @@ description: |-
   Migrated from Linear BRO-20: https://linear.app/1broseidon/issue/BRO-20/a-moved-data-directory-should-say-so-instead-of-asking-for-every-sign (2026-10-11).
 updatedAt: "2026-10-11T21:05:18.143Z"
 ---
+
+## Log
+- 2026-10-12T01:51:08.456Z: [claude] Won't do (2026-10-11 sort): rare edge case (moving the data directory by hand); re-signing in is an acceptable cost.

@@ -1462,6 +1462,15 @@ async fn command(
                 reply(&sender, id, Ok(json!(card)));
             });
         }
+        // Making or ending a link waits on the other desk, for seconds when
+        // it is far or away; the window's other commands do not wait behind it.
+        Ok(command @ (Command::DesksLink { .. } | Command::DesksUnlink { .. })) => {
+            let (sender, log, room) = (sender.clone(), log.clone(), Arc::clone(room));
+            tokio::spawn(async move {
+                let result = commands::run(command, &log, &room).await;
+                reply(&sender, id, result);
+            });
+        }
         // A picture is read from disk, and a conversation full of them
         // asks for many at once; none of them may hold up the commands
         // behind it, such as the thread list of the teammate just opened.

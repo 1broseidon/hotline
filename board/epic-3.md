@@ -70,3 +70,6 @@ description: |-
 updatedAt: "2026-10-13T06:26:28.899Z"
 assignee: claude
 ---
+
+## Log
+- 2026-10-13T06:32:12.078Z: [claude] Plan: a link is a room event on both desks ({kind:"link", id: peer desk id, dials, key}) trusting the peer desk's own Noise key, made over the owner wire (link.accept) from Settings › Desks. The linking desk's core dials /v2/link (also through the relay) with its desk key; the answering desk seats it as Seat::Link, which permits only link.roster/link.deliver/link.unlink. Linked teammates are a live in-memory mirror (names kept on the link record for routing), node-qualified as nodeId/personaId. Cross-desk asks and handoffs ride the existing exchange_pair queue on both desks: the sender forwards a queued request over the link, the recipient runs it under its own allowedSenders and first-contact card (raised on the recipient's tape), and returns the result over the link. ADR 0003 records it. UI: one rail across desks with a desk filter.

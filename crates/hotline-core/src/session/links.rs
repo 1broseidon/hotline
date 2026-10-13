@@ -401,7 +401,9 @@ impl Room {
     /// Ends a link on this desk, whichever side ended it. The record goes
     /// and with it every linked teammate of that desk; messages waiting to
     /// or from them fail with a sentence; approvals waiting for them are
-    /// withdrawn, and work running for them is stopped.
+    /// withdrawn, work running for them is stopped, and the standing grants
+    /// the person gave them here end too: a link made again later starts
+    /// from nothing.
     pub(crate) async fn unlinked(self: &Arc<Self>, desk_id: &str) -> Result<(), String> {
         let record = linked::record(&self.log, desk_id);
         // While the record is here the teammates of that desk still have
@@ -426,6 +428,35 @@ impl Room {
             self.peers.invalidate(&id);
         }
         self.settle_invalid_collaboration();
+        self.forget_linked_grants(desk_id).await
+    }
+
+    /// Takes every standing grant a teammate of that desk held here off its
+    /// recipients, and the informed consent beside it.
+    async fn forget_linked_grants(&self, desk_id: &str) -> Result<(), String> {
+        let theirs = |id: &str| linked::split(id).is_some_and(|(desk, _)| desk == desk_id);
+        let _held = self.policy_updates.lock().await;
+        for mut persona in room::roster(&self.log) {
+            if !persona.allowed_senders.iter().any(|id| theirs(id)) {
+                continue;
+            }
+            persona.allowed_senders.retain(|id| !theirs(id));
+            persona.updated_at = super::now_ms();
+            room::append_persona(&self.log, &persona)?;
+        }
+        for mut event in self.log.load(&crate::log::StreamId::Room) {
+            let informed = event["kind"] == "collaboration_informed"
+                && event["deleted"] != true
+                && [&event["from"], &event["to"]]
+                    .iter()
+                    .any(|id| id.as_str().is_some_and(theirs));
+            if informed {
+                event["deleted"] = json!(true);
+                self.log
+                    .append(&crate::log::StreamId::Room, &event)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
         Ok(())
     }
 }

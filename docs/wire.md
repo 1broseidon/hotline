@@ -1128,6 +1128,51 @@ reconnect slots, but cannot guarantee availability under sustained connection
 floods or a proxy that refuses traffic. Public deployments still need edge
 traffic controls.
 
+## Linked desks
+
+Two desks the person links (ADR 0003) let their teammates see and message
+each other. Links are managed from an owner or local desk seat:
+
+| cmd | params | result |
+| --- | --- | --- |
+| `desks.links` | `{}` | `DeskLink[]`: each linked desk's `deskId`, `name`, whether this desk `dials` it, its `state` (`connected` or `offline`), the `error` it last gave, and its `teammates` as `LinkedTeammate` rows, live while connected and by name, `offline`, while not |
+| `desks.link` | `{deskId}` | `DeskLink`; links with a desk this computer is paired with as an owner (its `desks.json`), asking that desk's `desks.link_accept` over the owner seat, then dials it from then on. A desk already linked answers as it is |
+| `desks.link_accept` | `{deskId, name, key}` | `{deskId, name}` of this desk; records that `key`, the other desk's own Noise identity, may open `/v2/link` for that desk. Refused for this desk's own id, a key that is not 32 bytes, or a desk this one already dials |
+| `desks.unlink` | `{deskId}` | none; tells the other desk if it can, then ends the link here whatever it says |
+
+`desks.link` and `desks.unlink` wait on the other desk, so they are answered
+when they finish and hold up none of the socket's other commands.
+
+The channel is sealed IK at `<public-url>/v2/link` (also reached as
+`/relay/<deskId>/v2/link` through the desk's relay), with message 1
+carrying `{"purpose":"link","deskId":"<the dialing desk's id>"}` under that
+desk's own static key. The desk answers an empty message 2 only when its
+`desk_link` record for that id names that key; any other key, or no
+record, gets the authenticated `{"error":"device_not_authorized"}`, which
+the dialer takes as the link having ended. The channel then takes an
+authenticated admission seat named `link:<deskId>`.
+
+After the handshake the channel is symmetric and has no hello. Either side
+sends `{id, cmd, params}` and answers the other's with `{id, ok, result?,
+error?, code?}`; a frame with `ok` is an answer. Each side's commands are
+answered under the link seat, for the desk the handshake proved:
+
+| cmd | params | result |
+| --- | --- | --- |
+| `ping` | `{}` | none; sent every 25 s, and a channel that has heard nothing for three is closed |
+| `federation.roster` | `{teammates: LinkedTeammate[]}` | none; the sender's teammates, sent when they change (looked at every 2 s). Each row is `{personaId, name, state, activity, workingOn: {title, lastTurnAt}}` and nothing more; rows are cut to plausible ids, known states and bounded text |
+| `federation.deliver` | `{delivery}` | `{accepted: true}` for a request, none for a result. `delivery` is `{kind:"request", requestId, fromPersonaId, fromName, to, message, intent}` — `to` is the recipient's id on the receiving desk, `intent` `ask` or `handoff`, the same `requestId` again is the same request — or `{kind:"result", requestId, reply, failed}` for a request the receiver sent |
+| `federation.unlink` | `{}` | none; the sender ended the link |
+
+Everything else, a subscription included, is answered `forbidden`. The desk
+and owner seats are refused the `federation.*` commands.
+
+On the desk that holds them, a linked desk's teammates are named
+`<deskId>/<personaId>`, in `list_teammates`, in deliveries' `cause.personaId`
+and in pair thread keys (`ada~<deskId>/lou`). A `ThreadSummary` for such a
+pair is listed with this desk's teammate as `personaId` and names the other
+in `withName` ("Lou on grizzly").
+
 ## Voice calls
 
 Voice commands and `{"call":"<callId>"}` subscriptions are available to the

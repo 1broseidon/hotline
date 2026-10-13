@@ -8,6 +8,23 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Linked desks. Link this computer's desk with a server you're connected to
+  (Settings › Desks › Link teammates) and the two desks' teammates see each
+  other in `list_teammates` and message each other the way teammates on one
+  desk do: "Clementine, ask Lou on grizzly to check the CI runners" works.
+  The first message still asks the person, on the recipient's desk, and
+  nothing about either desk's workspaces, tools, secrets or computers
+  crosses. A message to a desk that's away waits and goes when it's back.
+  Either side ends the link, on both; `hotline links` and `hotline unlink`
+  do it from a server.
+- One list of teammates across every desk in the window, with a desk filter
+  in place of the desk switcher. Opening a teammate on another desk needs no
+  switching, unread counts across desks, and a desk that can't be reached
+  keeps its teammates listed, dimmed. A new teammate asks which desk it
+  lives on.
+
 ## [0.36.2] - 2026-10-13
 
 ### Fixed

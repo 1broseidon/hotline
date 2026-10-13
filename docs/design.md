@@ -143,8 +143,10 @@ seat. Here the wire is one WebSocket carrying three things:
 
 A **seat** is what a socket may do: the desk seat (the window) may do
 everything; a paired owner has the same command and subscription set. A
-companion keeps the limited phone seat. The stored grant determines authority,
-not whether the client is a phone or desktop. There is no per-method routing table; a seat is a set.
+companion keeps the limited phone seat. A linked desk's channel has the link
+seat, which is its roster, its messages and nothing else ([Linked
+desks](#linked-desks)). The stored grant determines authority, not whether
+the client is a phone or desktop. There is no per-method routing table; a seat is a set.
 
 Settings → Remote owns an opt-in TLS listener, separate from the desk's loopback
 door. Its default is all host IPs, with a live option to restrict it to one local
@@ -386,6 +388,10 @@ and the least felt in daily use. They are not ported. When moving a
 teammate between machines earns its place, it is shipping its streams and
 starting the session elsewhere, designed then on the log.
 
+What did earn its place is narrower: two desks the person links so their
+teammates can talk ([Linked desks](#linked-desks)). Nothing is replicated
+and nobody moves; each desk keeps its own teammates, and a message crosses.
+
 ### 6. One process, one language, a thin shell
 
 `hotline-core` is a Rust library with no Tauri dependency and every behaviour
@@ -609,6 +615,8 @@ crates/hotline-core/src/
   import.rs              copies an existing Hotline data directory
   import/                the previous edition's roster and records, read-only
   wire/                  the door: seats, commands, subscriptions
+  linked.rs              linked desks: their records, qualified ids, the roster that crosses
+  remote/                Remote: the sealed listener, pairing, the relay, a linked desk's channel
   bin/hotline-import.rs     the importer as a binary
   bin/hotline-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
 crates/hotline-app/     the Tauri shell: plugins, the menu, the door
@@ -692,3 +700,43 @@ answer even if the desk stopped before dispatch. Starting that continuation
 is recorded before calling the driver, so an interrupted continuation is still
 uncertain work, never a replay. Old requests without action ids retain the old
 settlement rules; no route is guessed from conversation text.
+
+### Linked desks
+
+The window can show several desks; linking two of them lets their
+*teammates* see and message each other (ADR 0003). Connecting a window to a
+desk and linking two desks are different acts: the first is the person's
+client reaching a desk as an owner, the second a grant between the two
+desks themselves, made deliberately from Settings › Desks and ended from
+either side.
+
+A link trusts the other desk's own Noise key, not a device key, and its
+channel is answered under the link seat: a linked desk publishes its
+teammates and delivers messages, and every other command and subscription
+is refused before it runs. The desk that made the link dials the other's
+`/v2/link`, directly or through its relay, and redials until the link ends;
+the channel then carries both directions, so a laptop behind NAT is never
+dialled.
+
+A teammate on a linked desk is `deskId/personaId` here and never a persona
+in this roster. `list_teammates` lists it with its desk's name, from the
+roster rows the other desk publishes (exactly what a local row shows), and
+`message_teammate` reaches it by name, as "Name on Desk" when a name is
+shared, or by id; a shared name is refused with every choice listed, and a
+local teammate never wins a tie. A message rides the sender desk's exchange
+queue, crosses when it is taken up or waits until the link is back, and
+enters the recipient desk's queue as a request from a participant with
+nothing granted: the recipient's `allowedSenders` and the person's
+first-contact card decide it there, the card on the recipient's tape, and
+a whole-machine teammate on another desk is no more trusted for it. The
+answer comes back the same way, saved until it arrives, and each desk keeps
+its own copy of the pair's thread. Ending a link fails what waited on it
+with a sentence, withdraws the cards its teammates were waiting on and ends
+the standing grants they held, so a link made again starts from nothing.
+
+The window lists every desk's teammates in one rail, with a desk filter
+where it had a switcher. The screen follows the teammate: opening one on
+another desk makes that desk the one the window talks to, so its settings,
+computer and files are that desk's, and nothing is switched by hand. A desk
+that cannot be reached keeps its teammates listed, dimmed, as they last
+were.

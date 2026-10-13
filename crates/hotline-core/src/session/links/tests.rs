@@ -317,6 +317,12 @@ async fn a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_
     assert!(collaboration_card(&grizzly, "lou").is_none());
     let answer = delivered(&laptop, "clementine", &handoff).unwrap();
     assert_eq!(answer["cause"]["status"], "done");
+    // A grant given to a teammate of a linked desk ends with the link.
+    grizzly.unlinked(LAPTOP).await.unwrap();
+    assert!(grizzly.persona("lou").unwrap().allowed_senders.is_empty());
+    assert!(grizzly.log.load(&StreamId::Room).iter().all(|event| {
+        event["kind"] != "collaboration_informed" || event["deleted"] == true
+    }));
     // The work ran in a thread of Lou's on grizzly, opened by Clementine.
     let thread = request(&grizzly, &handoff).unwrap()["thread"]
         .as_str()

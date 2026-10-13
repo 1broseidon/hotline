@@ -28,6 +28,7 @@ use crate::contract::{
     ChapterClose, ScheduleKind, ScheduledJob, SessionInfo, SessionState, ToolSourceKind,
 };
 use crate::driver::CapabilityLease;
+use crate::linked::{LinkedTeammate, WorkingOn};
 use crate::session::files::Source;
 use crate::session::jobs::Delegate;
 use crate::session::runner::Subagents;
@@ -606,11 +607,12 @@ impl TeammateTools {
                     .to_string())
             }
             LIST_TEAMMATES => {
-                let teammates: Vec<Value> = crate::room::roster(room.log())
+                let mut teammates: Vec<Value> = crate::room::roster(room.log())
                     .into_iter()
                     .filter(|persona| persona.id != self.persona_id)
-                    .map(|persona| teammate_roster_entry(&room, persona))
+                    .map(|persona| json!(roster_row(&room, persona)))
                     .collect();
+                teammates.extend(room.linked_rows());
                 Ok(json!({ "teammates": teammates }).to_string())
             }
             MESSAGE_TEAMMATE => {
@@ -918,24 +920,22 @@ fn quoted(result: &Value) -> String {
 
 /// One teammate's row in `list_teammates`: the same roster state a desk
 /// window would show, and nothing a desk window would not — no message, no
-/// preview, no path or command a tool touched.
-///
-/// `linked` (BRO-123) has nowhere awkward to land later: this is a flat
-/// object, and a caller reads it by key, not by position.
-fn teammate_roster_entry(room: &Room, persona: crate::contract::Persona) -> Value {
+/// preview, no path or command a tool touched. It is also all a linked desk
+/// is ever sent about a teammate (ADR 0003): the type has no field for more.
+pub(crate) fn roster_row(room: &Room, persona: crate::contract::Persona) -> LinkedTeammate {
     let session = room.info(&persona.id);
     let tail = previews::tail(room.log().root(), &persona.id);
     let waiting = wire::waiting_on(&tail);
-    json!({
-        "personaId": persona.id,
-        "name": persona.name,
-        "state": roster_state(&session, waiting),
-        "activity": wire::activity_on(&tail, &session),
-        "workingOn": {
-            "title": chapter_title(room, &persona),
-            "lastTurnAt": last_turn_at(room, &persona.id),
+    LinkedTeammate {
+        state: roster_state(&session, waiting).to_string(),
+        activity: wire::activity_on(&tail, &session),
+        working_on: WorkingOn {
+            title: chapter_title(room, &persona),
+            last_turn_at: last_turn_at(room, &persona.id),
         },
-    })
+        persona_id: persona.id,
+        name: persona.name,
+    }
 }
 
 /// The state a colleague reads before deciding whether to interrupt someone,

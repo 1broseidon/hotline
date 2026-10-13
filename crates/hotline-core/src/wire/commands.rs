@@ -211,6 +211,18 @@ pub(crate) async fn run(
                 Ok(json!(remote.pairing_v2(role.unwrap_or_default())?))
             }
         }
+        Command::DesksLinks {} => Ok(json!(remote(room)?.desk_links()?)),
+        Command::DesksLink { desk_id } => Ok(json!(remote(room)?.link(&desk_id).await?)),
+        Command::DesksLinkAccept { desk_id, name, key } => {
+            remote(room)?.accept_link(&desk_id, &name, &key)
+        }
+        Command::DesksUnlink { desk_id } => {
+            remote(room)?.unlink(&desk_id).await?;
+            Ok(Value::Null)
+        }
+        Command::FederationRoster { .. }
+        | Command::FederationDeliver { .. }
+        | Command::FederationUnlink {} => Err("Only a linked desk sends that.".into()),
         // All authentication traffic needs socket ownership checked by the wire.
         Command::AgentAuthStart { .. }
         | Command::AgentAuthPoll { .. }

@@ -101,6 +101,26 @@ impl Desk {
         self.vault.web_search_key(provider).unwrap()
     }
 
+    /// A desk over a room a test made, on scripted agents.
+    #[cfg(test)]
+    pub(crate) fn with_room(log: Log, room: Arc<Room>) -> Desk {
+        let vault = Arc::new(Vault::open(log.root(), log.clone()).unwrap());
+        Desk {
+            voice: crate::voice::Calls::new(
+                log.clone(),
+                vault.clone(),
+                Arc::downgrade(&room),
+                None,
+            ),
+            remote: Mutex::default(),
+            log,
+            room,
+            mcp_oauth: Arc::new(McpOAuthService::new(vault.clone())),
+            vault,
+            logins: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
     /// Remote holds this desk strongly; the controls must not keep it alive in return.
     pub fn set_remote(&self, remote: &Arc<crate::remote::Remote>) {
         *self.remote.lock().unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(remote);
@@ -333,6 +353,34 @@ impl RoomHandle for Desk {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .upgrade()
+    }
+
+    fn links(&self) -> Option<Arc<crate::linked::Links>> {
+        Some(self.room.links())
+    }
+
+    fn federation_roster_entries(&self) -> Vec<crate::linked::LinkedTeammate> {
+        self.room.federation_roster_entries()
+    }
+
+    fn federation_roster(
+        &self,
+        desk_id: &str,
+        teammates: Vec<crate::linked::LinkedTeammate>,
+    ) -> Result<(), String> {
+        self.room.federation_roster(desk_id, teammates)
+    }
+
+    async fn federation_deliver(
+        &self,
+        desk_id: &str,
+        delivery: crate::linked::LinkedDelivery,
+    ) -> Result<serde_json::Value, String> {
+        self.room.federation_deliver(desk_id, delivery)
+    }
+
+    async fn unlinked(&self, desk_id: &str) -> Result<(), String> {
+        self.room.unlinked(desk_id).await
     }
 
     async fn agent_auth_start(

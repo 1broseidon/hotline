@@ -1,8 +1,6 @@
 ---
 id: task-18
 title: "Cross-desk messaging: message_teammate, threads and replies over the link, under the recipient's grants"
-column: todo
-position: 20
 priority: high
 tags:
   - feature
@@ -47,7 +45,8 @@ description: |-
   * `allowedSenders` refusing a linked sender.
 
   Migrated from Linear BRO-181: https://linear.app/1broseidon/issue/BRO-181/cross-desk-messaging-message-teammate-threads-and-replies-over-the (2026-10-11).
-updatedAt: "2026-10-11T21:05:28.388Z"
+updatedAt: "2026-10-13T07:31:41.610Z"
+completedAt: "2026-10-13T07:31:41.610Z"
 ---
 
 ## Log

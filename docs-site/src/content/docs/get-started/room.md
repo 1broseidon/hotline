@@ -42,3 +42,7 @@ action; that arrives as a card in the same place.
 A teammate can message another teammate. Each direction is granted once by
 you, the first time it is tried, in the **Collaboration** section of the
 teammate's pane. The exchange shows up as a thread on both conversations.
+
+Teammates on a server you have [linked](/docs/server/link/) are messaged the
+same way. The window lists every desk's teammates in one list; the desk menu
+at the top narrows it to one desk.

@@ -1,4 +1,5 @@
-//! OpenAI-compatible connections use Rig's native request and streaming code.
+//! OpenAI-compatible connections use Rig's native request and streaming code,
+//! over a transport that repairs loose Responses frames ([`super::compat`]).
 
 use crate::contract::CustomProviderDraft;
 use rig::client::{ApiKey, ClientBuilder, ProviderBuilder};
@@ -72,7 +73,10 @@ impl ProviderBuilder for CompatibleBuilder {
     }
 }
 
-pub(crate) fn client(base_url: &str, key: Option<&str>) -> Result<openai::Client, String> {
+pub(crate) fn client(
+    base_url: &str,
+    key: Option<&str>,
+) -> Result<openai::Client<super::compat::Http>, String> {
     let base_url = server_url(base_url)?;
     let http = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -82,7 +86,7 @@ pub(crate) fn client(base_url: &str, key: Option<&str>) -> Result<openai::Client
     ClientBuilder::<CompatibleBuilder>::default()
         .api_key(OptionalKey(key.map(str::to_string)))
         .base_url(&base_url)
-        .http_client(http)
+        .http_client(super::compat::Http::new(http))
         .build()
         .map_err(|_| "Could not prepare the custom connection. Check the API key.".into())
 }

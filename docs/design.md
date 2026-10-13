@@ -418,8 +418,12 @@ separate API-key connections using Rig's native Z.ai endpoints.
 Custom OpenAI-compatible connections have stable, separate provider ids, a
 name, base URL, optional key, API choice, and an editable model list. Rig's
 native OpenAI Responses and Chat Completions clients own inference and model
-discovery. A small Rig provider builder makes bearer authentication optional;
-no custom inference transport is added. Keys are privately bound to the exact
+discovery. A small Rig provider builder makes bearer authentication optional.
+Inference runs over a thin transport (`providers/compat.rs`) that repairs
+Responses frames compatible servers send more loosely than OpenAI (missing
+sequence numbers or item ids and statuses, a float `created_at`, echoed
+`instructions` items, an empty `error`) before Rig's strict decode reads them,
+and logs once any frame it still cannot read. Keys are privately bound to the exact
 endpoint, so editing a URL requires explicitly supplying or removing its key.
 Discovery fills the form without changing a saved connection until Save.
 Provider discovery supplies current model IDs wherever Rig has a supported

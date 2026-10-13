@@ -17,6 +17,9 @@ use serde_json::json;
 use std::sync::Arc;
 
 pub(crate) const EXCHANGE_CAP: i64 = 12;
+/// The most requests a linked desk's teammates may have waiting here at once:
+/// four pairs paused at their cap.
+const LINKED_WAITING_MAX: usize = 4 * EXCHANGE_CAP as usize;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Intent {
@@ -65,6 +68,10 @@ struct Request {
     /// the answer comes back there instead of to the sender's DM.
     #[serde(default)]
     reply_thread: Option<String>,
+    /// For a request from a teammate on a linked desk that was stopped here:
+    /// its desk has been told, so its sender is not left waiting.
+    #[serde(default)]
+    returned: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct HumanGate {
@@ -217,6 +224,7 @@ impl Room {
                 human_actions: vec![],
                 thread: None,
                 reply_thread: sent_from.map(str::to_string),
+                returned: false,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(id.clone(), leases);
@@ -255,6 +263,7 @@ impl Room {
                 }
             }
             self.exchange_notices(&stopped);
+            self.wake_owed(&pair);
         }
         pair.exchanges = 0;
         pair.paused = false;
@@ -388,8 +397,23 @@ impl Room {
             if changed && let Err(error) = self.save_pair(&pair) {
                 eprintln!("revoke exchange: {error}");
             }
+            self.wake_owed(&pair);
         }
         self.exchange_notices(&stopped);
+    }
+    /// A request from a linked teammate that was stopped here, whose desk has
+    /// not been told: its sender is waiting on an answer until it is.
+    fn owes_linked_answer(request: &Request) -> bool {
+        request.phase == Phase::Stopped && linked::is_linked(&request.from) && !request.returned
+    }
+    /// Sees that a stopped request's linked sender is told, by the pair's
+    /// worker, whichever path stopped it.
+    fn wake_owed(&self, pair: &Pair) {
+        if pair.requests.iter().any(Self::owes_linked_answer)
+            && let Some(room) = lock(&self.me).upgrade()
+        {
+            room.wake_exchange(&pair.id);
+        }
     }
     fn exchange_lease_current(&self, id: &str) -> bool {
         lock(&self.exchange_leases)
@@ -702,9 +726,10 @@ impl Room {
                     // lose its worker between the empty check and removal.
                     let _guard = lock(&room.exchange_lock);
                     if room.exchange_pair(&key).is_none_or(|pair| {
-                        pair.requests
-                            .iter()
-                            .all(|r| matches!(r.phase, Phase::Done | Phase::Stopped))
+                        pair.requests.iter().all(|r| {
+                            matches!(r.phase, Phase::Done | Phase::Stopped)
+                                && !Self::owes_linked_answer(r)
+                        })
                     }) {
                         lock(&room.exchange_workers).remove(&key);
                         break;
@@ -719,6 +744,21 @@ impl Room {
         let Some(pair) = self.exchange_pair(key) else {
             return Ok(());
         };
+        // A linked sender whose request was stopped here hears so first.
+        if let Some(owed) = pair
+            .requests
+            .iter()
+            .find(|r| Self::owes_linked_answer(r))
+            .cloned()
+        {
+            if self
+                .return_linked(&owed.id, &owed.from, &owed.reply, true)
+                .await
+            {
+                self.mark_returned(key, &owed.id)?;
+            }
+            return Ok(());
+        }
         let Some(request) = pair
             .requests
             .iter()
@@ -727,6 +767,16 @@ impl Room {
         else {
             return Ok(());
         };
+        // A request that came in as its link was ending has a side no
+        // longer linked: it ends the way the others did.
+        if let Some(desk) = [&request.from, &request.to].into_iter().find_map(|id| {
+            linked::split(id)
+                .map(|(desk, _)| desk)
+                .filter(|desk| linked::record(&self.log, desk).is_none())
+        }) {
+            self.stop_linked_exchanges(desk, "another desk");
+            return Ok(());
+        }
         if !self.exchange_lease_current(&request.id) {
             self.stop_revoked_exchanges(None);
             return Ok(());
@@ -1117,11 +1167,32 @@ impl Room {
                 .iter()
                 .find(|pair| pair.requests.iter().any(|r| r.id == id))
             {
-                return if pair.id == key {
-                    Ok(())
-                } else {
-                    Err("That request id belongs to another exchange.".into())
+                if pair.id != key {
+                    return Err("That request id belongs to another exchange.".into());
+                }
+                // Sent again after it was settled here: it is over, and says so.
+                return match pair.requests.iter().find(|r| r.id == id) {
+                    Some(r) if matches!(r.phase, Phase::Done | Phase::Stopped) => {
+                        Err(if r.reply.is_empty() {
+                            "That message was already answered.".to_string()
+                        } else {
+                            r.reply.clone()
+                        })
+                    }
+                    _ => Ok(()),
                 };
+            }
+            // A linked desk's teammates may have only so much waiting here
+            // at once, whatever that desk sends.
+            let desk = linked::split(from).map(|(desk, _)| desk);
+            let waiting = pairs
+                .iter()
+                .flat_map(|pair| &pair.requests)
+                .filter(|r| Self::exchange_pending(r))
+                .filter(|r| linked::split(&r.from).map(|(desk, _)| desk) == desk)
+                .count();
+            if waiting >= LINKED_WAITING_MAX {
+                return Err("Too many messages from that desk are already waiting here.".into());
             }
             let mut pair = pairs.into_iter().find(|p| p.id == key).unwrap_or(Pair {
                 id: key.clone(),
@@ -1148,6 +1219,7 @@ impl Room {
                 human_actions: vec![],
                 thread: None,
                 reply_thread: None,
+                returned: false,
             });
             self.save_pair(&pair)?;
             lock(&self.exchange_leases).insert(
@@ -1223,6 +1295,8 @@ impl Room {
                 request.phase = Phase::Stopped;
                 request.failed = true;
                 request.reply = format!("{name} is on {desk_name}, which isn't linked any more.");
+                // Its desk is not linked to be told.
+                request.returned = true;
                 stopped.push(request.clone());
                 changed = true;
             }
@@ -1233,6 +1307,14 @@ impl Room {
         self.exchange_notices(&stopped);
     }
 
+    fn mark_returned(&self, key: &str, id: &str) -> Result<(), String> {
+        let _guard = lock(&self.exchange_lock);
+        let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;
+        if let Some(request) = pair.requests.iter_mut().find(|r| r.id == id) {
+            request.returned = true;
+        }
+        self.save_pair(&pair)
+    }
     fn set_handoff_thread(&self, key: &str, id: &str, thread: &str) -> Result<(), String> {
         let _guard = lock(&self.exchange_lock);
         let mut pair = self.exchange_pair(key).ok_or("Exchange disappeared")?;

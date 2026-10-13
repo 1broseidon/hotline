@@ -133,16 +133,17 @@ impl Remote {
         if answer["result"]["deskId"] != desk_id {
             return Err("That desk answered as another desk.".into());
         }
-        let name = answer["result"]["name"]
-            .as_str()
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .unwrap_or(&desk.name);
+        let name = Some(linked::plain(
+            answer["result"]["name"].as_str().unwrap_or(""),
+            80,
+        ))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| linked::plain(&desk.name, 80));
         linked::save(
             &self.log,
             &Record {
                 desk_id: desk_id.to_string(),
-                name: name.chars().take(80).collect(),
+                name,
                 dials: true,
                 key: None,
                 teammates: Vec::new(),
@@ -157,9 +158,8 @@ impl Remote {
     /// The other half of [`Self::link`]: trust `key`, the other desk's own
     /// identity, for `/v2/link`. Asked over an owner seat here, so it is the
     /// owner's decision on this desk too.
-    pub fn accept_link(&self, desk_id: &str, name: &str, key: &str) -> Result<Value, String> {
-        let links = self.link_registry()?;
-        let name = name.trim();
+    pub async fn accept_link(&self, desk_id: &str, name: &str, key: &str) -> Result<Value, String> {
+        let name = linked::plain(name, 80);
         if !linked::valid_desk_id(desk_id) || desk_id == self.status_desktop_id() {
             return Err("That is not another desk's id.".into());
         }
@@ -175,19 +175,20 @@ impl Remote {
         if linked::record(&self.log, desk_id).is_some_and(|record| record.dials) {
             return Err("This desk already links with that one from here.".into());
         }
-        // A link accepted again, say with a new key, closes what the old
-        // one had open before the new key is trusted.
-        links.forget(desk_id);
+        // A link accepted again — the other desk ended it while this one
+        // could not hear, and linked again — ends the old one first, with
+        // everything it held, so the new one starts from nothing.
+        if linked::record(&self.log, desk_id).is_some() {
+            self.room.unlinked(desk_id).await?;
+        }
         linked::save(
             &self.log,
             &Record {
                 desk_id: desk_id.to_string(),
-                name: name.to_string(),
+                name,
                 dials: false,
                 key: Some(key.to_string()),
-                teammates: linked::record(&self.log, desk_id)
-                    .map(|record| record.teammates)
-                    .unwrap_or_default(),
+                teammates: Vec::new(),
             },
         )?;
         Ok(json!({"deskId": self.status_desktop_id(), "name": desktop_name()}))
@@ -224,8 +225,10 @@ impl Remote {
             .await
             .map_err(|_| OpenError::Unreachable("The desk disconnected.".into()))?;
         while let Some(Ok(message)) = channel.next().await {
+            // Its answer, not its own first command, which may share the id.
             if let Message::Text(text) = message
-                && serde_json::from_str::<Value>(&text).is_ok_and(|frame| frame["id"] == 1)
+                && serde_json::from_str::<Value>(&text)
+                    .is_ok_and(|frame| frame["id"] == 1 && frame.get("ok").is_some())
             {
                 break;
             }
@@ -259,7 +262,10 @@ impl Remote {
         let Ok(links) = self.link_registry() else {
             return;
         };
-        let cancel = links.token(&desk_id);
+        // One dialer per link, however many times it is asked for.
+        let Some(cancel) = links.dialer(&desk_id) else {
+            return;
+        };
         let remote = self.clone();
         tokio::spawn(async move {
             let mut tries = 0u32;
@@ -274,8 +280,13 @@ impl Remote {
                 };
                 match opened {
                     Ok(channel) => {
-                        tries = 0;
+                        let opened = tokio::time::Instant::now();
                         session(remote.clone(), channel, desk_id.clone(), cancel.clone()).await;
+                        // A channel that stood a while starts the backoff over;
+                        // one closed at once is a desk refusing, and waits longer.
+                        if opened.elapsed() > STEP_WITHIN {
+                            tries = 0;
+                        }
                     }
                     // Only the pinned desk can say this, and it says it when
                     // its link record is gone: it ended the link.
@@ -434,38 +445,44 @@ async fn session<S>(
     let mut ping = tokio::time::interval(PING_EVERY);
     ping.tick().await;
     let mut heard = tokio::time::Instant::now();
+    // The roster goes before anything else that crosses: a message names its
+    // sender, and the other desk takes only senders it has been shown.
+    let mut publish = |next: &mut i64| {
+        let now = remote.room.federation_roster_entries();
+        if published.as_ref() == Some(&now) {
+            return None;
+        }
+        *next += 1;
+        let frame = json!({"id": *next, "cmd": "federation.roster", "params": {"teammates": now}});
+        published = Some(now);
+        Some(frame)
+    };
     let why = loop {
-        let mut frame = None;
+        let mut frames = Vec::new();
         tokio::select! {
             biased;
             _ = cancel.cancelled() => break None,
+            _ = roster.tick() => frames.extend(publish(&mut next)),
             call = waiting.recv() => {
                 let Some(call) = call else { break None };
+                frames.extend(publish(&mut next));
                 next += 1;
                 answers.insert(next, call.answer);
-                frame = Some(json!({"id": next, "cmd": call.cmd, "params": call.params}));
-            }
-            _ = roster.tick() => {
-                let now = remote.room.federation_roster_entries();
-                if published.as_ref() != Some(&now) {
-                    next += 1;
-                    frame = Some(json!({"id": next, "cmd": "federation.roster", "params": {"teammates": now}}));
-                    published = Some(now);
-                }
+                frames.push(json!({"id": next, "cmd": call.cmd, "params": call.params}));
             }
             _ = ping.tick() => {
                 if heard.elapsed() > PING_EVERY * 3 {
                     break Some("The other desk stopped answering.".to_string());
                 }
                 next += 1;
-                frame = Some(json!({"id": next, "cmd": "ping"}));
+                frames.push(json!({"id": next, "cmd": "ping"}));
             }
             message = channel.next() => match message {
                 Some(Ok(Message::Text(text))) => {
                     heard = tokio::time::Instant::now();
                     let Ok(received) = serde_json::from_str::<Value>(&text) else { continue };
                     if received.get("ok").is_none() {
-                        frame = crate::wire::federation(&received, &desk_id, &remote.room).await;
+                        frames.extend(crate::wire::federation(&received, &desk_id, &remote.room).await);
                     } else if let Some(answer) = received["id"].as_i64().and_then(|id| answers.remove(&id)) {
                         let _ = answer.send(if received["ok"] == true {
                             Ok(received.get("result").cloned().unwrap_or(Value::Null))
@@ -481,13 +498,18 @@ async fn session<S>(
                 Some(Err(_)) => break Some("The link's channel failed.".to_string()),
             },
         }
-        if let Some(frame) = frame {
+        let mut stalled = false;
+        for frame in frames {
             let sent =
                 tokio::time::timeout(STEP_WITHIN, channel.send(Message::text(frame.to_string())))
                     .await;
             if !matches!(sent, Ok(Ok(()))) {
-                break Some("The other desk stopped reading.".to_string());
+                stalled = true;
+                break;
             }
+        }
+        if stalled {
+            break Some("The other desk stopped reading.".to_string());
         }
     };
     links.closed(&desk_id, Some(generation), why);

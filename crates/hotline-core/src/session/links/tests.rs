@@ -76,14 +76,17 @@ fn pair(name: &str) -> (Arc<Room>, Arc<Room>) {
     )
 }
 
-/// One direction of an open channel: every call `from` makes for `to_id`'s
-/// desk is answered by `to`'s federation handler, as from `from_id`.
+/// One direction of an open channel: `from`'s roster published to `to`, as
+/// the channel does before anything else, then every call `from` makes for
+/// `to_id`'s desk answered by `to`'s federation handler, as from `from_id`.
 fn pump(
     from: &Arc<Room>,
     to: &Arc<Room>,
     from_id: &str,
     to_id: &str,
 ) -> (u64, tokio::task::JoinHandle<()>) {
+    to.federation_roster(from_id, from.federation_roster_entries())
+        .unwrap();
     let (calls, mut waiting) = mpsc::channel::<linked::Call>(32);
     let generation = from.links.opened(to_id, calls);
     let to = to.clone();
@@ -114,12 +117,6 @@ struct Channel {
 
 impl Channel {
     fn open(laptop: &Arc<Room>, grizzly: &Arc<Room>) -> Self {
-        laptop
-            .federation_roster(GRIZZLY, grizzly.federation_roster_entries())
-            .unwrap();
-        grizzly
-            .federation_roster(LAPTOP, laptop.federation_roster_entries())
-            .unwrap();
         Self {
             laptop: laptop.clone(),
             grizzly: grizzly.clone(),
@@ -545,4 +542,57 @@ async fn a_linked_desk_is_sent_roster_rows_and_nothing_else() {
             .contains(&*std::env::temp_dir().to_string_lossy())
     );
     let _ = laptop;
+}
+
+#[tokio::test]
+async fn a_request_stopped_on_the_recipients_desk_is_answered_so_on_the_senders() {
+    let (laptop, grizzly) = pair("stopped-there");
+    let _channel = Channel::open(&laptop, &grizzly);
+    let id = message(&laptop, "clementine", "Lou", "ask").await.unwrap();
+    until("the card", || collaboration_card(&grizzly, "lou").is_some()).await;
+    grizzly
+        .stop_exchange(&format!("{LAPTOP}/clementine"), "lou")
+        .unwrap();
+    until("Clementine hears it was stopped", || {
+        delivered(&laptop, "clementine", &id).is_some()
+    })
+    .await;
+    let answer = delivered(&laptop, "clementine", &id).unwrap();
+    assert_eq!(answer["cause"]["status"], "failed");
+    assert_eq!(answer["text"], "The person stopped this exchange.");
+    assert_eq!(request(&grizzly, &id).unwrap()["returned"], true);
+}
+
+#[tokio::test]
+async fn a_linked_desk_sends_only_for_teammates_it_published_and_only_so_much_at_once() {
+    let (laptop, grizzly) = pair("bounded");
+    let _channel = Channel::open(&laptop, &grizzly);
+    let ask = |n: usize, from: &str| LinkedDelivery::Request {
+        request_id: format!("r{n}"),
+        from_persona_id: from.into(),
+        to: "lou".into(),
+        message: "Check the CI runners.".into(),
+        intent: "ask".into(),
+    };
+    assert_eq!(
+        grizzly
+            .federation_deliver(LAPTOP, ask(0, "ghost"))
+            .unwrap_err(),
+        "That teammate is not on the roster its desk published here."
+    );
+    for n in 0..48 {
+        grizzly
+            .federation_deliver(LAPTOP, ask(n, "clementine"))
+            .unwrap();
+    }
+    // The same request again is the same request, not a forty-ninth.
+    grizzly
+        .federation_deliver(LAPTOP, ask(47, "clementine"))
+        .unwrap();
+    assert_eq!(
+        grizzly
+            .federation_deliver(LAPTOP, ask(48, "clementine"))
+            .unwrap_err(),
+        "Too many messages from that desk are already waiting here."
+    );
 }

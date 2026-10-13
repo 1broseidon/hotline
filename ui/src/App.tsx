@@ -395,10 +395,12 @@ export function App() {
 
 	const removeTeammate = useCallback(
 		async (personaId: string, name: string, deskId?: string) => {
+			// The desk is the one the teammate was on when asked about, whatever is on screen by the answer.
+			const on = deskId ?? activeDeskId();
 			if (!(await confirmRemove(name))) return;
 			try {
-				if (deskId !== undefined) {
-					await wireFor(deskId).command("persona.delete", { id: personaId });
+				if (on !== activeDeskId() && on !== null) {
+					await wireFor(on).command("persona.delete", { id: personaId });
 					return;
 				}
 				await wire.command("persona.delete", { id: personaId });
@@ -570,7 +572,9 @@ export function App() {
 	/* An empty room nobody has set up is the welcome alone, in a bare
 	 * window; until the core has said which room this is, it is that bare
 	 * window with nothing in it yet. */
-	const welcome = empty && setUp !== true;
+	/* Another desk's teammates in the window are a room to be in, with its
+	 * rail, whether or not this desk has been set up. */
+	const welcome = empty && setUp !== true && Object.values(elsewhere).every((entries) => entries.length === 0);
 	const call = useCall();
 	const callPhase = useCallSnapshot(call).phase;
 	const calling = call !== null && callPhase !== "ended";

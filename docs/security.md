@@ -781,14 +781,17 @@ made it so.
 - **Residual risk:** a compromised linked desk can publish any roster and
   send any message under any of its teammates' names; each still meets the
   recipient's grants and the person's card, and is quoted as a colleague's
-  data. It can also fill the person's view with first-contact cards from
-  made-up senders, up to 200 names per desk; this desk writes its names down
-  at most twice a minute whatever it sends. Ending the link stops all of it. A recipient answering it uses its own reach and tools and may
+  data; its names and roster text are made plain lines first
+  (`linked::plain`), because a name stands outside the quote. It can fill
+  the person's view with first-contact cards, but only from the at most 200
+  teammates it publishes, with at most 48 of its messages waiting here at
+  once, and this desk writes its names down at most twice a minute whatever
+  it sends. Ending the link stops all of it. A recipient answering it uses its own reach and tools and may
   disclose what it would to a local colleague. Ending a link from the
   dialing desk while the other cannot be reached leaves the other holding a
   link that never dials again, shown offline, until it is ended there too.
-  Stopping an exchange on one desk does not stop work already running for
-  it on the other.
+  Stopping an exchange on the sender's desk does not stop work already
+  running for it on the other.
 
 ## Add a teammate from the phone (BRO-127)
 

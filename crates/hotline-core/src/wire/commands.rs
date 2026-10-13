@@ -214,7 +214,7 @@ pub(crate) async fn run(
         Command::DesksLinks {} => Ok(json!(remote(room)?.desk_links()?)),
         Command::DesksLink { desk_id } => Ok(json!(remote(room)?.link(&desk_id).await?)),
         Command::DesksLinkAccept { desk_id, name, key } => {
-            remote(room)?.accept_link(&desk_id, &name, &key)
+            remote(room)?.accept_link(&desk_id, &name, &key).await
         }
         Command::DesksUnlink { desk_id } => {
             remote(room)?.unlink(&desk_id).await?;

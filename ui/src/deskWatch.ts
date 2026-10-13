@@ -18,7 +18,8 @@ import type { RosterEntry } from "./wire";
 
 const SEEN_KEY = "hotline.rail.seen";
 
-type Watched = { stop(): void; roster: RosterEntry[] };
+/** A desk being watched, and the endpoint it was watched at. */
+type Watched = { stop(): void; roster: RosterEntry[]; endpoint: string };
 
 const watched = new Map<string, Watched>();
 let counts: Record<string, number> = {};
@@ -58,8 +59,8 @@ export function seenOn(deskId: string): Record<string, number> {
 	}
 }
 
-function watch(deskId: string, name: string): Watched {
-	const one: Watched = { stop: () => {}, roster: cachedRoster(deskId) ?? [] };
+function watch(deskId: string, name: string, endpoint: string): Watched {
+	const one: Watched = { stop: () => {}, roster: cachedRoster(deskId) ?? [], endpoint };
 	const fold = (roster: RosterEntry[]) => {
 		one.roster = roster;
 		keepRoster(deskId, roster);
@@ -85,22 +86,29 @@ function watch(deskId: string, name: string): Watched {
 
 /**
  * Watches every desk but the one on screen; called whenever either changes.
- * A desk coming on screen stops being watched here, since App folds it now.
+ * A desk coming on screen stops being watched here, since App folds it now,
+ * and a desk reached at a new endpoint is watched again there: its old
+ * connection was closed with the old endpoint.
  */
 export function syncWatches(): void {
 	const active = activeDeskId();
-	const wanted = new Map(allDesks().filter((desk) => desk.id !== active).map((desk) => [desk.id, desk.name]));
+	const wanted = new Map(allDesks().filter((desk) => desk.id !== active).map((desk) => [desk.id, desk]));
 	for (const [deskId, one] of watched) {
-		if (!wanted.has(deskId)) {
+		const desk = wanted.get(deskId);
+		if (desk === undefined || one.endpoint !== endpointOf(desk)) {
 			one.stop();
 			watched.delete(deskId);
 		}
 	}
-	for (const [deskId, name] of wanted) {
-		if (!watched.has(deskId)) watched.set(deskId, watch(deskId, name));
+	for (const [deskId, desk] of wanted) {
+		if (!watched.has(deskId)) watched.set(deskId, watch(deskId, desk.name, endpointOf(desk)));
 	}
 	recount();
 	republish();
+}
+
+function endpointOf(desk: { origin: string; token: string }): string {
+	return `${desk.origin} ${desk.token}`;
 }
 
 /** Unread rows on each desk that is not on screen. */

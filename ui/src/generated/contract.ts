@@ -582,7 +582,7 @@ export type LinkState = "live" | "parked" | "closed";
  * What crosses a link for the exchange queue: a teammate's message for one
  * of the other desk's, or the answer to one.
  */
-export type LinkedDelivery = { "kind": "request", requestId: string, fromPersonaId: string, fromName: string, to: string, message: string, 
+export type LinkedDelivery = { "kind": "request", requestId: string, fromPersonaId: string, to: string, message: string, 
 /**
  * ask or handoff.
  */

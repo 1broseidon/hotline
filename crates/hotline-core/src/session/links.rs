@@ -242,7 +242,6 @@ impl Room {
             LinkedDelivery::Request {
                 request_id,
                 from_persona_id,
-                from_name,
                 to,
                 message,
                 intent,
@@ -250,7 +249,6 @@ impl Room {
                 &record,
                 &request_id,
                 &from_persona_id,
-                &from_name,
                 &to,
                 &message,
                 &intent,
@@ -265,14 +263,15 @@ impl Room {
 
     /// Queues a linked teammate's message for one of this desk's, exactly as
     /// a local colleague's would be: the recipient's grants and the person's
-    /// card decide whether it is worked on, here, when it is taken up.
-    #[allow(clippy::too_many_arguments)]
+    /// card decide whether it is worked on, here, when it is taken up. Its
+    /// sender must be on the roster its desk published here — which that desk
+    /// sends before any message — so a desk cannot make up senders faster
+    /// than it publishes them.
     fn receive_linked_request(
         self: &Arc<Self>,
         record: &Record,
         request_id: &str,
         from_persona_id: &str,
-        from_name: &str,
         to: &str,
         message: &str,
         intent: &str,
@@ -282,14 +281,13 @@ impl Room {
             "handoff" => Intent::Handoff,
             _ => return Err("intent must be ask or handoff".into()),
         };
-        let from_name = from_name.trim();
-        if !linked::valid_persona_id(request_id)
-            || !linked::valid_persona_id(from_persona_id)
-            || from_name.is_empty()
-            || from_name.chars().count() > 100
-        {
+        if !linked::valid_persona_id(request_id) || !linked::valid_persona_id(from_persona_id) {
             return Err("That message does not say plainly who sent it.".into());
         }
+        let from = linked::qualified(&record.desk_id, from_persona_id);
+        self.participant(&from).map_err(|_| {
+            "That teammate is not on the roster its desk published here.".to_string()
+        })?;
         let message = message.trim();
         if message.is_empty() || message.chars().count() > TEAMMATE_MESSAGE_MAX {
             return Err(format!(
@@ -299,25 +297,6 @@ impl Room {
         let target = self
             .persona(to)
             .map_err(|_| "There is no such teammate on this desk.".to_string())?;
-        // The sender's desk vouches for its own teammate's name; it is kept
-        // so the request can be shown and answered before that desk has
-        // published its roster here.
-        if !record
-            .teammates
-            .iter()
-            .any(|known| known.persona_id == from_persona_id)
-        {
-            if record.teammates.len() >= linked::TEAMMATES_MAX {
-                return Err("That desk is known by as many teammates as it may be.".into());
-            }
-            let mut record = record.clone();
-            record.teammates.push(Known {
-                persona_id: from_persona_id.to_string(),
-                name: from_name.chars().take(100).collect(),
-            });
-            linked::save(&self.log, &record)?;
-        }
-        let from = linked::qualified(&record.desk_id, from_persona_id);
         self.accept_linked_request(request_id, &from, &target.id, message, intent)?;
         Ok(json!({"accepted": true}))
     }
@@ -354,7 +333,6 @@ impl Room {
         let delivery = LinkedDelivery::Request {
             request_id: request_id.to_string(),
             from_persona_id: caller.id,
-            from_name: caller.name,
             to: persona_id.to_string(),
             message: message.to_string(),
             intent: match intent {
@@ -391,6 +369,10 @@ impl Room {
         let Some((desk_id, _)) = linked::split(from) else {
             return true;
         };
+        // A desk no longer linked has nobody waiting to be told.
+        if linked::record(&self.log, desk_id).is_none() {
+            return true;
+        }
         let delivery = LinkedDelivery::Result {
             request_id: request_id.to_string(),
             reply: reply.to_string(),

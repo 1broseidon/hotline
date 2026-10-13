@@ -1161,7 +1161,7 @@ answered under the link seat, for the desk the handshake proved:
 | --- | --- | --- |
 | `ping` | `{}` | none; sent every 25 s, and a channel that has heard nothing for three is closed |
 | `federation.roster` | `{teammates: LinkedTeammate[]}` | none; the sender's teammates, sent when they change (looked at every 2 s). Each row is `{personaId, name, state, activity, workingOn: {title, lastTurnAt}}` and nothing more; rows are cut to plausible ids, known states and bounded text |
-| `federation.deliver` | `{delivery}` | `{accepted: true}` for a request, none for a result. `delivery` is `{kind:"request", requestId, fromPersonaId, fromName, to, message, intent}` — `to` is the recipient's id on the receiving desk, `intent` `ask` or `handoff`, the same `requestId` again is the same request — or `{kind:"result", requestId, reply, failed}` for a request the receiver sent |
+| `federation.deliver` | `{delivery}` | `{accepted: true}` for a request, none for a result. `delivery` is `{kind:"request", requestId, fromPersonaId, to, message, intent}` — `fromPersonaId` must be on the roster the sending desk published (it sends its roster before any message), `to` is the recipient's id on the receiving desk, at most 48 requests from one desk wait at once, `intent` `ask` or `handoff`, the same `requestId` again is the same request — or `{kind:"result", requestId, reply, failed}` for a request the receiver sent |
 | `federation.unlink` | `{}` | none; the sender ended the link |
 
 Everything else, a subscription included, is answered `forbidden`. The desk

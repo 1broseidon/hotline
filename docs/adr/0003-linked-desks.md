@@ -129,10 +129,13 @@ the standing grants the person gave them, and takes their teammates out of
 - A compromised linked desk can publish any roster and send any message,
   under any of its own teammates' names. It can do no more than that: every
   message still meets the recipient's grants and the person's card, and is
-  quoted to the recipient as a colleague's data, not instructions. It is
-  known by at most 200 names, and the names it publishes are written down at
-  most twice a minute, so it cannot grow this desk's room stream as fast as
-  it can send.
+  quoted to the recipient as a colleague's data, not instructions. Its
+  names and other text are made plain lines before they are used, since a
+  name stands outside the quote, in a preamble and on the person's card. It
+  publishes at most 200 teammates, written down here at most twice a minute;
+  a message's sender must be one it published (each side sends its roster
+  before anything else that crosses); and at most 48 of its messages wait
+  here at once.
 - Each side looks at its own roster every two seconds, but makes a teammate's
   row again only when that teammate's record, session state or tape size has
   moved, since making one reads its tape for the open chapter's title.
@@ -143,8 +146,10 @@ the standing grants the person gave them, and takes their teammates out of
   link that is never dialled again, shown as offline, until someone ends it
   there too. The reverse cannot happen: the dialing desk learns at its next
   dial.
-- Stopping an exchange on one desk does not stop work already running for it
-  on the other; the answer, when it comes, is dropped.
+- Stopping an exchange on the sender's desk does not stop work already
+  running for it on the other; the answer, when it comes, is dropped. Stopped
+  on the recipient's desk, by the person or because a teammate's grants
+  changed, the sender is answered with the reason.
 - A sender waiting on a card on the other desk sees its message as sent, not
   as waiting for the person.
 - One more listener route, `/v2/link`, on every desk with Remote on. It

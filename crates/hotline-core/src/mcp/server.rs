@@ -330,7 +330,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             LIST_TEAMMATES,
-            "The other teammates in this Hotline room: each one's id and public name, and what the roster already shows about it — whether it is idle, working, waiting on the person, or stopped; the tool or task it is doing right now, if it is working; and what it is working on, the current chapter's title (or its goal, if the chapter has none yet) and when it last spoke. Check this before message_teammate to see whether a colleague is mid-turn, so you know a message will wait rather than land at once. Roster metadata only: never a message's text, never what anyone said, and never workspaces, tools, or model choices.",
+            "The other teammates in this Hotline room: each one's id and public name, and what the roster already shows about it — whether it is idle, working, waiting on the person, or stopped; the tool or task it is doing right now, if it is working; and what it is working on, the current chapter's title (or its goal, if the chapter has none yet) and when it last spoke. Check this before message_teammate to see whether a colleague is mid-turn, so you know a message will wait rather than land at once. Roster metadata only: never a message's text, never what anyone said, and never workspaces, tools, or model choices. Teammates on desks linked with this one are listed too, each with its desk's name in `desk`, and are messaged the same way.",
             schema(json!({ "type": "object", "properties": {}, "additionalProperties": false })),
         ),
         Tool::new(
@@ -341,7 +341,7 @@ fn descriptors() -> Vec<Tool> {
                 "properties": {
                     "to": {
                         "type": "string",
-                        "description": "The teammate's name, or its personaId from list_teammates.",
+                        "description": "The teammate's name, or its personaId from list_teammates. When two teammates share a name, one on a linked desk is named as Name on Desk.",
                     },
                     "message": { "type": "string", "minLength": 1, "maxLength": crate::session::TEAMMATE_MESSAGE_MAX },
                     "intent": {"type":"string", "enum":["ask","handoff"], "default":"ask"},

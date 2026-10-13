@@ -344,3 +344,50 @@ async fn only_the_linked_desks_own_key_opens_its_link() {
     ));
     assert_eq!(state(&laptop), Some(DeskLinkState::Connected));
 }
+
+#[tokio::test]
+async fn a_desk_reachable_only_through_its_relay_is_linked_through_it() {
+    let (_relay_root, relay, _) = super::relay_tests::served().await;
+    let home = desk("lou", "Lou").await;
+    let invitation = relay.pairing_v2(DeviceRole::Owner).unwrap();
+    let server = client::Client::new(home.store.clone())
+        .pair(&invitation.payload, "Home")
+        .await
+        .unwrap();
+    fs::write(
+        home.root.path().join("desks.json"),
+        serde_json::to_vec(&vec![server.clone()]).unwrap(),
+    )
+    .unwrap();
+    home.remote.relay_through(Some(server.desk_id)).unwrap();
+    until("home stands in on the relay", || {
+        home.remote
+            .status()
+            .relay
+            .is_some_and(|relay| relay.url.is_some())
+    })
+    .await;
+
+    let laptop = desk("clementine", "Clementine").await;
+    connect(&laptop, &home).await;
+    // Home's own address does not answer from here; only its relay does.
+    let mut reached = paired(&laptop);
+    assert!(reached.relay.is_some());
+    reached.url = "https://127.0.0.1:9".into();
+    fs::write(
+        laptop.root.path().join("desks.json"),
+        serde_json::to_vec(&vec![reached]).unwrap(),
+    )
+    .unwrap();
+    laptop
+        .remote
+        .link(&home.remote.status_desktop_id())
+        .await
+        .unwrap();
+    until("linked through the relay", || {
+        knows(&laptop, "Lou") && knows(&home, "Clementine")
+    })
+    .await;
+    let lou = ask(&laptop, "clementine", &home, "lou", "Lou").await;
+    assert_eq!(lou["text"], "teammate says 0");
+}

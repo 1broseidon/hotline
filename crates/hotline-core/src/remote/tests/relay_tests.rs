@@ -2,7 +2,7 @@
 //! sealed records: the visitor still pins the desk, never the relay.
 use super::*;
 
-async fn served() -> (tempfile::TempDir, Arc<Remote>, String) {
+pub(super) async fn served() -> (tempfile::TempDir, Arc<Remote>, String) {
     let root = tempfile::tempdir().unwrap();
     let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let listen = reserved.local_addr().unwrap();

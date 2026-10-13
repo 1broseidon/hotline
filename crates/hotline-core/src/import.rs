@@ -161,6 +161,9 @@ fn import_teammates(
         .map(|persona| persona.id)
         .collect();
     let mut imported = Vec::new();
+    // A teammate the previous edition knew on another desk is that desk's.
+    // Importing never copies one here; linking with its desk (ADR 0003) is
+    // how this desk's teammates work with it.
     for value in personas::list_foreign_personas_from(store_root, workspace_root) {
         let name = value
             .get("name")
@@ -168,7 +171,7 @@ fn import_teammates(
             .unwrap_or("Untitled");
         report.skipped.push(Skipped {
             item: format!("teammate {name}"),
-            reason: "lives on another desk; this Hotline has no fleet".into(),
+            reason: "lives on another desk; link with that desk to work with it".into(),
         });
     }
     let mut workspace_left_in_source = false;
@@ -1034,7 +1037,7 @@ mod tests {
             reasons
                 .iter()
                 .any(|(item, reason)| *item == "teammate Theirs"
-                    && *reason == "lives on another desk; this Hotline has no fleet"),
+                    && *reason == "lives on another desk; link with that desk to work with it"),
             "{reasons:?}"
         );
         assert!(

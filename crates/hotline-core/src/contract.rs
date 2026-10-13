@@ -3736,10 +3736,15 @@ pub enum ThreadAnswer {
 pub struct ThreadSummary {
     pub thread: ThreadId,
     /// The teammate whose thread it is. A pair is listed with the first of its
-    /// two, and `with` names the other.
+    /// two, and `with` names the other; a pair with a teammate on a linked
+    /// desk is listed with this desk's teammate.
     pub persona_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub with_persona_id: Option<String>,
+    /// What to call `with`, when it is a teammate on a linked desk ("Lou on
+    /// grizzly"): it is in no roster here for the window to read its name in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub with_name: Option<String>,
     /// What the thread is called: a work thread's or run's task, a call's
     /// title. A DM and a pair have none, and are named by who is in them.
     #[serde(skip_serializing_if = "Option::is_none")]

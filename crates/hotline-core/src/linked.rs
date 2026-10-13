@@ -128,6 +128,18 @@ pub(crate) fn split(id: &str) -> Option<(&str, &str)> {
     (valid_desk_id(desk) && valid_persona_id(persona)).then_some((desk, persona))
 }
 
+/// What a linked teammate is called here, "Name on Desk", from what its
+/// desk's record last heard; none for an id that is not a linked one.
+pub(crate) fn shown_name(log: &Log, id: &str) -> Option<String> {
+    let (desk_id, persona_id) = split(id)?;
+    let record = record(log, desk_id)?;
+    let known = record
+        .teammates
+        .iter()
+        .find(|known| known.persona_id == persona_id)?;
+    Some(format!("{} on {}", known.name, record.name))
+}
+
 /// Whether this id names a teammate on another desk.
 pub(crate) fn is_linked(id: &str) -> bool {
     split(id).is_some()

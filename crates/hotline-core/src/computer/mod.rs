@@ -1679,6 +1679,7 @@ mod tests {
             name: "Ada".to_string(),
             goal: String::new(),
             avatar: None,
+            look: None,
             team: None,
             backend_id: "hotline".to_string(),
             cwd: cwd.to_string(),

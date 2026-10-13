@@ -28,6 +28,9 @@ import { handedIn, handoffsUnderway, linkFailed, linkLine, namesSaid, threadOfLi
 import { type Activity, type ActivityPhase, activityOf, LANDED, RESTING } from "../activity";
 import { Glyph, LANDED_MS } from "../ui/Glyph";
 import type { Person } from "../avatars";
+import { moves, useFace } from "../faces/face";
+import { FaceMark } from "../faces/FaceMark";
+import { useFacePrefs } from "../faces/prefs";
 import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
 import { Viewer } from "../ui/Viewer";
@@ -300,6 +303,8 @@ export function Transcript({
 	// Hooks before the empty-state return, so their order never changes.
 	const arrived = useMemo(() => withStreaming(written, streaming), [written, streaming]);
 	const hidden = useCadence(personaId, arrived);
+	const faces = useFacePrefs();
+	const face = useFace(personaId);
 	const { activity, sleeping } = useSleep(personaId, useLanding(personaId, useSteady(live || hidden.size > 0 ? activityOf(events, streaming, hidden.size > 0) : null)));
 
 	if (empty) {
@@ -433,7 +438,7 @@ export function Transcript({
 						title={(onOpenWork !== undefined ? workOpen === null : workShown) ? "Hide the work" : "Show the work"}
 						onClick={() => (onOpenWork !== undefined ? onOpenWork(null) : setWorkShown((was) => !was))}
 					>
-						<Glyph phase={activity.phase} />
+						{faces.mark && moves(face) ? <FaceMark personaId={personaId} phase={activity.phase} /> : <Glyph phase={activity.phase} />}
 						{activity.word !== "" && <span className="ambient-word">{activity.word}</span>}
 					</button>
 				</div>

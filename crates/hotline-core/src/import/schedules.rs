@@ -138,6 +138,7 @@ mod tests {
             name: id.to_string(),
             goal: String::new(),
             avatar: None,
+            look: None,
             team: None,
             backend_id: "hotline".to_string(),
             cwd: format!("/tmp/{id}"),

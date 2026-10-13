@@ -25,6 +25,7 @@ import { confirmRemove, confirmRemovePicture } from "../native";
 import { chooseFolder, revealLabel, showPath } from "../serverFiles";
 import { firstLine, useRoomSettings } from "../room";
 import { MAX_PINS } from "../pins";
+import { FaceSection } from "../faces/FaceSection";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -252,6 +253,8 @@ export function Teammate({
 						</div>
 						<VoiceRow persona={persona} disabled={busy} onSave={save} />
 					</div>
+
+					<FaceSection persona={persona} disabled={busy} />
 
 					<section>
 						<h3 className="label">Folders</h3>

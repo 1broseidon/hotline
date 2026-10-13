@@ -33,6 +33,7 @@ import { activeDeskId, deskKey, LOCAL_DESK, setActiveDesk, useActiveDesk, useDes
 import { syncWatches, useBackgroundUnread } from "./deskWatch";
 import { AddDesk } from "./components/AddDesk";
 import { ServerFiles } from "./components/ServerFiles";
+import { noteRoster } from "./faces/mood";
 import { useSaved } from "./useSaved";
 
 
@@ -225,6 +226,7 @@ export function App() {
 
 	useEffect(() => {
 		noticeRoster(roster, { id: activeDeskId() ?? "" });
+		noteRoster(roster);
 	}, [roster]);
 
 	// The dock's badge is the rail's unread count: the rows in bold, counted,

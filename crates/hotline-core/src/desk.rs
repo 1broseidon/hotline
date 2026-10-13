@@ -315,6 +315,44 @@ impl RoomHandle for Desk {
         Ok(())
     }
 
+    async fn set_person_avatar(&self, persona_id: &str, data: &str) -> Result<(), String> {
+        self.room.set_person_avatar(persona_id, data).await
+    }
+
+    async fn set_look(
+        &self,
+        persona_id: &str,
+        style: crate::contract::LookStyle,
+    ) -> Result<(), String> {
+        self.room.set_look(persona_id, style).await
+    }
+
+    async fn set_clip(
+        &self,
+        persona_id: &str,
+        mood: crate::contract::Mood,
+        mime_type: &str,
+        data: &str,
+    ) -> Result<(), String> {
+        self.room.set_clip(persona_id, mood, mime_type, data).await
+    }
+
+    async fn clear_clip(
+        &self,
+        persona_id: &str,
+        mood: crate::contract::Mood,
+    ) -> Result<(), String> {
+        self.room.clear_clip(persona_id, mood).await
+    }
+
+    async fn set_drawing(&self, persona_id: &str, svg: &str) -> Result<(), String> {
+        self.room.set_drawing(persona_id, svg).await
+    }
+
+    async fn clear_drawing(&self, persona_id: &str) -> Result<(), String> {
+        self.room.clear_drawing(persona_id).await
+    }
+
     async fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {
         Ok(crate::capabilities::options(
             &self.vault,
@@ -1411,6 +1449,7 @@ mod tests {
             name: name.to_string(),
             goal: "Keep the revocation test deterministic.".to_string(),
             avatar: None,
+            look: None,
             team: None,
             backend_id: "hotline".to_string(),
             cwd: root.join(id).to_string_lossy().into_owned(),

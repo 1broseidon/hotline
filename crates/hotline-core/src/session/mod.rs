@@ -45,6 +45,7 @@ pub(crate) mod generate;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
 mod lifecycle;
+pub(crate) mod look;
 mod narration;
 mod pacing;
 mod peers;

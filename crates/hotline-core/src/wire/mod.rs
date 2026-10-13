@@ -100,6 +100,44 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("This room cannot make images.".into())
     }
 
+    async fn set_person_avatar(&self, _persona_id: &str, _data: &str) -> Result<(), String> {
+        Err("This room keeps no pictures.".into())
+    }
+
+    async fn set_look(
+        &self,
+        _persona_id: &str,
+        _style: crate::contract::LookStyle,
+    ) -> Result<(), String> {
+        Err("This room keeps no looks.".into())
+    }
+
+    async fn set_clip(
+        &self,
+        _persona_id: &str,
+        _mood: crate::contract::Mood,
+        _mime_type: &str,
+        _data: &str,
+    ) -> Result<(), String> {
+        Err("This room keeps no looks.".into())
+    }
+
+    async fn clear_clip(
+        &self,
+        _persona_id: &str,
+        _mood: crate::contract::Mood,
+    ) -> Result<(), String> {
+        Err("This room keeps no looks.".into())
+    }
+
+    async fn set_drawing(&self, _persona_id: &str, _svg: &str) -> Result<(), String> {
+        Err("This room keeps no looks.".into())
+    }
+
+    async fn clear_drawing(&self, _persona_id: &str) -> Result<(), String> {
+        Err("This room keeps no looks.".into())
+    }
+
     fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
         None
     }
@@ -713,6 +751,8 @@ impl Seat {
                     | Command::FileRead { .. }
                     // A picture is no more private than the name beside it.
                     | Command::AvatarRead { .. }
+                    // A mood's clip or drawing moves that same picture.
+                    | Command::LookClipRead { .. }
                     // Older lines of a tape the phone already reads.
                     | Command::TapePage { .. }
                     | Command::TeammatesExchangeStop { .. }
@@ -1414,7 +1454,11 @@ async fn command(
         // A picture is read from disk, and a conversation full of them
         // asks for many at once; none of them may hold up the commands
         // behind it, such as the thread list of the teammate just opened.
-        Ok(command @ (Command::FileRead { .. } | Command::AvatarRead { .. })) => {
+        Ok(
+            command @ (Command::FileRead { .. }
+            | Command::AvatarRead { .. }
+            | Command::LookClipRead { .. }),
+        ) => {
             let (sender, log, room) = (sender.clone(), log.clone(), Arc::clone(room));
             tokio::spawn(async move {
                 let result = commands::run(command, &log, &room).await;

@@ -139,6 +139,7 @@ fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
         name: "Ada".into(),
         goal: "Keep the harbour running".into(),
         avatar: None,
+        look: None,
         team: None,
         backend_id: "hotline".into(),
         cwd: workspace.to_string_lossy().into_owned(),

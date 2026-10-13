@@ -129,7 +129,13 @@ the standing grants the person gave them, and takes their teammates out of
 - A compromised linked desk can publish any roster and send any message,
   under any of its own teammates' names. It can do no more than that: every
   message still meets the recipient's grants and the person's card, and is
-  quoted to the recipient as a colleague's data, not instructions.
+  quoted to the recipient as a colleague's data, not instructions. It is
+  known by at most 200 names, and the names it publishes are written down at
+  most twice a minute, so it cannot grow this desk's room stream as fast as
+  it can send.
+- Each side looks at its own roster every two seconds, but makes a teammate's
+  row again only when that teammate's record, session state or tape size has
+  moved, since making one reads its tape for the open chapter's title.
 - A desk that answers a linked request uses the recipient's own reach,
   tools and computer, as for a local colleague, and may say anything in its
   answer that it would say to one.

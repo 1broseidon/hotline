@@ -26,8 +26,8 @@ use ts_rs::TS;
 /// The room stream's kind for a link. Not `link`: thread markers are.
 const KIND: &str = "desk_link";
 
-/// The most teammates one linked desk may publish.
-const TEAMMATES_MAX: usize = 200;
+/// The most teammates one linked desk may publish, or be known by.
+pub(crate) const TEAMMATES_MAX: usize = 200;
 
 /// One linked desk, as the room stream keeps it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -286,6 +286,11 @@ pub(crate) struct Call {
 #[derive(Default)]
 pub struct Links {
     peers: Mutex<HashMap<String, Peer>>,
+    /// This desk's own roster rows as last made for linked desks, each with
+    /// what it was made from. Making one reads its teammate's whole tape for
+    /// the open chapter's title, so a row is made again only when that has
+    /// moved, and every link shares what was made.
+    rows: Mutex<HashMap<String, (String, LinkedTeammate)>>,
 }
 
 #[derive(Default)]
@@ -296,7 +301,15 @@ struct Peer {
     live: Option<Live>,
     roster: Option<Vec<LinkedTeammate>>,
     error: Option<String>,
+    /// When its teammates' names were last written to the link's record.
+    names_saved: Option<std::time::Instant>,
 }
+
+/// How often a linked desk's teammates' names may be written down. The
+/// live roster is always current; the record is what routing falls back on
+/// while the desk is away, and another desk must not be able to make this
+/// one write to its room stream as fast as it can send.
+const NAMES_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
 
 struct Live {
     generation: u64,
@@ -372,8 +385,44 @@ impl Links {
         self.peers().get(desk_id)?.roster.clone()
     }
 
+    /// Whether the names a linked desk just published may be written down
+    /// now: the first time, and then at most every [`NAMES_EVERY`].
+    pub(crate) fn may_save_names(&self, desk_id: &str) -> bool {
+        let mut peers = self.peers();
+        let peer = peers.entry(desk_id.to_string()).or_default();
+        let due = peer
+            .names_saved
+            .is_none_or(|saved| saved.elapsed() >= NAMES_EVERY);
+        if due {
+            peer.names_saved = Some(std::time::Instant::now());
+        }
+        due
+    }
+
     pub(crate) fn set_roster(&self, desk_id: &str, roster: Vec<LinkedTeammate>) {
         self.peers().entry(desk_id.to_string()).or_default().roster = Some(roster);
+    }
+
+    /// This desk's rows, each made again only when what it is made from
+    /// (`made_from`, by teammate) has changed since it was last made.
+    pub(crate) fn rows(
+        &self,
+        teammates: Vec<(String, String)>,
+        make: impl Fn(&str) -> Option<LinkedTeammate>,
+    ) -> Vec<LinkedTeammate> {
+        let mut rows = self.rows.lock().unwrap_or_else(PoisonError::into_inner);
+        rows.retain(|id, _| teammates.iter().any(|(kept, _)| kept == id));
+        teammates
+            .into_iter()
+            .filter_map(|(id, made_from)| match rows.get(&id) {
+                Some((was, row)) if *was == made_from => Some(row.clone()),
+                _ => {
+                    let row = make(&id)?;
+                    rows.insert(id, (made_from, row.clone()));
+                    Some(row)
+                }
+            })
+            .collect()
     }
 
     /// Ends this link here: its dialing, its channel and every call waiting
@@ -439,6 +488,32 @@ mod tests {
         ] {
             assert_eq!(split(not), None, "{not}");
         }
+    }
+
+    #[test]
+    fn a_row_is_made_again_only_when_what_it_is_made_from_moves() {
+        let links = Links::default();
+        let made = std::cell::Cell::new(0);
+        let make = |id: &str| {
+            made.set(made.get() + 1);
+            Some(LinkedTeammate {
+                persona_id: id.into(),
+                name: format!("{id} #{}", made.get()),
+                state: "idle".into(),
+                activity: None,
+                working_on: WorkingOn {
+                    title: String::new(),
+                    last_turn_at: None,
+                },
+            })
+        };
+        let lou = |made_from: &str| vec![("lou".to_string(), made_from.to_string())];
+        assert_eq!(links.rows(lou("1:Ready:10"), make)[0].name, "lou #1");
+        assert_eq!(links.rows(lou("1:Ready:10"), make)[0].name, "lou #1");
+        assert_eq!(links.rows(lou("1:Thinking:12"), make)[0].name, "lou #2");
+        // A teammate that has left is forgotten, and made afresh if it returns.
+        assert!(links.rows(Vec::new(), make).is_empty());
+        assert_eq!(links.rows(lou("1:Thinking:12"), make)[0].name, "lou #3");
     }
 
     #[test]

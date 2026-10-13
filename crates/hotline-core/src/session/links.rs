@@ -95,12 +95,27 @@ impl Room {
             .collect()
     }
 
-    /// This desk's teammates, as a linked desk is shown them.
+    /// This desk's teammates, as a linked desk is shown them. A row is what
+    /// its teammate's record, session and tape make it, so it is made again
+    /// only when one of those has moved.
     pub(crate) fn federation_roster_entries(&self) -> Vec<LinkedTeammate> {
-        room::roster(&self.log)
-            .into_iter()
-            .map(|persona| crate::mcp::server::roster_row(self, persona))
-            .collect()
+        let roster = room::roster(&self.log);
+        let made_from = roster
+            .iter()
+            .map(|persona| {
+                let made_from = format!(
+                    "{}:{:?}:{}",
+                    persona.updated_at,
+                    self.info(&persona.id).state,
+                    crate::store::previews::tape_size(self.log.root(), &persona.id),
+                );
+                (persona.id.clone(), made_from)
+            })
+            .collect();
+        self.links.rows(made_from, |id| {
+            let persona = roster.iter().find(|persona| persona.id == id)?;
+            Some(crate::mcp::server::roster_row(self, persona.clone()))
+        })
     }
 
     /// A linked desk published its teammates. Their ids and names are kept
@@ -121,7 +136,7 @@ impl Room {
                 name: teammate.name.clone(),
             })
             .collect();
-        if record.teammates != known {
+        if record.teammates != known && self.links.may_save_names(desk_id) {
             record.teammates = known;
             linked::save(&self.log, &record)?;
         }
@@ -292,6 +307,9 @@ impl Room {
             .iter()
             .any(|known| known.persona_id == from_persona_id)
         {
+            if record.teammates.len() >= linked::TEAMMATES_MAX {
+                return Err("That desk is known by as many teammates as it may be.".into());
+            }
             let mut record = record.clone();
             record.teammates.push(Known {
                 persona_id: from_persona_id.to_string(),

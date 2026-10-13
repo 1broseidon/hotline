@@ -41,3 +41,6 @@ description: |-
   Migrated from Linear BRO-179: https://linear.app/1broseidon/issue/BRO-179/desk-to-desk-link-pair-two-desks-for-their-teammates-with-a-durable (2026-10-11).
 updatedAt: "2026-10-11T21:05:26.739Z"
 ---
+
+## Log
+- 2026-10-13T07:31:33.892Z: [claude] On dispatch/epic-3: desks.link/link_accept/unlink/links, with desk_link room records on both sides. The dialer uses its desk key on /v2/link, directly or through the relay, redials with jittered backoff, and treats an authenticated refusal as "ended". Seat::Link allows only the federation commands; the wire test proves every other command is forbidden. Link/Unlink is in Settings › Desks, and `hotline links`/`unlink` on the CLI. remote/tests/link_tests.rs covers linking, surviving outages and restarts, unlinking from either side, the key check, and the relay.

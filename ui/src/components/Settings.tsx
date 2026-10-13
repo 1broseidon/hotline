@@ -31,6 +31,7 @@ import { UpdatesSection } from "./UpdatesSection";
 import { RemoteSection } from "./RemoteSection";
 import { onServer } from "../serverFiles";
 import { DesksSection } from "./DesksSection";
+import { useActiveDesk, useDesks } from "../desks";
 
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
@@ -60,14 +61,19 @@ export function SettingsRail({
 	section,
 	onSection,
 	onBack,
+	onDesk,
 	width,
 }: {
 	section: SettingsSection;
 	onSection(section: SettingsSection): void;
 	onBack(): void;
+	/** Show another desk's settings: the window moves there, as it does for a teammate (BRO-178). */
+	onDesk?: ((deskId: string) => void) | undefined;
 	/** The rail's dragged width: settings' menu stands where the rail does. */
 	width?: number | undefined;
 }) {
+	const desks = useDesks();
+	const here = useActiveDesk();
 	return (
 		<nav aria-label="Settings" className="rail flex flex-col" style={width !== undefined ? { width } : undefined}>
 			<Band>
@@ -82,6 +88,21 @@ export function SettingsRail({
 				</button>
 				<h1 className="eyebrow min-w-0 flex-1 truncate pl-1">Settings</h1>
 			</Band>
+			{/* Settings are a desk's: the desk of the teammate open, or another one picked here. */}
+			{desks.length > 1 && here !== null && onDesk !== undefined && (
+				<div className="shrink-0 px-2 pt-1">
+					<Picker
+						field
+						value={here.id}
+						choices={desks.map((desk) => ({ id: desk.id, name: desk.name, group: desk.kind === "local" ? "On this computer" : "Remote" }))}
+						placeholder="Desk"
+						label="Whose settings"
+						onChange={(deskId) => {
+							if (deskId !== here.id) onDesk(deskId);
+						}}
+					/>
+				</div>
+			)}
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-1">
 				{SECTIONS.map((one) => (
 					<button

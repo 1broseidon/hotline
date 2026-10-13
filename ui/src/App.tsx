@@ -49,7 +49,7 @@ type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | "add-desk" | n
  * the teammate's own pane is open beside it. Set by `openOnDesk` just
  * before the window remounts on another desk, and spent by that mount.
  */
-let arriving: { pane: Pane; inspector: boolean } = { pane: null, inspector: false };
+let arriving: { pane: Pane; inspector: boolean; section?: SettingsSection } = { pane: null, inspector: false };
 
 /**
  * Opens something on another desk: a teammate picked in the rail, its pane,
@@ -57,7 +57,7 @@ let arriving: { pane: Pane; inspector: boolean } = { pane: null, inspector: fals
  * (BRO-178), and the screen follows the teammate: its desk becomes the one
  * the window talks to, and nothing needs switching by hand.
  */
-function openOnDesk(deskId: string, open: { personaId?: string; pane?: Pane; inspector?: boolean }) {
+function openOnDesk(deskId: string, open: { personaId?: string; pane?: Pane; inspector?: boolean; section?: SettingsSection }) {
 	if (open.personaId !== undefined) {
 		try {
 			localStorage.setItem(deskKey(SELECTED_KEY, deskId), open.personaId);
@@ -65,7 +65,7 @@ function openOnDesk(deskId: string, open: { personaId?: string; pane?: Pane; ins
 			// Private mode: the desk opens on whoever it had open.
 		}
 	}
-	arriving = { pane: open.pane ?? null, inspector: open.inspector ?? false };
+	arriving = { pane: open.pane ?? null, inspector: open.inspector ?? false, ...(open.section === undefined ? {} : { section: open.section }) };
 	setActiveDesk(deskId);
 }
 
@@ -144,7 +144,7 @@ export function App() {
 	useEffect(() => {
 		arriving = { pane: null, inspector: false };
 	}, []);
-	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
+	const [settingsSection, setSettingsSection] = useState<SettingsSection>(() => arriving.section ?? "general");
 	/* The right-hand pane: this teammate's threads, beside the
 	 * conversation or over it in a window too narrow. */
 	const [dockWidth, setDockWidthState] = useState(loadDockWidth);
@@ -672,7 +672,13 @@ export function App() {
 			<div className="flex min-h-0 flex-1 gap-2 p-2 pt-0">
 			{!railSize.open ? null : pane === "settings" ? (
 				<Suspense fallback={null}>
-					<SettingsRail section={settingsSection} onSection={setSettingsSection} onBack={closePane} width={settingsWidth} />
+					<SettingsRail
+						section={settingsSection}
+						onSection={setSettingsSection}
+						onBack={closePane}
+						onDesk={(deskId) => openOnDesk(deskId, { pane: "settings", section: settingsSection })}
+						width={settingsWidth}
+					/>
 				</Suspense>
 			) : (
 			<Rail

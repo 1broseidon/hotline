@@ -198,6 +198,15 @@ const ADAPTED: &[Adapted] = &[
         package: "@agentclientprotocol/codex-acp@1.12.0",
         client: "codex",
     },
+    // BrokkAi's adapter, which drives `muse serve`; the npm `muse-acp`
+    // package is an unrelated project.
+    Adapted {
+        id: "muse-acp",
+        name: "Muse Code",
+        description: "Meta's Muse Code CLI, with your Muse Code login.",
+        package: "@brokkai/muse-acp@0.13.0",
+        client: "muse",
+    },
 ];
 
 /// How long Hotline leaves the catalogue alone after trying for it, whether

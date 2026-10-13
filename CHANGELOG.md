@@ -8,6 +8,12 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- Muse Code can be a teammate's harness, on your own Muse Code login, so a
+  Muse subscription works in Hotline. It runs through BrokkAi's `muse-acp`
+  adapter and is offered when `muse` is installed.
+
 ## [0.36.2] - 2026-10-13
 
 ### Fixed

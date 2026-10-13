@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.36.2] - 2026-10-13
+
 ### Fixed
 
 - OpenAI-compatible connections on the Responses API no longer fail every

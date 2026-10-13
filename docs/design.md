@@ -692,3 +692,26 @@ answer even if the desk stopped before dispatch. Starting that continuation
 is recorded before calling the driver, so an interrupted continuation is still
 uncertain work, never a replay. Old requests without action ids retain the old
 settlement rules; no route is guessed from conversation text.
+
+### Teammate looks: the person's choice, read by the window
+
+A teammate's picture was its own: the `set_avatar` tool, or one drawn at setup.
+`AvatarBy::Person` already existed for a picture the person chose, but nothing
+set one. `avatar.set` does, from any image the window sends, squared the way a
+teammate's is; the teammate's tool then leaves it alone.
+
+A look is how the face is drawn beyond that picture: the initial, the photo, or
+a video clip per mood. It sits on the teammate's record so every window and
+the phone show the same face, and only the person sets it, over the wire,
+never through a teammate tool, so it grants a teammate nothing. Clips are kept
+beside the picture under their hash and never rewritten; the clip no mood
+names any more is removed.
+
+Which mood a face shows is the window's reading of what it already has: the
+session's state, whether the teammate waits on you, whether you are typing to
+it, and whether the window is in front. The desk keeps no mood and no clock
+for it. A mood plays to the end of its clip before the next starts, so a quick
+turn still finishes its animation, and a mood without a clip plays the idle
+one, which a video face therefore needs. Whether a window draws faces at all
+is that window's preference, like its theme, and off by default, so a window
+that never opts in draws every teammate as before.

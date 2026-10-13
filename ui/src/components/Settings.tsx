@@ -10,10 +10,12 @@ import { DEFAULT_IDLE_HOURS, useModelsRevision, useRawSetting, useRoomSettings }
 import { recheckVoiceSupport } from "../voice/call";
 import { BackKey, Band } from "../ui/Band";
 import { Chips } from "../ui/Chips";
+import { SwitchRow } from "./Teammate";
 import { Fold, toggled } from "../ui/Fold";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
+import { setFacePrefs, useFacePrefs } from "../faces/prefs";
 import { setTheme, THEMES, useTheme } from "../theme";
 import { wire } from "../wire";
 import { BackendPicker } from "./BackendPicker";
@@ -35,10 +37,11 @@ import { DesksSection } from "./DesksSection";
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
-export type SettingsSection = "general" | "desks" | "providers" | "tools" | "skills" | "computer" | "secrets" | "remote" | "updates" | "import";
+export type SettingsSection = "general" | "avatars" | "desks" | "providers" | "tools" | "skills" | "computer" | "secrets" | "remote" | "updates" | "import";
 
 const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "general", title: "General" },
+	{ id: "avatars", title: "Avatars" },
 	{ id: "desks", title: "Desks" },
 	{ id: "providers", title: "Providers" },
 	{ id: "tools", title: "Tools" },
@@ -151,6 +154,7 @@ export function Settings({
 							onProviders={onSection === undefined ? undefined : () => onSection("providers")}
 						/>
 					)}
+					{section === "avatars" && <AvatarsSection />}
 					{section === "computer" && (
 						<ComputerSection
 							runtime={settings.computerRuntime}
@@ -182,6 +186,50 @@ function AppearanceSection() {
 					</span>
 					<Chips value={theme} choices={THEMES} label="Theme" onChange={setTheme} />
 				</div>
+			</div>
+		</section>
+	);
+}
+
+/**
+ * Teammate faces, for this window only. Off draws every teammate as it always
+ * has: its picture or its initial. Which face a teammate has is chosen on the
+ * teammate's own pane, and kept on the desk.
+ */
+function AvatarsSection() {
+	const faces = useFacePrefs();
+	return (
+		<section>
+			<h3 className="group-title">Teammate faces</h3>
+			<div className="grouped">
+				<div className="group-row">
+					<span className="group-row-text">
+						<span className="group-row-title">Animated avatars</span>
+						<span className="group-row-detail">Each face is chosen on its teammate's pane</span>
+					</span>
+					<Chips
+						value={faces.on ? "on" : "off"}
+						choices={[
+							{ id: "off", name: "Off" },
+							{ id: "on", name: "On" },
+						]}
+						label="Teammate faces"
+						onChange={(id) => setFacePrefs({ on: id === "on" })}
+					/>
+				</div>
+				{faces.on && (
+					<>
+						<SwitchRow title="Big face above a conversation" checked={faces.stage} disabled={false} onChange={(stage) => setFacePrefs({ stage })} />
+						<SwitchRow title="Face as the activity mark" checked={faces.mark} disabled={false} onChange={(mark) => setFacePrefs({ mark })} />
+						<SwitchRow
+							title="Doze in the background"
+							about="Asleep while the window is not in front, awake a second after it is back."
+							checked={faces.doze}
+							disabled={false}
+							onChange={(doze) => setFacePrefs({ doze })}
+						/>
+					</>
+				)}
 			</div>
 		</section>
 	);

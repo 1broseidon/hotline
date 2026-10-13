@@ -9,6 +9,8 @@ import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
 import { usePeople } from "../avatars";
+import { moves, useFace } from "../faces/face";
+import { useFacePrefs } from "../faces/prefs";
 import { Avatar } from "../ui/Avatar";
 import { Band } from "../ui/Band";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
@@ -313,6 +315,8 @@ export function Conversation({
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
 
+	const faces = useFacePrefs();
+	const face = useFace(persona.id);
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
 			<Band>
@@ -436,6 +440,12 @@ export function Conversation({
 					<WarningIcon className="shrink-0 text-danger" />
 					<span className="min-w-0 flex-1 selectable">{notice}</span>
 				</p>
+			)}
+
+			{faces.stage && moves(face) && (
+				<div className="face-stage" aria-hidden="true">
+					<Avatar id={persona.id} name={persona.name} size={120} />
+				</div>
 			)}
 
 			<div className="relative flex min-h-0 flex-1 flex-col">

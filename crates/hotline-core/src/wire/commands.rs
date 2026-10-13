@@ -572,6 +572,44 @@ pub(crate) async fn run(
                     .map(|chunk| json!(chunk)),
             }
         }
+        Command::AvatarSet { persona_id, data } => {
+            living(log, &persona_id)?;
+            room.set_person_avatar(&persona_id, &data)
+                .await
+                .map(|()| Value::Null)
+        }
+        Command::LookSet { persona_id, style } => {
+            living(log, &persona_id)?;
+            room.set_look(&persona_id, style)
+                .await
+                .map(|()| Value::Null)
+        }
+        Command::LookClipSet {
+            persona_id,
+            mood,
+            mime_type,
+            data,
+        } => {
+            living(log, &persona_id)?;
+            room.set_clip(&persona_id, mood, &mime_type, &data)
+                .await
+                .map(|()| Value::Null)
+        }
+        Command::LookClipClear { persona_id, mood } => {
+            living(log, &persona_id)?;
+            room.clear_clip(&persona_id, mood)
+                .await
+                .map(|()| Value::Null)
+        }
+        Command::LookClipRead {
+            persona_id,
+            hash,
+            offset,
+        } => {
+            living(log, &persona_id)?;
+            crate::session::look::read(log.root(), &persona_id, &hash, offset)
+                .map(|chunk| json!(chunk))
+        }
         Command::AvatarGenerate { persona_id } => {
             living(log, &persona_id)?;
             room.generate_avatar(&persona_id)
@@ -908,6 +946,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         name: given(Some(draft.name)).unwrap_or_else(|| "Untitled".to_string()),
         goal: given(draft.goal).unwrap_or_default(),
         avatar: None,
+        look: None,
         team: given(draft.team),
         backend_id,
         cwd,

@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { type AvatarRead, avatarUrl } from "../avatars";
+import { type Face, useFace } from "../faces/face";
+import { useHeldMood, useMood } from "../faces/mood";
+import { VideoFace } from "../faces/VideoFace";
 
 /**
  * A teammate's face: its picture in the circle when it has one (`hash` is the
@@ -8,7 +11,9 @@ import { type AvatarRead, avatarUrl } from "../avatars";
  * when the one above it is deleted. The initial also shows while the picture
  * comes and if it cannot be read. The lightness and chroma are the tokens'
  * (ui/src/tokens.css); only the hue is chosen here. Red is missing on
- * purpose: it is the colour of something wrong.
+ * purpose: it is the colour of something wrong. A teammate whose look is an
+ * video face (faces/) shows that instead, in the mood its state calls for,
+ * when this window draws faces.
  */
 export function Avatar({
 	id,
@@ -27,8 +32,14 @@ export function Avatar({
 	/** A pinned desk, for pictures drawn after the window switches desks. */
 	read?: AvatarRead | undefined;
 }) {
-	const url = usePicture(id, hash, read);
-	const face = (
+	const look = useFace(id);
+	const moving = look?.kind === "video" ? look : undefined;
+	const url = usePicture(id, look === null ? hash : undefined, read);
+	const face = moving !== undefined ? (
+		<span aria-hidden="true" className="avatar avatar-face" style={{ width: size, height: size }}>
+			<MovingFace id={id} face={moving} />
+		</span>
+	) : (
 		<span
 			aria-hidden="true"
 			className="avatar"
@@ -49,6 +60,10 @@ export function Avatar({
 			<span aria-hidden="true" className="avatar-ring" />
 		</span>
 	);
+}
+
+function MovingFace({ id, face }: { id: string; face: Extract<Face, { kind: "video" }> }) {
+	return <VideoFace personaId={id} clips={face.clips} mood={useHeldMood(useMood(id))} />;
 }
 
 /** The picture's URL once it has arrived; undefined before, and if it cannot be read. */

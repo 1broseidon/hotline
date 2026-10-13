@@ -25,6 +25,7 @@ fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
         name: "Ada".into(),
         goal: "Keep the harbour running".into(),
         avatar: None,
+        look: None,
         team: None,
         backend_id: "hotline".into(),
         cwd: workspace.to_string_lossy().into_owned(),
@@ -268,4 +269,27 @@ fn a_picture_is_read_only_by_a_genuine_hash() {
         read(dir.path(), "bob", &hash, 0).unwrap_err(),
         "That teammate has no such picture."
     );
+}
+
+#[tokio::test]
+async fn the_persons_upload_is_squared_marked_theirs_and_left_alone_by_the_teammate() {
+    let (_dir, room, tools) = room();
+    let data = base64::engine::general_purpose::STANDARD.encode(margined());
+    room.set_person_avatar("ada", &data).await.unwrap();
+    let avatar = avatar(&room).unwrap();
+    assert_eq!(avatar.by, AvatarBy::Person);
+
+    let error = tools
+        .call("set_avatar", &json!({ "clear": true }))
+        .await
+        .unwrap_err();
+    assert!(error.contains("The person chose"), "{error}");
+}
+
+#[tokio::test]
+async fn an_upload_that_is_not_a_picture_changes_nothing() {
+    let (_dir, room, _tools) = room();
+    let data = base64::engine::general_purpose::STANDARD.encode(b"not a picture");
+    assert!(room.set_person_avatar("ada", &data).await.is_err());
+    assert_eq!(avatar(&room), None);
 }

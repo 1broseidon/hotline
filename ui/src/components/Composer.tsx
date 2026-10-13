@@ -9,6 +9,7 @@ import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
 import { readDraft, writeDraft } from "../drafts";
 import { hotkeyLabel, useHotkeys } from "../hotkeys";
+import { noteTyping } from "../faces/mood";
 import { useCall, useCallSnapshot } from "../voice/call";
 import {
 	Dictation,
@@ -384,6 +385,7 @@ export function Composer({
 							readOnly={heard.phase === "listening" || heard.phase === "finishing"}
 							onChange={(event) => {
 								setText(event.target.value);
+								noteTyping(personaId, event.target.selectionStart / 40);
 								dictation.clearError();
 								countdown.cancel();
 							}}

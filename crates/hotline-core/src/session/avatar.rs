@@ -15,6 +15,7 @@ use crate::images::DECODERS;
 use crate::paths;
 use crate::sent;
 use crate::tools::Workspace;
+use base64::Engine;
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -108,6 +109,37 @@ impl Room {
             Some(hash) => json!({ "hash": hash }).to_string(),
             None => "Your picture is cleared; people see your initial again.".to_string(),
         })
+    }
+
+    /// `avatar.set`: the person's own picture for a teammate. It is squared
+    /// like one the teammate sets, and marked the person's so the teammate
+    /// leaves it alone.
+    pub(crate) async fn set_person_avatar(
+        &self,
+        persona_id: &str,
+        data: &str,
+    ) -> Result<(), String> {
+        if data.len() > MAX_BYTES.div_ceil(3) * 4 {
+            return Err("That picture is too large; choose one under 20 MB.".into());
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .map_err(|_| "That picture could not be read.".to_string())?;
+        self.persona(persona_id)?;
+        let permit = DECODERS
+            .acquire()
+            .await
+            .map_err(|_| "The picture could not be prepared.".to_string())?;
+        let png = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            square(&bytes)
+        })
+        .await
+        .map_err(|_| "The picture could not be prepared.".to_string())??;
+        let gate = self.policy_update_lock();
+        let _held = gate.lock().await;
+        self.write_avatar(persona_id, Some(png), AvatarBy::Person)?;
+        Ok(())
     }
 
     /// Whether setup's offer can go ahead, answered before the drawing starts
@@ -253,14 +285,19 @@ fn store(root: &Path, persona_id: &str, hash: &str, png: &[u8]) -> std::io::Resu
     Ok(())
 }
 
-/// Removes the teammate's kept pictures, all but the one named.
+/// Removes the teammate's kept pictures, all but the one named. Its clips
+/// share the directory and are left alone: they are the look's to remove.
 pub(crate) fn remove_except(root: &Path, persona_id: &str, keep: Option<&str>) {
     let Ok(entries) = std::fs::read_dir(paths::avatar_dir(root, persona_id)) else {
         return;
     };
     let kept = keep.map(|hash| format!("{hash}.png"));
     for entry in entries.flatten() {
-        if kept.as_deref().is_none_or(|kept| entry.file_name() != kept) {
+        let picture = entry
+            .path()
+            .extension()
+            .is_some_and(|extension| extension == "png");
+        if picture && kept.as_deref().is_none_or(|kept| entry.file_name() != kept) {
             let _ = std::fs::remove_file(entry.path());
         }
     }

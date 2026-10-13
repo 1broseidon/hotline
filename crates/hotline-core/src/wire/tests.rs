@@ -6757,3 +6757,42 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
     .await;
     assert_eq!(bad["ok"], false, "{bad}");
 }
+
+/// A look is the person's: the phone reads a teammate's clips as it reads its
+/// picture, but setting a picture, a look or a clip stays with the owner.
+#[test]
+fn a_look_is_read_by_every_seat_and_set_only_by_the_owner() {
+    use crate::contract::{LookStyle, Mood};
+    let read = Command::LookClipRead {
+        persona_id: "ada".to_string(),
+        hash: "0".repeat(64),
+        offset: 0,
+    };
+    let sets = [
+        Command::AvatarSet {
+            persona_id: "ada".to_string(),
+            data: String::new(),
+        },
+        Command::LookSet {
+            persona_id: "ada".to_string(),
+            style: LookStyle::Video,
+        },
+        Command::LookClipSet {
+            persona_id: "ada".to_string(),
+            mood: Mood::Done,
+            mime_type: "video/mp4".to_string(),
+            data: String::new(),
+        },
+        Command::LookClipClear {
+            persona_id: "ada".to_string(),
+            mood: Mood::Done,
+        },
+    ];
+    for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
+        assert!(seat.permits(&read));
+    }
+    for command in &sets {
+        assert!(Seat::Owner.permits(command));
+        assert!(!Seat::Phone.permits(command), "{command:?}");
+    }
+}

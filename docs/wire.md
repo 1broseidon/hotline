@@ -134,6 +134,11 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
 | `file.read` | `{personaId, eventId, offset}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64; `next` is where the next part starts, absent at the end |
 | `avatar.read` | `{personaId, hash, offset?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash`; anything else, or a picture the desk does not keep, is refused in a sentence. Every seat may read one |
+| `avatar.set` | `{personaId, data}` | `null` — the person's own picture for a teammate: `data` is the image, base64, in any format the desk decodes, at most 20 MB. It is squared as a teammate's own is and kept with `by: "person"`, so the teammate's `set_avatar` leaves it alone. Owner seats only |
+| `look.set` | `{personaId, style}` | `null` — how the teammate's face is drawn: `style` is `initial`, `photo` or `video`. Keeps the look's clips. Owner seats only |
+| `look.clip_set` | `{personaId, mood, mimeType, data}` | `null` — one mood's clip for a video face: `mimeType` is `video/mp4` or `video/webm`, `data` the video in base64, at most 4 MB. Kept under its hash beside the picture; a clip no mood names any more is removed. Owner seats only |
+| `look.clip_clear` | `{personaId, mood}` | `null` — the mood without a clip, which then falls back. Owner seats only |
+| `look.clip_read` | `{personaId, hash, offset?}` | `FileChunk`, as `avatar.read` answers a picture — one of the teammate's kept clips, by the hash on its look. Every seat may read one |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |
@@ -629,6 +634,15 @@ absent when the teammate shows its initial. The picture is kept under
 by hash for good. A teammate sets its own with the `set_avatar` tool;
 `persona.update` accepts `avatar: null` to clear it and nothing else for that
 field. Neither restarts the session.
+
+A teammate's `look` is `{style, clips, updatedAt}`, and is absent for
+a teammate drawn as before: its picture, else its initial. `clips` maps
+a mood (`idle`, `sleep`, `attentive`, `think`, `work`, `done`, `grumpy`,
+`crossed-arms`, `needy`) to `{hash, mimeType}`, kept under
+`avatars/<teammate>/<hash>.mp4` or `.webm` and never rewritten. A video face
+needs its `idle` clip, which a mood without its own plays. Only the
+person sets a look; no teammate tool reaches it. Which mood a face shows, and
+whether a window draws faces at all, is the window's own business.
 
 `search.thread` defaults `limit` to 20 and clamps it to 1–40.
 `search.all` defaults `limit` to 30 and clamps it to 1–60. A query is cut at 200 UTF-16 code

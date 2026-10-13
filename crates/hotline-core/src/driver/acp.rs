@@ -3322,6 +3322,7 @@ mod tests {
             name: "Ada".to_string(),
             goal: "Keep the harbour running.".to_string(),
             avatar: None,
+            look: None,
             team: None,
             backend_id: "cursor".to_string(),
             cwd: cwd.to_string(),

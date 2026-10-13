@@ -49,3 +49,6 @@ description: |-
   Migrated from Linear BRO-181: https://linear.app/1broseidon/issue/BRO-181/cross-desk-messaging-message-teammate-threads-and-replies-over-the (2026-10-11).
 updatedAt: "2026-10-11T21:05:28.388Z"
 ---
+
+## Log
+- 2026-10-13T07:31:38.577Z: [claude] On dispatch/epic-3: an ask or handoff to a linked teammate waits in the sender's exchange_pair, crosses when the queue takes it up, and runs on the recipient desk under that desk's allowedSenders (by qualified id) and a card on the recipient's tape; the sender's desk can't answer the card. The result returns over the link, kept until it arrives, and each desk keeps its own copy of the pair thread. Unlinking fails pending messages with "X is on D, which isn't linked any more.", withdraws cards and ends grants, and a stop on the recipient's desk answers the sender. Tests cover ask, handoff, reply, offline both ways, deny, revoke, ambiguity and bounds. Not done: the sender does not see a "waiting for the person" state while the other desk's card is open (residual in the ADR).

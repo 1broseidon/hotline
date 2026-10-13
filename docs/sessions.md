@@ -649,6 +649,7 @@ the saved list until you save. Use Edit connection to discover again.
 | --- | --- | --- | --- |
 | Together AI | `https://api.together.ai/v1` | Chat Completions | Together API key |
 | LM Studio | `http://localhost:1234/v1` | Responses | None by default; token if enabled in LM Studio |
+| Meta Model API (Muse) | `https://api.meta.ai/v1` | Responses | Meta `MODEL_API_KEY` |
 
 For Together, use an exact model ID from discovery or the Together model
 catalogue, including its owner prefix. Together does not implement Responses;

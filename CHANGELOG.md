@@ -8,6 +8,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.36.2] - 2026-10-13
+
+### Fixed
+
+- OpenAI-compatible connections on the Responses API no longer fail every
+  turn with "data did not match any variant of untagged enum
+  StreamingCompletionChunk" when the server streams a looser shape than
+  OpenAI, as Meta's Muse models do. Hotline fills in what such servers leave
+  out, and logs any frame it still can't read.
+
 ## [0.36.1] - 2026-10-11
 
 ### Fixed

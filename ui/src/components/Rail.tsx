@@ -1,6 +1,6 @@
 import { type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
-import { MAX_PINS, nudged, railOrder } from "../pins";
+import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
 import { ChevronDownIcon, ComputerIcon, SettingsIcon, MoreIcon, PlusIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import { shownState } from "../activity";
@@ -8,8 +8,9 @@ import type { SessionState } from "../generated/contract";
 import type { Connection, RosterEntry } from "../wire";
 import { Avatar, faceOf, initialOf } from "../ui/Avatar";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
-import { useBackgroundUnread } from "../deskWatch";
-import { setActiveDesk, useActiveDesk, useDesks, type Desk } from "../desks";
+import { seenOn, useBackgroundUnread } from "../deskWatch";
+import { linkWords, useDeskLinks } from "../deskLinks";
+import { setDeskFilter, useActiveDesk, useDeskFilter, useDesks, type Desk } from "../desks";
 import { useSaved } from "../useSaved";
 
 /**
@@ -30,6 +31,7 @@ const VITAL: Record<SessionState, { color: string | null; beating: boolean; labe
 
 export function Rail({
 	entries,
+	elsewhere = {},
 	loaded = true,
 	selectedId,
 	seen,
@@ -44,20 +46,24 @@ export function Rail({
 	width,
 	compact = false,
 }: {
+	/** The teammates of the desk on screen. */
 	entries: RosterEntry[];
+	/** The teammates of every other desk this window holds, by desk: one rail lists them all (BRO-178). */
+	elsewhere?: Record<string, RosterEntry[]>;
 	/** Whether the desk's roster has arrived; before it, no teammates is not "no teammates yet". */
 	loaded?: boolean;
 	selectedId: string | null;
-	/** The latest ts the window has already shown for each teammate. */
+	/** The latest ts the window has already shown for each teammate on the desk on screen. */
 	seen: Record<string, number>;
 	connection: Connection;
-	onSelect(personaId: string): void;
+	/** A teammate picked; `deskId` names its desk when that is not the desk on screen. */
+	onSelect(personaId: string, deskId?: string): void;
 	onNew(): void;
 	onSettings(): void;
-	onEdit(personaId: string): void;
-	onDelete(personaId: string, name: string): void;
+	onEdit(personaId: string, deskId?: string): void;
+	onDelete(personaId: string, name: string, deskId?: string): void;
 	/** Pin at a slot, or unpin with null. */
-	onPin(personaId: string, slot: number | null): void;
+	onPin(personaId: string, slot: number | null, deskId?: string): void;
 	onHelp(id: "shortcuts" | "about" | "github" | "add-desk"): void;
 	/** The dragged width; none in a narrow window, where the rail is the whole window. */
 	width?: number | undefined;
@@ -68,7 +74,23 @@ export function Rail({
 	const words = connection === "outdated" ? "This window needs a newer Hotline core" : "Reconnecting";
 	/* The pinned face being dragged, and the slot it would drop into. */
 	const [drag, setDrag] = useState<{ id: string; over: number | null } | null>(null);
-	const { pinned, rest } = railOrder(entries);
+	const desks = useDesks();
+	const active = useActiveDesk();
+	const filter = useDeskFilter();
+	const here = active?.id ?? "";
+	const { pinned, rest } = teamOrder(shownTeam(desks, here, filter, entries, elsewhere));
+	/* Each row's desk is said only when there is more than one to tell apart. */
+	const deskOf = (row: TeamRow) => desks.find((desk) => desk.id === row.deskId);
+	const shownDesk = (row: TeamRow) => (desks.length > 1 ? shortName(deskOf(row)?.name ?? "") : undefined);
+	const offline = (row: TeamRow) => {
+		const desk = deskOf(row);
+		return desk?.kind === "remote" && desk.state !== undefined && desk.state !== "open";
+	};
+	const onDesk = (row: TeamRow) => row.deskId === here;
+	const unread = (row: TeamRow) =>
+		onDesk(row) ? unreadOf(row.entry, selectedId, seen) : unreadOf(row.entry, null, seenOn(row.deskId));
+	const elsewhereId = (row: TeamRow) => (onDesk(row) ? undefined : row.deskId);
+	const key = (row: TeamRow) => `${row.deskId}/${row.entry.persona.id}`;
 	const showTip = (row: HTMLElement | null, name = "", line = "") => {
 		if (row === null) {
 			setTip(null);
@@ -91,9 +113,9 @@ export function Rail({
 			className={`rail flex flex-col ${compact ? "rail-compact" : ""}`}
 			style={width !== undefined ? { width } : undefined}
 		>
-			<DeskSwitcher compact={compact} onAdd={() => onHelp("add-desk")} />
+			<DeskFilter compact={compact} onAdd={() => onHelp("add-desk")} />
 			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
-				{entries.length === 0 ? (
+				{pinned.length + rest.length === 0 ? (
 					compact || !loaded ? null :
 					<p className="px-2 py-3 text-sm text-ink-3">
 						No teammates yet. Each one keeps its own working directory, its own goal and its
@@ -103,43 +125,69 @@ export function Rail({
 					<>
 						{pinned.length > 0 && (
 							<div className={compact ? "rail-pins rail-pins-stacked" : "rail-pins"} role="group" aria-label="Pinned">
-								{pinned.map((entry, slot) => (
-									<PinTile
-										key={entry.persona.id}
-										entry={entry}
-										slot={slot}
-										count={pinned.length}
-										shortcut={slot < 9 ? slot + 1 : null}
-										active={entry.persona.id === selectedId}
-										unread={unreadOf(entry, selectedId, seen)}
-										dragging={drag?.id === entry.persona.id}
-										over={drag !== null && drag.id !== entry.persona.id && drag.over === slot}
-										compact={compact}
-										onSelect={() => onSelect(entry.persona.id)}
-										onEdit={() => onEdit(entry.persona.id)}
-										onDelete={() => onDelete(entry.persona.id, entry.persona.name)}
-										onPin={onPin}
-										onDrag={setDrag}
-										onTip={showTip}
-									/>
-								))}
+								{pinned.map((row, index) => {
+									const { entry } = row;
+									// A pin's slot is on its own desk's row of pins.
+									const ownPins = pinned.filter((one) => one.deskId === row.deskId);
+									const slot = ownPins.indexOf(row);
+									return (
+										<PinTile
+											key={key(row)}
+											entry={entry}
+											desk={shownDesk(row)}
+											offline={offline(row)}
+											slot={slot}
+											count={ownPins.length}
+											shortcut={index < 9 ? index + 1 : null}
+											active={onDesk(row) && entry.persona.id === selectedId}
+											unread={unread(row)}
+											dragging={drag?.id === key(row)}
+											over={drag !== null && drag.id !== key(row) && drag.id.startsWith(`${row.deskId}/`) && drag.over === slot}
+											compact={compact}
+											onSelect={() => onSelect(entry.persona.id, elsewhereId(row))}
+											onEdit={() => onEdit(entry.persona.id, elsewhereId(row))}
+											onDelete={() => onDelete(entry.persona.id, entry.persona.name, elsewhereId(row))}
+											onPin={(personaId, at) => {
+												// A pin moves along its own desk's row and no other.
+												if (drag !== null && !drag.id.startsWith(`${row.deskId}/`)) return;
+												onPin(personaId, at, elsewhereId(row));
+											}}
+											onDrag={(dragged) =>
+												// Which face is being dragged is known when the drag starts;
+												// passing over another face only moves where it would land.
+												setDrag((was) =>
+													dragged === null
+														? null
+														: { id: was !== null && dragged.over !== null ? was.id : `${row.deskId}/${dragged.id}`, over: dragged.over },
+												)
+											}
+											onTip={showTip}
+										/>
+									);
+								})}
 							</div>
 						)}
-						{rest.map((entry, index) => (
-							<Row
-								key={entry.persona.id}
-								entry={entry}
-								shortcut={pinned.length + index < 9 ? pinned.length + index + 1 : null}
-								active={entry.persona.id === selectedId}
-								unread={unreadOf(entry, selectedId, seen)}
-								full={pinned.length >= MAX_PINS}
-								onSelect={() => onSelect(entry.persona.id)}
-								onEdit={() => onEdit(entry.persona.id)}
-								onDelete={() => onDelete(entry.persona.id, entry.persona.name)}
-								onPin={() => onPin(entry.persona.id, pinned.length)}
-								{...(compact ? { onTip: showTip } : {})}
-							/>
-						))}
+						{rest.map((row, index) => {
+							const { entry } = row;
+							const pins = pinned.filter((one) => one.deskId === row.deskId).length;
+							return (
+								<Row
+									key={key(row)}
+									entry={entry}
+									desk={shownDesk(row)}
+									offline={offline(row)}
+									shortcut={pinned.length + index < 9 ? pinned.length + index + 1 : null}
+									active={onDesk(row) && entry.persona.id === selectedId}
+									unread={unread(row)}
+									full={pins >= MAX_PINS}
+									onSelect={() => onSelect(entry.persona.id, elsewhereId(row))}
+									onEdit={() => onEdit(entry.persona.id, elsewhereId(row))}
+									onDelete={() => onDelete(entry.persona.id, entry.persona.name, elsewhereId(row))}
+									onPin={() => onPin(entry.persona.id, pins, elsewhereId(row))}
+									{...(compact ? { onTip: showTip } : {})}
+								/>
+							);
+						})}
 					</>
 				)}
 			</div>
@@ -195,6 +243,8 @@ export function Rail({
 
 function Row({
 	entry,
+	desk,
+	offline = false,
 	shortcut,
 	active,
 	unread,
@@ -206,6 +256,10 @@ function Row({
 	onTip,
 }: {
 	entry: RosterEntry;
+	/** Its desk's name, when the rail lists more than one desk. */
+	desk?: string | undefined;
+	/** Its desk cannot be reached: the row stays, dimmed, as it last was. */
+	offline?: boolean;
 	shortcut: number | null;
 	active: boolean;
 	unread: boolean;
@@ -223,18 +277,20 @@ function Row({
 	const working = state === "thinking" && entry.activity !== undefined;
 	const busy = entry.session.state === "starting" || entry.drawing;
 	const line = lineOf(entry);
+	const named = desk === undefined ? entry.persona.name : `${entry.persona.name} · ${desk}`;
 	return (
 		<button
 			type="button"
 			data-teammate-row
+			data-offline={offline || undefined}
 			aria-current={active ? "true" : undefined}
-			aria-label={`${entry.persona.name}${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}`}
+			aria-label={`${named}${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
 			className="rail-row group relative"
 			onClick={onSelect}
 			{...(onTip !== undefined
 				? {
-						onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => onTip(event.currentTarget, entry.persona.name, line),
-						onFocus: (event: FocusEvent<HTMLButtonElement>) => onTip(event.currentTarget, entry.persona.name, line),
+						onMouseEnter: (event: MouseEvent<HTMLButtonElement>) => onTip(event.currentTarget, named, line),
+						onFocus: (event: FocusEvent<HTMLButtonElement>) => onTip(event.currentTarget, named, line),
 						onMouseLeave: () => onTip(null),
 						onBlur: () => onTip(null),
 					}
@@ -270,6 +326,7 @@ function Row({
 				<span className="flex h-[18px] items-center gap-1.5">
 					<span className={`min-w-0 flex-1 truncate ${unread ? "font-semibold text-ink" : "font-medium text-ink"}`}>
 						{entry.persona.name}
+						{desk !== undefined && <span className="rail-desk">{desk}</span>}
 					</span>
 					{shortcut !== null && (
 						<kbd
@@ -318,6 +375,8 @@ function lineOf(entry: RosterEntry): string {
  */
 function PinTile({
 	entry,
+	desk,
+	offline = false,
 	slot,
 	count,
 	shortcut,
@@ -334,6 +393,9 @@ function PinTile({
 	onTip,
 }: {
 	entry: RosterEntry;
+	/** Its desk's name, when the rail lists more than one desk. */
+	desk?: string | undefined;
+	offline?: boolean;
 	slot: number;
 	count: number;
 	shortcut: number | null;
@@ -353,6 +415,7 @@ function PinTile({
 	const vital = VITAL[entry.session.state];
 	const busy = entry.session.state === "starting" || entry.drawing;
 	const line = lineOf(entry);
+	const named = desk === undefined ? persona.name : `${persona.name} · ${desk}`;
 	const left = nudged(slot, -1, count);
 	const right = nudged(slot, 1, count);
 	return (
@@ -360,16 +423,17 @@ function PinTile({
 			type="button"
 			data-teammate-row
 			data-pin={slot}
+			data-offline={offline || undefined}
 			draggable
 			aria-current={active ? "true" : undefined}
-			aria-label={`${persona.name}, pinned${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}`}
-			title={compact || shortcut === null ? undefined : `${persona.name} (${chordKeys("teammate-seat").replace("1–9", String(shortcut))})`}
+			aria-label={`${named}, pinned${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
+			title={compact || shortcut === null ? undefined : `${named} (${chordKeys("teammate-seat").replace("1–9", String(shortcut))})`}
 			className="rail-pin group"
 			data-dragging={dragging || undefined}
 			data-over={over || undefined}
 			onClick={onSelect}
-			onMouseEnter={compact ? (event) => onTip(event.currentTarget, persona.name, line) : undefined}
-			onFocus={compact ? (event) => onTip(event.currentTarget, persona.name, line) : undefined}
+			onMouseEnter={compact ? (event) => onTip(event.currentTarget, named, line) : undefined}
+			onFocus={compact ? (event) => onTip(event.currentTarget, named, line) : undefined}
 			onMouseLeave={compact ? () => onTip(null) : undefined}
 			onBlur={compact ? () => onTip(null) : undefined}
 			onDragStart={(event) => {
@@ -587,51 +651,71 @@ export function RailEdge({ size, onSize }: { size: RailSize; onSize(next: RailSi
 }
 
 /**
- * Which desk the window shows, when it holds more than one: this computer's
- * and the remote desks it is paired with (BRO-145). An account button: the
- * desk's tile and short name, as wide as they are. Picking one switches the
- * whole window to it.
+ * Which desks' teammates the rail lists, when the window holds more than
+ * one desk: this computer's and the remote desks it is paired with
+ * (BRO-145). All of them by default, or one. Narrowing the list never swaps
+ * the window: what is open stays open. Each desk says how it is doing — and
+ * whether this computer's teammates are linked with it (ADR 0003) — the
+ * way the phone's desk menu does.
  */
-function DeskSwitcher({ compact = false, onAdd }: { compact?: boolean | undefined; onAdd(): void }) {
+function DeskFilter({ compact = false, onAdd }: { compact?: boolean | undefined; onAdd(): void }) {
 	const desks = useDesks();
-	const active = useActiveDesk();
+	if (desks.length < 2) return null;
+	return <DeskFilterMenu desks={desks} compact={compact} onAdd={onAdd} />;
+}
+
+function DeskFilterMenu({ desks, compact, onAdd }: { desks: Desk[]; compact: boolean; onAdd(): void }) {
+	const filter = useDeskFilter();
 	const unread = useBackgroundUnread();
-	if (desks.length < 2 || active === null) return null;
-	const elsewhere = desks.some((desk) => desk.id !== active.id && (unread[desk.id] ?? 0) > 0);
-	const entries: MenuEntry[] = [];
+	const links = useDeskLinks();
+	const shown = desks.find((desk) => desk.id === filter) ?? null;
+	const away = desks.some((desk) => desk.kind === "remote" && desk.state !== undefined && desk.state !== "open");
+	const elsewhere = desks.some((desk) => desk.id !== shown?.id && (unread[desk.id] ?? 0) > 0);
+	const entries: MenuEntry[] = [{ kind: "item", id: "all", text: "All desks", checked: filter === null, onSelect: () => setDeskFilter(null) }];
 	let group: string | undefined;
 	for (const desk of desks) {
 		const here = desk.kind === "local" ? "On this computer" : "Remote";
 		if (here !== group) {
-			if (entries.length > 0) entries.push({ kind: "rule" });
-			entries.push({ kind: "heading", text: here });
+			entries.push({ kind: "rule" }, { kind: "heading", text: here });
 			group = here;
 		}
+		const link = links.find((one) => one.deskId === desk.id);
 		entries.push({
 			kind: "item",
 			id: desk.id,
 			text: desk.name,
-			detail: [unread[desk.id] ? `${unread[desk.id]} unread` : undefined, deskDetail(desk)].filter(Boolean).join(" · "),
-			checked: desk.id === active.id,
-			onSelect: () => setActiveDesk(desk.id),
+			detail: [unread[desk.id] ? `${unread[desk.id]} unread` : undefined, deskDetail(desk), link === undefined ? undefined : linkWords(link)].filter(Boolean).join(" · "),
+			checked: desk.id === filter,
+			onSelect: () => setDeskFilter(desk.id),
 		});
 	}
 	entries.push({ kind: "rule" }, { kind: "item", id: "add-desk", text: "Add a server…", onSelect: onAdd });
+	const name = shown === null ? "All desks" : shown.name;
 	return (
 		<div className={`shrink-0 pt-2 ${compact ? "flex justify-center" : "px-2"}`}>
 			<MenuButton
 				className={compact ? "account account-compact" : "account"}
 				align="start"
-				label={`Server: ${active.name}`}
-				title={`${active.name} · ${deskDetail(active)}`}
+				label={`Desks: ${name}`}
+				title={shown === null ? `All desks${away ? " · one can't be reached" : ""}` : `${shown.name} · ${deskDetail(shown)}`}
 				entries={entries}
 			>
-				<DeskTile desk={active} />
-				{!compact && <span className="account-name">{shortName(active.name)}</span>}
-				{elsewhere && <span className="account-unread" aria-label="Unread on another server" />}
+				{shown === null ? <AllTile away={away} count={desks.length} /> : <DeskTile desk={shown} />}
+				{!compact && <span className="account-name">{shown === null ? name : shortName(name)}</span>}
+				{elsewhere && <span className="account-unread" aria-label="Unread on a desk not shown" />}
 				{!compact && <ChevronDownIcon className="account-chevron" />}
 			</MenuButton>
 		</div>
+	);
+}
+
+/** Every desk at once: how many, and a mark when one of them can't be reached. */
+function AllTile({ away, count }: { away: boolean; count: number }) {
+	return (
+		<span aria-hidden="true" className="account-tile" data-local>
+			{count}
+			{away && <span className="account-state" data-state="unreachable" />}
+		</span>
 	);
 }
 

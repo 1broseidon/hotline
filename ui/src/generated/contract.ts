@@ -224,7 +224,7 @@ export type Client = "desktop" | "phone";
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
+export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
 /**
  * A picture at most this many px on its longer side, as a JPEG the
  * desk keeps, rather than the file itself: what a phone draws in
@@ -442,6 +442,29 @@ thread: string, kind: ThreadKind, request?: string, };
  */
 export type DeltaKind = "text" | "thought";
 
+/**
+ * One linked desk, for `desks.links`.
+ */
+export type DeskLink = { deskId: string, name: string, 
+/**
+ * Whether this desk made the link and dials the other.
+ */
+dials: boolean, state: DeskLinkState, 
+/**
+ * Why the channel is not open, when this desk knows.
+ */
+error?: string, 
+/**
+ * The other desk's teammates, live while connected and as last heard
+ * of while not.
+ */
+teammates: Array<LinkedTeammate>, };
+
+/**
+ * How a link is doing, as the Desks section shows it.
+ */
+export type DeskLinkState = "connected" | "offline";
+
 export type DeviceRole = "owner" | "companion";
 
 /**
@@ -554,6 +577,31 @@ export type LinkPreview = { url: string, title: string, site: string, image?: st
  * open with none, or it is over (and `end` says how).
  */
 export type LinkState = "live" | "parked" | "closed";
+
+/**
+ * What crosses a link for the exchange queue: a teammate's message for one
+ * of the other desk's, or the answer to one.
+ */
+export type LinkedDelivery = { "kind": "request", requestId: string, fromPersonaId: string, fromName: string, to: string, message: string, 
+/**
+ * ask or handoff.
+ */
+intent: string, } | { "kind": "result", requestId: string, reply: string, failed: boolean, };
+
+/**
+ * What a linked desk publishes about one of its teammates: exactly what
+ * `list_teammates` shows of a local one, and nothing more. No workspace,
+ * tools, model, message or secret has a field here to travel in.
+ */
+export type LinkedTeammate = { personaId: string, name: string, 
+/**
+ * idle, working, waiting or stopped.
+ */
+state: string, 
+/**
+ * The tool or task it is doing right now, while it is working.
+ */
+activity: string | null, workingOn: WorkingOn, };
 
 /**
  * Instructions for provider sign-in. Browser callback flows leave `user_code`
@@ -1504,9 +1552,15 @@ status?: string, } | { "kind": "message", eventId: string, chapterId?: string, t
 export type ThreadSummary = { thread: ThreadId, 
 /**
  * The teammate whose thread it is. A pair is listed with the first of its
- * two, and `with` names the other.
+ * two, and `with` names the other; a pair with a teammate on a linked
+ * desk is listed with this desk's teammate.
  */
 personaId: string, withPersonaId?: string, 
+/**
+ * What to call `with`, when it is a teammate on a linked desk ("Lou on
+ * grizzly"): it is in no roster here for the window to read its name in.
+ */
+withName?: string, 
 /**
  * What the thread is called: a work thread's or run's task, a call's
  * title. A DM and a pair have none, and are named by who is in them.
@@ -1977,3 +2031,5 @@ teammates: number,
  * welcome: it has been through setup once already.
  */
 setUp: boolean, };
+
+export type WorkingOn = { title: string, lastTurnAt: string | null, };

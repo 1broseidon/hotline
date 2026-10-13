@@ -28,9 +28,9 @@ import { noticeRoster, setWindowTitle, toastTarget } from "./notify";
 import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
-import { railOrder } from "./pins";
-import { activeDeskId, deskKey, LOCAL_DESK, setActiveDesk, useActiveDesk, useDesks } from "./desks";
-import { syncWatches, useBackgroundUnread } from "./deskWatch";
+import { shownTeam, teamOrder } from "./pins";
+import { activeDeskId, allDesks, deskFilter, deskKey, LOCAL_DESK, setActiveDesk, useActiveDesk, useDesks, wireFor } from "./desks";
+import { cachedRoster, keepRoster, syncWatches, useBackgroundRosters, useBackgroundUnread } from "./deskWatch";
 import { AddDesk } from "./components/AddDesk";
 import { ServerFiles } from "./components/ServerFiles";
 import { useSaved } from "./useSaved";
@@ -45,9 +45,36 @@ const SettingsRail = lazy(() => import("./components/Settings").then((module) =>
 type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
 
 /**
- * The window for the active desk. Switching desks remounts all of it, so the
- * roster, the open teammate and every subscription start again on the other
- * desk and nothing keeps talking to the one left behind (see desks.ts).
+ * What the window opens on when it next shows a desk: the pane, and whether
+ * the teammate's own pane is open beside it. Set by `openOnDesk` just
+ * before the window remounts on another desk, and spent by that mount.
+ */
+let arriving: { pane: Pane; inspector: boolean } = { pane: null, inspector: false };
+
+/**
+ * Opens something on another desk: a teammate picked in the rail, its pane,
+ * or the new-teammate pane there. The rail lists every desk's teammates
+ * (BRO-178), and the screen follows the teammate: its desk becomes the one
+ * the window talks to, and nothing needs switching by hand.
+ */
+function openOnDesk(deskId: string, open: { personaId?: string; pane?: Pane; inspector?: boolean }) {
+	if (open.personaId !== undefined) {
+		try {
+			localStorage.setItem(deskKey(SELECTED_KEY, deskId), open.personaId);
+		} catch {
+			// Private mode: the desk opens on whoever it had open.
+		}
+	}
+	arriving = { pane: open.pane ?? null, inspector: open.inspector ?? false };
+	setActiveDesk(deskId);
+}
+
+/**
+ * The window for the active desk: the desk of the teammate on screen.
+ * Opening a teammate on another desk remounts all of it, so the open
+ * teammate and every subscription start again on that desk and nothing
+ * keeps talking to the one left behind (see desks.ts). The rail draws every
+ * desk's teammates either way, from what each desk last said.
  */
 export function DeskRoot() {
 	const desk = useActiveDesk();
@@ -78,7 +105,10 @@ export function App() {
 	 * threads pane and the thread in it, or its own pane. Like the work card
 	 * below it belongs to them, so leaving a teammate and coming back finds
 	 * their screen as it was, and another teammate's as theirs was. */
-	const [spaces, setSpaces] = useState<Record<string, Space>>({});
+	const [spaces, setSpaces] = useState<Record<string, Space>>(() => {
+		const id = loadSelected();
+		return arriving.inspector && id !== null ? { [id]: { ...NO_SPACE, inspector: true } } : {};
+	});
 	const selectedRef = useRef(selectedId);
 	selectedRef.current = selectedId;
 	const shapeSpace = useCallback((change: (was: Space) => Partial<Space>) => {
@@ -110,7 +140,10 @@ export function App() {
 			return rest;
 		});
 	}, []);
-	const [pane, setPane] = useState<Pane>(null);
+	const [pane, setPane] = useState<Pane>(() => arriving.pane);
+	useEffect(() => {
+		arriving = { pane: null, inspector: false };
+	}, []);
 	const [settingsSection, setSettingsSection] = useState<SettingsSection>("general");
 	/* The right-hand pane: this teammate's threads, beside the
 	 * conversation or over it in a window too narrow. */
@@ -163,6 +196,8 @@ export function App() {
 	const [focus, setFocus] = useState<{ eventId: string; at: number } | null>(null);
 	const jobs = useRoomJobs();
 	const modelsRevision = useModelsRevision();
+	/* The other desks' teammates, for the one rail and its ⌃1–9. */
+	const elsewhere = useBackgroundRosters();
 
 	useEffect(() => {
 		wire.connect();
@@ -229,10 +264,10 @@ export function App() {
 
 	// The dock's badge is the rail's unread count: the rows in bold, counted,
 	// with those on the desks not on screen.
-	const elsewhere = useBackgroundUnread();
+	const unreadElsewhere = useBackgroundUnread();
 	const badge = useMemo(
-		() => roster.filter((entry) => unreadOf(entry, selectedId, seen)).length + Object.values(elsewhere).reduce((sum, count) => sum + count, 0),
-		[roster, selectedId, seen, elsewhere],
+		() => roster.filter((entry) => unreadOf(entry, selectedId, seen)).length + Object.values(unreadElsewhere).reduce((sum, count) => sum + count, 0),
+		[roster, selectedId, seen, unreadElsewhere],
 	);
 	useEffect(() => {
 		void setBadge(badge);
@@ -266,7 +301,12 @@ export function App() {
 		}
 	}, [roster, selectedId]);
 
-	const select = useCallback((personaId: string) => {
+	/* A teammate on another desk opens there: the window follows it. */
+	const select = useCallback((personaId: string, deskId?: string) => {
+		if (deskId !== undefined && deskId !== activeDeskId()) {
+			openOnDesk(deskId, { personaId });
+			return;
+		}
 		selectedRef.current = personaId;
 		setSelectedId(personaId);
 		setPane(null);
@@ -279,16 +319,7 @@ export function App() {
 		() =>
 			listenToastClicks((payload) => {
 				const { deskId, personaId } = toastTarget(payload);
-				if (deskId === null || deskId === activeDeskId()) {
-					select(personaId);
-					return;
-				}
-				try {
-					localStorage.setItem(deskKey(SELECTED_KEY, deskId), personaId);
-				} catch {
-					// Private mode: the desk opens where it was.
-				}
-				setActiveDesk(deskId);
+				select(personaId, deskId ?? undefined);
 			}),
 		[select],
 	);
@@ -307,6 +338,17 @@ export function App() {
 		},
 		[pane, closePane],
 	);
+	/* A new teammate is asked which desk it lives on when the window holds
+	 * more than one: the pane opens on the desk the rail is narrowed to, or
+	 * else on this computer's, and its own picker moves it to another. */
+	const newTeammate = useCallback(() => {
+		const wanted = deskFilter() ?? (allDesks().some((one) => one.id === LOCAL_DESK) ? LOCAL_DESK : null);
+		if (pane !== "new-teammate" && wanted !== null && wanted !== activeDeskId()) {
+			openOnDesk(wanted, { pane: "new-teammate" });
+			return;
+		}
+		togglePane("new-teammate");
+	}, [pane, togglePane]);
 	const toggleInspector = useCallback(
 		(schedules = false) => {
 			if (selectedId === null) return;
@@ -340,18 +382,25 @@ export function App() {
 
 	/* A refusal here is a race — the pane and the menu both stop at three —
 	 * so the next roster event is the whole answer. */
-	const pinTeammate = useCallback(async (personaId: string, slot: number | null) => {
+	/* A teammate on another desk is pinned and removed on its own desk. */
+	const pinTeammate = useCallback(async (personaId: string, slot: number | null, deskId?: string) => {
+		const params = slot === null ? { id: personaId } : { id: personaId, slot };
 		try {
-			await wire.command("persona.pin", slot === null ? { id: personaId } : { id: personaId, slot });
+			if (deskId === undefined) await wire.command("persona.pin", params);
+			else await wireFor(deskId).command("persona.pin", params);
 		} catch {
 			// Nothing to undo: the roster never moved.
 		}
 	}, []);
 
 	const removeTeammate = useCallback(
-		async (personaId: string, name: string) => {
+		async (personaId: string, name: string, deskId?: string) => {
 			if (!(await confirmRemove(name))) return;
 			try {
+				if (deskId !== undefined) {
+					await wireFor(deskId).command("persona.delete", { id: personaId });
+					return;
+				}
 				await wire.command("persona.delete", { id: personaId });
 				if (selectedId === personaId) setSelectedId(null);
 				setSpaces(({ [personaId]: _, ...rest }) => rest);
@@ -360,6 +409,12 @@ export function App() {
 			}
 		},
 		[selectedId],
+	);
+
+	/* ⌃1–9 count along the rail as it is drawn: every desk it lists. */
+	const seatOf = useCallback(
+		(seat: number) => teamOrder(shownTeam(allDesks(), activeDeskId() ?? "", deskFilter(), roster, elsewhere)).all[seat - 1],
+		[roster, elsewhere],
 	);
 
 	// Chords live in chords.ts so Help cannot list a key the window does
@@ -396,7 +451,7 @@ export function App() {
 			}
 			if (chord === "new-teammate") {
 				event.preventDefault();
-				if (takeChord()) togglePane("new-teammate");
+				if (takeChord()) newTeammate();
 				return;
 			}
 			if (chord === "settings") {
@@ -423,14 +478,14 @@ export function App() {
 			}
 			if (chord === null || !chord.startsWith("teammate-")) return;
 			const seat = Number(chord.slice("teammate-".length));
-			const entry = railOrder(roster).all[seat - 1];
-			if (!entry) return;
+			const row = seatOf(seat);
+			if (!row) return;
 			event.preventDefault();
-			select(entry.persona.id);
+			select(row.entry.persona.id, row.deskId);
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [roster, selectedId, pane, dock, inspector, workOf, closeWork, searchOpen, select, closePane, closeDock, togglePane, toggleInspector, toggleRail]);
+	}, [selectedId, pane, dock, inspector, workOf, closeWork, searchOpen, select, seatOf, closePane, closeDock, togglePane, newTeammate, toggleInspector, toggleRail]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -443,7 +498,7 @@ export function App() {
 				return;
 			}
 			if (id === "new-teammate") {
-				if (takeChord()) togglePane("new-teammate");
+				if (takeChord()) newTeammate();
 				return;
 			}
 			if (id === "teammate") {
@@ -468,12 +523,11 @@ export function App() {
 				return;
 			}
 			if (id.startsWith("teammate-")) {
-				const seat = Number(id.slice("teammate-".length));
-				const entry = roster[seat - 1];
-				if (entry) select(entry.persona.id);
+				const row = seatOf(Number(id.slice("teammate-".length)));
+				if (row) select(row.entry.persona.id, row.deskId);
 			}
 		});
-	}, [roster, selectedId, pane, select, togglePane, toggleInspector, toggleRail]);
+	}, [selectedId, pane, select, seatOf, togglePane, newTeammate, toggleInspector, toggleRail]);
 
 	/* Right-clicking chrome should not offer Reload. Fields and a live
 	 * selection keep the system's own menu. A teammate row handles its own. */
@@ -628,14 +682,19 @@ export function App() {
 				seen={seen}
 				connection={connection}
 				onSelect={select}
-				onNew={() => togglePane("new-teammate")}
+				onNew={newTeammate}
 				onSettings={() => togglePane("settings")}
-				onEdit={(id) => {
+				elsewhere={elsewhere}
+				onEdit={(id, deskId) => {
+					if (deskId !== undefined) {
+						openOnDesk(deskId, { personaId: id, inspector: true });
+						return;
+					}
 					select(id);
 					setInspector(true);
 				}}
-				onDelete={(id, name) => void removeTeammate(id, name)}
-				onPin={(id, slot) => void pinTeammate(id, slot)}
+				onDelete={(id, name, deskId) => void removeTeammate(id, name, deskId)}
+				onPin={(id, slot, deskId) => void pinTeammate(id, slot, deskId)}
 				onHelp={(id) => {
 					if (id === "github") void openLink("https://github.com/1broseidon/hotline");
 					else togglePane(id);
@@ -664,6 +723,7 @@ export function App() {
 							models={models}
 							onCreated={select}
 							onClose={closePane}
+							onDesk={(deskId) => openOnDesk(deskId, { pane: "new-teammate" })}
 							onProviders={() => {
 								setSettingsSection("providers");
 								setPane("settings");
@@ -719,7 +779,7 @@ export function App() {
 						)}
 					</>
 				) : empty ? (
-					<EmptyRoom onNew={() => togglePane("new-teammate")} />
+					<EmptyRoom onNew={newTeammate} />
 				) : (
 					<div className="pane">
 						<Band>
@@ -756,11 +816,7 @@ export function App() {
 						}
 					>
 						{floatWork}
-						{call !== null && <CallFloat call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => {
-							if (call.deskId == null || call.deskId === activeDeskId()) { select(personaId); return; }
-							try { localStorage.setItem(deskKey(SELECTED_KEY, call.deskId), personaId); } catch { /* Private mode. */ }
-							setActiveDesk(call.deskId);
-						}} />}
+						{call !== null && <CallFloat call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => select(personaId, call.deskId ?? undefined)} />}
 						{/* Settings › Updates says it already, with the notes and the install. */}
 						{pane !== "settings" && <UpdateFloat onOpen={() => {
 							setSettingsSection("updates");
@@ -787,38 +843,6 @@ function takeChord(): boolean {
 	if (now - lastChordAt < 120) return false;
 	lastChordAt = now;
 	return true;
-}
-
-/** Each desk's last roster, for the moment after switching back to it. */
-const rosterCache = new Map<string, RosterEntry[]>();
-const ROSTER_KEY = "hotline.desk.roster";
-
-/**
- * A remote desk's roster is also kept across restarts: a desk that can't be
- * reached at launch still shows its teammates as they last were, which is
- * what the "Can't reach" band promises. The local desk is always there.
- */
-function cachedRoster(deskId: string): RosterEntry[] | undefined {
-	const held = rosterCache.get(deskId);
-	if (held !== undefined || deskId === LOCAL_DESK) return held;
-	try {
-		const raw = localStorage.getItem(`${ROSTER_KEY}:${deskId}`);
-		const kept = raw === null ? undefined : (JSON.parse(raw) as RosterEntry[]);
-		if (Array.isArray(kept)) rosterCache.set(deskId, kept);
-		return Array.isArray(kept) ? kept : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-function keepRoster(deskId: string, roster: RosterEntry[]) {
-	rosterCache.set(deskId, roster);
-	if (deskId === LOCAL_DESK) return;
-	try {
-		localStorage.setItem(`${ROSTER_KEY}:${deskId}`, JSON.stringify(roster));
-	} catch {
-		// Quota, private mode: the in-memory copy still serves this session.
-	}
 }
 
 /** The open teammate survives a reload, which is what makes the tape

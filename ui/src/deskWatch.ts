@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { unreadOf } from "./components/Rail";
-import { activeDeskId, allDesks, deskKey, useDesks, wireFor } from "./desks";
+import { activeDeskId, allDesks, deskKey, LOCAL_DESK, useDesks, wireFor } from "./desks";
 import { noticeRoster } from "./notify";
 import type { RosterEntry } from "./wire";
 
@@ -8,8 +8,9 @@ import type { RosterEntry } from "./wire";
  * The desks that are not on screen (BRO-145). The one on screen folds its
  * own roster (App.tsx); every other desk the window holds is watched here,
  * roster only, so a turn ending or a teammate stuck on a server still posts a
- * toast, and its unread rows still count in the dock's badge and beside its
- * name in the desk switcher.
+ * toast, its unread rows still count in the dock's badge and the desk
+ * filter, and its teammates stand in the one rail with everyone else's
+ * (BRO-178).
  *
  * Unread is judged against the same per-desk "seen" the rail keeps, read
  * from storage, so opening that desk later agrees with what was counted.
@@ -21,15 +22,16 @@ type Watched = { stop(): void; roster: RosterEntry[] };
 
 const watched = new Map<string, Watched>();
 let counts: Record<string, number> = {};
+let rosters: Record<string, RosterEntry[]> = {};
 const listeners = new Set<() => void>();
+const rosterListeners = new Set<() => void>();
 
 function recount() {
 	const next: Record<string, number> = {};
 	for (const [deskId, one] of watched) {
-		const seen = readSeen(deskId);
 		// Nobody on a desk that is not on screen is being looked at, not even
 		// the teammate it had open: a new line from them is unread too.
-		next[deskId] = one.roster.filter((entry) => unreadOf(entry, null, seen)).length;
+		next[deskId] = one.roster.filter((entry) => unreadOf(entry, null, seenOn(deskId))).length;
 	}
 	// Every roster event on a watched desk comes here; only a count that
 	// moved is news to the windows reading them.
@@ -39,7 +41,15 @@ function recount() {
 	for (const listener of listeners) listener();
 }
 
-function readSeen(deskId: string): Record<string, number> {
+function republish() {
+	const next: Record<string, RosterEntry[]> = {};
+	for (const [deskId, one] of watched) next[deskId] = one.roster;
+	rosters = next;
+	for (const listener of rosterListeners) listener();
+}
+
+/** What this window has already shown of each teammate on a desk. */
+export function seenOn(deskId: string): Record<string, number> {
 	try {
 		const parsed: unknown = JSON.parse(localStorage.getItem(deskKey(SEEN_KEY, deskId)) ?? "{}");
 		return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, number>) : {};
@@ -49,11 +59,13 @@ function readSeen(deskId: string): Record<string, number> {
 }
 
 function watch(deskId: string, name: string): Watched {
-	const one: Watched = { stop: () => {}, roster: [] };
+	const one: Watched = { stop: () => {}, roster: cachedRoster(deskId) ?? [] };
 	const fold = (roster: RosterEntry[]) => {
 		one.roster = roster;
+		keepRoster(deskId, roster);
 		noticeRoster(roster, { id: deskId, name });
 		recount();
+		republish();
 	};
 	const wire = wireFor(deskId);
 	wire.connect();
@@ -88,6 +100,7 @@ export function syncWatches(): void {
 		if (!watched.has(deskId)) watched.set(deskId, watch(deskId, name));
 	}
 	recount();
+	republish();
 }
 
 /** Unread rows on each desk that is not on screen. */
@@ -100,4 +113,48 @@ export function useBackgroundUnread(): Record<string, number> {
 		},
 		() => counts,
 	);
+}
+
+/** The teammates of each desk that is not on screen, as each last said. */
+export function useBackgroundRosters(): Record<string, RosterEntry[]> {
+	return useSyncExternalStore(
+		(listener) => {
+			rosterListeners.add(listener);
+			return () => rosterListeners.delete(listener);
+		},
+		() => rosters,
+	);
+}
+
+/** Each desk's last roster, for the moment after switching back to it. */
+const rosterCache = new Map<string, RosterEntry[]>();
+const ROSTER_KEY = "hotline.desk.roster";
+
+/**
+ * A remote desk's roster is also kept across restarts: a desk that can't be
+ * reached at launch still shows its teammates as they last were, dimmed in
+ * the rail, which is what the "Can't reach" band promises. The local desk is
+ * always there.
+ */
+export function cachedRoster(deskId: string): RosterEntry[] | undefined {
+	const held = rosterCache.get(deskId);
+	if (held !== undefined || deskId === LOCAL_DESK) return held;
+	try {
+		const raw = localStorage.getItem(`${ROSTER_KEY}:${deskId}`);
+		const kept = raw === null ? undefined : (JSON.parse(raw) as RosterEntry[]);
+		if (Array.isArray(kept)) rosterCache.set(deskId, kept);
+		return Array.isArray(kept) ? kept : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+export function keepRoster(deskId: string, roster: RosterEntry[]) {
+	rosterCache.set(deskId, roster);
+	if (deskId === LOCAL_DESK) return;
+	try {
+		localStorage.setItem(`${ROSTER_KEY}:${deskId}`, JSON.stringify(roster));
+	} catch {
+		// Quota, private mode: the in-memory copy still serves this session.
+	}
 }

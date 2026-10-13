@@ -1,8 +1,6 @@
 ---
 id: task-15
 title: "Desktop: one unified list across every connected desk, with a desk filter (like the phone)"
-column: todo
-position: 17
 priority: high
 tags:
   - feature
@@ -41,7 +39,8 @@ description: |-
   * Taking grizzly offline dims its rows and shows the warning in the filter.
 
   Migrated from Linear BRO-178: https://linear.app/1broseidon/issue/BRO-178/desktop-one-unified-list-across-every-connected-desk-with-a-desk (2026-10-11).
-updatedAt: "2026-10-11T21:05:25.899Z"
+updatedAt: "2026-10-13T07:31:40.805Z"
+completedAt: "2026-10-13T07:31:40.805Z"
 ---
 
 ## Log

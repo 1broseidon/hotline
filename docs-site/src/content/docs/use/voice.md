@@ -19,9 +19,9 @@ speech recognition.
 
 ## Something to hear you
 
-Before you can dictate, Hotline needs something that turns speech into
-words. Open **Settings → Providers → Use for → Transcription** and choose
-**Set up**. There are three kinds:
+Hotline needs something that turns speech into words. Open **Settings →
+Providers → Use for → Transcription** and choose **Set up**. There are three
+kinds:
 
 - **On this Mac.** Apple's on-device recognition. It is free and private,
   and nothing you say leaves the Mac. The language model downloads once.
@@ -40,8 +40,11 @@ words. Open **Settings → Providers → Use for → Transcription** and choose
   a model is installed, the desk hears you with it first, from every device
   that talks to this desk.
 - **A provider you connected**, such as OpenAI, Google, Groq, Mistral,
-  OpenRouter or xAI. These are paid by the request and count against your
-  **Voice** budget.
+  OpenRouter or xAI. These hear you on calls only, are paid by the request,
+  and count against your **Voice** budget.
+
+Dictation needs one of the first two: the Mac's own recognition or a speech
+model on the desk.
 
 **Words to listen for**, under Transcription, lists names the Parakeet models
 should expect. They already know your teammates' names, Hotline, and the
@@ -137,5 +140,6 @@ budget. A call that a spent budget refuses names the budget.
 
 ## From your phone
 
-The phone can call the desk and a teammate too. Hotline for iPhone is in
-beta; see [Hotline on your phone](/docs/phone/).
+Calls are for you, the desk's owner: from the desktop app, or from Hotline
+for iPhone, which is in beta and gains calling feature by feature. See
+[Hotline on your phone](/docs/phone/).

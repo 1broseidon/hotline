@@ -51,7 +51,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Providers and keys', slug: 'setup/providers' },
 						{ label: 'Teammates and drivers', slug: 'setup/teammates' },
-						{ label: 'Tools and MCP servers', slug: 'setup/tools' },
+						{ label: 'Tools, skills and web search', slug: 'setup/tools' },
 						{ label: 'The computer', slug: 'setup/computer' },
 						{ label: 'Schedules', slug: 'setup/schedules' },
 						{ label: 'Updates', slug: 'setup/updates' },

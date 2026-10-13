@@ -3,9 +3,9 @@ title: Import a previous edition
 description: Bring the roster, conversations and keys from an earlier edition’s data directory.
 ---
 
-**Settings → Import → Bring over a previous edition** takes the data directory
-of an earlier edition of this app — kept under the name Toad, which is what it
-was called — and copies its teammates, conversations, threads, schedules,
+**Settings → Import → From an earlier edition** takes the data directory of
+an earlier edition of this app, kept under the name Toad, which is what it
+was called. Choose **Its folder**, then **Import**. It copies its teammates, conversations, threads, schedules,
 settings and keys into this one. The source is only read.
 
 Running it twice is the same as running it once: a teammate already in the

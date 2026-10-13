@@ -12,7 +12,7 @@ You pay for Claude Code or Codex already and want it as a teammate.
 
 1. Make sure its CLI runs in a terminal on this machine (`claude`, `codex`,
    `cursor-agent`, `opencode`, `gemini` or `grok`), signed in.
-2. **New teammate**, then in **Which agent runs it** pick it from the list of
+2. **New teammate**, then under **Thinks with → Agent** pick it from the
    agents you already use. A row that cannot start says what is missing.
 3. Give it the project folder as its working directory.
 
@@ -105,7 +105,7 @@ can read it without **Whole machine** access. See
 
 ## Talk it through
 
-When typing is too slow, call the teammate with the phone key in its band.
+When typing is too slow, call the teammate with the phone key at the head of its conversation.
 Describe the problem out loud; the teammate answers in a sentence or two and
 writes the full answer, with code and links, into the chat. Its work keeps
 going between your questions. See [Calls and dictation](/docs/use/voice/).

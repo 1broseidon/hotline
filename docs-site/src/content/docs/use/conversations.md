@@ -59,9 +59,10 @@ opens by itself.
 
 ## Search
 
-<kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>F</kbd> searches the open teammate's
-conversation, every chapter of it. With nothing typed, the search lists the
-chapters themselves, each with its handoff note.
+<kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>F</kbd>, or the magnifier in the title
+bar, searches the open teammate's conversation, every chapter of it
+(**Here**), or every teammate's (**Everywhere**). With nothing typed, the
+search lists the chapters themselves, each with its handoff note.
 
 ## Chapters
 

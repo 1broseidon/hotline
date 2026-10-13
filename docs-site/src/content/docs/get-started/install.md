@@ -35,7 +35,7 @@ Pick the file for your machine:
 
 Open the disk image and drag Hotline to Applications. Builds are signed and
 notarized. The menu bar is Hotline's own: **Hotline → Settings**, **Help → Keyboard
-shortcuts**, and a Quit that actually quits.
+Shortcuts**, and a Quit that actually quits.
 
 ## Windows
 

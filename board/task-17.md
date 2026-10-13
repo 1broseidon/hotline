@@ -37,3 +37,6 @@ description: |-
   Migrated from Linear BRO-180: https://linear.app/1broseidon/issue/BRO-180/linked-roster-teammates-on-linked-desks-appear-in-list-teammates-and (2026-10-11).
 updatedAt: "2026-10-11T21:05:27.563Z"
 ---
+
+## Log
+- 2026-10-13T07:31:35.699Z: [claude] On dispatch/epic-3: each side publishes LinkedTeammate rows, the same struct as a list_teammates row, cut to plausible values and cached per teammate. list_teammates shows linked teammates as deskId/personaId with a `desk` field, and as offline from the record's names while the link is down. Name resolution accepts "Name on Desk" and refuses ambiguous names, listing the choices. import.rs is reworded. Tests are in session/links/tests.rs and linked.rs.

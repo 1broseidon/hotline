@@ -1,8 +1,6 @@
 ---
 id: task-16
 title: "Desk-to-desk link: pair two desks for their teammates, with a durable, revocable link channel"
-column: todo
-position: 18
 priority: high
 tags:
   - feature
@@ -39,7 +37,8 @@ description: |-
   * A `Seat::Link` peer gets `forbidden` for every command outside the federation set.
 
   Migrated from Linear BRO-179: https://linear.app/1broseidon/issue/BRO-179/desk-to-desk-link-pair-two-desks-for-their-teammates-with-a-durable (2026-10-11).
-updatedAt: "2026-10-11T21:05:26.739Z"
+updatedAt: "2026-10-13T07:31:41.088Z"
+completedAt: "2026-10-13T07:31:41.088Z"
 ---
 
 ## Log

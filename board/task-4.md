@@ -32,3 +32,6 @@ description: |-
 updatedAt: "2026-10-13T06:21:58.768Z"
 assignee: claude
 ---
+
+## Log
+- 2026-10-13T06:32:19.609Z: [claude] On branch dispatch/task-4 (2 commits). Added a "Use Hotline" section to docs-site with six pages: common workflows, working in a conversation (incl. chapters), side threads & subagents, teammates together (asks, handoffs, grants), calls & dictation, and pictures. Audited and rewrote get-started, setup and reference pages against the 0.36.1 UI and code: welcome flow, Thinks with/Folders/Abilities, pane layout, Use for + Budgets, keychain storage, skills, web search, full room tool list, schedules in the pane, computer image/limits/cookies/secrets/passkeys, request_human not blocking (a card expires after 24h), shortcuts. Providers page carries the Anthropic API-key / Claude Code sign-in guidance; recheck Anthropic policy before publishing. Build passes and every internal link and anchor resolves. Not done: screenshots, phone/ and server/ pages (out of scope). Code-side mismatches for a follow-up: budget error text says "Settings › Budgets" (Budgets is under Providers); the web search hint "Tried in order" contradicts the code, which queries every provider at once; the web_search refusal mentions a per-teammate switch the UI doesn't have; the changelog says both 2 and 3 side threads (code: 3).

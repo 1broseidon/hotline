@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.36.3] - 2026-10-13
+
 ### Added
 
 - Muse Code can be a teammate's harness, on your own Muse Code login, so a

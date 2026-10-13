@@ -36,6 +36,17 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'Use Hotline',
+					items: [
+						{ label: 'Common workflows', slug: 'use/workflows' },
+						{ label: 'Working in a conversation', slug: 'use/conversations' },
+						{ label: 'Side threads and subagents', slug: 'use/side-threads' },
+						{ label: 'Teammates working together', slug: 'use/teammates-together' },
+						{ label: 'Calls and dictation', slug: 'use/voice' },
+						{ label: 'Pictures', slug: 'use/images' },
+					],
+				},
+				{
 					label: 'Setup',
 					items: [
 						{ label: 'Providers and keys', slug: 'setup/providers' },

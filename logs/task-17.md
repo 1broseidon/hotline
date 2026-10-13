@@ -1,8 +1,6 @@
 ---
 id: task-17
 title: "Linked roster: teammates on linked desks appear in list_teammates and the rosters, node-qualified"
-column: todo
-position: 19
 priority: high
 tags:
   - feature
@@ -35,7 +33,8 @@ description: |-
   * A test covers that no non-roster field crosses the link.
 
   Migrated from Linear BRO-180: https://linear.app/1broseidon/issue/BRO-180/linked-roster-teammates-on-linked-desks-appear-in-list-teammates-and (2026-10-11).
-updatedAt: "2026-10-11T21:05:27.563Z"
+updatedAt: "2026-10-13T07:31:41.361Z"
+completedAt: "2026-10-13T07:31:41.361Z"
 ---
 
 ## Log

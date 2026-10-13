@@ -67,5 +67,6 @@ description: |-
   Backlog review 2026-10-11: still unbuilt (`PersonaNode` never set, no `Seat::Link`, no ADR 0003). BRO-178 (unified list) stays as the client-only first slice.
 
   Migrated from Linear BRO-177: https://linear.app/1broseidon/issue/BRO-177/linked-desks-teammates-on-different-desks-collaborate-as-if-they (2026-10-11).
-updatedAt: "2026-10-11T21:20:15.716Z"
+updatedAt: "2026-10-13T06:26:19.798Z"
+assignee: claude
 ---

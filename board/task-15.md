@@ -43,3 +43,6 @@ description: |-
   Migrated from Linear BRO-178: https://linear.app/1broseidon/issue/BRO-178/desktop-one-unified-list-across-every-connected-desk-with-a-desk (2026-10-11).
 updatedAt: "2026-10-11T21:05:25.899Z"
 ---
+
+## Log
+- 2026-10-13T07:31:31.785Z: [claude] On dispatch/epic-3: one rail lists every desk's teammates, with the desk named when more than one is shown and unreachable desks dimmed from cache. A desk filter replaces the switcher and shows link state. Opening a teammate opens it on its own desk, and pin, delete and edit act on that desk. ⌃1–9 follow the merged order, the badge counts unread across desks, and New teammate and Settings each have a desk picker. Tests are in ui/tests/team.test.tsx.

@@ -35,13 +35,8 @@ pub(crate) fn listed_price(
         .and_then(|entry| entry.cost.clone())
         .or_else(|| {
             let (provider, id) = model.split_once('/')?;
-            let cost = crate::models::catalog()
-                .providers
-                .get(provider)?
-                .models
-                .get(id)?
-                .cost
-                .as_ref()?;
+            let entry = crate::models::model_of(provider, id)?;
+            let cost = entry.cost.as_ref()?;
             Some(ModelCost {
                 input: cost.input,
                 output: cost.output,

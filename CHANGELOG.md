@@ -14,6 +14,21 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   Muse subscription works in Hotline. It runs through BrokkAi's `muse-acp`
   adapter and is offered when `muse` is installed.
 
+### Changed
+
+- The bundled model list is refreshed from models.dev. Google gains Gemini 4
+  Argon. OpenRouter gains Gemini 4 Argon, LFM2.5-24B-A2B and Muse Wonder, and
+  drops fourteen models it no longer serves. ChatGPT offers what a ChatGPT
+  sign-in serves today: GPT-6.1 Sol and Daybreak Blue join, and GPT-5.5
+  leaves. A teammate already set to GPT-5.5 keeps it.
+
+### Fixed
+
+- GPT-6.1 Sol and Daybreak Blue on a ChatGPT sign-in show their effort levels.
+  A model a ChatGPT sign-in lists now takes its efforts, limits and name from
+  OpenAI's entry when Hotline's bundled ChatGPT list has not caught up, so the
+  next model ChatGPT adds shows them without waiting for a Hotline update.
+
 ## [0.36.2] - 2026-10-13
 
 ### Fixed

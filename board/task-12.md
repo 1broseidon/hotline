@@ -49,3 +49,6 @@ subtasks:
     title: Add desk.status view (version, uptime, runtime, disk, failing logins/schedules, last error) for the phone banner and hotline status, each problem with its fix (from task-30)
     completed: false
 ---
+
+## Log
+- 2026-10-14T01:44:31.126Z: [claude] Consolidated task-29 (Remote reachability/Relay row) and task-30 (desk.status/health) into this task as subtasks task-12-4 and task-12-5.

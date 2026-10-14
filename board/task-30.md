@@ -27,3 +27,4 @@ updatedAt: "2026-10-12T20:52:36.419Z"
 
 ## Log
 - 2026-10-12T01:51:04.369Z: [claude] Won't do (2026-10-11 sort): hotline status covers desk health on the server; a phone banner isn't worth a new wire command now.
+- 2026-10-14T01:44:31.973Z: [claude] Consolidated into task-12 as subtask task-12-5 (remote visibility); closing as duplicate, not done.

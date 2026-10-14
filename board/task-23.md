@@ -1,8 +1,8 @@
 ---
 id: task-23
 title: "Linux: opaque window to stop resize flicker (needs A/B)"
-column: todo
-position: 25
+column: backlog
+position: 15
 priority: medium
 tags:
   - bug
@@ -18,6 +18,6 @@ description: |-
   ## Status (2026-10-11 review)
 
   Needs the A/B with George.
-updatedAt: "2026-10-12T04:22:26.116Z"
+updatedAt: "2026-10-14T20:05:20.336Z"
 parentId: epic-5
 ---

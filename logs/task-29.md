@@ -1,8 +1,6 @@
 ---
 id: task-29
 title: "Desk: show whether the desk is reachable away from home in Settings › Remote"
-column: todo
-position: 31
 priority: high
 tags:
   - bug
@@ -35,7 +33,8 @@ description: |-
   ## Status (2026-10-11 review)
 
   The phone side shipped in hotline-mobile #67 (endpoints raced, reach status, "Use it away from home"). Rescoped to the desktop remainder: the same reachability status in Settings › Remote, and the Relay row shown early. Retitled from "Phone: say whether a desk is reachable away from home, and try every address the desk advertises".
-updatedAt: "2026-10-11T21:05:38.197Z"
+updatedAt: "2026-10-14T01:44:37.537Z"
+completedAt: "2026-10-14T01:44:37.537Z"
 ---
 
 ## Log

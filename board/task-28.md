@@ -1,8 +1,8 @@
 ---
 id: task-28
 title: "Reset Hotline: erase all data and return to the welcome wizard"
-column: todo
-position: 30
+column: backlog
+position: 18
 priority: medium
 tags:
   - feature
@@ -28,5 +28,5 @@ description: |-
   * Follow `docs/security.md`, since this touches secrets and capabilities.
 
   Migrated from Linear BRO-258: https://linear.app/1broseidon/issue/BRO-258/reset-hotline-erase-all-data-and-return-to-the-welcome-wizard (2026-10-11).
-updatedAt: "2026-10-11T21:05:37.362Z"
+updatedAt: "2026-10-14T20:05:21.804Z"
 ---

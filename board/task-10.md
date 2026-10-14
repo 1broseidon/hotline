@@ -1,8 +1,8 @@
 ---
 id: task-10
 title: "Desk: pending request recovery, durable schedule failures and companion subscriptions"
-column: todo
-position: 12
+column: backlog
+position: 8
 priority: medium
 tags:
   - bro-135
@@ -24,7 +24,7 @@ description: |-
   ## Status (2026-10-11 review)
 
   Done: phone schedules cancel/quiet, device list/revoke, computer on/off. Left: `requests.pending` ("Answer this on your desktop" still in Message.tsx ~454), schedule failures as facts, companion 8-subscription cap (wire/mod.rs ~1780).
-updatedAt: "2026-10-12T04:22:29.176Z"
+updatedAt: "2026-10-14T20:05:16.930Z"
 subtasks:
   - id: task-10-1
     title: Expose durable pending requests with duplicate-safe phone answers

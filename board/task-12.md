@@ -31,7 +31,7 @@ description: |-
   ## Status (2026-10-11 review)
 
   Also covers the hello fields and honest backends.list (merged from BRO-116). Its parent epic BRO-166 lives on the hotline-mobile board.
-updatedAt: "2026-10-14T01:44:25.374Z"
+updatedAt: "2026-10-14T01:44:25.668Z"
 subtasks:
   - id: task-12-1
     title: Mark the requesting device in remote.devices
@@ -44,5 +44,8 @@ subtasks:
     completed: false
   - id: task-12-4
     title: Show desk reachability away from home in Settings › Remote, with the Relay row shown before a server is paired (from task-29)
+    completed: false
+  - id: task-12-5
+    title: Add desk.status view (version, uptime, runtime, disk, failing logins/schedules, last error) for the phone banner and hotline status, each problem with its fix (from task-30)
     completed: false
 ---

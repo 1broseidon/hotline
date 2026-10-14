@@ -8,6 +8,39 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.36.3] - 2026-10-13
+
+### Added
+
+- Muse Code can be a teammate's harness, on your own Muse Code login, so a
+  Muse subscription works in Hotline. It runs through BrokkAi's `muse-acp`
+  adapter and is offered when `muse` is installed.
+
+### Changed
+
+- The bundled model list is refreshed from models.dev. Google gains Gemini 4
+  Argon. OpenRouter gains Gemini 4 Argon, LFM2.5-24B-A2B and Muse Wonder, and
+  drops fourteen models it no longer serves. ChatGPT offers what a ChatGPT
+  sign-in serves today: GPT-6.1 Sol and Daybreak Blue join, and GPT-5.5
+  leaves. A teammate already set to GPT-5.5 keeps it.
+
+### Fixed
+
+- GPT-6.1 Sol and Daybreak Blue on a ChatGPT sign-in show their effort levels.
+  A model a ChatGPT sign-in lists now takes its efforts, limits and name from
+  OpenAI's entry when Hotline's bundled ChatGPT list has not caught up, so the
+  next model ChatGPT adds shows them without waiting for a Hotline update.
+
+## [0.36.2] - 2026-10-13
+
+### Fixed
+
+- OpenAI-compatible connections on the Responses API no longer fail every
+  turn with "data did not match any variant of untagged enum
+  StreamingCompletionChunk" when the server streams a looser shape than
+  OpenAI, as Meta's Muse models do. Hotline fills in what such servers leave
+  out, and logs any frame it still can't read.
+
 ## [0.36.1] - 2026-10-11
 
 ### Fixed

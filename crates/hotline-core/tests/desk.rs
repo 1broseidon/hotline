@@ -1945,6 +1945,88 @@ fn custom_stream_events(api: &str, has_tool_result: bool) -> Vec<Value> {
     }
 }
 
+/// Compatible servers (Meta's Muse among them) stream Responses frames more
+/// loosely than OpenAI: no sequence numbers, output items without an id or
+/// status, a float `created_at`, `instructions` echoed as input items and an
+/// empty `error` object. A turn over such a stream still answers.
+#[tokio::test(flavor = "multi_thread")]
+async fn custom_responses_connections_read_loosely_shaped_streams() {
+    use axum::{Router, routing::post};
+    let response = |status: &str, output: Value| {
+        json!({"id":"resp_1","object":"response","created_at":1791871040.25,"status":status,"error":{},"incomplete_details":null,
+            "instructions":[{"type":"message","role":"developer","content":[{"type":"input_text","text":"Answer plainly."}]}],
+            "model":"vendor/coder","output":output,"tools":[{"type":"function","name":"read","description":null,"parameters":{}}],
+            "usage":if status == "completed" { json!({"input_tokens":3,"output_tokens":4,"total_tokens":7}) } else { Value::Null }})
+    };
+    let message = json!({"type":"message","role":"assistant","content":[{"type":"output_text","text":"Loose but readable.","annotations":[]}]});
+    let events = [
+        json!({"type":"response.created","response":response("in_progress", json!([]))}),
+        json!({"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","summary":null}}),
+        json!({"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","summary":[]}}),
+        json!({"type":"response.output_item.added","output_index":1,"item":{"type":"message","role":"assistant","content":[]}}),
+        json!({"type":"response.output_text.delta","item_id":"item_1","output_index":1,"content_index":0,"delta":"Loose but readable."}),
+        json!({"type":"response.output_item.done","output_index":1,"item":message}),
+        json!({"type":"response.completed","response":response("completed", json!([{"type":"reasoning","summary":null}, message]))}),
+    ];
+    let body = events
+        .iter()
+        .map(|event| format!("data: {event}\n\n"))
+        .collect::<String>()
+        + "data: [DONE]\n\n";
+    let app = Router::new().route(
+        "/v1/responses",
+        post(move || {
+            let body = body.clone();
+            async move { ([("Content-Type", "text/event-stream")], body) }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let (root, port) = open("custom-loose-responses").await;
+    let mut client = Client::connect(port).await;
+    let made = client.call("credential.custom_save", json!({"draft":{"name":"Loose","baseUrl":url,"api":"responses","secret":"","models":["vendor/coder"]}})).await;
+    assert_eq!(made["ok"], true, "{made}");
+    let workspace = root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let made = client.call("persona.create", json!({"draft":{"name":"Loose tester","goal":"Answer plainly.","cwd":workspace.to_string_lossy()}})).await;
+    let persona = made["result"]["id"].as_str().unwrap();
+    let tape = client.subscribe(json!({"tape":persona})).await;
+    assert_eq!(
+        client
+            .call("session.start", json!({"personaId":persona}))
+            .await["ok"],
+        true
+    );
+    assert_eq!(
+        client
+            .call(
+                "session.prompt",
+                json!({"personaId":persona,"text":"hello"})
+            )
+            .await["ok"],
+        true
+    );
+    let answer = client
+        .next_where(Duration::from_secs(15), |frame| {
+            is_sub(frame, tape, "event") && frame["event"]["kind"] == "agent"
+        })
+        .await;
+    assert_eq!(answer["event"]["text"], "Loose but readable.", "{answer}");
+    let turn = client
+        .next_where(Duration::from_secs(15), |frame| {
+            is_sub(frame, tape, "event") && frame["event"]["kind"] == "turn"
+        })
+        .await;
+    assert_eq!(turn["event"]["stopReason"], "end_turn", "{turn}");
+    client
+        .call("session.stop", json!({"personaId":persona}))
+        .await;
+    server.abort();
+}
+
 #[tokio::test]
 async fn discovery_and_manual_ids_preserve_filters_selections_and_offline_data_over_the_wire() {
     use axum::{Router, routing::get};

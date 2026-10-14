@@ -10,12 +10,14 @@
 //! `hotline-models-sync` updates the bundled snapshot. Connection discovery and
 //! manual additions live in the vault, so a release cannot replace them.
 //! `openai-codex` is synthesized from listed OpenAI models with prices removed:
-//! models.dev has no ChatGPT subscription provider.
+//! models.dev has no ChatGPT subscription provider. A ChatGPT id the list lacks
+//! is read from OpenAI's entry the same way (see [`model_of`]).
 
 use crate::contract::{CatalogModel, ConfigChoice, CredentialKind, EffortChoices, Provider};
 use crate::session::ProviderAuth;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 
@@ -50,18 +52,19 @@ pub struct Wiring {
     pub credential_kinds: &'static [CredentialKind],
 }
 
-/// Model ids ChatGPT's subscription serves. Copied from openai's catalogue
-/// with `cost` cleared, because a subscription has no per-token price.
-/// An id openai lacks is an error from the sync, so this list cannot drift
-/// silently.
+/// Model ids ChatGPT's subscription serves, and so what a picker offers before
+/// a ChatGPT sign-in lists its own. Copied from openai's catalogue with `cost`
+/// cleared, because a subscription has no per-token price. An id openai lacks
+/// is an error from the sync, so this list cannot drift silently.
 pub const CHATGPT_MODELS: &[&str] = &[
+    "gpt-6.1-sol",
+    "gpt-daybreak-blue-latest",
     "gpt-6-astra",
     "gpt-6-sol",
     "gpt-6-luna",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
-    "gpt-5.5",
 ];
 
 /// The providers Hotline reaches, in wired order — which is how the model
@@ -270,6 +273,28 @@ fn efforts_of(model: &Value) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// One model of one provider, as the catalogue describes it.
+///
+/// A ChatGPT sign-in serves OpenAI's models under OpenAI's ids, so a ChatGPT id
+/// that [`CHATGPT_MODELS`] has not caught up with is read from `openai`, with
+/// its price cleared as the sync clears it. Without this, a model ChatGPT adds
+/// arrives with no efforts, limits or name until the list is edited and shipped.
+pub fn model_of(provider_id: &str, model_id: &str) -> Option<Cow<'static, Model>> {
+    let providers = &catalog().providers;
+    if let Some(model) = providers
+        .get(provider_id)
+        .and_then(|entry| entry.models.get(model_id))
+    {
+        return Some(Cow::Borrowed(model));
+    }
+    if provider_id != "openai-codex" {
+        return None;
+    }
+    let mut model = providers.get("openai")?.models.get(model_id)?.clone();
+    model.cost = None;
+    Some(Cow::Owned(model))
 }
 
 /// The snapshot this build carries.
@@ -550,7 +575,8 @@ pub fn catalog_models(
     let mut models: Vec<_> = ids
         .into_iter()
         .map(|id| {
-            let metadata = entry.and_then(|entry| entry.models.get(&id));
+            let metadata = model_of(provider_id, &id);
+            let metadata = metadata.as_deref();
             CatalogModel {
                 name: metadata
                     .map(|model| model.name.clone())
@@ -585,12 +611,7 @@ pub fn catalog_models(
 /// The picker's name for a `provider/model` id, when the catalogue has it.
 pub fn label_of(model_id: &str) -> Option<String> {
     let (provider, model) = model_id.split_once('/')?;
-    catalog()
-        .providers
-        .get(provider)?
-        .models
-        .get(model)
-        .map(|model| model.name.clone())
+    model_of(provider, model).map(|model| model.name.clone())
 }
 
 /// The effort levels a `provider/model` offers, empty when the id is unknown
@@ -599,10 +620,7 @@ pub fn efforts(model_id: &str) -> Vec<String> {
     let Some((provider, model)) = model_id.split_once('/') else {
         return Vec::new();
     };
-    catalog()
-        .providers
-        .get(provider)
-        .and_then(|entry| entry.models.get(model))
+    model_of(provider, model)
         .map(|model| model.efforts.clone())
         .unwrap_or_default()
 }
@@ -663,12 +681,7 @@ pub fn effort_choices(model_id: &str) -> Vec<ConfigChoice> {
 /// catalogue has it.
 pub fn output_limit(model_id: &str) -> Option<u64> {
     let (provider, model) = model_id.split_once('/')?;
-    catalog()
-        .providers
-        .get(provider)?
-        .models
-        .get(model)
-        .map(|model| model.limit.output)
+    model_of(provider, model).map(|model| model.limit.output)
 }
 
 #[cfg(test)]
@@ -989,6 +1002,48 @@ mod tests {
             catalog.providers["openai-codex"].models["gpt-6-sol"].efforts,
             ["none", "low", "medium", "high"]
         );
+    }
+
+    /// An OpenAI model with efforts and a price that the bundled ChatGPT list
+    /// does not name, as a model ChatGPT added after the last sync would be.
+    fn openai_model_chatgpt_has_not_listed() -> (&'static str, &'static Model) {
+        catalog().providers["openai"]
+            .models
+            .iter()
+            .find(|(id, model)| {
+                !CHATGPT_MODELS.contains(&id.as_str())
+                    && !model.efforts.is_empty()
+                    && model.cost.is_some()
+            })
+            .map(|(id, model)| (id.as_str(), model))
+            .expect("the snapshot has an unlisted OpenAI model with efforts and a price")
+    }
+
+    #[test]
+    fn a_chatgpt_id_the_list_lacks_is_read_from_openai_without_its_price() {
+        let (id, openai) = openai_model_chatgpt_has_not_listed();
+        let chatgpt = model_of("openai-codex", id).expect("read from openai");
+        assert_eq!(chatgpt.efforts, openai.efforts);
+        assert_eq!(chatgpt.name, openai.name);
+        assert!(
+            chatgpt.cost.is_none(),
+            "a subscription has no per-token price"
+        );
+        assert_eq!(efforts(&format!("openai-codex/{id}")), openai.efforts);
+        let model = format!("openai-codex/{id}");
+        assert!(crate::pricing::listed_price(&model, &HashMap::new()).is_none());
+
+        let listed = catalog_models("openai-codex", &HashMap::new(), Some(&[id.to_string()]));
+        assert!(listed[0].metadata_known);
+        assert!(listed[0].cost.is_none());
+        assert_eq!(listed[0].efforts.as_ref(), Some(&openai.efforts));
+    }
+
+    #[test]
+    fn only_chatgpt_borrows_another_providers_models() {
+        let (id, _) = openai_model_chatgpt_has_not_listed();
+        assert!(model_of("openai-codex", "no-such-model").is_none());
+        assert!(model_of("anthropic", id).is_none());
     }
 
     #[test]

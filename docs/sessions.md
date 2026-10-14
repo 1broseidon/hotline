@@ -649,6 +649,7 @@ the saved list until you save. Use Edit connection to discover again.
 | --- | --- | --- | --- |
 | Together AI | `https://api.together.ai/v1` | Chat Completions | Together API key |
 | LM Studio | `http://localhost:1234/v1` | Responses | None by default; token if enabled in LM Studio |
+| Meta Model API (Muse) | `https://api.meta.ai/v1` | Responses | Meta `MODEL_API_KEY` |
 
 For Together, use an exact model ID from discovery or the Together model
 catalogue, including its owner prefix. Together does not implement Responses;
@@ -866,9 +867,9 @@ A line sent while an ACP teammate works reaches the running turn when the
 agent offers the steering extension. The agent says so in `initialize`, under
 `_meta.steering.supported`, which is what sets `capabilities.activeInput`.
 Hotline then sends the line as a `_session/steering` request carrying
-`idleBehavior: "promptRequired"`. Claude Code's and Codex's adapters offer it.
-Gemini CLI, Cursor, opencode and Grok Build did not as of 2026-09-24; their
-lines wait for the turn to end, as every ACP line did before.
+`idleBehavior: "promptRequired"`. Claude Code's, Codex's and Muse Code's
+adapters offer it. Gemini CLI, Cursor, opencode and Grok Build did not as of
+2026-09-24; their lines wait for the turn to end, as every ACP line did before.
 
 Lines go one at a time, in the order they were said, and only while Hotline's
 `session/prompt` is out. A line the agent does not take comes back to the

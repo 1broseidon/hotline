@@ -2,8 +2,8 @@
 id: task-21
 title: "Startup: open the window before the core finishes settling"
 parentId: epic-5
-column: todo
-position: 23
+column: backlog
+position: 13
 priority: medium
 tags:
   - improvement
@@ -19,5 +19,5 @@ description: |-
   Window side: persist the local desk's roster so the rail paints on first frame (`ui/src/App.tsx` \~674-689), and lazy-load react-markdown after first paint.
 
   Migrated from Linear BRO-238: https://linear.app/1broseidon/issue/BRO-238/startup-open-the-window-before-the-core-finishes-settling (2026-10-11).
-updatedAt: "2026-10-11T21:05:31.573Z"
+updatedAt: "2026-10-14T20:05:19.373Z"
 ---

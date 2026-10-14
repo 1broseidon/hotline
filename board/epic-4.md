@@ -2,8 +2,8 @@
 id: epic-4
 title: "Composer: @ teammates and / commands anywhere in a message (0.37)"
 type: epic
-column: todo
-position: 43
+column: backlog
+position: 6
 priority: high
 tags:
   - feature
@@ -11,7 +11,7 @@ tags:
   - 0.37.0
   - bro-136
 createdAt: "2026-10-11T21:25:33.991Z"
-updatedAt: "2026-10-12T04:22:24.585Z"
+updatedAt: "2026-10-14T20:05:15.943Z"
 ---
 
 ## Description

@@ -6,6 +6,7 @@ position: 34
 priority: medium
 tags:
   - feature
+  - 0.37.0
 relatedFiles:
   - ui/src/components/BackendPicker.tsx
   - ui/src/components/Settings.tsx
@@ -34,6 +35,7 @@ subtasks:
     title: workspace and per-backend checkpoint; docs/sessions.md + wire.md
     completed: false
 createdAt: "2026-10-13T22:00:04.520Z"
+updatedAt: "2026-10-14T17:04:01.922Z"
 ---
 
 ## Description

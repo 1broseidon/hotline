@@ -1,8 +1,8 @@
 ---
 id: task-42
 title: "Desk: one command catalogue for both composers"
-column: todo
-position: 45
+column: backlog
+position: 25
 priority: high
 tags:
   - composer
@@ -12,6 +12,7 @@ relatedFiles:
   - crates/hotline-core/src/contract.rs
 parentId: epic-4
 createdAt: "2026-10-11T21:25:34.573Z"
+updatedAt: "2026-10-14T20:05:25.208Z"
 ---
 
 ## Description

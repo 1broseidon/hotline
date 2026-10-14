@@ -35,5 +35,9 @@ description: |-
   (Moved from runprism: this is Hotline's gateway, not runprism's.)
 
   Migrated from Linear BRO-248: https://linear.app/1broseidon/issue/BRO-248/mcp-gateway-sign-in-with-a-client-id-metadata-document-cimd-when-the (2026-10-11).
-updatedAt: "2026-10-11T21:05:34.884Z"
+updatedAt: "2026-10-14T01:44:25.074Z"
+subtasks:
+  - id: task-25-1
+    title: "Dark MCP OAuth callback page with the mark (from task-26): templated success/failure inline HTML in mcp/oauth.rs, escaped server name/reason, strict CSP, no external URLs"
+    completed: false
 ---

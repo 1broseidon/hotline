@@ -2,8 +2,8 @@
 id: task-20
 title: "Core: answer a socket's commands concurrently"
 parentId: epic-5
-column: todo
-position: 22
+column: backlog
+position: 12
 priority: high
 tags:
   - improvement
@@ -24,5 +24,5 @@ description: |-
   ## Status (2026-10-11 review)
 
   Per-teammate lanes landed in 0.35.2 (wire/mod.rs ~1187-1260). Left: commands not tied to a teammate (models.list, settings.update, search) still run inline (~1226).
-updatedAt: "2026-10-11T21:05:30.744Z"
+updatedAt: "2026-10-14T20:05:18.890Z"
 ---

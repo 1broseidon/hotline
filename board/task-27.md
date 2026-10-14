@@ -1,8 +1,8 @@
 ---
 id: task-27
 title: "Teammate computer: controls apply for real (memory, CPUs, folders) and a remake keeps the home, on all three runtimes"
-column: todo
-position: 29
+column: backlog
+position: 17
 priority: high
 tags:
   - bug
@@ -43,5 +43,5 @@ description: |-
   Code as of 0.36 (backlog review): `computer/mod.rs` \~388-440 `ensure_running` only remakes on folder change and nothing compares memory/CPU; `create_args` gives Apple container no named volumes.
 
   Migrated from Linear BRO-256: https://linear.app/1broseidon/issue/BRO-256/teammate-computer-controls-apply-for-real-memory-cpus-folders-and-a (2026-10-11).
-updatedAt: "2026-10-11T21:05:36.547Z"
+updatedAt: "2026-10-14T20:05:21.311Z"
 ---

@@ -1,8 +1,8 @@
 ---
 id: task-53
 title: Change a teammate's agent backend after it's made, keeping its history and workspace
-column: todo
-position: 34
+column: backlog
+position: 36
 priority: medium
 tags:
   - feature
@@ -35,7 +35,7 @@ subtasks:
     title: workspace and per-backend checkpoint; docs/sessions.md + wire.md
     completed: false
 createdAt: "2026-10-13T22:00:04.520Z"
-updatedAt: "2026-10-14T17:04:01.922Z"
+updatedAt: "2026-10-14T20:05:30.622Z"
 ---
 
 ## Description

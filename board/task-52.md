@@ -1,8 +1,8 @@
 ---
 id: task-52
 title: Custom connections take effort levels, context limits and prices from models.dev by base URL
-column: todo
-position: 33
+column: backlog
+position: 35
 priority: high
 tags:
   - feature
@@ -27,6 +27,7 @@ subtasks:
     title: "Headless harness: Meta-shaped connection offers Muse efforts and sends the chosen one; docs/sessions.md effort table + custom section"
     completed: false
 createdAt: "2026-10-13T13:22:39.014Z"
+updatedAt: "2026-10-14T20:05:30.131Z"
 ---
 
 ## Description

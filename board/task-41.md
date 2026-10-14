@@ -1,8 +1,8 @@
 ---
 id: task-41
 title: "Desk: fill slash_commands from ACP available_commands_update"
-column: todo
-position: 44
+column: backlog
+position: 24
 priority: high
 tags:
   - composer
@@ -14,6 +14,7 @@ relatedFiles:
   - crates/hotline-core/src/wire/roster.rs
 parentId: epic-4
 createdAt: "2026-10-11T21:25:34.281Z"
+updatedAt: "2026-10-14T20:05:24.734Z"
 ---
 
 ## Description

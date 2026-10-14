@@ -10,12 +10,13 @@ teammate; web search; and, for a teammate with one, its
 
 ## Hotline's own tools
 
-Every teammate, whichever driver runs it, has these:
+Every teammate, whichever driver runs it, has these in its main
+conversation:
 
 | Tool | What it does |
 | --- | --- |
 | `request_human` | Asks you for something only a person can do, as a **Needs you** card. It does not wait: your answer arrives later as a message. |
-| `message_teammate`, `list_teammates` | Asks a colleague a question or hands it work, once you have allowed the pair, and sees who is idle, working or waiting. See [Teammates working together](/docs/use/teammates-together/). |
+| `message_teammate`, `list_teammates` | Asks a colleague a question or hands it work, and sees who is idle, working or waiting. The first contact waits for you to allow the pair, except from a Hotline Agent teammate with **Whole machine**. See [Teammates working together](/docs/use/teammates-together/). |
 | `send_file` | Sends you a file in the conversation: a report, a chart, a screenshot of its computer. Pictures up to 2000 pixels, other files up to 25 MB. |
 | `react` | Puts an emoji on your last message instead of a reply. |
 | `open_link` | Opens a link in your own browser, only while you are at the desktop app. |
@@ -24,6 +25,11 @@ Every teammate, whichever driver runs it, has these:
 | `search_thread`, `list_chapters`, `new_chapter`, `resume_chapter` | Searches its own history, including earlier chapters, side threads and calls, and opens or reopens a chapter. |
 | `schedule`, `loop`, `list_schedules`, `cancel_schedule` | Wakes itself later, or on an interval, with **Background work** on. See [Schedules](/docs/setup/schedules/). |
 | `computer_status` | Says whether its computer is ready or still downloading. |
+
+In a [side thread](/docs/use/side-threads/), or a work thread a colleague
+handed it, a teammate has the same tools except `new_chapter` and
+`resume_chapter`, since chapters belong to the main conversation. It also
+has `archive_thread`, to close the thread when the work is done.
 
 Hotline Agent also has its own file tools and shell, confined to the
 teammate's folders, and `subagent` to send work to a

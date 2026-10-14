@@ -32,8 +32,8 @@ what anyone said.
 
 The first time a teammate tries to reach a colleague, a card in its
 conversation asks you to allow it. It names the two teammates and says what
-the colleague may do. Choose **Allow this session**, **Always allow**, or
-**Deny**.
+the colleague may do. Choose **Allow this session**, **Always allow** and
+the asking teammate's name, or **Deny**.
 
 A grant goes one way. Allowing Mack to ask Clementine does not let
 Clementine ask Mack, and it does not let Clementine pass the work on to
@@ -74,7 +74,7 @@ talked to.
 
 ## When they go on too long
 
-When two teammates go back and forth twelve times without you, both
+When two teammates have sent each other twelve messages without you, both
 conversations show a **Paused** card. Choose **Keep going** or **Stop
 exchange**. Anything you say to either teammate also resets the count.
 

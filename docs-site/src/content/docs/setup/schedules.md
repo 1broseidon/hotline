@@ -34,7 +34,7 @@ Bounds:
 | --- | --- |
 | Once | 1 second to 30 days ahead |
 | Repeating | 15 seconds to 7 days (from the pane: whole minutes, hours or days) |
-| Prompt | up to 8000 characters |
+| Prompt | up to 8000 bytes (fewer characters in scripts outside basic Latin) |
 | Jobs per teammate | 20 |
 
 A schedule you add runs whatever the teammate's **Background work** setting.

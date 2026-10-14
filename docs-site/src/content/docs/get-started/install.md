@@ -16,9 +16,11 @@ irm https://hotline.dev/install.ps1 | iex
 ```
 
 Either one downloads the latest release for your machine, checks it against the
-release's checksums and installs it: into Applications on macOS, through apt or
-dnf on Linux (an AppImage in `~/.local/bin` elsewhere), and per-user on Windows.
-Read [the script](https://hotline.dev/install) first if you like; it is short.
+release's checksums and installs it: into Applications on macOS (or
+`~/Applications` if you cannot write to Applications), through apt, dnf or
+zypper on Linux (an AppImage in `~/.local/bin` elsewhere), and per-user on
+Windows. Read [the script](https://hotline.dev/install) first if you like;
+it is short.
 
 To download a build yourself, every one is on the
 [latest GitHub release](https://github.com/1Broseidon/hotline/releases/latest).
@@ -33,9 +35,10 @@ Pick the file for your machine:
 
 ## macOS
 
-Open the disk image and drag Hotline to Applications. Builds are signed and
-notarized. The menu bar is Hotline's own: **Hotline → Settings**, **Help → Keyboard
-Shortcuts**, and a Quit that actually quits.
+Open the disk image and drag Hotline to Applications. Published releases are
+signed with an Apple Developer ID and notarized. The menu bar has **Hotline →
+Settings** and **Help → Keyboard Shortcuts**. Closing the window leaves
+Hotline running; **Quit** ends it.
 
 ## Windows
 

@@ -15,7 +15,9 @@ thread** ("Another topic with" the teammate's name, "in parallel").
 
 The thread opens at once in the right-hand pane, empty. The first thing you
 say in it becomes its title. It is the same teammate, with the same folders,
-tools and permissions, but it runs in a context of its own, so nothing said
+tools and permissions, but it runs in a context of its own. A new side
+thread is told the main conversation's last handoff note and its last few
+lines, so it knows what the teammate is busy with. After that, nothing said
 in the side thread reaches the main conversation, and the other way round.
 
 While a side thread is running, a chip in the conversation's header shows it
@@ -26,7 +28,7 @@ A side thread lasts as long as the topic does:
 
 - **The teammate never closes it by itself.** It is archived when you tell
   the teammate you are done, or press **Archive** in the thread.
-- **A quiet thread is parked.** After a few quiet hours, or a restart, no
+- **A quiet thread is parked.** After three quiet hours, or a restart, no
   agent is running for it, but it stays in the list. Saying something in it
   picks it back up where it left off.
 - **An archived thread can come back.** Open it and press **Continue**.
@@ -51,7 +53,7 @@ While one is running, it shows at the top right of the message box, by its
 title, or as a count with a menu when there are several. Press it to read
 what the subagent is doing. Each subagent also leaves one line in the
 conversation with its result, and that line opens the run too. Runs are
-read-only. Stopping the teammate stops its subagents.
+read-only. Stopping a Hotline Agent teammate stops its subagents.
 
 Hotline Agent teammates start subagents with a tool of their own, up to four
 at a time. Claude Code and Codex show their own subagents the same way when

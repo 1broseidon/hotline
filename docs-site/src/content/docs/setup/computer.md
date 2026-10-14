@@ -4,9 +4,10 @@ description: A containerized Linux desktop a teammate drives, and you can watch 
 ---
 
 A teammate can have a computer: a Linux desktop in a container on your
-machine, with a browser and a window manager, driven through tools. The
-container is the machine; the agent is the operator. You can open the same
-screen, watch, and take the keyboard when the agent asks you to.
+machine, with a browser and a window manager. The teammate works it
+through tools that look at the screen, type, click, and run commands. You
+can open the same screen, watch, and take the keyboard when the teammate
+asks you to.
 
 ## What you need
 
@@ -14,7 +15,7 @@ One container runtime:
 
 | Runtime | Where |
 | --- | --- |
-| Docker (Docker Desktop or OrbStack) | macOS, Linux and Windows |
+| Docker (Docker Desktop, or OrbStack on macOS) | macOS, Linux and Windows |
 | Podman | macOS, Linux and Windows |
 | Apple `container` | macOS only |
 
@@ -54,14 +55,18 @@ its extra [folders](/docs/setup/teammates/#folders) under
 `/home/agent/folders`. Under **Desktop** in the pane:
 
 - **Memory** and **CPU** limits, on sliders that stop at what this machine
-  has;
+  has (memory is 4 GB unless you set it; CPU is unlimited unless you set
+  it);
 - **Processes**, the most processes the container may run (1024 when blank,
-  0 for no limit; a parallel build needs more);
+  0 for no limit; a parallel build needs more). Apple `container` has no
+  process limit, so this does nothing there;
 - **Mount a folder** adds another folder of yours, read-only if you like;
 - **Updates** says which release the computer runs, and offers **Update**
-  when a newer one is out. Updating recreates the container: the workspace,
-  prepared environments and the browser profile come back with it, while
-  anything installed into the container outside them is gone.
+  when a newer one is out. Updating recreates the container. On Docker and
+  Podman the workspace, prepared environments and the browser profile come
+  back with it, while anything installed into the container outside them is
+  gone. On Apple `container` only the workspace and the folders you mounted
+  come back; the browser profile and everything else start over.
 
 ## Sign the teammate in
 
@@ -102,9 +107,13 @@ computer, in the conversation.
 ## What the container can do
 
 Nothing in the image runs as root. Hotline creates the container with every
-capability dropped, no new privileges, memory, CPU and process limits, and
-its one port on loopback only. Named volumes keep its home, its source and
-its installed packages between starts.
+capability dropped, a memory limit, a CPU limit if you set one, and its one
+port on loopback only. On Docker and Podman it also forbids gaining new
+privileges, applies the process limit, and keeps the container's home, its
+source and its installed packages in named volumes between starts. Apple
+`container` supports neither of those flags nor named volumes: it gets only
+the folders mounted from your machine, and anything else lives in the
+container itself.
 
 Work threads and side threads on the same teammate take turns on its
 computer. One that finds it busy is told which thread has it.

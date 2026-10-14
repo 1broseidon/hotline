@@ -15,7 +15,6 @@ Windows and Linux.
 | New teammate | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>N</kbd> |
 | Settings | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>,</kbd> |
 | Teammate 1 to 9 | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>1</kbd>…<kbd>9</kbd> |
-| Show or hide the team | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>B</kbd> |
 
 ## Conversation
 
@@ -57,4 +56,5 @@ Pressing either call shortcut during a call hangs up. See
 
 | | |
 | --- | --- |
+| Team: show or hide the team list | <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>B</kbd> |
 | Close, or step back from a thread to the list | <kbd>Esc</kbd> |

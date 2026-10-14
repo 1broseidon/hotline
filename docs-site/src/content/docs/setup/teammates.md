@@ -27,6 +27,7 @@ modes:
 | opencode | `opencode` |
 | Gemini CLI | `gemini` |
 | Grok Build | `grok` |
+| Muse Code | the `muse` CLI, and `npx` |
 
 Hotline also reads the [Agent Client Protocol](https://agentclientprotocol.com)
 registry of published agents once a day, so other agents that speak it show
@@ -35,10 +36,10 @@ missing, usually a CLI that is not installed, or installed for another
 account or outside the `PATH` Hotline sees.
 
 Hotline does not install the CLIs above for you. `npx` fetches the small
-adapter that Claude Code and Codex speak through. An agent the registry
-publishes as a ready-made download is fetched the first time it starts,
-checked against its published checksum when there is one, and kept in the
-data directory.
+adapter that Claude Code, Codex and Muse Code speak through. An agent the
+registry publishes as a ready-made download is fetched the first time it
+starts, checked against its published checksum when there is one, and kept
+in the data directory.
 
 Claude Code signs in with its own account, through Claude Code itself.
 Hotline runs the `claude` CLI you installed and never asks for or holds your
@@ -51,8 +52,9 @@ its own. File reads and writes the tool asks Hotline to do stay inside the
 teammate's folders. A tool's own shell is not confined by Hotline: choosing
 one trusts its permission model.
 
-A message you send while a Claude Code or Codex teammate is working reaches
-the task it is on. Other tools read it when they finish the turn.
+A message you send while a Claude Code, Codex or Muse Code teammate is
+working reaches the task it is on. Other tools read it when they finish the
+turn.
 
 **Settings → General → New teammates → Thinks with** sets which driver a
 new teammate gets, and **Model** which model, when that is Hotline Agent.

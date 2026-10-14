@@ -12,8 +12,9 @@ server. A window or a phone is a way in to a desk.
 
 A teammate is a named agent with a goal, its own folder, its own
 conversation and its own settings. The team list at the left shows each
-one, with what it is doing. Its mark moves while it works and rings when it
-is waiting on you.
+one, with a dot while it starts or works and the last line said. At the foot
+of its conversation, the teammate's mark shows what kind of work it is
+doing, and its handset rings when it is waiting on you.
 
 - <kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>1</kbd>…<kbd>9</kbd> opens the first
   nine.
@@ -56,14 +57,16 @@ asks Hotline to do stay inside the teammate's folders.
 
 A teammate can ask for something only a person can do: a login, a tap on a
 phone, a CAPTCHA, a decision. A **Needs you** card appears in the
-conversation, and the teammate's face in the list shows it is waiting on
-you. Choose **Done** or **Decline**, with **Add a note** if you have
-something to say. If the teammate has a computer, **Open the screen** takes
-you to its desktop to do it there.
+conversation, and a paired phone is notified. Choose **Done** or
+**Decline**, with **Add a note** if you have something to say. If the
+teammate has a computer, **Open the screen** takes you to its desktop to do
+it there.
 
 The teammate does not sit and wait. It carries on with what it can, and
 your answer arrives as a new message that wakes it if it was idle. A card
-nobody answers in a day expires.
+nobody answers in a day expires. The exception is a card a teammate raises
+while answering a colleague's question: the colleague is waiting on that
+answer, so the card waits only ten minutes.
 
 Teammates that run an outside harness may also ask permission before an
 action. That arrives as a card in the same place, with the choices the

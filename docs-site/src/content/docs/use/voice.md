@@ -41,7 +41,10 @@ kinds:
   that talks to this desk.
 - **A provider you connected**, such as OpenAI, Google, Groq, Mistral,
   OpenRouter or xAI. These hear you on calls only, are paid by the request,
-  and count against your **Voice** budget.
+  and count against your **Voice** budget. An xAI sign-in with SuperGrok or
+  X Premium+ can hear and speak too, under your subscription rather than by
+  the request. It is never picked automatically: choose it yourself under
+  **Transcription** or **Voice**.
 
 Dictation needs one of the first two: the Mac's own recognition or a speech
 model on the desk.
@@ -71,8 +74,10 @@ any app (<kbd>Ctrl</kbd> + <kbd>Option</kbd> + <kbd>H</kbd> by default),
 and **After dictating**:
 
 - **Don't send** (the default) leaves the words in the box.
-- **Send** sends them a second and a half after you stop talking, unless
-  you press <kbd>Esc</kbd> first.
+- **Send** counts down a second and a half once you stop dictating, then
+  sends. The countdown starts only if it heard at least two characters
+  besides spaces. Press <kbd>Esc</kbd>, type in the box or click it to call
+  the send off and keep the words; <kbd>Enter</kbd> sends at once.
 
 If the microphone is missing, busy or not allowed, the box says which. On a
 Mac, allow Hotline under **Speech Recognition** and **Microphone** in
@@ -87,9 +92,9 @@ Press the phone key in the band at the top of the conversation
 (**Call** and the teammate's name). If dictation is not set up, the key in an
 empty message box (**Talk to** and the teammate's name) starts a call too.
 
-On a call, the teammate is itself. No other model answers for it. What you
-say goes into its own conversation, in the chapter you are in, with the same
-folders, tools and permissions as when you type to it.
+A call reaches the teammate's own agent and model; no other model answers
+for it. What you say goes into its own conversation, in the chapter you are
+in, with the same folders, tools and permissions as when you type to it.
 
 - The teammate answers twice: once in a short reply written to be heard, and
   once in the full reply written to be read, with the code, tables and links.
@@ -140,6 +145,6 @@ budget. A call that a spent budget refuses names the budget.
 
 ## From your phone
 
-Calls are for you, the desk's owner: from the desktop app, or from Hotline
-for iPhone, which is in beta and gains calling feature by feature. See
-[Hotline on your phone](/docs/phone/).
+Only the desk's owner can make calls, from the desktop app or from Hotline
+for iPhone. The iPhone app is in beta, and not every part of calling is in
+it yet. See [Hotline on your phone](/docs/phone/).

@@ -19,8 +19,8 @@ mark at the foot of the conversation shows what kind of work it is doing.
 You do not have to wait for it to finish:
 
 - **Send another message** and it reaches the teammate while it works. On
-  Hotline Agent, Claude Code and Codex it joins the task already in hand;
-  other agents read it when they finish the turn.
+  Hotline Agent, Claude Code, Codex and Muse Code it joins the task already
+  in hand; other agents read it when they finish the turn.
 - **Interrupt** the turn with <kbd>Esc</kbd> in the message box.
   **More → Stop the session** stops the agent altogether; your next message
   starts it again.

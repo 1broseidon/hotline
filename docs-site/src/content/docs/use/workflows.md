@@ -11,9 +11,12 @@ needs. They are starting points; mix them.
 You pay for Claude Code or Codex already and want it as a teammate.
 
 1. Make sure its CLI runs in a terminal on this machine (`claude`, `codex`,
-   `cursor-agent`, `opencode`, `gemini` or `grok`), signed in.
+   `cursor-agent`, `opencode`, `gemini`, `grok` or `muse`), signed in.
 2. **New teammate**, then under **Thinks with → Agent** pick it from the
    agents you already use. A row that cannot start says what is missing.
+   In the welcome, choose **An AI coding tool you already have** under
+   **How they think** instead; the first teammate's form has no **Agent**
+   choice.
 3. Give it the project folder as its working directory.
 
 It keeps its own login, tools and permission modes. Hotline adds the room:
@@ -86,12 +89,14 @@ while it works on what it was handed.
 
 ## Let a teammate use the web for you
 
-1. In the teammate's pane, turn on **Computer**. The first start downloads the
-   desktop image. See [The computer](/docs/setup/computer/).
+1. In the teammate's pane, under **Computer**, turn on **A computer of its
+   own**. The first start downloads the desktop image. See
+   [The computer](/docs/setup/computer/).
 2. Ask: "sign up for the staging dashboard and screenshot the usage page."
-3. When it reaches a login it cannot do, a **Needs you** card opens the
-   computer's screen. Type the password yourself; it goes to the desktop,
-   never through the agent. Mark the card done.
+3. When it reaches a login it cannot do, a **Needs you** card appears in
+   the conversation. Press **Open the screen** on it and type the password
+   yourself; it goes to the desktop, never through the agent. Press
+   **Done** when you have finished, or **Decline**.
 
 For a quick lookup, the computer is not needed: every teammate can
 search the web with `web_search`.
@@ -105,10 +110,11 @@ can read it without **Whole machine** access. See
 
 ## Talk it through
 
-When typing is too slow, call the teammate with the phone key at the head of its conversation.
-Describe the problem out loud; the teammate answers in a sentence or two and
-writes the full answer, with code and links, into the chat. Its work keeps
-going between your questions. See [Calls and dictation](/docs/use/voice/).
+When typing is too slow, call the teammate with the phone key at the head of
+its conversation. Describe the problem out loud; the teammate answers in a
+sentence or two and writes the full answer, with code and links, into the
+chat. Its work keeps going between your questions. See
+[Calls and dictation](/docs/use/voice/).
 
 ## Start fresh on a new subject
 

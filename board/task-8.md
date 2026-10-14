@@ -1,8 +1,8 @@
 ---
 id: task-8
 title: A provider refusing turns shouldn't read as "sign in again" when the sign-in is fine
-column: todo
-position: 10
+column: backlog
+position: 41
 priority: high
 tags:
   - bug
@@ -32,5 +32,5 @@ description: |-
   * A genuinely revoked token still gets "Provider sign-in required".
 
   Migrated from Linear BRO-126: https://linear.app/1broseidon/issue/BRO-126/a-provider-refusing-turns-shouldnt-read-as-sign-in-again-when-the-sign (2026-10-11).
-updatedAt: "2026-10-12T04:21:45.130Z"
+updatedAt: "2026-10-14T20:05:33.107Z"
 ---

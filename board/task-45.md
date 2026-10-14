@@ -1,8 +1,8 @@
 ---
 id: task-45
 title: "Desktop: / picker anywhere in the sentence"
-column: todo
-position: 48
+column: backlog
+position: 28
 priority: high
 tags:
   - composer
@@ -13,6 +13,7 @@ relatedFiles:
   - ui/src
 parentId: epic-4
 createdAt: "2026-10-11T21:25:35.454Z"
+updatedAt: "2026-10-14T20:05:26.669Z"
 ---
 
 ## Description

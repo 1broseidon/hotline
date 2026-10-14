@@ -1,7 +1,6 @@
 ---
 id: epic-3
 title: "Linked desks: teammates on different desks collaborate as if they shared one room"
-column: in-progress
 type: epic
 priority: high
 tags:
@@ -66,11 +65,19 @@ description: |-
   Backlog review 2026-10-11: still unbuilt (`PersonaNode` never set, no `Seat::Link`, no ADR 0003). BRO-178 (unified list) stays as the client-only first slice.
 
   Migrated from Linear BRO-177: https://linear.app/1broseidon/issue/BRO-177/linked-desks-teammates-on-different-desks-collaborate-as-if-they (2026-10-11).
-updatedAt: "2026-10-13T07:31:43.490Z"
+updatedAt: "2026-10-14T22:06:44.707Z"
 assignee: claude
+completedAt: "2026-10-14T22:06:44.707Z"
 ---
 
 ## Log
 - 2026-10-13T06:32:12.078Z: [claude] Plan: a link is a room event on both desks ({kind:"link", id: peer desk id, dials, key}) trusting the peer desk's own Noise key, made over the owner wire (link.accept) from Settings › Desks. The linking desk's core dials /v2/link (also through the relay) with its desk key; the answering desk seats it as Seat::Link, which permits only link.roster/link.deliver/link.unlink. Linked teammates are a live in-memory mirror (names kept on the link record for routing), node-qualified as nodeId/personaId. Cross-desk asks and handoffs ride the existing exchange_pair queue on both desks: the sender forwards a queued request over the link, the recipient runs it under its own allowedSenders and first-contact card (raised on the recipient's tape), and returns the result over the link. ADR 0003 records it. UI: one rail across desks with a desk filter.
 - 2026-10-13T07:31:27.932Z: [claude] Done on branch dispatch/epic-3 (not merged). All four slices are built, and ADR 0003 records the design: a desk_link room record on each desk trusts the other desk's own Noise key; /v2/link (also through the relay) is answered under Seat::Link, which allows only federation.roster/deliver/unlink and ping. Linked teammates are deskId/personaId participants with nothing granted. Messages cross both desks' exchange_pair queues, under the recipient's allowedSenders and a card on the recipient's desk. Unlinking from either side fails pending messages, withdraws cards and ends grants. The window has one rail across desks with a desk filter, Link/Unlink in Settings › Desks, a desk picker in Settings and New teammate, and `hotline links`/`unlink` on the CLI. An independent review's findings are fixed. cargo test --workspace (1917), clippy -D warnings, and the UI typecheck and 378 tests all pass. Not done: the Tauri app was not run by hand; linking server to server and files across desks are deferred as the epic says.
 - 2026-10-14T20:53:59.663Z: [claude] 2026-10-14 merge-readiness: trial merge with main passes make check (1919 Rust tests). Review: no blockers; fixing before PR: link channel uses 32 MiB Channel and no frame rate limit (Seat::Link 1 MiB never applies); unlink race can re-save a removed link record. Follow-ups on a separate card.
+
+## Child Tasks
+Summary: 4/4 children completed.
+- task-15: Desktop: one unified list across every connected desk, with a desk filter (like the phone) (completed)
+- task-16: Desk-to-desk link: pair two desks for their teammates, with a durable, revocable link channel (completed)
+- task-17: Linked roster: teammates on linked desks appear in list_teammates and the rosters, node-qualified (completed)
+- task-18: Cross-desk messaging: message_teammate, threads and replies over the link, under the recipient's grants (completed)

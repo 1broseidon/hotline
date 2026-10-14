@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-14
+
 ### Added
 
 - Linked desks. Link this computer's desk with a server you're connected to
@@ -24,6 +26,16 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   switching, unread counts across desks, and a desk that can't be reached
   keeps its teammates listed, dimmed. A new teammate asks which desk it
   lives on.
+- The user guide has a Use Hotline section: workflows, conversations, side
+  threads, teammates working together, voice, and pictures. The setup and
+  reference pages name what the desk shows today.
+
+### Fixed
+
+- The server edition runs on Debian 12 and Raspberry Pi OS bookworm again.
+  0.36.3's server tarballs were built on Ubuntu 24.04 and needed glibc 2.39,
+  so `hotline` failed to start there; they are now built on Ubuntu 22.04 and
+  need glibc 2.35 or newer, and the release fails if a build asks for more.
 
 ## [0.36.3] - 2026-10-13
 

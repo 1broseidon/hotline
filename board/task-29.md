@@ -37,3 +37,6 @@ description: |-
   The phone side shipped in hotline-mobile #67 (endpoints raced, reach status, "Use it away from home"). Rescoped to the desktop remainder: the same reachability status in Settings › Remote, and the Relay row shown early. Retitled from "Phone: say whether a desk is reachable away from home, and try every address the desk advertises".
 updatedAt: "2026-10-11T21:05:38.197Z"
 ---
+
+## Log
+- 2026-10-14T01:44:31.690Z: [claude] Consolidated into task-12 as subtask task-12-4 (remote visibility); closing as duplicate, not done.

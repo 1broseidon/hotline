@@ -2,8 +2,8 @@
 id: task-22
 title: "Window: notify on visible streaming changes and avoid repeated render passes"
 parentId: epic-5
-column: todo
-position: 24
+column: backlog
+position: 14
 priority: high
 tags:
   - improvement
@@ -15,5 +15,5 @@ description: |-
   Split the independent former scope into task-49 (long-tape progressive rendering/scroll anchoring) and task-50 (per-desk list caches). CSS :has replacement and solid working-card backgrounds belong here if profiling shows them material.
 
   Migration source: BRO-241; former BRO-242 and BRO-244 scope is retained in the split tasks.
-updatedAt: "2026-10-12T04:21:39.870Z"
+updatedAt: "2026-10-14T20:05:19.856Z"
 ---

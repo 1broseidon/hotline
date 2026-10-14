@@ -1,6 +1,7 @@
 ---
 id: task-4
 title: Write a user guide for getting started and using Hotline
+column: in-progress
 priority: medium
 tags:
   - bro-18
@@ -29,7 +30,6 @@ description: |-
   docs-site has 26 pages incl. Server and Phone (0.26.0). Missing: calls/voice, images, web_search, threads/handoffs, side threads, a workflows page.
 updatedAt: "2026-10-13T06:32:20.894Z"
 assignee: claude
-completedAt: "2026-10-13T06:32:20.894Z"
 ---
 
 ## Log

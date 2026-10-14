@@ -1,6 +1,7 @@
 ---
 id: epic-3
 title: "Linked desks: teammates on different desks collaborate as if they shared one room"
+column: in-progress
 type: epic
 priority: high
 tags:
@@ -67,7 +68,6 @@ description: |-
   Migrated from Linear BRO-177: https://linear.app/1broseidon/issue/BRO-177/linked-desks-teammates-on-different-desks-collaborate-as-if-they (2026-10-11).
 updatedAt: "2026-10-13T07:31:43.490Z"
 assignee: claude
-completedAt: "2026-10-13T07:31:43.490Z"
 ---
 
 ## Log

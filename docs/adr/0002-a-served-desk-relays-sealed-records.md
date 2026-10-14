@@ -39,7 +39,8 @@ invalidated with it.
 ### A visit
 
 1. A visitor dials `https://<server>/relay/<deskId>/v2…`, the same paths it
-   would use on the desk itself (`/v2`, `/v2/pair`, `/v2/computer/<id>/ws`).
+   would use on the desk itself (`/v2`, `/v2/pair`, `/v2/computer/<id>/ws`,
+   and `/v2/link` for a linked desk since ADR 0003).
 2. The relay admits the visit against the desk's budgets (below), mints a
    single-use capability bound to the current generation with an expiry,
    and sends `{type:"visit", id, path}` over the control socket.
@@ -121,7 +122,7 @@ revocation and the computer viewer are unchanged.
 - Phones need a native build that allows a path in a desk's address. An
   over-the-air update alone cannot dial a relay.
 
-## Not decided here (BRO-211)
+## Not decided here (BRO-211, since decided by ADR 0003)
 
 - **Collaboration across systems** (desktops and served agents talking to
   each other) uses this transport but needs its own authority:

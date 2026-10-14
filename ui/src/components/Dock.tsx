@@ -79,9 +79,14 @@ export function Dock({
 	}, []);
 
 	const teammate = entry === null ? null : { id: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash };
-	const nameOf = useCallback((personaId: string) => roster.find((one) => one.persona.id === personaId)?.persona.name, [roster]);
-	const people = usePeople(roster);
 	const { rows, list, reload } = useThreadRows(entry);
+	/* A teammate on a linked desk is in no roster here; its pair's row names it ("Lou on grizzly"). */
+	const nameOf = useCallback(
+		(personaId: string) =>
+			roster.find((one) => one.persona.id === personaId)?.persona.name ?? rows.find((row) => row.withPersonaId === personaId)?.withName,
+		[roster, rows],
+	);
+	const people = usePeople(roster);
 	/* The row a thread was opened from, so that going back lands on it. */
 	const opened = useRef<string | null>(null);
 	const at = state.open;

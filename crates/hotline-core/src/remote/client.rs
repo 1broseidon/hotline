@@ -170,6 +170,23 @@ impl Client {
             .into_socket())
     }
 
+    /// Opens `desk`'s link door as this computer's own desk, `desk_id`, with
+    /// that desk's identity key (ADR 0003). The other desk's link record
+    /// trusts that key, not this device's: a link is between two desks.
+    pub(super) async fn link(
+        &self,
+        desk: &PairedDesk,
+        private: &[u8; 32],
+        desk_id: &str,
+    ) -> Result<Connection, OpenError> {
+        let identity = Identity {
+            private: *private,
+            desk: decode_key(&desk.desk_key)?,
+        };
+        let payload = json!({"purpose":"link","deskId":desk_id}).to_string();
+        sealed_as(desk, &identity, "v2/link", &payload).await
+    }
+
     async fn sealed(
         &self,
         desk: &PairedDesk,
@@ -183,21 +200,32 @@ impl Client {
             .map_err(storage)?
             .ok_or("This desk's device key is missing. Pair this device again.")?;
         let identity = read_identity(&bytes, &key)?;
-        let opened = handshake(&desk.url, path, &identity, payload).await;
-        let (channel, response) = match (opened, &desk.relay) {
-            (Err(_), Some(relay)) => handshake(relay, path, &identity, payload).await?,
-            (opened, _) => opened?,
-        };
-        // handshake() returns this payload only after Noise verifies the
-        // pinned responder. Network/TLS/unauthenticated failures cannot revoke.
-        if response == sealed::DEVICE_REJECTED {
-            return Err(OpenError::Revoked);
-        }
-        if !response.is_empty() {
-            return Err("The desk refused this session.".into());
-        }
-        Ok(channel)
+        sealed_as(desk, &identity, path, payload).await
     }
+}
+
+/// A sealed socket to `desk` under `identity`, through its relay when its
+/// own address does not answer.
+async fn sealed_as(
+    desk: &PairedDesk,
+    identity: &Identity,
+    path: &str,
+    payload: &str,
+) -> Result<Connection, OpenError> {
+    let opened = handshake(&desk.url, path, identity, payload).await;
+    let (channel, response) = match (opened, &desk.relay) {
+        (Err(_), Some(relay)) => handshake(relay, path, identity, payload).await?,
+        (opened, _) => opened?,
+    };
+    // handshake() returns this payload only after Noise verifies the
+    // pinned responder. Network/TLS/unauthenticated failures cannot revoke.
+    if response == sealed::DEVICE_REJECTED {
+        return Err(OpenError::Revoked);
+    }
+    if !response.is_empty() {
+        return Err("The desk refused this session.".into());
+    }
+    Ok(channel)
 }
 
 #[cfg(test)]

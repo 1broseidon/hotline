@@ -132,7 +132,7 @@ The stream files stay where they are, and no history is migrated:
 | --- | --- |
 | DM | `transcripts/<persona>/<epoch>.jsonl` |
 | Side | `sides/<id>.jsonl` |
-| Pair | `threads/<key>.jsonl` + sidecar; renamed `Pair` in code |
+| Pair | `threads/<key>.jsonl` + sidecar; renamed `Pair` in code. A pair with a teammate on a linked desk is keyed by its `deskId/personaId` (the `/` escaped in the file name), and each desk keeps its own copy (ADR 0003) |
 | Run | `runs/<id>.jsonl` |
 | Call | `calls/<id>.jsonl` (new) |
 

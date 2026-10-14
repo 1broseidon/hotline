@@ -138,7 +138,9 @@ needs a way into the desktop's network.
 
 Phones paired after that get the relay address in the QR code. Phones paired
 before learn it the next time they connect directly. A phone dials the relay
-first and the desktop's own address after.
+first and the desktop's own address after. Another desktop linked with this
+one (ADR 0003) reaches its link door, `/v2/link`, through the relay the same
+way when the desktop's own address does not answer.
 
 The relay joins a phone's socket to one the desktop dials back for it and
 passes the Noise records between them as they are. The phone still pins the
@@ -254,8 +256,8 @@ hotline devices
 hotline revoke DEVICE_ID
 ```
 
-`pair`, `devices`, `revoke`, `status` and `wire` find the served room
-themselves. With no `--data`, no `HOTLINE_DATA_DIR`, and no desk running in
+`pair`, `devices`, `revoke`, `links`, `unlink`, `status` and `wire` find
+the served room themselves. With no `--data`, no `HOTLINE_DATA_DIR`, and no desk running in
 your own data folder, they use the room of the `hotline` service: the
 `HOTLINE_DATA_DIR` in the unit's environment (`systemctl show hotline -p
 Environment`), then `/var/lib/hotline/room`. If your account cannot read that
@@ -294,6 +296,31 @@ payload fields are `version` (2), `url` (HTTPS), `deskKey` (base64url X25519),
 `secret`, `role`, `expiresAt` (Unix milliseconds), and `name`. The existing
 phone QR query keeps `v`, `u`, `k`, `s` and adds `r`, `e`, `n` for the same
 role, expiry and name. All forms name the same single-use invitation.
+
+
+## Link the server's teammates with a desktop's
+
+Pairing a desktop makes its window an owner of this desk. Linking (ADR
+0003) is a further, deliberate step that lets the two desks' *teammates*
+see and message each other. It is made from the desktop, in Settings ›
+Desks › Link teammates, over the owner pairing; the desktop then dials this
+desk's `/v2/link` with its own desk key, so the listener must be reachable
+from it, directly or through a relay. Nothing about either desk's
+workspaces, tools, secrets or computers crosses a link: only each side's
+roster rows and the messages its teammates send, and each message still
+meets the recipient's grants and the first-contact card, which is raised
+here, on the recipient's conversation.
+
+```sh
+hotline links
+hotline unlink DESK_ID
+```
+
+`links` prints each linked desk's id, whether its channel is `connected` or
+`offline`, its name and how many teammates it has. `unlink` ends a link:
+the desktop is told now if its channel is open, or refused at its next dial
+if not, and drops the link too. Ending a link fails the messages waiting on
+it and ends the grants its teammates held here.
 
 ## Check on it
 

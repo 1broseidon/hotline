@@ -20,6 +20,7 @@ pub mod imagegen;
 mod images;
 pub mod import;
 pub mod link_preview;
+pub mod linked;
 pub mod log;
 pub mod log_file;
 pub mod mcp;

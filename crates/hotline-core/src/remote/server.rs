@@ -120,6 +120,7 @@ async fn handle(
             || path == "/v2/pair"
             || path == "/v2/relay"
             || path == "/v2/relay/accept"
+            || path == "/v2/link"
             || path.starts_with("/v2/computer/"))
     {
         return Ok(sealed_door(remote, request, slot, &path).await);
@@ -257,6 +258,8 @@ pub(super) enum Purpose {
     Computer(String),
     Relay,
     RelayAccept,
+    /// A linked desk's channel (ADR 0003), answered by `link::answer`.
+    Link,
 }
 impl Purpose {
     pub(super) fn of(remote: &Remote, path: &str) -> Option<Self> {
@@ -265,6 +268,7 @@ impl Purpose {
             "/v2/pair" => remote.pairing_open().then_some(Self::Pair),
             "/v2/relay" => remote.served.is_some().then_some(Self::Relay),
             "/v2/relay/accept" => remote.served.is_some().then_some(Self::RelayAccept),
+            "/v2/link" => Some(Self::Link),
             _ => path
                 .strip_prefix("/v2")
                 .and_then(computer_path)
@@ -310,6 +314,10 @@ pub(super) async fn sealed_session<S>(
         super::relay::accept(remote, socket, seat).await;
         return;
     }
+    if matches!(purpose, Purpose::Link) {
+        super::link::answer(remote, socket, seat).await;
+        return;
+    }
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Binding {
@@ -349,7 +357,7 @@ pub(super) async fn sealed_session<S>(
             match &purpose {
                 Purpose::Wire if size != 0 => return None,
                 Purpose::Wire | Purpose::Pair => {}
-                Purpose::RelayAccept => return None,
+                Purpose::RelayAccept | Purpose::Link => return None,
                 Purpose::Computer(persona) => {
                     let binding: Binding = serde_json::from_slice(&payload[..size]).ok()?;
                     if binding.purpose != "computer"
@@ -455,7 +463,7 @@ pub(super) async fn sealed_session<S>(
                 super::relay::host(remote, socket, phone, desk, seat.take().unwrap()).await;
             }
         }
-        Purpose::RelayAccept => {}
+        Purpose::RelayAccept | Purpose::Link => {}
         Purpose::Wire | Purpose::Pair => {
             // The wire owns its writer and subscription tasks and must reach
             // their cleanup on revocation; dropping that future leaks them.

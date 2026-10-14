@@ -2514,6 +2514,19 @@
 	.rail-row:active {
 		background: var(--fill-active);
 	}
+	/* With more than one desk in the rail, each name says its desk, quietly
+	 * after it. A desk that can't be reached keeps its teammates listed, as
+	 * they last were, dimmed. */
+	.rail-desk {
+		margin-left: 6px;
+		font-weight: 400;
+		color: var(--ink-3);
+		font-size: 0.85em;
+	}
+	.rail-row[data-offline],
+	.rail-pin[data-offline] {
+		opacity: 0.55;
+	}
 	/* Pinned teammates: up to three larger faces over the list, names under
 	 * them. Always three columns, so a face does not change size as the
 	 * second and third are pinned. Faces only, they stack and a hairline

@@ -44,6 +44,8 @@ from your desk or your phone.
   the desk.
 - **Desktop and phone.** macOS, Windows and Linux, a headless server mode for
   any Linux box, and a phone app in beta that pairs with your desk.
+- **Linked desks.** Link your laptop with a server and their teammates work
+  together as if they shared one room, each still under its own desk's grants.
 - **Yours.** Transcripts and files stay on your disk. No account, no cloud in
   the middle. You pay your model provider and nobody else.
 

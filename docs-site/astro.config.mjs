@@ -36,11 +36,22 @@ export default defineConfig({
 					],
 				},
 				{
+					label: 'Use Hotline',
+					items: [
+						{ label: 'Common workflows', slug: 'use/workflows' },
+						{ label: 'Working in a conversation', slug: 'use/conversations' },
+						{ label: 'Side threads and subagents', slug: 'use/side-threads' },
+						{ label: 'Teammates working together', slug: 'use/teammates-together' },
+						{ label: 'Calls and dictation', slug: 'use/voice' },
+						{ label: 'Pictures', slug: 'use/images' },
+					],
+				},
+				{
 					label: 'Setup',
 					items: [
 						{ label: 'Providers and keys', slug: 'setup/providers' },
 						{ label: 'Teammates and drivers', slug: 'setup/teammates' },
-						{ label: 'Tools and MCP servers', slug: 'setup/tools' },
+						{ label: 'Tools, skills and web search', slug: 'setup/tools' },
 						{ label: 'The computer', slug: 'setup/computer' },
 						{ label: 'Schedules', slug: 'setup/schedules' },
 						{ label: 'Updates', slug: 'setup/updates' },

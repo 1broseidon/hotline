@@ -1,8 +1,6 @@
 ---
 id: task-26
 title: A proper dark sign-in page for the MCP OAuth callback, with the mark
-column: todo
-position: 28
 priority: low
 tags:
   - improvement
@@ -24,7 +22,8 @@ description: |-
   If other loopback callbacks get pages later (provider or agent sign-ins), they should reuse the same template. Today only MCP OAuth has one.
 
   Migrated from Linear BRO-250: https://linear.app/1broseidon/issue/BRO-250/a-proper-dark-sign-in-page-for-the-mcp-oauth-callback-with-the-mark (2026-10-11).
-updatedAt: "2026-10-11T21:05:35.709Z"
+updatedAt: "2026-10-14T01:44:37.243Z"
+completedAt: "2026-10-14T01:44:37.243Z"
 ---
 
 ## Log

@@ -1,8 +1,8 @@
 ---
 id: task-54
 title: "Voice: first audio in under a second — the ack race, semantic endpointing, streamed TTS, and the contract on every provider"
-column: todo
-position: 33
+column: backlog
+position: 37
 priority: medium
 tags:
   - research
@@ -37,6 +37,7 @@ subtasks:
     title: Decide if speech-to-speech has a place in the switchboard only
     completed: false
 createdAt: "2026-10-14T14:41:07.344Z"
+updatedAt: "2026-10-14T20:05:31.119Z"
 ---
 
 ## Description

@@ -8,7 +8,7 @@ tags:
   - composer
   - ui
   - mentions
-  - 0.37.0
+  - 0.38.0
 relatedFiles:
   - ui/src
 parentId: epic-4

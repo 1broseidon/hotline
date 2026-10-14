@@ -7,7 +7,7 @@ priority: high
 tags:
   - composer
   - mentions
-  - 0.37.0
+  - 0.38.0
 parentId: epic-4
 createdAt: "2026-10-11T21:25:34.873Z"
 updatedAt: "2026-10-14T20:05:25.690Z"

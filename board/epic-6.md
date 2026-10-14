@@ -1,6 +1,6 @@
 ---
 id: epic-6
-title: "Live calls get a voice front: Grok Voice / GPT-Live talk, the teammate works (0.37)"
+title: "Live calls get a voice front: Grok Voice / GPT-Live talk, the teammate works (0.38)"
 type: epic
 column: todo
 position: 36
@@ -9,7 +9,7 @@ tags:
   - feature
   - voice
   - calls
-  - 0.37.0
+  - 0.38.0
 createdAt: "2026-10-14T20:03:32.697Z"
 ---
 

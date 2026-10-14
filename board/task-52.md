@@ -6,7 +6,7 @@ position: 35
 priority: high
 tags:
   - feature
-  - 0.37.0
+  - 0.38.0
 relatedFiles:
   - crates/hotline-core/src/models.rs
   - crates/hotline-core/src/driver/rig.rs

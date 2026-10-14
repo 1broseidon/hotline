@@ -6,7 +6,7 @@ position: 36
 priority: medium
 tags:
   - feature
-  - 0.37.0
+  - 0.38.0
 relatedFiles:
   - ui/src/components/BackendPicker.tsx
   - ui/src/components/Settings.tsx

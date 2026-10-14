@@ -8,7 +8,7 @@ tags:
   - voice
   - calls
   - docs
-  - 0.37.0
+  - 0.38.0
 parentId: epic-6
 createdAt: "2026-10-14T20:03:55.988Z"
 ---

@@ -7,7 +7,7 @@ priority: high
 tags:
   - composer
   - acp
-  - 0.37.0
+  - 0.38.0
 relatedFiles:
   - crates/hotline-core/src/driver/acp.rs
   - crates/hotline-core/src/session/mod.rs

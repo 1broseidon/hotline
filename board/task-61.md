@@ -8,7 +8,7 @@ tags:
   - voice
   - calls
   - wire
-  - 0.37.0
+  - 0.38.0
 parentId: epic-6
 dependsOn:
   - task-58

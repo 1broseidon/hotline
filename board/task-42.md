@@ -7,7 +7,7 @@ priority: high
 tags:
   - composer
   - wire
-  - 0.37.0
+  - 0.38.0
 relatedFiles:
   - crates/hotline-core/src/contract.rs
 parentId: epic-4

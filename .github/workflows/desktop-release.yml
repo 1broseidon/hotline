@@ -225,14 +225,16 @@ jobs:
   # The server edition: `hotline`, the desk with no window, for `hotline
   # serve` under systemd (docs/serve.md). A tarball of the binary and its
   # unit, beside the desktop packages in the same release; no updater.
+  # Built on 22.04 so the binary needs glibc 2.35 at most and runs on Debian
+  # 12 and Raspberry Pi OS bookworm (2.36); a 24.04 build needs 2.39.
   server:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-24.04
+          - runner: ubuntu-22.04
             suffix: linux_x86_64
-          - runner: ubuntu-24.04-arm
+          - runner: ubuntu-22.04-arm
             suffix: linux_aarch64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
@@ -265,6 +267,9 @@ jobs:
         run: |
           version="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
           cargo build --release -p hotline-cli --locked
+          floor="$(objdump -T target/release/hotline | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
+          echo "hotline needs $floor"
+          [ "$(printf '%s\n' "$floor" GLIBC_2.35 | sort -V | tail -1)" = GLIBC_2.35 ] || { echo "::error::hotline needs $floor, above the 2.35 floor"; exit 1; }
           name="hotline-server_${version}_${SUFFIX}"
           mkdir -p "pack/$name" out
           cp target/release/hotline packaging/hotline.service docs/serve.md LICENSE-APACHE LICENSE-MIT "pack/$name/"

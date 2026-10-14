@@ -1,6 +1,6 @@
 ---
 id: task-12
-title: "Desk: say which device is asking in remote.devices, and the desk's kind and version in the owner hello"
+title: "Desk: remote visibility — which device is asking, reachability away from home, and desk health"
 column: todo
 position: 14
 priority: medium
@@ -31,7 +31,7 @@ description: |-
   ## Status (2026-10-11 review)
 
   Also covers the hello fields and honest backends.list (merged from BRO-116). Its parent epic BRO-166 lives on the hotline-mobile board.
-updatedAt: "2026-10-14T01:44:25.668Z"
+updatedAt: "2026-10-14T01:44:30.545Z"
 subtasks:
   - id: task-12-1
     title: Mark the requesting device in remote.devices

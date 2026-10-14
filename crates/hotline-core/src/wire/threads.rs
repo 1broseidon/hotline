@@ -276,7 +276,7 @@ fn summarize(
     thread: &Thread,
     roster: &[Persona],
 ) -> ThreadSummary {
-    let persona_id = thread
+    let mut persona_id = thread
         .participants
         .iter()
         .find_map(|participant| match participant {
@@ -284,7 +284,7 @@ fn summarize(
             Participant::Person => None,
         })
         .unwrap_or_default();
-    let with_persona_id = (thread.kind() == ThreadKind::Pair)
+    let mut with_persona_id = (thread.kind() == ThreadKind::Pair)
         .then(|| {
             thread
                 .participants
@@ -296,6 +296,16 @@ fn summarize(
                 .nth(1)
         })
         .flatten();
+    // A pair with a teammate on a linked desk is this desk's teammate's, and
+    // names the other, whom no roster here holds.
+    if let Some(with) = with_persona_id.as_mut()
+        && crate::linked::is_linked(&persona_id)
+    {
+        std::mem::swap(&mut persona_id, with);
+    }
+    let with_name = with_persona_id
+        .as_deref()
+        .and_then(|with| crate::linked::shown_name(log, with));
 
     // A DM is read from the end of its tape, which can be very long; every
     // other thread is small enough to read whole.
@@ -363,6 +373,7 @@ fn summarize(
         thread: thread.id.clone(),
         persona_id,
         with_persona_id,
+        with_name,
         title: thread.title.clone(),
         state,
         end,

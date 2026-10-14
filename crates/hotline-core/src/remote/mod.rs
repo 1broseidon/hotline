@@ -5,6 +5,7 @@ mod attachments;
 pub mod bridge;
 mod channel;
 pub mod client;
+mod link;
 mod network;
 mod relay;
 mod sealed;
@@ -407,6 +408,9 @@ impl Remote {
         Ok(self.status())
     }
     pub async fn restore(self: &Arc<Self>) {
+        // A desk dials the links it made whether or not its own listener is
+        // on: the other desk is the one being reached.
+        self.restore_links();
         if self.served.is_some() {
             self.restore_served().await;
             return;

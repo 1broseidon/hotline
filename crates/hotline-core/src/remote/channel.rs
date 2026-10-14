@@ -22,6 +22,8 @@ pub(super) struct Channel<S> {
     socket: WebSocketStream<S>,
     state: snow::TransportState,
     decoder: sealed::Decoder,
+    /// The largest text frame read or sent, in bytes.
+    max: usize,
     pending: VecDeque<Vec<u8>>,
 }
 impl<S> Channel<S> {
@@ -35,7 +37,17 @@ impl<S> Channel<S> {
             socket,
             state,
             decoder: sealed::Decoder::new(FRAME_MAX),
+            max: FRAME_MAX,
             pending: VecDeque::new(),
+        }
+    }
+    /// The same channel, reading and sending frames of at most `max` bytes.
+    /// Called before the first frame, so nothing is half-read.
+    pub(super) fn limited(self, max: usize) -> Self {
+        Self {
+            decoder: sealed::Decoder::new(max),
+            max,
+            ..self
         }
     }
 }
@@ -86,7 +98,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Sink<Message> for Channel<S> {
     fn start_send(self: Pin<&mut Self>, message: Message) -> Result<(), Error> {
         let this = self.get_mut();
         match message {
-            Message::Text(text) if text.len() <= FRAME_MAX => {
+            Message::Text(text) if text.len() <= this.max => {
                 if !this.pending.is_empty() {
                     return Err(invalid("Sealed writer is not ready."));
                 }

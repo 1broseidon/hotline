@@ -77,3 +77,7 @@ harness offers.
 A teammate can ask another a question, or hand it a piece of work. You
 approve each direction the first time it is tried. See
 [Teammates working together](/docs/use/teammates-together/).
+
+Teammates on a server you have [linked](/docs/server/link/) are messaged the
+same way. The window lists every desk's teammates in one list; the desk menu
+at the top narrows it to one desk.

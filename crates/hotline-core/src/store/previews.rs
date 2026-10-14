@@ -31,6 +31,12 @@ fn logical_size(segments: &[(u64, PathBuf)]) -> u64 {
     segments.iter().map(|(_, path)| segment_size(path)).sum()
 }
 
+/// How many bytes a teammate's tape holds: what moves whenever anything is
+/// written to it, read without opening it.
+pub(crate) fn tape_size(root: &Path, persona_id: &str) -> u64 {
+    logical_size(&segments_of(root, persona_id))
+}
+
 /// The last `window` bytes of the logical tape — segments concatenated in
 /// epoch order. Starts at the end of the highest-epoch non-empty segment and
 /// walks into earlier ones only while the window still needs bytes.

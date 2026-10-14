@@ -296,10 +296,14 @@ pub fn decode_file_component(value: &str) -> String {
     decoded
 }
 
-/// A participant id that can stand in a thread key. `~` separates the two, `/`
-/// and `.` would let a key climb out of the threads directory.
+/// A participant id that can stand in a thread key. `~` separates the two, and
+/// `.` would let a key climb out of the threads directory. A teammate on a
+/// linked desk is the one id with a `/` in it (`deskId/personaId`): the file
+/// name escapes it, so the key is still one file in the directory.
 fn safe_thread_id(id: &str) -> bool {
-    !id.is_empty() && !id.contains(['~', '/', '.'])
+    !id.is_empty()
+        && !id.contains(['~', '.'])
+        && (!id.contains('/') || crate::linked::is_linked(id))
 }
 
 /// The key naming the conversation between two teammates, whoever asked.
@@ -445,12 +449,22 @@ mod tests {
     fn a_thread_key_names_the_pair_the_same_way_whoever_asked() {
         assert_eq!(thread_key("bob", "ada").as_deref(), Some("ada~bob"));
         assert_eq!(thread_key("ada", "bob").as_deref(), Some("ada~bob"));
-        // `~` separates, and `/` or `.` would let a key climb out of the
-        // threads directory, so an id holding one is not an id.
-        for bad in ["", "a~b", "a/b", "a.b"] {
+        // `~` separates, and `.` or a stray `/` would let a key climb out of
+        // the threads directory, so an id holding one is not an id.
+        for bad in ["", "a~b", "a/b/c", "/b", "a/", "a.b", "../b"] {
             assert_eq!(thread_key(bad, "ada"), None);
             assert_eq!(thread_key("ada", bad), None);
         }
+        // A teammate on a linked desk is named by its desk, and its thread is
+        // one escaped file beside the others.
+        let key = thread_key("ada", "grizzly/lou").unwrap();
+        assert_eq!(key, "ada~grizzly/lou");
+        assert_eq!(thread_participants(&key), Some(("ada", "grizzly/lou")));
+        let path = thread_path(Path::new("/data"), &key).unwrap();
+        assert_eq!(
+            path.parent(),
+            Some(threads_dir(Path::new("/data")).as_path())
+        );
     }
 
     #[test]

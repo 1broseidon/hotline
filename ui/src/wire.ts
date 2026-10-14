@@ -10,6 +10,7 @@ import type {
 	CookieImport,
 	CookieSite,
 	Credential,
+	DeskLink,
 	EffortChoices,
 	FileChunk,
 	GlobalSearchHit,
@@ -117,6 +118,15 @@ type Results = {
     "remote.relay": RemoteStatus;
     "remote.public_url": RemoteStatus;
     "remote.pairing": SealedPairing | RemoteDevice | null;
+	/** The desks this one is linked with (ADR 0003), and how each link is doing. */
+	"desks.links": DeskLink[];
+	"desks.link": DeskLink;
+	"desks.link_accept": { deskId: string; name: string };
+	"desks.unlink": null;
+	/** Only a linked desk's channel sends these; the window never does. */
+	"federation.roster": null;
+	"federation.deliver": null;
+	"federation.unlink": null;
     "agent.auth.start": { id: string };
     "agent.auth.poll": { state: "running" | "succeeded" | "failed"; output: string; error?: string };
     "agent.auth.input": null;

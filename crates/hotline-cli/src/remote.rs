@@ -50,6 +50,40 @@ pub fn revoke(room: &Room, id: &str) -> ExitCode {
     }))
 }
 
+/// The desks this one is linked with (ADR 0003): a link is made from a
+/// desktop's Settings › Desks, and either side lists and ends it.
+pub fn links(room: &Room) -> ExitCode {
+    outcome(door::runtime().block_on(async {
+        let desk = door::running(room)?;
+        let links = door::ask(&desk, "desks.links", json!({})).await?;
+        let links = links
+            .as_array()
+            .ok_or("The desk returned an invalid link list")?;
+        if links.is_empty() {
+            println!("Not linked with any desk. Link from a desktop's Settings › Desks.");
+        }
+        for link in links {
+            let teammates = link["teammates"].as_array().map_or(0, Vec::len);
+            println!(
+                "{}  {}  {}  {teammates} teammates",
+                field(link, "deskId")?,
+                field(link, "state")?,
+                field(link, "name")?.escape_default(),
+            );
+        }
+        Ok(())
+    }))
+}
+
+pub fn unlink(room: &Room, id: &str) -> ExitCode {
+    outcome(door::runtime().block_on(async {
+        let desk = door::running(room)?;
+        door::ask(&desk, "desks.unlink", json!({"deskId":id})).await?;
+        println!("Link ended. The other desk ends it too when it hears.");
+        Ok(())
+    }))
+}
+
 pub fn pair(room: &Room, companion: bool, json: bool, link: bool) -> ExitCode {
     outcome(door::runtime().block_on(async {
         let desk = door::running(room)?;

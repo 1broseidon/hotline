@@ -321,7 +321,7 @@ impl Route {
             return None;
         }
         let path = format!("/{tail}");
-        let known = path == "/v2" || path == "/v2/pair" || {
+        let known = path == "/v2" || path == "/v2/pair" || path == "/v2/link" || {
             let computer = path
                 .strip_prefix("/v2/computer/")
                 .and_then(|p| p.strip_suffix("/ws"));
@@ -580,7 +580,7 @@ pub(super) struct Standing {
 }
 
 /// The desks this computer has paired with, as the shell keeps them.
-fn paired(root: &Path) -> Vec<PairedDesk> {
+pub(super) fn paired(root: &Path) -> Vec<PairedDesk> {
     fs::read(root.join("desks.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())

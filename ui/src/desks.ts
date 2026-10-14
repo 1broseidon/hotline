@@ -15,10 +15,13 @@ import { Wire } from "./wire";
  * a name, and the window never needs to know which kind it is talking to
  * except to say so.
  *
- * One desk is active: the one whose teammates, settings and computers are
- * on screen. The rest of the window's code talks to "the desk" and reaches
- * the active one (see `wire` in wire.ts); switching desks remounts what is
- * on screen, so nothing keeps talking to the one left behind.
+ * One desk is active: the desk of the teammate on screen, whose settings
+ * and computers the window shows. The rest of the window's code talks to
+ * "the desk" and reaches the active one (see `wire` in wire.ts); opening a
+ * teammate on another desk makes that desk active and remounts what is on
+ * screen, so nothing keeps talking to the one left behind. The rail is not
+ * the active desk's: it lists every desk's teammates at once (BRO-178), and
+ * the desk filter narrows it without changing which desk is active.
  */
 export type DeskKind = "local" | "remote";
 
@@ -156,6 +159,36 @@ export function replaceDesks(next: Desk[]) {
 		active = pick(saved.get() ?? active);
 	}
 	changed();
+}
+
+/** The desk the rail is narrowed to, kept by this window; none is every desk. */
+const FILTER_KEY = "hotline.rail.desk";
+let filter: string | null = (() => {
+	try {
+		return typeof localStorage === "undefined" ? null : localStorage.getItem(FILTER_KEY);
+	} catch {
+		return null;
+	}
+})();
+
+export function setDeskFilter(deskId: string | null) {
+	filter = deskId;
+	try {
+		if (deskId === null) localStorage.removeItem(FILTER_KEY);
+		else localStorage.setItem(FILTER_KEY, deskId);
+	} catch {
+		// Private mode: the rail is narrowed for this session only.
+	}
+	changed();
+}
+
+/** The desk the rail shows, or null for all of them. A desk that has left the list narrows nothing. */
+export function deskFilter(): string | null {
+	return filter !== null && desks.some((desk) => desk.id === filter) ? filter : null;
+}
+
+export function useDeskFilter(): string | null {
+	return useSyncExternalStore(subscribe, deskFilter);
 }
 
 /** Hears every change to the list: a desk paired, removed, or its bridge's state moved. */

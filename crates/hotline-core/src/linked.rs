@@ -77,7 +77,36 @@ pub(crate) fn record(log: &Log, desk_id: &str) -> Option<Record> {
         .find(|record| record.desk_id == desk_id)
 }
 
+/// Held while a link's record is read and written back, and while it is
+/// removed, so a frame racing the link's end can never write the record
+/// back: on the dialled desk that would trust the other desk's key again.
+static RECORDS: Mutex<()> = Mutex::new(());
+
+fn records_held() -> std::sync::MutexGuard<'static, ()> {
+    RECORDS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 pub(crate) fn save(log: &Log, record: &Record) -> Result<(), String> {
+    let _held = records_held();
+    append(log, record)
+}
+
+/// Changes a link's record, written back only if `change` says it changed
+/// it, and only while the link still exists.
+pub(crate) fn update(
+    log: &Log,
+    desk_id: &str,
+    change: impl FnOnce(&mut Record) -> bool,
+) -> Result<(), String> {
+    let _held = records_held();
+    let mut record = record(log, desk_id).ok_or("This desk is not linked with that one.")?;
+    if change(&mut record) {
+        append(log, &record)?;
+    }
+    Ok(())
+}
+
+fn append(log: &Log, record: &Record) -> Result<(), String> {
     let mut event = serde_json::to_value(record).map_err(|error| error.to_string())?;
     event["kind"] = json!(KIND);
     event["id"] = json!(record_id(&record.desk_id));
@@ -89,6 +118,7 @@ pub(crate) fn save(log: &Log, record: &Record) -> Result<(), String> {
 
 /// The link's end on this desk, as a room event: the record is gone.
 pub(crate) fn remove(log: &Log, desk_id: &str) -> Result<(), String> {
+    let _held = records_held();
     log.append(
         &StreamId::Room,
         &json!({
@@ -318,6 +348,11 @@ struct Peer {
     error: Option<String>,
     /// When its teammates' names were last written to the link's record.
     names_saved: Option<std::time::Instant>,
+    /// The names the link's record holds, once this desk has read or written
+    /// them, so a roster that only moved its states reads nothing from disk.
+    recorded: Option<Vec<Known>>,
+    /// What it may still send before its frames are read more slowly.
+    budget: Budget,
     /// Whether a dial loop is running for it.
     dialing: bool,
 }
@@ -327,6 +362,42 @@ struct Peer {
 /// while the desk is away, and another desk must not be able to make this
 /// one write to its room stream as fast as it can send.
 const NAMES_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// A linked desk may send this many frames at once after a quiet spell, and
+/// [`FRAMES_EVERY_SECOND`] for as long as it keeps sending. Its roster goes at
+/// most every two seconds and its pings every 25, so this is room for
+/// messages and answers far faster than teammates write them. Every frame
+/// may read the room stream, so another desk must not set the pace.
+const FRAMES_AT_ONCE: f64 = 200.0;
+pub(crate) const FRAMES_EVERY_SECOND: f64 = 20.0;
+
+/// A token bucket of frames, kept per link rather than per channel, so a
+/// desk that dials again starts with what it had left.
+struct Budget {
+    frames: f64,
+    at: std::time::Instant,
+}
+
+impl Default for Budget {
+    fn default() -> Self {
+        Self {
+            frames: FRAMES_AT_ONCE,
+            at: std::time::Instant::now(),
+        }
+    }
+}
+
+impl Budget {
+    /// Spends one frame at `now`, and answers how long to wait before
+    /// reading it when the budget is spent.
+    fn spend(&mut self, now: std::time::Instant) -> Option<std::time::Duration> {
+        let earned = now.saturating_duration_since(self.at).as_secs_f64() * FRAMES_EVERY_SECOND;
+        self.frames = (self.frames + earned).min(FRAMES_AT_ONCE) - 1.0;
+        self.at = now;
+        (self.frames < 0.0)
+            .then(|| std::time::Duration::from_secs_f64(-self.frames / FRAMES_EVERY_SECOND))
+    }
+}
 
 struct Live {
     generation: u64,
@@ -414,11 +485,15 @@ impl Links {
         self.peers().get(desk_id)?.roster.clone()
     }
 
-    /// Whether the names a linked desk just published may be written down
-    /// now: the first time, and then at most every [`NAMES_EVERY`].
-    pub(crate) fn may_save_names(&self, desk_id: &str) -> bool {
+    /// Whether the names a linked desk just published are to be written
+    /// down now: when they differ from what its record is known to hold, the
+    /// first time, and then at most every [`NAMES_EVERY`].
+    pub(crate) fn names_to_write(&self, desk_id: &str, names: &[Known]) -> bool {
         let mut peers = self.peers();
         let peer = peers.entry(desk_id.to_string()).or_default();
+        if peer.recorded.as_deref() == Some(names) {
+            return false;
+        }
         let due = peer
             .names_saved
             .is_none_or(|saved| saved.elapsed() >= NAMES_EVERY);
@@ -426,6 +501,22 @@ impl Links {
             peer.names_saved = Some(std::time::Instant::now());
         }
         due
+    }
+
+    /// The names a linked desk's record holds now.
+    pub(crate) fn names_written(&self, desk_id: &str, names: Vec<Known>) {
+        if let Some(peer) = self.peers().get_mut(desk_id) {
+            peer.recorded = Some(names);
+        }
+    }
+
+    /// How long to wait before reading the frame a linked desk just sent,
+    /// when it has spent its budget of frames.
+    pub(crate) fn frame_wait(&self, desk_id: &str) -> Option<std::time::Duration> {
+        self.peers()
+            .get_mut(desk_id)?
+            .budget
+            .spend(std::time::Instant::now())
     }
 
     pub(crate) fn set_roster(&self, desk_id: &str, roster: Vec<LinkedTeammate>) {
@@ -517,6 +608,75 @@ mod tests {
         ] {
             assert_eq!(split(not), None, "{not}");
         }
+    }
+
+    #[test]
+    fn a_linked_desk_may_send_a_burst_and_then_only_so_many_frames_a_second() {
+        let mut budget = Budget::default();
+        let start = budget.at;
+        for _ in 0..FRAMES_AT_ONCE as usize {
+            assert_eq!(budget.spend(start), None);
+        }
+        let wait = budget.spend(start).unwrap();
+        assert_eq!(wait.as_secs_f64(), 1.0 / FRAMES_EVERY_SECOND);
+        // Waited out, the next frame costs one more wait, and no more.
+        let later = start + wait;
+        assert_eq!(budget.spend(later), Some(wait));
+        // A quiet spell earns the burst back, and never more than it.
+        let quiet = later + std::time::Duration::from_secs(3600);
+        for _ in 0..FRAMES_AT_ONCE as usize {
+            assert_eq!(budget.spend(quiet), None);
+        }
+        assert!(budget.spend(quiet).is_some());
+    }
+
+    /// A roster frame reads the record, then writes its names back. The
+    /// link ending between the two must not be undone by the write: on the
+    /// dialled desk the record is what trusts the other desk's key.
+    #[test]
+    fn a_record_written_back_as_its_link_ends_stays_ended() {
+        let root = tempfile::tempdir().unwrap();
+        let log = Log::open(root.path());
+        save(
+            &log,
+            &Record {
+                desk_id: "laptop".into(),
+                name: "laptop".into(),
+                dials: false,
+                key: Some("laptops-key".into()),
+                teammates: Vec::new(),
+            },
+        )
+        .unwrap();
+        let (removed, done) = std::sync::mpsc::channel();
+        let mut ending = None;
+        update(&log, "laptop", |record| {
+            // The person unlinks while the frame holds the record it read.
+            let log = log.clone();
+            ending = Some(std::thread::spawn(move || {
+                remove(&log, "laptop").unwrap();
+                removed.send(()).unwrap();
+            }));
+            assert!(
+                done.recv_timeout(std::time::Duration::from_millis(200))
+                    .is_err(),
+                "the link ended between the frame's read and its write"
+            );
+            record.teammates = vec![Known {
+                persona_id: "clementine".into(),
+                name: "Clementine".into(),
+            }];
+            true
+        })
+        .unwrap();
+        ending.unwrap().join().unwrap();
+        assert_eq!(record(&log, "laptop"), None);
+        // A frame that lands after the end finds nothing to write back.
+        assert_eq!(
+            update(&log, "laptop", |_| true).unwrap_err(),
+            "This desk is not linked with that one."
+        );
+        assert_eq!(record(&log, "laptop"), None);
     }
 
     #[test]

@@ -21,8 +21,29 @@ use crate::room;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-/// The most of an answer that crosses back over a link.
+/// The most of an answer that crosses back over a link, in characters and
+/// in bytes as JSON escapes it, so its frame fits in the link's 1 MiB.
 const REPLY_MAX: usize = 200_000;
+const REPLY_BYTES: usize = 768 * 1024;
+
+/// An answer cut to what crosses a link, on the side that sends it as on the
+/// side that takes it: an answer too large for a frame would otherwise be
+/// sent again every time the channel came back.
+fn crossing(reply: &str) -> String {
+    let mut bytes = 0;
+    reply
+        .chars()
+        .take(REPLY_MAX)
+        .take_while(|c| {
+            bytes += match c {
+                '"' | '\\' => 2,
+                c if c.is_control() => 6,
+                c => c.len_utf8(),
+            };
+            bytes <= REPLY_BYTES
+        })
+        .collect()
+}
 
 /// What a linked teammate is shown as wherever it is not obvious that it
 /// lives elsewhere: its name and its desk's.
@@ -95,7 +116,8 @@ impl Room {
             .collect()
     }
 
-    /// This desk's teammates, as a linked desk is shown them. A row is what
+    /// This desk's teammates, as a linked desk is shown them, cut to what it
+    /// keeps so the roster fits in one of the link's frames. A row is what
     /// its teammate's record, session and tape make it, so it is made again
     /// only when one of those has moved.
     pub(crate) fn federation_roster_entries(&self) -> Vec<LinkedTeammate> {
@@ -112,22 +134,22 @@ impl Room {
                 (persona.id.clone(), made_from)
             })
             .collect();
-        self.links.rows(made_from, |id| {
+        linked::plausible(self.links.rows(made_from, |id| {
             let persona = roster.iter().find(|persona| persona.id == id)?;
             Some(crate::mcp::server::roster_row(self, persona.clone()))
-        })
+        }))
     }
 
     /// A linked desk published its teammates. Their ids and names are kept
     /// on the link's record when they change, so a message can still be
-    /// addressed to one while that desk is away.
+    /// addressed to one while that desk is away. The record is written only
+    /// while the link exists: a roster that lands as the link ends must not
+    /// bring it back.
     pub(crate) fn federation_roster(
         &self,
         desk_id: &str,
         teammates: Vec<LinkedTeammate>,
     ) -> Result<(), String> {
-        let mut record =
-            linked::record(&self.log, desk_id).ok_or("This desk is not linked with that one.")?;
         let teammates = linked::plausible(teammates);
         let known: Vec<Known> = teammates
             .iter()
@@ -136,9 +158,13 @@ impl Room {
                 name: teammate.name.clone(),
             })
             .collect();
-        if record.teammates != known && self.links.may_save_names(desk_id) {
-            record.teammates = known;
-            linked::save(&self.log, &record)?;
+        if self.links.names_to_write(desk_id, &known) {
+            linked::update(&self.log, desk_id, |record| {
+                let moved = record.teammates != known;
+                record.teammates = known.clone();
+                moved
+            })?;
+            self.links.names_written(desk_id, known);
         }
         self.links.set_roster(desk_id, teammates);
         Ok(())
@@ -311,8 +337,7 @@ impl Room {
         reply: String,
         failed: bool,
     ) -> Result<Value, String> {
-        let reply: String = reply.chars().take(REPLY_MAX).collect();
-        self.settle_linked_request(desk_id, request_id, reply, failed)?;
+        self.settle_linked_request(desk_id, request_id, crossing(&reply), failed)?;
         Ok(Value::Null)
     }
 
@@ -375,7 +400,7 @@ impl Room {
         }
         let delivery = LinkedDelivery::Result {
             request_id: request_id.to_string(),
-            reply: reply.to_string(),
+            reply: crossing(reply),
             failed,
         };
         match self

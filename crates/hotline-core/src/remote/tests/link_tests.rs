@@ -370,6 +370,75 @@ async fn only_the_linked_desks_own_key_opens_its_link() {
     assert_eq!(state(&laptop), Some(DeskLinkState::Connected));
 }
 
+/// The answer to the frame with `id`, past whatever the other desk sends of
+/// its own. None once the channel has closed.
+async fn answered(channel: &mut client::Connection, id: i64) -> Option<Value> {
+    while let Some(Ok(message)) = channel.next().await {
+        if let Message::Text(text) = message
+            && let Ok(frame) = serde_json::from_str::<Value>(&text)
+            && frame["id"] == id
+            && frame.get("ok").is_some()
+        {
+            return Some(frame);
+        }
+    }
+    None
+}
+
+#[tokio::test]
+async fn a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget() {
+    let laptop = desk("clementine", "Clementine").await;
+    let grizzly = desk("lou", "Lou").await;
+    connect(&laptop, &grizzly).await;
+    let laptop_id = laptop.remote.status_desktop_id();
+    let (own, public) = laptop.remote.noise_keys().unwrap();
+    // Grizzly trusts the laptop's key, and the test dials as the laptop.
+    grizzly
+        .remote
+        .accept_link(
+            &laptop_id,
+            "laptop",
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(public),
+        )
+        .await
+        .unwrap();
+    let client = client::Client::new(laptop.store.clone());
+    let mut channel = client
+        .link(&paired(&laptop), &own, &laptop_id)
+        .await
+        .unwrap();
+
+    // Past the burst a linked desk may send at once, its frames wait.
+    let started = tokio::time::Instant::now();
+    for id in 1..=230 {
+        let ping = json!({"id": id, "cmd": "ping"});
+        channel.send(Message::text(ping.to_string())).await.unwrap();
+    }
+    assert_eq!(answered(&mut channel, 230).await.unwrap()["ok"], true);
+    assert!(
+        started.elapsed() >= Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+
+    let padded = |id: i64, size: usize| {
+        let mut frame = json!({"id": id, "cmd": "ping"}).to_string();
+        frame.pop();
+        frame + &format!(",\"pad\":\"{}\"}}", "x".repeat(size))
+    };
+    channel
+        .send(Message::text(padded(231, 1_000_000)))
+        .await
+        .unwrap();
+    assert!(answered(&mut channel, 231).await.is_some());
+    // A frame over a mebibyte is not read; the channel is closed instead.
+    channel
+        .send(Message::text(padded(232, 1024 * 1024)))
+        .await
+        .unwrap();
+    assert_eq!(answered(&mut channel, 232).await, None);
+}
+
 #[tokio::test]
 async fn a_desk_reachable_only_through_its_relay_is_linked_through_it() {
     let (_relay_root, relay, _) = super::relay_tests::served().await;

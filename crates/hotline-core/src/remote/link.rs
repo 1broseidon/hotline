@@ -30,6 +30,9 @@ const ROSTER_EVERY: Duration = Duration::from_secs(2);
 const PING_EVERY: Duration = Duration::from_secs(25);
 /// The handshake, and each step of making or ending a link, is bounded.
 const STEP_WITHIN: Duration = Duration::from_secs(10);
+/// The largest frame either desk reads or sends over a link, as for a phone.
+/// A roster of 200 rows, a whole message or a whole answer fits in it.
+const FRAME_MAX: usize = 1024 * 1024;
 
 impl Remote {
     fn link_registry(&self) -> Result<Arc<linked::Links>, String> {
@@ -180,6 +183,10 @@ impl Remote {
         // everything it held, so the new one starts from nothing.
         if linked::record(&self.log, desk_id).is_some() {
             self.room.unlinked(desk_id).await?;
+        }
+        // Nor does anything a frame of an earlier link left behind here.
+        if let Ok(links) = self.link_registry() {
+            links.forget(desk_id);
         }
         linked::save(
             &self.log,
@@ -427,7 +434,7 @@ where
 /// closes or the link ends.
 async fn session<S>(
     remote: Arc<Remote>,
-    mut channel: super::channel::Channel<S>,
+    channel: super::channel::Channel<S>,
     desk_id: String,
     cancel: CancellationToken,
 ) where
@@ -436,6 +443,8 @@ async fn session<S>(
     let Some(links) = remote.room.links() else {
         return;
     };
+    let mut channel = channel.limited(FRAME_MAX);
+    let mut throttled = false;
     let (calls, mut waiting) = mpsc::channel::<Call>(32);
     let generation = links.opened(&desk_id, calls);
     let mut answers: HashMap<i64, oneshot::Sender<Result<Value, CallError>>> = HashMap::new();
@@ -479,6 +488,23 @@ async fn session<S>(
             }
             message = channel.next() => match message {
                 Some(Ok(Message::Text(text))) => {
+                    // A desk sending faster than its budget is read more
+                    // slowly, which holds it back through the socket.
+                    if let Some(wait) = links.frame_wait(&desk_id) {
+                        if !throttled {
+                            eprintln!(
+                                "[link] {desk_id} is sending more than {} frames a second; reading it no faster",
+                                linked::FRAMES_EVERY_SECOND
+                            );
+                            throttled = true;
+                        }
+                        tokio::select! {
+                            _ = cancel.cancelled() => break None,
+                            _ = tokio::time::sleep(wait) => {}
+                        }
+                    } else {
+                        throttled = false;
+                    }
                     heard = tokio::time::Instant::now();
                     let Ok(received) = serde_json::from_str::<Value>(&text) else { continue };
                     if received.get("ok").is_none() {

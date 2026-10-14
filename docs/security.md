@@ -626,7 +626,7 @@ extend; when a change adds a boundary, it adds a row.
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`, `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
 | Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes cached work; a dropped wait cannot be answered later; revocation reaches delegated third parties but not their main sessions | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `invalidating_either_side_revokes_cached_peer_tools_without_a_main_session`, `peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does`, `nested_peer_leases_follow_the_outer_target_but_revoke_independently`, `revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session` | — |
 | The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`, `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
-| A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id | `wire/tests.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link_tests.rs` `only_the_linked_desks_own_key_opens_its_link` | — |
+| A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id; its frames are at most 1 MiB and read no faster than its budget; a frame racing the link's end never writes its record back | `wire/tests.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link_tests.rs` `only_the_linked_desks_own_key_opens_its_link`, `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`; `linked.rs` `a_record_written_back_as_its_link_ends_stays_ended` | — |
 | A linked sender is never implicitly trusted: the recipient's `allowedSenders` by qualified id or the person's card on the recipient's desk decide it, the sender's desk cannot answer the card, a denial runs nothing, and ending the link fails waiting work with a sentence and withdraws the card; only roster-row fields cross | `session/links/tests.rs` `an_ask_crosses_the_link_waits_for_the_recipients_person_and_its_answer_comes_back`, `a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_recipients_work_thread`, `a_denied_linked_sender_hears_so_and_nothing_ran`, `ending_the_link_withdraws_the_card_a_linked_sender_was_waiting_on`, `an_ended_link_fails_what_waited_on_it_and_its_teammates_are_gone`, `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
 | Discovery never derives public fields from private instructions | `mcp/server.rs` `teammate_discovery_never_derives_public_fields_from_private_instructions` | — |
 | Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued line is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_scheduled_line_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
@@ -758,7 +758,11 @@ made it so.
   `authorize_collaboration` like a local one — except that a linked caller
   is never implicitly trusted (`caller.node.is_none()`), and its card is on
   the recipient's tape. The sender's desk neither holds nor answers it.
-  Both drivers reach the same queue.
+  Both drivers reach the same queue. The channel reads and sends frames of
+  at most 1 MiB, as a phone's wire does, and reads a linked desk's frames no
+  faster than its budget (`linked::Links::frame_wait`). A link's record is
+  read and written back (`linked::update`) under the lock its removal takes,
+  so a roster frame that lands as the link ends never writes it back.
 - **Revocation:** `desks.unlink` from either side, or the other desk's
   authenticated refusal at the next dial, runs `Room::unlinked`: the record
   goes, the channel and dialing stop, waiting requests to or from that desk
@@ -773,11 +777,14 @@ made it so.
   `remote/tests/link_tests.rs` `only_the_linked_desks_own_key_opens_its_link`,
   `a_link_made_over_the_owner_seat_carries_rosters_and_messages_both_ways`,
   `a_link_outlasts_either_desk_going_away_and_ends_on_both_from_either_side`,
-  `a_desk_reachable_only_through_its_relay_is_linked_through_it`;
+  `a_desk_reachable_only_through_its_relay_is_linked_through_it`,
+  `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`;
   `session/links/tests.rs` (cards on the recipient's desk, standing grants
   by qualified id, a denied linked sender, offline queueing both ways, an
   ended link failing and withdrawing what waited, ambiguous names, and the
-  roster carrying no field but a roster row's); `linked.rs`'s own tests.
+  roster carrying no field but a roster row's); `linked.rs`'s own tests,
+  among them `a_record_written_back_as_its_link_ends_stays_ended` and
+  `a_linked_desk_may_send_a_burst_and_then_only_so_many_frames_a_second`.
 - **Residual risk:** a compromised linked desk can publish any roster and
   send any message under any of its teammates' names; each still meets the
   recipient's grants and the person's card, and is quoted as a colleague's
@@ -786,7 +793,12 @@ made it so.
   the person's view with first-contact cards, but only from the at most 200
   teammates it publishes, with at most 48 of its messages waiting here at
   once, and this desk writes its names down at most twice a minute whatever
-  it sends. Ending the link stops all of it. A recipient answering it uses its own reach and tools and may
+  it sends. Each of its frames is at most 1 MiB; it may send 200 at once and
+  20 a second after that, and past that it is read more slowly rather than
+  refused, the budget kept per link so dialing again does not refill it. A
+  roster whose names have not moved reads nothing from disk, but each
+  delivered message still reads the room stream, so the frame budget is
+  what bounds that work. Ending the link stops all of it. A recipient answering it uses its own reach and tools and may
   disclose what it would to a local colleague. Ending a link from the
   dialing desk while the other cannot be reached leaves the other holding a
   link that never dials again, shown offline, until it is ended there too.

@@ -596,3 +596,17 @@ async fn a_linked_desk_sends_only_for_teammates_it_published_and_only_so_much_at
         "Too many messages from that desk are already waiting here."
     );
 }
+
+#[test]
+fn an_answer_is_cut_to_fit_one_of_the_links_frames_however_it_escapes() {
+    let fits = |reply: &str| {
+        let frame = json!({"id": 1, "cmd": "federation.deliver", "params": {"delivery":
+            LinkedDelivery::Result { request_id: "r".into(), reply: crossing(reply), failed: false }}});
+        frame.to_string().len() < 1024 * 1024
+    };
+    assert_eq!(crossing("runner 3 is green"), "runner 3 is green");
+    assert_eq!(crossing(&"x".repeat(300_000)).len(), REPLY_MAX);
+    for worst in ["\"", "\u{1}", "\u{1F980}"] {
+        assert!(fits(&worst.repeat(REPLY_MAX)), "{worst:?}");
+    }
+}

@@ -1,8 +1,6 @@
 ---
 id: task-30
 title: Desk health shows on the phone and in hotline status
-column: backlog
-position: 0
 tags:
   - bro-115
 parentId: epic-1
@@ -22,7 +20,8 @@ description: |-
   ## Status (2026-10-11 review)
 
   `hotline status` is a first cut (crates/hotline-cli/src/door.rs ~172); no `desk.status` wire command, so no phone banner.
-updatedAt: "2026-10-12T20:52:36.419Z"
+updatedAt: "2026-10-14T01:44:37.819Z"
+completedAt: "2026-10-14T01:44:37.819Z"
 ---
 
 ## Log

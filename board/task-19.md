@@ -2,8 +2,8 @@
 id: task-19
 title: "Core: cache folded streams and chapter activity on hot paths"
 parentId: epic-5
-column: todo
-position: 21
+column: backlog
+position: 11
 priority: high
 tags:
   - improvement
@@ -15,5 +15,5 @@ description: |-
   Split the independent former scope into task-46 (roster projections), task-47 (list reads), and task-48 (write locks/indexing). Those tasks remain children of epic-5 and should reuse this cache instead of inventing competing ones.
 
   Migration source: BRO-235, with BRO-237/239/240 now tracked by the split tasks.
-updatedAt: "2026-10-12T04:21:37.151Z"
+updatedAt: "2026-10-14T20:05:18.410Z"
 ---

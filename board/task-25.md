@@ -41,3 +41,6 @@ subtasks:
     title: "Dark MCP OAuth callback page with the mark (from task-26): templated success/failure inline HTML in mcp/oauth.rs, escaped server name/reason, strict CSP, no external URLs"
     completed: false
 ---
+
+## Log
+- 2026-10-14T01:44:30.845Z: [claude] Consolidated task-26 (dark MCP OAuth callback page) into this task as subtask task-25-1; both live in mcp/oauth.rs.

@@ -14,7 +14,7 @@ createdAt: "2026-10-14T20:03:32.697Z"
 ---
 
 ## Description
-Target: 0.37.0. George's 2026-10-14 call. Speech-to-speech models are the next wave (Grok Voice 3.0 shipped 2026-10-14, $0.08/min API; GPT-Live-1 $0.05/min) and both run on subscriptions he already pays for.
+Target: 0.38.0 (moved from 0.37 on 2026-10-14 so 0.37 could be cut). George's 2026-10-14 call. Speech-to-speech models are the next wave (Grok Voice 3.0 shipped 2026-10-14, $0.08/min API; GPT-Live-1 $0.05/min) and both run on subscriptions he already pays for.
 
 Decision: reverses 'No front' in docs/voice-calls.md (Direct turns). A realtime voice model holds the conversation; the teammate (Hotline Agent or any ACP harness) stays the one that works. This is Codex's own design (openai/codex 71923ba: realtime model = persona, agent = hidden backend; prompts 'Delegate all user requests', 'Treat backend outputs as authoritative'; agent told it is 'behind an intermediary' and input is a transcript; client, not model, picks what is spoken; voice transcript kept apart from agent history). The current STT -> teammate -> TTS pipeline stays as the fallback and for providers without a realtime model.
 
@@ -27,4 +27,4 @@ Design: desk opens the Grok realtime socket and owns the front (tools, prompt, r
 
 Sequence: decision record -> provider seam + Grok adapter -> bridge + prompts -> call wire -> phone duplex audio (hotline-mobile board) -> recording/ledger -> settings -> GPT-Live (stretch).
 
-Done when a phone call to a teammate runs on Grok Voice with sub-second replies and barge-in, work still happens in the teammate's session, the call record and tape stay truthful, the old pipeline still works when the front is off, and 0.37.0 release notes describe it.
+Done when a phone call to a teammate runs on Grok Voice with sub-second replies and barge-in, work still happens in the teammate's session, the call record and tape stay truthful, the old pipeline still works when the front is off, and 0.38.0 release notes describe it.

@@ -437,8 +437,11 @@ subscription row, so the sync copies the listed models off `openai` and
 clears their per-token price. A subscription has no per-token price; an id
 `openai` lacks is an error from the sync, so the list cannot drift
 silently. That list is only the fallback until a ChatGPT sign-in refreshes.
-A connected sign-in lists its models live, so mirror `CHATGPT_MODELS` from
-the Codex model list when you sync.
+A connected sign-in lists its models live, and an id it lists that
+`CHATGPT_MODELS` lacks is read from `openai` the same way, price cleared
+(`models::model_of`), so a model ChatGPT adds has its efforts and limits
+before the next sync. Still mirror `CHATGPT_MODELS` from the Codex model list
+when you sync: it is what a picker offers before anyone signs in.
 
 Ollama Local is the other exception: its catalogue row has no fixed models.
 Rig discovers the installed ids from the chosen server on connection and

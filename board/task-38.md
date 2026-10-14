@@ -1,8 +1,8 @@
 ---
 id: task-38
 title: "Calling the desk: a switchboard that puts you through, with the teammates involved on screen"
-column: todo
-position: 40
+column: backlog
+position: 22
 tags:
   - feature
   - bro-273
@@ -28,6 +28,6 @@ description: |-
   * Budgets: routing is the call assistant's line; teammates' turns are their own.
 
   Migrated from Linear BRO-273: https://linear.app/1broseidon/issue/BRO-273/calling-the-desk-a-switchboard-that-puts-you-through-with-the (2026-10-11).
-updatedAt: "2026-10-12T04:21:48.621Z"
+updatedAt: "2026-10-14T20:05:23.769Z"
 priority: medium
 ---

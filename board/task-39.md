@@ -1,8 +1,8 @@
 ---
 id: task-39
 title: "Review iggyuga's teammate-face PRs: photo or per-mood video (#176), and drawn SVG faces (#178)"
-column: todo
-position: 41
+column: backlog
+position: 23
 tags:
   - bro-275
 createdAt: "2026-10-11T21:06:02.309Z"
@@ -26,7 +26,7 @@ description: |-
   ## Status (2026-10-11 review)
 
   External PRs hotline#176 and #178 (iggyuga) are open; need a review decision.
-updatedAt: "2026-10-12T01:51:40.357Z"
+updatedAt: "2026-10-14T20:05:24.258Z"
 priority: medium
 ---
 

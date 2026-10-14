@@ -1,8 +1,8 @@
 ---
 id: task-14
 title: "A model the harness is too old for fails with a raw 400 for up to a day: refresh the ACP registry and say why"
-column: todo
-position: 16
+column: backlog
+position: 10
 priority: high
 tags:
   - bug
@@ -45,5 +45,5 @@ description: |-
   * A test covers a missing cache not downgrading below the last-known-good version.
 
   Migrated from Linear BRO-176: https://linear.app/1broseidon/issue/BRO-176/a-model-the-harness-is-too-old-for-fails-with-a-raw-400-for-up-to-a (2026-10-11).
-updatedAt: "2026-10-11T21:05:25.106Z"
+updatedAt: "2026-10-14T20:05:17.923Z"
 ---

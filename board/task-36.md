@@ -1,8 +1,8 @@
 ---
 id: task-36
 title: Subagent and runner runs open as their work, not as a chat
-column: todo
-position: 38
+column: backlog
+position: 20
 tags:
   - feature
   - bro-270
@@ -32,6 +32,6 @@ description: |-
   The separate completed → resumed ACP lifecycle bug is now task-51; this task owns only the work-view presentation. Audit 2026-10-11: ui/src/components/Dock.tsx still opens runs through Transcript. Keep live step following, collapsed thinking, brief/result sections and Stop; preserve chat presentation for real conversations. A phone work view belongs on the hotline-mobile board.
 
   Migration source: BRO-270.
-updatedAt: "2026-10-12T04:21:41.439Z"
+updatedAt: "2026-10-14T20:05:22.802Z"
 priority: medium
 ---

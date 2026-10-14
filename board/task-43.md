@@ -1,8 +1,8 @@
 ---
 id: task-43
 title: "Desk: @mentions reach the teammate resolved to the teammate they name"
-column: todo
-position: 46
+column: backlog
+position: 26
 priority: high
 tags:
   - composer
@@ -10,6 +10,7 @@ tags:
   - 0.37.0
 parentId: epic-4
 createdAt: "2026-10-11T21:25:34.873Z"
+updatedAt: "2026-10-14T20:05:25.690Z"
 ---
 
 ## Description

@@ -1,8 +1,8 @@
 ---
 id: task-7
 title: Run quiet scheduled jobs on their own context, and bring back only the note
-column: todo
-position: 9
+column: backlog
+position: 40
 priority: medium
 tags:
   - improvement
@@ -32,5 +32,5 @@ description: |-
   Found by checking the rig driver against Cursor's harness checklist (subagents keep the parent lean and return short handoffs).
 
   Migrated from Linear BRO-101: https://linear.app/1broseidon/issue/BRO-101/run-quiet-scheduled-jobs-on-their-own-context-and-bring-back-only-the (2026-10-11).
-updatedAt: "2026-10-11T21:05:18.971Z"
+updatedAt: "2026-10-14T20:05:32.628Z"
 ---

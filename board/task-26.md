@@ -26,3 +26,6 @@ description: |-
   Migrated from Linear BRO-250: https://linear.app/1broseidon/issue/BRO-250/a-proper-dark-sign-in-page-for-the-mcp-oauth-callback-with-the-mark (2026-10-11).
 updatedAt: "2026-10-11T21:05:35.709Z"
 ---
+
+## Log
+- 2026-10-14T01:44:31.408Z: [claude] Consolidated into task-25 as subtask task-25-1 (same mcp/oauth.rs surface); closing as duplicate, not done.

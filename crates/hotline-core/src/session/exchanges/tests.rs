@@ -92,6 +92,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         human_actions: vec![],
         thread: None,
         reply_thread: None,
+        returned: false,
     }
 }
 fn seed(room: &Room, request: Request, count: i64, paused: bool) {

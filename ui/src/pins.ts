@@ -26,3 +26,46 @@ export function nudged(slot: number, direction: -1 | 1, pinned: number): number 
 	const next = slot + direction;
 	return next < 0 || next >= pinned ? null : next;
 }
+
+/** One teammate in the window's team, and the desk it is on. */
+export type TeamRow = { deskId: string; entry: RosterEntry };
+
+/**
+ * The team across every desk the rail shows (BRO-178). One desk reads as
+ * `railOrder` always has. Several put each desk's pins first, in the desks'
+ * order, and then everyone else together the way the phone lists them: who
+ * is waiting on the person, then who spoke last, so a teammate on a server
+ * is not below the fold just for living there.
+ */
+export function teamOrder(desks: { deskId: string; entries: RosterEntry[] }[]): { pinned: TeamRow[]; rest: TeamRow[]; all: TeamRow[] } {
+	const ordered = desks.map(({ deskId, entries }) => {
+		const { pinned, rest } = railOrder(entries);
+		const row = (entry: RosterEntry): TeamRow => ({ deskId, entry });
+		return { pinned: pinned.map(row), rest: rest.map(row) };
+	});
+	const pinned = ordered.flatMap((one) => one.pinned);
+	const rest = ordered.flatMap((one) => one.rest);
+	if (desks.length > 1) {
+		rest.sort((a, b) => Number(b.entry.waiting) - Number(a.entry.waiting) || (b.entry.latest ?? 0) - (a.entry.latest ?? 0));
+	}
+	return { pinned, rest, all: [...pinned, ...rest] };
+}
+
+/**
+ * The desks the rail lists and each one's teammates: every desk the window
+ * holds, or the one the filter names, with the teammates of the desk on
+ * screen as its own roster says and the others' as they were watched. A
+ * window that knows no desks has the one on screen.
+ */
+export function shownTeam(
+	desks: { id: string }[],
+	here: string,
+	filter: string | null,
+	entries: RosterEntry[],
+	elsewhere: Record<string, RosterEntry[]>,
+): { deskId: string; entries: RosterEntry[] }[] {
+	if (desks.length === 0) return [{ deskId: here, entries }];
+	return desks
+		.filter((desk) => filter === null || desk.id === filter)
+		.map((desk) => ({ deskId: desk.id, entries: desk.id === here ? entries : (elsewhere[desk.id] ?? []) }));
+}

@@ -24,7 +24,7 @@ use tokio::sync::{Notify, Semaphore, mpsc, watch};
 /// `gate` between updates when the test asked for a pause it can cancel in.
 /// The last script stands for every turn after it, so a test that does not
 /// care which turn it is in writes one.
-pub(super) struct Scripted {
+pub(crate) struct Scripted {
     turns: Vec<Vec<Update>>,
     /// How many turns have been asked for, which is how the next script is
     /// chosen.
@@ -78,7 +78,7 @@ impl Scripted {
         Self::turns(vec![script])
     }
 
-    pub(super) fn turns(turns: Vec<Vec<Update>>) -> Self {
+    pub(crate) fn turns(turns: Vec<Vec<Update>>) -> Self {
         Self {
             turns,
             asked: Arc::new(Mutex::new(0)),
@@ -331,7 +331,7 @@ pub(super) fn words(said: Vec<Said>) -> Vec<Said> {
 /// next turn of the same script; the preamble and the seeded conversation are
 /// kept because they are what a fresh chapter's context is made of; and the
 /// summariser gets whatever answer the test says a model gave.
-pub(super) struct Fake {
+pub(crate) struct Fake {
     driver: Arc<Scripted>,
     pub(super) preambles: Arc<Mutex<Vec<String>>>,
     pub(super) seeds: Arc<Mutex<Vec<Vec<Said>>>>,
@@ -384,7 +384,7 @@ impl Fake {
 
     /// A room whose summariser is asked and refused, which is the shape of
     /// every desk with no model set up.
-    pub(super) fn new(driver: Scripted) -> Arc<Fake> {
+    pub(crate) fn new(driver: Scripted) -> Arc<Fake> {
         Fake::answering(driver, Err("no model answered".to_string()))
     }
 
@@ -434,7 +434,7 @@ impl Agents for Fake {
 
 /// One provider key, so the room has a model to name the note's completion
 /// with. Nothing here reaches a provider: every agent is a script.
-pub(super) struct DeskKeys;
+pub(crate) struct DeskKeys;
 
 impl ProviderKeys for DeskKeys {
     fn provider_auth(&self) -> HashMap<String, ProviderAuth> {
@@ -465,7 +465,7 @@ pub(super) fn scratch(name: &str) -> Log {
     Log::open(root)
 }
 
-pub(super) fn persona(id: &str) -> Persona {
+pub(crate) fn persona(id: &str) -> Persona {
     Persona {
         node: None,
         id: id.to_string(),
@@ -501,7 +501,7 @@ pub(super) fn persona(id: &str) -> Persona {
     }
 }
 
-pub(super) fn enrol(log: &Log, persona: &Persona) {
+pub(crate) fn enrol(log: &Log, persona: &Persona) {
     let mut event = serde_json::to_value(persona).unwrap();
     event
         .as_object_mut()

@@ -34,11 +34,13 @@ usage:
   hotline pair [--companion] [--json | --link] [--data <dir>]
   hotline devices [--data <dir>]
   hotline revoke <device-id> [--data <dir>]
+  hotline links [--data <dir>]
+  hotline unlink <desk-id> [--data <dir>]
   hotline wire <command> [--data <dir>] < params.json
 
 `--data` defaults to HOTLINE_DATA_DIR, then the platform's data directory. With
-neither, and no desk running in that directory, status, pair, devices, revoke
-and wire use the room of the hotline service on this machine.
+neither, and no desk running in that directory, status, pair, devices, revoke,
+links, unlink and wire use the room of the hotline service on this machine.
 `wire` reads the command's params as JSON on stdin, never from arguments,
 so a secret in them does not reach shell history or the process list.";
 
@@ -124,6 +126,8 @@ fn main() -> ExitCode {
         }
         "devices" if args.is_empty() => remote::devices(&room()),
         "revoke" if args.len() == 1 => remote::revoke(&room(), &args[0]),
+        "links" if args.is_empty() => remote::links(&room()),
+        "unlink" if args.len() == 1 => remote::unlink(&room(), &args[0]),
         "status" if args.is_empty() => door::status(&room()),
         "wire" if args.len() == 1 => door::wire(&room(), &args[0]),
         "help" | "--help" | "-h" => {

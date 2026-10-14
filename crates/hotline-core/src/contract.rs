@@ -2928,6 +2928,44 @@ pub enum Command {
         #[serde(default)]
         cancel: bool,
     },
+    /// The desks this one is linked with (ADR 0003): how each link is doing
+    /// and that desk's teammates. Owner or local desk only.
+    #[serde(rename = "desks.links")]
+    DesksLinks {},
+    /// Links this desk with a desk it is paired with, so their teammates can
+    /// see and message each other. The other desk records the link over this
+    /// computer's owner seat there, and this one dials it from then on.
+    #[serde(rename = "desks.link")]
+    DesksLink { desk_id: String },
+    /// The other half of `desks.link`, asked of the desk being linked with
+    /// over the linking computer's owner seat: trust `key`, that desk's own
+    /// identity, for `/v2/link`. Answers this desk's id and name.
+    #[serde(rename = "desks.link_accept")]
+    DesksLinkAccept {
+        desk_id: String,
+        name: String,
+        key: String,
+    },
+    /// Ends a link on both desks: now here, and on the other desk as soon as
+    /// it hears. Messages waiting for it fail with a sentence.
+    #[serde(rename = "desks.unlink")]
+    DesksUnlink { desk_id: String },
+    /// Federation: a linked desk's teammates, as it publishes them. Only a
+    /// linked desk's seat sends the `federation.*` commands, and they are
+    /// all it may send.
+    #[serde(rename = "federation.roster")]
+    FederationRoster {
+        teammates: Vec<crate::linked::LinkedTeammate>,
+    },
+    /// Federation: a message for one of this desk's teammates, or the answer
+    /// to one of theirs, for the exchange queue.
+    #[serde(rename = "federation.deliver")]
+    FederationDeliver {
+        delivery: crate::linked::LinkedDelivery,
+    },
+    /// Federation: the other desk ended the link.
+    #[serde(rename = "federation.unlink")]
+    FederationUnlink {},
     /// A paired phone supplies a stable operation id; retries never run twice.
     /// `replyTo` is the id of the message this one answers, as on
     /// `session.prompt`. `thread` says it in one of the teammate's work
@@ -3698,10 +3736,15 @@ pub enum ThreadAnswer {
 pub struct ThreadSummary {
     pub thread: ThreadId,
     /// The teammate whose thread it is. A pair is listed with the first of its
-    /// two, and `with` names the other.
+    /// two, and `with` names the other; a pair with a teammate on a linked
+    /// desk is listed with this desk's teammate.
     pub persona_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub with_persona_id: Option<String>,
+    /// What to call `with`, when it is a teammate on a linked desk ("Lou on
+    /// grizzly"): it is in no roster here for the window to read its name in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub with_name: Option<String>,
     /// What the thread is called: a work thread's or run's task, a call's
     /// title. A DM and a pair have none, and are named by who is in them.
     #[serde(skip_serializing_if = "Option::is_none")]

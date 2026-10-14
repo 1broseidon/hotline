@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { BackendChoice, ConfigChoice, FolderGrant, PersonaDraft } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { CloseIcon } from "../icons";
+import { useActiveDesk, useDesks } from "../desks";
 import { useRoomSettings } from "../room";
 import { Band } from "../ui/Band";
 import { Picker } from "../ui/Menu";
@@ -36,16 +37,33 @@ export function NewTeammate({
 	onCreated,
 	onClose,
 	onProviders,
+	onDesk,
 }: {
 	models: ConfigChoice[];
 	onCreated(personaId: string): void;
 	onClose(): void;
 	onProviders?: (() => void) | undefined;
+	/** Make it on another desk instead: the pane moves there (BRO-178). */
+	onDesk?: ((deskId: string) => void) | undefined;
 }) {
+	const desks = useDesks();
+	const here = useActiveDesk();
 	return (
 		<div className="pane">
 			<Band>
 				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">New teammate</h2>
+				{/* With more than one desk in the window, which one it lives on is the first thing asked. */}
+				{desks.length > 1 && here !== null && onDesk !== undefined && (
+					<Picker
+						value={here.id}
+						choices={desks.map((desk) => ({ id: desk.id, name: `On ${desk.name}`, group: desk.kind === "local" ? "On this computer" : "Remote" }))}
+						placeholder="Desk"
+						label="Desk"
+						onChange={(deskId) => {
+							if (deskId !== here.id) onDesk(deskId);
+						}}
+					/>
+				)}
 				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>

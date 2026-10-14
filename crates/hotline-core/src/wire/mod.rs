@@ -107,6 +107,39 @@ pub trait RoomHandle: Send + Sync + 'static {
     fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
         None
     }
+    /// The live half of this desk's links (ADR 0003): which linked desks are
+    /// reachable now, the calls waiting for them, and their teammates.
+    fn links(&self) -> Option<Arc<crate::linked::Links>> {
+        None
+    }
+    /// This desk's teammates as a linked desk is shown them: the rows
+    /// `list_teammates` gives a local colleague, and nothing more.
+    fn federation_roster_entries(&self) -> Vec<crate::linked::LinkedTeammate> {
+        Vec::new()
+    }
+    /// A linked desk published its teammates.
+    fn federation_roster(
+        &self,
+        _desk_id: &str,
+        _teammates: Vec<crate::linked::LinkedTeammate>,
+    ) -> Result<(), String> {
+        Err(NOT_LINKED.into())
+    }
+    /// A linked desk sent a message for one of this desk's teammates, or the
+    /// answer to one of theirs.
+    async fn federation_deliver(
+        &self,
+        _desk_id: &str,
+        _delivery: crate::linked::LinkedDelivery,
+    ) -> Result<Value, String> {
+        Err(NOT_LINKED.into())
+    }
+    /// Ends a link on this desk, whichever side ended it: the record goes,
+    /// the channel closes, and every message waiting on it fails with a
+    /// sentence.
+    async fn unlinked(&self, _desk_id: &str) -> Result<(), String> {
+        Err(NOT_LINKED.into())
+    }
 
     /// Move confidential launch configuration into the credential vault before
     /// settings or subscriptions can retain it.
@@ -626,6 +659,10 @@ pub enum Seat {
     Owner,
     /// A companion retains the existing phone permissions.
     Phone,
+    /// A linked desk (ADR 0003): its roster and messages for the exchange
+    /// queue, and nothing else. Never seated on a socket of the wire; its
+    /// frames are answered by [`federation`].
+    Link,
 }
 
 impl Seat {
@@ -637,12 +674,15 @@ impl Seat {
     }
 
     fn is_remote(self) -> bool {
-        matches!(self, Self::Owner | Self::Phone)
+        matches!(self, Self::Owner | Self::Phone | Self::Link)
     }
 
     pub fn permits(&self, command: &Command) -> bool {
         match self {
-            Seat::Desk | Seat::Owner => true,
+            // The federation commands speak for a linked desk, which only
+            // the link's own authenticated channel can name.
+            Seat::Desk | Seat::Owner => !federation_command(command),
+            Seat::Link => matches!(command, Command::Ping {}) || federation_command(command),
             // A phone answers for the person: a permission card, a
             // `request_human` card and a passkey card are each a teammate
             // waiting on someone, and waiting until they are back at a desk
@@ -768,6 +808,7 @@ impl Seat {
     pub fn permits_sub(&self, target: &Target) -> bool {
         match self {
             Seat::Desk | Seat::Owner => true,
+            Seat::Link => false,
             // A teammate's schedules are a read of one list, not the room
             // stream they are kept on, which also carries every setting.
             // A thread between two teammates is read the way a tape is: the
@@ -792,6 +833,16 @@ impl Seat {
             }
         }
     }
+}
+
+/// The commands only a linked desk sends.
+fn federation_command(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::FederationRoster { .. }
+            | Command::FederationDeliver { .. }
+            | Command::FederationUnlink {}
+    )
 }
 
 /// The `thread.*` commands a companion may run, each as what it already may do
@@ -1143,7 +1194,7 @@ where
         sender,
         cancel: cancel.clone(),
         max: match seat {
-            Seat::Phone => 1_048_576,
+            Seat::Phone | Seat::Link => 1_048_576,
             Seat::Owner => 32 * 1024 * 1024,
             Seat::Desk => usize::MAX,
         },
@@ -1409,6 +1460,15 @@ async fn command(
             tokio::spawn(async move {
                 let card = crate::link_preview::preview(&url).await;
                 reply(&sender, id, Ok(json!(card)));
+            });
+        }
+        // Making or ending a link waits on the other desk, for seconds when
+        // it is far or away; the window's other commands do not wait behind it.
+        Ok(command @ (Command::DesksLink { .. } | Command::DesksUnlink { .. })) => {
+            let (sender, log, room) = (sender.clone(), log.clone(), Arc::clone(room));
+            tokio::spawn(async move {
+                let result = commands::run(command, &log, &room).await;
+                reply(&sender, id, result);
             });
         }
         // A picture is read from disk, and a conversation full of them
@@ -1708,6 +1768,8 @@ const LEAN_IDLE: std::time::Duration = std::time::Duration::from_secs(90);
 
 /// The seat may not do this, whoever asks and whatever the room holds.
 const FORBIDDEN: &str = "forbidden";
+/// A room that keeps no links answers a linked desk with this.
+const NOT_LINKED: &str = "This desk is not linked with that one.";
 /// The command or subscription names a teammate the room does not hold.
 const UNKNOWN_TEAMMATE: &str = "unknown_teammate";
 /// The room could not be read, so there is no answer to give — which is not
@@ -1744,6 +1806,46 @@ fn decline(sender: &Outbox, id: i64, refused: Refused) {
         frame["code"] = json!(code);
     }
     let _ = sender.send(frame.to_string());
+}
+
+/// A linked desk's frame (ADR 0003), answered under [`Seat::Link`]: a ping
+/// and the `federation.*` commands, held to the same [`Seat::permits`] as
+/// every other seat. Anything else, a subscription included, is forbidden.
+/// `desk_id` is the desk the channel authenticated, never one a frame names.
+/// A frame with no id is nobody's question and gets no answer.
+pub(crate) async fn federation(
+    frame: &Value,
+    desk_id: &str,
+    room: &Arc<dyn RoomHandle>,
+) -> Option<Value> {
+    let id = frame.get("id").and_then(Value::as_i64)?;
+    let forbidden = || {
+        json!({"id": id, "ok": false, "code": FORBIDDEN,
+            "error": "A linked desk may only publish its teammates and deliver messages."})
+    };
+    if frame.get("cmd").is_none() {
+        return Some(forbidden());
+    }
+    let command = match read_command(frame) {
+        Ok(command) => command,
+        Err(error) => return Some(json!({"id": id, "ok": false, "error": error})),
+    };
+    if !Seat::Link.permits(&command) {
+        return Some(forbidden());
+    }
+    let result = match command {
+        Command::FederationRoster { teammates } => room
+            .federation_roster(desk_id, teammates)
+            .map(|()| Value::Null),
+        Command::FederationDeliver { delivery } => room.federation_deliver(desk_id, delivery).await,
+        Command::FederationUnlink {} => room.unlinked(desk_id).await.map(|()| Value::Null),
+        _ => Ok(Value::Null),
+    };
+    Some(match result {
+        Ok(Value::Null) => json!({"id": id, "ok": true}),
+        Ok(result) => json!({"id": id, "ok": true, "result": result}),
+        Err(error) => json!({"id": id, "ok": false, "error": error}),
+    })
 }
 
 /// Opens a subscription.

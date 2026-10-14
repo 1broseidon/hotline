@@ -45,6 +45,7 @@ pub(crate) mod generate;
 pub(crate) mod jobs;
 pub(crate) mod ledger;
 mod lifecycle;
+mod links;
 mod narration;
 mod pacing;
 mod peers;
@@ -627,6 +628,9 @@ pub struct Room {
     /// Held while a card that delivers is read and settled, so two answers,
     /// or an answer and the expiry sweep, cannot both deliver.
     answering_later: Mutex<()>,
+    /// The live half of this desk's links: open channels, the calls waiting
+    /// for them, and linked desks' teammates (ADR 0003).
+    links: Arc<crate::linked::Links>,
     /// Serializes each durable exchange queue and its pair-wide brake.
     exchange_lock: Mutex<()>,
     exchange_workers: Mutex<std::collections::HashSet<String>>,
@@ -753,6 +757,7 @@ impl Room {
             sides: sides::Sides::default(),
             human_waits: Mutex::new(HashMap::new()),
             answering_later: Mutex::new(()),
+            links: Arc::default(),
             exchange_lock: Mutex::new(()),
             exchange_workers: Mutex::new(Default::default()),
             exchange_leases: Mutex::new(Default::default()),
@@ -4388,6 +4393,12 @@ impl Room {
     /// The same, saying whether the line landed, for a caller about to tell
     /// someone it did.
     fn try_write_value(&self, persona_id: &str, event: &Value) -> std::io::Result<()> {
+        // A teammate on a linked desk has no tape here: what it says and is
+        // told is on its own desk. A marker meant for its side has nowhere to
+        // land, and that is not a failure.
+        if crate::linked::is_linked(persona_id) {
+            return Ok(());
+        }
         self.log
             .append(&StreamId::Tape(persona_id.to_string()), event)?;
         self.index(persona_id, event);
@@ -5372,7 +5383,7 @@ pub(crate) fn timed_from(ts: i64, client: Option<Client>, text: &str) -> String 
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// A picture being drawn: dropping it, on success, refusal or cancellation
 /// alike, takes the teammate off the roster's drawing list.

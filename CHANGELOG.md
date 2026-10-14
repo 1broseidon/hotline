@@ -8,6 +8,35 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-10-14
+
+### Added
+
+- Linked desks. Link this computer's desk with a server you're connected to
+  (Settings › Desks › Link teammates) and the two desks' teammates see each
+  other in `list_teammates` and message each other the way teammates on one
+  desk do: "Clementine, ask Lou on grizzly to check the CI runners" works.
+  The first message still asks the person, on the recipient's desk, and
+  nothing about either desk's workspaces, tools, secrets or computers
+  crosses. A message to a desk that's away waits and goes when it's back.
+  Either side ends the link, on both; `hotline links` and `hotline unlink`
+  do it from a server.
+- One list of teammates across every desk in the window, with a desk filter
+  in place of the desk switcher. Opening a teammate on another desk needs no
+  switching, unread counts across desks, and a desk that can't be reached
+  keeps its teammates listed, dimmed. A new teammate asks which desk it
+  lives on.
+- The user guide has a Use Hotline section: workflows, conversations, side
+  threads, teammates working together, voice, and pictures. The setup and
+  reference pages name what the desk shows today.
+
+### Fixed
+
+- The server edition runs on Debian 12 and Raspberry Pi OS bookworm again.
+  0.36.3's server tarballs were built on Ubuntu 24.04 and needed glibc 2.39,
+  so `hotline` failed to start there; they are now built on Ubuntu 22.04 and
+  need glibc 2.35 or newer, and the release fails if a build asks for more.
+
 ## [0.36.3] - 2026-10-13
 
 ### Added

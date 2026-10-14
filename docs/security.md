@@ -40,7 +40,7 @@ it.
 | --- | --- | --- | --- |
 | Reach | `reach` | `workspace` | Hotline Agent's workspace tools and shell. `workspace`: the working directory is a wall; the shell runs confined (bubblewrap on Linux, Seatbelt on macOS, not offered on Windows) with selected host toolchains read-only, a private `HOME` and scratch, no host environment, and the host network. `machine`: the same tools with no wall. |
 | MCP gateway | `mcpPolicy` | `none` | Each selected server's own capabilities, wherever it reaches. Hotline connects it as the client; it is not inside the shell sandbox. `all` includes servers added later. An imported or invalid policy grants nothing. |
-| Collaboration | `allowedSenders` on the recipient, and the caller's reach | empty | Asking another teammate to use its workspace and tools. A `machine` Hotline Agent caller has this implicitly. A `workspace` caller needs the operator's first-contact decision per direction: a session grant bound to both live leases, or a standing grant recorded by the sender's stable id. Discovery gives a workspace caller ids and names only. |
+| Collaboration | `allowedSenders` on the recipient, and the caller's reach | empty | Asking another teammate to use its workspace and tools. A `machine` Hotline Agent caller has this implicitly. A `workspace` caller needs the operator's first-contact decision per direction: a session grant bound to both live leases, or a standing grant recorded by the sender's stable id. Discovery gives a workspace caller ids and names only. A teammate on a linked desk is never implicit, whatever its reach there: it is granted by its qualified id or decided on the recipient's desk ([Linked desks](#linked-desks-bro-177-adr-0003)). |
 | Background work | `backgroundWork` | `false`, including on older records | Creating its own schedules and loops. Jobs the person creates over the desk wire carry `operatorCreated` and run without it; an agent tool cannot set that flag. |
 | Computer | `computer.enabled` | off | A containerized desktop, `--cap-drop=ALL`, `no-new-privileges`, with the workspace and the teammate's declared mounts bound in. It is a per-teammate capability, not a gateway server, and does not widen reach. Its threads share it through an exclusive lease, below. |
 | Secrets | `computer.secrets` | none | Named values from the operator's store (see below), in the environment of every job that computer runs. The computer redacts each value from what its tools answer and nothing returns one. A record from before the field, or a name nobody ticked, grants nothing. |
@@ -626,6 +626,8 @@ extend; when a change adds a boundary, it adds a row.
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`, `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
 | Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes cached work; a dropped wait cannot be answered later; revocation reaches delegated third parties but not their main sessions | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `invalidating_either_side_revokes_cached_peer_tools_without_a_main_session`, `peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does`, `nested_peer_leases_follow_the_outer_target_but_revoke_independently`, `revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session` | — |
 | The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`, `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
+| A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id; its frames are at most 1 MiB and read no faster than its budget; a frame racing the link's end never writes its record back | `wire/tests.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link_tests.rs` `only_the_linked_desks_own_key_opens_its_link`, `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`; `linked.rs` `a_record_written_back_as_its_link_ends_stays_ended` | — |
+| A linked sender is never implicitly trusted: the recipient's `allowedSenders` by qualified id or the person's card on the recipient's desk decide it, the sender's desk cannot answer the card, a denial runs nothing, and ending the link fails waiting work with a sentence and withdraws the card; only roster-row fields cross | `session/links/tests.rs` `an_ask_crosses_the_link_waits_for_the_recipients_person_and_its_answer_comes_back`, `a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_recipients_work_thread`, `a_denied_linked_sender_hears_so_and_nothing_ran`, `ending_the_link_withdraws_the_card_a_linked_sender_was_waiting_on`, `an_ended_link_fails_what_waited_on_it_and_its_teammates_are_gone`, `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
 | Discovery never derives public fields from private instructions | `mcp/server.rs` `teammate_discovery_never_derives_public_fields_from_private_instructions` | — |
 | Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued line is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_scheduled_line_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
 | ACP callbacks stay in the workspace for legacy `machine` personas; a symlinked root alias is accepted; `AGENTS.md` refuses external and dangling symlinks; runtime mode is separate from effort and other configs stay hidden | `driver/acp.rs` `acp_callbacks_stay_in_workspace_for_legacy_machine_personas`, `callback_workspace_accepts_the_selected_symlinked_root_alias`, `agents_md_refuses_external_and_dangling_symlinks`, `disposition_separates_runtime_mode_from_effort_and_hides_other_configs` | — |
@@ -727,6 +729,81 @@ made it so.
   that cannot be undone; the caller receives an uncertain failure and must
   inspect those effects before retrying. Pre-fix requests have no saved gate
   association and cannot have one safely reconstructed.
+
+## Linked desks (BRO-177, ADR 0003)
+
+- **Default and old records:** no desk is linked. A `desk_link` record exists
+  only once the person links two desks; nothing older (the previous edition's
+  fleet, an owner pairing, an old `link` record) is read as one. A teammate on
+  a linked desk starts with no standing grant on any teammate here.
+- **Grant source:** `desks.link` from Settings › Desks, on the desk that makes
+  the link, which asks the other desk's `desks.link_accept` over the owner
+  seat the person already holds there. Both are owner or local desk commands.
+  The grant is the other desk's own Noise key, kept on the dialled desk's
+  record; it is not a device grant and an owner pairing does not open it.
+  What a linked sender may then ask of a teammate here is the ordinary
+  collaboration grant: `allowedSenders` by its qualified id
+  (`deskId/personaId`), or the person's first-contact card.
+- **Enforcement points:** `remote/link.rs` `answer` admits `/v2/link` only for
+  a key a link record names, under the desk id bound in the authenticated
+  Noise payload, and under the existing admission limits; any other key gets
+  the authenticated refusal. Every frame on the channel is answered by
+  `wire::federation` under `Seat::Link`, through `Seat::permits`: a ping and
+  `federation.roster`, `federation.deliver` and `federation.unlink`, for the
+  desk the channel proved; every other command and every subscription is
+  `forbidden`, and the desk and owner seats may not send a federation
+  command. A published roster is cut to `LinkedTeammate`'s fields
+  (`linked::plausible`). A delivered request is checked for size and a known
+  recipient (`session/links.rs`), queued in `exchange_pair`, and decided by
+  `authorize_collaboration` like a local one — except that a linked caller
+  is never implicitly trusted (`caller.node.is_none()`), and its card is on
+  the recipient's tape. The sender's desk neither holds nor answers it.
+  Both drivers reach the same queue. The channel reads and sends frames of
+  at most 1 MiB, as a phone's wire does, and reads a linked desk's frames no
+  faster than its budget (`linked::Links::frame_wait`). A link's record is
+  read and written back (`linked::update`) under the lock its removal takes,
+  so a roster frame that lands as the link ends never writes it back.
+- **Revocation:** `desks.unlink` from either side, or the other desk's
+  authenticated refusal at the next dial, runs `Room::unlinked`: the record
+  goes, the channel and dialing stop, waiting requests to or from that desk
+  fail with a sentence, every capability epoch of that desk's teammates is
+  invalidated — which withdraws their pending cards, ends session grants and
+  peer sessions and stops their handoffs — and they leave `list_teammates`.
+  The standing grants the person gave them here end too: their qualified ids
+  leave every `allowedSenders` and their informed consent is withdrawn, so a
+  link made again starts from nothing.
+- **Tests:** `wire/tests.rs`
+  `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`;
+  `remote/tests/link_tests.rs` `only_the_linked_desks_own_key_opens_its_link`,
+  `a_link_made_over_the_owner_seat_carries_rosters_and_messages_both_ways`,
+  `a_link_outlasts_either_desk_going_away_and_ends_on_both_from_either_side`,
+  `a_desk_reachable_only_through_its_relay_is_linked_through_it`,
+  `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`;
+  `session/links/tests.rs` (cards on the recipient's desk, standing grants
+  by qualified id, a denied linked sender, offline queueing both ways, an
+  ended link failing and withdrawing what waited, ambiguous names, and the
+  roster carrying no field but a roster row's); `linked.rs`'s own tests,
+  among them `a_record_written_back_as_its_link_ends_stays_ended` and
+  `a_linked_desk_may_send_a_burst_and_then_only_so_many_frames_a_second`.
+- **Residual risk:** a compromised linked desk can publish any roster and
+  send any message under any of its teammates' names; each still meets the
+  recipient's grants and the person's card, and is quoted as a colleague's
+  data; its names and roster text are made plain lines first
+  (`linked::plain`), because a name stands outside the quote. It can fill
+  the person's view with first-contact cards, but only from the at most 200
+  teammates it publishes, with at most 48 of its messages waiting here at
+  once, and this desk writes its names down at most twice a minute whatever
+  it sends. Each of its frames is at most 1 MiB; it may send 200 at once and
+  20 a second after that, and past that it is read more slowly rather than
+  refused, the budget kept per link so dialing again does not refill it. A
+  roster whose names have not moved reads nothing from disk, but each
+  delivered message still reads the room stream, so the frame budget is
+  what bounds that work. Ending the link stops all of it. A recipient answering it uses its own reach and tools and may
+  disclose what it would to a local colleague. Ending a link from the
+  dialing desk while the other cannot be reached leaves the other holding a
+  link that never dials again, shown offline, until it is ended there too.
+  Stopping an exchange on the sender's desk does not stop work already
+  running for it on the other.
 
 ## Add a teammate from the phone (BRO-127)
 

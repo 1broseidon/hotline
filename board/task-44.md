@@ -1,8 +1,8 @@
 ---
 id: task-44
 title: "Desktop: @ picker with mention tokens"
-column: todo
-position: 47
+column: backlog
+position: 27
 priority: high
 tags:
   - composer
@@ -13,6 +13,7 @@ relatedFiles:
   - ui/src
 parentId: epic-4
 createdAt: "2026-10-11T21:25:35.162Z"
+updatedAt: "2026-10-14T20:05:26.179Z"
 ---
 
 ## Description

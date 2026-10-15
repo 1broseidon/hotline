@@ -18,9 +18,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/realtime/mod.rs
   - crates/hotline-core/src/voice/spoken.rs
   - crates/hotline-core/tests/voice.rs
-updatedAt: "2026-10-15T02:22:24.470Z"
+updatedAt: "2026-10-15T02:22:31.505Z"
 contract:
-  status: delivered
+  status: failed
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/front.rs
@@ -43,6 +43,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-15T02:22:24.470Z"
     duration: 704
+  feedback: "crates/hotline-core/src/voice/front.rs (/Users/george/Projects/personal/hotline/crates/hotline-core/src/voice/front.rs): File not found"
 assignee: claude
 dispatch:
   agent: claude

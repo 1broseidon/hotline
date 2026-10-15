@@ -16,9 +16,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_prompt.rs
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/src/voice/dispatcher.rs
-updatedAt: "2026-10-15T02:28:44.020Z"
+updatedAt: "2026-10-15T02:28:45.439Z"
 contract:
-  status: delivered
+  status: failed
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/front_prompt.rs
@@ -40,6 +40,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-15T02:28:44.020Z"
     duration: 340
+  feedback: "crates/hotline-core/src/voice/front_prompt.rs (/Users/george/Projects/personal/hotline/crates/hotline-core/src/voice/front_prompt.rs): File not found"
 assignee: claude
 dispatch:
   agent: claude

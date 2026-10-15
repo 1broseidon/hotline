@@ -10,15 +10,15 @@ tags:
 parentId: epic-6
 createdAt: "2026-10-15T03:57:56.431Z"
 assignee: claude
-updatedAt: "2026-10-15T17:07:49.030Z"
+updatedAt: "2026-10-15T17:08:41.817Z"
 dispatch:
   agent: claude
   model: opus
   effort: high
   by: person
   at: "2026-10-15T04:03:40.391Z"
-column: in-progress
-position: 0
+column: review
+position: 3
 ---
 
 ## Description

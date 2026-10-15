@@ -19,7 +19,7 @@ relatedFiles:
   - ui/src/components/UseFor.tsx
   - ui/src/generated/contract.ts
   - docs/voice.md
-updatedAt: "2026-10-15T17:07:54.226Z"
+updatedAt: "2026-10-15T17:08:41.815Z"
 contract:
   status: failed
   deliverables:
@@ -57,8 +57,8 @@ dispatch:
   effort: medium
   by: lead
   at: "2026-10-15T02:40:18.443Z"
-column: in-progress
-position: 1
+column: review
+position: 2
 ---
 
 ## Description

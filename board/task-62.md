@@ -19,7 +19,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/tests/voice.rs
   - docs/voice-calls.md
-updatedAt: "2026-10-15T17:07:58.894Z"
+updatedAt: "2026-10-15T17:08:41.814Z"
 contract:
   status: done
   deliverables:
@@ -53,8 +53,8 @@ dispatch:
   effort: medium
   by: lead
   at: "2026-10-15T02:40:16.216Z"
-column: in-progress
-position: 2
+column: review
+position: 1
 ---
 
 ## Description

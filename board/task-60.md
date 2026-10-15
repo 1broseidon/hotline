@@ -16,7 +16,26 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_prompt.rs
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/src/voice/dispatcher.rs
-updatedAt: "2026-10-15T01:56:48.978Z"
+updatedAt: "2026-10-15T01:57:04.230Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-core/src/voice/front_prompt.rs
+      description: Front instructions and starting context assembly
+    - type: test
+      path: crates/hotline-core/src/voice/front_prompt.rs
+      description: Fixture tests for prompt assembly and budgets
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy -p hotline-core --all-targets -- -D warnings
+      - cargo test -p hotline-core
+  constraints:
+    - Budgeted context; no secrets or tool-output dumps
+    - Separate desk-call prompt
+  metrics:
+    readyAt: "2026-10-15T01:57:04.232Z"
 ---
 
 ## Description

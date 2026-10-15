@@ -16,7 +16,27 @@ relatedFiles:
   - docs/voice-calls.md
   - docs/voice.md
   - docs/design.md
-updatedAt: "2026-10-15T01:56:48.134Z"
+updatedAt: "2026-10-15T01:57:04.230Z"
+contract:
+  status: ready
+  deliverables:
+    - type: docs
+      path: docs/adr/0003-live-calls-get-a-voice-front.md
+      description: "ADR: why a realtime voice front, Codex precedent, what stays, guardrails"
+    - type: docs
+      path: docs/voice-calls.md
+      description: "'No front' in Direct turns replaced by the front design"
+  validation:
+    commands:
+      - test -f docs/adr/0003-live-calls-get-a-voice-front.md
+      - grep -qi 'voice front' docs/voice-calls.md
+      - "! grep -q 'Direct turns | No front' docs/voice-calls.md"
+      - python3 -m unittest discover -s scripts -p 'test_*.py'
+  constraints:
+    - Docs only; no code changes
+    - Say what is decided, not what is built yet; docs/ holds only what is, so mark unlanded parts as planned for 0.38
+  metrics:
+    readyAt: "2026-10-15T01:57:04.232Z"
 ---
 
 ## Description

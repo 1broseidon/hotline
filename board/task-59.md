@@ -18,7 +18,27 @@ relatedFiles:
   - crates/hotline-core/src/voice/realtime/mod.rs
   - crates/hotline-core/src/voice/spoken.rs
   - crates/hotline-core/tests/voice.rs
-updatedAt: "2026-10-15T01:56:48.711Z"
+updatedAt: "2026-10-15T01:57:04.230Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-core/src/voice/front.rs
+      description: Bridge between front session and teammate session
+    - type: test
+      path: crates/hotline-core/tests/voice.rs
+      description: "Headless harness: front hands words to teammate unrephrased, spoken line returns verbatim"
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy -p hotline-core --all-targets -- -D warnings
+      - cargo test -p hotline-core
+  constraints:
+    - Same path, grants and chapter as a typed message; voice origin kept
+    - Front transcript stays out of the teammate tape
+    - Extend tests/voice.rs; run unfiltered
+  metrics:
+    readyAt: "2026-10-15T01:57:04.232Z"
 ---
 
 ## Description

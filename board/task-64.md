@@ -22,7 +22,26 @@ relatedFiles:
   - crates/hotline-core/src/voice/settings.rs
   - docs/voice-calls.md
   - docs/voice.md
-updatedAt: "2026-10-15T01:56:50.033Z"
+updatedAt: "2026-10-15T01:57:04.230Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-core/src/voice/realtime/openai.rs
+      description: "GPT-Live front: SDP exchange and sideband"
+    - type: test
+      path: crates/hotline-core/src/voice/realtime/openai.rs
+      description: Protocol tests on local fixtures, feature flag, fail-soft
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy -p hotline-core --all-targets -- -D warnings
+      - cargo test -p hotline-core
+  constraints:
+    - "Private route: behind a feature flag, fails soft to Grok or the pipeline"
+    - Never echo provider bodies
+  metrics:
+    readyAt: "2026-10-15T01:57:04.232Z"
 ---
 
 ## Description

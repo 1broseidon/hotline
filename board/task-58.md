@@ -16,7 +16,30 @@ relatedFiles:
   - crates/hotline-core/src/voice/realtime/xai.rs
   - crates/hotline-core/src/voice/speech/xai.rs
   - crates/hotline-core/src/voice/mod.rs
-updatedAt: "2026-10-15T01:56:48.446Z"
+updatedAt: "2026-10-15T01:57:04.230Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-core/src/voice/realtime/mod.rs
+      description: Realtime trait and event types
+    - type: file
+      path: crates/hotline-core/src/voice/realtime/xai.rs
+      description: Grok Voice adapter
+    - type: test
+      path: crates/hotline-core/src/voice/realtime
+      description: Protocol tests on local fixtures
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy -p hotline-core --all-targets -- -D warnings
+      - cargo test -p hotline-core
+  constraints:
+    - "Run cargo test -p hotline-core unfiltered (AGENTS.md: ts-rs contract)"
+    - Reuse speech/xai.rs login/refresh/retry-once; never echo provider bodies
+    - No Tauri in hotline-core; nothing unreachable ships
+  metrics:
+    readyAt: "2026-10-15T01:57:04.232Z"
 ---
 
 ## Description

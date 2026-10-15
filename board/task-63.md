@@ -21,7 +21,30 @@ relatedFiles:
   - ui/src/components/UseFor.tsx
   - ui/src/generated/contract.ts
   - docs/voice.md
-updatedAt: "2026-10-15T01:56:49.768Z"
+updatedAt: "2026-10-15T01:57:04.230Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-core/src/voice/settings.rs
+      description: Voice front setting (Off/Grok Voice/GPT-Live), voice per provider
+    - type: file
+      path: ui/src/components/Settings.tsx
+      description: Settings > Voice > Live calls control
+    - type: test
+      path: ui/src
+      description: UI test for the setting
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy -p hotline-core --all-targets -- -D warnings
+      - cargo test -p hotline-core
+      - cd ui && bun run typecheck && bun run test
+  constraints:
+    - Off keeps today's pipeline and is the default
+    - Plain line on cost; run cargo test unfiltered to regenerate contract.ts
+  metrics:
+    readyAt: "2026-10-15T01:57:04.232Z"
 ---
 
 ## Description

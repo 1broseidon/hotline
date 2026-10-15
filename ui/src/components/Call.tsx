@@ -19,27 +19,36 @@ const WORDS: Record<CallPhase, string> = {
 };
 
 /**
- * The call is a strip under the conversation's band, the band growing a
- * line the way the phone shows a call: up and out of the way. It stays
- * while the window moves between conversations (and sits at the top of a
- * pane with no conversation). It names who is on the line, the desk's toad
- * or the teammate's face, then what the call is doing and its clock, any
- * teammate that needs you, and Hold and Hang up; once the line is gone,
- * Call again and Close. The mark rings green while the line is live and
- * swells with the voice; pressing it while they speak cuts in. Work and the
- * transcript stay in the teammate's own conversation, which the name opens.
+ * The call is a strip under the conversation's band, the band growing down
+ * into one card with it the way the phone shows a call: up and out of the
+ * way. It stays while the window moves between conversations (on its own
+ * card atop a pane with no conversation). It names who is on the line, the
+ * desk's toad or the teammate's face (left out under that teammate's own
+ * band, whose face rings instead), then what the call is doing and its
+ * clock, any teammate that needs you, and Hold and Hang up. The mark rings
+ * green while the line is live and swells with the voice; pressing it while
+ * they speak cuts in. A call that ends folds the strip back up and closes
+ * it; one that ended on trouble stays to say why, with Call again and
+ * Close. Work and the transcript stay in the teammate's own conversation,
+ * which the name opens.
  */
 export function CallBar({
 	call,
 	names,
 	roster,
 	onOpenTeammate,
+	bare = false,
+	alone = false,
 }: {
 	call: CallSession;
 	names: (personaId: string) => string | undefined;
 	/** The desk on screen's roster; a call to another desk reads none of it. */
 	roster: readonly RosterEntry[];
 	onOpenTeammate(personaId: string): void;
+	/** Under the called teammate's own band: its face there is the mark. */
+	bare?: boolean;
+	/** Atop a pane with no band to hang from: a card of its own. */
+	alone?: boolean;
 }) {
 	const state = useCallSnapshot(call);
 	const bar = useRef<HTMLElement>(null);
@@ -61,8 +70,20 @@ export function CallBar({
 	const speaking = state.phase === "speaking" || state.phase === "thinking";
 	const working = callWorking(call.deskId == null || call.deskId === activeDeskId() ? roster : [], call.target?.personaId);
 	const target = call.target;
+	// A plain hang-up folds the strip away; trouble stays to be read.
+	const folding = !live && state.trouble === undefined;
 	return (
-		<aside ref={bar} className="call-bar" data-phase={state.phase} aria-label={`Call with ${target?.name ?? "the desk"}`}>
+		<aside
+			ref={bar}
+			className={alone ? "call-bar call-bar-alone" : "call-bar"}
+			data-phase={state.phase}
+			data-folding={folding ? "" : undefined}
+			aria-label={`Call with ${target?.name ?? "the desk"}`}
+			onAnimationEnd={(event) => {
+				if (folding && event.target === event.currentTarget) closeCall();
+			}}
+		>
+			{!bare && (
 			<button
 				type="button"
 				className="call-bar-mark"
@@ -77,6 +98,7 @@ export function CallBar({
 				{target === undefined ? <CallToad call={call} phase={state.phase} width={24} /> :
 					<Avatar id={target.personaId} name={target.name} hash={target.avatarHash} size={22} read={call.readAvatar} />}
 			</button>
+			)}
 			<span className="instrument min-w-0 truncate">
 				{target !== undefined && (
 					<button type="button" className="call-bar-name" onClick={() => onOpenTeammate(target.personaId)}>

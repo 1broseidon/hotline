@@ -653,7 +653,14 @@ export function App() {
 	// The call hangs under the conversation's band, or atop any other pane.
 	const conversationShown = pane === null && selected !== null;
 	const callBar = call === null ? undefined : (
-		<CallBar call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => select(personaId, call.deskId ?? undefined)} />
+		<CallBar
+			call={call}
+			names={nameOf}
+			roster={roster}
+			onOpenTeammate={(personaId) => select(personaId, call.deskId ?? undefined)}
+			bare={conversationShown && call.target?.personaId === selected?.persona.id}
+			alone={!conversationShown}
+		/>
 	);
 	return (
 		<div className="flex h-full flex-col">

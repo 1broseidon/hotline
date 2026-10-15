@@ -65,4 +65,18 @@ describe("the call strip's identity", () => {
 		expect(container.querySelector(".call-toad")).not.toBeNull();
 		expect(container.textContent).not.toContain("Mack");
 	});
+
+	test("under the teammate's own band it leaves the face to the band, and atop another pane it is a card of its own", async () => {
+		const call = new Call({ command: async () => null, subscribe: () => () => {} }, () => "Mack", undefined, undefined, { target: { personaId: "mack", name: "Mack" } });
+		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} bare />));
+		expect(container.querySelector(".call-bar-mark")).toBeNull();
+		expect(container.textContent).toContain("Mack · Calling");
+		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} alone />));
+		expect(container.querySelector(".call-bar-mark .avatar")).not.toBeNull();
+		expect(container.querySelector("aside")?.className).toContain("call-bar-alone");
+		// Live, it holds and hangs up, and does not fold.
+		expect(container.querySelector('[aria-label="Hang up"]')).not.toBeNull();
+		expect(container.querySelector("aside")?.hasAttribute("data-folding")).toBe(false);
+	});
 });
+

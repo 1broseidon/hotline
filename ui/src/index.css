@@ -3544,27 +3544,72 @@
 			margin-bottom: 0;
 		}
 	}
-	/* The call strip (Call.tsx CallBar): a line under the band, the band
-	 * growing down into it as it opens, so the call is up and out of the
-	 * way, as the phone shows one. The mark rings green while the line is
-	 * live and swells with `--level`; dim while held or ended. */
+	/* The call strip (Call.tsx CallBar). Under a conversation's band the two
+	 * become one card that has grown down (`.call-head`): raised, its bottom
+	 * corners rounded, opening out of the band as a call starts and folding
+	 * back up into it when one ends. The words sit low in the strip, clear
+	 * of the band's row. Atop a pane with no band it is a card of its own. */
+	.call-head {
+		display: flex;
+		flex-shrink: 0;
+		flex-direction: column;
+		margin: 0 0 4px;
+		border-radius: 0 0 var(--radius-pane) var(--radius-pane);
+		background: var(--raised);
+		box-shadow: 0 0 0 var(--hairline) var(--line);
+	}
 	.call-bar {
 		--level: 0;
 		display: flex;
-		height: 40px;
+		height: 52px;
 		flex-shrink: 0;
 		align-items: center;
-		gap: 8px;
-		padding: 0 12px 0 14px;
+		gap: 10px;
+		padding: 6px 12px 0 16px;
 		overflow: hidden;
-		border-bottom: var(--hairline) solid var(--line);
 		animation: call-bar-open var(--dur-open) var(--ease-out) both;
+	}
+	.call-bar-alone {
+		margin-bottom: 8px;
+		padding-top: 0;
+		border-radius: var(--radius-pane);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
+	.call-bar[data-folding] {
+		animation: call-bar-fold var(--dur-open) var(--ease-out) both;
 	}
 	@keyframes call-bar-open {
 		from {
 			height: 0;
+			padding-top: 0;
 			opacity: 0;
 		}
+	}
+	@keyframes call-bar-fold {
+		to {
+			height: 0;
+			padding-top: 0;
+			opacity: 0;
+		}
+	}
+	/* The called teammate's face in its own band, ringed while the line is live. */
+	.call-ring {
+		--level: 0;
+		display: grid;
+		place-items: center;
+		border-radius: 50%;
+		box-shadow:
+			0 0 0 1.5px var(--accent),
+			0 0 0 calc(1.5px + var(--level) * 4px) color-mix(in oklch, var(--accent) 30%, transparent);
+	}
+	.call-ring[data-phase="connecting"] {
+		animation: call-breathe 1200ms var(--ease-out) infinite;
+	}
+	.call-ring[data-phase="held"] {
+		box-shadow: 0 0 0 1.5px var(--ink-4);
 	}
 	.call-bar-mark {
 		display: grid;
@@ -3614,8 +3659,8 @@
 		color: var(--ink-2);
 	}
 	.call-bar .call-button {
-		width: 28px;
-		height: 28px;
+		width: 32px;
+		height: 32px;
 	}
 	/* The call's own controls are round and wordless, like a phone's:
 	 * hold and resume in the quiet fill, hanging up in red, calling again
@@ -3659,9 +3704,13 @@
 		filter: brightness(1.1);
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.call-bar,
-		.call-bar-mark {
+		.call-bar-mark,
+		.call-ring {
 			animation: none;
+		}
+		/* Still folds, at once, so the strip still closes when it ends. */
+		.call-bar {
+			animation-duration: 1ms;
 		}
 	}
 }

@@ -58,3 +58,6 @@ dispatch:
 
 ## Description
 Settings > Voice > Live calls: Voice front Off / Grok Voice / GPT-Live (when available), which login or key it uses, voice picker per provider, and a plain line on what it costs. Off keeps today's pipeline. Phone settings mirror it if the phone can change desk voice settings today.
+
+## Log
+- 2026-10-15T02:46:26.095Z: [claude] Added voice.front setting (core: voice/settings.rs FrontChoice; absent = Off; unknown provider e.g. gpt-live reads as Off) and Settings > Use for > Live calls (Off / Grok Voice, GPT-Live listed as unavailable, login/key picker xai vs xai-subscription, voice picker per provider, cost line). Nothing yet READS settings.front to start a fronted call: the next task must wire VoiceSettings.front into call start (GrokVoice::with_subscription when credential is xai-subscription). Phone has no desk-voice-settings path, so no mirror. Checks pass (fmt, clippy, core tests, ui typecheck+tests; needed SHERPA_ONNX_ARCHIVE_DIR). On branch dispatch/task-63, committed.

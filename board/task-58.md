@@ -11,6 +11,12 @@ tags:
   - 0.38.0
 parentId: epic-6
 createdAt: "2026-10-14T20:03:56.458Z"
+relatedFiles:
+  - crates/hotline-core/src/voice/realtime/mod.rs
+  - crates/hotline-core/src/voice/realtime/xai.rs
+  - crates/hotline-core/src/voice/speech/xai.rs
+  - crates/hotline-core/src/voice/mod.rs
+updatedAt: "2026-10-15T01:56:48.446Z"
 ---
 
 ## Description

@@ -3,7 +3,7 @@ import { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
-const { CallFloat } = await import("../src/components/Call");
+const { CallBar } = await import("../src/components/Call");
 const { Call } = await import("../src/voice/call");
 const { forgetAvatars } = await import("../src/avatars");
 
@@ -36,7 +36,7 @@ afterEach(async () => {
 	await dom.happyDOM.close();
 });
 
-describe("the floating call's identity", () => {
+describe("the call strip's identity", () => {
 	test("a direct call names its chosen teammate and reads their PNG on the call's pinned transport", async () => {
 		const reads: Record<string, unknown>[] = [];
 		const call = new Call({
@@ -48,7 +48,7 @@ describe("the floating call's identity", () => {
 			subscribe: () => () => {},
 		}, () => "Mack", undefined, undefined, { deskId: "desk-a", target: { personaId: "mack", name: "Mack", avatarHash: "mack-call-face" } });
 		await act(async () => {
-			root.render(<CallFloat call={call} names={() => "Someone on another desk"} roster={[]} onOpenTeammate={() => {}} />);
+			root.render(<CallBar call={call} names={() => "Someone on another desk"} roster={[]} onOpenTeammate={() => {}} />);
 		});
 		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 		expect(container.querySelector("aside")?.getAttribute("aria-label")).toBe("Call with Mack");
@@ -59,7 +59,7 @@ describe("the floating call's identity", () => {
 
 	test("a desk call keeps the desk identity instead of borrowing the selected teammate", async () => {
 		const call = new Call({ command: async () => null, subscribe: () => () => {} });
-		await act(async () => root.render(<CallFloat call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} />));
+		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} />));
 		expect(container.querySelector("aside")?.getAttribute("aria-label")).toBe("Call with the desk");
 		expect(container.querySelector(".avatar")).toBeNull();
 		expect(container.querySelector(".call-toad")).not.toBeNull();

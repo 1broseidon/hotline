@@ -3,7 +3,7 @@ import { chordKeys } from "../chords";
 import { CloseIcon, HangUpIcon, PauseIcon, PhoneIcon, PlayIcon } from "../icons";
 import { Avatar } from "../ui/Avatar";
 import { CallToad } from "./CallToad";
-import { VoiceBars, WorkingRing, callWorking, stageRing } from "./CallStage";
+import { callWorking } from "./CallStage";
 import { activeDeskId } from "../desks";
 import type { RosterEntry } from "../wire";
 import { type Call as CallSession, type CallPhase, closeCall, restartCall, useCallSnapshot } from "../voice/call";
@@ -19,14 +19,17 @@ const WORDS: Record<CallPhase, string> = {
 };
 
 /**
- * The chosen desk or teammate stays on the line while the window moves
- * between conversations. The desk is the toad, whose mouth the reply's
- * audio opens; a teammate is their face. Your voice swells the disc; bars
- * round the mark follow the reply's audio, and an arc runs round it while
- * the teammate works off the call. Pressing the mark while they speak cuts
- * in; work and the transcript stay in the teammate's own conversation.
+ * The call is a strip under the conversation's band, the band growing a
+ * line the way the phone shows a call: up and out of the way. It stays
+ * while the window moves between conversations (and sits at the top of a
+ * pane with no conversation). It names who is on the line, the desk's toad
+ * or the teammate's face, then what the call is doing and its clock, any
+ * teammate that needs you, and Hold and Hang up; once the line is gone,
+ * Call again and Close. The mark rings green while the line is live and
+ * swells with the voice; pressing it while they speak cuts in. Work and the
+ * transcript stay in the teammate's own conversation, which the name opens.
  */
-export function CallFloat({
+export function CallBar({
 	call,
 	names,
 	roster,
@@ -39,13 +42,13 @@ export function CallFloat({
 	onOpenTeammate(personaId: string): void;
 }) {
 	const state = useCallSnapshot(call);
-	const stage = useRef<HTMLButtonElement>(null);
+	const bar = useRef<HTMLElement>(null);
 	const again = useRef<HTMLButtonElement>(null);
 
 	useEffect(
 		() =>
 			call.watchLevel((level) => {
-				stage.current?.style.setProperty("--level", level.toFixed(3));
+				bar.current?.style.setProperty("--level", level.toFixed(3));
 			}),
 		[call],
 	);
@@ -57,26 +60,12 @@ export function CallFloat({
 	}, [live]);
 	const speaking = state.phase === "speaking" || state.phase === "thinking";
 	const working = callWorking(call.deskId == null || call.deskId === activeDeskId() ? roster : [], call.target?.personaId);
-	const ring = stageRing(state.phase, working);
+	const target = call.target;
 	return (
-		<aside className="call-float" aria-label={`Call with ${call.target?.name ?? "the desk"}`}>
-			<div className="call-top">
-				<span className="instrument min-w-0 flex-1 truncate">
-					{call.target !== undefined && <>{call.target.name} · </>}
-					{/* Only the state is announced; the clock would be read out every second. */}
-					<span aria-live="polite">{WORDS[state.phase]}</span>
-					{live && state.phase !== "connecting" && <> · <Clock clock={state.clock} /></>}
-				</span>
-				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={closeCall}>
-					<CloseIcon />
-				</button>
-			</div>
-
+		<aside ref={bar} className="call-bar" data-phase={state.phase} aria-label={`Call with ${target?.name ?? "the desk"}`}>
 			<button
-				ref={stage}
 				type="button"
-				className={call.target === undefined ? "call-mark" : "call-mark call-mark-face"}
-				data-phase={state.phase}
+				className="call-bar-mark"
 				title={speaking ? "Press to cut in" : undefined}
 				aria-label={speaking ? "Cut in" : WORDS[state.phase]}
 				// aria-disabled rather than disabled, so focus stays put when the desk stops talking.
@@ -85,11 +74,21 @@ export function CallFloat({
 					if (speaking) call.interrupt();
 				}}
 			>
-				{ring === "bars" && <VoiceBars call={call} />}
-				{ring === "working" && <WorkingRing />}
-				{call.target === undefined ? <CallToad call={call} phase={state.phase} /> :
-					<Avatar id={call.target.personaId} name={call.target.name} hash={call.target.avatarHash} size={56} read={call.readAvatar} />}
+				{target === undefined ? <CallToad call={call} phase={state.phase} width={24} /> :
+					<Avatar id={target.personaId} name={target.name} hash={target.avatarHash} size={22} read={call.readAvatar} />}
 			</button>
+			<span className="instrument min-w-0 truncate">
+				{target !== undefined && (
+					<button type="button" className="call-bar-name" onClick={() => onOpenTeammate(target.personaId)}>
+						{target.name}
+					</button>
+				)}
+				{target !== undefined && " · "}
+				{/* Only the state is announced; the clock would be read out every second. */}
+				<span aria-live="polite">{WORDS[state.phase]}</span>
+				{working && live && state.phase !== "speaking" && <span className="text-ink-3"> · working</span>}
+				{live && state.phase !== "connecting" && <> · <Clock clock={state.clock} /></>}
+			</span>
 
 			{state.cards.map((card) => (
 				<button
@@ -106,13 +105,15 @@ export function CallFloat({
 			))}
 
 			{state.trouble !== undefined && (
-				<p className="call-trouble" role="alert">
+				<span className="call-trouble min-w-0 truncate" role="alert" title={state.trouble}>
 					{state.trouble}
-				</p>
+				</span>
 			)}
 
+			<span className="min-w-0 flex-1" />
+
 			{live ? (
-				<div className="call-controls">
+				<>
 					<button
 						type="button"
 						className="call-button"
@@ -126,18 +127,23 @@ export function CallFloat({
 					<button type="button" className="call-button call-button-end" title="Hang up" aria-label="Hang up" onClick={() => call.hangUp()}>
 						<HangUpIcon />
 					</button>
-				</div>
+				</>
 			) : (
-				<button
-					ref={again}
-					type="button"
-					className="call-button call-button-start"
-					title="Call again"
-					aria-label="Call again"
-					onClick={() => void restartCall(call)}
-				>
-					<PhoneIcon />
-				</button>
+				<>
+					<button
+						ref={again}
+						type="button"
+						className="call-button call-button-start"
+						title="Call again"
+						aria-label="Call again"
+						onClick={() => void restartCall(call)}
+					>
+						<PhoneIcon />
+					</button>
+					<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={closeCall}>
+						<CloseIcon />
+					</button>
+				</>
 			)}
 		</aside>
 	);

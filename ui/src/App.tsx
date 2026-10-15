@@ -10,7 +10,7 @@ import type { SettingsSection } from "./components/Settings";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { Titlebar } from "./ui/Titlebar";
-import { CallFloat } from "./components/Call";
+import { CallBar } from "./components/Call";
 import { UpdateFloat } from "./components/UpdateFloat";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
@@ -649,6 +649,12 @@ export function App() {
 	);
 	const floatWork = pane === null && !welcome && selected !== null && workOf !== undefined && !dockWork && !dockOverlay ? workCard(selected, workOf) : null;
 
+
+	// The call hangs under the conversation's band, or atop any other pane.
+	const conversationShown = pane === null && selected !== null;
+	const callBar = call === null ? undefined : (
+		<CallBar call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => select(personaId, call.deskId ?? undefined)} />
+	);
 	return (
 		<div className="flex h-full flex-col">
 			<Titlebar
@@ -715,8 +721,10 @@ export function App() {
 			)}
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
 
-			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0" data-call={call !== null ? "" : undefined}>
+			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0">
 				<DeskBand onAddDesk={() => togglePane("add-desk")} />
+				{/* A pane with no conversation has no band of its own to hang the call from. */}
+				{!conversationShown && callBar}
 				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
@@ -748,6 +756,7 @@ export function App() {
 							onSaid={setSaid}
 							onCall={directCalls ? () => callTeammate(selected) : undefined}
 							onHangUp={calling && call?.target?.personaId === selected.persona.id ? closeCall : undefined}
+							callBar={callBar}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}
@@ -813,8 +822,8 @@ export function App() {
 							onOpenTeammate={select}
 						/>
 					)}
-					{/* What floats over the window runs down its right edge: a turn's work at the top, the call and a new version at the bottom. */}
-				{(floatWork !== null || call !== null || pane !== "settings") && (
+					{/* What floats over the window runs down its right edge: a turn's work at the top, a new version at the bottom. */}
+				{(floatWork !== null || pane !== "settings") && (
 					<div
 						className="float-stack"
 						style={
@@ -826,7 +835,6 @@ export function App() {
 						}
 					>
 						{floatWork}
-						{call !== null && <CallFloat call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => select(personaId, call.deskId ?? undefined)} />}
 						{/* Settings › Updates says it already, with the notes and the install. */}
 						{pane !== "settings" && <UpdateFloat onOpen={() => {
 							setSettingsSection("updates");

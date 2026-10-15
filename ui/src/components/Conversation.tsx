@@ -63,6 +63,7 @@ export function Conversation({
 	onSaid,
 	onCall,
 	onHangUp,
+	callBar,
 }: {
 	entry: RosterEntry;
 	/** The room's models, for the model picker in the band. */
@@ -73,6 +74,8 @@ export function Conversation({
 	onCall?: (() => void) | undefined;
 	/** Ends the call, while one with this teammate is live. */
 	onHangUp?: (() => void) | undefined;
+	/** The call strip, which hangs under the band while a call is on. */
+	callBar?: ReactNode;
 	roster: RosterEntry[];
 	jobs: ScheduledJob[];
 	/** What the band's model or effort picker was refused with, or nothing. */
@@ -415,6 +418,7 @@ export function Conversation({
 					<MoreIcon />
 				</MenuButton>
 			</Band>
+			{callBar}
 
 			{notice !== null && (
 				<p

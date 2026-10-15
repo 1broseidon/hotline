@@ -3489,7 +3489,6 @@
 	 * tight one: the float shadow's 32px blur, over a conversation that
 	 * scrolls or streams beneath it, cost WebKit a tenth of a core. */
 	.work-float,
-	.call-float,
 	.update-float {
 		background: color-mix(in oklab, var(--pop) 72%, transparent);
 		-webkit-backdrop-filter: blur(20px) saturate(1.4);
@@ -3499,17 +3498,6 @@
 			0 0 0 var(--hairline) var(--line),
 			var(--shadow-glass);
 		animation: pop-in var(--dur-open) var(--ease-out) both;
-	}
-	.call-float {
-		display: flex;
-		width: 208px;
-		flex-shrink: 0;
-		margin-top: auto;
-		flex-direction: column;
-		align-items: center;
-		gap: 12px;
-		padding: 10px 12px 14px;
-		border-radius: var(--radius-pane);
 	}
 	/* A release's notes in Settings › Updates: the changelog's section, smaller than a bubble. */
 	.update-notes {
@@ -3528,9 +3516,6 @@
 		gap: 6px;
 		padding: 10px 10px 12px 14px;
 		border-radius: var(--radius-pane);
-	}
-	.call-float + .update-float {
-		margin-top: 0;
 	}
 	.update-top {
 		display: flex;
@@ -3559,63 +3544,52 @@
 			margin-bottom: 0;
 		}
 	}
-	.call-top {
-		display: flex;
-		width: 100%;
-		align-items: center;
-		gap: 6px;
-		padding-left: 4px;
-	}
-	.call-mark {
+	/* The call strip (Call.tsx CallBar): a line under the band, the band
+	 * growing down into it as it opens, so the call is up and out of the
+	 * way, as the phone shows one. The mark rings green while the line is
+	 * live and swells with `--level`; dim while held or ended. */
+	.call-bar {
 		--level: 0;
-		position: relative;
+		display: flex;
+		height: 40px;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 8px;
+		padding: 0 12px 0 14px;
+		overflow: hidden;
+		border-bottom: var(--hairline) solid var(--line);
+		animation: call-bar-open var(--dur-open) var(--ease-out) both;
+	}
+	@keyframes call-bar-open {
+		from {
+			height: 0;
+			opacity: 0;
+		}
+	}
+	.call-bar-mark {
 		display: grid;
+		flex-shrink: 0;
 		place-items: center;
-		width: 104px;
-		height: 104px;
 		border-radius: 50%;
-		color: var(--ink-3);
-		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line),
-			0 0 0 calc(var(--level) * 14px) var(--fill-hover);
+		box-shadow: 0 0 0 1.5px var(--accent), 0 0 0 calc(1.5px + var(--level) * 4px) color-mix(in oklch, var(--accent) 30%, transparent);
 	}
-	.call-mark[data-phase="hearing"] {
-		color: var(--ink);
+	.call-bar[data-phase="connecting"] .call-bar-mark {
+		animation: call-breathe 1200ms var(--ease-out) infinite;
 	}
-	.call-mark[data-phase="speaking"],
-	.call-mark[data-phase="thinking"] {
-		color: var(--accent);
+	.call-bar[data-phase="held"] .call-bar-mark,
+	.call-bar[data-phase="ended"] .call-bar-mark {
+		box-shadow: 0 0 0 1.5px var(--ink-4);
+		opacity: 0.7;
+	}
+	.call-bar-mark[aria-disabled="false"] {
 		cursor: pointer;
 	}
-	/* The reply is the bars, not the disc. */
-	.call-mark[data-phase="speaking"] {
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
+	.call-bar-name {
+		color: var(--ink);
+		font-weight: 600;
 	}
-	.call-mark-face[data-phase="thinking"] {
-		animation: call-breathe 1800ms var(--ease-out) infinite;
-	}
-	.call-bars,
-	.call-working {
-		position: absolute;
-		inset: 0;
-		width: 100%;
-		height: 100%;
-		color: var(--accent);
-		pointer-events: none;
-	}
-	.call-working {
-		animation: avatar-spin 1100ms linear infinite;
-	}
-	.call-mark[data-phase="held"],
-	.call-mark[data-phase="ended"] {
-		color: var(--ink-4);
-	}
-	.call-mark[aria-disabled="true"] {
-		cursor: default;
+	.call-bar-name:hover {
+		text-decoration: underline;
 	}
 	@keyframes call-breathe {
 		50% {
@@ -3624,25 +3598,24 @@
 	}
 	.call-card {
 		display: flex;
-		width: 100%;
+		flex-shrink: 0;
 		align-items: center;
-		padding: 6px 10px;
+		padding: 2px 10px;
 		border-radius: var(--radius-control);
 		background: var(--raised);
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--accent);
-		font-size: var(--text-md);
+		font-size: var(--text-sm);
 		text-align: left;
 	}
 	.call-trouble {
-		font-size: var(--text-md);
+		font-size: var(--text-sm);
 		color: var(--ink-2);
-		text-align: center;
 	}
-	.call-controls {
-		display: flex;
-		gap: 16px;
+	.call-bar .call-button {
+		width: 28px;
+		height: 28px;
 	}
 	/* The call's own controls are round and wordless, like a phone's:
 	 * hold and resume in the quiet fill, hanging up in red, calling again
@@ -3686,19 +3659,10 @@
 		filter: brightness(1.1);
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.call-mark,
-		.call-working {
+		.call-bar,
+		.call-bar-mark {
 			animation: none;
 		}
 	}
 }
 
-/* Jump-to-latest sits in the same corner as the call; it steps out from under
- * the card rather than show through its glass. Utilities, to outrank its own
- * right-8; an attribute rather than :has, which a streaming tape would make
- * the engine re-check on every word. */
-@layer utilities {
-	main[data-call] .jump-latest {
-		right: 236px;
-	}
-}

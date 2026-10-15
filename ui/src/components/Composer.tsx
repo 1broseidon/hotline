@@ -3,7 +3,8 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
-import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
+import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon } from "../icons";
+import { Avatar } from "../ui/Avatar";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
@@ -59,6 +60,7 @@ export function Composer({
 	onSend,
 	onCall,
 	onHangUp,
+	avatarHash,
 	refill,
 	onCancel,
 	onClearReply,
@@ -74,6 +76,8 @@ export function Composer({
 	onCall?: (() => void) | undefined;
 	/** Ends the call to this teammate, while there is one. */
 	onHangUp?: (() => void) | undefined;
+	/** The teammate's picture, for the call key, which is its face. */
+	avatarHash?: string | undefined;
 	/** Words a refused send handed back; a new nonce fills the field again. */
 	refill?: Refill;
 	onCancel(): void;
@@ -142,7 +146,9 @@ export function Composer({
 	};
 	const dictationHere = useDictationAvailable();
 	// A call has the microphone, so there is no dictating over one.
-	const callLive = useCallSnapshot(useCall()).phase !== "ended";
+	const live = useCall();
+	const callSnapshot = useCallSnapshot(live);
+	const callLive = callSnapshot.phase !== "ended";
 	const canDictate = dictationHere && !callLive;
 	const dictating = heard.phase !== "idle";
 	const dictateKeys = hotkeyLabel(useHotkeys().dictate);
@@ -479,14 +485,15 @@ export function Composer({
 							</button>
 						)
 					)}
-					{hangUp ? (
-						<button type="button" className="composer-key composer-call composer-hang-up" title={`End the call with ${name}`} aria-label="End the call" onClick={onHangUp}>
-							<HangUpIcon />
-						</button>
-					) : call ? (
-						<button type="button" className="composer-key composer-call" title={`Call ${name}`} aria-label={`Call ${name}`} onClick={onCall}>
-							<VoiceIcon />
-						</button>
+					{hangUp || call ? (
+						<CallKey
+							personaId={personaId}
+							name={name}
+							avatarHash={avatarHash}
+							live={hangUp ? live : null}
+							held={callSnapshot.phase === "held"}
+							onPress={hangUp ? onHangUp : onCall}
+						/>
 					) : (
 						(!working || hasDraft) &&
 						!dictating && (
@@ -511,6 +518,52 @@ export function Composer({
 	);
 }
 
+
+/**
+ * The call key is the teammate's face: Hotline calls someone, not a voice
+ * mode. At rest the face sits in a thin ring that lights on hover; on a
+ * call to this teammate the ring is green and breathes with the voice on
+ * the line (dim while held), and pointing at it shows the red hang-up it
+ * then is. The ring is drawn from `--level`, set straight from the call's
+ * level, sixty times a second, without re-rendering.
+ */
+function CallKey({
+	personaId,
+	name,
+	avatarHash,
+	live,
+	held,
+	onPress,
+}: {
+	personaId: string;
+	name: string;
+	avatarHash: string | undefined;
+	/** The call to this teammate, while there is one. */
+	live: ReturnType<typeof useCall> | null;
+	held: boolean;
+	onPress: (() => void) | undefined;
+}) {
+	const key = useRef<HTMLButtonElement>(null);
+	useEffect(() => {
+		if (live === null) return;
+		return live.watchLevel((level) => key.current?.style.setProperty("--level", level.toFixed(3)));
+	}, [live]);
+	const state = live === null ? undefined : held ? "held" : "live";
+	return (
+		<button
+			ref={key}
+			type="button"
+			className="composer-key composer-call"
+			data-call={state}
+			title={live === null ? `Call ${name}` : `End the call with ${name}`}
+			aria-label={live === null ? `Call ${name}` : "End the call"}
+			onClick={onPress}
+		>
+			<Avatar id={personaId} name={name} size={22} hash={avatarHash} />
+			{live !== null && <HangUpIcon className="composer-call-end" />}
+		</button>
+	);
+}
 
 /** "Dictate (⌃⌥H)", or the bare words when the shortcut is off. */
 function withKeys(words: string, keys: string): string {

@@ -1721,24 +1721,43 @@
 		background: var(--fill-hover);
 		color: var(--ink);
 	}
-	/* The call key is a soundwave in a solid ink circle, the way voice apps
-	 * mark talking as against dictating: it outweighs the mic beside it
-	 * without the accent, which is Send's. Same size as Send, so the pill
-	 * never changes height; red while it hangs up. */
+	/* The call key is the teammate's face in a ring (Composer.tsx CallKey),
+	 * Send's size so the pill never changes height. The ring lights on
+	 * hover; on a call it is green and breathes with `--level`, dim while
+	 * held, and pointing at it shows the red hang-up it then is. */
 	.composer-call {
-		background: var(--ink);
-		color: var(--canvas);
+		position: relative;
+		--level: 0;
+		box-shadow: 0 0 0 1px var(--line-strong);
 	}
-	.composer-call:hover {
-		background: var(--ink-2);
+	.composer-call:hover,
+	.composer-call:focus-visible {
+		background: transparent;
+		box-shadow: 0 0 0 1.5px var(--ink-2);
 	}
-	.composer-hang-up,
-	.composer-hang-up:hover {
+	.composer-call[data-call="live"] {
+		box-shadow:
+			0 0 0 1.5px var(--accent),
+			0 0 0 calc(1.5px + var(--level) * 4px) color-mix(in oklch, var(--accent) 35%, transparent);
+	}
+	.composer-call[data-call="held"] {
+		box-shadow: 0 0 0 1.5px var(--ink-3);
+	}
+	.composer-call-end {
+		position: absolute;
+		inset: 0;
+		display: none;
+		margin: auto;
+		padding: 6px;
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
 		background: var(--danger);
 		color: white;
 	}
-	.composer-hang-up:hover {
-		filter: brightness(1.1);
+	.composer-call[data-call]:hover .composer-call-end,
+	.composer-call[data-call]:focus-visible .composer-call-end {
+		display: block;
 	}
 	.composer-send:disabled {
 		background: var(--fill-active);

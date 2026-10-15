@@ -462,6 +462,7 @@ export function Conversation({
 					onSend={send}
 					onCall={onCall}
 					onHangUp={onHangUp}
+					avatarHash={persona.avatar?.hash}
 					{...(refill !== null ? { refill } : {})}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}

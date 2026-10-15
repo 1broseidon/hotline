@@ -14,7 +14,15 @@ tags:
 parentId: epic-6
 dependsOn:
   - task-61
+  - task-63
 createdAt: "2026-10-14T20:03:59.244Z"
+relatedFiles:
+  - crates/hotline-core/src/voice/realtime/openai.rs
+  - crates/hotline-core/src/voice/realtime/mod.rs
+  - crates/hotline-core/src/voice/settings.rs
+  - docs/voice-calls.md
+  - docs/voice.md
+updatedAt: "2026-10-15T01:56:50.033Z"
 ---
 
 ## Description

@@ -25,7 +25,7 @@ subtasks:
     completed: true
   - id: task-72-5
     title: Secrets.tsx:511 'Not stored any more. Untick it or store it again under Settings → Secrets.'
-    completed: false
+    completed: true
   - id: task-72-6
     title: SentFile.tsx:53 'Show in its folder on the server'
     completed: false
@@ -39,7 +39,7 @@ subtasks:
     title: Welcome.tsx:244 'An AI coding tool you already have'
     completed: false
 createdAt: "2026-10-15T23:17:58.177Z"
-updatedAt: "2026-10-15T23:19:31.750Z"
+updatedAt: "2026-10-15T23:19:32.231Z"
 ---
 
 ## Description

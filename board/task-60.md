@@ -1,7 +1,7 @@
 ---
 id: task-60
 title: "Desk: front prompt and starting context"
-column: in-progress
+column: review
 position: 0
 priority: medium
 tags:
@@ -16,9 +16,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_prompt.rs
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/src/voice/dispatcher.rs
-updatedAt: "2026-10-15T02:23:03.571Z"
+updatedAt: "2026-10-15T02:28:44.020Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/front_prompt.rs
@@ -38,6 +38,8 @@ contract:
     readyAt: "2026-10-15T01:57:04.232Z"
     pickedUpAt: "2026-10-15T02:23:03.571Z"
     reworkCount: 0
+    deliveredAt: "2026-10-15T02:28:44.020Z"
+    duration: 340
 assignee: claude
 dispatch:
   agent: claude

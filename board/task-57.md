@@ -51,3 +51,6 @@ dispatch:
 
 ## Description
 ADR in docs/adr: live calls get a realtime voice front; supersedes 'No front' in docs/voice-calls.md (Direct turns). Record why (latency, barge-in, subscriptions cover it), the Codex precedent, what stays (teammate does the work in its own session; old pipeline as fallback) and the guardrails (front relays and clarifies, never claims work; client picks spoken text). Update voice-calls.md wire ledger and voice.md providers as the children land.
+
+## Log
+- 2026-10-15T01:57:44.971Z: [claude] Added ADR 0003 (voice front: latency, barge-in, subscriptions, Codex precedent, what stays, guardrails) and replaced 'No front' in voice-calls.md Direct turns with the planned-for-0.38 front design, old text kept as today's fallback. Committed on dispatch/task-57. For later tasks: voice-calls.md wire ledger and voice.md Providers are NOT yet updated; add rows there as each child lands, and replace the 'Today, with no front' tail of the Direct turns row when the front ships.

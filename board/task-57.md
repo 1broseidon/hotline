@@ -16,7 +16,7 @@ relatedFiles:
   - docs/voice-calls.md
   - docs/voice.md
   - docs/design.md
-updatedAt: "2026-10-15T01:57:04.230Z"
+updatedAt: "2026-10-15T01:57:13.235Z"
 contract:
   status: ready
   deliverables:
@@ -37,6 +37,12 @@ contract:
     - Say what is decided, not what is built yet; docs/ holds only what is, so mark unlanded parts as planned for 0.38
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+assignee: claude
+dispatch:
+  agent: claude
+  model: sonnet
+  by: lead
+  at: "2026-10-15T01:57:13.117Z"
 ---
 
 ## Description

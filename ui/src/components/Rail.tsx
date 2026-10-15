@@ -671,7 +671,7 @@ function DeskFilterMenu({ desks, compact, onAdd }: { desks: Desk[]; compact: boo
 				className={compact ? "account account-compact" : "account"}
 				align="start"
 				label={`Desks: ${name}`}
-				title={shown === null ? `All desks${away ? " · one can't be reached" : ""}` : `${shown.name} · ${deskDetail(shown)}`}
+				title={shown === null ? `All desks${away ? " · one offline" : ""}` : `${shown.name} · ${deskDetail(shown)}`}
 				entries={entries}
 			>
 				{shown === null ? <AllTile away={away} count={desks.length} /> : <DeskTile desk={shown} />}

@@ -391,7 +391,7 @@ export function Teammate({
 							type="button"
 							className="control btn-quiet ml-auto"
 							disabled={busy || (!pinned && pinCount >= MAX_PINS)}
-							title={!pinned && pinCount >= MAX_PINS ? `${MAX_PINS} teammates are pinned. Unpin one first.` : "Pinned teammates sit at the top of the team, on every device"}
+							title={!pinned && pinCount >= MAX_PINS ? "Pins full" : undefined}
 							onClick={() => void togglePin()}
 						>
 							{pinned ? "Unpin" : "Pin to top"}

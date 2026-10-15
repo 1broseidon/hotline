@@ -82,7 +82,7 @@ export function DesksSection({ onAddDesk }: { onAddDesk(): void }) {
 													type="button"
 													className="control btn-quiet btn-sm"
 													disabled={linking === desk.id}
-													title="Let this computer's teammates and this server's see and message each other"
+													title="Link both desks' teams"
 													onClick={() => void act(desk.id, () => linkDesk(desk.id))}
 												>
 													{linking === desk.id ? "Linking…" : "Link teammates"}

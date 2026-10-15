@@ -424,7 +424,7 @@ function ThreadView({
 					<span className="truncate">{title}</span>
 				</h2>
 				{powers.resume && (
-					<button type="button" className="control btn-quiet px-2 text-sm" data-autofocus title="Bring this thread back, with what it remembers" onClick={resumeIt}>
+					<button type="button" className="control btn-quiet px-2 text-sm" data-autofocus title="Resume this thread" onClick={resumeIt}>
 						Continue
 					</button>
 				)}

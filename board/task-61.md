@@ -25,7 +25,7 @@ relatedFiles:
   - ui/src/generated/contract.ts
   - docs/voice-calls.md
   - docs/wire.md
-updatedAt: "2026-10-15T01:57:04.230Z"
+updatedAt: "2026-10-15T02:22:53.911Z"
 contract:
   status: ready
   deliverables:
@@ -53,6 +53,13 @@ contract:
     - Run cargo test -p hotline-core unfiltered before committing contract.ts
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+assignee: claude
+dispatch:
+  agent: claude
+  model: sonnet
+  effort: medium
+  by: lead
+  at: "2026-10-15T02:22:53.785Z"
 ---
 
 ## Description

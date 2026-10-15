@@ -1,7 +1,7 @@
 import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
-import { ChevronDownIcon, ComputerIcon, SearchIcon } from "../icons";
+import { ChevronDownIcon, ComputerIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import { shownState } from "../activity";
 import type { SessionState } from "../generated/contract";
@@ -43,9 +43,7 @@ export function Rail({
 	onAddDesk,
 	width,
 	compact = false,
-	searchable,
-	searchOpen,
-	onSearch,
+	search,
 	deskKey,
 	deskCard,
 }: {
@@ -70,10 +68,8 @@ export function Rail({
 	width?: number | undefined;
 	/** Faces only: each name waits on a hover card. */
 	compact?: boolean;
-	/** The dock at the rail's foot: search, and the desk's call key. */
-	searchable: boolean;
-	searchOpen: boolean;
-	onSearch(): void;
+	/** The dock at the rail's foot: the team's search, and the desk's call key. */
+	search: ReactNode;
 	deskKey: ReactNode;
 	/** A call to the desk, as a card that grows up out of the dock. */
 	deskCard?: ReactNode;
@@ -195,23 +191,7 @@ export function Rail({
 			{deskCard}
 			{/* The dock: search, and the desk's line. Settings and a new teammate are the title bar's. */}
 			<footer className={compact ? "rail-dock rail-dock-compact" : "rail-dock"}>
-				<button
-					type="button"
-					className="rail-search"
-					title={`Search (${chordKeys("search")})`}
-					aria-label="Search"
-					aria-pressed={searchOpen}
-					disabled={!searchable}
-					onClick={onSearch}
-				>
-					<SearchIcon />
-					{!compact && (
-						<>
-							<span className="min-w-0 flex-1 truncate text-left">Search</span>
-							{chordKeys("search") !== "" && <kbd className="rail-search-keys">{chordKeys("search")}</kbd>}
-						</>
-					)}
-				</button>
+				{search}
 				{deskKey}
 			</footer>
 			{connection !== "open" && (

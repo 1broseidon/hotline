@@ -357,8 +357,10 @@ rebuildable and the next start will catch up. A schema change is a new
 Two things are indexed. Messages answer "where did we say X", on the tape and
 in the teammate's side threads and runs. A line from a thread has a row in
 `message_threads` naming it, and a rebuild re-reads the threads a tape holds a
-marker for. The window's searches (`search.thread`, `search.all`) offer only the
-tape's lines, because a hit must open; the agent's `search_thread` offers both. Chapters —
+marker for. The window's search (`search.all`, from the field in the rail's
+dock, which also matches teammates by name and lists the open conversation's
+chapters when nothing is typed; `search.thread` stays on the wire) offers only
+the tape's lines, because a hit must open; the agent's `search_thread` offers both. Chapters —
 title, note, tags — answer "what was that thing we did in June". Chapter
 hits come first. Each word becomes a quoted prefix term; the words are
 ANDed, then ORed if nothing matched.

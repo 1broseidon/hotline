@@ -18,7 +18,6 @@ import { wire, type RosterEntry } from "../wire";
 import { CallStatus } from "./Call";
 import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
-import { Search } from "./Search";
 import { Starters, untouched } from "./Starters";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
@@ -46,14 +45,11 @@ export function Conversation({
 	roster,
 	jobs,
 	said,
-	searchOpen,
 	inspectorOpen,
 	focus,
 	onToggleInspector,
 	onOpenSchedules,
-	onCloseSearch,
 	onDelete,
-	onPick,
 	onOpenThread,
 	onOpenThreadList,
 	onOpenWork,
@@ -82,14 +78,11 @@ export function Conversation({
 	jobs: ScheduledJob[];
 	/** What the band's model or effort picker was refused with, or nothing. */
 	said: string | null;
-	searchOpen: boolean;
 	inspectorOpen: boolean;
 	focus: { eventId: string; at: number } | null;
 	onToggleInspector(): void;
 	onOpenSchedules(): void;
-	onCloseSearch(): void;
 	onDelete(): void;
-	onPick(personaId: string, eventId: string): void;
 	/** Opens a thread, of any kind, in the right-hand pane. */
 	onOpenThread(thread: ThreadRef): void;
 	/** Opens the right-hand pane on this teammate's list of threads. */
@@ -483,9 +476,6 @@ export function Conversation({
 						: {})}
 				/>
 				{dock !== undefined && <div className="work-dock">{dock}</div>}
-				{searchOpen && (
-					<Search personaId={personaId} roster={roster} onClose={onCloseSearch} onPick={onPick} />
-				)}
 			</div>
 		</section>
 	);

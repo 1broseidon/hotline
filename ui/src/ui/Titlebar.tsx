@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { chordKeys } from "../chords";
-import { CloseIcon, MaximizeIcon, MinimizeIcon, PlusIcon, RestoreIcon, SearchIcon, SettingsIcon, SidebarIcon } from "../icons";
+import { CloseIcon, MaximizeIcon, MinimizeIcon, PlusIcon, RestoreIcon, SettingsIcon, SidebarIcon } from "../icons";
 import { closeWindow, drawsFrame, minimizeWindow, toggleMaximize, watchWindowShape } from "../native";
 import { HotlineMark } from "./HotlineMark";
 
@@ -19,26 +19,21 @@ import { HotlineMark } from "./HotlineMark";
  * is stamped on the root for the corners to square off.
  */
 export function Titlebar({
-	searchable,
-	searchOpen,
-	onToggleSearch,
 	rail,
+	search,
 	deskKey,
 	onNew,
 	onSettings,
 	settingsOpen = false,
 	bare = false,
 }: {
-	/** A conversation is showing: the search has something to search. */
-	searchable: boolean;
-	searchOpen: boolean;
-	onToggleSearch(): void;
 	/** Whether the rail is open, and the key that opens and closes it; none in a narrow window. */
 	rail?: { open: boolean; onToggle(): void } | undefined;
 	/**
-	 * The desk's call key. The rail's dock holds it and the search; while
-	 * the rail is closed they stand here instead, at the head of the tools.
+	 * The team's search and the desk's call key. The rail's dock holds them;
+	 * while the rail is closed they stand here instead, at the head of the tools.
 	 */
+	search?: ReactNode;
 	deskKey?: ReactNode;
 	/** The window's own keys, at the right: a new teammate, and Settings. */
 	onNew?: (() => void) | undefined;
@@ -82,17 +77,7 @@ export function Titlebar({
 				{/* Search and the desk are the rail's; with the rail closed they stand here. */}
 				{rail !== undefined && !rail.open && (
 					<>
-						<button
-							type="button"
-							className="control btn-icon"
-							title={`Search (${chordKeys("search")})`}
-							aria-label="Search"
-							aria-pressed={searchOpen}
-							disabled={!searchable}
-							onClick={onToggleSearch}
-						>
-							<SearchIcon />
-						</button>
+						{search}
 						{deskKey}
 					</>
 				)}

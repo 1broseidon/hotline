@@ -10,6 +10,7 @@ import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { Titlebar } from "./ui/Titlebar";
 import { CallBar, DeskCallCard, DeskCallKey } from "./components/Call";
+import { TeamSearch } from "./components/Search";
 import { UpdateFloat } from "./components/UpdateFloat";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
@@ -183,7 +184,8 @@ export function App() {
 	/* The teammate's own pane sits beside the conversation, not in its place:
 	 * you edit a colleague while watching them work. */
 	const [focusSchedules, setFocusSchedules] = useState(false);
-	const [searchOpen, setSearchOpen] = useState(false);
+	/* The Search chord, as a count: each press asks the team's search for the caret. */
+	const [searchAsk, setSearchAsk] = useState(0);
 	/* What the strip's model or effort picker was refused with. The strip
 	 * has no room for a sentence, so the conversation says it; a new
 	 * teammate is a new conversation, so it goes when the selection does. */
@@ -288,7 +290,6 @@ export function App() {
 	/* A different teammate is a different conversation: the search was asking
 	 * about the one that just left, and the inspector was editing them. */
 	useEffect(() => {
-		setSearchOpen(false);
 		setFocusSchedules(false);
 		saveSelected(selectedId);
 	}, [selectedId]);
@@ -327,7 +328,6 @@ export function App() {
 	}, []);
 	const togglePane = useCallback(
 		(id: Exclude<Pane, null>) => {
-			setSearchOpen(false);
 			if (pane === id) {
 				closePane();
 				return;
@@ -352,7 +352,6 @@ export function App() {
 			if (selectedId === null) return;
 			setPane(null);
 			setDock(null);
-			setSearchOpen(false);
 			setFocusSchedules(schedules);
 			setInspector((open) => schedules || !open);
 		},
@@ -360,7 +359,6 @@ export function App() {
 	);
 	/* The right-hand pane takes the inspector's place: one of them at a time. */
 	const openDock = useCallback((next: DockState) => {
-		setSearchOpen(false);
 		setInspector(false);
 		setDock(next);
 	}, []);
@@ -424,7 +422,6 @@ export function App() {
 		const onKey = (event: KeyboardEvent) => {
 			const chord = matchChord(event);
 			if (chord === "close") {
-				if (searchOpen) return; // the search closes itself
 				if (pane !== null) {
 					event.preventDefault();
 					closePane();
@@ -466,9 +463,8 @@ export function App() {
 				return;
 			}
 			if (chord === "search") {
-				if (pane !== null || selectedId === null) return;
 				event.preventDefault();
-				setSearchOpen(true);
+				setSearchAsk((count) => count + 1);
 				return;
 			}
 			if (chord === "sidebar") {
@@ -485,7 +481,7 @@ export function App() {
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [selectedId, pane, dock, inspector, workOf, closeWork, searchOpen, select, seatOf, closePane, closeDock, togglePane, newTeammate, toggleInspector, toggleRail]);
+	}, [selectedId, pane, dock, inspector, workOf, closeWork, select, seatOf, closePane, closeDock, togglePane, newTeammate, toggleInspector, toggleRail]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -506,13 +502,11 @@ export function App() {
 				return;
 			}
 			if (id === "search") {
-				if (pane !== null || selectedId === null) return;
-				setSearchOpen(true);
+				setSearchAsk((count) => count + 1);
 				return;
 			}
 			// About and the shortcuts are sections of Settings.
 			if (id === "about" || id === "shortcuts") {
-				setSearchOpen(false);
 				setSettingsSection(id);
 				setPane("settings");
 				return;
@@ -651,7 +645,18 @@ export function App() {
 	// a pane with no conversation. A call to the desk grows out of the rail's
 	// dock, whose key places it; with the rail closed or showing Settings it
 	// is the strip too, and the key is the title bar's.
-	const searchable = pane === null && selected !== null;
+	const teamSearch = (placement: "dock" | "beside" | "under") => (
+		<TeamSearch
+			roster={roster}
+			selectedId={pane === null ? selectedId : null}
+			placement={placement}
+			ask={searchAsk}
+			onPick={(personaId, eventId) => {
+				select(personaId);
+				if (eventId !== undefined) setFocus({ eventId, at: Date.now() });
+			}}
+		/>
+	);
 	const conversationShown = pane === null && selected !== null;
 	const teamRail = railSize.open && pane !== "settings";
 	const deskCalling = call !== null && call.target === undefined;
@@ -672,10 +677,8 @@ export function App() {
 		<div className="flex h-full flex-col">
 			<Titlebar
 				bare={welcome && pane === null}
-				searchable={searchable}
-				searchOpen={searchOpen}
-				onToggleSearch={() => setSearchOpen((open) => !open)}
 				rail={{ open: railSize.open, onToggle: toggleRail }}
+				search={teamSearch("under")}
 				deskKey={deskCallKey("control btn-icon titlebar-desk-call")}
 				onNew={newTeammate}
 				onSettings={() => togglePane("settings")}
@@ -724,9 +727,7 @@ export function App() {
 				onAddDesk={() => togglePane("add-desk")}
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
-				searchable={searchable}
-				searchOpen={searchOpen}
-				onSearch={() => setSearchOpen((open) => !open)}
+				search={teamSearch(faces ? "beside" : "dock")}
 				deskKey={deskCallKey()}
 				deskCard={deskCalling && call !== null ? <DeskCallCard call={call} roster={roster} compact={faces} /> : undefined}
 			/>
@@ -768,18 +769,11 @@ export function App() {
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}
-							searchOpen={searchOpen}
 							inspectorOpen={inspector}
 							focus={focus}
 							onToggleInspector={() => toggleInspector()}
 							onOpenSchedules={() => toggleInspector(true)}
-							onCloseSearch={() => setSearchOpen(false)}
 							onDelete={() => void removeTeammate(selected.persona.id, selected.persona.name)}
-							onPick={(personaId, eventId) => {
-								setSearchOpen(false);
-								setSelectedId(personaId);
-								setFocus({ eventId, at: Date.now() });
-							}}
 							onOpenThread={openThread}
 							onOpenThreadList={openThreadList}
 							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}

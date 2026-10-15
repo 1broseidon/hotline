@@ -14,7 +14,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_prompt.rs
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/src/voice/dispatcher.rs
-updatedAt: "2026-10-15T02:28:48.146Z"
+updatedAt: "2026-10-15T17:08:02.117Z"
 contract:
   status: failed
   deliverables:
@@ -46,7 +46,8 @@ dispatch:
   effort: medium
   by: lead
   at: "2026-10-15T02:22:50.604Z"
-completedAt: "2026-10-15T02:28:48.146Z"
+column: in-progress
+position: 3
 ---
 
 ## Description
@@ -55,3 +56,4 @@ Front instructions: speaks as the teammate (public name, its voice), relays and 
 ## Log
 - 2026-10-15T02:28:43.755Z: [claude] Added voice/front_prompt.rs on branch dispatch/task-60: pure `instructions(&Behind, &Start) -> String` (Behind::Teammate{public_name, voice} | Desk; Start{person, handoff, recent: &[Line]}). Budgets: name 60, handoff 600, voice 600, 6 DM lines ≤240 chars each ≤1200 total (newest kept); text scrubbed via driver::failure::redact_text (now pub(crate)) and code fences dropped. Next tasks: caller must pass only spoken DM lines (no tool output) and set RealtimeConfig.instructions from this; not yet wired to any call. fmt, clippy, cargo test -p hotline-core pass.
 - 2026-10-15T02:28:47.864Z: [claude] Contract validate resolved paths against the main checkout, so the file deliverable reads "not found" until this branch merges; the file exists at crates/hotline-core/src/voice/front_prompt.rs on dispatch/task-60, committed.
+- 2026-10-15T17:08:02.117Z: Reopened into In progress

@@ -12,7 +12,16 @@ tags:
 parentId: epic-6
 dependsOn:
   - task-59
+  - task-61
 createdAt: "2026-10-14T20:03:58.314Z"
+relatedFiles:
+  - crates/hotline-core/src/voice/record.rs
+  - crates/hotline-core/src/voice/ledger.rs
+  - crates/hotline-core/src/voice/metering.rs
+  - crates/hotline-core/src/voice/front.rs
+  - crates/hotline-core/tests/voice.rs
+  - docs/voice-calls.md
+updatedAt: "2026-10-15T01:56:49.502Z"
 ---
 
 ## Description

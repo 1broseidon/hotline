@@ -1,8 +1,6 @@
 ---
 id: task-67
 title: "Desktop: calls go through the voice front by default; the old pipeline becomes Legacy voice"
-column: in-progress
-position: 0
 priority: high
 tags:
   - voice
@@ -11,7 +9,8 @@ tags:
   - 0.38.0
 parentId: epic-6
 createdAt: "2026-10-15T04:47:02.607Z"
-updatedAt: "2026-10-15T04:47:09.087Z"
+updatedAt: "2026-10-15T05:06:51.221Z"
+completedAt: "2026-10-15T05:06:51.221Z"
 ---
 
 ## Description

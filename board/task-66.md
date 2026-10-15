@@ -11,6 +11,8 @@ tags:
   - 0.38.0
 parentId: epic-6
 createdAt: "2026-10-15T03:57:56.431Z"
+assignee: claude
+updatedAt: "2026-10-15T04:03:38.405Z"
 ---
 
 ## Description

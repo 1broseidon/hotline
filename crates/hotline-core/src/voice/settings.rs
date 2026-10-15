@@ -5,8 +5,14 @@
 //!   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "marin" },
 //!   "fallbackTts": { "provider": "google" },
 //!   "dispatcher": { "provider": "openai", "model": "gpt-5-mini", "effort": "low" },
-//!   "listenFor": ["Ophelia", "Groq"] }
+//!   "listenFor": ["Ophelia", "Groq"],
+//!   "front": { "provider": "grok", "credential": "xai-subscription",
+//!              "voices": { "grok": "eve" } } }
 //! ```
+//!
+//! `front` is the live-call voice front. Without it, or with a provider
+//! this build has no adapter for, calls keep the transcribe, route and speak
+//! pipeline.
 //!
 //! Every key is optional. A value that cannot be read costs its own
 //! preference and nothing else, like the other room settings.
@@ -32,8 +38,27 @@ pub struct Choice {
     pub effort: Option<String>,
 }
 
+/// A realtime model that can front a call. GPT-Live joins when it has an
+/// adapter in `realtime/`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrontProvider {
+    Grok,
+}
+
+/// The owner's voice front: who fronts calls, the login or key it uses
+/// (`xai` or `xai-subscription`; `None` lets the desk choose), and the voice
+/// picked for that provider.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrontChoice {
+    pub provider: FrontProvider,
+    pub credential: Option<String>,
+    pub voice: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VoiceSettings {
+    /// The live-call voice front; `None` is Off.
+    pub front: Option<FrontChoice>,
     /// The Chat budget's limits, which the call assistant spends against.
     pub chat: BudgetLimits,
     /// The Voice budget's limits, for transcription and speech.
@@ -100,6 +125,7 @@ impl VoiceSettings {
         VoiceSettings {
             chat,
             voice: voice_limits,
+            front: front(voice),
             stt: choice(voice, "stt"),
             tts: choice(voice, "tts"),
             fallback_tts: choice(voice, "fallbackTts"),
@@ -131,6 +157,31 @@ fn cap(source: &Map<String, Value>, key: &str) -> Option<f64> {
         .get(key)
         .and_then(Value::as_f64)
         .filter(|usd| usd.is_finite() && *usd >= 0.0)
+}
+
+fn front(voice: &Map<String, Value>) -> Option<FrontChoice> {
+    let pick = voice.get("front")?.as_object()?;
+    let text = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    };
+    let provider = match pick.get("provider").and_then(Value::as_str)? {
+        "grok" => FrontProvider::Grok,
+        _ => return None,
+    };
+    let voice = text(
+        pick.get("voices")
+            .and_then(Value::as_object)
+            .and_then(|voices| voices.get("grok")),
+    );
+    Some(FrontChoice {
+        provider,
+        credential: text(pick.get("credential")),
+        voice,
+    })
 }
 
 fn choice(voice: &Map<String, Value>, key: &str) -> Option<Choice> {
@@ -279,6 +330,32 @@ mod tests {
             VoiceSettings::from_room(&room(json!({"dayUsd": "2"}))).voice,
             BudgetLimits::default()
         );
+    }
+
+    #[test]
+    fn the_front_is_off_unless_the_owner_picked_one_this_build_has() {
+        assert_eq!(VoiceSettings::from_room(&Map::new()).front, None);
+        let grok = VoiceSettings::from_room(&room(json!({
+            "front": {"provider": "grok", "credential": "xai", "voices": {"grok": " ara ", "gpt-live": "x"}},
+        })));
+        assert_eq!(
+            grok.front,
+            Some(FrontChoice {
+                provider: FrontProvider::Grok,
+                credential: Some("xai".into()),
+                voice: Some("ara".into())
+            })
+        );
+        for unreadable in [
+            json!({"provider": "gpt-live"}),
+            json!({"voices": {}}),
+            json!("grok"),
+        ] {
+            assert_eq!(
+                VoiceSettings::from_room(&room(json!({ "front": unreadable }))).front,
+                None
+            );
+        }
     }
 
     #[test]

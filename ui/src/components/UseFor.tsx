@@ -12,6 +12,8 @@ import { DeskModels } from "./DeskModels";
 const ON_THIS_MAC = "|this-mac";
 /** The desk's own models, as the core names their provider. */
 const ON_THE_DESK = "local";
+const OFF = "|off";
+const GPT_LIVE = "|gpt-live";
 import {
 	AUTOMATIC,
 	carriedEffort,
@@ -19,9 +21,13 @@ import {
 	currentId,
 	effortChoices,
 	effortsOf,
+	FRONTS,
+	frontOf,
+	frontPatch,
 	listenForOf,
 	listenForPatch,
 	parseWords,
+	type FrontSetting,
 	type PickerChoice,
 	shortModel,
 	splitPickId,
@@ -207,8 +213,97 @@ export function UseFor({
 					)}
 				</JobRow>
 			</div>
+			<LiveCalls
+				front={frontOf(voice)}
+				logins={options.tts.options.map((one) => one.providerId).filter((id) => id === "xai" || id === "xai-subscription")}
+				write={(next) => write({ voice: frontPatch(voice, next) })}
+			/>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
+	);
+}
+
+const LOGIN_NAMES: Record<string, string> = { xai: "xAI API key", "xai-subscription": "Grok login" };
+
+/**
+ * Who fronts a live call: Off keeps the transcribe, route and speak pipeline.
+ * A front is a realtime model that talks to the person while the teammate
+ * works. GPT-Live is listed so its absence is explained, and cannot be chosen.
+ */
+function LiveCalls({
+	front,
+	logins,
+	write,
+}: {
+	front: FrontSetting | undefined;
+	/** The connected logins and keys that can run a Grok Voice front. */
+	logins: string[];
+	write(next: Parameters<typeof frontPatch>[1]): void;
+}) {
+	const chosen = FRONTS.find((one) => one.id === front?.provider);
+	const login = front?.credential !== undefined && logins.includes(front.credential) ? front.credential : logins[0];
+	const voice = chosen === undefined ? undefined : (front?.voices[chosen.id] ?? chosen.voices[0]);
+	return (
+		<>
+			<h3 className="group-title">Live calls</h3>
+			<div className="grouped use-for">
+				<div className="group-row">
+					<span className="group-row-text">
+						<span className="group-row-title">Voice front</span>
+						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+							{chosen === undefined
+								? "Off: calls hear you, think, then speak, one step at a time."
+								: "A realtime model talks with you while your teammate works. It bills by the minute of the call, on top of what the teammate spends."}
+						</span>
+					</span>
+					<Picker
+						value={chosen?.id ?? OFF}
+						choices={[
+							{ id: OFF, name: "Off" },
+							...FRONTS.map((one) => ({ id: one.id, name: one.name })),
+							{ id: GPT_LIVE, name: "GPT-Live (not available yet)" },
+						]}
+						placeholder="Off"
+						label="Voice front"
+						onChange={(id) => {
+							if (id === GPT_LIVE) return;
+							write(id === OFF ? { provider: null } : { provider: id, ...(login !== undefined ? { credential: login } : {}) });
+						}}
+					/>
+				</div>
+				{chosen !== undefined && (
+					<>
+						<div className="group-row use-for-nested">
+							<span className="group-row-text">
+								<span className="group-row-title">Signs in with</span>
+								{login === undefined && <span className="group-row-detail" style={{ whiteSpace: "normal" }}>Connect xAI or sign in to Grok above.</span>}
+							</span>
+							{login !== undefined && (
+								<Picker
+									value={login}
+									choices={logins.map((id) => ({ id, name: LOGIN_NAMES[id] ?? id }))}
+									placeholder="Login"
+									label="Login for the voice front"
+									onChange={(id) => write({ provider: chosen.id, credential: id })}
+								/>
+							)}
+						</div>
+						<div className="group-row use-for-nested">
+							<span className="group-row-text">
+								<span className="group-row-title">Voice</span>
+							</span>
+							<Picker
+								value={voice ?? ""}
+								choices={chosen.voices.map((id) => ({ id, name: voiceName(id) ?? id }))}
+								placeholder="Voice"
+								label={`Voice for ${chosen.name}`}
+								onChange={(id) => write({ provider: chosen.id, ...(login !== undefined ? { credential: login } : {}), voice: { provider: chosen.id, voice: id } })}
+							/>
+						</div>
+					</>
+				)}
+			</div>
+		</>
 	);
 }
 

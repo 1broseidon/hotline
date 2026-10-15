@@ -11,6 +11,7 @@ use super::realtime::{
     Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession, RealtimeTool,
 };
 use super::*;
+use crate::contract::Persona;
 use crate::log::StreamId;
 
 /// The rate the front hears and speaks at, and the one a call is asked for.
@@ -106,16 +107,7 @@ impl Calls {
     /// What the front is told before the call: on a call to a teammate, its
     /// name, the open chapter's handoff note and the latest lines of its DM
     /// said in words; on a desk call, only how to behave.
-    fn front_instructions(&self, id: &str) -> String {
-        let target = self
-            .change(id, |call| Ok(call.target.clone()))
-            .ok()
-            .flatten();
-        let persona = target.and_then(|target| {
-            crate::room::roster(&self.log)
-                .into_iter()
-                .find(|persona| persona.id == target)
-        });
+    fn front_instructions(&self, persona: Option<&Persona>) -> String {
         let Some(persona) = persona else {
             return front_prompt::instructions(&Behind::Desk, &Start::default());
         };
@@ -150,6 +142,17 @@ impl Calls {
                 recent: &recent,
             },
         )
+    }
+
+    /// The teammate a call is to, or `None` on a desk call.
+    fn front_persona(&self, id: &str) -> Option<Persona> {
+        let target = self
+            .change(id, |call| Ok(call.target.clone()))
+            .ok()
+            .flatten()?;
+        crate::room::roster(&self.log)
+            .into_iter()
+            .find(|persona| persona.id == target)
     }
 
     fn front_voice(&self) -> String {
@@ -249,11 +252,17 @@ impl Calls {
         cancel: CancellationToken,
     ) {
         // Subscribed before anything can be handed over, so no reply is missed.
-        let Ok(bridge) = front::Front::open(&self, &id) else {
+        let persona = self.front_persona(&id);
+        let speaks = if persona.is_some() {
+            front::Speaks::AsTeammate
+        } else {
+            front::Speaks::ForDesk
+        };
+        let Ok(bridge) = front::Front::open(&self, &id, speaks) else {
             return;
         };
         let config = RealtimeConfig {
-            instructions: self.front_instructions(&id),
+            instructions: self.front_instructions(persona.as_ref()),
             voice: self.front_voice(),
             tools: front::tools()
                 .into_iter()

@@ -1267,7 +1267,8 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     })
     .await
     .expect("the front was opened");
-    assert!(config.instructions.contains("You speak as Mack."));
+    assert!(config.instructions.contains("You are Mack."));
+    assert!(config.instructions.contains("first person"));
     let tools: Vec<&str> = config.tools.iter().map(|tool| tool.name.as_str()).collect();
     assert_eq!(tools, ["send_to_teammate", "remain_silent"]);
     assert_eq!(config.voice, "eve");
@@ -1291,7 +1292,11 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
         panic!("the front's tool call went unanswered")
     };
     assert_eq!(call_id, "c1");
-    assert!(output.starts_with("Handed to the teammate."), "{output}");
+    assert!(output.contains("Nothing is done yet"), "{output}");
+    assert!(
+        output.contains("first person") && !output.contains("Handed to"),
+        "a direct call acknowledges as the teammate: {output}"
+    );
 
     // The call thinks with the floor open while the teammate works, then
     // the teammate's spoken line goes to the front to be said, and the desk
@@ -1425,7 +1430,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     assert!(
         !tape.iter().any(|v| {
             let line = v.to_string();
-            line.contains("intermediary") || line.contains("Handed to the teammate")
+            line.contains("intermediary") || line.contains("Sent to your working session")
         }),
         "the front's side stays off the teammate's tape: {tape:?}"
     );

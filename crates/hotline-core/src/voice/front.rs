@@ -82,23 +82,64 @@ impl Note {
 /// The call's own lines that the front said, as against the teammate's.
 pub const FRONT_LINE_PREFIX: &str = "front-";
 
-const PROGRESS_LINE: &str = "Still working on it.";
+/// Who the front speaks as, which words its fixed lines: on a direct call it
+/// is the teammate, in the first person; on a desk call it speaks for the
+/// desk and the teammates behind it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Speaks {
+    AsTeammate,
+    ForDesk,
+}
+
+/// Taken in turn, so a long piece of work does not repeat one line.
+const TEAMMATE_PROGRESS: [&str; 4] = [
+    "Still on it.",
+    "Still digging, bear with me.",
+    "Still working on it, one moment.",
+    "Bear with me, still going.",
+];
+const DESK_PROGRESS: [&str; 3] = [
+    "Still working on it.",
+    "Still waiting on that.",
+    "Still going, bear with me.",
+];
 /// A call says it is still thinking every 15 seconds, and again whenever the
 /// front stops talking; the person hears it at most this often.
 const PROGRESS_EVERY: Duration = Duration::from_secs(45);
 
 /// A pending request is not described: its details are the desk's to show.
-fn needs_you(kind: &str) -> String {
-    match kind {
-        "permission" | "passkey_ask" => "It needs you to approve something on the desk or phone.",
-        _ => "It needs you to do something on the desk or phone.",
+fn needs_you(speaks: Speaks, kind: &str) -> String {
+    let approve = matches!(kind, "permission" | "passkey_ask");
+    match (speaks, approve) {
+        (Speaks::AsTeammate, true) => "I need you to approve something on the desk or your phone.",
+        (Speaks::AsTeammate, false) => "I need you to do something on the desk or your phone.",
+        (Speaks::ForDesk, true) => {
+            "The teammate needs you to approve something on the desk or phone."
+        }
+        (Speaks::ForDesk, false) => "The teammate needs you to do something on the desk or phone.",
     }
     .into()
+}
+
+/// What the front hears back once the person's words are handed over: that
+/// nothing is done yet, and how to say so in a few words of its own.
+fn handed(speaks: Speaks) -> &'static str {
+    match speaks {
+        Speaks::AsTeammate => {
+            "Sent to your working session, where you do the work. Nothing is done yet: do not say it is, and say nothing of the result until you are given it. If you have not acknowledged it yet, say in a few words of your own, in the first person, that you are on it, the way a colleague would: \"One sec, I'll pull that up.\", \"Let me check.\", \"Sure, give me a moment.\" Never say you passed it on or are waiting on someone."
+        }
+        Speaks::ForDesk => {
+            "Handed to the desk. Nothing is done yet: do not say it is, and say nothing of the result until you are given it. If you have not acknowledged it yet, say in a few words that it is on its way to the right teammate: \"Passing that on.\", \"Got it, I'll get that to the right teammate.\""
+        }
+    }
 }
 
 pub struct Front {
     calls: Arc<Calls>,
     call_id: String,
+    speaks: Speaks,
+    /// Progress lines said so far, to take the next in turn.
+    progressed: usize,
     events: broadcast::Receiver<VoiceEvent>,
     /// The last thing sent, by sequence number, which must rise.
     seq: u32,
@@ -117,11 +158,13 @@ pub struct Front {
 
 impl Front {
     /// The front of a live call to a teammate that takes finalized text.
-    pub fn open(calls: &Arc<Calls>, call_id: &str) -> Result<Self, String> {
+    pub fn open(calls: &Arc<Calls>, call_id: &str, speaks: Speaks) -> Result<Self, String> {
         let (_, events) = calls.subscribe(call_id)?;
         Ok(Self {
             calls: calls.clone(),
             call_id: call_id.into(),
+            speaks,
+            progressed: 0,
             events,
             seq: 0,
             said: HashMap::new(),
@@ -138,7 +181,7 @@ impl Front {
         match name {
             REMAIN_SILENT => String::new(),
             SEND_TO_TEAMMATE => match self.send(arguments) {
-                Ok(()) => "Handed to the teammate. Nothing is done yet: do not say it is, and say nothing of the result until you are given it.".into(),
+                Ok(()) => handed(self.speaks).into(),
                 Err(error) => format!("Not sent: {error}"),
             },
             other => format!("There is no tool called {other}."),
@@ -194,16 +237,28 @@ impl Front {
                         continue;
                     }
                     self.last_told = Instant::now();
-                    return Some(Note::Progress(PROGRESS_LINE.into()));
+                    return Some(Note::Progress(self.progress_line().into()));
                 }
                 VoiceEvent::State {
                     state: VoiceState::Listening,
                     ..
                 } => self.waiting = false,
-                VoiceEvent::Card { kind, .. } => return Some(Note::NeedsYou(needs_you(&kind))),
+                VoiceEvent::Card { kind, .. } => {
+                    return Some(Note::NeedsYou(needs_you(self.speaks, &kind)));
+                }
                 _ => {}
             }
         }
+    }
+
+    fn progress_line(&mut self) -> &'static str {
+        let lines: &[&str] = match self.speaks {
+            Speaks::AsTeammate => &TEAMMATE_PROGRESS,
+            Speaks::ForDesk => &DESK_PROGRESS,
+        };
+        let line = lines[self.progressed % lines.len()];
+        self.progressed += 1;
+        line
     }
 }
 
@@ -219,8 +274,19 @@ mod tests {
 
     #[test]
     fn a_pending_request_is_told_as_needing_the_person_not_described() {
-        assert!(needs_you("permission").contains("approve"));
-        assert!(needs_you("human_action").contains("desk or phone"));
+        assert!(needs_you(Speaks::ForDesk, "permission").contains("approve"));
+        assert!(needs_you(Speaks::ForDesk, "human_action").contains("desk or phone"));
+    }
+
+    #[test]
+    fn a_direct_call_speaks_its_fixed_lines_as_the_teammate() {
+        assert!(needs_you(Speaks::AsTeammate, "permission").starts_with("I need you to approve"));
+        assert!(needs_you(Speaks::ForDesk, "permission").starts_with("The teammate needs you"));
+        let direct = handed(Speaks::AsTeammate);
+        assert!(direct.contains("first person") && direct.contains("One sec"));
+        assert!(direct.contains("Nothing is done yet"));
+        assert!(!direct.contains("Handed to"));
+        assert!(handed(Speaks::ForDesk).contains("Nothing is done yet"));
     }
 
     #[test]

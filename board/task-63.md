@@ -13,7 +13,15 @@ tags:
 parentId: epic-6
 dependsOn:
   - task-58
+  - task-61
 createdAt: "2026-10-14T20:03:58.784Z"
+relatedFiles:
+  - crates/hotline-core/src/voice/settings.rs
+  - ui/src/components/Settings.tsx
+  - ui/src/components/UseFor.tsx
+  - ui/src/generated/contract.ts
+  - docs/voice.md
+updatedAt: "2026-10-15T01:56:49.768Z"
 ---
 
 ## Description

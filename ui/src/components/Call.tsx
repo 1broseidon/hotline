@@ -211,14 +211,14 @@ function CallTranscript({ lines, name, alone }: { lines: CallLine[]; name: strin
 /**
  * What went wrong, in two or three words: a call's card is no place for a
  * paragraph. The whole sentence, with what to do about it, is one press of
- * the info key away (and its tooltip).
+ * the info key away; its tooltip stays a few words, as every tooltip does.
  */
 function CallTrouble({ text }: { text: string }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<span className="call-trouble" role="alert">
 			<span className="truncate">{troubleWords(text)}</span>
-			<button type="button" className="call-trouble-info" title={text} aria-label={text} aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+			<button type="button" className="call-trouble-info" title="What happened" aria-label={text} aria-expanded={open} onClick={() => setOpen((was) => !was)}>
 				<InfoIcon />
 			</button>
 			{open && <span className="call-trouble-more">{text}</span>}

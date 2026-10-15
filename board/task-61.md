@@ -1,7 +1,7 @@
 ---
 id: task-61
 title: "Desk: call wire for front calls"
-column: todo
+column: in-progress
 position: 41
 priority: high
 tags:
@@ -25,9 +25,9 @@ relatedFiles:
   - ui/src/generated/contract.ts
   - docs/voice-calls.md
   - docs/wire.md
-updatedAt: "2026-10-15T02:22:53.911Z"
+updatedAt: "2026-10-15T02:23:04.588Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-core/src/wire/mod.rs
@@ -53,6 +53,8 @@ contract:
     - Run cargo test -p hotline-core unfiltered before committing contract.ts
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+    pickedUpAt: "2026-10-15T02:23:04.588Z"
+    reworkCount: 0
 assignee: claude
 dispatch:
   agent: claude

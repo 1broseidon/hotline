@@ -1,7 +1,7 @@
 ---
 id: task-61
 title: "Desk: call wire for front calls"
-column: in-progress
+column: review
 position: 41
 priority: high
 tags:
@@ -25,9 +25,9 @@ relatedFiles:
   - ui/src/generated/contract.ts
   - docs/voice-calls.md
   - docs/wire.md
-updatedAt: "2026-10-15T02:23:04.588Z"
+updatedAt: "2026-10-15T02:36:13.112Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-core/src/wire/mod.rs
@@ -55,6 +55,8 @@ contract:
     readyAt: "2026-10-15T01:57:04.232Z"
     pickedUpAt: "2026-10-15T02:23:04.588Z"
     reworkCount: 0
+    deliveredAt: "2026-10-15T02:36:13.112Z"
+    duration: 789
 assignee: claude
 dispatch:
   agent: claude

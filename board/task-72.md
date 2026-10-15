@@ -28,7 +28,7 @@ subtasks:
     completed: true
   - id: task-72-6
     title: SentFile.tsx:53 'Show in its folder on the server'
-    completed: false
+    completed: true
   - id: task-72-7
     title: ServerFiles.tsx:162 'Save a copy on this computer'
     completed: false
@@ -39,7 +39,7 @@ subtasks:
     title: Welcome.tsx:244 'An AI coding tool you already have'
     completed: false
 createdAt: "2026-10-15T23:17:58.177Z"
-updatedAt: "2026-10-15T23:19:32.231Z"
+updatedAt: "2026-10-15T23:19:32.704Z"
 ---
 
 ## Description

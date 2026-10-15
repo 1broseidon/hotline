@@ -21,9 +21,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/tests/voice.rs
   - docs/voice-calls.md
-updatedAt: "2026-10-15T02:40:25.293Z"
+updatedAt: "2026-10-15T02:40:25.602Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/record.rs
@@ -44,6 +44,8 @@ contract:
     - Run unfiltered; regenerate contract.ts if VoiceStatus changes
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+    pickedUpAt: "2026-10-15T02:40:25.602Z"
+    reworkCount: 0
 assignee: claude
 dispatch:
   agent: claude

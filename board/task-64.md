@@ -13,8 +13,7 @@ tags:
   - 0.38.0
 parentId: epic-6
 dependsOn:
-  - task-61
-  - task-63
+  - task-66
 createdAt: "2026-10-14T20:03:59.244Z"
 relatedFiles:
   - crates/hotline-core/src/voice/realtime/openai.rs
@@ -22,7 +21,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/settings.rs
   - docs/voice-calls.md
   - docs/voice.md
-updatedAt: "2026-10-15T01:57:04.230Z"
+updatedAt: "2026-10-15T03:58:03.454Z"
 contract:
   status: ready
   deliverables:

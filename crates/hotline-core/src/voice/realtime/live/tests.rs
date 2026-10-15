@@ -237,3 +237,49 @@ async fn a_live_call_says_a_line_and_hands_over_what_it_hears() {
     assert!(arguments.contains("laptop"), "{arguments}");
     session.close().await;
 }
+
+/// The same real call with its session renewed after 15 s: the replacement
+/// call takes over between replies, and speaks.
+#[tokio::test]
+#[ignore = "places two real GPT-Live calls on a ChatGPT login"]
+async fn a_live_call_moves_onto_a_replacement_before_the_session_ends() {
+    let dir = std::env::var("HOTLINE_TEST_CHATGPT_DIR").expect("a ChatGPT login directory");
+    let mut live = GptLive::new(dir.into());
+    live.renew_after = Duration::from_secs(15);
+    let mut session = live
+        .open(RealtimeConfig {
+            instructions: "You are a teammate on a call. Keep replies short.".into(),
+            voice: "cove".into(),
+            tools: Vec::new(),
+            input_rate: RATE,
+            output_rate: RATE,
+        })
+        .await
+        .unwrap();
+    session.input.say("Hi George, I'm here.").await.unwrap();
+    let silence = vec![0u8; 1920];
+    let started = tokio::time::Instant::now();
+    let mut sent = 0;
+    let mut renewed = None;
+    let mut said_after = String::new();
+    while started.elapsed() < Duration::from_secs(45) && said_after.is_empty() {
+        while sent * 40 < started.elapsed().as_millis() as usize {
+            session.input.push_audio(silence.clone()).await.unwrap();
+            sent += 1;
+        }
+        if let Ok(Some(event)) = timeout(Duration::from_millis(20), session.events.recv()).await {
+            match event.unwrap() {
+                RealtimeEvent::Renewed if renewed.is_none() => {
+                    renewed = Some(started.elapsed());
+                    session.input.say("Still here on the new line.").await.unwrap();
+                }
+                RealtimeEvent::Saying(piece) if renewed.is_some() => said_after.push_str(&piece),
+                _ => {}
+            }
+        }
+    }
+    let renewed = renewed.expect("the call moved onto a replacement");
+    assert!(renewed >= Duration::from_secs(15), "{renewed:?}");
+    assert!(!said_after.trim().is_empty(), "the replacement spoke");
+    session.close().await;
+}

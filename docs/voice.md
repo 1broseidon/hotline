@@ -945,9 +945,14 @@ bridge's `send_to_teammate`, and a line for the person goes in on the
 verbatim. The server stops a reply itself when the person talks; the
 adapter reports the person's new turn as a barge-in so the client cuts its
 playback. Lines wait for `session.started`. Creating the call is retried on
-a 5xx or an unreachable server, a dropped sideband is joined again, and a
-call the server no longer knows (sessions last an hour) or a failed peer
-drops the front and the call goes on as a pipeline call. It costs nothing
+a 5xx or an unreachable server, and a dropped sideband is joined again. A
+session lasts an hour, and the call outlives it: 55 minutes in, or five
+minutes before the `expires_at` the server gives, a replacement call is
+placed in the background with the conversation so far in its instructions,
+and the adapter switches to it between replies (or after 30 s of a reply)
+and hangs up the old one; a replacement that cannot be placed is tried again
+a minute later. A call the server no longer knows or a failed peer drops the
+front and the call goes on as a pipeline call. It costs nothing
 against the Voice budget. Legacy voice's own rows, the voice
 it speaks in and the call assistant, show in Settings only under it;
 Transcription stays under Use for, because dictation uses it.

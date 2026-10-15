@@ -287,14 +287,14 @@ enum Read {
 }
 
 /// The conversation's transcript, newest kept, for a renewed session.
-#[derive(Default)]
-struct Carry {
+#[derive(Clone, Default)]
+pub(super) struct Carry {
     lines: VecDeque<String>,
     bytes: usize,
 }
 
 impl Carry {
-    fn push(&mut self, speaker: &str, words: &str) {
+    pub(super) fn push(&mut self, speaker: &str, words: &str) {
         let words = words.trim();
         if words.is_empty() {
             return;
@@ -310,7 +310,7 @@ impl Carry {
         }
     }
 
-    fn instructions(&self, base: &str) -> String {
+    pub(super) fn instructions(&self, base: &str) -> String {
         if self.lines.is_empty() {
             return base.into();
         }

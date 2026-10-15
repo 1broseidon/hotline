@@ -15,10 +15,14 @@
 //! person talks; the adapter reports the person's new turn so the caller can
 //! cut what it is playing.
 //!
-//! A session lasts an hour. A sideband that drops is rejoined; a call that
-//! has ended, or a peer that fails, ends the session, and the caller carries
-//! on without a front.
+//! A session lasts an hour, and a call outlives it: five minutes before the
+//! end, a replacement call is placed in the background with the conversation
+//! so far in its instructions, and the driver switches to it between replies
+//! (or after half a minute of a reply), then hangs up the old one. A sideband
+//! that drops is rejoined; a call that has ended, or a peer that fails, ends
+//! the session, and the caller carries on without a front.
 
+use super::socket::Carry;
 use super::{Command, Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession};
 use crate::voice::front::SEND_TO_TEAMMATE;
 use crate::voice::speech::{SpeechError, SpeechId};
@@ -36,8 +40,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
-use tokio::sync::{Notify, mpsc};
-use tokio::time::{sleep, timeout};
+use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::time::{Instant, sleep, sleep_until, timeout};
 use tokio_tungstenite::tungstenite::{Message, client::IntoClientRequest};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use webrtc::media_stream::MediaStreamTrack;
@@ -79,6 +83,14 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const REJOINS: u32 = 3;
 /// Lines wait for the session to start, or this long at most.
 const START_WAIT: Duration = Duration::from_secs(5);
+/// A replacement call is placed this long into a session, or five minutes
+/// before the end the server gives, whichever is sooner.
+const RENEW_AFTER: Duration = Duration::from_secs(55 * 60);
+const RENEW_EARLY: Duration = Duration::from_secs(5 * 60);
+/// A replacement waits for the model to finish speaking, this long at most.
+const SWITCH_WAIT: Duration = Duration::from_secs(30);
+/// A replacement that could not be placed is tried again after this.
+const RENEW_RETRY: Duration = Duration::from_secs(60);
 const REJOIN_WAIT: Duration = Duration::from_millis(200);
 /// One sideband event, a 200 ms speech chunk at most in practice.
 const MESSAGE_LIMIT: usize = 4 << 20;
@@ -100,6 +112,15 @@ pub struct GptLive {
     token_dir: PathBuf,
     calls_url: String,
     sideband_url: String,
+    renew_after: Duration,
+}
+
+/// One placed call: who placed it, its id, its peer and its sideband.
+struct Placed {
+    who: Identity,
+    call: String,
+    peer: Peer,
+    sideband: Sideband,
 }
 
 impl GptLive {
@@ -108,6 +129,7 @@ impl GptLive {
             token_dir,
             calls_url: CALLS_URL.into(),
             sideband_url: SIDEBAND_URL.into(),
+            renew_after: RENEW_AFTER,
         }
     }
 
@@ -161,12 +183,13 @@ impl GptLive {
         &self,
         who: &Identity,
         offer: String,
-        config: &RealtimeConfig,
+        instructions: &str,
+        voice: &str,
     ) -> Result<(String, String), SpeechError> {
         let session = json!({
             "model": MODEL,
-            "instructions": instructions(&config.instructions),
-            "audio": {"output": {"voice": config.voice}},
+            "instructions": instructions,
+            "audio": {"output": {"voice": voice}},
             "delegation": {"type": "client"},
         });
         let http = crate::voice::speech::http_client().map_err(|_| self.unreachable())?;
@@ -197,6 +220,60 @@ impl GptLive {
             .ok_or_else(|| self.malformed())?;
         let answer = response.text().await.map_err(|_| self.malformed())?;
         Ok((answer, call))
+    }
+
+    /// Places one call with `config`, its instructions extended by the
+    /// conversation so far when it replaces an earlier one.
+    async fn place(&self, config: &RealtimeConfig, carry: &Carry) -> Result<Placed, SpeechError> {
+        let who = self.identity().await?;
+        let peer = Peer::new().await.map_err(|_| self.unreachable())?;
+        let offer = match peer.offer().await {
+            Ok(offer) => offer,
+            Err(()) => {
+                peer.close().await;
+                return Err(self.unreachable());
+            }
+        };
+        let instructions = instructions(&carry.instructions(&config.instructions));
+        // A server that fails or cannot be reached is asked again, as Codex
+        // does; a refused login or plan will not change.
+        let mut wait = REJOIN_WAIT;
+        let mut attempt = 0;
+        let (answer, call) = loop {
+            match self
+                .create(&who, offer.clone(), &instructions, &config.voice)
+                .await
+            {
+                Ok(created) => break created,
+                Err(
+                    SpeechError::Unreachable { .. } | SpeechError::Refused { status: 500.., .. },
+                ) if attempt < REJOINS => {
+                    attempt += 1;
+                    sleep(wait).await;
+                    wait *= 2;
+                }
+                Err(error) => {
+                    peer.close().await;
+                    return Err(error);
+                }
+            }
+        };
+        if peer.answer(answer).await.is_err() {
+            peer.close().await;
+            return Err(self.malformed());
+        }
+        match self.join(&who, &call).await {
+            Ok(sideband) => Ok(Placed {
+                who,
+                call,
+                peer,
+                sideband,
+            }),
+            Err(error) => {
+                peer.close().await;
+                Err(error)
+            }
+        }
     }
 
     async fn join(&self, who: &Identity, call: &str) -> Result<Sideband, SpeechError> {
@@ -261,44 +338,19 @@ impl Realtime for GptLive {
                 return Err(SpeechError::UnsupportedFormat(format!("PCM at {rate} Hz")));
             }
         }
-        let who = self.identity().await?;
-        let peer = Peer::new().await.map_err(|_| self.unreachable())?;
-        let offer = peer.offer().await.map_err(|_| self.unreachable())?;
-        // A server that fails or cannot be reached is asked again, as Codex
-        // does; a refused login or plan will not change.
-        let mut wait = REJOIN_WAIT;
-        let mut attempt = 0;
-        let (answer, call) = loop {
-            match self.create(&who, offer.clone(), &config).await {
-                Ok(created) => break created,
-                Err(
-                    SpeechError::Unreachable { .. } | SpeechError::Refused { status: 500.., .. },
-                ) if attempt < REJOINS => {
-                    attempt += 1;
-                    sleep(wait).await;
-                    wait *= 2;
-                }
-                Err(error) => {
-                    peer.close().await;
-                    return Err(error);
-                }
-            }
-        };
-        if peer.answer(answer).await.is_err() {
-            peer.close().await;
-            return Err(self.malformed());
-        }
-        let sideband = match self.join(&who, &call).await {
-            Ok(socket) => socket,
-            Err(error) => {
-                peer.close().await;
-                return Err(error);
-            }
-        };
+        let placed = self.place(&config, &Carry::default()).await?;
         let (commands, command_queue) = mpsc::channel(COMMAND_QUEUE);
         let (event_queue, events) = mpsc::channel(EVENT_QUEUE);
+        let Placed {
+            who,
+            call,
+            peer,
+            sideband,
+        } = placed;
+        let now = Instant::now();
         let driver = Driver {
             live: self.clone(),
+            config,
             who,
             call,
             peer,
@@ -306,6 +358,12 @@ impl Realtime for GptLive {
             mic: Mic::default(),
             heard: Heard::default(),
             held: Some(Vec::new()),
+            start_by: now + START_WAIT,
+            carry: Carry::default(),
+            saying: String::new(),
+            renew_at: now + self.renew_after,
+            placing: None,
+            ready: None,
         };
         tokio::spawn(driver.run(sideband, command_queue));
         Ok(RealtimeSession {
@@ -667,11 +725,15 @@ enum Next {
     Packet,
     Read(Option<Result<Message, tokio_tungstenite::tungstenite::Error>>),
     PeerFailed,
+    Renew,
+    Placed(Result<Box<Placed>, SpeechError>),
 }
 
-/// Owns one call: its peer, its sideband and the pacer that feeds the peer.
+/// Owns one call, then each call that replaces it: its peer, its sideband and
+/// the pacer that feeds the peer.
 struct Driver {
     live: GptLive,
+    config: RealtimeConfig,
     who: Identity,
     call: String,
     peer: Peer,
@@ -681,6 +743,17 @@ struct Driver {
     /// What was to go on the sideband before the session started; a line
     /// given before then is not spoken. `None` once it has.
     held: Option<Vec<Value>>,
+    /// When held lines go out even without the session's word.
+    start_by: Instant,
+    /// The conversation so far, for the instructions of a replacement call.
+    carry: Carry,
+    /// The model's current reply so far.
+    saying: String,
+    renew_at: Instant,
+    /// A replacement call being placed.
+    placing: Option<oneshot::Receiver<Result<Box<Placed>, SpeechError>>>,
+    /// A replacement ready to switch to, and since when.
+    ready: Option<(Box<Placed>, Instant)>,
 }
 
 impl Driver {
@@ -693,6 +766,10 @@ impl Driver {
         }
         let _ = timeout(CLOSE_TIMEOUT, sideband.close(None)).await;
         self.peer.close().await;
+        if let Some((mut ready, _)) = self.ready.take() {
+            let _ = timeout(CLOSE_TIMEOUT, ready.sideband.close(None)).await;
+            ready.peer.close().await;
+        }
     }
 
     async fn drive(
@@ -705,17 +782,22 @@ impl Driver {
                 .map_err(|_| self.live.malformed())?;
         let mut pacer = tokio::time::interval(PACKET);
         pacer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let failed = self.peer.failed.clone();
-        let start_by = tokio::time::Instant::now() + START_WAIT;
         loop {
+            let failed = self.peer.failed.clone();
+            let renewing = self.placing.is_some() || self.ready.is_some();
             let next = tokio::select! {
                 command = commands.recv() => Next::Command(command),
                 _ = pacer.tick() => Next::Packet,
                 read = sideband.next() => Next::Read(read),
                 _ = failed.notified() => Next::PeerFailed,
+                _ = sleep_until(self.renew_at), if !renewing => Next::Renew,
+                placed = async { self.placing.as_mut().expect("guarded").await }, if self.placing.is_some() => {
+                    self.placing = None;
+                    Next::Placed(placed.unwrap_or(Err(SpeechError::Cancelled)))
+                }
                 _ = self.events.closed() => return Err(SpeechError::Cancelled),
             };
-            if self.held.is_some() && tokio::time::Instant::now() >= start_by {
+            if self.held.is_some() && Instant::now() >= self.start_by {
                 self.release(sideband).await?;
             }
             match next {
@@ -731,6 +813,7 @@ impl Driver {
                     let event: Value =
                         serde_json::from_str(&text).map_err(|_| self.live.malformed())?;
                     if event["type"] == "session.started" {
+                        self.started(&event["session"]);
                         self.release(sideband).await?;
                     }
                     let events = self
@@ -738,6 +821,7 @@ impl Driver {
                         .event(&event)
                         .map_err(|()| self.live.malformed())?;
                     for event in events {
+                        self.note(&event);
                         self.emit(event).await?;
                     }
                 }
@@ -748,8 +832,91 @@ impl Driver {
                 Next::Read(Some(Ok(_))) => {}
                 Next::Read(None | Some(Err(_))) => self.rejoin(sideband).await?,
                 Next::PeerFailed => return Err(self.live.unreachable()),
+                Next::Renew => self.place_replacement(),
+                Next::Placed(Ok(placed)) => self.ready = Some((placed, Instant::now())),
+                Next::Placed(Err(SpeechError::Cancelled)) => return Err(SpeechError::Cancelled),
+                // The old call still has minutes; try again before they run out.
+                Next::Placed(Err(_)) => self.renew_at = Instant::now() + RENEW_RETRY,
+            }
+            let due = self
+                .ready
+                .as_ref()
+                .is_some_and(|(_, since)| !self.heard.speaking || since.elapsed() >= SWITCH_WAIT);
+            if due {
+                self.switch(sideband).await?;
             }
         }
+    }
+
+    /// The server's end for this session brings renewal forward to five
+    /// minutes before it.
+    fn started(&mut self, session: &Value) {
+        let Some(expires) = session["expires_at"].as_u64() else {
+            return;
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let left = Duration::from_secs(expires.saturating_sub(now));
+        self.renew_at = self
+            .renew_at
+            .min(Instant::now() + left.saturating_sub(RENEW_EARLY));
+    }
+
+    /// What each side said joins the transcript a replacement carries.
+    fn note(&mut self, event: &RealtimeEvent) {
+        match event {
+            RealtimeEvent::Saying(piece) => self.saying.push_str(piece),
+            RealtimeEvent::ResponseDone => {
+                let words = std::mem::take(&mut self.saying);
+                self.carry.push("You", &words);
+            }
+            RealtimeEvent::Heard(words) => self.carry.push("Caller", words),
+            _ => {}
+        }
+    }
+
+    /// Places the replacement in the background, so the call goes on while
+    /// it connects. It carries the conversation as it stands; what is said
+    /// while it connects is lost to it, as on the socket providers' renewal.
+    fn place_replacement(&mut self) {
+        let (done, placing) = oneshot::channel();
+        let live = self.live.clone();
+        let config = self.config.clone();
+        let carry = self.carry.clone();
+        tokio::spawn(async move {
+            let _ = done.send(live.place(&config, &carry).await.map(Box::new));
+        });
+        self.placing = Some(placing);
+    }
+
+    /// Moves the call onto its replacement and hangs up the old one.
+    async fn switch(&mut self, sideband: &mut Sideband) -> Result<(), SpeechError> {
+        let Some((placed, _)) = self.ready.take() else {
+            return Ok(());
+        };
+        let Placed {
+            who,
+            call,
+            peer,
+            sideband: fresh,
+        } = *placed;
+        let mut old_sideband = std::mem::replace(sideband, fresh);
+        let old_peer = std::mem::replace(&mut self.peer, peer);
+        self.who = who;
+        self.call = call;
+        tokio::spawn(async move {
+            let _ = timeout(CLOSE_TIMEOUT, old_sideband.close(None)).await;
+            old_peer.close().await;
+        });
+        let now = Instant::now();
+        self.heard = Heard::default();
+        self.saying.clear();
+        self.held = Some(Vec::new());
+        self.start_by = now + START_WAIT;
+        self.renew_at = now + self.live.renew_after;
+        self.emit(RealtimeEvent::Renewed).await
     }
 
     async fn emit(&self, event: RealtimeEvent) -> Result<(), SpeechError> {

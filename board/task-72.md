@@ -36,10 +36,10 @@ subtasks:
     title: Teammate.tsx:394 'N teammates are pinned. Unpin one first.' and 'Pinned teammates sit at the top of the team on every device'
     completed: true
   - id: task-72-9
-    title: Welcome.tsx:244 'An AI coding tool you already have'
+    title: "Welcome.tsx:244 'An AI coding tool you already have' (not a tooltip: a visible option heading; left as is)"
     completed: false
 createdAt: "2026-10-15T23:17:58.177Z"
-updatedAt: "2026-10-15T23:19:33.646Z"
+updatedAt: "2026-10-15T23:19:34.116Z"
 ---
 
 ## Description

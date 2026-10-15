@@ -21,9 +21,9 @@ relatedFiles:
   - ui/src/components/UseFor.tsx
   - ui/src/generated/contract.ts
   - docs/voice.md
-updatedAt: "2026-10-15T02:46:26.354Z"
+updatedAt: "2026-10-15T02:48:06.831Z"
 contract:
-  status: delivered
+  status: failed
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/settings.rs
@@ -49,6 +49,9 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-15T02:46:26.354Z"
     duration: 359
+  feedback: |-
+    $ tsc --noEmit
+    error: script "typecheck" exited with code 1
 assignee: claude
 dispatch:
   agent: claude

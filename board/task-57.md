@@ -1,7 +1,7 @@
 ---
 id: task-57
 title: "Voice front: decision record and call docs"
-column: todo
+column: in-progress
 position: 37
 priority: high
 tags:
@@ -16,9 +16,9 @@ relatedFiles:
   - docs/voice-calls.md
   - docs/voice.md
   - docs/design.md
-updatedAt: "2026-10-15T01:57:13.235Z"
+updatedAt: "2026-10-15T01:57:23.559Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: docs
       path: docs/adr/0003-live-calls-get-a-voice-front.md
@@ -37,6 +37,8 @@ contract:
     - Say what is decided, not what is built yet; docs/ holds only what is, so mark unlanded parts as planned for 0.38
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+    pickedUpAt: "2026-10-15T01:57:23.559Z"
+    reworkCount: 0
 assignee: claude
 dispatch:
   agent: claude

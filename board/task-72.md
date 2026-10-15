@@ -19,7 +19,7 @@ subtasks:
     completed: true
   - id: task-72-3
     title: Dock.tsx:427 'Bring this thread back with what it remembers'
-    completed: false
+    completed: true
   - id: task-72-4
     title: Rail.tsx:674 'All desks · one can't be reached'
     completed: false
@@ -39,7 +39,7 @@ subtasks:
     title: Welcome.tsx:244 'An AI coding tool you already have'
     completed: false
 createdAt: "2026-10-15T23:17:58.177Z"
-updatedAt: "2026-10-15T23:19:30.813Z"
+updatedAt: "2026-10-15T23:19:31.279Z"
 ---
 
 ## Description

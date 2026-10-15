@@ -65,11 +65,27 @@ impl FrontProvider {
 
     /// The voice it speaks in when none is picked.
     pub fn default_voice(self) -> &'static str {
+        self.voices()[0]
+    }
+
+    /// Every voice it speaks in, the default first.
+    pub fn voices(self) -> &'static [&'static str] {
         match self {
-            Self::Grok => "eve",
-            Self::OpenAi => "marin",
-            Self::GptLive => "cove",
+            Self::Grok => &["eve", "ara", "rex", "sal", "leo"],
+            Self::OpenAi => &[
+                "marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer",
+                "verse",
+            ],
+            Self::GptLive => &crate::voice::realtime::live::VOICES,
         }
+    }
+
+    /// `voice` when this front speaks in it, else its default.
+    pub fn voice_or_default(self, voice: Option<&str>) -> &'static str {
+        voice
+            .and_then(|voice| self.voices().iter().find(|known| **known == voice))
+            .copied()
+            .unwrap_or_else(|| self.default_voice())
     }
 }
 
@@ -439,6 +455,17 @@ mod tests {
                 None
             );
         }
+    }
+
+    #[test]
+    fn a_front_speaks_only_in_its_own_voices() {
+        assert_eq!(FrontProvider::Grok.voice_or_default(Some("rex")), "rex");
+        assert_eq!(FrontProvider::Grok.voice_or_default(Some("marin")), "eve");
+        assert_eq!(FrontProvider::GptLive.voice_or_default(None), "cove");
+        assert_eq!(
+            FrontProvider::OpenAi.voice_or_default(Some("cedar")),
+            "cedar"
+        );
     }
 
     #[test]

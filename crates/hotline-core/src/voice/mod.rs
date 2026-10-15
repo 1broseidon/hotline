@@ -648,6 +648,7 @@ impl Calls {
                 spent_month_usd,
             },
             replies: Some(self.replies.counts()).filter(|counts| !counts.is_empty()),
+            front: self.front_model(),
         }
     }
 

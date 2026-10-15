@@ -2484,6 +2484,24 @@ pub struct VoiceStatus {
     /// model that wrote any, by model. Absent before the first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replies: Option<Vec<VoiceReplies>>,
+    /// The voice front calls run on, when the desk can open one. A
+    /// teammate's own voice is picked from its voices. Absent on a desk with
+    /// no front, or one older than the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub front: Option<VoiceFrontModel>,
+}
+
+/// A voice front as the desk would open it: which one (`grok`, `openai`,
+/// `gpt-live`), its model, the voice calls speak in when a teammate has none
+/// of its own, and every voice it speaks in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceFrontModel {
+    pub provider_id: String,
+    pub model_id: String,
+    pub voice: String,
+    pub voices: Vec<String>,
 }
 
 /// How one model's replies on calls to teammates were said: each reply is

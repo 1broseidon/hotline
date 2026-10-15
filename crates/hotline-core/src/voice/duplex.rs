@@ -154,15 +154,39 @@ impl Calls {
             .find(|persona| persona.id == target)
     }
 
-    fn front_voice(&self) -> String {
-        self.settings()
+    /// The voice a front call speaks in: the teammate's own when it picked
+    /// one of this front's voices, else the one picked for the front, else
+    /// the front's default.
+    fn front_voice(&self, persona: Option<&Persona>) -> String {
+        let front = self.settings().front;
+        let provider = front
+            .as_ref()
+            .map_or(FrontProvider::Grok, |front| front.provider);
+        let own = persona
+            .and_then(|persona| persona.voice.as_ref())
+            .filter(|voice| voice.provider_id == provider.key())
+            .map(|voice| voice.voice.as_str());
+        let picked = front.as_ref().and_then(|front| front.voice.as_deref());
+        provider.voice_or_default(own.or(picked)).to_string()
+    }
+
+    /// The front calls would open, for `voice.status`.
+    pub(super) fn front_model(&self) -> Option<crate::contract::VoiceFrontModel> {
+        let realtime = self.realtime()?;
+        let provider = self
+            .settings()
             .front
-            .map(|front| {
-                front
-                    .voice
-                    .unwrap_or_else(|| front.provider.default_voice().into())
-            })
-            .unwrap_or_else(|| FrontProvider::Grok.default_voice().into())
+            .map_or(FrontProvider::Grok, |front| front.provider);
+        Some(crate::contract::VoiceFrontModel {
+            provider_id: provider.key().into(),
+            model_id: realtime.id().model_id,
+            voice: self.front_voice(None),
+            voices: provider
+                .voices()
+                .iter()
+                .map(|voice| voice.to_string())
+                .collect(),
+        })
     }
 
     /// Whether this desk can run a voice front for a call.
@@ -266,7 +290,7 @@ impl Calls {
         };
         let config = RealtimeConfig {
             instructions: self.front_instructions(persona.as_ref()),
-            voice: self.front_voice(),
+            voice: self.front_voice(persona.as_ref()),
             tools: front::tools()
                 .into_iter()
                 .map(|tool| RealtimeTool {

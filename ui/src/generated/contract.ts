@@ -1943,6 +1943,13 @@ inputRate: number,
 outputRate: number, };
 
 /**
+ * A voice front as the desk would open it: which one (`grok`, `openai`,
+ * `gpt-live`), its model, the voice calls speak in when a teammate has none
+ * of its own, and every voice it speaks in.
+ */
+export type VoiceFrontModel = { providerId: string, modelId: string, voice: string, voices: Array<string>, };
+
+/**
  * Omission preserves remote audio transcription for existing callers.
  */
 export type VoiceInputMode = "audio" | "text";
@@ -1995,7 +2002,13 @@ directAvailable?: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceMo
  * How teammates' replies on calls to them were said, one entry per
  * model that wrote any, by model. Absent before the first.
  */
-replies?: Array<VoiceReplies>, };
+replies?: Array<VoiceReplies>, 
+/**
+ * The voice front calls run on, when the desk can open one. A
+ * teammate's own voice is picked from its voices. Absent on a desk with
+ * no front, or one older than the field.
+ */
+front?: VoiceFrontModel, };
 
 /**
  * What the desk's own model heard in one clip.

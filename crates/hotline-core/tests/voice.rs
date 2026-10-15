@@ -1245,6 +1245,21 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     .await;
     assert_eq!(started["ok"], true);
 
+    // The desk says which front calls run on and its voices; the teammate
+    // picks its own voice from them, and the front speaks in it.
+    let status = answer(socket, 93, json!({"cmd":"voice.status","params":{}})).await;
+    let front = &status["result"]["front"];
+    assert_eq!(front["providerId"], "grok", "{status}");
+    assert_eq!(front["voice"], "eve");
+    assert!(front["voices"].as_array().unwrap().contains(&json!("rex")));
+    let picked = answer(
+        socket,
+        94,
+        json!({"cmd":"persona.update","params":{"id":persona,"patch":{"voice":{"providerId":"grok","modelId":front["modelId"],"voice":"rex"}}}}),
+    )
+    .await;
+    assert_eq!(picked["ok"], true, "{picked}");
+
     let call = Uuid::new_v4().to_string();
     let started = answer(
         socket,
@@ -1271,7 +1286,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     assert!(config.instructions.contains("first person"));
     let tools: Vec<&str> = config.tools.iter().map(|tool| tool.name.as_str()).collect();
     assert_eq!(tools, ["send_to_teammate", "remain_silent"]);
-    assert_eq!(config.voice, "eve");
+    assert_eq!(config.voice, "rex", "the teammate's own voice");
 
     // The person asks, and the front hands it over in their words.
     let words = "check the failing PR from monday";

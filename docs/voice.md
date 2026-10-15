@@ -683,10 +683,13 @@ The desk's own calls, which name no teammate, are not threads; they stay on the
 `voice-dispatcher` tape, which the dispatcher reads across calls.
 
 A teammate may have its own voice (`Persona.voice`: provider, model and
-voice), picked on its card from the voices of the model the desk speaks with.
-A direct call to that teammate speaks in it while the desk still speaks with
-that provider and model; otherwise, or if the provider refuses the voice, the
-call uses the desk's voice. Desk calls always use the desk's voice.
+voice), picked on its card from the voices of whatever calls speak with: the
+voice front when the desk runs one (`voice.status` reports it as `front`:
+`grok`, `openai` or `gpt-live`, its model, the desk's voice for it and all its
+voices), else Legacy voice's speaking model. A direct call to that teammate
+speaks in it while calls still run on that front, or that provider and model;
+otherwise, or if the provider refuses the voice, the call uses the desk's
+voice. Desk calls always use the desk's voice.
 
 ### A reply written only to be read
 

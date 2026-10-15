@@ -271,7 +271,11 @@ async fn a_live_call_moves_onto_a_replacement_before_the_session_ends() {
             match event.unwrap() {
                 RealtimeEvent::Renewed if renewed.is_none() => {
                     renewed = Some(started.elapsed());
-                    session.input.say("Still here on the new line.").await.unwrap();
+                    session
+                        .input
+                        .say("Still here on the new line.")
+                        .await
+                        .unwrap();
                 }
                 RealtimeEvent::Saying(piece) if renewed.is_some() => said_after.push_str(&piece),
                 _ => {}

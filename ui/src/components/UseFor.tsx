@@ -12,7 +12,6 @@ import { DeskModels } from "./DeskModels";
 const ON_THIS_MAC = "|this-mac";
 /** The desk's own models, as the core names their provider. */
 const ON_THE_DESK = "local";
-const GPT_LIVE = "|gpt-live";
 import {
 	AUTOMATIC,
 	carriedEffort,
@@ -21,6 +20,7 @@ import {
 	effortChoices,
 	effortsOf,
 	FRONTS,
+	FRONT_LOGINS,
 	LEGACY,
 	frontOf,
 	frontPatch,
@@ -176,7 +176,7 @@ export function UseFor({
 			<section>
 				<LiveCalls
 					front={frontOf(voice)}
-					logins={options.tts.options.map((one) => one.providerId).filter((id) => id === "xai" || id === "xai-subscription")}
+					logins={options.tts.options.map((one) => one.providerId).filter((id) => FRONT_LOGINS.includes(id))}
 					write={(next) => write({ voice: frontPatch(voice, next) })}
 				>
 							<JobRow
@@ -228,12 +228,6 @@ export function UseFor({
 	);
 }
 
-/** The logins and keys a Grok Voice front can run on, told apart by who pays. */
-const LOGINS: { id: string; detail: string }[] = [
-	{ id: "xai-subscription", detail: "Included with your Grok subscription" },
-	{ id: "xai", detail: "$0.08 a minute on your xAI key" },
-];
-
 /** A front's picker id: the provider and the login it runs on, `grok|xai`. */
 function frontId(provider: string, login: string): string {
 	return `${provider}|${login}`;
@@ -242,12 +236,12 @@ function frontId(provider: string, login: string): string {
 /**
  * Who answers a live call, to the desk or to a teammate, picked as one model
  * from a list grouped by the provider it comes from. Grok Voice, the default,
- * is a realtime model that talks with the person while the teammate works,
- * listed once for each connected xAI login or key since that decides who
- * pays. Legacy voice is the transcribe, route and speak pipeline, and its
- * own rows show only under it; the desk also falls back on it by itself when
- * no xAI login or key is connected. GPT-Live is listed so its absence is
- * explained, and cannot be chosen.
+ * and GPT Realtime are realtime models that talk with the person while the
+ * teammate works, each listed once for every connected login or key that can
+ * run it, since that decides who pays, or once with nothing connected so it
+ * can be found. Legacy voice is the transcribe, route
+ * and speak pipeline, and its own rows show only under it; the desk also
+ * falls back on it by itself when the chosen front has nothing connected.
  */
 function LiveCalls({
 	front,
@@ -256,24 +250,26 @@ function LiveCalls({
 	children,
 }: {
 	front: FrontSetting;
-	/** The connected logins and keys that can run a Grok Voice front. */
+	/** The connected logins and keys that can run a front. */
 	logins: string[];
 	write(next: Parameters<typeof frontPatch>[1]): void;
 	/** Legacy voice's own rows: the voice it speaks in and the call assistant. */
 	children: ReactNode;
 }) {
 	const chosen = FRONTS.find((one) => one.id === front.provider);
-	const login = front.credential !== undefined && logins.includes(front.credential) ? front.credential : logins[0];
+	const usable = chosen?.logins.filter((one) => logins.includes(one.id)) ?? [];
+	const login = usable.find((one) => one.id === front.credential) ?? usable[0];
 	const voice = chosen === undefined ? undefined : (front.voices[chosen.id] ?? chosen.voices[0]);
-	const connected = LOGINS.filter((one) => logins.includes(one.id));
 	const choices = [
-		...FRONTS.flatMap((one) =>
-			connected.map((via) => ({ id: frontId(one.id, via.id), name: one.name, detail: via.detail, group: "xAI" })),
-		),
-		{ id: GPT_LIVE, name: "GPT-Live", detail: "Not available yet", group: "OpenAI" },
+		...FRONTS.flatMap((one): PickerChoice[] => {
+			const connected = one.logins.filter((via) => logins.includes(via.id));
+			// Listed with nothing connected too, so it can be found; picking it does nothing until it is.
+			if (connected.length === 0) return [{ id: frontId(one.id, ""), name: one.name, detail: one.connect, group: one.group }];
+			return connected.map((via) => ({ id: frontId(one.id, via.id), name: one.name, detail: via.detail, group: one.group }));
+		}),
 		{ id: LEGACY, name: "Legacy voice", detail: "Hears you, thinks, then speaks, one step at a time", group: "Hotline" },
 	];
-	const value = chosen === undefined ? LEGACY : login === undefined ? "" : frontId(chosen.id, login);
+	const value = chosen === undefined ? LEGACY : login === undefined ? "" : frontId(chosen.id, login.id);
 	return (
 		<>
 			<h3 className="group-title">Live calls</h3>
@@ -285,10 +281,8 @@ function LiveCalls({
 							{chosen === undefined
 								? "Calls hear you, think, then speak, one step at a time."
 								: login === undefined
-									? "Connect xAI or sign in to Grok above. Until then, calls use Legacy voice."
-									: login === "xai-subscription"
-										? "Talks with you while your teammate works. Included with your Grok subscription."
-										: "Talks with you while your teammate works. Your xAI key pays $0.08 a minute, on top of what the teammate spends."}
+									? `${chosen.connect}. Until then, calls use Legacy voice.`
+									: `Talks with you while your teammate works. ${login.detail}.`}
 						</span>
 					</span>
 					<Picker
@@ -297,9 +291,9 @@ function LiveCalls({
 						placeholder={chosen === undefined ? "Legacy voice" : chosen.name}
 						label="Model for live calls"
 						onChange={(id) => {
-							if (id === GPT_LIVE) return;
 							if (id === LEGACY) return write({ provider: LEGACY });
 							const at = id.indexOf("|");
+							if (at === id.length - 1) return;
 							write({ provider: id.slice(0, at), credential: id.slice(at + 1) });
 						}}
 					/>
@@ -315,7 +309,7 @@ function LiveCalls({
 							choices={chosen.voices.map((id) => ({ id, name: voiceName(id) ?? id }))}
 							placeholder="Voice"
 							label={`Voice for ${chosen.name}`}
-							onChange={(id) => write({ provider: chosen.id, ...(login !== undefined ? { credential: login } : {}), voice: { provider: chosen.id, voice: id } })}
+							onChange={(id) => write({ provider: chosen.id, ...(login !== undefined ? { credential: login.id } : {}), voice: { provider: chosen.id, voice: id } })}
 						/>
 					</div>
 				)}

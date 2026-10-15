@@ -178,9 +178,12 @@ desk. Paid xAI speech requires an API key; the separate explicit Grok
 subscription choice requires its stored login and never uses a paid speech
 fallback. Both output paths check fallback credential revocation before use.
 
-A voice front (ADR 0004) is off by default; the owner turns it on in
-Settings with a Grok login or key already in the vault, and a client asks for
-it per call. Its whole reach is two tools enforced in the core
+A voice front (ADR 0004) fronts calls by default when the vault holds a
+login or key that can run one: Grok Voice on a Grok login or xAI key, or GPT
+Realtime on an OpenAI API key when the owner picks it in Settings (the call's
+audio then goes to OpenAI). Legacy voice turns it off, and a client asks for
+it per call. The Grok login is only ever sent to xAI's voice origin, and GPT
+Realtime refuses it. Its whole reach is two tools enforced in the core
 (`voice/front.rs`): `send_to_teammate` hands words to `Calls::relay`, the same
 owner-seat, sequence-gated, call-origin path as `voice.text`, so the
 teammate's session keeps its own grants and approval gates; `remain_silent`

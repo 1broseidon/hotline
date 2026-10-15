@@ -102,8 +102,8 @@ fn config() -> RealtimeConfig {
     }
 }
 
-fn voice(url: &str) -> GrokVoice {
-    GrokVoice::new(Endpoint {
+fn voice(url: &str) -> RealtimeSocket {
+    RealtimeSocket::grok(Endpoint {
         provider_id: PROVIDER_ID.into(),
         base_url: url.into(),
         key: Some("test-key".into()),
@@ -213,7 +213,7 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
     });
 
     let grok = voice(&url);
-    assert_eq!(grok.id().model_id, MODEL);
+    assert_eq!(grok.id().model_id, GROK_MODEL);
     assert!(!grok.is_subscription());
     let mut session = grok.open(config()).await.unwrap();
     session.input.push_audio(vec![1, 0, 2, 0]).await.unwrap();
@@ -511,7 +511,7 @@ async fn the_grok_login_refreshes_once_when_the_handshake_rejects_it() {
         handshake(&mut socket).await;
         closed(&mut socket).await;
     });
-    let mut grok = GrokVoice::new(Endpoint {
+    let mut grok = RealtimeSocket::grok(Endpoint {
         provider_id: PROVIDER_ID.into(),
         base_url: BASE_URL.into(),
         key: Some("unused-key".into()),
@@ -539,4 +539,85 @@ fn a_subscription_login_is_only_sent_to_xai() {
             .with_subscription(tokens)
             .is_err()
     );
+}
+
+fn openai(url: &str) -> RealtimeSocket {
+    RealtimeSocket::openai(Endpoint {
+        provider_id: "openai".into(),
+        base_url: url.into(),
+        key: Some("test-key".into()),
+    })
+}
+
+#[tokio::test]
+async fn gpt_realtime_asks_for_its_model_and_puts_voice_turns_and_transcription_under_audio() {
+    let (listener, url) = listen().await;
+    let server = tokio::spawn(async move {
+        let (mut socket, seen) = accept(&listener).await;
+        assert_eq!(seen.path, format!("/v1/realtime?model={OPENAI_MODEL}"));
+        assert_eq!(seen.headers[header::AUTHORIZATION], "Bearer test-key");
+        let session = handshake(&mut socket).await;
+        assert_eq!(session["type"], "realtime");
+        assert_eq!(session["instructions"], "You are the front.");
+        assert_eq!(session["audio"]["output"]["voice"], "marin");
+        assert_eq!(
+            session["audio"]["input"]["format"],
+            json!({"type": "audio/pcm", "rate": 24_000})
+        );
+        assert_eq!(
+            session["audio"]["input"]["turn_detection"]["type"],
+            "server_vad"
+        );
+        assert_eq!(
+            session["audio"]["input"]["transcription"]["model"],
+            OPENAI_TRANSCRIBE
+        );
+        assert!(session.get("voice").is_none() && session.get("turn_detection").is_none());
+        assert_eq!(session["tools"][0]["name"], "hand_off");
+
+        // The same events as Grok's carry the call.
+        send(
+            &mut socket,
+            json!({"type": "conversation.item.input_audio_transcription.completed", "transcript": "hello"}),
+        )
+        .await;
+        send(
+            &mut socket,
+            json!({"type": "response.output_audio.delta", "item_id": "a1", "delta": pcm(&[1, 0])}),
+        )
+        .await;
+        closed(&mut socket).await;
+    });
+    let mut config = config();
+    config.input_rate = 24_000;
+    config.voice = "marin".into();
+    let gpt = openai(&url);
+    assert_eq!(gpt.id().model_id, OPENAI_MODEL);
+    assert!(!gpt.is_subscription());
+    let mut session = gpt.open(config).await.unwrap();
+    assert_eq!(
+        next(&mut session).await,
+        RealtimeEvent::Heard("hello".into())
+    );
+    assert_eq!(next(&mut session).await, RealtimeEvent::Audio(vec![1, 0]));
+    session.close().await;
+    finish(server).await;
+}
+
+#[tokio::test]
+async fn gpt_realtime_takes_only_24_khz_and_never_a_grok_login() {
+    // 16 kHz suits Grok; OpenAI refuses it before connecting.
+    let error = openai("http://127.0.0.1:9/v1")
+        .open(config())
+        .await
+        .err()
+        .unwrap();
+    assert!(matches!(error, SpeechError::UnsupportedFormat(_)));
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = crate::credentials::CredentialFiles::new(
+        dir.path().into(),
+        crate::credentials::default_store(),
+    )
+    .file(dir.path().join("auth.json"));
+    assert!(openai(BASE_URL).with_subscription(tokens).is_err());
 }

@@ -1,10 +1,17 @@
-//! Grok Voice: xAI's realtime voice agent over `wss://api.x.ai/v1/realtime`,
-//! with the stored Grok login or an API key.
-//! Protocol: https://docs.x.ai/developers/rest-api-reference/inference/voice
-//! and https://docs.x.ai/developers/models/realtime-api (120-minute sessions).
+//! A realtime voice model over a WebSocket that speaks OpenAI's Realtime
+//! protocol, which xAI's follows too, so one driver carries both:
+//!
+//! - Grok Voice, `wss://api.x.ai/v1/realtime`, with the stored Grok login or
+//!   an API key. https://docs.x.ai/developers/rest-api-reference/inference/voice
+//!   and https://docs.x.ai/developers/models/realtime-api (120-minute sessions).
+//! - GPT Realtime, `wss://api.openai.com/v1/realtime`, with an API key.
+//!   https://developers.openai.com/api/reference/resources/realtime/client-events
+//!   (60-minute sessions, PCM at 24 kHz only).
 //!
 //! Audio travels as base64 JSON events, the default transport. Turns are the
 //! provider's server VAD, which stops a reply itself when the person talks.
+//! The dialects differ only in the model, the rates, the session limit and
+//! where `session.update` puts the voice, turn detection and transcription.
 
 use super::{Command, Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession};
 use crate::credentials::CredentialFile;
@@ -20,12 +27,18 @@ use tokio::sync::mpsc;
 use tokio::time::{Instant, sleep, sleep_until, timeout};
 use tokio_tungstenite::tungstenite::{Error as WsError, Message, error::ProtocolError};
 
-pub const MODEL: &str = "grok-voice-latest";
-/// The linear PCM rates the provider accepts both ways.
-const PCM_RATES: [u32; 7] = [8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000];
-/// The provider ends a session at 120 minutes. A fresh one replaces it
-/// between replies after 115, or mid-reply four minutes later.
-const RENEW_AFTER: Duration = Duration::from_secs(115 * 60);
+pub const GROK_MODEL: &str = "grok-voice-latest";
+pub const OPENAI_MODEL: &str = "gpt-realtime-2.1";
+/// The linear PCM rates each provider accepts both ways.
+const GROK_RATES: [u32; 7] = [8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000];
+const OPENAI_RATES: [u32; 1] = [24_000];
+/// xAI ends a session at 120 minutes and OpenAI at 60. A fresh one replaces
+/// it between replies five minutes before, or mid-reply four minutes later.
+const GROK_RENEW_AFTER: Duration = Duration::from_secs(115 * 60);
+const OPENAI_RENEW_AFTER: Duration = Duration::from_secs(55 * 60);
+/// What OpenAI transcribes the person with, for the call's thread; xAI
+/// transcribes without being asked.
+const OPENAI_TRANSCRIBE: &str = "gpt-4o-mini-transcribe";
 const RENEW_GRACE: Duration = Duration::from_secs(4 * 60);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -40,21 +53,60 @@ const CODE_LIMIT: usize = 64;
 const COMMAND_QUEUE: usize = 64;
 const EVENT_QUEUE: usize = 256;
 
+/// Whose shape of the protocol a socket speaks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Dialect {
+    Grok,
+    OpenAi,
+}
+
+impl Dialect {
+    fn model(self) -> &'static str {
+        match self {
+            Self::Grok => GROK_MODEL,
+            Self::OpenAi => OPENAI_MODEL,
+        }
+    }
+
+    fn rates(self) -> &'static [u32] {
+        match self {
+            Self::Grok => &GROK_RATES,
+            Self::OpenAi => &OPENAI_RATES,
+        }
+    }
+}
+
 #[derive(Clone)]
-pub struct GrokVoice {
+pub struct RealtimeSocket {
     access: Access,
+    dialect: Dialect,
     renew_after: Duration,
 }
 
-impl GrokVoice {
-    pub fn new(endpoint: Endpoint) -> Self {
+impl RealtimeSocket {
+    /// Grok Voice on an xAI key; [`with_subscription`](Self::with_subscription)
+    /// puts it on the Grok login instead.
+    pub fn grok(endpoint: Endpoint) -> Self {
         Self {
             access: Access::new(endpoint),
-            renew_after: RENEW_AFTER,
+            dialect: Dialect::Grok,
+            renew_after: GROK_RENEW_AFTER,
+        }
+    }
+
+    /// GPT Realtime on an OpenAI key.
+    pub fn openai(endpoint: Endpoint) -> Self {
+        Self {
+            access: Access::new(endpoint),
+            dialect: Dialect::OpenAi,
+            renew_after: OPENAI_RENEW_AFTER,
         }
     }
 
     pub fn with_subscription(mut self, tokens: CredentialFile) -> Result<Self, String> {
+        if self.dialect != Dialect::Grok {
+            return Err("Only Grok Voice runs on the Grok login.".into());
+        }
         self.access = self.access.with_subscription(tokens)?;
         Ok(self)
     }
@@ -63,9 +115,14 @@ impl GrokVoice {
     /// conversation so far when this continues an earlier session.
     async fn connect(&self, config: &RealtimeConfig, carry: &Carry) -> Result<Socket, SpeechError> {
         let mut url = self.access.socket_url("realtime")?;
-        url.query_pairs_mut().append_pair("model", MODEL);
+        url.query_pairs_mut()
+            .append_pair("model", self.dialect.model());
         let mut socket = self.access.socket(url, MESSAGE_LIMIT).await?;
-        let update = session_update(config, &carry.instructions(&config.instructions));
+        let update = session_update(
+            self.dialect,
+            config,
+            &carry.instructions(&config.instructions),
+        );
         socket
             .send(Message::Text(update.to_string().into()))
             .await
@@ -129,11 +186,11 @@ impl GrokVoice {
 }
 
 #[async_trait]
-impl Realtime for GrokVoice {
+impl Realtime for RealtimeSocket {
     fn id(&self) -> SpeechId {
         SpeechId {
             provider_id: self.access.endpoint.provider_id.clone(),
-            model_id: MODEL.into(),
+            model_id: self.dialect.model().into(),
             voice: None,
         }
     }
@@ -144,7 +201,7 @@ impl Realtime for GrokVoice {
 
     async fn open(&self, config: RealtimeConfig) -> Result<RealtimeSession, SpeechError> {
         for rate in [config.input_rate, config.output_rate] {
-            if !PCM_RATES.contains(&rate) {
+            if !self.dialect.rates().contains(&rate) {
                 return Err(SpeechError::UnsupportedFormat(format!("PCM at {rate} Hz")));
             }
         }
@@ -170,7 +227,7 @@ impl Realtime for GrokVoice {
     }
 }
 
-fn session_update(config: &RealtimeConfig, instructions: &str) -> Value {
+fn session_update(dialect: Dialect, config: &RealtimeConfig, instructions: &str) -> Value {
     let tools: Vec<Value> = config
         .tools
         .iter()
@@ -183,19 +240,31 @@ fn session_update(config: &RealtimeConfig, instructions: &str) -> Value {
             })
         })
         .collect();
-    json!({
-        "type": "session.update",
-        "session": {
+    let input = json!({"type": "audio/pcm", "rate": config.input_rate});
+    let output = json!({"type": "audio/pcm", "rate": config.output_rate});
+    let session = match dialect {
+        Dialect::Grok => json!({
             "instructions": instructions,
             "voice": config.voice,
             "turn_detection": {"type": "server_vad"},
+            "audio": {"input": {"format": input}, "output": {"format": output}},
+            "tools": tools,
+        }),
+        Dialect::OpenAi => json!({
+            "type": "realtime",
+            "instructions": instructions,
             "audio": {
-                "input": {"format": {"type": "audio/pcm", "rate": config.input_rate}},
-                "output": {"format": {"type": "audio/pcm", "rate": config.output_rate}},
+                "input": {
+                    "format": input,
+                    "turn_detection": {"type": "server_vad"},
+                    "transcription": {"model": OPENAI_TRANSCRIBE},
+                },
+                "output": {"format": output, "voice": config.voice},
             },
             "tools": tools,
-        },
-    })
+        }),
+    };
+    json!({"type": "session.update", "session": session})
 }
 
 /// A provider's error code, when it is a short identifier. Its message can
@@ -262,7 +331,7 @@ enum Next {
 /// Owns one call's provider connection, replacing it as the session limit
 /// and the network require.
 struct Driver {
-    voice: GrokVoice,
+    voice: RealtimeSocket,
     config: RealtimeConfig,
     events: mpsc::Sender<Result<RealtimeEvent, SpeechError>>,
     carry: Carry,

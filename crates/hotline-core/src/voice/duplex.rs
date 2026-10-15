@@ -10,6 +10,7 @@ use super::front_prompt::{self, Behind, Line, Speaker as LineSpeaker, Start};
 use super::realtime::{
     Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession, RealtimeTool,
 };
+use super::settings::FrontProvider;
 use super::*;
 use crate::contract::Persona;
 use crate::log::StreamId;
@@ -22,8 +23,6 @@ const MIC_RATES: [u32; 2] = [16_000, FRONT_RATE];
 /// One frame of the front's speech: 100 ms.
 const FRAME_BYTES: usize = FRONT_RATE as usize / 10 * 2;
 const CHUNK_LIMIT: usize = 32 * 1024;
-/// The voice a front speaks in when the owner picked none.
-const VOICE: &str = "eve";
 /// A paid front is charged for its minutes as they pass, so a spent budget
 /// ends the call within one of them.
 const SPEND_EVERY: Duration = Duration::from_secs(60);
@@ -158,8 +157,12 @@ impl Calls {
     fn front_voice(&self) -> String {
         self.settings()
             .front
-            .and_then(|front| front.voice)
-            .unwrap_or_else(|| VOICE.into())
+            .map(|front| {
+                front
+                    .voice
+                    .unwrap_or_else(|| front.provider.default_voice().into())
+            })
+            .unwrap_or_else(|| FrontProvider::Grok.default_voice().into())
     }
 
     /// Whether this desk can run a voice front for a call.

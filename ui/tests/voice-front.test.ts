@@ -8,6 +8,7 @@ describe("the voice front setting", () => {
 		expect(frontOf({ front: { provider: "grok", credential: "xai", voices: { grok: "ara" } } })).toEqual({ provider: "grok", credential: "xai", voices: { grok: "ara" } });
 		expect(frontOf({ front: { provider: LEGACY, voices: {} } }).provider).toBe(LEGACY);
 		expect(frontOf({ front: { provider: "gpt-live" } }).provider).toBe(LEGACY);
+		expect(frontOf({ front: { provider: "openai", credential: "openai", voices: { openai: "cedar" } } })).toEqual({ provider: "openai", credential: "openai", voices: { openai: "cedar" } });
 	});
 
 	test("picking a login keeps the rest of voice, and Legacy voice keeps the voice picked", () => {

@@ -559,7 +559,9 @@ pub fn tts_usd(provider_id: &str, characters: usize) -> f64 {
 /// login or the desk's own model costs nothing extra.
 const FRONT_PER_MINUTE_USD: &[(&str, f64)] = &[
     ("xai", 0.08),
-    ("openai", 0.05),
+    // gpt-realtime-2.1 bills tokens: about $0.02 a minute heard and $0.08
+    // spoken, with the microphone open the whole call. Charged high.
+    ("openai", 0.10),
     ("xai-subscription", 0.0),
     ("local", 0.0),
 ];

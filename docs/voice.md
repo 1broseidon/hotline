@@ -907,19 +907,35 @@ holding one.
 
 ## The voice front setting
 
-`voice.front` in the room's settings is `{ "provider": "grok", "credential":
-"xai" | "xai-subscription", "voices": { "grok": "eve" } }`. Absent, or with no
-provider, means Grok Voice on the first connected xAI login or key: the voice
-front is the default for calls to the desk and to a teammate. `{ "provider":
-"legacy" }`, Legacy voice in Settings > Use for > Live calls, keeps the
-transcribe, route and speak pipeline, and a provider the build has no adapter
-for (GPT-Live) is read as Legacy voice too. Legacy voice's own rows, the voice
+`voice.front` in the room's settings is `{ "provider": "grok" | "openai",
+"credential": "xai" | "xai-subscription" | "openai", "voices": { "grok":
+"eve", "openai": "marin" } }`, a voice kept per provider so switching back
+finds it. Absent, or with no provider, means Grok Voice on the first
+connected xAI login or key: the voice front is the default for calls to the
+desk and to a teammate. `openai` is GPT Realtime (`gpt-realtime-2.1`) on an
+OpenAI API key; a ChatGPT sign-in does not run it. Settings > Use for > Live
+calls picks one Model from a list grouped by provider, each front once per
+connected login or key with who pays beneath it, and lists a front with
+nothing connected so it can be found. `{ "provider": "legacy" }`, Legacy
+voice there, keeps the transcribe, route and speak pipeline, and a provider
+the build has no adapter for is read as Legacy voice too.
+
+Both fronts run on one driver, `voice/realtime/socket.rs`, since xAI's
+realtime protocol follows OpenAI's: the dialects differ in the model, the
+PCM rates (OpenAI takes 24 kHz only, which is the front's own rate), the
+session limit (OpenAI's 60 minutes against xAI's 120, each renewed five
+minutes early with the transcript carried) and where `session.update` puts
+the voice, turn detection and the person's transcription, which OpenAI only
+sends when asked (`gpt-4o-mini-transcribe`). GPT Realtime is charged at $0.10
+a minute against the Voice budget, above its token price with the
+microphone open, so a cap is never exceeded. Legacy voice's own rows, the voice
 it speaks in and the call assistant, show in Settings only under it;
 Transcription stays under Use for, because dictation uses it.
 
-A front call resolves Grok Voice from the vault when it starts
+A front call resolves its front from the vault when it starts
 (`speech::resolve_front`): the named login or key, or with none named the
-first connected. A desk with no xAI login or key, one whose named login is
+first connected that can run it. A desk with nothing that can run the chosen
+front, one whose named login is
 no longer connected, and a Voice budget with no room for a key's minutes all
 leave the call on the pipeline; the desk advertises `voiceFront` only when it
 has a login or key to open one with. The window asks for `mode: "front"` whenever

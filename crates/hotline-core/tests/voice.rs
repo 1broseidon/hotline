@@ -1493,7 +1493,7 @@ async fn a_fronts_minutes_are_counted_by_login_kind() {
     calls.front_spend(&grok, 60.0).unwrap();
     calls.front_spend(&gpt, 60.0).unwrap();
     let spent = calls.status().budget.spent_day_usd;
-    assert!((spent - 0.13).abs() < 1e-9, "{spent}");
+    assert!((spent - 0.18).abs() < 1e-9, "{spent}");
 }
 
 /// The PCM16 samples of a WAV file's `data` chunk.
@@ -1528,13 +1528,13 @@ async fn speak_into(socket: &mut Socket, call: &str, seq: &mut u32, pcm: &[u8]) 
 #[tokio::test]
 #[ignore = "talks to Grok Voice with HOTLINE_LIVE_XAI_KEY"]
 async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
-    use hotline_core::voice::realtime::GrokVoice;
+    use hotline_core::voice::realtime::RealtimeSocket;
     use hotline_core::voice::speech::Endpoint;
 
     let key = std::env::var("HOTLINE_LIVE_XAI_KEY").expect("set HOTLINE_LIVE_XAI_KEY");
     let root = tempfile::tempdir().unwrap();
     let mut services = services();
-    services.realtime = Some(Arc::new(GrokVoice::new(Endpoint {
+    services.realtime = Some(Arc::new(RealtimeSocket::grok(Endpoint {
         provider_id: "xai".into(),
         base_url: "https://api.x.ai/v1".into(),
         key: Some(key),

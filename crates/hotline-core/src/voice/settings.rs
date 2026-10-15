@@ -7,10 +7,12 @@
 //!   "dispatcher": { "provider": "openai", "model": "gpt-5-mini", "effort": "low" },
 //!   "listenFor": ["Ophelia", "Groq"],
 //!   "front": { "provider": "grok", "credential": "xai-subscription",
-//!              "voices": { "grok": "eve" } } }
+//!              "voices": { "grok": "eve", "openai": "marin" } } }
 //! ```
 //!
-//! `front` is the live-call voice front. Without it, calls are fronted by
+//! `front` is the live-call voice front: Grok Voice (`grok`) on an xAI login
+//! or key, or GPT Realtime (`openai`) on an OpenAI key, with the voice picked
+//! for each kept under its provider. Without it, calls are fronted by
 //! Grok Voice on the first connected xAI login or key, and a desk with
 //! neither keeps the pipeline. `{"provider": "legacy"}`, Legacy voice in
 //! Settings, and a provider this build has no adapter for keep the
@@ -40,16 +42,35 @@ pub struct Choice {
     pub effort: Option<String>,
 }
 
-/// A realtime model that can front a call. GPT-Live joins when it has an
-/// adapter in `realtime/`.
+/// A realtime model that can front a call, each with an adapter in
+/// `realtime/`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FrontProvider {
     Grok,
+    OpenAi,
+}
+
+impl FrontProvider {
+    /// Its name in the `front` setting, and its key under `voices`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Grok => "grok",
+            Self::OpenAi => "openai",
+        }
+    }
+
+    /// The voice it speaks in when none is picked.
+    pub fn default_voice(self) -> &'static str {
+        match self {
+            Self::Grok => "eve",
+            Self::OpenAi => "marin",
+        }
+    }
 }
 
 /// The owner's voice front: who fronts calls, the login or key it uses
-/// (`xai` or `xai-subscription`; `None` lets the desk choose), and the voice
-/// picked for that provider.
+/// (`xai` or `xai-subscription` for Grok, `openai` for GPT Realtime; `None`
+/// lets the desk choose), and the voice picked for that provider.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrontChoice {
     pub provider: FrontProvider,
@@ -179,12 +200,13 @@ fn front(voice: &Map<String, Value>) -> Option<FrontChoice> {
     };
     let provider = match pick.get("provider").and_then(Value::as_str) {
         None | Some("grok") => FrontProvider::Grok,
+        Some("openai") => FrontProvider::OpenAi,
         Some(_) => return None,
     };
     let voice = text(
         pick.get("voices")
             .and_then(Value::as_object)
-            .and_then(|voices| voices.get("grok")),
+            .and_then(|voices| voices.get(provider.key())),
     );
     Some(FrontChoice {
         provider,
@@ -355,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn grok_fronts_calls_unless_the_owner_picked_legacy_voice() {
+    fn grok_fronts_calls_unless_the_owner_picked_gpt_realtime_or_legacy_voice() {
         let default = Some(FrontChoice {
             provider: FrontProvider::Grok,
             credential: None,
@@ -377,6 +399,17 @@ mod tests {
                 provider: FrontProvider::Grok,
                 credential: Some("xai".into()),
                 voice: Some("ara".into())
+            })
+        );
+        let openai = VoiceSettings::from_room(&room(json!({
+            "front": {"provider": "openai", "credential": "openai", "voices": {"grok": "ara", "openai": "cedar"}},
+        })));
+        assert_eq!(
+            openai.front,
+            Some(FrontChoice {
+                provider: FrontProvider::OpenAi,
+                credential: Some("openai".into()),
+                voice: Some("cedar".into())
             })
         );
         for legacy in [

@@ -9,9 +9,9 @@
 //! conversation's transcript across, so the caller sees one session for the
 //! whole call. Dropping every [`RealtimeInput`] closes it.
 
-pub mod xai;
+pub mod socket;
 
-pub use xai::GrokVoice;
+pub use socket::RealtimeSocket;
 
 use super::speech::{SpeechError, SpeechId};
 use async_trait::async_trait;

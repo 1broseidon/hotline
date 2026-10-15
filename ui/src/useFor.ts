@@ -226,8 +226,37 @@ export function parseCap(raw: string): number | null {
 	return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) / 100 : null;
 }
 
-/** The voice fronts a desk can run, in the order Live calls lists them. GPT-Live joins when the core has an adapter for it. */
-export const FRONTS = [{ id: "grok", name: "Grok Voice", voices: ["eve", "ara", "rex", "sal", "leo"] }] as const;
+/**
+ * The voice fronts a desk can run, in the order Live calls lists them, each
+ * under the provider it comes from and once for every login or key that can
+ * run it, told apart by who pays (the per-minute prices are the ones the
+ * Voice budget counts).
+ */
+export const FRONTS = [
+	{
+		id: "grok",
+		name: "Grok Voice",
+		group: "xAI",
+		connect: "Connect xAI or sign in to Grok above",
+		voices: ["eve", "ara", "rex", "sal", "leo"],
+		logins: [
+			{ id: "xai-subscription", detail: "Included with your Grok subscription" },
+			{ id: "xai", detail: "$0.08 a minute on your xAI key" },
+		],
+	},
+	{
+		id: "openai",
+		name: "GPT Realtime",
+		group: "OpenAI",
+		// A ChatGPT sign-in does not run it.
+		connect: "Add an OpenAI API key above",
+		voices: ["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"],
+		logins: [{ id: "openai", detail: "About $0.10 a minute on your OpenAI key" }],
+	},
+] as const;
+
+/** Every login or key some front can run on. */
+export const FRONT_LOGINS: readonly string[] = FRONTS.flatMap((one) => one.logins.map((login) => login.id));
 
 export type FrontSetting = { provider: string; credential?: string; voices: Record<string, string> };
 

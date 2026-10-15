@@ -31,7 +31,7 @@ subtasks:
     completed: true
   - id: task-72-7
     title: ServerFiles.tsx:162 'Save a copy on this computer'
-    completed: false
+    completed: true
   - id: task-72-8
     title: Teammate.tsx:394 'N teammates are pinned. Unpin one first.' and 'Pinned teammates sit at the top of the team on every device'
     completed: false
@@ -39,7 +39,7 @@ subtasks:
     title: Welcome.tsx:244 'An AI coding tool you already have'
     completed: false
 createdAt: "2026-10-15T23:17:58.177Z"
-updatedAt: "2026-10-15T23:19:32.704Z"
+updatedAt: "2026-10-15T23:19:33.178Z"
 ---
 
 ## Description

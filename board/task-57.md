@@ -1,7 +1,7 @@
 ---
 id: task-57
 title: "Voice front: decision record and call docs"
-column: in-progress
+column: review
 position: 37
 priority: high
 tags:
@@ -16,9 +16,9 @@ relatedFiles:
   - docs/voice-calls.md
   - docs/voice.md
   - docs/design.md
-updatedAt: "2026-10-15T01:57:23.559Z"
+updatedAt: "2026-10-15T01:57:43.498Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: docs
       path: docs/adr/0003-live-calls-get-a-voice-front.md
@@ -39,6 +39,8 @@ contract:
     readyAt: "2026-10-15T01:57:04.232Z"
     pickedUpAt: "2026-10-15T01:57:23.559Z"
     reworkCount: 0
+    deliveredAt: "2026-10-15T01:57:43.498Z"
+    duration: 20
 assignee: claude
 dispatch:
   agent: claude

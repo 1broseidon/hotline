@@ -3545,14 +3545,15 @@
 		}
 	}
 	/* The call strip (Call.tsx CallBar). Under a conversation's band the two
-	 * become one card that has grown down (`.call-head`): raised a step off
-	 * the canvas with a soft shadow beneath, its bottom corners rounded,
-	 * opening out of the band as a call starts and folding back up into it
-	 * when one ends. Under the called teammate's own band the status reads
-	 * as the name's second line, set on the name's left edge (36px: the
-	 * band's 8px, the 20px face and its 8px gap), and the keys line up with
-	 * the band's own on the right. Atop a pane with no band it is a card of
-	 * its own. */
+	 * become one card (`.call-head`) floating 5px in from the pane, raised a
+	 * step off the canvas with a soft shadow beneath, lifting out of the band
+	 * as a call starts and settling back into it when one ends. Inside, one
+	 * margin holds all round: 10px from the card's edge to the face on the
+	 * left, to the band's keys and the call's keys on the right, and under
+	 * the call's row. Under the called teammate's own band the status is the
+	 * name's second line, on the name's left edge (38px: the margin, the
+	 * 20px face and its 8px gap). Atop a pane with no band it is a card of
+	 * its own with the same margin. */
 	.call-head {
 		position: relative;
 		z-index: 1;
@@ -3588,31 +3589,31 @@
 			box-shadow: none;
 		}
 	}
-	/* Inset 5px, the band gives the 5px back, so the face, name and pickers
-	 * stay exactly where they rest. */
-	.call-head > .band {
-		height: 35px;
-	}
 	.call-head > .band .band-row {
-		padding: 0 3px;
+		padding: 0 10px;
+	}
+	.call-head:has(> .call-bar[data-folding]) > .band .band-row {
+		padding: 0 8px;
+	}
+	.band-row {
+		transition: padding var(--dur-open) var(--ease-out);
 	}
 	.call-bar {
 		--level: 0;
 		display: flex;
-		height: 44px;
+		height: 46px;
 		flex-shrink: 0;
 		align-items: center;
 		gap: 8px;
-		padding: 0 3px 6px 16px;
+		padding: 0 10px 10px;
 		overflow: hidden;
 		animation: call-bar-open var(--dur-open) var(--ease-out) both;
 	}
 	.call-bar[data-bare] {
-		height: 38px;
-		padding-left: 31px;
+		padding-left: 38px;
 	}
 	.call-bar-alone {
-		height: 48px;
+		height: 52px;
 		margin-bottom: 8px;
 		padding-bottom: 0;
 		border-radius: var(--radius-pane);
@@ -3730,12 +3731,24 @@
 		font-size: var(--text-sm);
 		color: var(--ink-2);
 	}
+	/* On the raised card the call's keys are filled a step lighter, with no
+	 * outline: hold in the pop fill, hang-up in red. */
 	.call-bar .call-button {
 		width: 32px;
 		height: 32px;
+		background: var(--pop);
+		box-shadow: var(--top-light);
 	}
-	.call-bar .call-button + .call-button {
-		margin-left: 2px;
+	.call-bar .call-button:hover:not(:disabled) {
+		filter: brightness(1.15);
+	}
+	.call-bar .call-button-end,
+	.call-bar .call-button-end:hover:not(:disabled) {
+		background: var(--hang-up);
+	}
+	.call-bar .call-button-start,
+	.call-bar .call-button-start:hover:not(:disabled) {
+		background: var(--accent);
 	}
 	/* The call's own controls are round and wordless, like a phone's:
 	 * hold and resume in the quiet fill, hanging up in red, calling again

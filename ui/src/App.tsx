@@ -670,11 +670,6 @@ export function App() {
 				searchOpen={searchOpen}
 				onToggleSearch={() => setSearchOpen((open) => !open)}
 				rail={{ open: railSize.open, onToggle: toggleRail }}
-				call={
-					voice || call !== null
-						? { open: calling, onToggle: () => (calling ? closeCall() : void startCall(nameOf)) }
-						: undefined
-				}
 			/>
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />

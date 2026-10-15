@@ -71,11 +71,16 @@ function usePicture(personaId: string, hash: string | undefined, read?: AvatarRe
 }
 
 export function faceOf(personaId: string): string {
+	return `oklch(var(--face-l) var(--face-c) ${hueOf(personaId)})`;
+}
+
+/** The teammate's own hue, which its disc and its call key are drawn in. */
+export function hueOf(personaId: string): number {
 	let hash = 0;
 	for (let index = 0; index < personaId.length; index++) {
 		hash = (hash * 31 + personaId.charCodeAt(index)) % 1_000_003;
 	}
-	return `oklch(var(--face-l) var(--face-c) ${70 + (hash % 7) * 43})`;
+	return 70 + (hash % 7) * 43;
 }
 
 /** The first letter that is one, so "⌘kill bill" and " Ada" both read right. */

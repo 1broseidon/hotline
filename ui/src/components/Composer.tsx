@@ -1,10 +1,10 @@
-import { type PointerEvent as ButtonPointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type PointerEvent as ButtonPointerEvent, type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
 import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon } from "../icons";
-import { Avatar } from "../ui/Avatar";
+import { hueOf } from "../ui/Avatar";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
@@ -60,7 +60,6 @@ export function Composer({
 	onSend,
 	onCall,
 	onHangUp,
-	avatarHash,
 	refill,
 	onCancel,
 	onClearReply,
@@ -76,8 +75,6 @@ export function Composer({
 	onCall?: (() => void) | undefined;
 	/** Ends the call to this teammate, while there is one. */
 	onHangUp?: (() => void) | undefined;
-	/** The teammate's picture, for the call key, which is its face. */
-	avatarHash?: string | undefined;
 	/** Words a refused send handed back; a new nonce fills the field again. */
 	refill?: Refill;
 	onCancel(): void;
@@ -489,7 +486,6 @@ export function Composer({
 						<CallKey
 							personaId={personaId}
 							name={name}
-							avatarHash={avatarHash}
 							live={hangUp ? live : null}
 							held={callSnapshot.phase === "held"}
 							onPress={hangUp ? onHangUp : onCall}
@@ -519,25 +515,33 @@ export function Composer({
 }
 
 
+/** The call key's bars: where each sits, its height at rest, and how far the voice moves it. */
+const WAVE = [
+	{ x: 2.5, rest: 4, gain: 0.9 },
+	{ x: 5.25, rest: 9, gain: 0.6 },
+	{ x: 8, rest: 6, gain: 1 },
+	{ x: 10.75, rest: 11, gain: 0.5 },
+	{ x: 13.5, rest: 4, gain: 0.8 },
+] as const;
+
 /**
- * The call key is the teammate's face: Hotline calls someone, not a voice
- * mode. At rest the face sits in a thin ring that lights on hover; on a
- * call to this teammate the ring is green and breathes with the voice on
- * the line (dim while held), and pointing at it shows the red hang-up it
- * then is. The ring is drawn from `--level`, set straight from the call's
- * level, sixty times a second, without re-rendering.
+ * The call key is a soundwave in the teammate's own colour, the hue its
+ * disc has everywhere else, so calling Goldie looks like Goldie and every
+ * teammate's key is its own. At rest the bars stand still; on a call to
+ * this teammate they move with the voice on the line (still and dim while
+ * held), and pointing at the key shows the red hang-up it then is. The bars
+ * are drawn from `--level`, set straight from the call's level, sixty times
+ * a second, without re-rendering.
  */
 function CallKey({
 	personaId,
 	name,
-	avatarHash,
 	live,
 	held,
 	onPress,
 }: {
 	personaId: string;
 	name: string;
-	avatarHash: string | undefined;
 	/** The call to this teammate, while there is one. */
 	live: ReturnType<typeof useCall> | null;
 	held: boolean;
@@ -555,11 +559,23 @@ function CallKey({
 			type="button"
 			className="composer-key composer-call"
 			data-call={state}
+			style={{ "--hue": hueOf(personaId) } as CSSProperties}
 			title={live === null ? `Call ${name}` : `End the call with ${name}`}
 			aria-label={live === null ? `Call ${name}` : "End the call"}
 			onClick={onPress}
 		>
-			<Avatar id={personaId} name={name} size={22} hash={avatarHash} />
+			<svg className="composer-call-wave" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+				{WAVE.map((bar) => (
+					<line
+						key={bar.x}
+						x1={bar.x}
+						x2={bar.x}
+						y1={8 - bar.rest / 2}
+						y2={8 + bar.rest / 2}
+						style={{ "--gain": bar.gain } as CSSProperties}
+					/>
+				))}
+			</svg>
 			{live !== null && <HangUpIcon className="composer-call-end" />}
 		</button>
 	);

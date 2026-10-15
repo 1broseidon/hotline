@@ -1721,27 +1721,32 @@
 		background: var(--fill-hover);
 		color: var(--ink);
 	}
-	/* The call key is the teammate's face in a ring (Composer.tsx CallKey),
-	 * Send's size so the pill never changes height. The ring lights on
-	 * hover; on a call it is green and breathes with `--level`, dim while
-	 * held, and pointing at it shows the red hang-up it then is. */
+	/* The call key is a soundwave in the teammate's hue (Composer.tsx
+	 * CallKey), Send's size so the pill never changes height. On a call the
+	 * bars move with `--level`, still and dim while held, and pointing at it
+	 * shows the red hang-up it then is. */
 	.composer-call {
 		position: relative;
 		--level: 0;
-		box-shadow: 0 0 0 1px var(--line-strong);
+		color: oklch(var(--wave-l) var(--wave-c) var(--hue));
 	}
 	.composer-call:hover,
 	.composer-call:focus-visible {
-		background: transparent;
-		box-shadow: 0 0 0 1.5px var(--ink-2);
+		background: var(--fill-hover);
 	}
-	.composer-call[data-call="live"] {
-		box-shadow:
-			0 0 0 1.5px var(--accent),
-			0 0 0 calc(1.5px + var(--level) * 4px) color-mix(in oklch, var(--accent) 35%, transparent);
+	.composer-call-wave line {
+		stroke: currentColor;
+		stroke-width: 1.75;
+		stroke-linecap: round;
+		transform-box: fill-box;
+		transform-origin: center;
+		transition: transform 60ms linear;
+	}
+	.composer-call[data-call="live"] .composer-call-wave line {
+		transform: scaleY(calc(0.45 + var(--level) * var(--gain) * 1.1));
 	}
 	.composer-call[data-call="held"] {
-		box-shadow: 0 0 0 1.5px var(--ink-3);
+		color: var(--ink-3);
 	}
 	.composer-call-end {
 		position: absolute;

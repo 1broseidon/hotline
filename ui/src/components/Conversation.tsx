@@ -430,7 +430,6 @@ export function Conversation({
 				<Transcript
 					personaId={personaId}
 					name={persona.name}
-					avatarHash={persona.avatar?.hash}
 					people={people}
 					events={shown}
 					streaming={streaming}
@@ -462,7 +461,6 @@ export function Conversation({
 					onSend={send}
 					onCall={onCall}
 					onHangUp={onHangUp}
-					avatarHash={persona.avatar?.hash}
 					{...(refill !== null ? { refill } : {})}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}

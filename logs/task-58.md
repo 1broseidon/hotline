@@ -1,8 +1,6 @@
 ---
 id: task-58
 title: "Desk: realtime voice seam and Grok Voice adapter"
-column: review
-position: 38
 priority: high
 tags:
   - voice
@@ -16,7 +14,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/realtime/xai.rs
   - crates/hotline-core/src/voice/speech/xai.rs
   - crates/hotline-core/src/voice/mod.rs
-updatedAt: "2026-10-15T02:10:09.706Z"
+updatedAt: "2026-10-15T02:10:10.808Z"
 contract:
   status: delivered
   deliverables:
@@ -50,6 +48,7 @@ dispatch:
   model: opus
   by: lead
   at: "2026-10-15T01:57:15.439Z"
+completedAt: "2026-10-15T02:10:10.808Z"
 ---
 
 ## Description

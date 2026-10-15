@@ -1,8 +1,6 @@
 ---
 id: task-62
 title: "Desk: record front calls truthfully and count their cost"
-column: review
-position: 0
 priority: medium
 tags:
   - voice
@@ -21,9 +19,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/tests/voice.rs
   - docs/voice-calls.md
-updatedAt: "2026-10-15T02:46:42.331Z"
+updatedAt: "2026-10-15T02:48:06.686Z"
 contract:
-  status: delivered
+  status: done
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/record.rs
@@ -55,6 +53,7 @@ dispatch:
   effort: medium
   by: lead
   at: "2026-10-15T02:40:16.216Z"
+completedAt: "2026-10-15T02:48:06.686Z"
 ---
 
 ## Description

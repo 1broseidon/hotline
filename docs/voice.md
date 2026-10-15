@@ -907,10 +907,10 @@ holding one.
 
 ## The voice front setting
 
-`voice.front` in the room's settings is `{ "provider": "grok" | "openai",
-"credential": "xai" | "xai-subscription" | "openai", "voices": { "grok":
-"eve", "openai": "marin" } }`, a voice kept per provider so switching back
-finds it. Absent, or with no provider, means Grok Voice on the first
+`voice.front` in the room's settings is `{ "provider": "grok" | "openai" |
+"gpt-live", "credential": "xai" | "xai-subscription" | "openai" |
+"openai-codex", "voices": { "grok": "eve", "openai": "marin", "gpt-live":
+"cove" } }`, a voice kept per provider so switching back finds it. Absent, or with no provider, means Grok Voice on the first
 connected xAI login or key: the voice front is the default for calls to the
 desk and to a teammate. `openai` is GPT Realtime (`gpt-realtime-2.1`) on an
 OpenAI API key; a ChatGPT sign-in does not run it. Settings > Use for > Live
@@ -928,7 +928,27 @@ minutes early with the transcript carried) and where `session.update` puts
 the voice, turn detection and the person's transcription, which OpenAI only
 sends when asked (`gpt-4o-mini-transcribe`). GPT Realtime is charged at $0.10
 a minute against the Voice budget, above its token price with the
-microphone open, so a cap is never exceeded. Legacy voice's own rows, the voice
+microphone open, so a cap is never exceeded.
+
+`gpt-live` is GPT-Live (`gpt-live-1-codex`) on the ChatGPT sign-in, placed
+the way the Codex app places it (`voice/realtime/live.rs`): a WebRTC call
+created at `chatgpt.com/backend-api/codex/realtime/calls` with the login's
+bearer and account, joined by a sideband socket at
+`wss://api.openai.com/v1/live/<call id>`. The desk is the peer and sends
+the person's audio up as Opus over RTP, 20 ms packets at 48 kHz paced by
+the adapter and filled with silence when the microphone is quiet or held;
+the model's speech (24 kHz PCM, the front's own rate), what each side said
+and its hand-offs come back on the sideband. It has no tools: it hands a
+request over as a client `delegation`, which the adapter reports as the
+bridge's `send_to_teammate`, and a line for the person goes in on the
+`speakable` channel, which the model says in its own words rather than
+verbatim. The server stops a reply itself when the person talks; the
+adapter reports the person's new turn as a barge-in so the client cuts its
+playback. Lines wait for `session.started`. Creating the call is retried on
+a 5xx or an unreachable server, a dropped sideband is joined again, and a
+call the server no longer knows (sessions last an hour) or a failed peer
+drops the front and the call goes on as a pipeline call. It costs nothing
+against the Voice budget. Legacy voice's own rows, the voice
 it speaks in and the call assistant, show in Settings only under it;
 Transcription stays under Use for, because dictation uses it.
 

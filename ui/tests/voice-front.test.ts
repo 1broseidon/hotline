@@ -7,7 +7,8 @@ describe("the voice front setting", () => {
 		expect(frontOf({ front: { voices: { grok: "eve" } } })).toEqual({ provider: "grok", voices: { grok: "eve" } });
 		expect(frontOf({ front: { provider: "grok", credential: "xai", voices: { grok: "ara" } } })).toEqual({ provider: "grok", credential: "xai", voices: { grok: "ara" } });
 		expect(frontOf({ front: { provider: LEGACY, voices: {} } }).provider).toBe(LEGACY);
-		expect(frontOf({ front: { provider: "gpt-live" } }).provider).toBe(LEGACY);
+		expect(frontOf({ front: { provider: "gemini-live" } }).provider).toBe(LEGACY);
+		expect(frontOf({ front: { provider: "gpt-live", credential: "openai-codex", voices: { "gpt-live": "maple" } } })).toEqual({ provider: "gpt-live", credential: "openai-codex", voices: { "gpt-live": "maple" } });
 		expect(frontOf({ front: { provider: "openai", credential: "openai", voices: { openai: "cedar" } } })).toEqual({ provider: "openai", credential: "openai", voices: { openai: "cedar" } });
 	});
 

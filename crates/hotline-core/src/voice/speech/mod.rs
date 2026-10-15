@@ -91,10 +91,10 @@ impl fmt::Display for SpeechError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SpeechError::SignInRequired { provider_id } => {
-                let name = if provider_id == "xai-subscription" {
-                    "Grok"
-                } else {
-                    provider_id
+                let name = match provider_id.as_str() {
+                    "xai-subscription" => "Grok",
+                    "openai-codex" => "ChatGPT",
+                    other => other,
                 };
                 write!(f, "Sign in to {name} again to use voice.")
             }

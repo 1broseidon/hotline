@@ -180,10 +180,15 @@ fallback. Both output paths check fallback credential revocation before use.
 
 A voice front (ADR 0004) fronts calls by default when the vault holds a
 login or key that can run one: Grok Voice on a Grok login or xAI key, or GPT
-Realtime on an OpenAI API key when the owner picks it in Settings (the call's
-audio then goes to OpenAI). Legacy voice turns it off, and a client asks for
-it per call. The Grok login is only ever sent to xAI's voice origin, and GPT
-Realtime refuses it. Its whole reach is two tools enforced in the core
+Realtime on an OpenAI API key, or GPT-Live on the ChatGPT sign-in, when the
+owner picks one in Settings (the call's audio then goes to OpenAI; for
+GPT-Live the login's bearer goes to `chatgpt.com` to create the call and to
+`api.openai.com` for its sideband, as the Codex app sends it, and the call's
+media is a WebRTC peer the desk opens with host candidates only). Legacy
+voice turns it off, and a client asks for it per call. The Grok login is
+only ever sent to xAI's voice origin, and GPT Realtime refuses it. GPT-Live
+has no tools at all: its one way to reach the teammate is a client
+delegation, which the core answers as `send_to_teammate`. Its whole reach is two tools enforced in the core
 (`voice/front.rs`): `send_to_teammate` hands words to `Calls::relay`, the same
 owner-seat, sequence-gated, call-origin path as `voice.text`, so the
 teammate's session keeps its own grants and approval gates; `remain_silent`

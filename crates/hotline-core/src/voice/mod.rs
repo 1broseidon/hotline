@@ -1152,7 +1152,12 @@ impl Calls {
     /// still in the vault.
     fn login_connected(&self, provider_id: &str, subscription: bool) -> bool {
         let auth = self.vault.provider_auth();
-        if subscription {
+        if provider_id == realtime::live::PROVIDER_ID {
+            matches!(
+                auth.get(provider_id),
+                Some(crate::session::ProviderAuth::Login { .. })
+            )
+        } else if subscription {
             matches!(
                 auth.get("xai"),
                 Some(crate::session::ProviderAuth::StoredLogin { .. })

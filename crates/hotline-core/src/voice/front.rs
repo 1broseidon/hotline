@@ -69,14 +69,9 @@ impl Note {
             Self::Spoken(text) | Self::Progress(text) | Self::NeedsYou(text) => text,
         }
     }
-
-    /// The text to give a front model so that it says the note, word for word.
-    pub fn instruction(&self) -> String {
-        format!("{SAY_THIS}{}", self.text())
-    }
 }
 
-const SAY_THIS: &str = "Say exactly this to the person, word for word, and add nothing: ";
+use super::realtime::SAY_THIS;
 
 /// How many of the latest notes a relay is checked against.
 const NOTES_KEPT: usize = 8;
@@ -333,11 +328,5 @@ mod tests {
         assert!(direct.contains("Nothing is done yet"));
         assert!(!direct.contains("Handed to"));
         assert!(handed(Speaks::ForDesk).contains("Nothing is done yet"));
-    }
-
-    #[test]
-    fn a_note_is_given_to_the_front_to_say_as_it_is() {
-        let note = Note::Spoken("The checks passed.".into());
-        assert!(note.instruction().ends_with("The checks passed."));
     }
 }

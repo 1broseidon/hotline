@@ -421,6 +421,10 @@ impl Driver {
                 self.quiet_reply = false;
                 self.respond(socket).await
             }
+            Command::Say(line) => {
+                let text = format!("{}{line}", super::SAY_THIS);
+                Box::pin(self.command(socket, Command::Text(text))).await
+            }
             Command::Text(text) => {
                 // OpenAI's model takes a user item for the person's words and
                 // relays it, so a line to say goes in as a system item, and

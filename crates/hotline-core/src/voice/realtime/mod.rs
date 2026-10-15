@@ -9,9 +9,15 @@
 //! conversation's transcript across, so the caller sees one session for the
 //! whole call. Dropping every [`RealtimeInput`] closes it.
 
+pub mod live;
 pub mod socket;
 
+pub use live::GptLive;
 pub use socket::RealtimeSocket;
+
+/// How a model that takes text turns is asked to say a line as given. GPT-Live
+/// has a channel for speech and is handed the line alone.
+pub const SAY_THIS: &str = "Say exactly this to the person, word for word, and add nothing: ";
 
 use super::speech::{SpeechError, SpeechId};
 use async_trait::async_trait;
@@ -84,6 +90,8 @@ pub enum Command {
         reply: bool,
     },
     Text(String),
+    /// A line for the model to say to the person as given.
+    Say(String),
     Truncate {
         played_ms: u32,
     },
@@ -147,6 +155,17 @@ impl RealtimeInput {
             return Err(SpeechError::UnsupportedFormat("text this long".into()));
         }
         self.send(Command::Text(text.into())).await
+    }
+
+    /// A line for the model to say to the person, word for word.
+    pub async fn say(&self, line: &str) -> Result<(), SpeechError> {
+        if line.trim().is_empty() {
+            return Err(SpeechError::NothingToSay);
+        }
+        if line.chars().count() > TEXT_LIMIT {
+            return Err(SpeechError::UnsupportedFormat("text this long".into()));
+        }
+        self.send(Command::Say(line.into())).await
     }
 
     /// After a barge-in: the model keeps only the first `played_ms` of its

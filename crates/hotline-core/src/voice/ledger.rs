@@ -563,6 +563,7 @@ const FRONT_PER_MINUTE_USD: &[(&str, f64)] = &[
     // spoken, with the microphone open the whole call. Charged high.
     ("openai", 0.10),
     ("xai-subscription", 0.0),
+    ("openai-codex", 0.0),
     ("local", 0.0),
 ];
 

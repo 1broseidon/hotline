@@ -818,7 +818,7 @@ function ProvidersSection({
 						</div>
 						<p className="group-hint">Keys and sign-ins stay on this computer.</p>
 					</section>
-					{capabilities !== null && <UseFor options={capabilities} voice={voice} onChanged={() => void reloadCapabilities()} />}
+					{capabilities !== null && <UseFor options={capabilities} voice={voice} connected={[...live]} onChanged={() => void reloadCapabilities()} />}
 					{capabilities !== null && <Budgets spending={capabilities.spending} onChanged={() => void reloadCapabilities()} />}
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>

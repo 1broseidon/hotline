@@ -51,9 +51,12 @@ import {
 export function UseFor({
 	options,
 	voice,
+	connected = [],
 	onChanged,
 }: {
 	options: CapabilityOptions;
+	/** The providers with a live login or key, for the fronts no speech job lists (a ChatGPT sign-in). */
+	connected?: string[];
 	/** `settings.voice` as written, so a write to one job keeps the rest. */
 	voice: unknown;
 	/** The options are stale: ask for them again. */
@@ -176,7 +179,7 @@ export function UseFor({
 			<section>
 				<LiveCalls
 					front={frontOf(voice)}
-					logins={options.tts.options.map((one) => one.providerId).filter((id) => FRONT_LOGINS.includes(id))}
+					logins={[...new Set([...options.tts.options.map((one) => one.providerId), ...connected])].filter((id) => FRONT_LOGINS.includes(id))}
 					write={(next) => write({ voice: frontPatch(voice, next) })}
 				>
 							<JobRow

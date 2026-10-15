@@ -11,7 +11,8 @@
 //! ```
 //!
 //! `front` is the live-call voice front: Grok Voice (`grok`) on an xAI login
-//! or key, or GPT Realtime (`openai`) on an OpenAI key, with the voice picked
+//! or key, GPT Realtime (`openai`) on an OpenAI key, or GPT-Live
+//! (`gpt-live`) on a ChatGPT login, with the voice picked
 //! for each kept under its provider. Without it, calls are fronted by
 //! Grok Voice on the first connected xAI login or key, and a desk with
 //! neither keeps the pipeline. `{"provider": "legacy"}`, Legacy voice in
@@ -48,6 +49,8 @@ pub struct Choice {
 pub enum FrontProvider {
     Grok,
     OpenAi,
+    /// GPT-Live on a ChatGPT login.
+    GptLive,
 }
 
 impl FrontProvider {
@@ -56,6 +59,7 @@ impl FrontProvider {
         match self {
             Self::Grok => "grok",
             Self::OpenAi => "openai",
+            Self::GptLive => "gpt-live",
         }
     }
 
@@ -64,13 +68,15 @@ impl FrontProvider {
         match self {
             Self::Grok => "eve",
             Self::OpenAi => "marin",
+            Self::GptLive => "cove",
         }
     }
 }
 
 /// The owner's voice front: who fronts calls, the login or key it uses
-/// (`xai` or `xai-subscription` for Grok, `openai` for GPT Realtime; `None`
-/// lets the desk choose), and the voice picked for that provider.
+/// (`xai` or `xai-subscription` for Grok, `openai` for GPT Realtime,
+/// `openai-codex` for GPT-Live; `None` lets the desk choose), and the voice
+/// picked for that provider.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrontChoice {
     pub provider: FrontProvider,
@@ -201,6 +207,7 @@ fn front(voice: &Map<String, Value>) -> Option<FrontChoice> {
     let provider = match pick.get("provider").and_then(Value::as_str) {
         None | Some("grok") => FrontProvider::Grok,
         Some("openai") => FrontProvider::OpenAi,
+        Some("gpt-live") => FrontProvider::GptLive,
         Some(_) => return None,
     };
     let voice = text(
@@ -412,9 +419,20 @@ mod tests {
                 voice: Some("cedar".into())
             })
         );
+        assert_eq!(
+            VoiceSettings::from_room(&room(
+                json!({"front": {"provider": "gpt-live", "voices": {"gpt-live": "maple"}}})
+            ))
+            .front,
+            Some(FrontChoice {
+                provider: FrontProvider::GptLive,
+                credential: None,
+                voice: Some("maple".into())
+            })
+        );
         for legacy in [
             json!({"provider": "legacy", "voices": {"grok": "ara"}}),
-            json!({"provider": "gpt-live"}),
+            json!({"provider": "gemini-live"}),
         ] {
             assert_eq!(
                 VoiceSettings::from_room(&room(json!({ "front": legacy }))).front,

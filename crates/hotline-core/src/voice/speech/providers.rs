@@ -12,7 +12,7 @@ use crate::contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
 use crate::credentials::CredentialFile;
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
-use crate::voice::realtime::{Realtime, RealtimeSocket};
+use crate::voice::realtime::{GptLive, Realtime, RealtimeSocket};
 use crate::voice::settings::{Choice, FrontProvider, VoiceSettings};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -505,6 +505,17 @@ fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Con
 /// and the login or key it names is still connected. With no login named,
 /// the first connected one runs it. `None` keeps calls on the pipeline.
 pub fn resolve_front(vault: &Vault, settings: &VoiceSettings) -> Option<Arc<dyn Realtime>> {
+    if settings.front.as_ref()?.provider == FrontProvider::GptLive {
+        // The ChatGPT login is a token directory, not a speech connection.
+        let ProviderAuth::Login { token_dir } = vault
+            .provider_auth()
+            .get(crate::voice::realtime::live::PROVIDER_ID)?
+            .clone()
+        else {
+            return None;
+        };
+        return Some(Arc::new(GptLive::new(token_dir)));
+    }
     front_from(&connections(vault), settings)
 }
 
@@ -513,6 +524,7 @@ fn front_from(connections: &[Connection], settings: &VoiceSettings) -> Option<Ar
     let logins: &[&str] = match front.provider {
         FrontProvider::Grok => &[xai::PROVIDER_ID, xai::SUBSCRIPTION_PROVIDER_ID],
         FrontProvider::OpenAi => &[OPENAI],
+        FrontProvider::GptLive => return None,
     };
     let connection = connections.iter().find(|connection| {
         logins.contains(&connection.provider_id.as_str())

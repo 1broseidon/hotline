@@ -245,6 +245,14 @@ export const FRONTS = [
 		],
 	},
 	{
+		id: "gpt-live",
+		name: "GPT-Live",
+		group: "OpenAI",
+		connect: "Sign in with ChatGPT above",
+		voices: ["cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "sol"],
+		logins: [{ id: "openai-codex", detail: "Included with your ChatGPT subscription" }],
+	},
+	{
 		id: "openai",
 		name: "GPT Realtime",
 		group: "OpenAI",

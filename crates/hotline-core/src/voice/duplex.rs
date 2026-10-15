@@ -344,7 +344,7 @@ impl Calls {
                 // front that is gone is noticed by its events ending.
                 note = bridge.next_note() => {
                     let Some(note) = note else { return FrontEnd::Call };
-                    let _ = input.text(&note.instruction()).await;
+                    let _ = input.say(note.text()).await;
                     continue;
                 }
                 event = events.recv() => event,

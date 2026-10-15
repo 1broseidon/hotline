@@ -1328,7 +1328,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
                     }
                 }
                 asked = desk.asked.recv() => {
-                    if let Some(Asked::Text(text)) = asked {
+                    if let Some(Asked::Say(text)) = asked {
                         return text;
                     }
                 }
@@ -1338,10 +1338,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     .await
     .expect("the teammate's line reached the front");
     assert!(listening, "the call showed the teammate working");
-    assert_eq!(
-        said,
-        "Say exactly this to the person, word for word, and add nothing: The checks passed."
-    );
+    assert_eq!(said, "The checks passed.");
 
     // A front that relays the line it was given back to the teammate is
     // refused, or the teammate would answer its own reply, round and round.

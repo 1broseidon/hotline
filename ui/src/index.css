@@ -1721,21 +1721,21 @@
 		background: var(--fill-hover);
 		color: var(--ink);
 	}
-	/* The call key is the composer's lead with the field empty: the accent,
-	 * a size up from its neighbours, and red while it hangs up. */
+	/* The call key stands out from the mic by a ring, not a fill: the accent
+	 * is Send's. Same size as Send, so the pill never changes height; red
+	 * while it hangs up. */
 	.composer-call {
-		width: 32px;
-		height: 32px;
-		background: var(--accent);
-		color: var(--on-accent);
+		color: var(--ink);
+		box-shadow: inset 0 0 0 1px var(--line-strong);
 	}
 	.composer-call:hover {
-		background: var(--accent-hover);
+		background: var(--fill-hover);
 	}
 	.composer-hang-up,
 	.composer-hang-up:hover {
 		background: var(--danger);
 		color: white;
+		box-shadow: none;
 	}
 	.composer-hang-up:hover {
 		filter: brightness(1.1);

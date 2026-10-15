@@ -19,7 +19,7 @@ pub mod local;
 mod openai_shape;
 mod providers;
 mod wav;
-mod xai;
+pub(in crate::voice) mod xai;
 
 pub use clip::{MIN_GOODBYE_MS, billable_ms, plausible_goodbye};
 pub use google::Google;

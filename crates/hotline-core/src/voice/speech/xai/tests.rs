@@ -260,7 +260,7 @@ fn login(root: &std::path::Path) -> CredentialFile {
 fn subscription_voice(tokens: CredentialFile, url: &str) -> Xai {
     let mut voice = speaker(BASE_URL).with_subscription(tokens).unwrap();
     // Only fixtures replace the production origin after the guarded constructor.
-    voice.endpoint.base_url = url.into();
+    voice.access.endpoint.base_url = url.into();
     voice
 }
 fn malformed() -> SpeechError {
@@ -309,7 +309,7 @@ async fn subscription_tts_resolves_each_request_and_retries_one_rejected_login()
     let (url, _server) = http_server(app).await;
     let voice = subscription_voice(tokens.clone(), &url);
     assert!(voice.is_subscription());
-    assert!(voice.endpoint.key.is_none());
+    assert!(voice.access.endpoint.key.is_none());
     assert_eq!(voice.id().provider_id, SUBSCRIPTION_PROVIDER_ID);
     assert!(
         voice
@@ -409,7 +409,7 @@ async fn subscription_tts_refreshes_only_once_and_batch_stt_never_replays_upload
         .unwrap()
         .with_subscription(tokens)
         .unwrap();
-    listen.endpoint.base_url = url;
+    listen.access.endpoint.base_url = url;
     assert!(matches!(
         listen
             .transcribe(Clip {
@@ -471,7 +471,7 @@ async fn subscription_live_auth_retries_before_any_caller_audio_and_uses_fresh_l
         .unwrap()
         .with_subscription(tokens)
         .unwrap();
-    listen.endpoint.base_url = url;
+    listen.access.endpoint.base_url = url;
     let (sender, input) = mpsc::channel(1);
     sender.send(vec![0; 3200]).await.unwrap();
     drop(sender);

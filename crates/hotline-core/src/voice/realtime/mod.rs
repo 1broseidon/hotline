@@ -22,6 +22,7 @@ use tokio::sync::mpsc;
 const FRAME_LIMIT: usize = 64 << 10;
 /// The longest text item, in characters.
 const TEXT_LIMIT: usize = 15_000;
+const EVENT_QUEUE: usize = 256;
 
 /// One function the model may call. `parameters` is its JSON Schema.
 #[derive(Clone, Debug, PartialEq)]
@@ -73,7 +74,8 @@ pub enum RealtimeEvent {
 }
 
 /// What a caller asks of a live session; the driver task carries it out.
-enum Command {
+#[derive(Debug, PartialEq, Eq)]
+pub enum Command {
     Audio(Vec<u8>),
     ToolResult { call_id: String, output: String },
     Text(String),
@@ -97,12 +99,18 @@ impl RealtimeInput {
 
     /// One frame of microphone PCM at the input rate.
     pub async fn push_audio(&self, pcm: Vec<u8>) -> Result<(), SpeechError> {
-        if pcm.is_empty() || !pcm.len().is_multiple_of(2) || pcm.len() > FRAME_LIMIT {
-            return Err(SpeechError::UnsupportedFormat(
-                "a partial PCM16 frame".into(),
-            ));
-        }
+        check_frame(&pcm)?;
         self.send(Command::Audio(pcm)).await
+    }
+
+    /// [`push_audio`](Self::push_audio) that never waits: a session that is
+    /// behind refuses the frame, so a caller on a shared socket drops audio
+    /// rather than stalling everything else on it.
+    pub fn try_push_audio(&self, pcm: Vec<u8>) -> Result<(), SpeechError> {
+        check_frame(&pcm)?;
+        self.commands
+            .try_send(Command::Audio(pcm))
+            .map_err(|_| SpeechError::Cancelled)
     }
 
     /// The answer to a [`RealtimeEvent::ToolCall`]. The model replies once
@@ -133,6 +141,15 @@ impl RealtimeInput {
     }
 }
 
+fn check_frame(pcm: &[u8]) -> Result<(), SpeechError> {
+    if pcm.is_empty() || !pcm.len().is_multiple_of(2) || pcm.len() > FRAME_LIMIT {
+        return Err(SpeechError::UnsupportedFormat(
+            "a partial PCM16 frame".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// One live call. `events` ends after an error, or once the session closes.
 pub struct RealtimeSession {
     pub input: RealtimeInput,
@@ -140,6 +157,28 @@ pub struct RealtimeSession {
 }
 
 impl RealtimeSession {
+    /// A session with no provider behind it, for a harness that plays the
+    /// provider: it reads what the caller asks and sends the events. The
+    /// command queue holds `queue` asks, as the real one holds a bounded few.
+    pub fn scripted(
+        queue: usize,
+    ) -> (
+        Self,
+        mpsc::Receiver<Command>,
+        mpsc::Sender<Result<RealtimeEvent, SpeechError>>,
+    ) {
+        let (commands, asked) = mpsc::channel(queue);
+        let (sender, events) = mpsc::channel(EVENT_QUEUE);
+        (
+            Self {
+                input: RealtimeInput { commands },
+                events,
+            },
+            asked,
+            sender,
+        )
+    }
+
     /// Closes the provider connection and waits until it is closed. Other
     /// clones of the input keep the session open until they are dropped.
     pub async fn close(self) {

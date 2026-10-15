@@ -106,13 +106,25 @@ pub(crate) async fn run(
             persona_id,
             stream_audio,
             input_mode,
-        } => Ok(json!(voice(room)?.start_with_input(
+            mode,
+            input_rate,
+        } => Ok(json!(voice(room)?.start_call(
             &call_id,
             persona_id,
             stream_audio.unwrap_or_default(),
             input_mode.unwrap_or_default(),
+            mode.unwrap_or_default(),
+            input_rate,
             room.clone()
         )?)),
+        Command::VoiceFrontAudio { call_id, seq, data } => {
+            voice(room)?.front_audio(&call_id, seq, &data)?;
+            Ok(Value::Null)
+        }
+        Command::VoiceFrontBarge { call_id, played_ms } => {
+            voice(room)?.front_barge(&call_id, played_ms).await?;
+            Ok(Value::Null)
+        }
         Command::VoiceText { call_id, seq, text } => {
             voice(room)?.text(&call_id, seq, &text)?;
             Ok(Value::Null)

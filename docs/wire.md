@@ -1200,6 +1200,8 @@ No extra speech credential is created.
 | `voice.audio` | `{callId,seq,index,data,final}` | void; negotiated mono PCM16 at 16 kHz |
 | `voice.utterance` | `{callId,seq,mimeType,data,durationMs}` | void |
 | `voice.interrupt` | `{callId}` | void |
+| `voice.front_audio` | `{callId,seq,data}` | void; front calls only, PCM16 mono at the negotiated `inputRate`; see [voice-calls.md](voice-calls.md) |
+| `voice.front_barge` | `{callId,playedMs}` | void; front calls only |
 | `voice.hold` | `{callId,hold}` | void |
 | `voice.call_end` | `{callId}` | void |
 | `voice.models` | `{}` | `SpeechModel[]`: each of the desk's own speech models, its sizes, credit and licence, and `state`: `available`, `downloading` (with `receivedBytes`), `unpacking` or `installed`, with `error` after a failed download |

@@ -1,6 +1,7 @@
 //! One owner call per desk, with bounded work and complete sentence clips.
 
 pub mod dispatcher;
+mod duplex;
 pub mod front;
 pub mod front_prompt;
 pub mod ledger;
@@ -13,12 +14,13 @@ pub mod speech;
 pub mod spoken;
 
 use crate::contract::{
-    BudgetKind, SpeechModel, VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceInputMode,
-    VoiceModel, VoiceState, VoiceStatus,
+    BudgetKind, SpeechModel, VoiceBudget, VoiceCall, VoiceCallMode, VoiceEndReason, VoiceEvent,
+    VoiceFront, VoiceInputMode, VoiceModel, VoiceState, VoiceStatus,
 };
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use dispatcher::{Context, Dispatcher, ProviderDispatcher};
+use duplex::Front;
 use ledger::Kind;
 use metering::{BUDGET_ERROR, Budget};
 use record::{Record, Speaker};
@@ -42,11 +44,14 @@ const RETRY_LINE: &str = "Sorry, say that again.";
 const ERROR_LINE: &str = "Voice keeps failing. Please continue by text.";
 const MAX_FAILURES: u8 = 3;
 const MAX_AUDIO: usize = 2 * 1024 * 1024;
+const FRONT_LINE: &str = "This call has a voice front. Send front audio.";
 const BUDGET_LINE: &str = "The voice budget is unavailable or spent. Chat carries on by text.";
 /// The capability of a desk whose call to a teammate takes what the person
 /// says while the teammate's turn works: its `thinking` says `listening`, and
 /// the words steer into the open turn.
 pub const LISTEN_WHILE_THINKING: &str = "voiceListenWhileThinking";
+/// A desk with a realtime provider can put a voice front on a call.
+pub const VOICE_FRONT: &str = "voiceFront";
 /// How often a call that is thinking says so again. A phone stops waiting on
 /// a desk it has not heard from for 45 seconds, and a teammate's turn can work
 /// for longer than that without a word. Tests wait a tenth of a second.
@@ -72,6 +77,8 @@ const REWRITE_WAIT: Duration = if cfg!(test) {
 pub struct Services {
     pub speech: SpeechSet,
     pub dispatcher: Option<Arc<dyn Dispatcher>>,
+    /// The realtime model a front call speaks through; none, no front.
+    pub realtime: Option<Arc<dyn realtime::Realtime>>,
 }
 
 /// Text input carries no remote listener, even when an audio listener is configured.
@@ -269,6 +276,8 @@ struct Call {
     /// What the person last said on a direct call, which a rewrite of the
     /// teammate's reply is handed for context.
     words: String,
+    /// On a front call, its sound; gone once the front is.
+    front: Option<Front>,
 }
 
 impl Call {
@@ -328,6 +337,7 @@ impl Call {
                 record.ended(reason);
             }
             self.input = None;
+            self.front = None;
             self.cancel.cancel();
             self.speech.cancel();
             self.deliveries.cancel();
@@ -608,12 +618,16 @@ impl Calls {
             .cloned()
             .or_else(|| dispatcher.as_ref().err().cloned())
             .or(budget_error);
+        let mut capabilities = vec![
+            "voiceDirectCalls".into(),
+            "voiceTextInput".into(),
+            LISTEN_WHILE_THINKING.into(),
+        ];
+        if self.front_available() {
+            capabilities.push(VOICE_FRONT.into());
+        }
         VoiceStatus {
-            capabilities: vec![
-                "voiceDirectCalls".into(),
-                "voiceTextInput".into(),
-                LISTEN_WHILE_THINKING.into(),
-            ],
+            capabilities,
             available: unavailable.is_none(),
             direct_available,
             unavailable,
@@ -663,6 +677,31 @@ impl Calls {
         input_mode: VoiceInputMode,
         room: Arc<dyn RoomHandle>,
     ) -> Result<VoiceCall, String> {
+        self.start_call(
+            id,
+            target,
+            stream_audio,
+            input_mode,
+            VoiceCallMode::Pipeline,
+            None,
+            room,
+        )
+    }
+
+    /// Starts a call, or answers for one already started. A front is a
+    /// request: the answer says whether the call got one, and a call that
+    /// did not runs on the pipeline.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_call(
+        self: &Arc<Self>,
+        id: &str,
+        target: Option<String>,
+        stream_audio: bool,
+        input_mode: VoiceInputMode,
+        mode: VoiceCallMode,
+        mic_rate: Option<u32>,
+        room: Arc<dyn RoomHandle>,
+    ) -> Result<VoiceCall, String> {
         if let Some(target) = &target
             && !crate::room::roster(&self.log)
                 .iter()
@@ -675,7 +714,8 @@ impl Calls {
         if let Some(call) = calls.iter().find(|call| call.id == id)
             && (call.target != target
                 || call.stream_audio != stream_audio
-                || call.input_mode != input_mode)
+                || call.input_mode != input_mode
+                || (call.front.is_some() && mode != VoiceCallMode::Front))
         {
             return Err("A call cannot change its target or input/output mode.".into());
         }
@@ -701,6 +741,7 @@ impl Calls {
             }
             let (tx, rx) = mpsc::channel(16);
             let cancel = CancellationToken::new();
+            let realtime = self.realtime().filter(|_| mode == VoiceCallMode::Front);
             calls.push_back(Call {
                 id: id.into(),
                 output: speech_services.tts.output_mime().into(),
@@ -729,7 +770,11 @@ impl Calls {
                     .as_deref()
                     .map(|persona_id| Record::open(self.room.clone(), id, persona_id)),
                 words: String::new(),
+                front: realtime.is_some().then(|| Front::new(mic_rate)),
             });
+            if let Some(realtime) = realtime {
+                tokio::spawn(self.clone().run_front(id.into(), realtime, cancel.clone()));
+            }
             self.thinking_again(id, cancel.clone());
             let this = self.clone();
             let id = id.to_string();
@@ -750,6 +795,10 @@ impl Calls {
         }
         Ok(VoiceCall {
             call_id: id.into(),
+            front: calls
+                .iter()
+                .find(|call| call.id == id)
+                .and_then(|call| call.front.as_ref().map(Front::description)),
             persona_id: target,
             input_mode,
             input: {
@@ -977,6 +1026,9 @@ impl Calls {
         work: impl FnOnce(CancellationToken) -> Work,
     ) -> Result<(), String> {
         self.change(id, |call| {
+            if call.front.is_some() {
+                return Err(FRONT_LINE.into());
+            }
             if call.input_mode != input_mode {
                 return Err(match call.input_mode {
                     VoiceInputMode::Text => {
@@ -1103,6 +1155,9 @@ impl Calls {
         self.change(id, |call| {
             if call.state == VoiceState::Held {
                 return Err("Resume the call before speaking.".into());
+            }
+            if call.front.is_some() {
+                return Err(FRONT_LINE.into());
             }
             if call.input_mode != VoiceInputMode::Audio
                 || !call.stream_audio

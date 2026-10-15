@@ -155,6 +155,7 @@ pub(crate) fn with_fake(fake: Arc<Fake>) -> Services {
             fallback_tts: None,
         },
         dispatcher: Some(fake),
+        realtime: None,
     }
 }
 fn desk(services: Services) -> (tempfile::TempDir, Arc<crate::desk::Desk>, Arc<Calls>) {

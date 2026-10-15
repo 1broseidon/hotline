@@ -3878,22 +3878,172 @@
 	}
 	/* On the raised card the call's keys are filled a step lighter, with no
 	 * outline: hold in the pop fill, hang-up in red. */
-	.call-bar .call-button {
+	.call-bar .call-button,
+	.desk-call .call-button {
 		width: 32px;
 		height: 32px;
 		background: var(--pop);
 		box-shadow: var(--top-light);
 	}
-	.call-bar .call-button:hover:not(:disabled) {
+	.call-bar .call-button:hover:not(:disabled),
+	.desk-call .call-button:hover:not(:disabled) {
 		filter: brightness(1.15);
 	}
 	.call-bar .call-button-end,
-	.call-bar .call-button-end:hover:not(:disabled) {
+	.call-bar .call-button-end:hover:not(:disabled),
+	.desk-call .call-button-end,
+	.desk-call .call-button-end:hover:not(:disabled) {
 		background: var(--hang-up);
 	}
 	.call-bar .call-button-start,
-	.call-bar .call-button-start:hover:not(:disabled) {
+	.call-bar .call-button-start:hover:not(:disabled),
+	.desk-call .call-button-start,
+	.desk-call .call-button-start:hover:not(:disabled) {
 		background: var(--accent);
+	}
+	.call-button[aria-pressed="true"] {
+		color: var(--ink);
+		background: var(--fill-active);
+	}
+
+	/* The desk's line at the foot of the team rail (Call.tsx DeskCall): a
+	 * call key at rest, a wide quiet key with the handset (a round one in
+	 * the faces-only rail), disabled while a teammate is on the line. On a
+	 * call to the desk the slot grows into the call's card, raised like the
+	 * conversation's call card: the handset ringed green and swelling with
+	 * the voice beside "Desk" and the status, then the voice bars and the
+	 * keys, the transcript opening above them. A hang-up folds it back. */
+	.desk-call-slot {
+		flex-shrink: 0;
+		padding: 0 10px 6px;
+	}
+	.desk-call-slot-compact {
+		display: flex;
+		justify-content: center;
+		padding: 0 0 6px;
+	}
+	.desk-call-key {
+		display: grid;
+		width: 100%;
+		height: 36px;
+		place-items: center;
+		border-radius: var(--radius-control);
+		color: var(--ink-2);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out);
+	}
+	.desk-call-key:hover:not(:disabled) {
+		color: var(--ink);
+		background: var(--pop);
+	}
+	.desk-call-key:disabled {
+		opacity: 0.45;
+	}
+	.desk-call-slot-compact .desk-call-key {
+		width: 36px;
+		border-radius: 50%;
+	}
+	.desk-call {
+		--level: 0;
+		display: flex;
+		flex-shrink: 0;
+		flex-direction: column;
+		gap: 10px;
+		margin: 0 8px 6px;
+		padding: 10px;
+		border-radius: var(--radius-pane);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			0 14px 28px -18px oklch(0% 0 0 / 0.6);
+		animation: desk-call-open var(--dur-open) var(--ease-out) both;
+	}
+	.desk-call[data-folding] {
+		animation: desk-call-fold var(--dur-open) var(--ease-out) both;
+	}
+	@keyframes desk-call-open {
+		from {
+			opacity: 0;
+			transform: translateY(6px) scale(0.97);
+		}
+	}
+	@keyframes desk-call-fold {
+		to {
+			opacity: 0;
+			transform: translateY(6px) scale(0.97);
+		}
+	}
+	.desk-call-compact {
+		align-items: center;
+		gap: 8px;
+		margin: 0 6px 6px;
+		padding: 10px 0;
+	}
+	.desk-call-top {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		gap: 10px;
+	}
+	.desk-call-mark {
+		display: grid;
+		width: 28px;
+		height: 28px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 50%;
+		color: var(--accent);
+		box-shadow:
+			0 0 0 2px var(--accent),
+			0 0 0 calc(2px + var(--level) * 5px) color-mix(in oklch, var(--accent) 28%, transparent);
+	}
+	.desk-call-compact .desk-call-mark {
+		width: 32px;
+		height: 32px;
+	}
+	.desk-call[data-phase="connecting"] .desk-call-mark {
+		animation: call-breathe 1200ms var(--ease-out) infinite;
+	}
+	.desk-call[data-phase="held"] .desk-call-mark,
+	.desk-call[data-phase="ended"] .desk-call-mark {
+		color: var(--ink-3);
+		box-shadow: 0 0 0 2px var(--ink-4);
+	}
+	.desk-call-mark[aria-disabled="false"] {
+		cursor: pointer;
+	}
+	.desk-call-name {
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.desk-call-keys {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.desk-call .call-voice {
+		position: static;
+		width: 72px;
+		height: 20px;
+		transform: none;
+	}
+	.desk-call-trouble {
+		margin: 0;
+	}
+	.desk-call .call-transcript {
+		max-height: 200px;
+		padding: 0 0 10px;
+		border-top: none;
+		border-bottom: var(--hairline) solid var(--line);
+	}
+	.titlebar-desk-call[data-on] {
+		color: var(--accent);
 	}
 	/* The call's own controls are round and wordless, like a phone's:
 	 * hold and resume in the quiet fill, hanging up in red, calling again
@@ -3937,6 +4087,7 @@
 		filter: brightness(1.1);
 	}
 	@media (prefers-reduced-motion: reduce) {
+		.desk-call-mark,
 		.call-bar-mark,
 		.call-face,
 		.call-face[data-phase],
@@ -3945,7 +4096,8 @@
 			transition: none;
 		}
 		/* Still folds, at once, so the strip still closes when it ends. */
-		.call-bar {
+		.call-bar,
+		.desk-call {
 			animation-duration: 1ms;
 		}
 	}

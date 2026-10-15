@@ -1,4 +1,4 @@
-import { type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
+import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
 import { ChevronDownIcon, ComputerIcon, SettingsIcon, MoreIcon, PlusIcon } from "../icons";
@@ -45,6 +45,7 @@ export function Rail({
 	onHelp,
 	width,
 	compact = false,
+	deskCall,
 }: {
 	/** The teammates of the desk on screen. */
 	entries: RosterEntry[];
@@ -69,6 +70,8 @@ export function Rail({
 	width?: number | undefined;
 	/** Faces only: each name waits on a hover card. */
 	compact?: boolean;
+	/** The desk's line, at the rail's foot above Settings: its call key, or its call's card. */
+	deskCall?: ReactNode;
 }) {
 	const [tip, setTip] = useState<Tip | null>(null);
 	const words = connection === "outdated" ? "This window needs a newer Hotline core" : "Reconnecting";
@@ -192,6 +195,7 @@ export function Rail({
 				)}
 			</div>
 
+			{deskCall}
 			<footer className={compact ? "flex shrink-0 flex-col items-center gap-1 pb-2" : "flex h-10 shrink-0 items-center gap-1 px-2.5"}>
 				{compact ? (
 					<button type="button" className="control btn-icon" title={`Settings (${chordKeys("settings")})`} aria-label="Settings" onClick={onSettings}>

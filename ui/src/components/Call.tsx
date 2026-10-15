@@ -297,3 +297,156 @@ function Clock({ clock }: { clock: { base: number; since: number | null } }) {
 		</span>
 	);
 }
+
+/**
+ * The desk's line, at the foot of the team rail: at rest a call key (a
+ * handset, the desk's mark, where teammates are a soundwave), and while a
+ * call to the desk is on, that slot grows into the call's card: the handset
+ * ringed green and swelling with the voice, the status and clock, the voice
+ * bars, and the transcript, Hold and Hang up keys. In the faces-only rail it
+ * is a round key, and on a call the ringed handset over Hang up. While a call
+ * to a teammate is on, the desk's key waits, disabled. A plain hang-up folds
+ * the card back into the key; trouble stays to be read, with Call again and
+ * Close.
+ */
+export function DeskCall({
+	call,
+	available,
+	onCall,
+	roster,
+	compact,
+}: {
+	call: CallSession | null;
+	/** The desk can take a call. */
+	available: boolean;
+	onCall(): void;
+	roster: readonly RosterEntry[];
+	compact: boolean;
+}) {
+	const desk = call !== null && call.target === undefined ? call : null;
+	if (desk !== null) return <DeskCallCard call={desk} roster={roster} compact={compact} />;
+	if (!available) return null;
+	const busy = call !== null;
+	return (
+		<div className={compact ? "desk-call-slot desk-call-slot-compact" : "desk-call-slot"}>
+			<button
+				type="button"
+				className="desk-call-key"
+				disabled={busy}
+				title={busy ? `On a call with ${call.target?.name ?? "a teammate"}` : `Call the desk${chordKeys("desk") === "" ? "" : ` (${chordKeys("desk")})`}`}
+				aria-label="Call the desk"
+				onClick={onCall}
+			>
+				<PhoneIcon />
+			</button>
+		</div>
+	);
+}
+
+function DeskCallCard({ call, roster, compact }: { call: CallSession; roster: readonly RosterEntry[]; compact: boolean }) {
+	const state = useCallSnapshot(call);
+	const card = useRef<HTMLElement>(null);
+	const [transcript, setTranscript] = useState(false);
+	useEffect(() => call.watchLevel((level) => card.current?.style.setProperty("--level", level.toFixed(3))), [call]);
+	const live = state.phase !== "ended";
+	const folding = !live && state.trouble === undefined;
+	const speaking = state.phase === "speaking" || state.phase === "thinking";
+	const mark = (
+		<button
+			type="button"
+			className="desk-call-mark"
+			title={speaking ? "Press to cut in" : undefined}
+			aria-label={speaking ? "Cut in" : WORDS[state.phase]}
+			aria-disabled={!speaking}
+			onClick={() => {
+				if (speaking) call.interrupt();
+			}}
+		>
+			<PhoneIcon />
+		</button>
+	);
+	const hangUp = (
+		<button type="button" className="call-button call-button-end" title="Hang up" aria-label="Hang up" onClick={() => call.hangUp()}>
+			<HangUpIcon />
+		</button>
+	);
+	return (
+		<section
+			ref={card}
+			className={compact ? "desk-call desk-call-compact" : "desk-call"}
+			data-phase={state.phase}
+			data-folding={folding ? "" : undefined}
+			aria-label="Call with the desk"
+			onAnimationEnd={(event) => {
+				if (folding && event.target === event.currentTarget) closeCall();
+			}}
+		>
+			{compact ? (
+				<>
+					{mark}
+					{live ? hangUp : <CloseKey />}
+				</>
+			) : (
+				<>
+					{transcript && <CallTranscript lines={state.lines} name="The desk" alone={false} />}
+					<div className="desk-call-top">
+						{mark}
+						<CallStatus call={call} roster={roster}>
+							<span className="desk-call-name">Desk</span>
+							<span className="call-bar-dot" aria-hidden="true" />
+						</CallStatus>
+					</div>
+					{state.trouble !== undefined && (
+						<p className="call-trouble desk-call-trouble" role="alert">
+							{state.trouble}
+						</p>
+					)}
+					<div className="desk-call-keys">
+						{live && state.phase !== "connecting" ? <CallVoice call={call} still={state.phase === "held"} /> : <span />}
+						<span className="min-w-0 flex-1" />
+						<button
+							type="button"
+							className="call-button"
+							title={transcript ? "Hide what was said" : "What was said"}
+							aria-label="What was said"
+							aria-pressed={transcript}
+							onClick={() => setTranscript((was) => !was)}
+						>
+							<TranscriptIcon />
+						</button>
+						{live ? (
+							<>
+								<button
+									type="button"
+									className="call-button"
+									disabled={state.phase === "connecting"}
+									title={state.phase === "held" ? "Resume" : "Hold"}
+									aria-label={state.phase === "held" ? "Resume" : "Hold"}
+									onClick={() => call.hold(state.phase !== "held")}
+								>
+									{state.phase === "held" ? <PlayIcon /> : <PauseIcon />}
+								</button>
+								{hangUp}
+							</>
+						) : (
+							<>
+								<button type="button" className="call-button call-button-start" title="Call again" aria-label="Call again" onClick={() => void restartCall(call)}>
+									<PhoneIcon />
+								</button>
+								<CloseKey />
+							</>
+						)}
+					</div>
+				</>
+			)}
+		</section>
+	);
+}
+
+function CloseKey() {
+	return (
+		<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={closeCall}>
+			<CloseIcon />
+		</button>
+	);
+}

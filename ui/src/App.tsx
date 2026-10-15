@@ -10,7 +10,7 @@ import type { SettingsSection } from "./components/Settings";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { Titlebar } from "./ui/Titlebar";
-import { CallBar } from "./components/Call";
+import { CallBar, DeskCall } from "./components/Call";
 import { UpdateFloat } from "./components/UpdateFloat";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
@@ -650,9 +650,13 @@ export function App() {
 	const floatWork = pane === null && !welcome && selected !== null && workOf !== undefined && !dockWork && !dockOverlay ? workCard(selected, workOf) : null;
 
 
-	// The call hangs under the conversation's band, or atop any other pane.
+	// A call to a teammate hangs under the conversation's band, or atop any
+	// other pane; a call to the desk is the team rail's, at its foot, unless
+	// the rail is closed or showing Settings, when it hangs like the rest.
 	const conversationShown = pane === null && selected !== null;
-	const callBar = call === null ? undefined : (
+	const teamRail = railSize.open && pane !== "settings";
+	const deskCalling = call !== null && call.target === undefined;
+	const callBar = call === null || (deskCalling && teamRail) ? undefined : (
 		<CallBar
 			call={call}
 			names={nameOf}
@@ -670,6 +674,9 @@ export function App() {
 				searchOpen={searchOpen}
 				onToggleSearch={() => setSearchOpen((open) => !open)}
 				rail={{ open: railSize.open, onToggle: toggleRail }}
+				{...(!railSize.open && (voice || call !== null)
+					? { deskCall: { on: deskCalling, busy: call !== null && !deskCalling, onCall: () => (deskCalling ? closeCall() : void startCall(nameOf)) } }
+					: {})}
 			/>
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />
@@ -719,6 +726,7 @@ export function App() {
 				}}
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
+				deskCall={<DeskCall call={call} available={voice} onCall={() => void startCall(nameOf)} roster={roster} compact={faces} />}
 			/>
 			)}
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}

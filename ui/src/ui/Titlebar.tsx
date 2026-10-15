@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { chordKeys } from "../chords";
-import { CloseIcon, MaximizeIcon, MinimizeIcon, RestoreIcon, SearchIcon, SidebarIcon } from "../icons";
+import { CloseIcon, MaximizeIcon, MinimizeIcon, PhoneIcon, RestoreIcon, SearchIcon, SidebarIcon } from "../icons";
 import { closeWindow, drawsFrame, minimizeWindow, toggleMaximize, watchWindowShape } from "../native";
 import { HotlineMark } from "./HotlineMark";
 
@@ -23,6 +23,7 @@ export function Titlebar({
 	searchOpen,
 	onToggleSearch,
 	rail,
+	deskCall,
 	bare = false,
 }: {
 	/** A conversation is showing: the search has something to search. */
@@ -31,6 +32,12 @@ export function Titlebar({
 	onToggleSearch(): void;
 	/** Whether the rail is open, and the key that opens and closes it; none in a narrow window. */
 	rail?: { open: boolean; onToggle(): void } | undefined;
+	/**
+	 * The desk's call key, beside the rail's while the rail is closed and
+	 * cannot hold it: green while the desk is on the line (pressed, it hangs
+	 * up), disabled during a call to a teammate.
+	 */
+	deskCall?: { on: boolean; busy: boolean; onCall(): void } | undefined;
 	/** The welcome: the mark and the window's own controls, nothing that acts on a room that is not there yet. */
 	bare?: boolean;
 }) {
@@ -56,6 +63,19 @@ export function Titlebar({
 						onClick={rail.onToggle}
 					>
 						<SidebarIcon />
+					</button>
+				)}
+				{deskCall !== undefined && !bare && (
+					<button
+						type="button"
+						className="control btn-icon titlebar-desk-call"
+						data-on={deskCall.on ? "" : undefined}
+						disabled={deskCall.busy}
+						title={deskCall.on ? "Hang up on the desk" : deskCall.busy ? "On a call with a teammate" : "Call the desk"}
+						aria-label={deskCall.on ? "Hang up on the desk" : "Call the desk"}
+						onClick={deskCall.onCall}
+					>
+						<PhoneIcon />
 					</button>
 				)}
 			</div>

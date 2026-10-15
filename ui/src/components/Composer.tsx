@@ -156,7 +156,9 @@ export function Composer({
 	// call in progress into Hang up.
 	const mic = !hasDraft && canDictate;
 	const hangUp = callLive && onHangUp !== undefined;
-	const call = !hasDraft && !callLive && onCall !== undefined;
+	// A call to someone else (the desk, another teammate) holds the line: the key waits, disabled.
+	const call = !hasDraft && onCall !== undefined && !hangUp;
+	const lineBusy = callLive && !hangUp ? `On a call with ${live?.target?.name ?? "the desk"}` : undefined;
 	useEffect(() => { onDraftChange?.(hasContent); }, [hasContent, onDraftChange]);
 
 	// What was heard stays in the field when a call takes the microphone,
@@ -485,6 +487,7 @@ export function Composer({
 						<CallKey
 							name={name}
 							onCall={hangUp}
+							busy={lineBusy}
 							held={callSnapshot.phase === "held"}
 							onPress={hangUp ? onHangUp : onCall}
 						/>
@@ -523,12 +526,15 @@ export function Composer({
 function CallKey({
 	name,
 	onCall,
+	busy,
 	held,
 	onPress,
 }: {
 	name: string;
 	/** A call to this teammate is on. */
 	onCall: boolean;
+	/** Why the key waits: a call to someone else holds the line. */
+	busy: string | undefined;
 	held: boolean;
 	onPress: (() => void) | undefined;
 }) {
@@ -537,7 +543,8 @@ function CallKey({
 			type="button"
 			className="composer-key composer-call"
 			data-call={onCall ? (held ? "held" : "live") : undefined}
-			title={onCall ? `End the call with ${name}` : `Call ${name}`}
+			disabled={busy !== undefined}
+			title={onCall ? `End the call with ${name}` : (busy ?? `Call ${name}`)}
 			aria-label={onCall ? "End the call" : `Call ${name}`}
 			onClick={onPress}
 		>

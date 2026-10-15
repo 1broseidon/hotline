@@ -1,8 +1,6 @@
 ---
 id: task-61
 title: "Desk: call wire for front calls"
-column: review
-position: 41
 priority: high
 tags:
   - voice
@@ -25,9 +23,9 @@ relatedFiles:
   - ui/src/generated/contract.ts
   - docs/voice-calls.md
   - docs/wire.md
-updatedAt: "2026-10-15T02:36:13.112Z"
+updatedAt: "2026-10-15T02:40:02.841Z"
 contract:
-  status: delivered
+  status: done
   deliverables:
     - type: file
       path: crates/hotline-core/src/wire/mod.rs
@@ -64,6 +62,7 @@ dispatch:
   effort: medium
   by: lead
   at: "2026-10-15T02:22:53.785Z"
+completedAt: "2026-10-15T02:40:02.841Z"
 ---
 
 ## Description

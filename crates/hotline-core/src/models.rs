@@ -401,6 +401,20 @@ fn chatgpt_from_openai(api: &Value) -> Result<ProviderEntry, String> {
     })
 }
 
+/// What a provider does once connected: every one Hotline Agent wires chats,
+/// and the image and speech tables say who also draws and speaks.
+fn does(provider_id: &str) -> Vec<crate::contract::ProviderJob> {
+    use crate::contract::ProviderJob;
+    let mut jobs = vec![ProviderJob::Chat];
+    if crate::imagegen::draws(provider_id) {
+        jobs.push(ProviderJob::Images);
+    }
+    if crate::voice::speech::speaks(provider_id) {
+        jobs.push(ProviderJob::Voice);
+    }
+    jobs
+}
+
 /// Every provider Hotline Agent can hold a credential for, wired order.
 pub fn providers() -> Vec<Provider> {
     WIRING
@@ -413,6 +427,7 @@ pub fn providers() -> Vec<Provider> {
                 doc: entry.doc.clone(),
                 credential_kinds: wiring.credential_kinds.to_vec(),
                 model_discovery: supports_discovery(wiring.client),
+                does: does(wiring.id),
             })
         })
         .collect()
@@ -687,6 +702,27 @@ pub fn output_limit(model_id: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_provider_list_says_what_each_one_does() {
+        use crate::contract::ProviderJob::{Chat, Images, Voice};
+        let does = |id: &str| {
+            providers()
+                .into_iter()
+                .find(|provider| provider.id == id)
+                .unwrap_or_else(|| panic!("{id} is listed"))
+                .does
+        };
+        assert_eq!(does("anthropic"), [Chat]);
+        assert_eq!(
+            does("openai-codex"),
+            [Chat, Images, Voice],
+            "GPT-Live on the sign-in"
+        );
+        assert_eq!(does("openai"), [Chat, Images, Voice]);
+        assert_eq!(does("xai"), [Chat, Images, Voice]);
+        assert_eq!(does("groq"), [Chat, Voice]);
+    }
     use serde_json::json;
 
     #[test]

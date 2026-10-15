@@ -113,6 +113,12 @@ const ROWS: &[Row] = &[
     },
 ];
 
+/// Whether a connection to this provider can do voice: hear or speak on a
+/// call, or front one (the ChatGPT sign-in runs GPT-Live).
+pub fn speaks(provider_id: &str) -> bool {
+    provider_id == crate::voice::realtime::live::PROVIDER_ID || row(provider_id).is_some()
+}
+
 fn row(provider_id: &str) -> Option<&'static Row> {
     ROWS.iter().find(|row| row.provider_id == provider_id)
 }

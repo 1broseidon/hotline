@@ -987,7 +987,17 @@ export type Provider = { id: string, name: string, doc?: string, credentialKinds
 /**
  * Whether Rig can discover models using this provider connection.
  */
-modelDiscovery: boolean, };
+modelDiscovery: boolean, 
+/**
+ * What a connection to it can do, in the order Settings names them:
+ * `chat`, `images`, `voice`. Absent from a desk older than the field.
+ */
+does?: Array<ProviderJob>, };
+
+/**
+ * A job a provider can do once connected.
+ */
+export type ProviderJob = "chat" | "images" | "voice";
 
 export type PullStatus = "pulling" | "done" | "failed";
 

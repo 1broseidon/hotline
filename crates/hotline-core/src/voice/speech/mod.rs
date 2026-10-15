@@ -24,7 +24,7 @@ pub(in crate::voice) mod xai;
 pub use clip::{MIN_GOODBYE_MS, billable_ms, plausible_goodbye};
 pub use google::Google;
 pub use openai_shape::{AudioFormat, Endpoint, OpenAiShape};
-pub use providers::{listens_for, options, resolve, resolve_front, resolve_output};
+pub use providers::{listens_for, options, resolve, resolve_front, resolve_output, speaks};
 
 use async_trait::async_trait;
 use std::fmt;

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Provider } from "../generated/contract";
 import { CheckIcon } from "../icons";
-import { ProviderRow, connectionMethod } from "./ConnectProvider";
+import { ProviderRow, connectionMethod, jobsOf } from "./ConnectProvider";
 
 /**
  * The services most people already pay for, by the name the desk lists
@@ -60,7 +60,7 @@ export function ServicePicker({
 								{done && <CheckIcon className="text-accent" />}
 							</span>
 							<span className="welcome-service-text">
-								{done ? "Connected" : [by, provider.credentialKinds.map(connectionMethod).join(" or ")].filter(Boolean).join(" · ")}
+								{done ? "Connected" : [by, jobsOf(provider) ?? provider.credentialKinds.map(connectionMethod).join(" or ")].filter(Boolean).join(" · ")}
 							</span>
 						</button>
 					);

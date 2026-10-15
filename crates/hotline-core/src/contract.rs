@@ -828,6 +828,21 @@ pub struct Provider {
     pub credential_kinds: Vec<CredentialKind>,
     /// Whether Rig can discover models using this provider connection.
     pub model_discovery: bool,
+    /// What a connection to it can do, in the order Settings names them:
+    /// `chat`, `images`, `voice`. Absent from a desk older than the field.
+    #[serde(default)]
+    #[ts(as = "Option<Vec<ProviderJob>>", optional)]
+    pub does: Vec<ProviderJob>,
+}
+
+/// A job a provider can do once connected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ProviderJob {
+    Chat,
+    Images,
+    Voice,
 }
 
 /// How this connection was established: a pasted key, a provider sign-in,

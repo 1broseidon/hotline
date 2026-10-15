@@ -209,7 +209,8 @@ export function tagsFor(options: CapabilityOptions, providerId: string): string[
 	const tags: string[] = [];
 	if (offers(options.dispatcher.options)) tags.push("Chat");
 	if (offers(options.images.options)) tags.push("Images");
-	if (offers(options.stt.options) || offers(options.tts.options)) tags.push("Voice");
+	// A login that runs a voice front does voice even with no speech job (the ChatGPT sign-in).
+	if (offers(options.stt.options) || offers(options.tts.options) || FRONT_LOGINS.includes(providerId)) tags.push("Voice");
 	return tags;
 }
 

@@ -1,8 +1,8 @@
 ---
 id: task-60
 title: "Desk: front prompt and starting context"
-column: todo
-position: 40
+column: in-progress
+position: 0
 priority: medium
 tags:
   - voice
@@ -16,7 +16,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_prompt.rs
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/src/voice/dispatcher.rs
-updatedAt: "2026-10-15T02:22:50.722Z"
+updatedAt: "2026-10-15T02:23:03.270Z"
 contract:
   status: ready
   deliverables:

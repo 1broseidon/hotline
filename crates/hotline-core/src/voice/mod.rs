@@ -1,6 +1,7 @@
 //! One owner call per desk, with bounded work and complete sentence clips.
 
 pub mod dispatcher;
+pub mod front_prompt;
 pub mod ledger;
 pub mod metering;
 pub mod realtime;

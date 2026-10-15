@@ -3,6 +3,7 @@
 pub mod dispatcher;
 pub mod ledger;
 pub mod metering;
+pub mod realtime;
 mod record;
 mod replies;
 pub mod settings;

@@ -14,6 +14,8 @@ columns:
     title: To do
   - id: in-progress
     title: In progress
+  - id: review
+    title: Review
   - id: backlog
     title: Backlog
   - id: wont-do

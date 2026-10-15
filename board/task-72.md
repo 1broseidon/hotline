@@ -1,8 +1,8 @@
 ---
 id: task-72
 title: Shorten every tooltip to 2-3 words (5 max)
-column: in-progress
-position: 0
+column: review
+position: 9
 priority: medium
 tags:
   - ui
@@ -39,7 +39,7 @@ subtasks:
     title: "Welcome.tsx:244 'An AI coding tool you already have' (not a tooltip: a visible option heading; left as is)"
     completed: true
 createdAt: "2026-10-15T23:17:58.177Z"
-updatedAt: "2026-10-15T23:19:34.586Z"
+updatedAt: "2026-10-15T23:19:35.545Z"
 ---
 
 ## Description

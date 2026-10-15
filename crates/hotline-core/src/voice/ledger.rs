@@ -33,6 +33,8 @@ pub enum Kind {
     Stt,
     Tts,
     Dispatcher,
+    /// A realtime voice front's minutes on a call, priced per minute.
+    Front,
     /// A teammate's own turn on a per-token key. Kept in the chat ledger.
     Teammates,
 }
@@ -42,7 +44,7 @@ impl Kind {
     /// call assistant and teammates are Chat.
     pub fn budget(self) -> BudgetKind {
         match self {
-            Kind::Stt | Kind::Tts => BudgetKind::Voice,
+            Kind::Stt | Kind::Tts | Kind::Front => BudgetKind::Voice,
             Kind::Dispatcher | Kind::Teammates => BudgetKind::Chat,
         }
     }
@@ -126,17 +128,20 @@ pub struct Spend {
     pub dispatcher: f64,
     #[serde(default)]
     pub teammates: f64,
+    /// A file from before voice fronts has none, which reads as nothing spent.
+    #[serde(default)]
+    pub front: f64,
 }
 
 impl Spend {
     pub fn total(&self) -> f64 {
-        self.stt + self.tts + self.dispatcher + self.teammates
+        self.stt + self.tts + self.dispatcher + self.teammates + self.front
     }
 
     /// What was spent against one budget.
     pub fn budget(&self, budget: BudgetKind) -> f64 {
         match budget {
-            BudgetKind::Voice => self.stt + self.tts,
+            BudgetKind::Voice => self.stt + self.tts + self.front,
             BudgetKind::Chat => self.dispatcher + self.teammates,
             BudgetKind::Images => 0.0,
         }
@@ -148,6 +153,7 @@ impl Spend {
             Kind::Tts => &mut self.tts,
             Kind::Dispatcher => &mut self.dispatcher,
             Kind::Teammates => &mut self.teammates,
+            Kind::Front => &mut self.front,
         }
     }
 
@@ -162,9 +168,15 @@ impl Spend {
     }
 
     fn sane(&self) -> bool {
-        [self.stt, self.tts, self.dispatcher, self.teammates]
-            .iter()
-            .all(|usd| usd.is_finite() && *usd >= 0.0)
+        [
+            self.stt,
+            self.tts,
+            self.dispatcher,
+            self.teammates,
+            self.front,
+        ]
+        .iter()
+        .all(|usd| usd.is_finite() && *usd >= 0.0)
     }
 }
 
@@ -541,6 +553,28 @@ pub fn stt_live_usd(provider_id: &str, seconds: f64) -> f64 {
 /// The cost of speaking this many characters.
 pub fn tts_usd(provider_id: &str, characters: usize) -> f64 {
     price(provider_id).1 * characters as f64 / 1000.0
+}
+
+/// What a front costs a minute on an API key, by provider. A subscription
+/// login or the desk's own model costs nothing extra.
+const FRONT_PER_MINUTE_USD: &[(&str, f64)] = &[
+    ("xai", 0.08),
+    ("openai", 0.05),
+    ("xai-subscription", 0.0),
+    ("local", 0.0),
+];
+
+/// A front on a provider not in the table is charged at the dearest rate
+/// rather than assumed free.
+const UNKNOWN_FRONT_PER_MINUTE_USD: f64 = 0.08;
+
+/// The cost of a front for this many seconds of call.
+pub fn front_usd(provider_id: &str, seconds: f64) -> f64 {
+    let per_minute = FRONT_PER_MINUTE_USD
+        .iter()
+        .find(|(id, _)| *id == provider_id)
+        .map_or(UNKNOWN_FRONT_PER_MINUTE_USD, |(_, usd)| *usd);
+    per_minute * seconds.max(0.0) / 60.0
 }
 
 #[cfg(test)]

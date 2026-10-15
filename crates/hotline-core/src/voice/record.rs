@@ -11,6 +11,9 @@
 //!
 //! The teammate's session keeps the person's words in its own conversation
 //! too, as the turns they were; this is the call as it was heard and said.
+//! With a voice front on the call, the person's lines are what the front
+//! heard and the voice's are what the front said; the teammate's tape holds
+//! only what was handed to it and what it answered.
 
 use crate::contract::VoiceEndReason;
 use crate::session::{Room, now_ms};
@@ -24,7 +27,7 @@ use tokio::sync::mpsc;
 pub(super) enum Speaker {
     /// The person on the call.
     Person,
-    /// The teammate, or the desk, speaking on it.
+    /// The teammate, the desk or a voice front, speaking on it.
     Voice,
 }
 

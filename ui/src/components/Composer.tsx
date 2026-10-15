@@ -3,7 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
-import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PhoneIcon, PlusIcon, StopIcon } from "../icons";
+import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
@@ -485,7 +485,7 @@ export function Composer({
 						</button>
 					) : call ? (
 						<button type="button" className="composer-key composer-call" title={`Call ${name}`} aria-label={`Call ${name}`} onClick={onCall}>
-							<PhoneIcon />
+							<VoiceIcon />
 						</button>
 					) : (
 						(!working || hasDraft) &&

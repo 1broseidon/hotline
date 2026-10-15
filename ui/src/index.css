@@ -1721,21 +1721,21 @@
 		background: var(--fill-hover);
 		color: var(--ink);
 	}
-	/* The call key stands out from the mic by a ring, not a fill: the accent
-	 * is Send's. Same size as Send, so the pill never changes height; red
-	 * while it hangs up. */
+	/* The call key is a soundwave in a solid ink circle, the way voice apps
+	 * mark talking as against dictating: it outweighs the mic beside it
+	 * without the accent, which is Send's. Same size as Send, so the pill
+	 * never changes height; red while it hangs up. */
 	.composer-call {
-		color: var(--ink);
-		box-shadow: inset 0 0 0 1px var(--line-strong);
+		background: var(--ink);
+		color: var(--canvas);
 	}
 	.composer-call:hover {
-		background: var(--fill-hover);
+		background: var(--ink-2);
 	}
 	.composer-hang-up,
 	.composer-hang-up:hover {
 		background: var(--danger);
 		color: white;
-		box-shadow: none;
 	}
 	.composer-hang-up:hover {
 		filter: brightness(1.1);

@@ -2,6 +2,7 @@
 
 pub mod dispatcher;
 pub mod front;
+pub mod front_prompt;
 pub mod ledger;
 pub mod metering;
 pub mod realtime;

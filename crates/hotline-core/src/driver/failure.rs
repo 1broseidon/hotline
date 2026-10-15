@@ -448,7 +448,7 @@ fn clean(value: &mut Value, depth: usize) {
     }
 }
 
-fn redact_text(text: &str) -> String {
+pub(crate) fn redact_text(text: &str) -> String {
     let mut output = text.to_string();
     for prefix in ["Bearer ", "bearer ", "sk-", "sk_", "ghp_", "github_pat_"] {
         let mut offset = 0;

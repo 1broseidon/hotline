@@ -22,9 +22,9 @@ use tokio_tungstenite::tungstenite::{
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
 
-pub(super) const PROVIDER_ID: &str = "xai";
+pub(in crate::voice) const PROVIDER_ID: &str = "xai";
 pub(super) const SUBSCRIPTION_PROVIDER_ID: &str = "xai-subscription";
-pub(super) const BASE_URL: &str = "https://api.x.ai/v1";
+pub(in crate::voice) const BASE_URL: &str = "https://api.x.ai/v1";
 pub(super) const LISTEN_MODEL: &str = "grok-voice-transcribe-2.0";
 // The native TTS API selects a voice, not a model. This names its speech job
 // consistently with the Grok voice already offered through OpenRouter.
@@ -44,7 +44,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const FINAL_TIMEOUT: Duration = Duration::from_secs(15);
 const LIVE_TIMEOUT: Duration = Duration::from_secs(50);
 
-type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+pub(in crate::voice) type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 enum Job {
     Listen { model: String },
@@ -178,48 +178,29 @@ impl FinalTranscript {
     }
 }
 
-pub(super) struct Xai {
-    endpoint: Endpoint,
-    job: Job,
-    http: reqwest::Client,
-    clock: TurnClock,
+/// Who xAI is told is calling: an API key, or the stored Grok login,
+/// resolved afresh for every request or connection. Speech and the realtime
+/// front both reach xAI through it, so a rejected login refreshes once, and
+/// errors stay free of provider bodies, the same way on both.
+#[derive(Clone)]
+pub(in crate::voice) struct Access {
+    pub(in crate::voice) endpoint: Endpoint,
     subscription: Option<CredentialFile>,
 }
 
-impl Xai {
-    pub(super) fn listener(endpoint: Endpoint, model: &str) -> Result<Self, String> {
-        Ok(Self {
+impl Access {
+    pub(in crate::voice) fn new(endpoint: Endpoint) -> Self {
+        Self {
             endpoint,
-            job: Job::Listen {
-                model: model.into(),
-            },
-            http: http_client()?,
-            clock: TurnClock::default(),
             subscription: None,
-        })
+        }
     }
 
-    pub(super) fn speaker(endpoint: Endpoint, model: &str, voice: &str) -> Result<Self, String> {
-        Ok(Self {
-            endpoint,
-            job: Job::Speak {
-                model: model.into(),
-                voice: voice.into(),
-            },
-            http: http_client()?,
-            clock: TurnClock::default(),
-            subscription: None,
-        })
-    }
-
-    pub(super) fn with_clock(mut self, clock: &TurnClock) -> Self {
-        self.clock = clock.clone();
-        self
-    }
-
-    /// The subscription bearer is resolved afresh for every HTTP request or
-    /// WebSocket connection. It can only be sent to xAI's fixed voice origin.
-    pub(super) fn with_subscription(mut self, tokens: CredentialFile) -> Result<Self, String> {
+    /// The subscription bearer can only be sent to xAI's fixed voice origin.
+    pub(in crate::voice) fn with_subscription(
+        mut self,
+        tokens: CredentialFile,
+    ) -> Result<Self, String> {
         if self.endpoint.base_url != BASE_URL {
             return Err("Grok subscription voice requires the xAI voice service.".into());
         }
@@ -229,7 +210,11 @@ impl Xai {
         Ok(self)
     }
 
-    fn status_error(&self, status: u16) -> SpeechError {
+    pub(in crate::voice) fn is_subscription(&self) -> bool {
+        self.subscription.is_some()
+    }
+
+    pub(in crate::voice) fn status_error(&self, status: u16) -> SpeechError {
         let provider_id = self.endpoint.provider_id.clone();
         if self.subscription.is_some() {
             match status {
@@ -266,6 +251,140 @@ impl Xai {
         })
     }
 
+    pub(in crate::voice) fn malformed(&self) -> SpeechError {
+        SpeechError::Malformed {
+            provider_id: self.endpoint.provider_id.clone(),
+        }
+    }
+
+    pub(in crate::voice) fn unreachable(&self) -> SpeechError {
+        SpeechError::Unreachable {
+            provider_id: self.endpoint.provider_id.clone(),
+        }
+    }
+
+    pub(in crate::voice) fn socket_error(&self, error: WsError) -> SpeechError {
+        // Neither provider bodies nor transport errors may expose words or keys.
+        match error {
+            WsError::Http(response) => self.status_error(response.status().as_u16()),
+            WsError::Capacity(_) | WsError::Protocol(_) | WsError::Utf8(_) => self.malformed(),
+            _ => self.unreachable(),
+        }
+    }
+
+    /// The WebSocket form of one route under the endpoint's base URL.
+    pub(in crate::voice) fn socket_url(&self, route: &str) -> Result<url::Url, SpeechError> {
+        let mut url = url::Url::parse(&format!(
+            "{}/{route}",
+            self.endpoint.base_url.trim_end_matches('/')
+        ))
+        .map_err(|_| self.malformed())?;
+        let scheme = match url.scheme() {
+            "https" => "wss",
+            "http" => "ws",
+            _ => return Err(self.malformed()),
+        };
+        url.set_scheme(scheme).map_err(|_| self.malformed())?;
+        Ok(url)
+    }
+
+    /// A rejected handshake refreshes the login once; nothing has been sent
+    /// on a socket that never opened, so the retry replays no caller audio.
+    pub(in crate::voice) async fn socket(
+        &self,
+        url: url::Url,
+        message_limit: usize,
+    ) -> Result<Socket, SpeechError> {
+        let bearer = self.bearer(None).await?;
+        match self
+            .socket_once(&url, bearer.as_deref(), message_limit)
+            .await
+        {
+            Err(SpeechError::SignInRequired { .. }) if self.subscription.is_some() => {
+                let bearer = self.bearer(bearer.as_deref()).await?;
+                self.socket_once(&url, bearer.as_deref(), message_limit)
+                    .await
+            }
+            result => result,
+        }
+    }
+
+    async fn socket_once(
+        &self,
+        url: &url::Url,
+        bearer: Option<&str>,
+        message_limit: usize,
+    ) -> Result<Socket, SpeechError> {
+        crate::desk::install_crypto_provider();
+        let mut request = url
+            .as_str()
+            .into_client_request()
+            .map_err(|_| self.malformed())?;
+        if let Some(key) = bearer {
+            let mut header = http::HeaderValue::from_str(&format!("Bearer {key}"))
+                .map_err(|_| self.malformed())?;
+            header.set_sensitive(true);
+            request
+                .headers_mut()
+                .insert(http::header::AUTHORIZATION, header);
+        }
+        let config = WebSocketConfig::default()
+            .max_message_size(Some(message_limit))
+            .max_frame_size(Some(message_limit))
+            .write_buffer_size(8 << 10)
+            .max_write_buffer_size(128 << 10);
+        let (socket, _) = timeout(
+            CONNECT_TIMEOUT,
+            connect_async_with_config(request, Some(config), true),
+        )
+        .await
+        .map_err(|_| self.unreachable())?
+        .map_err(|error| self.socket_error(error))?;
+        Ok(socket)
+    }
+}
+
+pub(super) struct Xai {
+    access: Access,
+    job: Job,
+    http: reqwest::Client,
+    clock: TurnClock,
+}
+
+impl Xai {
+    pub(super) fn listener(endpoint: Endpoint, model: &str) -> Result<Self, String> {
+        Ok(Self {
+            access: Access::new(endpoint),
+            job: Job::Listen {
+                model: model.into(),
+            },
+            http: http_client()?,
+            clock: TurnClock::default(),
+        })
+    }
+
+    pub(super) fn speaker(endpoint: Endpoint, model: &str, voice: &str) -> Result<Self, String> {
+        Ok(Self {
+            access: Access::new(endpoint),
+            job: Job::Speak {
+                model: model.into(),
+                voice: voice.into(),
+            },
+            http: http_client()?,
+            clock: TurnClock::default(),
+        })
+    }
+
+    pub(super) fn with_clock(mut self, clock: &TurnClock) -> Self {
+        self.clock = clock.clone();
+        self
+    }
+
+    pub(super) fn with_subscription(mut self, tokens: CredentialFile) -> Result<Self, String> {
+        self.access = self.access.with_subscription(tokens)?;
+        Ok(self)
+    }
+
     fn authorized(
         request: reqwest::RequestBuilder,
         bearer: Option<&str>,
@@ -281,25 +400,25 @@ impl Xai {
         // may refresh once, before any generated audio is consumed. The
         // multipart STT path never replays already transmitted caller audio.
         let request = self.speech_request(text)?;
-        let bearer = self.bearer(None).await?;
+        let bearer = self.access.bearer(None).await?;
         let response = Self::authorized(request, bearer.as_deref())
             .send()
             .await
-            .map_err(|_| self.unreachable())?;
+            .map_err(|_| self.access.unreachable())?;
         let response = if response.status() == reqwest::StatusCode::UNAUTHORIZED
-            && self.subscription.is_some()
+            && self.access.is_subscription()
         {
             drop(response);
-            let bearer = self.bearer(bearer.as_deref()).await?;
+            let bearer = self.access.bearer(bearer.as_deref()).await?;
             Self::authorized(self.speech_request(text)?, bearer.as_deref())
                 .send()
                 .await
-                .map_err(|_| self.unreachable())?
+                .map_err(|_| self.access.unreachable())?
         } else {
             response
         };
         if !response.status().is_success() {
-            return Err(self.status_error(response.status().as_u16()));
+            return Err(self.access.status_error(response.status().as_u16()));
         }
         Ok(response)
     }
@@ -314,10 +433,14 @@ impl Xai {
             .and_then(|header| header.to_str().ok())
             .map(str::to_string);
         let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| self.unreachable())? {
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| self.access.unreachable())?
+        {
             timing.first_byte_arrived();
             if bytes.len() + chunk.len() > AUDIO_LIMIT {
-                return Err(self.malformed());
+                return Err(self.access.malformed());
             }
             bytes.extend_from_slice(&chunk);
         }
@@ -328,31 +451,10 @@ impl Xai {
         })
     }
 
-    fn malformed(&self) -> SpeechError {
-        SpeechError::Malformed {
-            provider_id: self.endpoint.provider_id.clone(),
-        }
-    }
-
-    fn unreachable(&self) -> SpeechError {
-        SpeechError::Unreachable {
-            provider_id: self.endpoint.provider_id.clone(),
-        }
-    }
-
-    fn socket_error(&self, error: WsError) -> SpeechError {
-        // Neither provider bodies nor transport errors may expose words or keys.
-        match error {
-            WsError::Http(response) => self.status_error(response.status().as_u16()),
-            WsError::Capacity(_) | WsError::Protocol(_) | WsError::Utf8(_) => self.malformed(),
-            _ => self.unreachable(),
-        }
-    }
-
     fn post(&self, route: &str) -> reqwest::RequestBuilder {
         self.http.post(format!(
             "{}/{route}",
-            self.endpoint.base_url.trim_end_matches('/')
+            self.access.endpoint.base_url.trim_end_matches('/')
         ))
     }
 
@@ -369,9 +471,9 @@ impl Xai {
         let part = Part::bytes(clip.bytes)
             .file_name(name)
             .mime_str(&mime)
-            .map_err(|_| self.malformed())?;
+            .map_err(|_| self.access.malformed())?;
         let form = Form::new().text("model", model.clone()).part("file", part);
-        let bearer = self.bearer(None).await?;
+        let bearer = self.access.bearer(None).await?;
         let reply = call(
             Self::authorized(self.post("stt").multipart(form), bearer.as_deref()),
             &self.id(),
@@ -380,10 +482,11 @@ impl Xai {
         )
         .await
         .map_err(|error| match error {
-            SpeechError::Refused { status, .. } => self.status_error(status),
+            SpeechError::Refused { status, .. } => self.access.status_error(status),
             other => other,
         })?;
-        let body: Value = serde_json::from_slice(&reply.bytes).map_err(|_| self.malformed())?;
+        let body: Value =
+            serde_json::from_slice(&reply.bytes).map_err(|_| self.access.malformed())?;
         self.words(&body)
     }
 
@@ -391,63 +494,17 @@ impl Xai {
         body.get("text")
             .and_then(Value::as_str)
             .map(|text| text.trim().to_string())
-            .ok_or_else(|| self.malformed())
+            .ok_or_else(|| self.access.malformed())
     }
 
     async fn connect(&self, model: &str) -> Result<Socket, SpeechError> {
-        let bearer = self.bearer(None).await?;
-        match self.connect_once(model, bearer.as_deref()).await {
-            Err(SpeechError::SignInRequired { .. }) if self.subscription.is_some() => {
-                let bearer = self.bearer(bearer.as_deref()).await?;
-                self.connect_once(model, bearer.as_deref()).await
-            }
-            result => result,
-        }
-    }
-
-    async fn connect_once(&self, model: &str, bearer: Option<&str>) -> Result<Socket, SpeechError> {
-        crate::desk::install_crypto_provider();
-        let mut url = url::Url::parse(&format!(
-            "{}/stt",
-            self.endpoint.base_url.trim_end_matches('/')
-        ))
-        .map_err(|_| self.malformed())?;
-        let scheme = match url.scheme() {
-            "https" => "wss",
-            "http" => "ws",
-            _ => return Err(self.malformed()),
-        };
-        url.set_scheme(scheme).map_err(|_| self.malformed())?;
+        let mut url = self.access.socket_url("stt")?;
         url.query_pairs_mut()
             .append_pair("sample_rate", "16000")
             .append_pair("encoding", "pcm")
             .append_pair("channels", "1")
             .append_pair("model", model);
-        let mut request = url
-            .as_str()
-            .into_client_request()
-            .map_err(|_| self.malformed())?;
-        if let Some(key) = bearer {
-            let mut header = http::HeaderValue::from_str(&format!("Bearer {key}"))
-                .map_err(|_| self.malformed())?;
-            header.set_sensitive(true);
-            request
-                .headers_mut()
-                .insert(http::header::AUTHORIZATION, header);
-        }
-        let config = WebSocketConfig::default()
-            .max_message_size(Some(TRANSCRIPT_LIMIT))
-            .max_frame_size(Some(TRANSCRIPT_LIMIT))
-            .write_buffer_size(8 << 10)
-            .max_write_buffer_size(128 << 10);
-        let (socket, _) = timeout(
-            CONNECT_TIMEOUT,
-            connect_async_with_config(request, Some(config), true),
-        )
-        .await
-        .map_err(|_| self.unreachable())?
-        .map_err(|error| self.socket_error(error))?;
-        Ok(socket)
+        self.access.socket(url, TRANSCRIPT_LIMIT).await
     }
 
     async fn event(&self, socket: &mut Socket, events: &mut usize) -> Result<Value, SpeechError> {
@@ -455,26 +512,27 @@ impl Xai {
             let message = socket
                 .next()
                 .await
-                .ok_or_else(|| self.malformed())?
-                .map_err(|error| self.socket_error(error))?;
+                .ok_or_else(|| self.access.malformed())?
+                .map_err(|error| self.access.socket_error(error))?;
             *events += 1;
             if *events > EVENT_LIMIT {
-                return Err(self.malformed());
+                return Err(self.access.malformed());
             }
             match message {
                 Message::Text(text) => {
-                    let event: Value = serde_json::from_str(&text).map_err(|_| self.malformed())?;
+                    let event: Value =
+                        serde_json::from_str(&text).map_err(|_| self.access.malformed())?;
                     if event.get("type").and_then(Value::as_str).is_none() {
-                        return Err(self.malformed());
+                        return Err(self.access.malformed());
                     }
                     return Ok(event);
                 }
                 Message::Ping(_) => socket
                     .flush()
                     .await
-                    .map_err(|error| self.socket_error(error))?,
+                    .map_err(|error| self.access.socket_error(error))?,
                 Message::Pong(_) => (),
-                _ => return Err(self.malformed()),
+                _ => return Err(self.access.malformed()),
             }
         }
     }
@@ -489,10 +547,10 @@ impl Xai {
         let mut events = 0;
         let ready = timeout(CONNECT_TIMEOUT, self.event(&mut socket, &mut events))
             .await
-            .map_err(|_| self.unreachable())??;
+            .map_err(|_| self.access.unreachable())??;
         timing.first_byte_arrived();
         if ready["type"] != "transcript.created" {
-            return Err(self.malformed());
+            return Err(self.access.malformed());
         }
         let mut bytes = 0;
         let mut frames = 0;
@@ -508,15 +566,15 @@ impl Xai {
                         // frame or a burst of unpaced audio after the handshake.
                         next_send = next_send.max(Instant::now());
                         sleep_until(next_send).await;
-                        socket.send(Message::Binary(frame.to_vec().into())).await.map_err(|error| self.socket_error(error))?;
+                        socket.send(Message::Binary(frame.to_vec().into())).await.map_err(|error| self.access.socket_error(error))?;
                         next_send += Duration::from_secs_f64(frame.len() as f64 / (INPUT_RATE * 2) as f64);
                     }
                 }
                 event = self.event(&mut socket, &mut events) => {
                     let event = event?;
                     match event["type"].as_str() {
-                        Some("transcript.partial") => finalized.accept(&event).map_err(|_| self.malformed())?,
-                        _ => return Err(self.malformed()),
+                        Some("transcript.partial") => finalized.accept(&event).map_err(|_| self.access.malformed())?,
+                        _ => return Err(self.access.malformed()),
                     }
                 }
             }
@@ -526,23 +584,25 @@ impl Xai {
                 json!({"type": "audio.done"}).to_string().into(),
             ))
             .await
-            .map_err(|error| self.socket_error(error))?;
+            .map_err(|error| self.access.socket_error(error))?;
         let words = timeout(FINAL_TIMEOUT, async {
             loop {
                 let event = self.event(&mut socket, &mut events).await?;
                 match event["type"].as_str() {
-                    Some("transcript.partial") => {
-                        finalized.accept(&event).map_err(|_| self.malformed())?
-                    }
+                    Some("transcript.partial") => finalized
+                        .accept(&event)
+                        .map_err(|_| self.access.malformed())?,
                     Some("transcript.done") => {
-                        return finalized.finish(&event).map_err(|_| self.malformed());
+                        return finalized
+                            .finish(&event)
+                            .map_err(|_| self.access.malformed());
                     }
-                    _ => return Err(self.malformed()),
+                    _ => return Err(self.access.malformed()),
                 }
             }
         })
         .await
-        .map_err(|_| self.unreachable())?;
+        .map_err(|_| self.access.unreachable())?;
         eprintln!("{}", timing.line("transcribe live", &self.id()));
         words
     }
@@ -559,7 +619,7 @@ impl Xai {
             || *bytes > INPUT_LIMIT.saturating_sub(frame.len())
             || *frames >= EVENT_LIMIT
         {
-            return Err(self.malformed());
+            return Err(self.access.malformed());
         }
         *bytes += frame.len();
         *frames += 1;
@@ -574,7 +634,7 @@ impl Xai {
             return Err(SpeechError::NothingToSay);
         }
         if text.chars().count() > TEXT_LIMIT {
-            return Err(self.malformed());
+            return Err(self.access.malformed());
         }
         Ok(self.post("tts").json(&json!({
             "text": text,
@@ -588,7 +648,7 @@ impl Xai {
         if content_type.map(base_mime).as_deref() == Some("audio/pcm") {
             Ok(())
         } else {
-            Err(self.malformed())
+            Err(self.access.malformed())
         }
     }
 
@@ -609,13 +669,17 @@ impl Xai {
         let mut pcm = Vec::new();
         let mut received = 0;
         let mut first_clip = true;
-        while let Some(chunk) = response.chunk().await.map_err(|_| self.unreachable())? {
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| self.access.unreachable())?
+        {
             if chunk.is_empty() {
                 continue;
             }
             timing.first_byte_arrived();
             if received + chunk.len() > AUDIO_LIMIT {
-                return Err(self.malformed());
+                return Err(self.access.malformed());
             }
             received += chunk.len();
             for part in chunk.chunks(CLIP_PCM_BYTES) {
@@ -650,7 +714,7 @@ impl Xai {
             }
         }
         if pcm.is_empty() || pcm.len() % 2 != 0 {
-            return Err(self.malformed());
+            return Err(self.access.malformed());
         }
         self.clock.first_clip(&self.id());
         output
@@ -674,7 +738,7 @@ mod tests;
 #[async_trait]
 impl Speech for Xai {
     fn is_subscription(&self) -> bool {
-        self.subscription.is_some()
+        self.access.is_subscription()
     }
     fn id(&self) -> SpeechId {
         let (model_id, voice) = match &self.job {
@@ -682,7 +746,7 @@ impl Speech for Xai {
             Job::Speak { model, voice } => (model.clone(), Some(voice.clone())),
         };
         SpeechId {
-            provider_id: self.endpoint.provider_id.clone(),
+            provider_id: self.access.endpoint.provider_id.clone(),
             model_id,
             voice,
         }
@@ -715,7 +779,7 @@ impl Speech for Xai {
         self.clock.heard();
         let words = timeout(LIVE_TIMEOUT, self.hear_live(input))
             .await
-            .unwrap_or_else(|_| Err(self.unreachable()));
+            .unwrap_or_else(|_| Err(self.access.unreachable()));
         self.clock.unanswered(&words);
         words
     }
@@ -724,7 +788,7 @@ impl Speech for Xai {
         let reply = self.speech_reply(text).await?;
         self.is_pcm(reply.content_type.as_deref())?;
         if reply.bytes.is_empty() || reply.bytes.len() % 2 != 0 {
-            return Err(self.malformed());
+            return Err(self.access.malformed());
         }
         let clip = Clip {
             mime: "audio/wav".into(),

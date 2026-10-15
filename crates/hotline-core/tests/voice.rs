@@ -169,6 +169,7 @@ async fn check_clip(
                     fallback_tts: None,
                 },
                 dispatcher: Some(fake.clone()),
+                realtime: None,
             }),
         )
         .unwrap(),
@@ -373,6 +374,7 @@ use hotline_core::voice::{
     Services,
     dispatcher::{Context, Dispatcher},
     metering::Budget,
+    realtime::{Command as Asked, Realtime, RealtimeConfig, RealtimeEvent, RealtimeSession},
     speech::{Clip, Speech, SpeechError, SpeechId, SpeechSet},
 };
 
@@ -442,6 +444,7 @@ fn services() -> Services {
             fallback_tts: None,
         },
         dispatcher: Some(Arc::new(ScriptDispatcher)),
+        realtime: None,
     }
 }
 fn wav() -> Vec<u8> {
@@ -867,4 +870,345 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     assert_eq!(until(&mut socket, |f| f["id"] == 12).await["ok"], true);
     socket.close(None).await.unwrap();
     server.abort();
+}
+
+/// A realtime provider played by the test: it hands out one scripted session.
+struct ScriptedFront {
+    session: std::sync::Mutex<Option<RealtimeSession>>,
+    config: std::sync::Mutex<Option<RealtimeConfig>>,
+}
+#[async_trait::async_trait]
+impl Realtime for ScriptedFront {
+    fn id(&self) -> SpeechId {
+        SpeechId {
+            provider_id: "test".into(),
+            model_id: "front".into(),
+            voice: None,
+        }
+    }
+    fn is_subscription(&self) -> bool {
+        true
+    }
+    async fn open(&self, config: RealtimeConfig) -> Result<RealtimeSession, SpeechError> {
+        *self.config.lock().unwrap() = Some(config);
+        self.session
+            .lock()
+            .unwrap()
+            .take()
+            .ok_or(SpeechError::Cancelled)
+    }
+}
+
+struct FrontDesk {
+    socket: Socket,
+    asked: tokio::sync::mpsc::Receiver<Asked>,
+    events: tokio::sync::mpsc::Sender<Result<RealtimeEvent, SpeechError>>,
+    front: Arc<ScriptedFront>,
+    _root: tempfile::TempDir,
+}
+
+/// A desk whose front is scripted, with a socket on it. With `front: false`
+/// the desk has no realtime provider at all.
+async fn front_desk(front: bool, queue: usize) -> FrontDesk {
+    let root = tempfile::tempdir().unwrap();
+    let (session, asked, events) = RealtimeSession::scripted(queue);
+    let scripted = Arc::new(ScriptedFront {
+        session: std::sync::Mutex::new(Some(session)),
+        config: std::sync::Mutex::new(None),
+    });
+    let mut services = services();
+    if front {
+        services.realtime = Some(scripted.clone());
+    }
+    let desk = Arc::new(
+        hotline_core::desk::Desk::open_with_voice_services(
+            root.path(),
+            common::store(),
+            Some(services),
+        )
+        .unwrap(),
+    );
+    let door = Door::bind(desk.log.clone(), "front-test".into(), desk).unwrap();
+    let port = door.port();
+    tokio::spawn(door.run());
+    let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=front-test"))
+        .await
+        .unwrap();
+    FrontDesk {
+        socket,
+        asked,
+        events,
+        front: scripted,
+        _root: root,
+    }
+}
+
+fn pcm(samples: &[i16]) -> String {
+    STANDARD.encode(
+        samples
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect::<Vec<u8>>(),
+    )
+}
+
+async fn answer(socket: &mut Socket, id: u32, command: Value) -> Value {
+    let mut frame = command;
+    frame["id"] = json!(id);
+    send(socket, frame).await;
+    until(socket, |f| f["id"] == id).await
+}
+
+async fn next_asked(asked: &mut tokio::sync::mpsc::Receiver<Asked>) -> Asked {
+    tokio::time::timeout(Duration::from_secs(15), asked.recv())
+        .await
+        .expect("the front was asked nothing")
+        .expect("the front closed")
+}
+
+#[tokio::test]
+async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
+    let mut desk = front_desk(true, 64).await;
+    let socket = &mut desk.socket;
+    let status = answer(socket, 1, json!({"cmd":"voice.status","params":{}})).await;
+    assert!(
+        status["result"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c == "voiceFront")
+    );
+
+    let call = Uuid::new_v4().to_string();
+    let started = answer(
+        socket,
+        2,
+        json!({"cmd":"voice.call_start","params":{"callId":call,"mode":"front","inputRate":16000}}),
+    )
+    .await;
+    assert_eq!(
+        started["result"]["front"],
+        json!({"inputRate":16000,"outputRate":24000})
+    );
+    // The front is told what the desk sends and takes: 24 kHz both ways.
+    send(socket, json!({"id":3,"sub":{"call":call}})).await;
+    until(socket, |f| f["sub"] == 3 && f["snapshot"].is_array()).await;
+
+    // Microphone PCM at 16 kHz reaches the front at 24 kHz.
+    for _ in 0..50 {
+        let sent = answer(socket, 4, json!({"cmd":"voice.front_audio","params":{"callId":call,"seq":0,"data":pcm(&[0, 3000, 6000, 9000])}})).await;
+        if sent["ok"] == true {
+            break;
+        }
+        assert_eq!(sent["error"], "The front is still connecting.");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let Asked::Audio(heard) = next_asked(&mut desk.asked).await else {
+        panic!("the front was not handed audio")
+    };
+    assert_eq!(heard.len(), 12, "four samples at 16 kHz are six at 24 kHz");
+    let config = desk.front.config.lock().unwrap().clone().unwrap();
+    assert_eq!((config.input_rate, config.output_rate), (24_000, 24_000));
+
+    // Sequence numbers only rise.
+    let repeated = answer(
+        socket,
+        5,
+        json!({"cmd":"voice.front_audio","params":{"callId":call,"seq":0,"data":pcm(&[1,2])}}),
+    )
+    .await;
+    assert_eq!(repeated["ok"], false);
+
+    // The front's speech comes back in small numbered frames.
+    desk.events
+        .send(Ok(RealtimeEvent::Audio(vec![1; 2 * 4_800 + 100])))
+        .await
+        .unwrap();
+    // The call is speaking before the first frame arrives.
+    let speaking = until(socket, |f| f["event"]["type"] == "state").await;
+    assert_eq!(speaking["event"]["state"], "speaking");
+    let first = until(socket, |f| f["event"]["type"] == "frontAudio").await;
+    assert_eq!(first["event"]["seq"], 0);
+    assert_eq!(
+        STANDARD
+            .decode(first["event"]["data"].as_str().unwrap())
+            .unwrap()
+            .len(),
+        4_800
+    );
+    let third = until(socket, |f| {
+        f["event"]["type"] == "frontAudio" && f["event"]["seq"] == 2
+    })
+    .await;
+    assert_eq!(
+        STANDARD
+            .decode(third["event"]["data"].as_str().unwrap())
+            .unwrap()
+            .len(),
+        100
+    );
+
+    // The provider hears the person over the front: stop playing, then say
+    // how much was heard, and the front keeps only that.
+    desk.events
+        .send(Ok(RealtimeEvent::SpeechStarted))
+        .await
+        .unwrap();
+    until(socket, |f| f["event"]["type"] == "frontStop").await;
+    let listening = until(socket, |f| f["event"]["type"] == "state").await;
+    assert_eq!(listening["event"]["state"], "listening");
+    let barged = answer(
+        socket,
+        6,
+        json!({"cmd":"voice.front_barge","params":{"callId":call,"playedMs":250}}),
+    )
+    .await;
+    assert_eq!(barged["ok"], true, "{barged}");
+    assert_eq!(
+        next_asked(&mut desk.asked).await,
+        Asked::Truncate { played_ms: 250 }
+    );
+
+    // What each side said reaches the call card.
+    desk.events
+        .send(Ok(RealtimeEvent::Heard("check the PR".into())))
+        .await
+        .unwrap();
+    assert_eq!(
+        until(socket, |f| f["event"]["type"] == "heard").await["event"]["text"],
+        "check the PR"
+    );
+    desk.events
+        .send(Ok(RealtimeEvent::Saying("On it.".into())))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::ResponseDone))
+        .await
+        .unwrap();
+    assert_eq!(
+        until(socket, |f| f["event"]["type"] == "said").await["event"]["text"],
+        "On it."
+    );
+
+    // A front call takes front audio only: the pipeline's inputs are shut.
+    let utterance = answer(
+        socket,
+        7,
+        json!({"cmd":"voice.text","params":{"callId":call,"seq":1,"text":"hi"}}),
+    )
+    .await;
+    assert_eq!(utterance["ok"], false);
+    let ended = answer(
+        socket,
+        8,
+        json!({"cmd":"voice.call_end","params":{"callId":call}}),
+    )
+    .await;
+    assert_eq!(ended["ok"], true);
+    // Ending the call closes the front's session.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while desk.asked.recv().await.is_some() {}
+    })
+    .await
+    .expect("the front outlived its call");
+}
+
+#[tokio::test]
+async fn a_desk_without_a_front_answers_a_front_request_as_a_pipeline_call() {
+    let mut desk = front_desk(false, 64).await;
+    let socket = &mut desk.socket;
+    let status = answer(socket, 1, json!({"cmd":"voice.status","params":{}})).await;
+    assert!(
+        !status["result"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c == "voiceFront")
+    );
+    let call = Uuid::new_v4().to_string();
+    let started = answer(
+        socket,
+        2,
+        json!({"cmd":"voice.call_start","params":{"callId":call,"mode":"front"}}),
+    )
+    .await;
+    assert_eq!(started["ok"], true);
+    assert!(started["result"].get("front").is_none(), "{started}");
+    let sent = answer(
+        socket,
+        3,
+        json!({"cmd":"voice.front_audio","params":{"callId":call,"seq":0,"data":pcm(&[1,2])}}),
+    )
+    .await;
+    assert_eq!(sent["ok"], false);
+    // A client that never heard of fronts starts the same call as before.
+    let plain = Uuid::new_v4().to_string();
+    let started = answer(
+        socket,
+        4,
+        json!({"cmd":"voice.call_start","params":{"callId":plain}}),
+    )
+    .await;
+    assert!(started["result"].get("front").is_none());
+}
+
+#[tokio::test]
+async fn a_front_that_cannot_open_hands_the_call_back_to_the_pipeline() {
+    let mut desk = front_desk(true, 64).await;
+    desk.front.session.lock().unwrap().take();
+    let socket = &mut desk.socket;
+    let call = Uuid::new_v4().to_string();
+    let started = answer(
+        socket,
+        1,
+        json!({"cmd":"voice.call_start","params":{"callId":call,"mode":"front"}}),
+    )
+    .await;
+    assert_eq!(started["result"]["front"]["outputRate"], 24000);
+    // Once the front is gone the call is a pipeline call, and no longer
+    // refuses the pipeline's input.
+    for id in 2..100 {
+        let text = answer(
+            socket,
+            id,
+            json!({"cmd":"voice.text","params":{"callId":call,"seq":1,"text":"hi"}}),
+        )
+        .await;
+        if text["error"] != "This call has a voice front. Send front audio." {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the call kept a front that could not open");
+}
+
+#[tokio::test]
+async fn a_front_that_is_behind_refuses_audio_instead_of_stalling_the_wire() {
+    let mut desk = front_desk(true, 2).await;
+    let socket = &mut desk.socket;
+    let call = Uuid::new_v4().to_string();
+    answer(
+        socket,
+        1,
+        json!({"cmd":"voice.call_start","params":{"callId":call,"mode":"front"}}),
+    )
+    .await;
+    let mut refused = None;
+    for seq in 0..20u32 {
+        let sent = answer(socket, 10 + seq, json!({"cmd":"voice.front_audio","params":{"callId":call,"seq":seq,"data":pcm(&[1,2])}})).await;
+        if sent["ok"] == false && sent["error"] != "The front is still connecting." {
+            refused = Some(sent);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let refused = refused.expect("a full front queue refuses audio");
+    assert_eq!(
+        refused["error"],
+        "The front is behind. Drop this audio and send the next."
+    );
+    // The same socket still answers.
+    let status = answer(socket, 99, json!({"cmd":"voice.status","params":{}})).await;
+    assert_eq!(status["ok"], true);
 }

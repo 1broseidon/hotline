@@ -761,6 +761,9 @@ impl Seat {
             if text {
                 capabilities.push("voiceTextInput");
             }
+            if voice.front_available() {
+                capabilities.push(crate::voice::VOICE_FRONT);
+            }
         }
         capabilities
     }

@@ -4769,6 +4769,21 @@ async fn voice_is_owner_only_through_the_real_handler() {
             .capabilities_for(room.as_ref())
             .contains(&"voiceDirectCalls")
     );
+    // A phone is no seat for a front's sound either.
+    for command in [
+        Command::VoiceFrontAudio {
+            call_id: "c".into(),
+            seq: 0,
+            data: String::new(),
+        },
+        Command::VoiceFrontBarge {
+            call_id: "c".into(),
+            played_ms: 0,
+        },
+    ] {
+        assert!(Seat::Owner.permits(&command));
+        assert!(!Seat::Phone.permits(&command));
+    }
     assert!(
         !Seat::Phone
             .capabilities_for(room.as_ref())

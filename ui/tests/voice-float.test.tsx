@@ -52,7 +52,7 @@ describe("the call strip's identity", () => {
 		});
 		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 		expect(container.querySelector("aside")?.getAttribute("aria-label")).toBe("Call with Mack");
-		expect(container.textContent).toContain("Mack · Calling");
+		expect(container.querySelector(".call-bar-status")?.textContent).toBe("MackCalling");
 		expect(container.querySelector(".avatar-picture")).not.toBeNull();
 		expect(reads).toEqual([{ personaId: "mack", hash: "mack-call-face", offset: 0 }]);
 	});
@@ -70,7 +70,8 @@ describe("the call strip's identity", () => {
 		const call = new Call({ command: async () => null, subscribe: () => () => {} }, () => "Mack", undefined, undefined, { target: { personaId: "mack", name: "Mack" } });
 		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} bare />));
 		expect(container.querySelector(".call-bar-mark")).toBeNull();
-		expect(container.textContent).toContain("Mack · Calling");
+		// The name is right above, in the band.
+		expect(container.querySelector(".call-bar-status")?.textContent).toBe("Calling");
 		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} alone />));
 		expect(container.querySelector(".call-bar-mark .avatar")).not.toBeNull();
 		expect(container.querySelector("aside")?.className).toContain("call-bar-alone");

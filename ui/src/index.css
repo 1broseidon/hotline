@@ -1757,7 +1757,7 @@
 		width: 28px;
 		height: 28px;
 		border-radius: 50%;
-		background: var(--danger);
+		background: var(--hang-up);
 		color: white;
 	}
 	.composer-call[data-call]:hover .composer-call-end,
@@ -3545,33 +3545,76 @@
 		}
 	}
 	/* The call strip (Call.tsx CallBar). Under a conversation's band the two
-	 * become one card that has grown down (`.call-head`): raised, its bottom
-	 * corners rounded, opening out of the band as a call starts and folding
-	 * back up into it when one ends. The words sit low in the strip, clear
-	 * of the band's row. Atop a pane with no band it is a card of its own. */
+	 * become one card that has grown down (`.call-head`): raised a step off
+	 * the canvas with a soft shadow beneath, its bottom corners rounded,
+	 * opening out of the band as a call starts and folding back up into it
+	 * when one ends. Under the called teammate's own band the status reads
+	 * as the name's second line, set on the name's left edge (36px: the
+	 * band's 8px, the 20px face and its 8px gap), and the keys line up with
+	 * the band's own on the right. Atop a pane with no band it is a card of
+	 * its own. */
 	.call-head {
+		position: relative;
+		z-index: 1;
 		display: flex;
 		flex-shrink: 0;
 		flex-direction: column;
-		margin: 0 0 4px;
-		border-radius: 0 0 var(--radius-pane) var(--radius-pane);
+		margin: 5px 5px 0;
+		border-radius: calc(var(--radius-pane) - 5px);
 		background: var(--raised);
-		box-shadow: 0 0 0 var(--hairline) var(--line);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			0 14px 28px -18px oklch(0% 0 0 / 0.6);
+		animation: call-head-lift var(--dur-open) var(--ease-out) both;
+		transition:
+			margin var(--dur-open) var(--ease-out),
+			border-radius var(--dur-open) var(--ease-out),
+			background var(--dur-open) var(--ease-out),
+			box-shadow var(--dur-open) var(--ease-out);
+	}
+	/* As the strip folds away the card settles back into the resting band. */
+	.call-head:has(> .call-bar[data-folding]) {
+		margin: 0;
+		border-radius: 0;
+		background: var(--canvas);
+		box-shadow: none;
+	}
+	@keyframes call-head-lift {
+		from {
+			margin: 0;
+			border-radius: 0;
+			background: var(--canvas);
+			box-shadow: none;
+		}
+	}
+	/* Inset 5px, the band gives the 5px back, so the face, name and pickers
+	 * stay exactly where they rest. */
+	.call-head > .band {
+		height: 35px;
+	}
+	.call-head > .band .band-row {
+		padding: 0 3px;
 	}
 	.call-bar {
 		--level: 0;
 		display: flex;
-		height: 52px;
+		height: 44px;
 		flex-shrink: 0;
 		align-items: center;
-		gap: 10px;
-		padding: 6px 12px 0 16px;
+		gap: 8px;
+		padding: 0 3px 6px 16px;
 		overflow: hidden;
 		animation: call-bar-open var(--dur-open) var(--ease-out) both;
 	}
+	.call-bar[data-bare] {
+		height: 38px;
+		padding-left: 31px;
+	}
 	.call-bar-alone {
+		height: 48px;
 		margin-bottom: 8px;
-		padding-top: 0;
+		padding-bottom: 0;
 		border-radius: var(--radius-pane);
 		background: var(--raised);
 		box-shadow:
@@ -3584,16 +3627,44 @@
 	@keyframes call-bar-open {
 		from {
 			height: 0;
-			padding-top: 0;
+			padding-bottom: 0;
 			opacity: 0;
 		}
 	}
 	@keyframes call-bar-fold {
 		to {
 			height: 0;
-			padding-top: 0;
+			padding-bottom: 0;
 			opacity: 0;
 		}
+	}
+	/* What the call is doing, then its clock: the band's type a step down,
+	 * parted by small dots rather than the instrument face's middots. */
+	.call-bar-status {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		gap: 7px;
+		overflow: hidden;
+		white-space: nowrap;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+	}
+	.call-bar-dot {
+		width: 3px;
+		height: 3px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: var(--ink-4);
+	}
+	.call-bar-clock {
+		color: var(--ink-3);
+		font-variant-numeric: tabular-nums;
+	}
+	.call-bar[data-phase="hearing"] .call-bar-status > [aria-live],
+	.call-bar[data-phase="speaking"] .call-bar-status > [aria-live] {
+		color: var(--ink);
 	}
 	/* The called teammate's face in its own band, ringed while the line is live. */
 	.call-ring {
@@ -3632,9 +3703,10 @@
 	.call-bar-name {
 		color: var(--ink);
 		font-weight: 600;
+		transition: color var(--dur-press) var(--ease-out);
 	}
 	.call-bar-name:hover {
-		text-decoration: underline;
+		color: var(--accent-ink);
 	}
 	@keyframes call-breathe {
 		50% {
@@ -3661,6 +3733,9 @@
 	.call-bar .call-button {
 		width: 32px;
 		height: 32px;
+	}
+	.call-bar .call-button + .call-button {
+		margin-left: 2px;
 	}
 	/* The call's own controls are round and wordless, like a phone's:
 	 * hold and resume in the quiet fill, hanging up in red, calling again
@@ -3690,7 +3765,7 @@
 	.call-button-end,
 	.call-button-end:hover:not(:disabled) {
 		color: white;
-		background: var(--danger);
+		background: var(--hang-up);
 	}
 	.call-button-end:hover:not(:disabled) {
 		filter: brightness(1.1);
@@ -3705,8 +3780,10 @@
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.call-bar-mark,
-		.call-ring {
+		.call-ring,
+		.call-head {
 			animation: none;
+			transition: none;
 		}
 		/* Still folds, at once, so the strip still closes when it ends. */
 		.call-bar {

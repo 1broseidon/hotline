@@ -78,6 +78,7 @@ export function CallBar({
 			className={alone ? "call-bar call-bar-alone" : "call-bar"}
 			data-phase={state.phase}
 			data-folding={folding ? "" : undefined}
+			data-bare={bare ? "" : undefined}
 			aria-label={`Call with ${target?.name ?? "the desk"}`}
 			onAnimationEnd={(event) => {
 				if (folding && event.target === event.currentTarget) closeCall();
@@ -99,17 +100,30 @@ export function CallBar({
 					<Avatar id={target.personaId} name={target.name} hash={target.avatarHash} size={22} read={call.readAvatar} />}
 			</button>
 			)}
-			<span className="instrument min-w-0 truncate">
-				{target !== undefined && (
-					<button type="button" className="call-bar-name" onClick={() => onOpenTeammate(target.personaId)}>
-						{target.name}
-					</button>
+			<span className="call-bar-status">
+				{/* Under the teammate's own band the name is right above. */}
+				{target !== undefined && !bare && (
+					<>
+						<button type="button" className="call-bar-name" onClick={() => onOpenTeammate(target.personaId)}>
+							{target.name}
+						</button>
+						<span className="call-bar-dot" aria-hidden="true" />
+					</>
 				)}
-				{target !== undefined && " · "}
 				{/* Only the state is announced; the clock would be read out every second. */}
 				<span aria-live="polite">{WORDS[state.phase]}</span>
-				{working && live && state.phase !== "speaking" && <span className="text-ink-3"> · working</span>}
-				{live && state.phase !== "connecting" && <> · <Clock clock={state.clock} /></>}
+				{working && live && state.phase !== "speaking" && (
+					<>
+						<span className="call-bar-dot" aria-hidden="true" />
+						<span>Working</span>
+					</>
+				)}
+				{live && state.phase !== "connecting" && (
+					<>
+						<span className="call-bar-dot" aria-hidden="true" />
+						<Clock clock={state.clock} />
+					</>
+				)}
 			</span>
 
 			{state.cards.map((card) => (
@@ -182,7 +196,7 @@ function Clock({ clock }: { clock: { base: number; since: number | null } }) {
 	const ms = clock.base + (clock.since === null ? 0 : Math.max(0, now - clock.since));
 	const seconds = Math.floor(ms / 1000);
 	return (
-		<span className="tabular-nums">
+		<span className="call-bar-clock">
 			{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
 		</span>
 	);

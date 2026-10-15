@@ -80,6 +80,8 @@
 
 	--warn: oklch(80% 0.14 80);
 	--danger: oklch(72% 0.17 25);
+	/* Hanging up: a red deep enough to carry a white glyph. */
+	--hang-up: oklch(60% 0.2 27);
 	--danger-soft: oklch(72% 0.17 25 / 0.14);
 
 	/* A teammate's face: seven hues at one lightness and one chroma, so no
@@ -173,6 +175,7 @@
 
 	--warn: oklch(64% 0.15 75);
 	--danger: oklch(55% 0.19 27);
+	--hang-up: oklch(57% 0.21 27);
 	--danger-soft: oklch(55% 0.19 27 / 0.1);
 
 	--face-l: 76%;

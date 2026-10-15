@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { CloseIcon, HangUpIcon, PauseIcon, PhoneIcon, PlayIcon } from "../icons";
 import { Avatar } from "../ui/Avatar";
@@ -68,7 +68,6 @@ export function CallBar({
 		if (!live) again.current?.focus();
 	}, [live]);
 	const speaking = state.phase === "speaking" || state.phase === "thinking";
-	const working = callWorking(call.deskId == null || call.deskId === activeDeskId() ? roster : [], call.target?.personaId);
 	const target = call.target;
 	// A plain hang-up folds the strip away; trouble stays to be read.
 	const folding = !live && state.trouble === undefined;
@@ -100,31 +99,19 @@ export function CallBar({
 					<Avatar id={target.personaId} name={target.name} hash={target.avatarHash} size={22} read={call.readAvatar} />}
 			</button>
 			)}
-			<span className="call-bar-status">
-				{/* Under the teammate's own band the name is right above. */}
-				{target !== undefined && !bare && (
-					<>
-						<button type="button" className="call-bar-name" onClick={() => onOpenTeammate(target.personaId)}>
-							{target.name}
-						</button>
-						<span className="call-bar-dot" aria-hidden="true" />
-					</>
-				)}
-				{/* Only the state is announced; the clock would be read out every second. */}
-				<span aria-live="polite">{WORDS[state.phase]}</span>
-				{working && live && state.phase !== "speaking" && (
-					<>
-						<span className="call-bar-dot" aria-hidden="true" />
-						<span>Working</span>
-					</>
-				)}
-				{live && state.phase !== "connecting" && (
-					<>
-						<span className="call-bar-dot" aria-hidden="true" />
-						<Clock clock={state.clock} />
-					</>
-				)}
-			</span>
+			{/* Under the teammate's own band the status is beside the name there. */}
+			{!bare && (
+				<CallStatus call={call} roster={roster}>
+					{target !== undefined && (
+						<>
+							<button type="button" className="call-bar-name" onClick={() => onOpenTeammate(target.personaId)}>
+								{target.name}
+							</button>
+							<span className="call-bar-dot" aria-hidden="true" />
+						</>
+					)}
+				</CallStatus>
+			)}
 
 			{state.cards.map((card) => (
 				<button
@@ -182,6 +169,36 @@ export function CallBar({
 				</>
 			)}
 		</aside>
+	);
+}
+
+/**
+ * What a call is doing, whether the teammate is working off it, and its
+ * clock, parted by small dots: on the call's strip, or beside the called
+ * teammate's name in its own band. Whatever comes first (a name) leads.
+ */
+export function CallStatus({ call, roster, children }: { call: CallSession; roster: readonly RosterEntry[]; children?: ReactNode }) {
+	const state = useCallSnapshot(call);
+	const live = state.phase !== "ended";
+	const working = callWorking(call.deskId == null || call.deskId === activeDeskId() ? roster : [], call.target?.personaId);
+	return (
+		<span className="call-bar-status" data-phase={state.phase}>
+			{children}
+			{/* Only the state is announced; the clock would be read out every second. */}
+			<span aria-live="polite">{WORDS[state.phase]}</span>
+			{working && live && state.phase !== "speaking" && (
+				<>
+					<span className="call-bar-dot" aria-hidden="true" />
+					<span>Working</span>
+				</>
+			)}
+			{live && state.phase !== "connecting" && (
+				<>
+					<span className="call-bar-dot" aria-hidden="true" />
+					<Clock clock={state.clock} />
+				</>
+			)}
+		</span>
 	);
 }
 

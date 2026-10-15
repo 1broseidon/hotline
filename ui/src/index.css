@@ -3667,21 +3667,69 @@
 	.call-bar[data-phase="speaking"] .call-bar-status > [aria-live] {
 		color: var(--ink);
 	}
-	/* The called teammate's face in its own band, ringed while the line is live. */
-	.call-ring {
+	/* On a call to the teammate whose conversation this is, the card leads
+	 * with its face at the card's full height less the margin (10 + 56 + 10:
+	 * a 36px name row over a 40px row for the call's keys), the name with the
+	 * call's status beside it to its right, the keys under them. The face
+	 * rings green while the line is live and swells with `--level`; dim while
+	 * held or ending. */
+	.call-head[data-face] {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		grid-template-rows: 36px auto;
+	}
+	.call-head[data-face] > .band {
+		grid-column: 2;
+		height: 36px;
+	}
+	.call-head[data-face] > .band .band-row {
+		padding-left: 12px;
+	}
+	.call-head[data-face] > .call-bar {
+		grid-column: 2;
+		height: 40px;
+		padding: 0 10px 8px 12px;
+	}
+	.call-face {
 		--level: 0;
+		grid-row: 1 / span 2;
+		align-self: center;
 		display: grid;
 		place-items: center;
+		margin: 10px 0 10px 10px;
 		border-radius: 50%;
 		box-shadow:
-			0 0 0 1.5px var(--accent),
-			0 0 0 calc(1.5px + var(--level) * 4px) color-mix(in oklch, var(--accent) 30%, transparent);
+			0 0 0 2px var(--accent),
+			0 0 0 calc(2px + var(--level) * 6px) color-mix(in oklch, var(--accent) 28%, transparent);
+		animation: call-face-grow var(--dur-open) var(--ease-out) both;
 	}
-	.call-ring[data-phase="connecting"] {
-		animation: call-breathe 1200ms var(--ease-out) infinite;
+	.call-face[data-phase="connecting"] {
+		animation:
+			call-face-grow var(--dur-open) var(--ease-out) both,
+			call-breathe 1200ms var(--ease-out) infinite;
 	}
-	.call-ring[data-phase="held"] {
-		box-shadow: 0 0 0 1.5px var(--ink-4);
+	.call-face[data-phase="held"],
+	.call-face[data-phase="ended"] {
+		box-shadow: 0 0 0 2px var(--ink-4);
+	}
+	.call-head:has(> .call-bar[data-folding]) > .call-face {
+		animation: call-face-shrink var(--dur-open) var(--ease-out) both;
+	}
+	@keyframes call-face-grow {
+		from {
+			opacity: 0;
+			transform: scale(0.36);
+		}
+	}
+	@keyframes call-face-shrink {
+		to {
+			opacity: 0;
+			transform: scale(0.36);
+		}
+	}
+	/* Beside the name, the status sits on its line in the band's quieter type. */
+	.band-row > .call-bar-status {
+		margin-left: 2px;
 	}
 	.call-bar-mark {
 		display: grid;
@@ -3793,7 +3841,8 @@
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.call-bar-mark,
-		.call-ring,
+		.call-face,
+		.call-face[data-phase],
 		.call-head {
 			animation: none;
 			transition: none;

@@ -1,11 +1,11 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Attachment, ConfigChoice, RunningSubagent, ScheduledJob, ThreadId, TranscriptEvent } from "../generated/contract";
+import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, ThreadId, TranscriptEvent } from "../generated/contract";
 import { shownState } from "../activity";
 import { sideTitle } from "../links";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
 import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
-import { useCall, useCallSnapshot } from "../voice/call";
+import { type Call as CallSession, useCall, useCallSnapshot } from "../voice/call";
 import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
@@ -15,6 +15,7 @@ import { Band } from "../ui/Band";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
 import { useNarrow } from "../narrow";
 import { wire, type RosterEntry } from "../wire";
+import { CallStatus } from "./Call";
 import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
 import { Search } from "./Search";
@@ -316,10 +317,15 @@ export function Conversation({
 	 * so on its own. */
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
+	// The call on the line, when it is to this teammate: its face then leads the call card.
+	const liveCall = useCall();
+	const ourCall = callBar !== undefined && liveCall !== null && liveCall.target?.personaId === persona.id ? liveCall : null;
 
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
-			<div className={callBar === undefined ? "contents" : "call-head"}>
+			<div className={callBar === undefined ? "contents" : "call-head"} data-face={ourCall !== null ? "" : undefined}>
+				{/* On a call to this teammate its face grows to the card's full height, ringed. */}
+				{ourCall !== null && <CallFace call={ourCall} persona={persona} />}
 				<Band>
 					<button
 						type="button"
@@ -331,14 +337,13 @@ export function Conversation({
 						aria-expanded={inspectorOpen}
 						onClick={onToggleInspector}
 					>
-						<CallRing personaId={persona.id}>
-						<Avatar id={persona.id} name={persona.name} size={20} hash={persona.avatar?.hash} />
-					</CallRing>
+						{ourCall === null && <Avatar id={persona.id} name={persona.name} size={20} hash={persona.avatar?.hash} />}
 						<span className="shrink-0 text-lg font-semibold text-ink">{persona.name}</span>
 						{state === "thinking" && (
 							<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
 						)}
 					</button>
+					{ourCall !== null && <CallStatus call={ourCall} roster={roster} />}
 	
 					<span className="min-w-0 flex-1" />
 	
@@ -563,24 +568,19 @@ function resumeRefusal(events: TranscriptEvent[], backendId: string): string | n
 }
 
 /**
- * A teammate's face in its band, ringed green while a call to it is live
- * and swelling with the voice (dim while held), so the call strip under the
- * band need not show the face again. The level is set straight from the
- * call, sixty times a second, without re-rendering.
+ * On a call to this teammate its face fills the call card's height beside
+ * the name and the call's row, ringed green while the line is live and
+ * swelling with the voice (dim while held or ending), so nothing else on the
+ * card needs to show who it is. The level is set straight from the call,
+ * sixty times a second, without re-rendering.
  */
-function CallRing({ personaId, children }: { personaId: string; children: ReactNode }) {
-	const call = useCall();
+function CallFace({ call, persona }: { call: CallSession; persona: Persona }) {
 	const phase = useCallSnapshot(call).phase;
-	const ours = call !== null && call.target?.personaId === personaId && phase !== "ended";
 	const ring = useRef<HTMLSpanElement>(null);
-	useEffect(() => {
-		if (!ours || call === null) return;
-		return call.watchLevel((level) => ring.current?.style.setProperty("--level", level.toFixed(3)));
-	}, [ours, call]);
-	if (!ours) return <>{children}</>;
+	useEffect(() => call.watchLevel((level) => ring.current?.style.setProperty("--level", level.toFixed(3))), [call]);
 	return (
-		<span ref={ring} className="call-ring" data-phase={phase}>
-			{children}
+		<span ref={ring} className="call-face" data-phase={phase}>
+			<Avatar id={persona.id} name={persona.name} size={56} hash={persona.avatar?.hash} />
 		</span>
 	);
 }

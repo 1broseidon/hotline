@@ -16,9 +16,9 @@ relatedFiles:
   - docs/voice-calls.md
   - docs/voice.md
   - docs/design.md
-updatedAt: "2026-10-15T01:57:43.498Z"
+updatedAt: "2026-10-15T01:57:45.219Z"
 contract:
-  status: delivered
+  status: failed
   deliverables:
     - type: docs
       path: docs/adr/0003-live-calls-get-a-voice-front.md
@@ -41,6 +41,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-15T01:57:43.498Z"
     duration: 20
+  feedback: Validation failed
 assignee: claude
 dispatch:
   agent: claude

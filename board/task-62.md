@@ -19,7 +19,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/tests/voice.rs
   - docs/voice-calls.md
-updatedAt: "2026-10-15T02:48:06.686Z"
+updatedAt: "2026-10-15T17:07:58.894Z"
 contract:
   status: done
   deliverables:
@@ -53,7 +53,8 @@ dispatch:
   effort: medium
   by: lead
   at: "2026-10-15T02:40:16.216Z"
-completedAt: "2026-10-15T02:48:06.686Z"
+column: in-progress
+position: 2
 ---
 
 ## Description
@@ -61,3 +62,4 @@ Front transcript (person and front lines) goes to calls/<callId>.jsonl and the D
 
 ## Log
 - 2026-10-15T02:46:42.051Z: [claude] Added Kind::Front and ledger::front_usd (xai $0.08/min, openai $0.05/min, subscription/local free, unknown provider charged at $0.08), counted in the Voice budget so voice.status budget shows it with no contract change. Calls gained front_ready (budget check before a call starts), front_spend(front, seconds) (charge; Err means end the call), front_heard / front_said (front lines to calls/<id>.jsonl; the teammate tape is untouched). For later tasks: nothing yet runs a RealtimeSession, so whoever wires it must call front_ready before opening, front_spend about once a minute, and front_heard/front_said from RealtimeEvent::Heard/Saying (said lines are kind "agent" on the call thread). Subscription limits are not yet known and not noted. Tests in tests/voice.rs; cargo test -p hotline-core, clippy and fmt pass. On branch dispatch/task-62.
+- 2026-10-15T17:07:58.894Z: Reopened into In progress

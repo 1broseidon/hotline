@@ -1,6 +1,6 @@
 # ADR 0004: Live calls get a voice front
 
-- Status: Accepted (planned for 0.38; nothing here has landed yet)
+- Status: Accepted (0.38)
 - Date: 2026-10-14
 - Supersedes: "No front" in [voice-calls.md](../voice-calls.md) (Direct turns)
 - Design: [voice-calls.md](../voice-calls.md), [voice.md](../voice.md)
@@ -65,5 +65,6 @@ Why:
 ## Consequences
 
 - `docs/voice-calls.md` replaces "No front" with the front's design; its wire
-  ledger and `docs/voice.md` providers gain entries as each child lands.
-- Until then the code is the old pipeline, and the docs say so.
+  ledger and `docs/voice.md` providers carry the front's entries.
+- A call runs on the old pipeline unless Settings picks a front and the
+  client asks for one.

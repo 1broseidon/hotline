@@ -338,6 +338,9 @@ impl Driver {
                     "item": {"type": "function_call_output", "call_id": call_id, "output": output},
                 });
                 self.send(socket, item).await?;
+                if output.is_empty() {
+                    return Ok(());
+                }
                 self.respond(socket).await
             }
             Command::Text(text) => {

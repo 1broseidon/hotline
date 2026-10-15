@@ -5,8 +5,13 @@
 //! plays small frames down over the call's own wire, each side numbered, so
 //! a gap is visible and nothing is queued without a bound.
 
-use super::realtime::{Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession};
+use super::front::{self, FRONT_LINE_PREFIX};
+use super::front_prompt::{self, Behind, Line, Speaker as LineSpeaker, Start};
+use super::realtime::{
+    Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession, RealtimeTool,
+};
 use super::*;
+use crate::log::StreamId;
 
 /// The rate the front hears and speaks at, and the one a call is asked for.
 pub(super) const FRONT_RATE: u32 = 24_000;
@@ -16,12 +21,11 @@ const MIC_RATES: [u32; 2] = [16_000, FRONT_RATE];
 /// One frame of the front's speech: 100 ms.
 const FRAME_BYTES: usize = FRONT_RATE as usize / 10 * 2;
 const CHUNK_LIMIT: usize = 32 * 1024;
+/// The voice a front speaks in when the owner picked none.
 const VOICE: &str = "eve";
-/// Only what the front may never do. Who it is and what it relays are the
-/// bridge's to say.
-const INSTRUCTIONS: &str = "You are the voice on a call with a person. You relay what they ask \
-to their teammate and ask a question when you need one. You never say that work is started, \
-done or possible unless the teammate has said so.";
+/// A paid front is charged for its minutes as they pass, so a spent budget
+/// ends the call within one of them.
+const SPEND_EVERY: Duration = Duration::from_secs(60);
 
 /// A front call's side of the sound. Held by the call, dropped with it.
 pub(super) struct Front {
@@ -76,8 +80,83 @@ fn resample(pcm: &[u8], from: u32, to: u32) -> Vec<u8> {
 }
 
 impl Calls {
+    /// The realtime model a front call would speak through: an injected one,
+    /// or the one the owner picked in Settings, resolved from the vault.
     pub(crate) fn realtime(&self) -> Option<Arc<dyn Realtime>> {
-        self.injected.as_ref()?.realtime.clone()
+        match &self.injected {
+            Some(services) => services.realtime.clone(),
+            None => speech::resolve_front(&self.vault, &self.settings()),
+        }
+    }
+
+    /// Whether the login or key a front was opened with is still connected.
+    /// Revoking it ends the front, as it ends a pipeline call's speech.
+    fn front_connected(&self, front: &dyn Realtime) -> bool {
+        self.injected.is_some()
+            || self.login_connected(&front.id().provider_id, front.is_subscription())
+    }
+
+    /// Whether the call is spoken by a front, which says the call's lines
+    /// itself, so the pipeline only shows them.
+    pub(super) fn fronted(&self, id: &str) -> bool {
+        self.change(id, |call| Ok(call.front.is_some()))
+            .unwrap_or(false)
+    }
+
+    /// What the front is told before the call: on a call to a teammate, its
+    /// name, the open chapter's handoff note and the latest lines of its DM
+    /// said in words; on a desk call, only how to behave.
+    fn front_instructions(&self, id: &str) -> String {
+        let target = self
+            .change(id, |call| Ok(call.target.clone()))
+            .ok()
+            .flatten();
+        let persona = target.and_then(|target| {
+            crate::room::roster(&self.log)
+                .into_iter()
+                .find(|persona| persona.id == target)
+        });
+        let Some(persona) = persona else {
+            return front_prompt::instructions(&Behind::Desk, &Start::default());
+        };
+        let tape = self.log.load(&StreamId::Tape(persona.id.clone()));
+        let handoff = tape
+            .iter()
+            .rev()
+            .filter(|event| event["kind"] == "chapter")
+            .find_map(|event| event["note"].as_str());
+        let recent: Vec<Line> = tape
+            .iter()
+            .filter_map(|event| {
+                let speaker = match event["kind"].as_str()? {
+                    "user" => LineSpeaker::Person,
+                    "agent" => LineSpeaker::Teammate,
+                    _ => return None,
+                };
+                Some(Line {
+                    speaker,
+                    text: event["text"].as_str()?,
+                })
+            })
+            .collect();
+        front_prompt::instructions(
+            &Behind::Teammate {
+                public_name: &persona.name,
+                voice: "",
+            },
+            &Start {
+                person: None,
+                handoff,
+                recent: &recent,
+            },
+        )
+    }
+
+    fn front_voice(&self) -> String {
+        self.settings()
+            .front
+            .and_then(|front| front.voice)
+            .unwrap_or_else(|| VOICE.into())
     }
 
     /// Whether this desk can run a voice front for a call.
@@ -157,18 +236,33 @@ impl Calls {
         });
     }
 
-    /// Carries one call's front: opens the provider session, then turns what
-    /// it produces into the call's events until the call or the session ends.
+    /// Carries one call's front: opens the provider session with the
+    /// bridge's tools, then turns what the provider produces into the call's
+    /// events, its tool calls into the bridge's answers, and what the bridge
+    /// has for the person into lines for the front to say, until the call or
+    /// the session ends. Its minutes are charged as they pass and once more
+    /// when it stops.
     pub(super) async fn run_front(
         self: Arc<Self>,
         id: String,
         realtime: Arc<dyn Realtime>,
         cancel: CancellationToken,
     ) {
+        // Subscribed before anything can be handed over, so no reply is missed.
+        let Ok(bridge) = front::Front::open(&self, &id) else {
+            return;
+        };
         let config = RealtimeConfig {
-            instructions: INSTRUCTIONS.into(),
-            voice: VOICE.into(),
-            tools: Vec::new(),
+            instructions: self.front_instructions(&id),
+            voice: self.front_voice(),
+            tools: front::tools()
+                .into_iter()
+                .map(|tool| RealtimeTool {
+                    name: tool.name.into(),
+                    description: tool.description.into(),
+                    parameters: tool.parameters,
+                })
+                .collect(),
             input_rate: FRONT_RATE,
             output_rate: FRONT_RATE,
         };
@@ -176,7 +270,7 @@ impl Calls {
             _ = cancel.cancelled() => return,
             opened = realtime.open(config) => opened,
         };
-        let RealtimeSession { input, mut events } = match opened {
+        let session = match opened {
             Ok(session) => session,
             Err(error) => {
                 eprintln!("[voice] the front could not open: {error}");
@@ -184,40 +278,78 @@ impl Calls {
                 return;
             }
         };
-        let connected = self.change(&id, |call| {
+        let since = Instant::now();
+        let ended = self
+            .carry_front(&id, realtime.as_ref(), session, bridge, &cancel)
+            .await;
+        let rest = since.elapsed().as_secs_f64() % SPEND_EVERY.as_secs_f64();
+        let _ = self.front_spend(realtime.as_ref(), rest);
+        match ended {
+            FrontEnd::Call => {}
+            FrontEnd::Lost => self.lose_front(&id),
+            FrontEnd::Budget => {
+                let _ = self.finish(&id, VoiceEndReason::Budget);
+            }
+        }
+    }
+
+    async fn carry_front(
+        &self,
+        id: &str,
+        realtime: &dyn Realtime,
+        session: RealtimeSession,
+        mut bridge: front::Front,
+        cancel: &CancellationToken,
+    ) -> FrontEnd {
+        let RealtimeSession { input, mut events } = session;
+        let connected = self.change(id, |call| {
             call.front
                 .as_mut()
                 .map(|front| front.input = Some(input.clone()))
                 .ok_or_else(|| "No front.".to_string())
         });
         if connected.is_err() {
-            return;
+            return FrontEnd::Call;
         }
         let mut saying = String::new();
         let mut replies = 0u32;
         let mut heard = 0u32;
+        let mut minutes =
+            tokio::time::interval_at(tokio::time::Instant::now() + SPEND_EVERY, SPEND_EVERY);
         loop {
             let event = tokio::select! {
-                _ = cancel.cancelled() => return,
+                _ = cancel.cancelled() => return FrontEnd::Call,
+                _ = minutes.tick() => {
+                    if !self.front_connected(realtime) {
+                        return FrontEnd::Lost;
+                    }
+                    if self.front_spend(realtime, SPEND_EVERY.as_secs_f64()).is_err() {
+                        return FrontEnd::Budget;
+                    }
+                    continue;
+                }
+                // What the bridge has for the person, said word for word. A
+                // front that is gone is noticed by its events ending.
+                note = bridge.next_note() => {
+                    let Some(note) = note else { return FrontEnd::Call };
+                    let _ = input.text(&note.instruction()).await;
+                    continue;
+                }
                 event = events.recv() => event,
             };
             let event = match event {
                 Some(Ok(event)) => event,
                 Some(Err(error)) => {
                     eprintln!("[voice] the front failed: {error}");
-                    self.lose_front(&id);
-                    return;
+                    return FrontEnd::Lost;
                 }
-                None => {
-                    self.lose_front(&id);
-                    return;
-                }
+                None => return FrontEnd::Lost,
             };
             let seen = match event {
-                RealtimeEvent::Audio(pcm) => self.front_speaks(&id, &pcm),
+                RealtimeEvent::Audio(pcm) => self.front_speaks(id, &pcm),
                 RealtimeEvent::SpeechStarted => {
                     saying.clear();
-                    self.change(&id, |call| {
+                    self.change(id, |call| {
                         let _ = call.events.send(VoiceEvent::FrontStop {});
                         if call.state == VoiceState::Speaking {
                             call.state(call.resting(), None);
@@ -228,7 +360,8 @@ impl Calls {
                 RealtimeEvent::Heard(text) => {
                     let seq = heard;
                     heard += 1;
-                    self.change(&id, |call| {
+                    self.front_heard(id, &text);
+                    self.change(id, |call| {
                         call.activity = Instant::now();
                         let _ = call.events.send(VoiceEvent::Heard { seq, text });
                         Ok(())
@@ -240,9 +373,12 @@ impl Calls {
                 }
                 RealtimeEvent::ResponseDone => {
                     let text = std::mem::take(&mut saying);
-                    let reply = format!("front-{replies}");
+                    let reply = format!("{FRONT_LINE_PREFIX}{replies}");
                     replies += 1;
-                    self.change(&id, |call| {
+                    if !text.trim().is_empty() {
+                        self.front_said(id, &text);
+                    }
+                    self.change(id, |call| {
                         if !text.trim().is_empty() {
                             let _ = call.events.send(VoiceEvent::Said { id: reply, text });
                         }
@@ -252,15 +388,23 @@ impl Calls {
                         Ok(())
                     })
                 }
-                // The front has no tools yet; answer so it does not wait.
-                RealtimeEvent::ToolCall { call_id, .. } => {
-                    let _ = input.tool_result(&call_id, "That is not available.").await;
+                RealtimeEvent::ToolCall {
+                    call_id,
+                    name,
+                    arguments,
+                } => {
+                    let output = bridge.tool_call(&name, &arguments);
+                    let _ = input.tool_result(&call_id, &output).await;
                     Ok(())
                 }
-                RealtimeEvent::Refused { .. } | RealtimeEvent::Renewed => Ok(()),
+                RealtimeEvent::Refused { code } => {
+                    eprintln!("[voice] the front refused a request: {code:?}");
+                    Ok(())
+                }
+                RealtimeEvent::Renewed => Ok(()),
             };
             if seen.is_err() {
-                return;
+                return FrontEnd::Call;
             }
         }
     }
@@ -287,4 +431,15 @@ impl Calls {
             Ok(())
         })
     }
+}
+
+/// Why a front stopped carrying its call.
+enum FrontEnd {
+    /// The call ended, or went on without needing the front.
+    Call,
+    /// The provider failed or closed, or its login was revoked: the call goes
+    /// on as a pipeline call.
+    Lost,
+    /// The Voice budget cannot pay for another minute: the call ends.
+    Budget,
 }

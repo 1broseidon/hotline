@@ -178,8 +178,27 @@ desk. Paid xAI speech requires an API key; the separate explicit Grok
 subscription choice requires its stored login and never uses a paid speech
 fallback. Both output paths check fallback credential revocation before use.
 
+A voice front (ADR 0004) is off by default; the owner turns it on in
+Settings with a Grok login or key already in the vault, and a client asks for
+it per call. Its whole reach is two tools enforced in the core
+(`voice/front.rs`): `send_to_teammate` hands words to `Calls::relay`, the same
+owner-seat, sequence-gated, call-origin path as `voice.text`, so the
+teammate's session keeps its own grants and approval gates; `remain_silent`
+does nothing. No other tool name is honoured, the person's own input is
+refused while a front is on the call, and a relay is refused on a call
+without one. Its starting prompt is a scrubbed, budgeted slice of the DM
+(`front_prompt.rs`), never tool output, code or credentials. Its lease is the
+call's: hanging up or replacing the call closes its socket, a paid front
+needs Voice budget room to open and ends the call when a minute cannot be
+paid, and a revoked login is noticed within a minute and drops the front.
+Residual risk: the front is a model, so it can misrepresent the person's
+words in what it relays or say something the teammate did not; the teammate
+is told the input is a transcript behind an intermediary, and the call's
+thread keeps what the front heard and said for review.
+
 Proofs: `wire::tests::voice_is_owner_only_through_the_real_handler`, the
 headless `tests/voice.rs::device_text_reuses_the_direct_agent_session_and_call_origin`,
+`tests/voice.rs::a_front_call_relays_to_the_teammate_and_says_its_spoken_line`,
 direct-call and dispatcher-unavailable readiness tests, and the finalized-text
 replay, pending, mode, bounds, budget, STT-accounting, direct origin, live commit,
 cancellation and streaming failure tests in `voice::tests` and

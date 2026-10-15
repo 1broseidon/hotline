@@ -12,7 +12,8 @@ use crate::contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
 use crate::credentials::CredentialFile;
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
-use crate::voice::settings::{Choice, VoiceSettings};
+use crate::voice::realtime::{GrokVoice, Realtime};
+use crate::voice::settings::{Choice, FrontProvider, VoiceSettings};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -497,6 +498,34 @@ fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Con
     }
 }
 
+/// The realtime model that fronts a live call, when the owner turned one on
+/// and the login or key it names is still connected. With no login named,
+/// the first connected one runs it. `None` keeps calls on the pipeline.
+pub fn resolve_front(vault: &Vault, settings: &VoiceSettings) -> Option<Arc<dyn Realtime>> {
+    front_from(&connections(vault), settings)
+}
+
+fn front_from(connections: &[Connection], settings: &VoiceSettings) -> Option<Arc<dyn Realtime>> {
+    let front = settings.front.as_ref()?;
+    // Grok Voice is the only front with an adapter; another is another arm.
+    let FrontProvider::Grok = front.provider;
+    let connection = connections.iter().find(|connection| {
+        let grok = matches!(
+            connection.provider_id.as_str(),
+            xai::PROVIDER_ID | xai::SUBSCRIPTION_PROVIDER_ID
+        );
+        grok && front
+            .credential
+            .as_ref()
+            .is_none_or(|named| *named == connection.provider_id)
+    })?;
+    let voice = GrokVoice::new(connection.endpoint());
+    Some(Arc::new(match &connection.login {
+        Some(tokens) => voice.with_subscription(tokens.clone()).ok()?,
+        None => voice,
+    }))
+}
+
 /// STT, TTS and a fallback TTS from what the owner has connected.
 ///
 /// Each job goes to the first connected provider that can do it, unless
@@ -915,6 +944,39 @@ mod tests {
         )
         .file(root.join("auth.json"));
         connection("xai", &ProviderAuth::StoredLogin { tokens }, root).unwrap()
+    }
+
+    #[test]
+    fn a_front_runs_on_the_named_grok_login_or_the_first_connected() {
+        use crate::voice::settings::{FrontChoice, FrontProvider};
+        let dir = tempfile::tempdir().unwrap();
+        let connections = [
+            connected("openai"),
+            connected("xai"),
+            subscription(dir.path()),
+        ];
+        let front = |credential: Option<&str>| VoiceSettings {
+            front: Some(FrontChoice {
+                provider: FrontProvider::Grok,
+                credential: credential.map(str::to_string),
+                voice: None,
+            }),
+            ..VoiceSettings::default()
+        };
+        assert!(front_from(&connections, &VoiceSettings::default()).is_none());
+        let login = front_from(&connections, &front(Some(xai::SUBSCRIPTION_PROVIDER_ID))).unwrap();
+        assert!(login.is_subscription());
+        let key = front_from(&connections, &front(None)).unwrap();
+        assert_eq!(key.id().provider_id, xai::PROVIDER_ID);
+        assert!(!key.is_subscription());
+        // A login that is no longer connected leaves the call on the pipeline.
+        assert!(
+            front_from(
+                &[connected("xai")],
+                &front(Some(xai::SUBSCRIPTION_PROVIDER_ID))
+            )
+            .is_none()
+        );
     }
 
     #[test]

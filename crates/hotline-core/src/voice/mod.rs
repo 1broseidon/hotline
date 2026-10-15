@@ -741,7 +741,11 @@ impl Calls {
             }
             let (tx, rx) = mpsc::channel(16);
             let cancel = CancellationToken::new();
-            let realtime = self.realtime().filter(|_| mode == VoiceCallMode::Front);
+            // A front the budget cannot pay for leaves the call on the pipeline.
+            let realtime = self
+                .realtime()
+                .filter(|_| mode == VoiceCallMode::Front)
+                .filter(|front| self.front_ready(front.as_ref()).is_ok());
             calls.push_back(Call {
                 id: id.into(),
                 output: speech_services.tts.output_mime().into(),
@@ -974,14 +978,16 @@ impl Calls {
             return Err("That voice clip is empty or too large.".into());
         }
         let duration = validate_audio(mime, &bytes, duration)?;
-        self.queue_utterance(id, seq, VoiceInputMode::Audio, |speech| Work::Utterance {
-            seq,
-            clip: Clip {
-                mime: mime.into(),
-                bytes,
-            },
-            duration,
-            speech,
+        self.queue_utterance(id, seq, Some(VoiceInputMode::Audio), |speech| {
+            Work::Utterance {
+                seq,
+                clip: Clip {
+                    mime: mime.into(),
+                    bytes,
+                },
+                duration,
+                speech,
+            }
         })
     }
 
@@ -1010,7 +1016,11 @@ impl Calls {
         if text.is_empty() {
             return Err("A finalized voice transcript cannot be empty.".into());
         }
-        self.queue_utterance(id, seq, VoiceInputMode::Text, |speech| Work::Text {
+        let input = match source {
+            TranscriptSource::Front => None,
+            _ => Some(VoiceInputMode::Text),
+        };
+        self.queue_utterance(id, seq, input, |speech| Work::Text {
             seq,
             text: text.into(),
             source,
@@ -1018,18 +1028,25 @@ impl Calls {
         })
     }
 
+    /// Work on what was said. `input_mode` is the person's own input, which
+    /// a front call refuses; `None` is the front relaying, which only a front
+    /// call takes.
     fn queue_utterance(
         &self,
         id: &str,
         seq: u32,
-        input_mode: VoiceInputMode,
+        input_mode: Option<VoiceInputMode>,
         work: impl FnOnce(CancellationToken) -> Work,
     ) -> Result<(), String> {
         self.change(id, |call| {
-            if call.front.is_some() {
-                return Err(FRONT_LINE.into());
+            match (input_mode, call.front.is_some()) {
+                (Some(_), true) => return Err(FRONT_LINE.into()),
+                (None, false) => return Err("This call has no voice front.".into()),
+                _ => {}
             }
-            if call.input_mode != input_mode {
+            if let Some(input_mode) = input_mode
+                && call.input_mode != input_mode
+            {
                 return Err(match call.input_mode {
                     VoiceInputMode::Text => {
                         "This call accepts finalized text, not microphone audio."
@@ -1050,7 +1067,11 @@ impl Calls {
                 return Err("The previous utterance is still being handled.".into());
             }
             let speech = CancellationToken::new();
-            call.speech_services = self.resolve_speech(input_mode, call.target.as_deref())?;
+            // A front speaks for itself; only the person's input is heard
+            // and answered by the pipeline's providers.
+            if let Some(input_mode) = input_mode {
+                call.speech_services = self.resolve_speech(input_mode, call.target.as_deref())?;
+            }
             call.work
                 .try_send(work(speech.clone()))
                 .map_err(|_| "The voice call is busy. Try again shortly.".to_string())?;
@@ -1124,14 +1145,20 @@ impl Calls {
         if speech.id().provider_id == local::PROVIDER_ID {
             return local::chosen(self.vault.root(), Some(&speech.id().model_id)).is_some();
         }
+        self.login_connected(&speech.id().provider_id, speech.is_subscription())
+    }
+
+    /// Whether the key, or the Grok login, a provider was resolved with is
+    /// still in the vault.
+    fn login_connected(&self, provider_id: &str, subscription: bool) -> bool {
         let auth = self.vault.provider_auth();
-        if speech.is_subscription() {
+        if subscription {
             matches!(
                 auth.get("xai"),
                 Some(crate::session::ProviderAuth::StoredLogin { .. })
             )
         } else {
-            auth.contains_key(&speech.id().provider_id)
+            auth.contains_key(provider_id)
         }
     }
 
@@ -1527,13 +1554,17 @@ impl Calls {
             return Ok(());
         }
         let text = text.trim().chars().take(8_000).collect::<String>();
-        self.emit(
-            id,
-            VoiceEvent::Heard {
-                seq,
-                text: text.clone(),
-            },
-        );
+        // What a front relays, it heard: the call was shown and kept that.
+        let relayed = matches!(source, TranscriptSource::Front);
+        if !relayed {
+            self.emit(
+                id,
+                VoiceEvent::Heard {
+                    seq,
+                    text: text.clone(),
+                },
+            );
+        }
         if text.is_empty() {
             return Ok(());
         }
@@ -1541,7 +1572,9 @@ impl Calls {
         if target.is_none() {
             self.record("user", &text)?;
         } else {
-            self.keep(id, Speaker::Person, &text);
+            if !relayed {
+                self.keep(id, Speaker::Person, &text);
+            }
             let _ = self.change(id, |call| {
                 call.words = text.clone();
                 Ok(())
@@ -1997,10 +2030,14 @@ impl Calls {
         if reply.text.is_empty() {
             return Ok(());
         }
-        if self.change(id, |call| Ok(call.target.is_some()))? {
-            self.keep_as(id, Speaker::Voice, &reply.line, &reply.text);
-        } else {
+        let (direct, fronted) =
+            self.change(id, |call| Ok((call.target.is_some(), call.front.is_some())))?;
+        if !direct {
             self.record("agent", &reply.text)?;
+        } else if !fronted {
+            // A front call's thread keeps what the front said of the reply
+            // instead ([`Self::front_said`]).
+            self.keep_as(id, Speaker::Voice, &reply.line, &reply.text);
         }
         Ok(())
     }
@@ -2082,6 +2119,9 @@ impl Calls {
                 text,
             },
         );
+        if self.fronted(id) {
+            return Ok(());
+        }
         self.speaking(id, interrupted);
         let speech = self.speech_for(id)?;
         let streaming = self.change(id, |call| Ok(call.stream_audio))?;
@@ -2138,7 +2178,11 @@ impl Calls {
                     text,
                 },
             );
-            if failure.is_some() || interrupted.is_cancelled() || ended.is_cancelled() {
+            if failure.is_some()
+                || interrupted.is_cancelled()
+                || ended.is_cancelled()
+                || self.fronted(id)
+            {
                 continue;
             }
             if speech.is_none() {

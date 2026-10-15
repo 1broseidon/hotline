@@ -114,7 +114,8 @@ impl RealtimeInput {
     }
 
     /// The answer to a [`RealtimeEvent::ToolCall`]. The model replies once
-    /// its current reply, if any, is done.
+    /// its current reply, if any, is done. An empty output asks for no reply:
+    /// it answers a call that chose to say nothing.
     pub async fn tool_result(&self, call_id: &str, output: &str) -> Result<(), SpeechError> {
         self.send(Command::ToolResult {
             call_id: call_id.into(),

@@ -253,6 +253,30 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
     finish(server).await;
 }
 
+/// `remain_silent` is answered so the model is not left waiting, but asking
+/// for a reply to it would have the model speak after choosing not to.
+#[tokio::test]
+async fn an_empty_tool_result_asks_for_no_reply() {
+    let (listener, url) = listen().await;
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = accept(&listener).await;
+        handshake(&mut socket).await;
+        let output = receive(&mut socket).await;
+        assert_eq!(output["item"]["type"], "function_call_output");
+        assert_eq!(output["item"]["output"], "");
+        assert_eq!(
+            receive(&mut socket).await["type"],
+            "input_audio_buffer.append"
+        );
+        closed(&mut socket).await;
+    });
+    let session = voice(&url).open(config()).await.unwrap();
+    session.input.tool_result("c1", "").await.unwrap();
+    session.input.push_audio(vec![0, 0]).await.unwrap();
+    session.close().await;
+    finish(server).await;
+}
+
 #[tokio::test]
 async fn provider_errors_reach_the_caller_as_a_code_never_a_message() {
     let (listener, url) = listen().await;

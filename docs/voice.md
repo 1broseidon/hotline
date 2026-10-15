@@ -522,8 +522,10 @@ while a desk text call also needs the dispatcher.
 
 ## One brain, two outputs
 
-A call to a teammate has nothing in front of the teammate
-(`voice/spoken.rs`). Every utterance goes into the teammate's own session as a
+A pipeline call to a teammate has nothing in front of the teammate
+(`voice/spoken.rs`); a front call puts a realtime voice there, which relays
+the same way (see the voice front setting below and
+[voice-calls.md](voice-calls.md)). Every utterance goes into the teammate's own session as a
 turn of its conversation, in the open chapter of its main thread, the same way
 a typed message does (`Calls::hand_off`, `Room::prompt`): same session, same
 harness, same grants. The tape keeps the person's words exactly as they were
@@ -909,5 +911,8 @@ holding one.
 "xai" | "xai-subscription", "voices": { "grok": "eve" } }`. Absent means Off:
 calls keep the transcribe, route and speak pipeline. Settings > Use for >
 Live calls writes it; a provider the build has no adapter for (GPT-Live) is
-read as Off. The phone has no way to change desk voice settings today, so it
+read as Off. A front call resolves Grok Voice from the vault when it starts
+(`speech::resolve_front`): the named login or key, or with none named the
+first connected; one that is no longer connected leaves the call on the
+pipeline, as does a Voice budget with no room for a key's minutes. The phone has no way to change desk voice settings today, so it
 has no mirror.

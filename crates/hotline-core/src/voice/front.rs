@@ -18,6 +18,7 @@ use crate::contract::{VoiceEvent, VoiceState};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
 pub const SEND_TO_TEAMMATE: &str = "send_to_teammate";
@@ -78,7 +79,13 @@ impl Note {
     }
 }
 
+/// The call's own lines that the front said, as against the teammate's.
+pub const FRONT_LINE_PREFIX: &str = "front-";
+
 const PROGRESS_LINE: &str = "Still working on it.";
+/// A call says it is still thinking every 15 seconds, and again whenever the
+/// front stops talking; the person hears it at most this often.
+const PROGRESS_EVERY: Duration = Duration::from_secs(45);
 
 /// A pending request is not described: its details are the desk's to show.
 fn needs_you(kind: &str) -> String {
@@ -104,6 +111,8 @@ pub struct Front {
     /// The call says it is thinking as soon as the words are handed over; the
     /// front already knows, so only the repeats are progress.
     first_thinking_unreported: bool,
+    /// When the person last heard something of the teammate's turn.
+    last_told: Instant,
 }
 
 impl Front {
@@ -118,6 +127,7 @@ impl Front {
             said: HashMap::new(),
             waiting: false,
             first_thinking_unreported: false,
+            last_told: Instant::now(),
         })
     }
 
@@ -144,6 +154,7 @@ impl Front {
         self.seq += 1;
         self.waiting = true;
         self.first_thinking_unreported = true;
+        self.last_told = Instant::now();
         Ok(())
     }
 
@@ -156,12 +167,14 @@ impl Front {
                 Err(broadcast::error::RecvError::Closed) => return None,
             };
             match event {
+                VoiceEvent::Said { id, .. } if id.starts_with(FRONT_LINE_PREFIX) => {}
                 VoiceEvent::Said { id, text } => {
                     let given = self.said.entry(id).or_insert(0);
                     let fresh = text.get(*given..).unwrap_or_default().trim();
                     if !fresh.is_empty() {
                         let note = Note::Spoken(fresh.to_string());
                         *given = text.len();
+                        self.last_told = Instant::now();
                         return Some(note);
                     }
                 }
@@ -174,9 +187,13 @@ impl Front {
                     listening: true,
                     ..
                 } => {
-                    if std::mem::take(&mut self.first_thinking_unreported) || !self.waiting {
+                    if std::mem::take(&mut self.first_thinking_unreported)
+                        || !self.waiting
+                        || self.last_told.elapsed() < PROGRESS_EVERY
+                    {
                         continue;
                     }
+                    self.last_told = Instant::now();
                     return Some(Note::Progress(PROGRESS_LINE.into()));
                 }
                 VoiceEvent::State {

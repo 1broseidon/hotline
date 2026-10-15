@@ -904,7 +904,8 @@ struct FrontDesk {
     asked: tokio::sync::mpsc::Receiver<Asked>,
     events: tokio::sync::mpsc::Sender<Result<RealtimeEvent, SpeechError>>,
     front: Arc<ScriptedFront>,
-    _root: tempfile::TempDir,
+    log: hotline_core::log::Log,
+    root: tempfile::TempDir,
 }
 
 /// A desk whose front is scripted, with a socket on it. With `front: false`
@@ -928,7 +929,8 @@ async fn front_desk(front: bool, queue: usize) -> FrontDesk {
         )
         .unwrap(),
     );
-    let door = Door::bind(desk.log.clone(), "front-test".into(), desk).unwrap();
+    let log = desk.log.clone();
+    let door = Door::bind(log.clone(), "front-test".into(), desk).unwrap();
     let port = door.port();
     tokio::spawn(door.run());
     let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=front-test"))
@@ -939,7 +941,8 @@ async fn front_desk(front: bool, queue: usize) -> FrontDesk {
         asked,
         events,
         front: scripted,
-        _root: root,
+        log,
+        root,
     }
 }
 
@@ -1213,86 +1216,187 @@ async fn a_front_that_is_behind_refuses_audio_instead_of_stalling_the_wire() {
     assert_eq!(status["ok"], true);
 }
 
-/// A voice front hands the person's words to the teammate unrephrased, as a
-/// typed message would go (the teammate's own session and open chapter, the
-/// call's origin on the line), told they are a transcript; the teammate's
-/// spoken line comes back to be said verbatim; and what the front itself
-/// says is nowhere on the teammate's tape.
+/// The front wired end to end, against a scripted provider: it opens with
+/// the teammate's prompt and the bridge's two tools; its `send_to_teammate`
+/// hands the words to the teammate's own session unrephrased, as a typed
+/// message would go (its open chapter, the call's origin on the line), told
+/// they are a transcript, and is answered; the call
+/// thinks with `listening` while the turn works; the teammate's spoken line
+/// comes back to the front to say verbatim, and the desk synthesizes none of
+/// it; `remain_silent` asks for no reply; and the call's thread keeps what
+/// the front heard and said, each once.
 #[tokio::test]
-async fn a_front_hands_words_to_the_teammate_and_says_its_spoken_line_verbatim() {
-    use hotline_core::contract::VoiceInputMode;
-    use hotline_core::voice::front::{Front, Note, REMAIN_SILENT, SEND_TO_TEAMMATE};
-    use hotline_core::wire::RoomHandle;
-
-    let root = tempfile::tempdir().unwrap();
-    let desk = Arc::new(
-        hotline_core::desk::Desk::open_with_voice_services(
-            root.path(),
-            common::store(),
-            Some(services()),
-        )
-        .unwrap(),
-    );
-    let log = desk.log.clone();
-    let door = Door::bind(log.clone(), "front-test".into(), desk.clone()).unwrap();
-    let port = door.port();
-    let server = tokio::spawn(door.run());
-    let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=front-test"))
-        .await
-        .unwrap();
+async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
+    let mut desk = front_desk(true, 64).await;
+    let root = desk.root.path().to_path_buf();
+    let socket = &mut desk.socket;
     let (provider, requests) = provider_seeing(TAGGED_REPLY).await;
-    send(&mut socket, json!({"id":90,"cmd":"credential.custom_save","params":{"draft":{"name":"Front fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 90).await["ok"], true);
-    send(&mut socket, json!({"id":91,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
-    let persona = until(&mut socket, |f| f["id"] == 91).await["result"]["id"]
+    let saved = answer(socket, 90, json!({"cmd":"credential.custom_save","params":{"draft":{"name":"Front fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
+    assert_eq!(saved["ok"], true);
+    let persona = answer(socket, 91, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.to_str().unwrap()}}})).await["result"]["id"]
         .as_str()
         .unwrap()
         .to_string();
-    send(
-        &mut socket,
-        json!({"id":92,"cmd":"session.start","params":{"personaId":persona}}),
+    let started = answer(
+        socket,
+        92,
+        json!({"cmd":"session.start","params":{"personaId":persona}}),
     )
     .await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 92).await["ok"], true);
+    assert_eq!(started["ok"], true);
 
-    let calls = desk.voice().unwrap();
     let call = Uuid::new_v4().to_string();
-    calls
-        .start_with_input(
-            &call,
-            Some(persona.clone()),
-            false,
-            VoiceInputMode::Text,
-            desk.clone(),
-        )
-        .unwrap();
-    let mut front = Front::open(&calls, &call).unwrap();
+    let started = answer(
+        socket,
+        1,
+        json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}}),
+    )
+    .await;
+    assert_eq!(started["result"]["front"]["outputRate"], 24000, "{started}");
+    send(socket, json!({"id":2,"sub":{"call":call}})).await;
+    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
 
-    assert_eq!(front.tool_call(REMAIN_SILENT, "{}"), "");
-    assert!(
-        front
-            .tool_call(SEND_TO_TEAMMATE, "{}")
-            .starts_with("Not sent")
-    );
-    let words = "ask mack to check the failing P R, uh, the one from monday";
-    let output = front.tool_call(SEND_TO_TEAMMATE, &json!({ "words": words }).to_string());
-    assert!(output.contains("Nothing is done yet"), "{output}");
-
-    // The teammate's spoken line is what the front is given to say.
-    let note = tokio::time::timeout(Duration::from_secs(15), async {
+    // The front opens as the teammate's voice, with the bridge's tools.
+    let config = tokio::time::timeout(Duration::from_secs(15), async {
         loop {
-            match front.next_note().await.expect("the call is still live") {
-                Note::Spoken(text) => return text,
-                Note::Progress(_) | Note::NeedsYou(_) => {}
+            if let Some(config) = desk.front.config.lock().unwrap().clone() {
+                return config;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the front was opened");
+    assert!(config.instructions.contains("You speak as Mack."));
+    let tools: Vec<&str> = config.tools.iter().map(|tool| tool.name.as_str()).collect();
+    assert_eq!(tools, ["send_to_teammate", "remain_silent"]);
+    assert_eq!(config.voice, "eve");
+
+    // The person asks, and the front hands it over in their words.
+    let words = "check the failing PR from monday";
+    desk.events
+        .send(Ok(RealtimeEvent::Heard(words.into())))
+        .await
+        .unwrap();
+    until(socket, |f| f["event"]["type"] == "heard").await;
+    desk.events
+        .send(Ok(RealtimeEvent::ToolCall {
+            call_id: "c1".into(),
+            name: "send_to_teammate".into(),
+            arguments: json!({ "words": words }).to_string(),
+        }))
+        .await
+        .unwrap();
+    let Asked::ToolResult { call_id, output } = next_asked(&mut desk.asked).await else {
+        panic!("the front's tool call went unanswered")
+    };
+    assert_eq!(call_id, "c1");
+    assert!(output.starts_with("Handed to the teammate."), "{output}");
+
+    // The call thinks with the floor open while the teammate works, then
+    // the teammate's spoken line goes to the front to be said, and the desk
+    // speaks none of it itself.
+    let mut listening = false;
+    let said = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            tokio::select! {
+                frame = socket.next() => {
+                    let frame: Value = serde_json::from_str(
+                        frame.unwrap().unwrap().to_text().unwrap(),
+                    )
+                    .unwrap();
+                    assert_ne!(frame["event"]["type"], "clip", "the desk spoke: {frame}");
+                    if frame["event"]["type"] == "state"
+                        && frame["event"]["state"] == "thinking"
+                        && frame["event"]["listening"] == true
+                    {
+                        listening = true;
+                    }
+                }
+                asked = desk.asked.recv() => {
+                    if let Some(Asked::Text(text)) = asked {
+                        return text;
+                    }
+                }
             }
         }
     })
     .await
-    .expect("the teammate's spoken line reached the front");
-    assert_eq!(note, "The checks passed.");
+    .expect("the teammate's line reached the front");
+    assert!(listening, "the call showed the teammate working");
+    assert_eq!(
+        said,
+        "Say exactly this to the person, word for word, and add nothing: The checks passed."
+    );
+
+    // The front says it; that is the call's line, kept once.
+    desk.events
+        .send(Ok(RealtimeEvent::Saying("The checks passed.".into())))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::ResponseDone))
+        .await
+        .unwrap();
+    let line = until(socket, |f| {
+        f["event"]["type"] == "said" && f["event"]["id"] == "front-0"
+    })
+    .await;
+    assert_eq!(line["event"]["text"], "The checks passed.");
+
+    // Choosing silence is answered, and asks the front for nothing.
+    desk.events
+        .send(Ok(RealtimeEvent::ToolCall {
+            call_id: "c2".into(),
+            name: "remain_silent".into(),
+            arguments: "{}".into(),
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        next_asked(&mut desk.asked).await,
+        Asked::ToolResult {
+            call_id: "c2".into(),
+            output: String::new()
+        }
+    );
+
+    let ended = answer(
+        socket,
+        3,
+        json!({"cmd":"voice.call_end","params":{"callId":call}}),
+    )
+    .await;
+    assert_eq!(ended["ok"], true);
+    let log = &desk.log;
+    let record = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let lines = log.load(&hotline_core::log::StreamId::Call(call.clone()));
+            if lines.iter().any(|v| v["text"] == "The checks passed.") {
+                return lines;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the front's line reached the call's record");
+    let texts: Vec<&str> = record.iter().filter_map(|v| v["text"].as_str()).collect();
+    assert_eq!(
+        texts.iter().filter(|text| **text == words).count(),
+        1,
+        "{record:?}"
+    );
+    assert_eq!(
+        texts
+            .iter()
+            .filter(|text| **text == "The checks passed.")
+            .count(),
+        1,
+        "{record:?}"
+    );
 
     // The words went in as typed, with the call's origin, and the teammate
-    // was told they are a transcript.
+    // was told they are a transcript; nothing the front said is on its tape.
     let asked = requests
         .lock()
         .unwrap()
@@ -1307,9 +1411,7 @@ async fn a_front_hands_words_to_the_teammate_and_says_its_spoken_line_verbatim()
         "{asked}"
     );
     assert!(asked.contains("behind an intermediary"), "{asked}");
-    assert!(asked.contains("recognition errors"), "{asked}");
-
-    let tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
+    let tape = log.load(&hotline_core::log::StreamId::Tape(persona));
     let users: Vec<&Value> = tape.iter().filter(|v| v["kind"] == "user").collect();
     assert_eq!(users.len(), 1, "{tape:?}");
     assert_eq!(users[0]["text"], words, "the person's words, unrephrased");
@@ -1327,44 +1429,6 @@ async fn a_front_hands_words_to_the_teammate_and_says_its_spoken_line_verbatim()
         }),
         "the front's side stays off the teammate's tape: {tape:?}"
     );
-
-    // The front's own lines go to the call's record, beside the person's.
-    calls.front_heard(&call, words);
-    calls.front_said(&call, "Handing that to Mack now.");
-    let record = tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            let lines = log.load(&hotline_core::log::StreamId::Call(call.clone()));
-            if lines
-                .iter()
-                .any(|v| v["text"] == "Handing that to Mack now.")
-            {
-                return lines;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the front's lines reached the call's record");
-    assert!(
-        record
-            .iter()
-            .any(|v| v["kind"] == "user" && v["text"] == words)
-    );
-    let tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
-    assert!(
-        !tape
-            .iter()
-            .any(|v| v["text"] == "Handing that to Mack now."),
-        "what the front said stays off the teammate's tape: {tape:?}"
-    );
-
-    calls.end(&call).unwrap();
-    // Nothing more is said once the call has ended, and the notes stop.
-    while let Some(note) = front.next_note().await {
-        assert!(matches!(note, Note::Progress(_)), "{note:?}");
-    }
-    socket.close(None).await.unwrap();
-    server.abort();
 }
 
 /// A front on an API key costs its minutes, on a subscription login nothing,
@@ -1425,4 +1489,163 @@ async fn a_fronts_minutes_are_counted_by_login_kind() {
     calls.front_spend(&gpt, 60.0).unwrap();
     let spent = calls.status().budget.spent_day_usd;
     assert!((spent - 0.13).abs() < 1e-9, "{spent}");
+}
+
+/// The PCM16 samples of a WAV file's `data` chunk.
+fn wav_pcm(wav: &[u8]) -> Vec<u8> {
+    let mut at = 12;
+    while at + 8 <= wav.len() {
+        let size = u32::from_le_bytes(wav[at + 4..at + 8].try_into().unwrap()) as usize;
+        if &wav[at..at + 4] == b"data" {
+            return wav[at + 8..(at + 8 + size).min(wav.len())].to_vec();
+        }
+        at += 8 + size + size % 2;
+    }
+    panic!("a WAV with no data chunk")
+}
+
+/// Sends `pcm` as a phone would, 100 ms of 16 kHz at a time and in time.
+async fn speak_into(socket: &mut Socket, call: &str, seq: &mut u32, pcm: &[u8]) {
+    for frame in pcm.chunks(3_200) {
+        let id = 1_000 + *seq;
+        send(socket, json!({"id":id,"cmd":"voice.front_audio","params":{"callId":call,"seq":*seq,"data":STANDARD.encode(frame)}})).await;
+        *seq += 1;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// The wired front against Grok Voice itself, with a scripted teammate:
+/// the person's 16 kHz speech is heard and transcribed, the front calls
+/// `send_to_teammate`, the teammate's spoken line comes back as 24 kHz
+/// speech, and speaking over it is a barge-in. Needs an xAI API key in
+/// `HOTLINE_LIVE_XAI_KEY` and is charged by the minute;
+/// `cargo test -p hotline-core --test voice live -- --ignored --nocapture`.
+#[tokio::test]
+#[ignore = "talks to Grok Voice with HOTLINE_LIVE_XAI_KEY"]
+async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
+    use hotline_core::voice::realtime::GrokVoice;
+    use hotline_core::voice::speech::Endpoint;
+
+    let key = std::env::var("HOTLINE_LIVE_XAI_KEY").expect("set HOTLINE_LIVE_XAI_KEY");
+    let root = tempfile::tempdir().unwrap();
+    let mut services = services();
+    services.realtime = Some(Arc::new(GrokVoice::new(Endpoint {
+        provider_id: "xai".into(),
+        base_url: "https://api.x.ai/v1".into(),
+        key: Some(key),
+    })));
+    let desk = Arc::new(
+        hotline_core::desk::Desk::open_with_voice_services(
+            root.path(),
+            common::store(),
+            Some(services),
+        )
+        .unwrap(),
+    );
+    let log = desk.log.clone();
+    let door = Door::bind(log.clone(), "front-test".into(), desk).unwrap();
+    let port = door.port();
+    tokio::spawn(door.run());
+    let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=front-test"))
+        .await
+        .unwrap();
+    let socket = &mut socket;
+    let provider = provider(TAGGED_REPLY).await;
+    answer(socket, 90, json!({"cmd":"credential.custom_save","params":{"draft":{"name":"Front fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
+    let persona = answer(socket, 91, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    answer(
+        socket,
+        92,
+        json!({"cmd":"session.start","params":{"personaId":persona}}),
+    )
+    .await;
+
+    let call = Uuid::new_v4().to_string();
+    let started = answer(
+        socket,
+        1,
+        json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front","inputRate":16000}}),
+    )
+    .await;
+    assert_eq!(
+        started["result"]["front"],
+        json!({"inputRate":16000,"outputRate":24000})
+    );
+    send(socket, json!({"id":2,"sub":{"call":call}})).await;
+    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    for attempt in 0..100 {
+        let sent = answer(socket, 3, json!({"cmd":"voice.front_audio","params":{"callId":call,"seq":0,"data":STANDARD.encode([0u8; 320])}})).await;
+        if sent["ok"] == true {
+            break;
+        }
+        assert!(attempt < 99, "the front never connected: {sent}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    let speech = wav_pcm(&wav());
+    let silence = vec![0u8; 32_000 * 2];
+    let mut seq = 1;
+    speak_into(socket, &call, &mut seq, &speech).await;
+    speak_into(socket, &call, &mut seq, &silence).await;
+
+    // Heard, relayed, answered and said, within a minute.
+    let mut heard = None;
+    let mut frames = 0;
+    let mut longest = 0;
+    let mut said = Vec::new();
+    let relayed = tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let frame = until(socket, |f| f["event"].is_object()).await;
+            let event = &frame["event"];
+            match event["type"].as_str().unwrap() {
+                "heard" => heard = Some(event["text"].as_str().unwrap().to_string()),
+                "frontAudio" => {
+                    frames += 1;
+                    let bytes = STANDARD.decode(event["data"].as_str().unwrap()).unwrap();
+                    longest = longest.max(bytes.len());
+                }
+                "said" => {
+                    let text = event["text"].as_str().unwrap().to_string();
+                    eprintln!("said {}: {text}", event["id"]);
+                    let done = event["id"].as_str().unwrap().starts_with("front-")
+                        && text.contains("checks passed");
+                    said.push(text);
+                    if done {
+                        return;
+                    }
+                }
+                _ => {}
+            }
+        }
+    })
+    .await;
+    let tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
+    let handed: Vec<&str> = tape
+        .iter()
+        .filter(|v| v["kind"] == "user")
+        .filter_map(|v| v["text"].as_str())
+        .collect();
+    eprintln!(
+        "heard: {heard:?}\nhanded to the teammate: {handed:?}\nsaid: {said:?}\nfrontAudio frames: {frames}"
+    );
+    let heard = heard.expect("the person's speech was transcribed");
+    assert!(heard.to_lowercase().contains("mack"), "{heard}");
+    assert!(!handed.is_empty(), "the front called send_to_teammate");
+    assert!(frames > 0, "the front spoke");
+    assert_eq!(longest, 4_800, "100 ms frames of 24 kHz PCM16");
+    relayed.expect("the teammate's spoken line was said by the front");
+
+    // The person talks over the front: it stops and yields the floor.
+    speak_into(socket, &call, &mut seq, &speech).await;
+    until(socket, |f| f["event"]["type"] == "frontStop").await;
+    let ended = answer(
+        socket,
+        5,
+        json!({"cmd":"voice.call_end","params":{"callId":call}}),
+    )
+    .await;
+    assert_eq!(ended["ok"], true);
 }

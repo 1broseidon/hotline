@@ -266,6 +266,35 @@ impl Calls {
         });
     }
 
+    /// The call ended with the person's last words unanswered: they go to
+    /// the teammate as a message from the call, marked as ended, so it
+    /// answers in writing in the conversation rather than on a call that is
+    /// gone, as a typed line would go (its session and open chapter).
+    fn follow_up(&self, id: &str, target: &str, words: String, seq: u32) {
+        let Some(room) = self.room.upgrade() else {
+            return;
+        };
+        let origin = Origin {
+            call_id: id.into(),
+            seq,
+            direct: true,
+            front: true,
+            ended: true,
+        };
+        let target = target.to_string();
+        tokio::spawn(async move {
+            match tokio::time::timeout(Duration::from_secs(60), room.start(&target)).await {
+                Ok(Ok(_)) => {}
+                _ => return,
+            }
+            let prompt = crate::wire::commands::CALL_ORIGIN
+                .scope(origin, room.prompt(&target, &words, None, None));
+            if let Err(error) = prompt.await {
+                eprintln!("[voice] the call's last question did not reach the teammate: {error}");
+            }
+        });
+    }
+
     /// Carries one call's front: opens the provider session with the
     /// bridge's tools, then turns what the provider produces into the call's
     /// events, its tool calls into the bridge's answers, and what the bridge
@@ -315,13 +344,25 @@ impl Calls {
             }
         };
         let since = Instant::now();
+        let mut unanswered = None;
         let ended = self
-            .carry_front(&id, realtime.as_ref(), session, bridge, &cancel)
+            .carry_front(
+                &id,
+                realtime.as_ref(),
+                session,
+                bridge,
+                &cancel,
+                &mut unanswered,
+            )
             .await;
         let rest = since.elapsed().as_secs_f64() % SPEND_EVERY.as_secs_f64();
         let _ = self.front_spend(realtime.as_ref(), rest);
         match ended {
-            FrontEnd::Call => {}
+            FrontEnd::Call => {
+                if let (Some(persona), Some((words, seq))) = (persona, unanswered) {
+                    self.follow_up(&id, &persona.id, words, seq);
+                }
+            }
             FrontEnd::Lost => self.lose_front(&id),
             FrontEnd::Budget => {
                 let _ = self.finish(&id, VoiceEndReason::Budget);
@@ -336,6 +377,7 @@ impl Calls {
         session: RealtimeSession,
         mut bridge: front::Front,
         cancel: &CancellationToken,
+        unanswered: &mut Option<(String, u32)>,
     ) -> FrontEnd {
         let RealtimeSession { input, mut events } = session;
         let connected = self.change(id, |call| {
@@ -350,6 +392,10 @@ impl Calls {
         let mut saying = String::new();
         let mut replies = 0u32;
         let mut heard = 0u32;
+        // `unanswered` is what the person last asked that nothing has
+        // answered yet, neither handed to the teammate nor replied to in full
+        // by the front, kept current so whichever way the call ends sees it.
+        *unanswered = None;
         let mut minutes =
             tokio::time::interval_at(tokio::time::Instant::now() + SPEND_EVERY, SPEND_EVERY);
         loop {
@@ -394,6 +440,8 @@ impl Calls {
                     })
                 }
                 RealtimeEvent::Heard(text) => {
+                    *unanswered =
+                        worth_following_up(&text).then(|| (text.clone(), bridge.next_seq()));
                     let seq = heard;
                     heard += 1;
                     self.front_heard(id, &text);
@@ -413,6 +461,7 @@ impl Calls {
                     replies += 1;
                     if !text.trim().is_empty() {
                         self.front_said(id, &text);
+                        *unanswered = None;
                     }
                     self.change(id, |call| {
                         if !text.trim().is_empty() {
@@ -430,6 +479,9 @@ impl Calls {
                     arguments,
                 } => {
                     let (output, reply) = bridge.tool_call(&name, &arguments);
+                    if name == front::SEND_TO_TEAMMATE && !reply {
+                        *unanswered = None;
+                    }
                     let _ = input.tool_result(&call_id, &output, reply).await;
                     Ok(())
                 }
@@ -467,6 +519,13 @@ impl Calls {
             Ok(())
         })
     }
+}
+
+/// Whether words left unanswered when a call ended are worth answering in
+/// writing: a question, or a request of a few words, and never a goodbye.
+pub(super) fn worth_following_up(words: &str) -> bool {
+    let words = words.trim();
+    !super::goodbye(words) && (words.ends_with('?') || words.split_whitespace().count() >= 4)
 }
 
 /// Why a front stopped carrying its call.

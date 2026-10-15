@@ -82,5 +82,18 @@ describe("the call strip's identity", () => {
 		expect(container.querySelector('[aria-label="Hang up"]')).not.toBeNull();
 		expect(container.querySelector("aside")?.hasAttribute("data-folding")).toBe(false);
 	});
+
+	test("its transcript key opens what was said under it, and closes it again", async () => {
+		const call = new Call({ command: async () => null, subscribe: () => () => {} }, () => "Mack", undefined, undefined, { target: { personaId: "mack", name: "Mack" } });
+		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} bare />));
+		const key = container.querySelector<HTMLButtonElement>('[aria-label="What was said"]');
+		expect(key?.getAttribute("aria-pressed")).toBe("false");
+		expect(container.querySelector(".call-transcript")).toBeNull();
+		await act(async () => key?.click());
+		expect(key?.getAttribute("aria-pressed")).toBe("true");
+		expect(container.querySelector(".call-transcript")?.textContent).toBe("Nothing said yet.");
+		await act(async () => key?.click());
+		expect(container.querySelector(".call-transcript")).toBeNull();
+	});
 });
 

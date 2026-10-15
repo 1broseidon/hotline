@@ -796,6 +796,7 @@ async fn a_voice_turn_tells_the_agent_the_contract_but_the_tape_shows_only_the_w
         seq: 1,
         direct: true,
         front: false,
+        ended: false,
     };
     crate::wire::commands::VOICE_COMMAND
         .scope(
@@ -1988,6 +1989,7 @@ async fn a_reply_on_a_call_keeps_what_was_said_beside_what_is_shown() {
         seq: 1,
         direct: true,
         front: false,
+        ended: false,
     };
     crate::wire::commands::VOICE_COMMAND
         .scope(
@@ -7052,7 +7054,7 @@ async fn unconsumed_direct_call_steering_keeps_its_origin_when_replayed() {
     .unwrap();
     assert_eq!(
         words_of(&lock(&unconsumed)[0].0),
-        crate::voice::spoken::voice_turn("Update the request.", false)
+        crate::voice::spoken::voice_turn("Update the request.", false, false)
     );
     gate.add_permits(1);
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -7066,7 +7068,7 @@ async fn unconsumed_direct_call_steering_keeps_its_origin_when_replayed() {
         *lock(&prompts),
         [
             "Start the original request.".to_string(),
-            crate::voice::spoken::voice_turn("Update the request.", false)
+            crate::voice::spoken::voice_turn("Update the request.", false, false)
         ]
     );
     gate.add_permits(2);
@@ -7093,6 +7095,7 @@ async fn unconsumed_direct_call_steering_keeps_its_origin_when_replayed() {
             seq: 1,
             direct: true,
             front: false,
+            ended: false,
         })
     );
     calls.end(&call).unwrap();

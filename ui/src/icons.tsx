@@ -238,6 +238,14 @@ export const VoiceIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
+/* A speech bubble with lines in it, for what was said on a call, written down. */
+export const TranscriptIcon = ({ className }: IconProps) => (
+	<svg className={className} {...box}>
+		<path d="M3 3.25h10a1 1 0 0 1 1 1v6.5a1 1 0 0 1-1 1H8.5L5.5 14v-2.25H3a1 1 0 0 1-1-1v-6.5a1 1 0 0 1 1-1z" />
+		<path d="M5 6.25h6M5 8.75h4" />
+	</svg>
+);
+
 /* A speaker, for words the teammate said aloud on a call. */
 export const SpeakerIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>

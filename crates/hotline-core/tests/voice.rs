@@ -1702,3 +1702,110 @@ async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
     .await;
     assert_eq!(ended["ok"], true);
 }
+
+/// A front call hung up on a question nothing answered: neither handed to
+/// the teammate nor replied to by the front. The question goes to the
+/// teammate as a line from the call, told the call is over so it answers in
+/// writing with nothing to say aloud; a goodbye left hanging does not.
+#[tokio::test]
+async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing() {
+    let mut desk = front_desk(true, 64).await;
+    let root = desk.root.path().to_path_buf();
+    let socket = &mut desk.socket;
+    let (provider, requests) = provider_seeing("The release checklist has two items left.").await;
+    let saved = answer(socket, 90, json!({"cmd":"credential.custom_save","params":{"draft":{"name":"Front fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
+    assert_eq!(saved["ok"], true);
+    let persona = answer(socket, 91, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.to_str().unwrap()}}})).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        answer(
+            socket,
+            92,
+            json!({"cmd":"session.start","params":{"personaId":persona}})
+        )
+        .await["ok"],
+        true
+    );
+
+    let call = Uuid::new_v4().to_string();
+    let started = answer(
+        socket,
+        1,
+        json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}}),
+    )
+    .await;
+    assert_eq!(started["ok"], true, "{started}");
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while desk.front.config.lock().unwrap().is_none() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the front was opened");
+
+    // The person asks; the front starts to answer itself and is cut off by the hang-up.
+    let words = "what's left on the release checklist?";
+    desk.events
+        .send(Ok(RealtimeEvent::Heard(words.into())))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::Saying("Let me think, the".into())))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let ended = answer(
+        socket,
+        3,
+        json!({"cmd":"voice.call_end","params":{"callId":call}}),
+    )
+    .await;
+    assert_eq!(ended["ok"], true);
+
+    let log = desk.log.clone();
+    let tape = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
+            if tape.iter().any(|v| v["kind"] == "agent") {
+                return tape;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the teammate answered the question the call ended on");
+    let users: Vec<&Value> = tape.iter().filter(|v| v["kind"] == "user").collect();
+    assert_eq!(users.len(), 1, "{tape:?}");
+    assert_eq!(users[0]["text"], words, "the person's words, unrephrased");
+    assert!(
+        users[0]["id"]
+            .as_str()
+            .unwrap()
+            .starts_with(&format!("voice:{call}:"))
+    );
+    let agent = tape.iter().find(|v| v["kind"] == "agent").unwrap();
+    assert_eq!(agent["text"], "The release checklist has two items left.");
+    assert!(agent.get("spoken").is_none(), "written only: {agent}");
+
+    let asked = requests
+        .lock()
+        .unwrap()
+        .iter()
+        .flat_map(|request| request["messages"].as_array().cloned().unwrap_or_default())
+        .filter(|message| message["role"] == "user")
+        .map(|message| message["content"].as_str().unwrap_or_default().to_string())
+        .find(|content| content.contains("ended before it was answered"))
+        .expect("the teammate was told the call ended on the question");
+    assert!(
+        asked.contains(&format!(
+            "{words}\n\n[This came from a voice call that ended"
+        )),
+        "{asked}"
+    );
+    assert!(
+        !asked.contains("[Voice call: answer twice"),
+        "no spoken version: {asked}"
+    );
+}

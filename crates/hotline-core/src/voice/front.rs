@@ -180,6 +180,11 @@ impl Front {
         })
     }
 
+    /// The sequence number the next line handed to the teammate takes.
+    pub fn next_seq(&self) -> u32 {
+        self.seq + 1
+    }
+
     /// Answers one tool call with the output the front is given back, and
     /// whether it should speak after it. A failure is an output too, worded so
     /// the front does not take the words for sent, and is spoken to. A send

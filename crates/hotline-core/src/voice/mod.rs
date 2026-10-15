@@ -168,6 +168,9 @@ pub(crate) struct Origin {
     /// The words came through a voice front, not straight from the person,
     /// so the teammate is told they are a transcript ([`spoken::voice_turn`]).
     pub front: bool,
+    /// The call ended before the words were answered: the teammate answers
+    /// them in writing, with no version to speak.
+    pub ended: bool,
 }
 
 impl Origin {
@@ -201,6 +204,7 @@ impl Origin {
             seq: from.request.as_deref()?.parse().ok()?,
             direct: true,
             front: false,
+            ended: false,
         })
     }
 
@@ -226,6 +230,7 @@ impl Origin {
             seq,
             direct,
             front: false,
+            ended: false,
         })
     }
 }
@@ -1608,6 +1613,7 @@ impl Calls {
             seq,
             direct: target.is_some(),
             front: matches!(source, TranscriptSource::Front),
+            ended: false,
         };
         if let Some(target) = target {
             return self

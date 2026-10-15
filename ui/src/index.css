@@ -1146,6 +1146,18 @@
 	/* What a teammate said aloud on a call, above the reply it wrote to be
 	 * read: a transcript in the annotating voice, one line until pressed.
 	 * Hover and keyboard focus are the hover fill; nothing rings. */
+	/* Your line that was said on a call: a quiet caption over it, as a
+	 * reply said aloud has. */
+	.said-on-call {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-bottom: 2px;
+		padding: 0 6px;
+		color: var(--ink-3);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+	}
 	.said-aloud {
 		display: flex;
 		width: fit-content;
@@ -3721,6 +3733,62 @@
 			transform: scale(0.36);
 		}
 	}
+	/* What was said on the call, opened under the card's rows from its
+	 * transcript key: the card grows down to hold it, across its whole width,
+	 * and scrolls on its own. Your words sit right in a quiet fill, what was
+	 * said back sits left in plain type, as the conversation does. */
+	.call-transcript {
+		display: flex;
+		max-height: 240px;
+		flex-direction: column;
+		gap: 6px;
+		margin: 0;
+		padding: 10px 12px 12px;
+		overflow-y: auto;
+		list-style: none;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		border-top: var(--hairline) solid var(--line);
+		animation: call-transcript-open var(--dur-open) var(--ease-out) both;
+	}
+	.call-head[data-face] > .call-transcript {
+		grid-column: 1 / -1;
+	}
+	.call-head:has(> .call-bar[data-folding]) > .call-transcript {
+		display: none;
+	}
+	.call-transcript-alone {
+		margin-bottom: 8px;
+		border-top: none;
+		border-radius: var(--radius-pane);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
+	@keyframes call-transcript-open {
+		from {
+			max-height: 0;
+			opacity: 0;
+		}
+	}
+	.call-line-you {
+		align-self: flex-end;
+		max-width: 80%;
+		padding: 4px 10px;
+		border-radius: 12px;
+		background: var(--fill-active);
+		color: var(--ink);
+	}
+	.call-line-them {
+		align-self: flex-start;
+		max-width: 80%;
+		color: var(--ink-2);
+	}
+	.call-transcript-empty {
+		align-self: center;
+		color: var(--ink-3);
+	}
 	/* The voice on the line, centred along the bottom of the call card (of
 	 * the strip, when it stands alone), on the keys' row. */
 	.call-voice {
@@ -3740,6 +3808,15 @@
 	}
 	.call-voice[data-still] path {
 		stroke: var(--ink-4);
+	}
+	/* On the call's row, measured from the card's top, so a transcript
+	 * opened under it does not carry the bars down with it. */
+	.call-head .call-voice {
+		top: 48px;
+		bottom: auto;
+	}
+	.call-head[data-face] .call-voice {
+		top: 52px;
 	}
 	.call-bar-alone {
 		position: relative;

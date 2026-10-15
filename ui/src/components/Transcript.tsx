@@ -1258,8 +1258,16 @@ function UserBubble({
 		copy: () => void writeClipboard(text),
 		...(onReply !== undefined && sent ? { reply: () => onReply({ eventId: event.id, text: lineOf({ text }) }) } : {}),
 	};
+	// Said on a call and handed over: the call's own record has the rest of it.
+	const onCall = event.id.startsWith("voice:");
 	return (
 		<div className={`said-group flex flex-col items-end ${run.top ? "mt-1" : "mt-3"}`}>
+			{onCall && !run.top && (
+				<span className="said-on-call">
+					<SpeakerIcon className="said-aloud-mark" />
+					Said on the call
+				</span>
+			)}
 			<div className={`speech said-me ${runClass(run)}`} onContextMenu={(click) => bubbleMenu(click, actions)}>
 				{quote !== undefined && answered !== undefined && (
 					<button type="button" className="quote" title="Go to the message" onClick={() => onJump(answered)}>

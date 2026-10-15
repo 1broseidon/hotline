@@ -1,12 +1,12 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
-import { CloseIcon, HangUpIcon, PauseIcon, PhoneIcon, PlayIcon } from "../icons";
+import { CloseIcon, HangUpIcon, PauseIcon, PhoneIcon, PlayIcon, TranscriptIcon } from "../icons";
 import { Avatar } from "../ui/Avatar";
 import { CallToad } from "./CallToad";
 import { callWorking } from "./CallStage";
 import { activeDeskId } from "../desks";
 import type { RosterEntry } from "../wire";
-import { type Call as CallSession, type CallPhase, closeCall, restartCall, useCallSnapshot } from "../voice/call";
+import { type Call as CallSession, type CallLine, type CallPhase, closeCall, restartCall, useCallSnapshot } from "../voice/call";
 
 const WORDS: Record<CallPhase, string> = {
 	connecting: "Calling",
@@ -53,6 +53,7 @@ export function CallBar({
 	const state = useCallSnapshot(call);
 	const bar = useRef<HTMLElement>(null);
 	const again = useRef<HTMLButtonElement>(null);
+	const [transcript, setTranscript] = useState(false);
 
 	useEffect(
 		() =>
@@ -72,6 +73,7 @@ export function CallBar({
 	// A plain hang-up folds the strip away; trouble stays to be read.
 	const folding = !live && state.trouble === undefined;
 	return (
+		<>
 		<aside
 			ref={bar}
 			className={alone ? "call-bar call-bar-alone" : "call-bar"}
@@ -137,6 +139,16 @@ export function CallBar({
 
 			{live && state.phase !== "connecting" && <CallVoice call={call} still={state.phase === "held"} />}
 
+			<button
+				type="button"
+				className="call-button"
+				title={transcript ? "Hide what was said" : "What was said"}
+				aria-label="What was said"
+				aria-pressed={transcript}
+				onClick={() => setTranscript((was) => !was)}
+			>
+				<TranscriptIcon />
+			</button>
 			{live ? (
 				<>
 					<button
@@ -171,6 +183,33 @@ export function CallBar({
 				</>
 			)}
 		</aside>
+		{transcript && <CallTranscript lines={state.lines} name={target?.name ?? "The desk"} alone={alone} />}
+		</>
+	);
+}
+
+/**
+ * What was said on the call, both sides, written down under the card: your
+ * words and every line said back, the ones the teammate wrote and the ones
+ * the voice answered on its own, which the conversation does not hold. It
+ * keeps to the newest as lines arrive.
+ */
+function CallTranscript({ lines, name, alone }: { lines: CallLine[]; name: string; alone: boolean }) {
+	const list = useRef<HTMLOListElement>(null);
+	// Its own scroll only: the conversation behind it stays where it is.
+	useEffect(() => {
+		if (list.current !== null) list.current.scrollTop = list.current.scrollHeight;
+	}, [lines.length]);
+	return (
+		<ol ref={list} className={alone ? "call-transcript call-transcript-alone" : "call-transcript"} aria-label="What was said on the call">
+			{lines.length === 0 && <li className="call-transcript-empty">Nothing said yet.</li>}
+			{lines.map((line) => (
+				<li key={line.id} className={line.kind === "you" ? "call-line-you" : "call-line-them"}>
+					<span className="sr-only">{line.kind === "you" ? "You: " : `${line.from ?? name}: `}</span>
+					{line.text}
+				</li>
+			))}
+		</ol>
 	);
 }
 

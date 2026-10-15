@@ -1710,6 +1710,7 @@ async fn direct_call_filters_unrelated_future_and_duplicate_replies() {
         call_id: id.clone(),
         seq: 4,
         direct: true,
+        front: false,
     };
     assert!(!calls.delivery("ada", "unrelated", "Ada", "Background work.", false, None));
     assert!(!calls.delivery(
@@ -1974,6 +1975,7 @@ fn on_turn(calls: &Calls, id: &str, seq: u32) -> Origin {
         call_id: id.into(),
         seq,
         direct: true,
+        front: false,
     }
 }
 
@@ -2857,6 +2859,7 @@ fn a_direct_calls_turn_names_its_call_thread_and_a_desk_calls_does_not() {
         call_id: Uuid::new_v4().to_string(),
         seq: 3,
         direct: true,
+        front: false,
     };
     let from = direct.from().unwrap();
     assert_eq!(from.kind, crate::thread::ThreadKind::Call);
@@ -2869,6 +2872,7 @@ fn a_direct_calls_turn_names_its_call_thread_and_a_desk_calls_does_not() {
             call_id: Uuid::new_v4().to_string(),
             seq: 1,
             direct: false,
+            front: false,
         }
     };
     assert_eq!(desk.from(), None, "a desk call is no thread");

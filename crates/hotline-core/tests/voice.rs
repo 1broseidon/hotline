@@ -1212,3 +1212,127 @@ async fn a_front_that_is_behind_refuses_audio_instead_of_stalling_the_wire() {
     let status = answer(socket, 99, json!({"cmd":"voice.status","params":{}})).await;
     assert_eq!(status["ok"], true);
 }
+
+/// A voice front hands the person's words to the teammate unrephrased, as a
+/// typed message would go (the teammate's own session and open chapter, the
+/// call's origin on the line), told they are a transcript; the teammate's
+/// spoken line comes back to be said verbatim; and what the front itself
+/// says is nowhere on the teammate's tape.
+#[tokio::test]
+async fn a_front_hands_words_to_the_teammate_and_says_its_spoken_line_verbatim() {
+    use hotline_core::contract::VoiceInputMode;
+    use hotline_core::voice::front::{Front, Note, REMAIN_SILENT, SEND_TO_TEAMMATE};
+    use hotline_core::wire::RoomHandle;
+
+    let root = tempfile::tempdir().unwrap();
+    let desk = Arc::new(
+        hotline_core::desk::Desk::open_with_voice_services(
+            root.path(),
+            common::store(),
+            Some(services()),
+        )
+        .unwrap(),
+    );
+    let log = desk.log.clone();
+    let door = Door::bind(log.clone(), "front-test".into(), desk.clone()).unwrap();
+    let port = door.port();
+    let server = tokio::spawn(door.run());
+    let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=front-test"))
+        .await
+        .unwrap();
+    let (provider, requests) = provider_seeing(TAGGED_REPLY).await;
+    send(&mut socket, json!({"id":90,"cmd":"credential.custom_save","params":{"draft":{"name":"Front fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 90).await["ok"], true);
+    send(&mut socket, json!({"id":91,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
+    let persona = until(&mut socket, |f| f["id"] == 91).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    send(
+        &mut socket,
+        json!({"id":92,"cmd":"session.start","params":{"personaId":persona}}),
+    )
+    .await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 92).await["ok"], true);
+
+    let calls = desk.voice().unwrap();
+    let call = Uuid::new_v4().to_string();
+    calls
+        .start_with_input(
+            &call,
+            Some(persona.clone()),
+            false,
+            VoiceInputMode::Text,
+            desk.clone(),
+        )
+        .unwrap();
+    let mut front = Front::open(&calls, &call).unwrap();
+
+    assert_eq!(front.tool_call(REMAIN_SILENT, "{}"), "");
+    assert!(
+        front
+            .tool_call(SEND_TO_TEAMMATE, "{}")
+            .starts_with("Not sent")
+    );
+    let words = "ask mack to check the failing P R, uh, the one from monday";
+    let output = front.tool_call(SEND_TO_TEAMMATE, &json!({ "words": words }).to_string());
+    assert!(output.contains("Nothing is done yet"), "{output}");
+
+    // The teammate's spoken line is what the front is given to say.
+    let note = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            match front.next_note().await.expect("the call is still live") {
+                Note::Spoken(text) => return text,
+                Note::Progress(_) | Note::NeedsYou(_) => {}
+            }
+        }
+    })
+    .await
+    .expect("the teammate's spoken line reached the front");
+    assert_eq!(note, "The checks passed.");
+
+    // The words went in as typed, with the call's origin, and the teammate
+    // was told they are a transcript.
+    let asked = requests
+        .lock()
+        .unwrap()
+        .iter()
+        .flat_map(|request| request["messages"].as_array().cloned().unwrap_or_default())
+        .filter(|message| message["role"] == "user")
+        .map(|message| message["content"].as_str().unwrap_or_default().to_string())
+        .find(|content| content.contains("[Voice call: answer twice"))
+        .expect("the turn's input carries the contract");
+    assert!(
+        asked.contains(&format!("{words}\n\n[This turn came from a voice call")),
+        "{asked}"
+    );
+    assert!(asked.contains("behind an intermediary"), "{asked}");
+    assert!(asked.contains("recognition errors"), "{asked}");
+
+    let tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
+    let users: Vec<&Value> = tape.iter().filter(|v| v["kind"] == "user").collect();
+    assert_eq!(users.len(), 1, "{tape:?}");
+    assert_eq!(users[0]["text"], words, "the person's words, unrephrased");
+    assert!(
+        users[0]["id"]
+            .as_str()
+            .unwrap()
+            .starts_with(&format!("voice:{call}:1:agent:"))
+    );
+    assert_eq!(tape.iter().filter(|v| v["kind"] == "chapter").count(), 1);
+    assert!(
+        !tape.iter().any(|v| {
+            let line = v.to_string();
+            line.contains("intermediary") || line.contains("Handed to the teammate")
+        }),
+        "the front's side stays off the teammate's tape: {tape:?}"
+    );
+
+    calls.end(&call).unwrap();
+    // Nothing more is said once the call has ended, and the notes stop.
+    while let Some(note) = front.next_note().await {
+        assert!(matches!(note, Note::Progress(_)), "{note:?}");
+    }
+    socket.close(None).await.unwrap();
+    server.abort();
+}

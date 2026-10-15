@@ -16,7 +16,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/realtime/xai.rs
   - crates/hotline-core/src/voice/speech/xai.rs
   - crates/hotline-core/src/voice/mod.rs
-updatedAt: "2026-10-15T01:57:04.230Z"
+updatedAt: "2026-10-15T01:57:15.573Z"
 contract:
   status: ready
   deliverables:
@@ -40,6 +40,12 @@ contract:
     - No Tauri in hotline-core; nothing unreachable ships
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+assignee: claude
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-15T01:57:15.439Z"
 ---
 
 ## Description

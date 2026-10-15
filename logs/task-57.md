@@ -1,8 +1,6 @@
 ---
 id: task-57
 title: "Voice front: decision record and call docs"
-column: review
-position: 37
 priority: high
 tags:
   - voice
@@ -16,7 +14,7 @@ relatedFiles:
   - docs/voice-calls.md
   - docs/voice.md
   - docs/design.md
-updatedAt: "2026-10-15T01:57:45.219Z"
+updatedAt: "2026-10-15T01:57:49.844Z"
 contract:
   status: failed
   deliverables:
@@ -48,6 +46,7 @@ dispatch:
   model: sonnet
   by: lead
   at: "2026-10-15T01:57:13.117Z"
+completedAt: "2026-10-15T01:57:49.844Z"
 ---
 
 ## Description

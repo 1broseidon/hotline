@@ -10,9 +10,11 @@
 //!              "voices": { "grok": "eve" } } }
 //! ```
 //!
-//! `front` is the live-call voice front. Without it, or with a provider
-//! this build has no adapter for, calls keep the transcribe, route and speak
-//! pipeline.
+//! `front` is the live-call voice front. Without it, calls are fronted by
+//! Grok Voice on the first connected xAI login or key, and a desk with
+//! neither keeps the pipeline. `{"provider": "legacy"}`, Legacy voice in
+//! Settings, and a provider this build has no adapter for keep the
+//! transcribe, route and speak pipeline.
 //!
 //! Every key is optional. A value that cannot be read costs its own
 //! preference and nothing else, like the other room settings.
@@ -57,7 +59,7 @@ pub struct FrontChoice {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VoiceSettings {
-    /// The live-call voice front; `None` is Off.
+    /// The live-call voice front; `None` is Legacy voice, the pipeline.
     pub front: Option<FrontChoice>,
     /// The Chat budget's limits, which the call assistant spends against.
     pub chat: BudgetLimits,
@@ -160,7 +162,14 @@ fn cap(source: &Map<String, Value>, key: &str) -> Option<f64> {
 }
 
 fn front(voice: &Map<String, Value>) -> Option<FrontChoice> {
-    let pick = voice.get("front")?.as_object()?;
+    let grok = FrontChoice {
+        provider: FrontProvider::Grok,
+        credential: None,
+        voice: None,
+    };
+    let Some(pick) = voice.get("front").and_then(Value::as_object) else {
+        return Some(grok);
+    };
     let text = |value: Option<&Value>| {
         value
             .and_then(Value::as_str)
@@ -168,9 +177,9 @@ fn front(voice: &Map<String, Value>) -> Option<FrontChoice> {
             .filter(|text| !text.is_empty())
             .map(str::to_string)
     };
-    let provider = match pick.get("provider").and_then(Value::as_str)? {
-        "grok" => FrontProvider::Grok,
-        _ => return None,
+    let provider = match pick.get("provider").and_then(Value::as_str) {
+        None | Some("grok") => FrontProvider::Grok,
+        Some(_) => return None,
     };
     let voice = text(
         pick.get("voices")
@@ -212,10 +221,23 @@ mod tests {
         settings
     }
 
+    /// What a room that never set voice reads as: no limits or picks, and
+    /// Grok Voice fronting calls on whatever xAI login is connected.
+    fn untouched() -> VoiceSettings {
+        VoiceSettings {
+            front: Some(FrontChoice {
+                provider: FrontProvider::Grok,
+                credential: None,
+                voice: None,
+            }),
+            ..VoiceSettings::default()
+        }
+    }
+
     #[test]
     fn a_room_that_never_set_voice_or_spending_has_no_limits_and_no_picks() {
         let settings = VoiceSettings::from_room(&Map::new());
-        assert_eq!(settings, VoiceSettings::default());
+        assert_eq!(settings, untouched());
         assert_eq!(settings.chat, BudgetLimits::default());
         assert_eq!(settings.voice, BudgetLimits::default());
     }
@@ -324,7 +346,7 @@ mod tests {
         assert_eq!(settings.tts, None);
         assert_eq!(
             VoiceSettings::from_room(&room(json!("nonsense"))),
-            VoiceSettings::default()
+            untouched()
         );
         assert_eq!(
             VoiceSettings::from_room(&room(json!({"dayUsd": "2"}))).voice,
@@ -333,8 +355,19 @@ mod tests {
     }
 
     #[test]
-    fn the_front_is_off_unless_the_owner_picked_one_this_build_has() {
-        assert_eq!(VoiceSettings::from_room(&Map::new()).front, None);
+    fn grok_fronts_calls_unless_the_owner_picked_legacy_voice() {
+        let default = Some(FrontChoice {
+            provider: FrontProvider::Grok,
+            credential: None,
+            voice: None,
+        });
+        assert_eq!(VoiceSettings::from_room(&Map::new()).front, default);
+        for unreadable in [json!("grok"), json!(null), json!({"voices": {}})] {
+            assert_eq!(
+                VoiceSettings::from_room(&room(json!({ "front": unreadable }))).front,
+                default
+            );
+        }
         let grok = VoiceSettings::from_room(&room(json!({
             "front": {"provider": "grok", "credential": "xai", "voices": {"grok": " ara ", "gpt-live": "x"}},
         })));
@@ -346,13 +379,12 @@ mod tests {
                 voice: Some("ara".into())
             })
         );
-        for unreadable in [
+        for legacy in [
+            json!({"provider": "legacy", "voices": {"grok": "ara"}}),
             json!({"provider": "gpt-live"}),
-            json!({"voices": {}}),
-            json!("grok"),
         ] {
             assert_eq!(
-                VoiceSettings::from_room(&room(json!({ "front": unreadable }))).front,
+                VoiceSettings::from_room(&room(json!({ "front": legacy }))).front,
                 None
             );
         }

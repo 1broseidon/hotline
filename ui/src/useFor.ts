@@ -231,31 +231,40 @@ export const FRONTS = [{ id: "grok", name: "Grok Voice", voices: ["eve", "ara", 
 
 export type FrontSetting = { provider: string; credential?: string; voices: Record<string, string> };
 
-/** The voice front `settings.voice` holds; undefined is Off. */
-export function frontOf(voice: unknown): FrontSetting | undefined {
-	if (voice === null || typeof voice !== "object" || Array.isArray(voice)) return undefined;
+/** The pipeline: calls are heard, answered and spoken one step at a time, as before the front. */
+export const LEGACY = "legacy";
+
+/**
+ * The voice front `settings.voice` holds. Without one, Grok Voice fronts
+ * calls (the desk falls back to the pipeline when no xAI login or key is
+ * connected); `legacy`, or a provider this window does not know, is the
+ * pipeline.
+ */
+export function frontOf(voice: unknown): FrontSetting {
+	const fallback: FrontSetting = { provider: "grok", voices: {} };
+	if (voice === null || typeof voice !== "object" || Array.isArray(voice)) return fallback;
 	const front = (voice as Record<string, unknown>).front;
-	if (front === null || typeof front !== "object" || Array.isArray(front)) return undefined;
+	if (front === null || typeof front !== "object" || Array.isArray(front)) return fallback;
 	const { provider, credential, voices } = front as Record<string, unknown>;
-	if (typeof provider !== "string") return undefined;
 	const named: Record<string, string> = {};
 	if (voices !== null && typeof voices === "object" && !Array.isArray(voices)) {
 		for (const [key, value] of Object.entries(voices)) if (typeof value === "string") named[key] = value;
 	}
-	return { provider, ...(typeof credential === "string" ? { credential } : {}), voices: named };
+	const known = typeof provider !== "string" || provider === "grok" ? "grok" : FRONTS.some((one) => one.id === provider) ? provider : LEGACY;
+	return { provider: known, ...(typeof credential === "string" ? { credential } : {}), voices: named };
 }
 
 /**
- * `settings.voice` with the front changed, the rest kept. Off removes the
- * front's provider but keeps the voices picked, so turning it back on finds
- * them; with nothing picked either, the key goes.
+ * `settings.voice` with the front changed, the rest kept. Legacy voice keeps
+ * the voices picked, so going back to the front finds them; the default, Grok
+ * on whatever xAI login is connected with nothing picked, removes the key.
  */
-export function frontPatch(current: unknown, next: { provider: string | null; credential?: string; voice?: { provider: string; voice: string } }): Record<string, unknown> | null {
+export function frontPatch(current: unknown, next: { provider: string; credential?: string; voice?: { provider: string; voice: string } }): Record<string, unknown> | null {
 	const voice: Record<string, unknown> =
 		current !== null && typeof current === "object" && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
 	const before = frontOf(current);
-	const voices = { ...(before?.voices ?? {}), ...(next.voice ? { [next.voice.provider]: next.voice.voice } : {}) };
-	if (next.provider === null && Object.keys(voices).length === 0) delete voice.front;
-	else voice.front = { ...(next.provider !== null ? { provider: next.provider } : {}), ...(next.credential !== undefined ? { credential: next.credential } : {}), voices };
+	const voices = { ...before.voices, ...(next.voice ? { [next.voice.provider]: next.voice.voice } : {}) };
+	if (next.provider === "grok" && next.credential === undefined && Object.keys(voices).length === 0) delete voice.front;
+	else voice.front = { provider: next.provider, ...(next.credential !== undefined ? { credential: next.credential } : {}), voices };
 	return Object.keys(voice).length === 0 ? null : voice;
 }

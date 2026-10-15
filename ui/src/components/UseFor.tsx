@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { CapabilityJob, CapabilityOptions } from "../generated/contract";
 import { Refusal } from "../ui/Refusal";
 import { Picker } from "../ui/Menu";
@@ -12,7 +12,6 @@ import { DeskModels } from "./DeskModels";
 const ON_THIS_MAC = "|this-mac";
 /** The desk's own models, as the core names their provider. */
 const ON_THE_DESK = "local";
-const OFF = "|off";
 const GPT_LIVE = "|gpt-live";
 import {
 	AUTOMATIC,
@@ -22,6 +21,7 @@ import {
 	effortChoices,
 	effortsOf,
 	FRONTS,
+	LEGACY,
 	frontOf,
 	frontPatch,
 	listenForOf,
@@ -112,23 +112,6 @@ export function UseFor({
 						}}
 					/>
 				</JobRow>
-				<JobRow
-					title="Voice"
-					detail={
-						speakingNow === undefined
-							? "Talk to the desk"
-							: `${voiceName(speakingNow.voice) ?? "Default voice"} on ${speakingNow.providerName}`
-					}
-					job={speaking}
-				>
-					<Picker
-						value={currentVoiceId(speaking)}
-						choices={allVoices(speaking)}
-						placeholder="Automatic"
-						label="Voice"
-						onChange={pickVoice}
-					/>
-				</JobRow>
 				{/* Transcription and the free models, folded under one row that says what transcribes you now. */}
 				<button
 					type="button"
@@ -187,37 +170,55 @@ export function UseFor({
 						)}
 					</>
 				)}
-				<JobRow title="Call assistant" detail="Answers calls to the desk, and rewrites a teammate's reply for speech when needed." job={options.dispatcher} wrap>
-					<Picker
-						value={currentId(options.dispatcher)}
-						choices={shortChoices(options.dispatcher)}
-						placeholder="Automatic"
-						label="Model for the call assistant"
-						onChange={(id) => {
-							const next = pickModel(id);
-							setVoice("dispatcher", next === null ? null : stored(next.provider, next.model, undefined, carriedEffort(options.dispatcher, next.provider, next.model)));
-						}}
-					/>
-					{effortsOf(options.dispatcher).length > 0 && (
-						<Picker
-							value={options.dispatcher.selected?.effort ?? AUTOMATIC}
-							choices={effortChoices(options.dispatcher)}
-							placeholder="Default thinking"
-							label="Call assistant thinking"
-							onChange={(id) => {
-								const selected = options.dispatcher.selected;
-								if (selected === undefined) return;
-								setVoice("dispatcher", stored(selected.providerId, selected.modelId, undefined, id === AUTOMATIC ? undefined : id));
-							}}
-						/>
-					)}
-				</JobRow>
 			</div>
 			<LiveCalls
 				front={frontOf(voice)}
 				logins={options.tts.options.map((one) => one.providerId).filter((id) => id === "xai" || id === "xai-subscription")}
 				write={(next) => write({ voice: frontPatch(voice, next) })}
-			/>
+			>
+						<JobRow
+							title="Voice"
+							detail={
+								speakingNow === undefined
+									? "Talk to the desk"
+									: `${voiceName(speakingNow.voice) ?? "Default voice"} on ${speakingNow.providerName}`
+							}
+							job={speaking}
+						>
+							<Picker
+								value={currentVoiceId(speaking)}
+								choices={allVoices(speaking)}
+								placeholder="Automatic"
+								label="Voice"
+								onChange={pickVoice}
+							/>
+						</JobRow>
+						<JobRow title="Call assistant" detail="Answers calls to the desk, and rewrites a teammate's reply for speech when needed." job={options.dispatcher} wrap>
+							<Picker
+								value={currentId(options.dispatcher)}
+								choices={shortChoices(options.dispatcher)}
+								placeholder="Automatic"
+								label="Model for the call assistant"
+								onChange={(id) => {
+									const next = pickModel(id);
+									setVoice("dispatcher", next === null ? null : stored(next.provider, next.model, undefined, carriedEffort(options.dispatcher, next.provider, next.model)));
+								}}
+							/>
+							{effortsOf(options.dispatcher).length > 0 && (
+								<Picker
+									value={options.dispatcher.selected?.effort ?? AUTOMATIC}
+									choices={effortChoices(options.dispatcher)}
+									placeholder="Default thinking"
+									label="Call assistant thinking"
+									onChange={(id) => {
+										const selected = options.dispatcher.selected;
+										if (selected === undefined) return;
+										setVoice("dispatcher", stored(selected.providerId, selected.modelId, undefined, id === AUTOMATIC ? undefined : id));
+									}}
+								/>
+							)}
+						</JobRow>
+			</LiveCalls>
 			{refusal !== null && <Refusal message={refusal} />}
 		</section>
 	);
@@ -226,51 +227,62 @@ export function UseFor({
 const LOGIN_NAMES: Record<string, string> = { xai: "xAI API key", "xai-subscription": "Grok login" };
 
 /**
- * Who fronts a live call: Off keeps the transcribe, route and speak pipeline.
- * A front is a realtime model that talks to the person while the teammate
- * works. GPT-Live is listed so its absence is explained, and cannot be chosen.
+ * Who answers a live call, to the desk or to a teammate. Grok Voice, the
+ * default, is a realtime model that talks with the person while the teammate
+ * works. Legacy voice is the transcribe, route and speak pipeline, and its
+ * own rows show only under it; the desk also falls back on it by itself when
+ * no xAI login or key is connected. GPT-Live is listed so its absence is
+ * explained, and cannot be chosen.
  */
 function LiveCalls({
 	front,
 	logins,
 	write,
+	children,
 }: {
-	front: FrontSetting | undefined;
+	front: FrontSetting;
 	/** The connected logins and keys that can run a Grok Voice front. */
 	logins: string[];
 	write(next: Parameters<typeof frontPatch>[1]): void;
+	/** Legacy voice's own rows: the voice it speaks in and the call assistant. */
+	children: ReactNode;
 }) {
-	const chosen = FRONTS.find((one) => one.id === front?.provider);
-	const login = front?.credential !== undefined && logins.includes(front.credential) ? front.credential : logins[0];
-	const voice = chosen === undefined ? undefined : (front?.voices[chosen.id] ?? chosen.voices[0]);
+	const chosen = FRONTS.find((one) => one.id === front.provider);
+	const login = front.credential !== undefined && logins.includes(front.credential) ? front.credential : logins[0];
+	const voice = chosen === undefined ? undefined : (front.voices[chosen.id] ?? chosen.voices[0]);
 	return (
 		<>
 			<h3 className="group-title">Live calls</h3>
 			<div className="grouped use-for">
 				<div className="group-row">
 					<span className="group-row-text">
-						<span className="group-row-title">Voice front</span>
+						<span className="group-row-title">Calls talk with</span>
 						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
 							{chosen === undefined
-								? "Off: calls hear you, think, then speak, one step at a time."
-								: "A realtime model talks with you while your teammate works. It bills by the minute of the call, on top of what the teammate spends."}
+								? "Legacy voice: calls hear you, think, then speak, one step at a time."
+								: login === undefined
+									? "Connect xAI or sign in to Grok above. Until then, calls use Legacy voice."
+									: login === "xai-subscription"
+										? "A realtime model talks with you while your teammate works. Your Grok login covers it."
+										: "A realtime model talks with you while your teammate works. Your xAI key pays $0.08 a minute, on top of what the teammate spends."}
 						</span>
 					</span>
 					<Picker
-						value={chosen?.id ?? OFF}
+						value={chosen?.id ?? LEGACY}
 						choices={[
-							{ id: OFF, name: "Off" },
 							...FRONTS.map((one) => ({ id: one.id, name: one.name })),
 							{ id: GPT_LIVE, name: "GPT-Live (not available yet)" },
+							{ id: LEGACY, name: "Legacy voice" },
 						]}
-						placeholder="Off"
-						label="Voice front"
+						placeholder="Grok Voice"
+						label="Calls talk with"
 						onChange={(id) => {
 							if (id === GPT_LIVE) return;
-							write(id === OFF ? { provider: null } : { provider: id, ...(login !== undefined ? { credential: login } : {}) });
+							write(id === LEGACY ? { provider: LEGACY } : { provider: id, ...(front.credential !== undefined ? { credential: front.credential } : {}) });
 						}}
 					/>
 				</div>
+				{chosen === undefined && children}
 				{chosen !== undefined && (
 					<>
 						<div className="group-row use-for-nested">

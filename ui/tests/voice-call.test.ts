@@ -37,6 +37,8 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 		},
 	};
 	const played: string[] = [];
+	const pcm: { data: string; rate: number }[] = [];
+	let playedMs = 0;
 	const chimes: string[] = [];
 	let tone = 0;
 	let queue = 0;
@@ -57,6 +59,11 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 			played.push(data);
 			queue++;
 		},
+		playPcm: (data, rate) => {
+			pcm.push({ data, rate });
+			queue++;
+		},
+		playedMs: () => playedMs,
 		stopPlayback: () => {
 			queue = 0;
 		},
@@ -80,6 +87,8 @@ function rig(options: CallOptions = {}, response: unknown = null, capabilities: 
 		status: (value: unknown) => (status = value),
 		sent,
 		played,
+		pcm,
+		heardFor: (ms: number) => (playedMs = ms),
 		chimes,
 		/** How long a blip-blip plays, in seconds. */
 		tone: (seconds: number) => (tone = seconds),
@@ -254,10 +263,12 @@ describe("a call with the desk", () => {
 		r.holdStart();
 		const starting = r.call.start();
 		await tick();
+		await tick();
 		r.call.hangUp();
 		r.releaseStart();
 		await starting;
-		expect(r.sent.map((one) => one.cmd)).toEqual(["voice.call_start", "voice.call_end"]);
+		// A desk call asks first whether the desk fronts calls.
+		expect(r.sent.map((one) => one.cmd)).toEqual(["voice.status", "voice.call_start", "voice.call_end"]);
 		expect(r.call.current.phase).toBe("ended");
 	});
 
@@ -278,7 +289,7 @@ describe("a call with the desk", () => {
 	test("desk calls omit a target and gracefully keep whole WAV input on an older desk", async () => {
 		const r = rig();
 		await r.call.start();
-		expect(r.sent[0]!.params).toEqual({ callId: r.call.id, streamAudio: true });
+		expect(r.sent.find((one) => one.cmd === "voice.call_start")!.params).toEqual({ callId: r.call.id, streamAudio: true });
 		r.speak(0.3, 1_000, 1_600);
 		r.speak(0, 1_650, 3_000);
 		expect(r.sent.filter((one) => one.cmd === "voice.audio")).toHaveLength(0);
@@ -827,5 +838,82 @@ describe("a call heard by this Mac", () => {
 		expect(r.call.current.phase).toBe("ended");
 		expect(r.call.current.trouble).toBe("The desk did not accept on-device transcription. Update it and call again.");
 		expect(r.sent.at(-1)?.cmd).toBe("voice.call_end");
+	});
+});
+
+describe("a call through a voice front", () => {
+	const FRONT = { inputRate: 16_000, outputRate: 24_000 };
+	const fronted = (front: unknown = FRONT, options: CallOptions = {}) =>
+		rig(options, { callId: "c", input: ["audio/pcm"], output: "audio/wav", inputMode: "audio", ...(options.target ? { personaId: options.target.personaId } : {}), ...(front ? { front } : {}) }, ["voiceDirectCalls", "voiceFront"]);
+
+	test("asks for the front, streams the microphone all the time and plays the front as it speaks", async () => {
+		const r = fronted();
+		await r.call.start();
+		expect(r.sent.find((one) => one.cmd === "voice.call_start")?.params).toMatchObject({ mode: "front", inputRate: 16_000 });
+		r.speak(0, 1_000, 1_200);
+		const frames = r.sent.filter((one) => one.cmd === "voice.front_audio");
+		expect(frames.length).toBeGreaterThan(0);
+		expect(frames.map((one) => one.params.seq)).toEqual(frames.map((_, i) => i));
+		expect(r.sent.filter((one) => one.cmd === "voice.utterance" || one.cmd === "voice.audio")).toHaveLength(0);
+		r.desk({ type: "frontAudio", seq: 0, data: "AAAA" });
+		expect(r.pcm).toEqual([{ data: "AAAA", rate: 24_000 }]);
+		expect(r.call.current.phase).toBe("speaking");
+		expect(r.chimes.filter((one) => one === "think")).toHaveLength(0);
+	});
+
+	test("a teammate's call asks for the front too", async () => {
+		const r = fronted(FRONT, { target: { personaId: "p1", name: "Mack" } });
+		await r.call.start();
+		expect(r.sent.find((one) => one.cmd === "voice.call_start")?.params).toMatchObject({ personaId: "p1", mode: "front" });
+	});
+
+	test("talking over the front stops it and tells the desk how much was heard", async () => {
+		const r = fronted();
+		await r.call.start();
+		r.desk({ type: "frontAudio", seq: 0, data: "AAAA" });
+		r.heardFor(420);
+		r.desk({ type: "frontStop" });
+		expect(r.sent.find((one) => one.cmd === "voice.front_barge")?.params).toMatchObject({ playedMs: 420 });
+		expect(r.call.current.phase).toBe("listening");
+	});
+
+	test("Stop barges in on the front without the pipeline's interrupt", async () => {
+		const r = fronted();
+		await r.call.start();
+		r.desk({ type: "frontAudio", seq: 0, data: "AAAA" });
+		r.call.interrupt();
+		expect(r.sent.some((one) => one.cmd === "voice.front_barge")).toBe(true);
+		expect(r.sent.some((one) => one.cmd === "voice.interrupt")).toBe(false);
+	});
+
+	test("the teammate working keeps the front's microphone open", async () => {
+		const r = fronted();
+		await r.call.start();
+		r.desk({ type: "state", state: "thinking", listening: true });
+		expect(r.call.current.phase).toBe("thinking");
+		const before = r.sent.filter((one) => one.cmd === "voice.front_audio").length;
+		r.speak(0.3, 1_000, 1_200);
+		expect(r.sent.filter((one) => one.cmd === "voice.front_audio").length).toBeGreaterThan(before);
+	});
+
+	test("a front that goes mid-call leaves the call on Legacy voice", async () => {
+		const r = fronted();
+		await r.call.start();
+		r.desk({ type: "frontEnded" });
+		expect(r.call.current.trouble).toContain("Legacy voice");
+		const sent = r.sent.filter((one) => one.cmd === "voice.front_audio").length;
+		r.speak(0.3, 2_000, 2_600);
+		r.speak(0, 2_650, 4_000);
+		expect(r.sent.filter((one) => one.cmd === "voice.front_audio")).toHaveLength(sent);
+		expect(r.sent.filter((one) => one.cmd === "voice.audio").length).toBeGreaterThan(0);
+	});
+
+	test("a desk that answers without a front keeps the pipeline", async () => {
+		const r = fronted(null);
+		await r.call.start();
+		r.speak(0.3, 1_000, 1_600);
+		r.speak(0, 1_650, 3_000);
+		expect(r.sent.filter((one) => one.cmd === "voice.front_audio")).toHaveLength(0);
+		expect(r.sent.filter((one) => one.cmd === "voice.audio").length).toBeGreaterThan(0);
 	});
 });

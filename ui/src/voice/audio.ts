@@ -15,6 +15,10 @@ export interface CallAudio {
 	openMic(): Promise<void>;
 	/** Queues one playable clip; `onIdle` fires once the queue has drained. */
 	play(mimeType: string, data: string): void;
+	/** Queues raw PCM16 mono at `rate`, a voice front's speech, straight after what is playing. */
+	playPcm(data: string, rate: number): void;
+	/** How much of the speech playing now has been heard, in ms. */
+	playedMs(): number;
 	stopPlayback(): void;
 	readonly playing: boolean;
 	/** The loudness of what is playing now, as RMS. */
@@ -105,6 +109,12 @@ export function webAudio(events: { onIdle(): void; onLost(): void; onStarted?():
 		openMic: takeMic,
 		play(mimeType, data) {
 			player?.push(mimeType, data);
+		},
+		playPcm(data, rate) {
+			player?.pushPcm(data, rate);
+		},
+		playedMs() {
+			return player?.playedMs() ?? 0;
 		},
 		stopPlayback() {
 			player?.stop();

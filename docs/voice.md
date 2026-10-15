@@ -908,11 +908,24 @@ holding one.
 ## The voice front setting
 
 `voice.front` in the room's settings is `{ "provider": "grok", "credential":
-"xai" | "xai-subscription", "voices": { "grok": "eve" } }`. Absent means Off:
-calls keep the transcribe, route and speak pipeline. Settings > Use for >
-Live calls writes it; a provider the build has no adapter for (GPT-Live) is
-read as Off. A front call resolves Grok Voice from the vault when it starts
+"xai" | "xai-subscription", "voices": { "grok": "eve" } }`. Absent, or with no
+provider, means Grok Voice on the first connected xAI login or key: the voice
+front is the default for calls to the desk and to a teammate. `{ "provider":
+"legacy" }`, Legacy voice in Settings > Use for > Live calls, keeps the
+transcribe, route and speak pipeline, and a provider the build has no adapter
+for (GPT-Live) is read as Legacy voice too. Legacy voice's own rows, the voice
+it speaks in and the call assistant, show in Settings only under it;
+Transcription stays under Use for, because dictation uses it.
+
+A front call resolves Grok Voice from the vault when it starts
 (`speech::resolve_front`): the named login or key, or with none named the
-first connected; one that is no longer connected leaves the call on the
-pipeline, as does a Voice budget with no room for a key's minutes. The phone has no way to change desk voice settings today, so it
-has no mirror.
+first connected. A desk with no xAI login or key, one whose named login is
+no longer connected, and a Voice budget with no room for a key's minutes all
+leave the call on the pipeline; the desk advertises `voiceFront` only when it
+has a login or key to open one with. The window asks for `mode: "front"` whenever
+`voice.status` advertises it (`ui/src/voice/call.ts`), streams the microphone
+as 16 kHz PCM in 40 ms frames, plays `frontAudio` gaplessly at `outputRate`,
+answers `frontStop` and the Stop button with `voice.front_barge`, and drops
+to the pipeline on `frontEnded`. The phone keeps both paths and picks by what
+the desk advertises. It has no way to change desk voice settings today, so
+it has no mirror.

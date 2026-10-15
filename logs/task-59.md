@@ -1,8 +1,6 @@
 ---
 id: task-59
 title: "Desk: front-to-teammate bridge"
-column: review
-position: 0
 priority: high
 tags:
   - voice
@@ -18,7 +16,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/realtime/mod.rs
   - crates/hotline-core/src/voice/spoken.rs
   - crates/hotline-core/tests/voice.rs
-updatedAt: "2026-10-15T02:22:31.505Z"
+updatedAt: "2026-10-15T02:22:35.914Z"
 contract:
   status: failed
   deliverables:
@@ -51,6 +49,7 @@ dispatch:
   effort: medium
   by: lead
   at: "2026-10-15T02:10:23.780Z"
+completedAt: "2026-10-15T02:22:35.914Z"
 ---
 
 ## Description

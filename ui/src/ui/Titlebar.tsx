@@ -23,7 +23,6 @@ export function Titlebar({
 	searchOpen,
 	onToggleSearch,
 	rail,
-	island,
 	deskKey,
 	onNew,
 	onSettings,
@@ -36,8 +35,6 @@ export function Titlebar({
 	onToggleSearch(): void;
 	/** Whether the rail is open, and the key that opens and closes it; none in a narrow window. */
 	rail?: { open: boolean; onToggle(): void } | undefined;
-	/** A call on the line: the island, which stands where the mark rests. */
-	island?: ReactNode;
 	/**
 	 * The desk's call key. The rail's dock holds it and the search; while
 	 * the rail is closed they stand here instead, at the head of the tools.
@@ -75,16 +72,12 @@ export function Titlebar({
 					</button>
 				)}
 			</div>
-			{island !== undefined && !bare ? (
-				<div className="titlebar-island">{island}</div>
-			) : (
-				<p className="titlebar-title">
-					{/* The mark alone: the app's name. Whose conversation this is lives
-					    once, in the pane's band; the task bar, which has no band,
-					    names them (windowTitle). */}
-					<HotlineMark className="titlebar-mark" width={18} plain label="Hotline" />
-				</p>
-			)}
+			<p className="titlebar-title">
+				{/* The mark alone: the app's name. Whose conversation this is lives
+				    once, in the pane's band; the task bar, which has no band,
+				    names them (windowTitle). */}
+				<HotlineMark className="titlebar-mark" width={18} plain label="Hotline" />
+			</p>
 			<div className="titlebar-tools" hidden={bare}>
 				{/* Search and the desk are the rail's; with the rail closed they stand here. */}
 				{rail !== undefined && !rail.open && (

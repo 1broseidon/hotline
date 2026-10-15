@@ -47,6 +47,7 @@ export function Rail({
 	searchOpen,
 	onSearch,
 	deskKey,
+	deskCard,
 }: {
 	/** The teammates of the desk on screen. */
 	entries: RosterEntry[];
@@ -74,6 +75,8 @@ export function Rail({
 	searchOpen: boolean;
 	onSearch(): void;
 	deskKey: ReactNode;
+	/** A call to the desk, as a card that grows up out of the dock. */
+	deskCard?: ReactNode;
 }) {
 	const [tip, setTip] = useState<Tip | null>(null);
 	const words = connection === "outdated" ? "This window needs a newer Hotline core" : "Reconnecting";
@@ -189,6 +192,7 @@ export function Rail({
 				)}
 			</div>
 
+			{deskCard}
 			{/* The dock: search, and the desk's line. Settings and a new teammate are the title bar's. */}
 			<footer className={compact ? "rail-dock rail-dock-compact" : "rail-dock"}>
 				<button

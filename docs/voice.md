@@ -974,14 +974,15 @@ to the pipeline on `frontEnded`. The phone keeps both paths and picks by what
 the desk advertises. It has no way to change desk voice settings today, so
 it has no mirror.
 
-In the window, every call, to a teammate or the desk, shows in one place:
-the island (`components/Call.tsx` `CallIsland`), a black pill on the title
-bar's centre line where the mark rests. It leads with the teammate's face or
-the desk's handset, ringed green while the line is live, then the name, the
-status and clock, a teammate that needs you, the voice bars, and the
-transcript, Hold and Hang up keys; the transcript drops down under it. A
-hang-up folds it back into the mark; trouble stays with Call again and
-Close. A teammate is called from its composer's soundwave key, and the desk
-from the handset in the rail's dock beside search (`DeskCallKey`), or from
-the title bar while the rail is closed. While one call is on, the other
-call keys wait, disabled.
+In the window, a call to a teammate is an inset card under its
+conversation's band (`components/Call.tsx` `CallBar`): the band and the call
+float together, the teammate's face grown to the card's height and ringed
+green while the line is live, the status beside the name, and the
+transcript, Hold and Hang up keys under it, with the voice bars between.
+A call to the desk grows up out of the rail's dock (`DeskCallCard`), whose
+handset key places it and turns green while it is on. With no conversation
+open, or the rail closed or showing Settings, either call is a strip atop
+the pane. A teammate is called from its composer's soundwave key, the desk
+from the dock beside search (`DeskCallKey`), or the title bar while the
+rail is closed. While one call is on, the other call keys wait, disabled. A
+hang-up folds the card away; trouble stays with Call again and Close.

@@ -9,7 +9,7 @@ import type { SettingsSection } from "./components/Settings";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { Titlebar } from "./ui/Titlebar";
-import { CallIsland, DeskCallKey } from "./components/Call";
+import { CallBar, DeskCallCard, DeskCallKey } from "./components/Call";
 import { UpdateFloat } from "./components/UpdateFloat";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
@@ -647,10 +647,25 @@ export function App() {
 	const floatWork = pane === null && !welcome && selected !== null && workOf !== undefined && !dockWork && !dockOverlay ? workCard(selected, workOf) : null;
 
 
-	// Every call shows in the island; the desk's key is the rail dock's, or
-	// the title bar's while the rail is closed.
+	// A call to a teammate is the conversation's inset card, or a strip atop
+	// a pane with no conversation. A call to the desk grows out of the rail's
+	// dock, whose key places it; with the rail closed or showing Settings it
+	// is the strip too, and the key is the title bar's.
 	const searchable = pane === null && selected !== null;
-	const deskKey = (className?: string) => (
+	const conversationShown = pane === null && selected !== null;
+	const teamRail = railSize.open && pane !== "settings";
+	const deskCalling = call !== null && call.target === undefined;
+	const callBar = call === null || (deskCalling && teamRail) ? undefined : (
+		<CallBar
+			call={call}
+			names={nameOf}
+			roster={roster}
+			onOpenTeammate={(personaId) => select(personaId, call.deskId ?? undefined)}
+			bare={conversationShown && call.target?.personaId === selected?.persona.id}
+			alone={!conversationShown}
+		/>
+	);
+	const deskCallKey = (className?: string) => (
 		<DeskCallKey call={call} available={voice} onCall={() => void startCall(nameOf)} {...(className !== undefined ? { className } : {})} />
 	);
 	return (
@@ -661,10 +676,7 @@ export function App() {
 				searchOpen={searchOpen}
 				onToggleSearch={() => setSearchOpen((open) => !open)}
 				rail={{ open: railSize.open, onToggle: toggleRail }}
-				island={call === null ? undefined : (
-					<CallIsland call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => select(personaId, call.deskId ?? undefined)} />
-				)}
-				deskKey={deskKey("control btn-icon titlebar-desk-call")}
+				deskKey={deskCallKey("control btn-icon titlebar-desk-call")}
 				onNew={newTeammate}
 				onSettings={() => togglePane("settings")}
 				settingsOpen={pane === "settings"}
@@ -715,13 +727,16 @@ export function App() {
 				searchable={searchable}
 				searchOpen={searchOpen}
 				onSearch={() => setSearchOpen((open) => !open)}
-				deskKey={deskKey()}
+				deskKey={deskCallKey()}
+				deskCard={deskCalling && call !== null ? <DeskCallCard call={call} roster={roster} compact={faces} /> : undefined}
 			/>
 			)}
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
 
 			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0">
 				<DeskBand onAddDesk={() => togglePane("add-desk")} />
+				{/* A pane with no conversation has no band of its own to hang the call from. */}
+				{!conversationShown && callBar}
 				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
@@ -749,6 +764,7 @@ export function App() {
 							onSaid={setSaid}
 							onCall={directCalls ? () => callTeammate(selected) : undefined}
 							onHangUp={calling && call?.target?.personaId === selected.persona.id ? closeCall : undefined}
+							callBar={callBar}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}

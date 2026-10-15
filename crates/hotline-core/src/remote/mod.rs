@@ -420,6 +420,7 @@ impl Remote {
             (s.saved.enabled, s.saved.host.clone())
         };
         if enabled && let Err(e) = self.configure(true, &host).await {
+            eprintln!("[remote] did not start: {e}");
             self.state.lock().unwrap().error = Some(e);
         }
     }

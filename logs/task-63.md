@@ -1,8 +1,6 @@
 ---
 id: task-63
 title: "Desktop: choose the voice front in Settings"
-column: review
-position: 1
 priority: medium
 tags:
   - voice
@@ -21,7 +19,7 @@ relatedFiles:
   - ui/src/components/UseFor.tsx
   - ui/src/generated/contract.ts
   - docs/voice.md
-updatedAt: "2026-10-15T02:48:06.831Z"
+updatedAt: "2026-10-15T02:48:07.251Z"
 contract:
   status: failed
   deliverables:
@@ -59,6 +57,7 @@ dispatch:
   effort: medium
   by: lead
   at: "2026-10-15T02:40:18.443Z"
+completedAt: "2026-10-15T02:48:07.251Z"
 ---
 
 ## Description

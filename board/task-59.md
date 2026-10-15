@@ -12,6 +12,13 @@ parentId: epic-6
 dependsOn:
   - task-58
 createdAt: "2026-10-14T20:03:56.919Z"
+relatedFiles:
+  - crates/hotline-core/src/voice/front.rs
+  - crates/hotline-core/src/voice/mod.rs
+  - crates/hotline-core/src/voice/realtime/mod.rs
+  - crates/hotline-core/src/voice/spoken.rs
+  - crates/hotline-core/tests/voice.rs
+updatedAt: "2026-10-15T01:56:48.711Z"
 ---
 
 ## Description

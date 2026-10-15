@@ -44,3 +44,6 @@ updatedAt: "2026-10-15T23:19:34.586Z"
 
 ## Description
 Applies the ui.tooltip-length rule. Found by scanning every title= in ui/src on 2026-10-15; the phone has no hover tooltips. One subtask per offender, file:line as of release/0.38.0 528f87e5. Not counted: shortcut hints in parentheses, model names, and the faces-only rail's hover card, which previews a teammate's last line rather than labelling a control.
+
+## Log
+- 2026-10-15T23:19:35.072Z: [claude] 2026-10-15: all fixed in 011fe80a. New tooltips: 'Computer setup · N%', 'Link both desks' teams', 'Resume this thread', 'Store it in Secrets', 'Show on the server', 'Save a copy', 'Pins full' (shown only when pins are full; the button's own label already says Pin/Unpin), 'All desks · one offline'. Welcome's title is a visible heading, not a tooltip. Earlier today: the call trouble info key became 'What happened' (528f87e5).

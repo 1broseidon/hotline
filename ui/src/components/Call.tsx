@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
-import { CloseIcon, HangUpIcon, PauseIcon, PhoneIcon, PlayIcon, TranscriptIcon } from "../icons";
+import { CloseIcon, HangUpIcon, InfoIcon, PauseIcon, PhoneIcon, PlayIcon, TranscriptIcon } from "../icons";
 import { Avatar } from "../ui/Avatar";
 import { callWorking } from "./CallStage";
 import { activeDeskId } from "../desks";
@@ -128,11 +128,7 @@ export function CallBar({
 				</button>
 			))}
 
-			{state.trouble !== undefined && (
-				<span className="call-trouble min-w-0 truncate" role="alert" title={state.trouble}>
-					{state.trouble}
-				</span>
-			)}
+			{state.trouble !== undefined && <CallTrouble text={state.trouble} />}
 
 			<span className="min-w-0 flex-1" />
 
@@ -210,6 +206,37 @@ function CallTranscript({ lines, name, alone }: { lines: CallLine[]; name: strin
 			))}
 		</ol>
 	);
+}
+
+/**
+ * What went wrong, in two or three words: a call's card is no place for a
+ * paragraph. The whole sentence, with what to do about it, is one press of
+ * the info key away (and its tooltip).
+ */
+function CallTrouble({ text }: { text: string }) {
+	const [open, setOpen] = useState(false);
+	return (
+		<span className="call-trouble" role="alert">
+			<span className="truncate">{troubleWords(text)}</span>
+			<button type="button" className="call-trouble-info" title={text} aria-label={text} aria-expanded={open} onClick={() => setOpen((was) => !was)}>
+				<InfoIcon />
+			</button>
+			{open && <span className="call-trouble-more">{text}</span>}
+		</span>
+	);
+}
+
+/** A call's trouble named in two or three words, from the sentence the call gave. */
+export function troubleWords(text: string): string {
+	if (/no microphone/i.test(text)) return "No microphone";
+	if (/busy or not working/i.test(text)) return "Microphone busy";
+	if (/microphone any more/i.test(text)) return "Microphone lost";
+	if (/can't use the microphone/i.test(text)) return "Microphone blocked";
+	if (/needs an update/i.test(text)) return "Desk needs update";
+	if (/sign in/i.test(text)) return "Sign-in needed";
+	if (/budget/i.test(text)) return "Budget spent";
+	if (/reach|connect|offline/i.test(text)) return "Desk unreachable";
+	return "Call failed";
 }
 
 const VOICE_BARS = 24;
@@ -353,18 +380,26 @@ export function DeskCallCard({ call, roster, compact }: { call: CallSession; ros
 					{transcript && <CallTranscript lines={state.lines} name="The desk" alone={false} />}
 					<div className="desk-call-top">
 						{mark}
-						<CallStatus call={call} roster={roster}>
-							<span className="desk-call-name">Desk</span>
-							<span className="call-bar-dot" aria-hidden="true" />
-						</CallStatus>
+						{/* Trouble takes the status's place: the keys' row is too narrow for both. */}
+						{state.trouble !== undefined ? (
+							<span className="call-bar-status">
+								<span className="desk-call-name">Desk</span>
+								<span className="call-bar-dot" aria-hidden="true" />
+								<CallTrouble text={state.trouble} />
+							</span>
+						) : (
+							<CallStatus call={call} roster={roster}>
+								<span className="desk-call-name">Desk</span>
+								<span className="call-bar-dot" aria-hidden="true" />
+							</CallStatus>
+						)}
 					</div>
-					{state.trouble !== undefined && (
-						<p className="call-trouble desk-call-trouble" role="alert">
-							{state.trouble}
-						</p>
-					)}
 					<div className="desk-call-keys">
-						{live && state.phase !== "connecting" ? <CallVoice call={call} still={state.phase === "held"} /> : <span />}
+						{live && state.phase !== "connecting" ? (
+							<CallVoice call={call} still={state.phase === "held"} />
+						) : (
+							<span />
+						)}
 						<span className="min-w-0 flex-1" />
 						<button
 							type="button"

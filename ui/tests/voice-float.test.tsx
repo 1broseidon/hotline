@@ -138,3 +138,16 @@ describe("the desk's call key", () => {
 		expect(key?.getAttribute("aria-label")).toBe("Hang up on the desk");
 	});
 });
+
+describe("a call's trouble", () => {
+	test("is named in two or three words, with the whole sentence behind its info key", async () => {
+		const { troubleWords } = await import("../src/components/Call");
+		expect(troubleWords("No microphone found. Connect one or pick it in your computer's sound settings, then try again.")).toBe("No microphone");
+		expect(troubleWords("The microphone is busy or not working. If another app is using it, close it, then try again.")).toBe("Microphone busy");
+		expect(troubleWords("Hotline can't use the microphone. Turn it on for Hotline in System Settings › Privacy & Security › Microphone, then try again.")).toBe("Microphone blocked");
+		expect(troubleWords("Hotline can't hear the microphone any more. Call again when it's back.")).toBe("Microphone lost");
+		expect(troubleWords("This desk needs an update before it can call a teammate directly.")).toBe("Desk needs update");
+		expect(troubleWords("Something nobody planned for.")).toBe("Call failed");
+		for (const words of ["No microphone", "Microphone busy", "Desk needs update", "Call failed"]) expect(words.split(" ").length).toBeLessThanOrEqual(3);
+	});
+});

@@ -3642,6 +3642,9 @@
 	.call-bar[data-folding] {
 		animation: call-bar-fold var(--dur-open) var(--ease-out) both;
 	}
+	.call-bar[data-phase="ended"]:not([data-folding]) {
+		overflow: visible;
+	}
 	@keyframes call-bar-open {
 		from {
 			height: 0;
@@ -3664,6 +3667,9 @@
 		align-items: center;
 		gap: 7px;
 		overflow: hidden;
+	}
+	.call-bar-status:has(.call-trouble) {
+		overflow: visible;
 		white-space: nowrap;
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
@@ -3883,9 +3889,50 @@
 		font-size: var(--text-sm);
 		text-align: left;
 	}
+	/* A call's trouble in two or three words, its info key opening the whole
+	 * sentence on the menus' surface beside it. */
 	.call-trouble {
-		font-size: var(--text-sm);
+		position: relative;
+		display: inline-flex;
+		min-width: 0;
+		align-items: center;
+		gap: 4px;
 		color: var(--ink-2);
+		font-size: var(--text-sm);
+		white-space: nowrap;
+	}
+	.call-trouble-info {
+		display: grid;
+		width: 22px;
+		height: 22px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 50%;
+		color: var(--ink-3);
+	}
+	.call-trouble-info:hover,
+	.call-trouble-info[aria-expanded="true"] {
+		color: var(--ink);
+		background: var(--fill-hover);
+	}
+	.call-trouble-info svg {
+		width: 14px;
+		height: 14px;
+	}
+	.call-trouble-more {
+		position: absolute;
+		top: calc(100% + 6px);
+		left: 0;
+		z-index: 30;
+		width: 240px;
+		padding: 8px 10px;
+		border-radius: var(--radius-control);
+		background: var(--pop);
+		box-shadow: var(--shadow-float);
+		color: var(--ink-2);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		white-space: normal;
 	}
 	/* On the raised card the call's keys are filled a step lighter, with no
 	 * outline: hold in the pop fill, hang-up in red. */
@@ -4002,8 +4049,10 @@
 		height: 20px;
 		transform: none;
 	}
-	.desk-call-trouble {
-		margin: 0;
+	.desk-call-keys {
+		display: flex;
+		align-items: center;
+		gap: 6px;
 	}
 	.desk-call .call-transcript {
 		max-height: 200px;

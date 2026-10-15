@@ -72,12 +72,16 @@ impl Note {
 
     /// The text to give a front model so that it says the note, word for word.
     pub fn instruction(&self) -> String {
-        format!(
-            "Say exactly this to the person, word for word, and add nothing: {}",
-            self.text()
-        )
+        format!("{SAY_THIS}{}", self.text())
     }
 }
+
+const SAY_THIS: &str = "Say exactly this to the person, word for word, and add nothing: ";
+
+/// How many of the latest notes a relay is checked against.
+const NOTES_KEPT: usize = 8;
+/// The shortest text an echo is looked for in.
+const ECHO_CHARS: usize = 16;
 
 /// The call's own lines that the front said, as against the teammate's.
 pub const FRONT_LINE_PREFIX: &str = "front-";
@@ -154,6 +158,10 @@ pub struct Front {
     first_thinking_unreported: bool,
     /// When the person last heard something of the teammate's turn.
     last_told: Instant,
+    /// The latest lines given to the front to say, newest last. A front that
+    /// relays one back would have the teammate answer its own reply, and the
+    /// front say that, round and round.
+    notes: std::collections::VecDeque<String>,
 }
 
 impl Front {
@@ -171,6 +179,7 @@ impl Front {
             waiting: false,
             first_thinking_unreported: false,
             last_told: Instant::now(),
+            notes: std::collections::VecDeque::new(),
         })
     }
 
@@ -193,6 +202,9 @@ impl Front {
             .ok()
             .and_then(|arguments| arguments["words"].as_str().map(str::to_string))
             .ok_or("send_to_teammate needs the person's words.")?;
+        if self.echoes_a_note(&words) {
+            return Err("those are words you were given to say, not the person's. Say nothing more about them.".into());
+        }
         self.calls.relay(&self.call_id, self.seq + 1, &words)?;
         self.seq += 1;
         self.waiting = true;
@@ -218,7 +230,7 @@ impl Front {
                         let note = Note::Spoken(fresh.to_string());
                         *given = text.len();
                         self.last_told = Instant::now();
-                        return Some(note);
+                        return self.told(note);
                     }
                 }
                 VoiceEvent::State {
@@ -237,18 +249,41 @@ impl Front {
                         continue;
                     }
                     self.last_told = Instant::now();
-                    return Some(Note::Progress(self.progress_line().into()));
+                    let line = self.progress_line();
+                    return self.told(Note::Progress(line.into()));
                 }
                 VoiceEvent::State {
                     state: VoiceState::Listening,
                     ..
                 } => self.waiting = false,
                 VoiceEvent::Card { kind, .. } => {
-                    return Some(Note::NeedsYou(needs_you(self.speaks, &kind)));
+                    let line = needs_you(self.speaks, &kind);
+                    return self.told(Note::NeedsYou(line));
                 }
                 _ => {}
             }
         }
+    }
+
+    fn echoes_a_note(&self, words: &str) -> bool {
+        let words = words.trim();
+        // Short pieces are left alone: the person may well say "yes" or
+        // "the tests" that a line also held.
+        let long = |text: &str| text.chars().count() >= ECHO_CHARS;
+        words.contains(SAY_THIS.trim())
+            || self.notes.iter().any(|note| {
+                (long(note) && words.contains(note.as_str()))
+                    || (long(words) && note.contains(words))
+            })
+    }
+
+    /// Keeps a note for the echo check, then hands it out.
+    fn told(&mut self, note: Note) -> Option<Note> {
+        if self.notes.len() == NOTES_KEPT {
+            self.notes.pop_front();
+        }
+        self.notes.push_back(note.text().trim().to_string());
+        Some(note)
     }
 
     fn progress_line(&mut self) -> &'static str {

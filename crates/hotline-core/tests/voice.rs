@@ -1334,6 +1334,22 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
         "Say exactly this to the person, word for word, and add nothing: The checks passed."
     );
 
+    // A front that relays the line it was given back to the teammate is
+    // refused, or the teammate would answer its own reply, round and round.
+    desk.events
+        .send(Ok(RealtimeEvent::ToolCall {
+            call_id: "c2".into(),
+            name: "send_to_teammate".into(),
+            arguments: json!({ "words": said }).to_string(),
+        }))
+        .await
+        .unwrap();
+    let Asked::ToolResult { call_id, output } = next_asked(&mut desk.asked).await else {
+        panic!("the echo went unanswered")
+    };
+    assert_eq!(call_id, "c2");
+    assert!(output.starts_with("Not sent"), "{output}");
+
     // The front says it; that is the call's line, kept once.
     desk.events
         .send(Ok(RealtimeEvent::Saying("The checks passed.".into())))

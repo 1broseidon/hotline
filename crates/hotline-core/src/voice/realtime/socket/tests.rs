@@ -621,3 +621,28 @@ async fn gpt_realtime_takes_only_24_khz_and_never_a_grok_login() {
     .file(dir.path().join("auth.json"));
     assert!(openai(BASE_URL).with_subscription(tokens).is_err());
 }
+
+#[tokio::test]
+async fn gpt_realtime_takes_a_line_to_say_as_a_system_item_and_replies_without_tools() {
+    let (listener, url) = listen().await;
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = accept(&listener).await;
+        handshake(&mut socket).await;
+        let item = receive(&mut socket).await;
+        assert_eq!(item["item"]["role"], "system");
+        let create = receive(&mut socket).await;
+        assert_eq!(create["type"], "response.create");
+        assert_eq!(create["response"]["tool_choice"], "none");
+        closed(&mut socket).await;
+    });
+    let mut config = config();
+    config.input_rate = 24_000;
+    let session = openai(&url).open(config).await.unwrap();
+    session
+        .input
+        .text("Say exactly this to the person: The checks passed.")
+        .await
+        .unwrap();
+    session.close().await;
+    finish(server).await;
+}

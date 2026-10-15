@@ -217,6 +217,7 @@ impl Realtime for RealtimeSocket {
             audio_item: None,
             responding: false,
             respond_after: false,
+            quiet_reply: false,
             opened: Instant::now(),
         };
         tokio::spawn(driver.run(socket, command_queue));
@@ -342,6 +343,9 @@ struct Driver {
     responding: bool,
     /// A tool result or text arrived mid-reply; ask for the next reply after it.
     respond_after: bool,
+    /// The next reply only says a line it was given, so it may not call a
+    /// tool (OpenAI only).
+    quiet_reply: bool,
     opened: Instant,
 }
 
@@ -410,18 +414,28 @@ impl Driver {
                 if output.is_empty() {
                     return Ok(());
                 }
+                self.quiet_reply = false;
                 self.respond(socket).await
             }
             Command::Text(text) => {
+                // OpenAI's model takes a user item for the person's words and
+                // relays it, so a line to say goes in as a system item, and
+                // its reply may not call a tool. xAI's says it as given.
+                let role = match self.voice.dialect {
+                    Dialect::Grok => "user",
+                    Dialect::OpenAi => "system",
+                };
                 let item = json!({
                     "type": "conversation.item.create",
                     "item": {
                         "type": "message",
-                        "role": "user",
+                        "role": role,
                         "content": [{"type": "input_text", "text": text}],
                     },
                 });
                 self.send(socket, item).await?;
+                self.quiet_reply = self.voice.dialect == Dialect::OpenAi
+                    && (self.quiet_reply || !self.respond_after);
                 self.respond(socket).await
             }
             Command::Truncate { played_ms } => {
@@ -447,7 +461,12 @@ impl Driver {
             return Ok(());
         }
         self.responding = true;
-        self.send(socket, json!({"type": "response.create"})).await
+        let create = if std::mem::take(&mut self.quiet_reply) {
+            json!({"type": "response.create", "response": {"tool_choice": "none"}})
+        } else {
+            json!({"type": "response.create"})
+        };
+        self.send(socket, create).await
     }
 
     async fn event(&mut self, socket: &mut Socket, event: Value) -> Result<(), SpeechError> {
@@ -576,6 +595,7 @@ impl Driver {
         self.audio_item = None;
         self.responding = false;
         self.respond_after = false;
+        self.quiet_reply = false;
         self.opened = Instant::now();
         self.emit(RealtimeEvent::Renewed).await
     }

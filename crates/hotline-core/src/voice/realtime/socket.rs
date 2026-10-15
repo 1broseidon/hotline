@@ -405,13 +405,17 @@ impl Driver {
                 });
                 self.send(socket, append).await
             }
-            Command::ToolResult { call_id, output } => {
+            Command::ToolResult {
+                call_id,
+                output,
+                reply,
+            } => {
                 let item = json!({
                     "type": "conversation.item.create",
                     "item": {"type": "function_call_output", "call_id": call_id, "output": output},
                 });
                 self.send(socket, item).await?;
-                if output.is_empty() {
+                if !reply {
                     return Ok(());
                 }
                 self.quiet_reply = false;

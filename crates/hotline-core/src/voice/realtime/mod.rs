@@ -77,9 +77,16 @@ pub enum RealtimeEvent {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
     Audio(Vec<u8>),
-    ToolResult { call_id: String, output: String },
+    /// `reply` asks the model to speak once the result is in.
+    ToolResult {
+        call_id: String,
+        output: String,
+        reply: bool,
+    },
     Text(String),
-    Truncate { played_ms: u32 },
+    Truncate {
+        played_ms: u32,
+    },
 }
 
 /// The sending half of a session. Clones share one session; it closes when
@@ -113,13 +120,20 @@ impl RealtimeInput {
             .map_err(|_| SpeechError::Cancelled)
     }
 
-    /// The answer to a [`RealtimeEvent::ToolCall`]. The model replies once
-    /// its current reply, if any, is done. An empty output asks for no reply:
-    /// it answers a call that chose to say nothing.
-    pub async fn tool_result(&self, call_id: &str, output: &str) -> Result<(), SpeechError> {
+    /// The answer to a [`RealtimeEvent::ToolCall`]. With `reply`, the model
+    /// speaks once its current reply, if any, is done; without, the result
+    /// joins the conversation and the model stays quiet, as after a call that
+    /// chose to say nothing or one it already spoke for.
+    pub async fn tool_result(
+        &self,
+        call_id: &str,
+        output: &str,
+        reply: bool,
+    ) -> Result<(), SpeechError> {
         self.send(Command::ToolResult {
             call_id: call_id.into(),
             output: output.into(),
+            reply,
         })
         .await
     }

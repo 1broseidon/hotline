@@ -405,8 +405,8 @@ impl Calls {
                     name,
                     arguments,
                 } => {
-                    let output = bridge.tool_call(&name, &arguments);
-                    let _ = input.tool_result(&call_id, &output).await;
+                    let (output, reply) = bridge.tool_call(&name, &arguments);
+                    let _ = input.tool_result(&call_id, &output, reply).await;
                     Ok(())
                 }
                 RealtimeEvent::Refused { code } => {

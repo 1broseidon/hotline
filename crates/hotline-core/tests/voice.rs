@@ -1288,14 +1288,23 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
         }))
         .await
         .unwrap();
-    let Asked::ToolResult { call_id, output } = next_asked(&mut desk.asked).await else {
+    let Asked::ToolResult {
+        call_id,
+        output,
+        reply,
+    } = next_asked(&mut desk.asked).await
+    else {
         panic!("the front's tool call went unanswered")
     };
     assert_eq!(call_id, "c1");
     assert!(output.contains("Nothing is done yet"), "{output}");
     assert!(
-        output.contains("first person") && !output.contains("Handed to"),
-        "a direct call acknowledges as the teammate: {output}"
+        output.contains("working session") && !output.contains("Handed to"),
+        "a direct call hands over as the teammate: {output}"
+    );
+    assert!(
+        !reply,
+        "the front acknowledged it as it sent it; no second word"
     );
 
     // The call thinks with the floor open while the teammate works, then
@@ -1344,11 +1353,17 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
         }))
         .await
         .unwrap();
-    let Asked::ToolResult { call_id, output } = next_asked(&mut desk.asked).await else {
+    let Asked::ToolResult {
+        call_id,
+        output,
+        reply,
+    } = next_asked(&mut desk.asked).await
+    else {
         panic!("the echo went unanswered")
     };
     assert_eq!(call_id, "c2");
     assert!(output.starts_with("Not sent"), "{output}");
+    assert!(reply, "a refusal is spoken to");
 
     // The front says it; that is the call's line, kept once.
     desk.events
@@ -1378,7 +1393,8 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
         next_asked(&mut desk.asked).await,
         Asked::ToolResult {
             call_id: "c2".into(),
-            output: String::new()
+            output: String::new(),
+            reply: false
         }
     );
 

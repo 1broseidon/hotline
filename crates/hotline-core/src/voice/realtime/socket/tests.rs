@@ -242,7 +242,7 @@ async fn a_session_applies_its_config_and_carries_audio_tools_and_barge_in() {
     );
     session
         .input
-        .tool_result("c1", "{\"ok\":true}")
+        .tool_result("c1", "{\"ok\":true}", true)
         .await
         .unwrap();
     assert_eq!(next(&mut session).await, RealtimeEvent::ResponseDone);
@@ -271,7 +271,7 @@ async fn an_empty_tool_result_asks_for_no_reply() {
         closed(&mut socket).await;
     });
     let session = voice(&url).open(config()).await.unwrap();
-    session.input.tool_result("c1", "").await.unwrap();
+    session.input.tool_result("c1", "", false).await.unwrap();
     session.input.push_audio(vec![0, 0]).await.unwrap();
     session.close().await;
     finish(server).await;

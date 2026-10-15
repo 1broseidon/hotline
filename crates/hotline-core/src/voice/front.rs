@@ -110,6 +110,8 @@ const DESK_PROGRESS: [&str; 3] = [
 /// A call says it is still thinking every 15 seconds, and again whenever the
 /// front stops talking; the person hears it at most this often.
 const PROGRESS_EVERY: Duration = Duration::from_secs(45);
+/// Each progress line waits twice as long as the last, up to this.
+const PROGRESS_MOST: Duration = Duration::from_secs(180);
 
 /// A pending request is not described: its details are the desk's to show.
 fn needs_you(speaks: Speaks, kind: &str) -> String {
@@ -125,15 +127,15 @@ fn needs_you(speaks: Speaks, kind: &str) -> String {
     .into()
 }
 
-/// What the front hears back once the person's words are handed over: that
-/// nothing is done yet, and how to say so in a few words of its own.
+/// What the front hears back once the person's words are handed over, with
+/// no reply asked for: it acknowledged them as it sent them.
 fn handed(speaks: Speaks) -> &'static str {
     match speaks {
         Speaks::AsTeammate => {
-            "Sent to your working session, where you do the work. Nothing is done yet: do not say it is, and say nothing of the result until you are given it. If you have not acknowledged it yet, say in a few words of your own, in the first person, that you are on it, the way a colleague would: \"One sec, I'll pull that up.\", \"Let me check.\", \"Sure, give me a moment.\" Never say you passed it on or are waiting on someone."
+            "Sent to your working session. Nothing is done yet: say nothing of the result until you are given it, and do not acknowledge it again."
         }
         Speaks::ForDesk => {
-            "Handed to the desk. Nothing is done yet: do not say it is, and say nothing of the result until you are given it. If you have not acknowledged it yet, say in a few words that it is on its way to the right teammate: \"Passing that on.\", \"Got it, I'll get that to the right teammate.\""
+            "Handed to the desk. Nothing is done yet: say nothing of the result until you are given it, and do not acknowledge it again."
         }
     }
 }
@@ -183,17 +185,19 @@ impl Front {
         })
     }
 
-    /// Answers one tool call with the output the front is given back. A
-    /// failure is an output too, worded so the front does not take the words
-    /// for sent.
-    pub fn tool_call(&mut self, name: &str, arguments: &str) -> String {
+    /// Answers one tool call with the output the front is given back, and
+    /// whether it should speak after it. A failure is an output too, worded so
+    /// the front does not take the words for sent, and is spoken to. A send
+    /// is not: the front acknowledged it as it made it, and a second word
+    /// would only say it again.
+    pub fn tool_call(&mut self, name: &str, arguments: &str) -> (String, bool) {
         match name {
-            REMAIN_SILENT => String::new(),
+            REMAIN_SILENT => (String::new(), false),
             SEND_TO_TEAMMATE => match self.send(arguments) {
-                Ok(()) => handed(self.speaks).into(),
-                Err(error) => format!("Not sent: {error}"),
+                Ok(()) => (handed(self.speaks).into(), false),
+                Err(error) => (format!("Not sent: {error}"), true),
             },
-            other => format!("There is no tool called {other}."),
+            other => (format!("There is no tool called {other}."), true),
         }
     }
 
@@ -244,7 +248,7 @@ impl Front {
                 } => {
                     if std::mem::take(&mut self.first_thinking_unreported)
                         || !self.waiting
-                        || self.last_told.elapsed() < PROGRESS_EVERY
+                        || self.last_told.elapsed() < self.progress_wait()
                     {
                         continue;
                     }
@@ -286,6 +290,13 @@ impl Front {
         Some(note)
     }
 
+    /// 45 s before the first progress line, then 90 s, then every 3 min.
+    fn progress_wait(&self) -> Duration {
+        PROGRESS_EVERY
+            .saturating_mul(1 << self.progressed.min(4))
+            .min(PROGRESS_MOST)
+    }
+
     fn progress_line(&mut self) -> &'static str {
         let lines: &[&str] = match self.speaks {
             Speaks::AsTeammate => &TEAMMATE_PROGRESS,
@@ -318,7 +329,7 @@ mod tests {
         assert!(needs_you(Speaks::AsTeammate, "permission").starts_with("I need you to approve"));
         assert!(needs_you(Speaks::ForDesk, "permission").starts_with("The teammate needs you"));
         let direct = handed(Speaks::AsTeammate);
-        assert!(direct.contains("first person") && direct.contains("One sec"));
+        assert!(direct.contains("do not acknowledge it again"));
         assert!(direct.contains("Nothing is done yet"));
         assert!(!direct.contains("Handed to"));
         assert!(handed(Speaks::ForDesk).contains("Nothing is done yet"));

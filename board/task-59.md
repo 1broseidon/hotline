@@ -18,7 +18,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/realtime/mod.rs
   - crates/hotline-core/src/voice/spoken.rs
   - crates/hotline-core/tests/voice.rs
-updatedAt: "2026-10-15T01:57:04.230Z"
+updatedAt: "2026-10-15T02:10:23.900Z"
 contract:
   status: ready
   deliverables:
@@ -39,6 +39,13 @@ contract:
     - Extend tests/voice.rs; run unfiltered
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+assignee: claude
+dispatch:
+  agent: claude
+  model: sonnet
+  effort: medium
+  by: lead
+  at: "2026-10-15T02:10:23.780Z"
 ---
 
 ## Description

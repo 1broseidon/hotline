@@ -88,9 +88,6 @@
 	 * teammate is louder than another. Red is absent on purpose. */
 	--face-l: 72%;
 	--face-c: 0.10;
-	/* A teammate's hue as a line on the pane: its call key's soundwave. */
-	--wave-l: 76%;
-	--wave-c: 0.14;
 	--face-ink: oklch(17% 0.02 250);
 
 	/* ---------------------------------------------------------- elevation
@@ -180,8 +177,6 @@
 
 	--face-l: 76%;
 	--face-c: 0.10;
-	--wave-l: 52%;
-	--wave-c: 0.14;
 	--face-ink: oklch(22% 0.02 250);
 
 	--shadow-float:

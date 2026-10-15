@@ -1721,18 +1721,20 @@
 		background: var(--fill-hover);
 		color: var(--ink);
 	}
-	/* The call key is a soundwave in the teammate's hue (Composer.tsx
-	 * CallKey), Send's size so the pill never changes height. On a call the
+	/* The call key is a soundwave in a solid ink circle (Composer.tsx
+	 * CallKey), Send's size so the pill never changes height: it outweighs
+	 * the mic beside it without the accent, which is Send's. On a call the
 	 * bars move with `--level`, still and dim while held, and pointing at it
 	 * shows the red hang-up it then is. */
 	.composer-call {
 		position: relative;
 		--level: 0;
-		color: oklch(var(--wave-l) var(--wave-c) var(--hue));
+		background: var(--ink);
+		color: var(--canvas);
 	}
 	.composer-call:hover,
 	.composer-call:focus-visible {
-		background: var(--fill-hover);
+		background: var(--ink-2);
 	}
 	.composer-call-wave line {
 		stroke: currentColor;
@@ -1746,7 +1748,7 @@
 		transform: scaleY(calc(0.45 + var(--level) * var(--gain) * 1.1));
 	}
 	.composer-call[data-call="held"] {
-		color: var(--ink-3);
+		background: var(--ink-3);
 	}
 	.composer-call-end {
 		position: absolute;

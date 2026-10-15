@@ -4,7 +4,6 @@ import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
 import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon } from "../icons";
-import { hueOf } from "../ui/Avatar";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
@@ -484,7 +483,6 @@ export function Composer({
 					)}
 					{hangUp || call ? (
 						<CallKey
-							personaId={personaId}
 							name={name}
 							live={hangUp ? live : null}
 							held={callSnapshot.phase === "held"}
@@ -525,22 +523,19 @@ const WAVE = [
 ] as const;
 
 /**
- * The call key is a soundwave in the teammate's own colour, the hue its
- * disc has everywhere else, so calling Goldie looks like Goldie and every
- * teammate's key is its own. At rest the bars stand still; on a call to
+ * The call key is a soundwave in a solid ink circle, the way voice apps mark
+ * talking as against dictating. At rest the bars stand still; on a call to
  * this teammate they move with the voice on the line (still and dim while
  * held), and pointing at the key shows the red hang-up it then is. The bars
  * are drawn from `--level`, set straight from the call's level, sixty times
  * a second, without re-rendering.
  */
 function CallKey({
-	personaId,
 	name,
 	live,
 	held,
 	onPress,
 }: {
-	personaId: string;
 	name: string;
 	/** The call to this teammate, while there is one. */
 	live: ReturnType<typeof useCall> | null;
@@ -559,7 +554,6 @@ function CallKey({
 			type="button"
 			className="composer-key composer-call"
 			data-call={state}
-			style={{ "--hue": hueOf(personaId) } as CSSProperties}
 			title={live === null ? `Call ${name}` : `End the call with ${name}`}
 			aria-label={live === null ? `Call ${name}` : "End the call"}
 			onClick={onPress}

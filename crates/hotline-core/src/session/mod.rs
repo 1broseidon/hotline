@@ -2245,7 +2245,9 @@ impl Room {
                     // for the agent alone; the conversation shows what the
                     // person said.
                     text: match crate::wire::commands::voice_origin() {
-                        Some(origin) if origin.direct => crate::voice::spoken::voice_turn(text),
+                        Some(origin) if origin.direct => {
+                            crate::voice::spoken::voice_turn(text, origin.front)
+                        }
                         _ => text.to_string(),
                     },
                     attachments: attachments.clone().unwrap_or_default(),

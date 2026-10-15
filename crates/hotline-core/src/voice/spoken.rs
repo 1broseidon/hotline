@@ -46,10 +46,21 @@ Before using a tool, say at most one short line. If you were cut off, answer the
 /// call says its opening and the chat has it all.
 const FALLBACK_SENTENCES: usize = 3;
 
+/// What the teammate is told of a turn whose words came through a voice
+/// front, so it reads them as a transcript and not as the person's typing.
+/// The front's own speech never reaches the teammate. There is no matching
+/// line for the call's end: each relayed turn says it, and a turn without it
+/// is the person typing, so the teammate resumes normal behaviour by itself.
+pub const FRONT_NOTE: &str = "[This turn came from a voice call, behind an intermediary: the input is a transcript of what the person said and may have recognition errors. Treat the words as theirs, and ask if something looks misheard.]";
+
 /// What the agent is handed for a turn said on a call: the person's words as
-/// they said them, then the contract.
-pub(crate) fn voice_turn(words: &str) -> String {
-    format!("{words}\n\n{CONTRACT}")
+/// they said them, the note when a front relayed them, then the contract.
+pub(crate) fn voice_turn(words: &str, front: bool) -> String {
+    if front {
+        format!("{words}\n\n{FRONT_NOTE}\n\n{CONTRACT}")
+    } else {
+        format!("{words}\n\n{CONTRACT}")
+    }
 }
 
 /// One of the tags a reply on a call is written with. Case and spaces inside
@@ -741,9 +752,13 @@ mod tests {
         for tag in ["<spoken>", "</spoken>", "<written>", "</written>"] {
             assert!(CONTRACT.contains(tag), "{tag}");
         }
-        let turn = voice_turn("Is the build green?");
+        let turn = voice_turn("Is the build green?", false);
         assert!(turn.starts_with("Is the build green?\n\n[Voice call: "));
         assert!(turn.ends_with(CONTRACT));
+        assert!(!turn.contains("intermediary"));
+        let relayed = voice_turn("Is the build green?", true);
+        assert!(relayed.starts_with(&format!("Is the build green?\n\n{FRONT_NOTE}\n\n")));
+        assert!(relayed.ends_with(CONTRACT));
     }
 
     #[test]

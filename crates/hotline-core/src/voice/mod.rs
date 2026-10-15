@@ -1,6 +1,7 @@
 //! One owner call per desk, with bounded work and complete sentence clips.
 
 pub mod dispatcher;
+pub mod front;
 pub mod ledger;
 pub mod metering;
 pub mod realtime;
@@ -128,9 +129,16 @@ impl CallSpeech {
     }
 }
 
+#[derive(Clone, Copy)]
 enum TranscriptSource {
-    Audio { duration: u32, bytes: usize },
+    Audio {
+        duration: u32,
+        bytes: usize,
+    },
     Device,
+    /// What a voice front relayed. Whether to hang up is the front's call, so
+    /// a relayed "goodbye" is words for the teammate like any others.
+    Front,
 }
 
 impl TranscriptSource {
@@ -138,6 +146,7 @@ impl TranscriptSource {
         match self {
             Self::Audio { duration, bytes } => speech::plausible_goodbye(*duration, *bytes),
             Self::Device => true,
+            Self::Front => false,
         }
     }
 }
@@ -148,6 +157,9 @@ pub(crate) struct Origin {
     pub call_id: String,
     pub seq: u32,
     pub direct: bool,
+    /// The words came through a voice front, not straight from the person,
+    /// so the teammate is told they are a transcript ([`spoken::voice_turn`]).
+    pub front: bool,
 }
 
 impl Origin {
@@ -180,6 +192,7 @@ impl Origin {
             call_id: from.thread.clone(),
             seq: from.request.as_deref()?.parse().ok()?,
             direct: true,
+            front: false,
         })
     }
 
@@ -204,6 +217,7 @@ impl Origin {
             call_id,
             seq,
             direct,
+            front: false,
         })
     }
 }
@@ -353,6 +367,7 @@ enum Work {
     Text {
         seq: u32,
         text: String,
+        source: TranscriptSource,
         speech: CancellationToken,
     },
     Live {
@@ -922,6 +937,22 @@ impl Calls {
 
     /// Only a finalized device transcript enters the paid response pipeline.
     pub fn text(&self, id: &str, seq: u32, text: &str) -> Result<(), String> {
+        self.queue_text(id, seq, text, TranscriptSource::Device)
+    }
+
+    /// The words a voice front relays to the teammate on this call, handed
+    /// over as a typed message is ([`front`]).
+    pub(crate) fn relay(&self, id: &str, seq: u32, words: &str) -> Result<(), String> {
+        self.queue_text(id, seq, words, TranscriptSource::Front)
+    }
+
+    fn queue_text(
+        &self,
+        id: &str,
+        seq: u32,
+        text: &str,
+        source: TranscriptSource,
+    ) -> Result<(), String> {
         if text.len() > 32_000 || text.chars().count() > 8_000 {
             return Err("A voice transcript may contain at most 8,000 characters.".into());
         }
@@ -932,6 +963,7 @@ impl Calls {
         self.queue_utterance(id, seq, VoiceInputMode::Text, |speech| Work::Text {
             seq,
             text: text.into(),
+            source,
             speech,
         })
     }
@@ -1228,13 +1260,18 @@ impl Calls {
                 break;
             };
             let result = match &next {
-                Work::Text { seq, text, speech } => {
+                Work::Text {
+                    seq,
+                    text,
+                    source,
+                    speech,
+                } => {
                     self.respond(
                         &id,
                         &context.for_utterance(),
                         *seq,
                         text.clone(),
-                        TranscriptSource::Device,
+                        *source,
                         speech,
                     )
                     .await
@@ -1475,6 +1512,7 @@ impl Calls {
             call_id: id.into(),
             seq,
             direct: target.is_some(),
+            front: matches!(source, TranscriptSource::Front),
         };
         if let Some(target) = target {
             return self

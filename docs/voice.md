@@ -973,3 +973,15 @@ answers `frontStop` and the Stop button with `voice.front_barge`, and drops
 to the pipeline on `frontEnded`. The phone keeps both paths and picks by what
 the desk advertises. It has no way to change desk voice settings today, so
 it has no mirror.
+
+In the window, every call, to a teammate or the desk, shows in one place:
+the island (`components/Call.tsx` `CallIsland`), a black pill on the title
+bar's centre line where the mark rests. It leads with the teammate's face or
+the desk's handset, ringed green while the line is live, then the name, the
+status and clock, a teammate that needs you, the voice bars, and the
+transcript, Hold and Hang up keys; the transcript drops down under it. A
+hang-up folds it back into the mark; trouble stays with Call again and
+Close. A teammate is called from its composer's soundwave key, and the desk
+from the handset in the rail's dock beside search (`DeskCallKey`), or from
+the title bar while the rail is closed. While one call is on, the other
+call keys wait, disabled.

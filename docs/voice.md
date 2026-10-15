@@ -902,3 +902,12 @@ The tests in `voice/speech/` use mock servers on localhost and never reach the
 network. `tests/local_speech.rs` serves small fake archives on localhost, and
 runs a real model only when `HOTLINE_TEST_SPEECH_MODEL` names a directory
 holding one.
+
+## The voice front setting
+
+`voice.front` in the room's settings is `{ "provider": "grok", "credential":
+"xai" | "xai-subscription", "voices": { "grok": "eve" } }`. Absent means Off:
+calls keep the transcribe, route and speak pipeline. Settings > Use for >
+Live calls writes it; a provider the build has no adapter for (GPT-Live) is
+read as Off. The phone has no way to change desk voice settings today, so it
+has no mirror.

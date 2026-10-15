@@ -225,3 +225,37 @@ export function parseCap(raw: string): number | null {
 	const amount = Number(raw.replace(/^\$/, ""));
 	return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) / 100 : null;
 }
+
+/** The voice fronts a desk can run, in the order Live calls lists them. GPT-Live joins when the core has an adapter for it. */
+export const FRONTS = [{ id: "grok", name: "Grok Voice", voices: ["eve", "ara", "rex", "sal", "leo"] }] as const;
+
+export type FrontSetting = { provider: string; credential?: string; voices: Record<string, string> };
+
+/** The voice front `settings.voice` holds; undefined is Off. */
+export function frontOf(voice: unknown): FrontSetting | undefined {
+	if (voice === null || typeof voice !== "object" || Array.isArray(voice)) return undefined;
+	const front = (voice as Record<string, unknown>).front;
+	if (front === null || typeof front !== "object" || Array.isArray(front)) return undefined;
+	const { provider, credential, voices } = front as Record<string, unknown>;
+	if (typeof provider !== "string") return undefined;
+	const named: Record<string, string> = {};
+	if (voices !== null && typeof voices === "object" && !Array.isArray(voices)) {
+		for (const [key, value] of Object.entries(voices)) if (typeof value === "string") named[key] = value;
+	}
+	return { provider, ...(typeof credential === "string" ? { credential } : {}), voices: named };
+}
+
+/**
+ * `settings.voice` with the front changed, the rest kept. Off removes the
+ * front's provider but keeps the voices picked, so turning it back on finds
+ * them; with nothing picked either, the key goes.
+ */
+export function frontPatch(current: unknown, next: { provider: string | null; credential?: string; voice?: { provider: string; voice: string } }): Record<string, unknown> | null {
+	const voice: Record<string, unknown> =
+		current !== null && typeof current === "object" && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
+	const before = frontOf(current);
+	const voices = { ...(before?.voices ?? {}), ...(next.voice ? { [next.voice.provider]: next.voice.voice } : {}) };
+	if (next.provider === null && Object.keys(voices).length === 0) delete voice.front;
+	else voice.front = { ...(next.provider !== null ? { provider: next.provider } : {}), ...(next.credential !== undefined ? { credential: next.credential } : {}), voices };
+	return Object.keys(voice).length === 0 ? null : voice;
+}

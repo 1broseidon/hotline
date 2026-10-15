@@ -21,7 +21,7 @@ relatedFiles:
   - ui/src/components/UseFor.tsx
   - ui/src/generated/contract.ts
   - docs/voice.md
-updatedAt: "2026-10-15T01:57:04.230Z"
+updatedAt: "2026-10-15T02:40:18.567Z"
 contract:
   status: ready
   deliverables:
@@ -45,6 +45,13 @@ contract:
     - Plain line on cost; run cargo test unfiltered to regenerate contract.ts
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+assignee: claude
+dispatch:
+  agent: claude
+  model: sonnet
+  effort: medium
+  by: lead
+  at: "2026-10-15T02:40:18.443Z"
 ---
 
 ## Description

@@ -1,7 +1,7 @@
 ---
 id: task-58
 title: "Desk: realtime voice seam and Grok Voice adapter"
-column: todo
+column: in-progress
 position: 38
 priority: high
 tags:
@@ -16,9 +16,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/realtime/xai.rs
   - crates/hotline-core/src/voice/speech/xai.rs
   - crates/hotline-core/src/voice/mod.rs
-updatedAt: "2026-10-15T01:57:15.573Z"
+updatedAt: "2026-10-15T01:57:25.510Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/realtime/mod.rs
@@ -40,6 +40,8 @@ contract:
     - No Tauri in hotline-core; nothing unreachable ships
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+    pickedUpAt: "2026-10-15T01:57:25.510Z"
+    reworkCount: 0
 assignee: claude
 dispatch:
   agent: claude

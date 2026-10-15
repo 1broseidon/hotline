@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { DESK_MICROPHONE_BUSY, DESK_MICROPHONE_DENIED, DESK_NO_MICROPHONE, type DeskSeams, PARTIAL_EVERY_MS, SESSION_SECONDS, blockDbfs, deskEngine, microphoneTrouble } from "../src/voice/desk";
+import { type DeskSeams, PARTIAL_EVERY_MS, SESSION_SECONDS, blockDbfs, deskEngine } from "../src/voice/desk";
+import { MICROPHONE_BUSY, NO_MICROPHONE, microphoneDenied, microphoneTrouble } from "../src/voice/microphone";
 import { DICTATION_DENIED, Dictation, type DictationEngine, type DictationEvent, eitherEngine, levelFromDbfs } from "../src/voice/dictation";
 import { downsample, encodeWav, fromBase64 } from "../src/voice/wav";
 
@@ -175,11 +176,15 @@ describe("dictation heard by the desk", () => {
 
 	test("a microphone that won't open says whether it is missing, busy or refused", () => {
 		const named = (name: string) => Object.assign(new Error(name), { name });
-		expect(microphoneTrouble(named("NotFoundError"))).toBe(DESK_NO_MICROPHONE);
-		expect(microphoneTrouble(named("OverconstrainedError"))).toBe(DESK_NO_MICROPHONE);
-		expect(microphoneTrouble(named("NotReadableError"))).toBe(DESK_MICROPHONE_BUSY);
-		expect(microphoneTrouble(named("NotAllowedError"))).toBe(DESK_MICROPHONE_DENIED);
-		expect(microphoneTrouble("anything else")).toBe(DESK_MICROPHONE_DENIED);
+		expect(microphoneTrouble(named("NotFoundError"))).toBe(NO_MICROPHONE);
+		expect(microphoneTrouble(named("OverconstrainedError"))).toBe(NO_MICROPHONE);
+		expect(microphoneTrouble(named("NotReadableError"))).toBe(MICROPHONE_BUSY);
+		expect(microphoneTrouble(named("NotAllowedError"))).toBe(microphoneDenied());
+		expect(microphoneTrouble("anything else")).toBe(microphoneDenied());
+		// Refused says where that system turns the microphone on.
+		expect(microphoneTrouble(named("NotAllowedError"), "macos")).toContain("System Settings › Privacy & Security › Microphone");
+		expect(microphoneTrouble(named("NotAllowedError"), "windows")).toContain("Settings › Privacy & security › Microphone");
+		expect(microphoneTrouble(named("NotAllowedError"), "linux")).toContain("sound settings");
 	});
 
 	test("a microphone refused is a sentence, and a cancelled session's late words are dropped", async () => {
@@ -187,7 +192,7 @@ describe("dictation heard by the desk", () => {
 		const field = { text: "", read: () => field.text, write: (next: string) => (field.text = next) };
 		const dictation = new Dictation(deskEngine(levelFromDbfs, refused.seams), field);
 		await dictation.start();
-		expect(dictation.view).toEqual({ phase: "idle", error: DESK_MICROPHONE_DENIED });
+		expect(dictation.view).toEqual({ phase: "idle", error: microphoneDenied() });
 
 		const w = world();
 		const engine = deskEngine(levelFromDbfs, w.seams);

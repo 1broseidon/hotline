@@ -3,6 +3,7 @@ import { activeDeskId, allDesks, watchDesks, wireFor } from "../desks";
 import { type Target, wire } from "../wire";
 import type { FileChunk, VoiceEndReason, VoiceEvent, VoiceFront } from "../generated/contract";
 import { type CallAudio, webAudio } from "./audio";
+import { microphoneTrouble } from "./microphone";
 import { TurnDetector, levelFromDb } from "./turn";
 import { type DeviceTranscription, type TranscriptionEvent, deviceTranscription, hearsOnThisMac, rawEquivalentDb } from "./transcription";
 import { hearOnThisMac, subscribeHearing } from "./hearing";
@@ -110,7 +111,6 @@ const ENDED_WORDS: Record<EndReason, string | undefined> = {
 
 const LOST = "Lost the connection to the desk.";
 
-const NO_MIC = "Hotline can't hear the microphone. Allow it in your system settings, then call again.";
 
 const NO_TRANSCRIPTION = "Speech recognition on this Mac could not start. Check speech access in your system settings, then call again.";
 
@@ -293,8 +293,8 @@ export class Call {
 	async start(): Promise<void> {
 		try {
 			await this.audio.open((block, rate) => this.hear(block, rate));
-		} catch {
-			this.fail(NO_MIC);
+		} catch (error) {
+			this.fail(microphoneTrouble(error));
 			return;
 		}
 		if (this.ended) return;
@@ -324,8 +324,8 @@ export class Call {
 		else {
 			try {
 				await this.audio.openMic();
-			} catch {
-				this.fail(NO_MIC);
+			} catch (error) {
+				this.fail(microphoneTrouble(error));
 				return;
 			}
 			if (this.ended) return;

@@ -1,9 +1,9 @@
-import { type PointerEvent as ButtonPointerEvent, type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type PointerEvent as ButtonPointerEvent, type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
-import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon } from "../icons";
+import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
@@ -484,7 +484,7 @@ export function Composer({
 					{hangUp || call ? (
 						<CallKey
 							name={name}
-							live={hangUp ? live : null}
+							onCall={hangUp}
 							held={callSnapshot.phase === "held"}
 							onPress={hangUp ? onHangUp : onCall}
 						/>
@@ -514,63 +514,35 @@ export function Composer({
 
 
 /** The call key's bars: where each sits, its height at rest, and how far the voice moves it. */
-const WAVE = [
-	{ x: 2.5, rest: 4, gain: 0.9 },
-	{ x: 5.25, rest: 9, gain: 0.6 },
-	{ x: 8, rest: 6, gain: 1 },
-	{ x: 10.75, rest: 11, gain: 0.5 },
-	{ x: 13.5, rest: 4, gain: 0.8 },
-] as const;
-
 /**
  * The call key is a soundwave in a solid ink circle, the way voice apps mark
- * talking as against dictating. At rest the bars stand still; on a call to
- * this teammate they move with the voice on the line (still and dim while
- * held), and pointing at the key shows the red hang-up it then is. The bars
- * are drawn from `--level`, set straight from the call's level, sixty times
- * a second, without re-rendering.
+ * talking as against dictating. On a call to this teammate it holds steady
+ * in the accent, the call's own on-state, dim while held; the voice moves on
+ * the call card instead. Pointing at it then shows the red hang-up it is.
  */
 function CallKey({
 	name,
-	live,
+	onCall,
 	held,
 	onPress,
 }: {
 	name: string;
-	/** The call to this teammate, while there is one. */
-	live: ReturnType<typeof useCall> | null;
+	/** A call to this teammate is on. */
+	onCall: boolean;
 	held: boolean;
 	onPress: (() => void) | undefined;
 }) {
-	const key = useRef<HTMLButtonElement>(null);
-	useEffect(() => {
-		if (live === null) return;
-		return live.watchLevel((level) => key.current?.style.setProperty("--level", level.toFixed(3)));
-	}, [live]);
-	const state = live === null ? undefined : held ? "held" : "live";
 	return (
 		<button
-			ref={key}
 			type="button"
 			className="composer-key composer-call"
-			data-call={state}
-			title={live === null ? `Call ${name}` : `End the call with ${name}`}
-			aria-label={live === null ? `Call ${name}` : "End the call"}
+			data-call={onCall ? (held ? "held" : "live") : undefined}
+			title={onCall ? `End the call with ${name}` : `Call ${name}`}
+			aria-label={onCall ? "End the call" : `Call ${name}`}
 			onClick={onPress}
 		>
-			<svg className="composer-call-wave" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-				{WAVE.map((bar) => (
-					<line
-						key={bar.x}
-						x1={bar.x}
-						x2={bar.x}
-						y1={8 - bar.rest / 2}
-						y2={8 + bar.rest / 2}
-						style={{ "--gain": bar.gain } as CSSProperties}
-					/>
-				))}
-			</svg>
-			{live !== null && <HangUpIcon className="composer-call-end" />}
+			<VoiceIcon />
+			{onCall && <HangUpIcon className="composer-call-end" />}
 		</button>
 	);
 }

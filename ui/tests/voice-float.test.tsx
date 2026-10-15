@@ -76,6 +76,8 @@ describe("the call strip's identity", () => {
 		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} alone />));
 		expect(container.querySelector(".call-bar-mark .avatar")).not.toBeNull();
 		expect(container.querySelector("aside")?.className).toContain("call-bar-alone");
+		// Dialling, the voice has nothing to show yet.
+		expect(container.querySelector(".call-voice")).toBeNull();
 		// Live, it holds and hangs up, and does not fold.
 		expect(container.querySelector('[aria-label="Hang up"]')).not.toBeNull();
 		expect(container.querySelector("aside")?.hasAttribute("data-folding")).toBe(false);

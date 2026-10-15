@@ -1723,12 +1723,11 @@
 	}
 	/* The call key is a soundwave in a solid ink circle (Composer.tsx
 	 * CallKey), Send's size so the pill never changes height: it outweighs
-	 * the mic beside it without the accent, which is Send's. On a call the
-	 * bars move with `--level`, still and dim while held, and pointing at it
-	 * shows the red hang-up it then is. */
+	 * the mic beside it without the accent, which is Send's at rest. On a
+	 * call it holds steady in the accent, the call's on-state (dim while
+	 * held), and pointing at it shows the red hang-up it then is. */
 	.composer-call {
 		position: relative;
-		--level: 0;
 		background: var(--ink);
 		color: var(--canvas);
 	}
@@ -1736,16 +1735,9 @@
 	.composer-call:focus-visible {
 		background: var(--ink-2);
 	}
-	.composer-call-wave line {
-		stroke: currentColor;
-		stroke-width: 1.75;
-		stroke-linecap: round;
-		transform-box: fill-box;
-		transform-origin: center;
-		transition: transform 60ms linear;
-	}
-	.composer-call[data-call="live"] .composer-call-wave line {
-		transform: scaleY(calc(0.45 + var(--level) * var(--gain) * 1.1));
+	.composer-call[data-call="live"] {
+		background: var(--accent);
+		color: var(--on-accent);
 	}
 	.composer-call[data-call="held"] {
 		background: var(--ink-3);
@@ -3729,7 +3721,33 @@
 			transform: scale(0.36);
 		}
 	}
-	/* Beside the name, the status sits on its line in the band's quieter type. */
+	/* The voice on the line, centred along the bottom of the call card (of
+	 * the strip, when it stands alone), on the keys' row. */
+	.call-voice {
+		position: absolute;
+		bottom: 14px;
+		left: 50%;
+		width: 120px;
+		height: 20px;
+		transform: translateX(-50%);
+		pointer-events: none;
+	}
+	.call-voice path {
+		fill: none;
+		stroke: var(--accent);
+		stroke-width: 2;
+		stroke-linecap: round;
+	}
+	.call-voice[data-still] path {
+		stroke: var(--ink-4);
+	}
+	.call-bar-alone {
+		position: relative;
+	}
+	.call-bar-alone .call-voice {
+		bottom: 16px;
+	}
+	/* Beside the name, the status sits on its line in the band's quieter type.
 	.band-row > .call-bar-status {
 		margin-left: 2px;
 	}

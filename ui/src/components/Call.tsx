@@ -135,6 +135,8 @@ export function CallBar({
 
 			<span className="min-w-0 flex-1" />
 
+			{live && state.phase !== "connecting" && <CallVoice call={call} still={state.phase === "held"} />}
+
 			{live ? (
 				<>
 					<button
@@ -169,6 +171,44 @@ export function CallBar({
 				</>
 			)}
 		</aside>
+	);
+}
+
+const VOICE_BARS = 24;
+/** Each bar's place across the row: the voice is tallest in the middle. */
+const VOICE_SHAPE = Array.from({ length: VOICE_BARS }, (_, index) => 0.3 + 0.7 * Math.sin((Math.PI * (index + 0.5)) / VOICE_BARS));
+
+/** One frame of the bars: dots at silence, each swaying on its own wave as the level rises. */
+function voicePath(level: number, seconds: number): string {
+	let path = "";
+	for (let index = 0; index < VOICE_BARS; index++) {
+		const sway = 0.45 + 0.55 * Math.abs(Math.sin(seconds * (5 + (index % 5)) + index * 1.7));
+		const half = 0.75 + level * 8.5 * VOICE_SHAPE[index]! * sway;
+		const x = 2.5 + index * 5;
+		path += `M${x} ${(10 - half).toFixed(2)}V${(10 + half).toFixed(2)}`;
+	}
+	return path;
+}
+
+/**
+ * The voice on the line, at the bottom centre of the call card: a row of
+ * bars, dots at silence, that rise and sway with whoever is speaking, you or
+ * them. Still while held, and with reduced motion. The path is drawn
+ * straight from the call's level, without re-rendering.
+ */
+function CallVoice({ call, still }: { call: CallSession; still: boolean }) {
+	const path = useRef<SVGPathElement>(null);
+	useEffect(() => {
+		const element = path.current;
+		if (element === null) return;
+		element.setAttribute("d", voicePath(0, 0));
+		if (still || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true) return;
+		return call.watchLevel((level) => element.setAttribute("d", voicePath(level, performance.now() / 1000)));
+	}, [call, still]);
+	return (
+		<svg className="call-voice" data-still={still ? "" : undefined} viewBox={`0 0 ${VOICE_BARS * 5} 20`} aria-hidden="true" focusable="false">
+			<path ref={path} />
+		</svg>
 	);
 }
 

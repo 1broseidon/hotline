@@ -45,8 +45,8 @@ describe("the call key in the composer", () => {
 		await composer({ onCall: () => calls.push("call") });
 		const call = container.querySelector<HTMLButtonElement>('[aria-label="Call Ada"]');
 		expect(call?.className).toContain("composer-call");
-		// A soundwave in a plain circle, the same for every teammate.
-		expect(call?.querySelectorAll(".composer-call-wave line").length).toBe(5);
+		// A soundwave in a plain circle, the same for every teammate, and at rest.
+		expect(call?.querySelector("svg")).not.toBeNull();
 		expect(call?.getAttribute("style")).toBeNull();
 		expect(call?.dataset.call).toBeUndefined();
 		// No Send waits behind it with nothing to send.

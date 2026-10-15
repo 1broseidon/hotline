@@ -19,7 +19,7 @@ relatedFiles:
   - ui/src/components/UseFor.tsx
   - ui/src/generated/contract.ts
   - docs/voice.md
-updatedAt: "2026-10-15T02:48:07.251Z"
+updatedAt: "2026-10-15T17:07:54.226Z"
 contract:
   status: failed
   deliverables:
@@ -57,7 +57,8 @@ dispatch:
   effort: medium
   by: lead
   at: "2026-10-15T02:40:18.443Z"
-completedAt: "2026-10-15T02:48:07.251Z"
+column: in-progress
+position: 1
 ---
 
 ## Description
@@ -65,3 +66,4 @@ Settings > Voice > Live calls: Voice front Off / Grok Voice / GPT-Live (when ava
 
 ## Log
 - 2026-10-15T02:46:26.095Z: [claude] Added voice.front setting (core: voice/settings.rs FrontChoice; absent = Off; unknown provider e.g. gpt-live reads as Off) and Settings > Use for > Live calls (Off / Grok Voice, GPT-Live listed as unavailable, login/key picker xai vs xai-subscription, voice picker per provider, cost line). Nothing yet READS settings.front to start a fronted call: the next task must wire VoiceSettings.front into call start (GrokVoice::with_subscription when credential is xai-subscription). Phone has no desk-voice-settings path, so no mirror. Checks pass (fmt, clippy, core tests, ui typecheck+tests; needed SHERPA_ONNX_ARCHIVE_DIR). On branch dispatch/task-63, committed.
+- 2026-10-15T17:07:54.226Z: Reopened into In progress

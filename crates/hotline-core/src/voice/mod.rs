@@ -1878,6 +1878,45 @@ impl Calls {
         }
     }
 
+    /// Whether a call with this front may begin: a front that costs nothing
+    /// is never refused, a paid one needs the Voice budget to have room.
+    pub fn front_ready(&self, front: &dyn realtime::Realtime) -> Result<(), String> {
+        let provider = front.id().provider_id;
+        let kinds: &[Kind] = if front.is_subscription() || ledger::front_usd(&provider, 1.0) == 0.0
+        {
+            &[]
+        } else {
+            &[Kind::Front]
+        };
+        self.ledger
+            .ready(kinds)
+            .map_err(|_| BUDGET_ERROR.to_string())
+    }
+
+    /// Counts `seconds` of a call's front against the Voice budget. Nothing
+    /// for a subscription login. `Err` says the budget is spent and the call
+    /// should end.
+    pub fn front_spend(&self, front: &dyn realtime::Realtime, seconds: f64) -> Result<(), String> {
+        if front.is_subscription() {
+            return Ok(());
+        }
+        let usd = ledger::front_usd(&front.id().provider_id, seconds);
+        self.pay(Kind::Front, usd)
+    }
+
+    /// What the person said to the front, as the front heard it. Kept on the
+    /// call's thread and nowhere else: the teammate is handed the words by
+    /// [`front::Front`], not by this.
+    pub fn front_heard(&self, id: &str, text: &str) -> String {
+        self.keep(id, Speaker::Person, text)
+    }
+
+    /// What the front said to the person, kept on the call's thread and never
+    /// on the teammate's tape.
+    pub fn front_said(&self, id: &str, text: &str) -> String {
+        self.keep(id, Speaker::Voice, text)
+    }
+
     /// A line said on a direct call, kept on the call's thread. The line's id
     /// is what the clients know it by; the write is made behind the call.
     fn keep(&self, id: &str, speaker: Speaker, text: &str) -> String {

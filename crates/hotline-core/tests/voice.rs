@@ -984,6 +984,36 @@ async fn a_front_hands_words_to_the_teammate_and_says_its_spoken_line_verbatim()
         "the front's side stays off the teammate's tape: {tape:?}"
     );
 
+    // The front's own lines go to the call's record, beside the person's.
+    calls.front_heard(&call, words);
+    calls.front_said(&call, "Handing that to Mack now.");
+    let record = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let lines = log.load(&hotline_core::log::StreamId::Call(call.clone()));
+            if lines
+                .iter()
+                .any(|v| v["text"] == "Handing that to Mack now.")
+            {
+                return lines;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the front's lines reached the call's record");
+    assert!(
+        record
+            .iter()
+            .any(|v| v["kind"] == "user" && v["text"] == words)
+    );
+    let tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
+    assert!(
+        !tape
+            .iter()
+            .any(|v| v["text"] == "Handing that to Mack now."),
+        "what the front said stays off the teammate's tape: {tape:?}"
+    );
+
     calls.end(&call).unwrap();
     // Nothing more is said once the call has ended, and the notes stop.
     while let Some(note) = front.next_note().await {
@@ -991,4 +1021,64 @@ async fn a_front_hands_words_to_the_teammate_and_says_its_spoken_line_verbatim()
     }
     socket.close(None).await.unwrap();
     server.abort();
+}
+
+/// A front on an API key costs its minutes, on a subscription login nothing,
+/// and a call is refused before it starts when the budget has no room.
+#[tokio::test]
+async fn a_fronts_minutes_are_counted_by_login_kind() {
+    use async_trait::async_trait;
+    use hotline_core::voice::realtime::{Realtime, RealtimeConfig, RealtimeSession};
+    use hotline_core::voice::speech::{SpeechError, SpeechId};
+    use hotline_core::wire::RoomHandle;
+
+    struct Front {
+        provider: &'static str,
+        subscription: bool,
+    }
+    #[async_trait]
+    impl Realtime for Front {
+        fn id(&self) -> SpeechId {
+            SpeechId {
+                provider_id: self.provider.into(),
+                model_id: "fixture".into(),
+                voice: None,
+            }
+        }
+        fn is_subscription(&self) -> bool {
+            self.subscription
+        }
+        async fn open(&self, _: RealtimeConfig) -> Result<RealtimeSession, SpeechError> {
+            Err(SpeechError::NothingToSay)
+        }
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let desk = hotline_core::desk::Desk::open_with_voice_services(
+        root.path(),
+        common::store(),
+        Some(services()),
+    )
+    .unwrap();
+    let calls = desk.voice().unwrap();
+    let grok = Front {
+        provider: "xai",
+        subscription: false,
+    };
+    let gpt = Front {
+        provider: "openai",
+        subscription: false,
+    };
+    let login = Front {
+        provider: "xai-subscription",
+        subscription: true,
+    };
+
+    calls.front_ready(&grok).unwrap();
+    calls.front_spend(&login, 600.0).unwrap();
+    assert_eq!(calls.status().budget.spent_day_usd, 0.0);
+    calls.front_spend(&grok, 60.0).unwrap();
+    calls.front_spend(&gpt, 60.0).unwrap();
+    let spent = calls.status().budget.spent_day_usd;
+    assert!((spent - 0.13).abs() < 1e-9, "{spent}");
 }

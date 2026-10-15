@@ -37,9 +37,9 @@ subtasks:
     completed: true
   - id: task-72-9
     title: "Welcome.tsx:244 'An AI coding tool you already have' (not a tooltip: a visible option heading; left as is)"
-    completed: false
+    completed: true
 createdAt: "2026-10-15T23:17:58.177Z"
-updatedAt: "2026-10-15T23:19:34.116Z"
+updatedAt: "2026-10-15T23:19:34.586Z"
 ---
 
 ## Description

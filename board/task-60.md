@@ -16,7 +16,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_prompt.rs
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/src/voice/dispatcher.rs
-updatedAt: "2026-10-15T01:57:04.230Z"
+updatedAt: "2026-10-15T02:22:50.722Z"
 contract:
   status: ready
   deliverables:
@@ -36,6 +36,13 @@ contract:
     - Separate desk-call prompt
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+assignee: claude
+dispatch:
+  agent: claude
+  model: sonnet
+  effort: medium
+  by: lead
+  at: "2026-10-15T02:22:50.604Z"
 ---
 
 ## Description

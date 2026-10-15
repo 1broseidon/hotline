@@ -11,6 +11,15 @@ tags:
   - calls
   - 0.38.0
 createdAt: "2026-10-14T20:03:32.697Z"
+assignee: claude
+updatedAt: "2026-10-15T01:56:09.941Z"
+lead:
+  agent: claude
+  model: sonnet
+  effort: medium
+  by: person
+  at: "2026-10-15T01:56:09.669Z"
+  until: done
 ---
 
 ## Description

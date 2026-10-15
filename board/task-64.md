@@ -1,8 +1,8 @@
 ---
 id: task-64
 title: "Desk: GPT-Live front over the ChatGPT login"
-column: todo
-position: 44
+column: review
+position: 4
 priority: low
 tags:
   - voice
@@ -20,7 +20,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/settings.rs
   - docs/voice-calls.md
   - docs/voice.md
-updatedAt: "2026-10-15T18:49:54.495Z"
+updatedAt: "2026-10-15T18:50:10.064Z"
 contract:
   status: ready
   deliverables:

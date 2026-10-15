@@ -16,10 +16,12 @@ import { Refusal } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
 import { setTheme, THEMES, useTheme } from "../theme";
 import { wire } from "../wire";
+import { AboutSection } from "./About";
 import { BackendPicker } from "./BackendPicker";
 import { PathField } from "./PathField";
 import { ConnectProvider, ProviderRow } from "./ConnectProvider";
 import { SecretsSection } from "./Secrets";
+import { ShortcutsSection } from "./Shortcuts";
 import { McpPasteBack } from "./McpPasteBack";
 import { SkillsSection } from "./Skills";
 import { UseFor } from "./UseFor";
@@ -36,7 +38,19 @@ import { useActiveDesk, useDesks } from "../desks";
 const MIN_IDLE_HOURS = 1;
 const MAX_IDLE_HOURS = 336;
 
-export type SettingsSection = "general" | "desks" | "providers" | "tools" | "skills" | "computer" | "secrets" | "remote" | "updates" | "import";
+export type SettingsSection =
+	| "general"
+	| "desks"
+	| "providers"
+	| "tools"
+	| "skills"
+	| "computer"
+	| "secrets"
+	| "remote"
+	| "updates"
+	| "import"
+	| "shortcuts"
+	| "about";
 
 const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "general", title: "General" },
@@ -49,6 +63,8 @@ const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "remote", title: "Remote" },
 	{ id: "updates", title: "Updates" },
 	{ id: "import", title: "Import" },
+	{ id: "shortcuts", title: "Keyboard shortcuts" },
+	{ id: "about", title: "About Hotline" },
 ];
 
 /**
@@ -184,6 +200,8 @@ export function Settings({
 					{section === "remote" && (onServer() ? <ServerRemoteNote /> : <RemoteSection />)}
 					{section === "desks" && <DesksSection onAddDesk={onAddDesk ?? (() => {})} />}
 					{section === "import" && <ImportSection onRefuse={setRefusal} />}
+					{section === "shortcuts" && <ShortcutsSection />}
+					{section === "about" && <AboutSection />}
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>

@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { chordKeys } from "../chords";
-import { CloseIcon, MaximizeIcon, MinimizeIcon, PhoneIcon, RestoreIcon, SearchIcon, SidebarIcon } from "../icons";
+import { CloseIcon, MaximizeIcon, MinimizeIcon, PlusIcon, RestoreIcon, SearchIcon, SettingsIcon, SidebarIcon } from "../icons";
 import { closeWindow, drawsFrame, minimizeWindow, toggleMaximize, watchWindowShape } from "../native";
 import { HotlineMark } from "./HotlineMark";
 
@@ -23,7 +23,11 @@ export function Titlebar({
 	searchOpen,
 	onToggleSearch,
 	rail,
-	deskCall,
+	island,
+	deskKey,
+	onNew,
+	onSettings,
+	settingsOpen = false,
 	bare = false,
 }: {
 	/** A conversation is showing: the search has something to search. */
@@ -32,12 +36,17 @@ export function Titlebar({
 	onToggleSearch(): void;
 	/** Whether the rail is open, and the key that opens and closes it; none in a narrow window. */
 	rail?: { open: boolean; onToggle(): void } | undefined;
+	/** A call on the line: the island, which stands where the mark rests. */
+	island?: ReactNode;
 	/**
-	 * The desk's call key, beside the rail's while the rail is closed and
-	 * cannot hold it: green while the desk is on the line (pressed, it hangs
-	 * up), disabled during a call to a teammate.
+	 * The desk's call key. The rail's dock holds it and the search; while
+	 * the rail is closed they stand here instead, at the head of the tools.
 	 */
-	deskCall?: { on: boolean; busy: boolean; onCall(): void } | undefined;
+	deskKey?: ReactNode;
+	/** The window's own keys, at the right: a new teammate, and Settings. */
+	onNew?: (() => void) | undefined;
+	onSettings?: (() => void) | undefined;
+	settingsOpen?: boolean;
 	/** The welcome: the mark and the window's own controls, nothing that acts on a room that is not there yet. */
 	bare?: boolean;
 }) {
@@ -65,38 +74,52 @@ export function Titlebar({
 						<SidebarIcon />
 					</button>
 				)}
-				{deskCall !== undefined && !bare && (
-					<button
-						type="button"
-						className="control btn-icon titlebar-desk-call"
-						data-on={deskCall.on ? "" : undefined}
-						disabled={deskCall.busy}
-						title={deskCall.on ? "Hang up on the desk" : deskCall.busy ? "On a call with a teammate" : "Call the desk"}
-						aria-label={deskCall.on ? "Hang up on the desk" : "Call the desk"}
-						onClick={deskCall.onCall}
-					>
-						<PhoneIcon />
+			</div>
+			{island !== undefined && !bare ? (
+				<div className="titlebar-island">{island}</div>
+			) : (
+				<p className="titlebar-title">
+					{/* The mark alone: the app's name. Whose conversation this is lives
+					    once, in the pane's band; the task bar, which has no band,
+					    names them (windowTitle). */}
+					<HotlineMark className="titlebar-mark" width={18} plain label="Hotline" />
+				</p>
+			)}
+			<div className="titlebar-tools" hidden={bare}>
+				{/* Search and the desk are the rail's; with the rail closed they stand here. */}
+				{rail !== undefined && !rail.open && (
+					<>
+						<button
+							type="button"
+							className="control btn-icon"
+							title={`Search (${chordKeys("search")})`}
+							aria-label="Search"
+							aria-pressed={searchOpen}
+							disabled={!searchable}
+							onClick={onToggleSearch}
+						>
+							<SearchIcon />
+						</button>
+						{deskKey}
+					</>
+				)}
+				{onNew !== undefined && (
+					<button type="button" className="control btn-icon" title={`New teammate (${chordKeys("new-teammate")})`} aria-label="New teammate" onClick={onNew}>
+						<PlusIcon />
 					</button>
 				)}
-			</div>
-			<p className="titlebar-title">
-				{/* The mark alone: the app's name. Whose conversation this is lives
-				    once, in the pane's band; the task bar, which has no band,
-				    names them (windowTitle). */}
-				<HotlineMark className="titlebar-mark" width={18} plain label="Hotline" />
-			</p>
-			<div className="titlebar-tools" hidden={bare}>
-				<button
-					type="button"
-					className="control btn-icon"
-					title={`Search (${chordKeys("search")})`}
-					aria-label="Search"
-					aria-pressed={searchOpen}
-					disabled={!searchable}
-					onClick={onToggleSearch}
-				>
-					<SearchIcon />
-				</button>
+				{onSettings !== undefined && (
+					<button
+						type="button"
+						className="control btn-icon"
+						title={`Settings (${chordKeys("settings")})`}
+						aria-label="Settings"
+						aria-pressed={settingsOpen}
+						onClick={onSettings}
+					>
+						<SettingsIcon />
+					</button>
+				)}
 			</div>
 			{frame && (
 				<div className="titlebar-controls">

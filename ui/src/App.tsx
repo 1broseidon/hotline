@@ -2,7 +2,6 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import { useNarrow } from "./narrow";
 import { shownState } from "./activity";
 import type { ConfigChoice } from "./generated/contract";
-import { About } from "./components/About";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
@@ -10,12 +9,11 @@ import type { SettingsSection } from "./components/Settings";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { Titlebar } from "./ui/Titlebar";
-import { CallBar, DeskCall } from "./components/Call";
+import { CallIsland, DeskCallKey } from "./components/Call";
 import { UpdateFloat } from "./components/UpdateFloat";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
 import { Teammate } from "./components/Teammate";
-import { Shortcuts } from "./components/Shortcuts";
 import { sameWork, Work, type OpenWork } from "./components/Work";
 import type { ThreadRef } from "./components/Transcript";
 import { EmptyRoom, Welcome } from "./components/Welcome";
@@ -42,7 +40,7 @@ const Settings = lazy(() => import("./components/Settings").then((module) => ({ 
 const SettingsRail = lazy(() => import("./components/Settings").then((module) => ({ default: module.SettingsRail })));
 
 /** What stands in the conversation's place: a room-wide pane, or nothing. */
-type Pane = "settings" | "new-teammate" | "shortcuts" | "about" | "add-desk" | null;
+type Pane = "settings" | "new-teammate" | "add-desk" | null;
 
 /**
  * What the window opens on when it next shows a desk: the pane, and whether
@@ -512,12 +510,11 @@ export function App() {
 				setSearchOpen(true);
 				return;
 			}
-			if (id === "about") {
-				togglePane("about");
-				return;
-			}
-			if (id === "shortcuts") {
-				togglePane("shortcuts");
+			// About and the shortcuts are sections of Settings.
+			if (id === "about" || id === "shortcuts") {
+				setSearchOpen(false);
+				setSettingsSection(id);
+				setPane("settings");
 				return;
 			}
 			if (id === "github") {
@@ -650,33 +647,27 @@ export function App() {
 	const floatWork = pane === null && !welcome && selected !== null && workOf !== undefined && !dockWork && !dockOverlay ? workCard(selected, workOf) : null;
 
 
-	// A call to a teammate hangs under the conversation's band, or atop any
-	// other pane; a call to the desk is the team rail's, at its foot, unless
-	// the rail is closed or showing Settings, when it hangs like the rest.
-	const conversationShown = pane === null && selected !== null;
-	const teamRail = railSize.open && pane !== "settings";
-	const deskCalling = call !== null && call.target === undefined;
-	const callBar = call === null || (deskCalling && teamRail) ? undefined : (
-		<CallBar
-			call={call}
-			names={nameOf}
-			roster={roster}
-			onOpenTeammate={(personaId) => select(personaId, call.deskId ?? undefined)}
-			bare={conversationShown && call.target?.personaId === selected?.persona.id}
-			alone={!conversationShown}
-		/>
+	// Every call shows in the island; the desk's key is the rail dock's, or
+	// the title bar's while the rail is closed.
+	const searchable = pane === null && selected !== null;
+	const deskKey = (className?: string) => (
+		<DeskCallKey call={call} available={voice} onCall={() => void startCall(nameOf)} {...(className !== undefined ? { className } : {})} />
 	);
 	return (
 		<div className="flex h-full flex-col">
 			<Titlebar
 				bare={welcome && pane === null}
-				searchable={pane === null && selected !== null}
+				searchable={searchable}
 				searchOpen={searchOpen}
 				onToggleSearch={() => setSearchOpen((open) => !open)}
 				rail={{ open: railSize.open, onToggle: toggleRail }}
-				{...(!railSize.open && (voice || call !== null)
-					? { deskCall: { on: deskCalling, busy: call !== null && !deskCalling, onCall: () => (deskCalling ? closeCall() : void startCall(nameOf)) } }
-					: {})}
+				island={call === null ? undefined : (
+					<CallIsland call={call} names={nameOf} roster={roster} onOpenTeammate={(personaId) => select(personaId, call.deskId ?? undefined)} />
+				)}
+				deskKey={deskKey("control btn-icon titlebar-desk-call")}
+				onNew={newTeammate}
+				onSettings={() => togglePane("settings")}
+				settingsOpen={pane === "settings"}
 			/>
 			{platform() === "linux" && <WindowEdges />}
 			<ServerFiles />
@@ -707,8 +698,6 @@ export function App() {
 				seen={seen}
 				connection={connection}
 				onSelect={select}
-				onNew={newTeammate}
-				onSettings={() => togglePane("settings")}
 				elsewhere={elsewhere}
 				onEdit={(id, deskId) => {
 					if (deskId !== undefined) {
@@ -720,30 +709,24 @@ export function App() {
 				}}
 				onDelete={(id, name, deskId) => void removeTeammate(id, name, deskId)}
 				onPin={(id, slot, deskId) => void pinTeammate(id, slot, deskId)}
-				onHelp={(id) => {
-					if (id === "github") void openLink("https://github.com/1broseidon/hotline");
-					else togglePane(id);
-				}}
+				onAddDesk={() => togglePane("add-desk")}
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
-				deskCall={<DeskCall call={call} available={voice} onCall={() => void startCall(nameOf)} roster={roster} compact={faces} />}
+				searchable={searchable}
+				searchOpen={searchOpen}
+				onSearch={() => setSearchOpen((open) => !open)}
+				deskKey={deskKey()}
 			/>
 			)}
 			{!narrow && <RailEdge size={railSize} onSize={setRailSize} />}
 
 			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0">
 				<DeskBand onAddDesk={() => togglePane("add-desk")} />
-				{/* A pane with no conversation has no band of its own to hang the call from. */}
-				{!conversationShown && callBar}
 				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">
 				{pane === "settings" ? (
 					<Suspense fallback={null}>
 						<Settings section={settingsSection} onSection={setSettingsSection} onAddDesk={() => togglePane("add-desk")} />
 					</Suspense>
-				) : pane === "shortcuts" ? (
-					<Shortcuts onClose={closePane} />
-				) : pane === "about" ? (
-					<About onClose={closePane} />
 				) : pane === "add-desk" ? (
 					<AddDesk onClose={closePane} />
 				) : pane === "new-teammate" ? (
@@ -766,7 +749,6 @@ export function App() {
 							onSaid={setSaid}
 							onCall={directCalls ? () => callTeammate(selected) : undefined}
 							onHangUp={calling && call?.target?.personaId === selected.persona.id ? closeCall : undefined}
-							callBar={callBar}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}

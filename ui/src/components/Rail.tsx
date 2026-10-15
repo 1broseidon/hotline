@@ -1,7 +1,7 @@
 import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
-import { ChevronDownIcon, ComputerIcon, SettingsIcon, MoreIcon, PlusIcon } from "../icons";
+import { ChevronDownIcon, ComputerIcon, SearchIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import { shownState } from "../activity";
 import type { SessionState } from "../generated/contract";
@@ -37,15 +37,16 @@ export function Rail({
 	seen,
 	connection,
 	onSelect,
-	onNew,
-	onSettings,
 	onEdit,
 	onDelete,
 	onPin,
-	onHelp,
+	onAddDesk,
 	width,
 	compact = false,
-	deskCall,
+	searchable,
+	searchOpen,
+	onSearch,
+	deskKey,
 }: {
 	/** The teammates of the desk on screen. */
 	entries: RosterEntry[];
@@ -59,19 +60,20 @@ export function Rail({
 	connection: Connection;
 	/** A teammate picked; `deskId` names its desk when that is not the desk on screen. */
 	onSelect(personaId: string, deskId?: string): void;
-	onNew(): void;
-	onSettings(): void;
 	onEdit(personaId: string, deskId?: string): void;
 	onDelete(personaId: string, name: string, deskId?: string): void;
 	/** Pin at a slot, or unpin with null. */
 	onPin(personaId: string, slot: number | null, deskId?: string): void;
-	onHelp(id: "shortcuts" | "about" | "github" | "add-desk"): void;
+	onAddDesk(): void;
 	/** The dragged width; none in a narrow window, where the rail is the whole window. */
 	width?: number | undefined;
 	/** Faces only: each name waits on a hover card. */
 	compact?: boolean;
-	/** The desk's line, at the rail's foot above Settings: its call key, or its call's card. */
-	deskCall?: ReactNode;
+	/** The dock at the rail's foot: search, and the desk's call key. */
+	searchable: boolean;
+	searchOpen: boolean;
+	onSearch(): void;
+	deskKey: ReactNode;
 }) {
 	const [tip, setTip] = useState<Tip | null>(null);
 	const words = connection === "outdated" ? "This window needs a newer Hotline core" : "Reconnecting";
@@ -102,21 +104,13 @@ export function Rail({
 		const box = row.getBoundingClientRect();
 		setTip({ name, line, left: box.right + 8, top: box.top + box.height / 2 });
 	};
-	/* The help a menu bar would carry. Here because on Linux and Windows
-	 * there is no menu bar, and a page nobody can reach is not a page. */
-	const help: MenuEntry[] = [
-		{ kind: "item", id: "add-desk", text: "Add a server…", onSelect: () => onHelp("add-desk") },
-		{ kind: "item", id: "shortcuts", text: "Keyboard shortcuts", onSelect: () => onHelp("shortcuts") },
-		{ kind: "item", id: "about", text: "About Hotline", onSelect: () => onHelp("about") },
-		{ kind: "item", id: "github", text: "Hotline on GitHub", onSelect: () => onHelp("github") },
-	];
 	return (
 		<nav
 			aria-label="Team"
 			className={`rail flex flex-col ${compact ? "rail-compact" : ""}`}
 			style={width !== undefined ? { width } : undefined}
 		>
-			<DeskFilter compact={compact} onAdd={() => onHelp("add-desk")} />
+			<DeskFilter compact={compact} onAdd={onAddDesk} />
 			<div className="min-h-0 flex-1 overflow-y-auto px-1 pb-2 pt-1" onScroll={() => setTip(null)}>
 				{pinned.length + rest.length === 0 ? (
 					compact || !loaded ? null :
@@ -195,46 +189,37 @@ export function Rail({
 				)}
 			</div>
 
-			{deskCall}
-			<footer className={compact ? "flex shrink-0 flex-col items-center gap-1 pb-2" : "flex h-10 shrink-0 items-center gap-1 px-2.5"}>
-				{compact ? (
-					<button type="button" className="control btn-icon" title={`Settings (${chordKeys("settings")})`} aria-label="Settings" onClick={onSettings}>
-						<SettingsIcon />
-					</button>
-				) : (
-					<button
-						type="button"
-						className="control btn-quiet gap-1.5 px-2 text-sm"
-						title={`Settings (${chordKeys("settings")})`}
-						onClick={onSettings}
-					>
-						<SettingsIcon className="text-ink-3" />
-						Settings
-					</button>
-				)}
+			{/* The dock: search, and the desk's line. Settings and a new teammate are the title bar's. */}
+			<footer className={compact ? "rail-dock rail-dock-compact" : "rail-dock"}>
 				<button
 					type="button"
-					className="control btn-icon"
-					title={`New teammate (${chordKeys("new-teammate")})`}
-					aria-label="New teammate"
-					onClick={onNew}
+					className="rail-search"
+					title={`Search (${chordKeys("search")})`}
+					aria-label="Search"
+					aria-pressed={searchOpen}
+					disabled={!searchable}
+					onClick={onSearch}
 				>
-					<PlusIcon />
+					<SearchIcon />
+					{!compact && (
+						<>
+							<span className="min-w-0 flex-1 truncate text-left">Search</span>
+							{chordKeys("search") !== "" && <kbd className="rail-search-keys">{chordKeys("search")}</kbd>}
+						</>
+					)}
 				</button>
-				<MenuButton className="control btn-icon" label="More" entries={help}>
-					<MoreIcon />
-				</MenuButton>
-				{connection !== "open" && (
-					<p
-						role="status"
-						className={`instrument flex min-w-0 items-center gap-1.5 truncate ${compact ? "h-6" : "ml-auto"}`}
-						title={compact || connection === "outdated" ? words : undefined}
-					>
-						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--warn)" }} />
-						{compact ? <span className="sr-only">{words}</span> : words}
-					</p>
-				)}
+				{deskKey}
 			</footer>
+			{connection !== "open" && (
+				<p
+					role="status"
+					className={`instrument flex min-w-0 shrink-0 items-center gap-1.5 truncate ${compact ? "h-6 justify-center" : "px-3.5 pb-2"}`}
+					title={compact || connection === "outdated" ? words : undefined}
+				>
+					<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--warn)" }} />
+					{compact ? <span className="sr-only">{words}</span> : words}
+				</p>
+			)}
 			{tip !== null && (
 				<div role="tooltip" className="rail-tip" style={{ left: tip.left, top: tip.top }}>
 					<span className="block truncate font-medium text-ink">{tip.name}</span>
@@ -287,6 +272,7 @@ function Row({
 			type="button"
 			data-teammate-row
 			data-offline={offline || undefined}
+			data-working={working || undefined}
 			aria-current={active ? "true" : undefined}
 			aria-label={`${named}${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
 			className="rail-row group relative"
@@ -323,7 +309,7 @@ function Row({
 					)}
 				</span>
 			) : (
-			<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} busy={busy} />
+			<Avatar id={entry.persona.id} name={entry.persona.name} size={32} hash={entry.persona.avatar?.hash} busy={busy} />
 			)}
 			{onTip === undefined && (
 			<span className="min-w-0 flex-1">

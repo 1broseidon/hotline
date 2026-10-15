@@ -1,11 +1,8 @@
-import { chordKeys } from "../chords";
-import { CloseIcon, RevealIcon } from "../icons";
+import { RevealIcon } from "../icons";
 import { appVersion, dataDirectory, openLink, revealPath } from "../native";
-import { Band } from "../ui/Band";
 import { HotlineMark } from "../ui/HotlineMark";
-import { Scroll } from "../ui/Scroll";
 
-/** README.md's first sentence. The pane is not a reader of that file. */
+/** README.md's first sentence. The section is not a reader of that file. */
 const WHAT = "A local-first room for your team of coding agents.";
 
 /**
@@ -31,87 +28,81 @@ const CREDITS = [
  * Who this window is, and where it keeps the room. The version and the
  * data directory are facts the shell injected; a browser tab has neither.
  */
-export function About({ onClose }: { onClose(): void }) {
+export function AboutSection() {
 	const version = appVersion();
 	const dir = dataDirectory();
-
 	return (
-		<div className="pane">
-			<Band>
-				<h2 className="min-w-0 flex-1 truncate pl-1 text-lg font-semibold">About Hotline</h2>
-				<button
-					type="button"
-					className="control btn-icon"
-					title={`Close (${chordKeys("close")})`}
-					aria-label="Close"
-					onClick={onClose}
-				>
-					<CloseIcon />
-				</button>
-			</Band>
-			<Scroll>
-				<div className="pane-column flex flex-col gap-6">
-					<section className="flex items-start gap-4">
-						<HotlineMark className="mt-1 shrink-0 text-ink-3" width={44} plain />
-						<div>
-							<h3 className="text-xl font-semibold">Hotline</h3>
-							<p className="mt-1 text-ink-2">{WHAT}</p>
-						</div>
-					</section>
-					<section>
-						<h3 className="group-title">Credits</h3>
-						<div className="grouped">
-							{CREDITS.map((credit) => (
-								<div key={credit.who} className="group-row">
-									<span className="group-row-text min-w-0">
-										<span className="group-row-title">{credit.what}</span>
-										<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-											{credit.who}
-										</span>
-									</span>
-									<button type="button" className="control btn-quiet btn-sm" onClick={() => void openLink(credit.licence)}>
-										{credit.name}
-									</button>
-								</div>
-							))}
-						</div>
-					</section>
-					{(version !== "" || dir !== "") && (
-						<section>
-							<h3 className="group-title">This desk</h3>
-							<div className="grouped">
-								{version !== "" && (
-									<div className="group-row">
-										<span className="group-row-text">
-											<span className="group-row-title">Version</span>
-										</span>
-										<span className="selectable font-mono text-sm text-ink-2">{version}</span>
-									</div>
-								)}
-								{dir !== "" && (
-									<div className="group-row">
-										<span className="group-row-text min-w-0">
-											<span className="group-row-title">Data directory</span>
-											<span className="group-row-detail selectable font-mono" style={{ whiteSpace: "normal" }}>
-												{dir}
-											</span>
-										</span>
-										<button
-											type="button"
-											className="control btn-quiet btn-sm gap-1"
-											title="Reveal in the file manager"
-											onClick={() => void revealPath(dir)}
-										>
-											<RevealIcon />
-											Reveal
-										</button>
-									</div>
-								)}
-							</div>
-						</section>
-					)}
+		<>
+			<section className="flex items-start gap-4">
+				<HotlineMark className="mt-1 shrink-0 text-ink-3" width={44} plain />
+				<div>
+					<h3 className="text-xl font-semibold">Hotline</h3>
+					<p className="mt-1 text-ink-2">{WHAT}</p>
 				</div>
-			</Scroll>
-		</div>
+			</section>
+			<section>
+				<h3 className="group-title">Links</h3>
+				<div className="grouped">
+					<button type="button" className="group-row group-row-choice w-full text-left" onClick={() => void openLink("https://github.com/1broseidon/hotline")}>
+						<span className="group-row-text">
+							<span className="group-row-title">Hotline on GitHub</span>
+							<span className="group-row-detail">Source, releases and issues</span>
+						</span>
+					</button>
+				</div>
+			</section>
+			<section>
+				<h3 className="group-title">Credits</h3>
+				<div className="grouped">
+					{CREDITS.map((credit) => (
+						<div key={credit.who} className="group-row">
+							<span className="group-row-text min-w-0">
+								<span className="group-row-title">{credit.what}</span>
+								<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+									{credit.who}
+								</span>
+							</span>
+							<button type="button" className="control btn-quiet btn-sm" onClick={() => void openLink(credit.licence)}>
+								{credit.name}
+							</button>
+						</div>
+					))}
+				</div>
+			</section>
+			{(version !== "" || dir !== "") && (
+				<section>
+					<h3 className="group-title">This desk</h3>
+					<div className="grouped">
+						{version !== "" && (
+							<div className="group-row">
+								<span className="group-row-text">
+									<span className="group-row-title">Version</span>
+								</span>
+								<span className="selectable font-mono text-sm text-ink-2">{version}</span>
+							</div>
+						)}
+						{dir !== "" && (
+							<div className="group-row">
+								<span className="group-row-text min-w-0">
+									<span className="group-row-title">Data directory</span>
+									<span className="group-row-detail selectable font-mono" style={{ whiteSpace: "normal" }}>
+										{dir}
+									</span>
+								</span>
+								<button
+									type="button"
+									className="control btn-quiet btn-sm gap-1"
+									title="Reveal in the file manager"
+									onClick={() => void revealPath(dir)}
+								>
+									<RevealIcon />
+									Reveal
+								</button>
+							</div>
+						)}
+					</div>
+				</section>
+			)}
+		</>
 	);
 }

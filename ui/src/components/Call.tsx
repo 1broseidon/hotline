@@ -1,8 +1,7 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { CloseIcon, HangUpIcon, PauseIcon, PhoneIcon, PlayIcon, TranscriptIcon } from "../icons";
 import { Avatar } from "../ui/Avatar";
-import { CallToad } from "./CallToad";
 import { callWorking } from "./CallStage";
 import { activeDeskId } from "../desks";
 import type { RosterEntry } from "../wire";
@@ -19,189 +18,153 @@ const WORDS: Record<CallPhase, string> = {
 };
 
 /**
- * The call is a strip under the conversation's band, the band growing down
- * into one card with it the way the phone shows a call: up and out of the
- * way. It stays while the window moves between conversations (on its own
- * card atop a pane with no conversation). It names who is on the line, the
- * desk's toad or the teammate's face (left out under that teammate's own
- * band, whose face rings instead), then what the call is doing and its
- * clock, any teammate that needs you, and Hold and Hang up. The mark rings
- * green while the line is live and swells with the voice; pressing it while
- * they speak cuts in. A call that ends folds the strip back up and closes
- * it; one that ended on trouble stays to say why, with Call again and
- * Close. Work and the transcript stay in the teammate's own conversation,
- * which the name opens.
+ * Every call, to a teammate or to the desk, shows in one place: the island,
+ * a black pill on the title bar's centre line that stands where the mark
+ * rests, the way the phone shows a call. It stays while the window moves
+ * between conversations and panes. It leads with who is on the line, the
+ * teammate's face or the desk's handset, ringed green while the line is live
+ * and swelling with the voice (pressing it while they speak cuts in), then
+ * the name (a teammate's opens its conversation), what the call is doing and
+ * its clock, any teammate that needs you, the voice on the line, and the
+ * transcript, Hold and Hang up keys. The transcript drops down under it. A
+ * call that ends folds the island back into the mark; one that ended on
+ * trouble stays to say why, with Call again and Close.
  */
-export function CallBar({
+export function CallIsland({
 	call,
 	names,
 	roster,
 	onOpenTeammate,
-	bare = false,
-	alone = false,
 }: {
 	call: CallSession;
 	names: (personaId: string) => string | undefined;
 	/** The desk on screen's roster; a call to another desk reads none of it. */
 	roster: readonly RosterEntry[];
 	onOpenTeammate(personaId: string): void;
-	/** Under the called teammate's own band: its face there is the mark. */
-	bare?: boolean;
-	/** Atop a pane with no band to hang from: a card of its own. */
-	alone?: boolean;
 }) {
 	const state = useCallSnapshot(call);
-	const bar = useRef<HTMLElement>(null);
+	const island = useRef<HTMLDivElement>(null);
 	const again = useRef<HTMLButtonElement>(null);
 	const [transcript, setTranscript] = useState(false);
-
-	useEffect(
-		() =>
-			call.watchLevel((level) => {
-				bar.current?.style.setProperty("--level", level.toFixed(3));
-			}),
-		[call],
-	);
-
+	useEffect(() => call.watchLevel((level) => island.current?.style.setProperty("--level", level.toFixed(3))), [call]);
 	const live = state.phase !== "ended";
 	// When the line goes, the next thing to press is Call again.
 	useEffect(() => {
 		if (!live) again.current?.focus();
 	}, [live]);
+	// A plain hang-up folds the island away; trouble stays to be read.
+	const folding = !live && state.trouble === undefined;
 	const speaking = state.phase === "speaking" || state.phase === "thinking";
 	const target = call.target;
-	// A plain hang-up folds the strip away; trouble stays to be read.
-	const folding = !live && state.trouble === undefined;
 	return (
-		<>
-		<aside
-			ref={bar}
-			className={alone ? "call-bar call-bar-alone" : "call-bar"}
-			data-phase={state.phase}
-			data-folding={folding ? "" : undefined}
-			data-bare={bare ? "" : undefined}
-			aria-label={`Call with ${target?.name ?? "the desk"}`}
-			onAnimationEnd={(event) => {
-				if (folding && event.target === event.currentTarget) closeCall();
-			}}
-		>
-			{!bare && (
-			<button
-				type="button"
-				className="call-bar-mark"
-				title={speaking ? "Press to cut in" : undefined}
-				aria-label={speaking ? "Cut in" : WORDS[state.phase]}
-				// aria-disabled rather than disabled, so focus stays put when the desk stops talking.
-				aria-disabled={!speaking}
-				onClick={() => {
-					if (speaking) call.interrupt();
+		<div className="island-wrap">
+			<div
+				ref={island}
+				className="island"
+				role="region"
+				data-phase={state.phase}
+				data-folding={folding ? "" : undefined}
+				aria-label={`Call with ${target?.name ?? "the desk"}`}
+				onAnimationEnd={(event) => {
+					if (folding && event.target === event.currentTarget) closeCall();
 				}}
 			>
-				{target === undefined ? <CallToad call={call} phase={state.phase} width={24} /> :
-					<Avatar id={target.personaId} name={target.name} hash={target.avatarHash} size={22} read={call.readAvatar} />}
-			</button>
-			)}
-			{/* Under the teammate's own band the status is beside the name there. */}
-			{!bare && (
-				<CallStatus call={call} roster={roster}>
-					{target !== undefined && (
-						<>
-							<button type="button" className="call-bar-name" onClick={() => onOpenTeammate(target.personaId)}>
-								{target.name}
-							</button>
-							<span className="call-bar-dot" aria-hidden="true" />
-						</>
-					)}
-				</CallStatus>
-			)}
-
-			{state.cards.map((card) => (
 				<button
-					key={card.requestId}
 					type="button"
-					className="call-card"
+					className="island-mark"
+					title={speaking ? "Press to cut in" : undefined}
+					aria-label={speaking ? "Cut in" : WORDS[state.phase]}
+					// aria-disabled rather than disabled, so focus stays put when the desk stops talking.
+					aria-disabled={!speaking}
 					onClick={() => {
-						call.dismissCard(card.requestId);
-						onOpenTeammate(card.personaId);
+						if (speaking) call.interrupt();
 					}}
 				>
-					<span className="min-w-0 flex-1 truncate">{call.nameOf(card.personaId) ?? names(card.personaId) ?? "A teammate"} needs you</span>
+					{target === undefined ? <PhoneIcon /> : <Avatar id={target.personaId} name={target.name} hash={target.avatarHash} size={20} read={call.readAvatar} />}
 				</button>
-			))}
-
-			{state.trouble !== undefined && (
-				<span className="call-trouble min-w-0 truncate" role="alert" title={state.trouble}>
-					{state.trouble}
-				</span>
-			)}
-
-			<span className="min-w-0 flex-1" />
-
-			{live && state.phase !== "connecting" && <CallVoice call={call} still={state.phase === "held"} />}
-
-			<button
-				type="button"
-				className="call-button"
-				title={transcript ? "Hide what was said" : "What was said"}
-				aria-label="What was said"
-				aria-pressed={transcript}
-				onClick={() => setTranscript((was) => !was)}
-			>
-				<TranscriptIcon />
-			</button>
-			{live ? (
-				<>
+				{target === undefined ? (
+					<span className="island-name">Desk</span>
+				) : (
+					<button type="button" className="island-name" onClick={() => onOpenTeammate(target.personaId)}>
+						{target.name}
+					</button>
+				)}
+				<CallStatus call={call} roster={roster} />
+				{state.cards.map((card) => (
 					<button
+						key={card.requestId}
 						type="button"
-						className="call-button"
-						disabled={state.phase === "connecting"}
-						title={state.phase === "held" ? "Resume" : "Hold"}
-						aria-label={state.phase === "held" ? "Resume" : "Hold"}
-						onClick={() => call.hold(state.phase !== "held")}
+						className="island-card"
+						onClick={() => {
+							call.dismissCard(card.requestId);
+							onOpenTeammate(card.personaId);
+						}}
 					>
-						{state.phase === "held" ? <PlayIcon /> : <PauseIcon />}
+						{call.nameOf(card.personaId) ?? names(card.personaId) ?? "A teammate"} needs you
 					</button>
-					<button type="button" className="call-button call-button-end" title="Hang up" aria-label="Hang up" onClick={() => call.hangUp()}>
-						<HangUpIcon />
-					</button>
-				</>
-			) : (
-				<>
-					<button
-						ref={again}
-						type="button"
-						className="call-button call-button-start"
-						title="Call again"
-						aria-label="Call again"
-						onClick={() => void restartCall(call)}
-					>
-						<PhoneIcon />
-					</button>
-					<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={closeCall}>
-						<CloseIcon />
-					</button>
-				</>
-			)}
-		</aside>
-		{transcript && <CallTranscript lines={state.lines} name={target?.name ?? "The desk"} alone={alone} />}
-		</>
+				))}
+				{state.trouble !== undefined && (
+					<span className="island-trouble" role="alert" title={state.trouble}>
+						{state.trouble}
+					</span>
+				)}
+				<span className="min-w-0 flex-1" />
+				{live && state.phase !== "connecting" && <CallVoice call={call} still={state.phase === "held"} />}
+				<button
+					type="button"
+					className="island-key"
+					title={transcript ? "Hide what was said" : "What was said"}
+					aria-label="What was said"
+					aria-pressed={transcript}
+					onClick={() => setTranscript((was) => !was)}
+				>
+					<TranscriptIcon />
+				</button>
+				{live ? (
+					<>
+						<button
+							type="button"
+							className="island-key"
+							disabled={state.phase === "connecting"}
+							title={state.phase === "held" ? "Resume" : "Hold"}
+							aria-label={state.phase === "held" ? "Resume" : "Hold"}
+							onClick={() => call.hold(state.phase !== "held")}
+						>
+							{state.phase === "held" ? <PlayIcon /> : <PauseIcon />}
+						</button>
+						<button type="button" className="island-key island-hang-up" title="Hang up" aria-label="Hang up" onClick={() => call.hangUp()}>
+							<HangUpIcon />
+						</button>
+					</>
+				) : (
+					<>
+						<button ref={again} type="button" className="island-key island-again" title="Call again" aria-label="Call again" onClick={() => void restartCall(call)}>
+							<PhoneIcon />
+						</button>
+						<button type="button" className="island-key" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={closeCall}>
+							<CloseIcon />
+						</button>
+					</>
+				)}
+			</div>
+			{transcript && !folding && <CallTranscript lines={state.lines} name={target?.name ?? "The desk"} />}
+		</div>
 	);
 }
 
 /**
- * What was said on the call, both sides, written down under the card: your
- * words and every line said back, the ones the teammate wrote and the ones
- * the voice answered on its own, which the conversation does not hold. It
- * keeps to the newest as lines arrive.
+ * What was said on the call, both sides, written down under the island:
+ * your words and every line said back, the ones the teammate wrote and the
+ * ones the voice answered on its own, which the conversation does not hold.
+ * It keeps to the newest as lines arrive, in its own scroll.
  */
-function CallTranscript({ lines, name, alone }: { lines: CallLine[]; name: string; alone: boolean }) {
+function CallTranscript({ lines, name }: { lines: CallLine[]; name: string }) {
 	const list = useRef<HTMLOListElement>(null);
-	// Its own scroll only: the conversation behind it stays where it is.
 	useEffect(() => {
 		if (list.current !== null) list.current.scrollTop = list.current.scrollHeight;
 	}, [lines.length]);
 	return (
-		<ol ref={list} className={alone ? "call-transcript call-transcript-alone" : "call-transcript"} aria-label="What was said on the call">
+		<ol ref={list} className="call-transcript" aria-label="What was said on the call">
 			{lines.length === 0 && <li className="call-transcript-empty">Nothing said yet.</li>}
 			{lines.map((line) => (
 				<li key={line.id} className={line.kind === "you" ? "call-line-you" : "call-line-them"}>
@@ -213,7 +176,7 @@ function CallTranscript({ lines, name, alone }: { lines: CallLine[]; name: strin
 	);
 }
 
-const VOICE_BARS = 24;
+const VOICE_BARS = 16;
 /** Each bar's place across the row: the voice is tallest in the middle. */
 const VOICE_SHAPE = Array.from({ length: VOICE_BARS }, (_, index) => 0.3 + 0.7 * Math.sin((Math.PI * (index + 0.5)) / VOICE_BARS));
 
@@ -222,7 +185,7 @@ function voicePath(level: number, seconds: number): string {
 	let path = "";
 	for (let index = 0; index < VOICE_BARS; index++) {
 		const sway = 0.45 + 0.55 * Math.abs(Math.sin(seconds * (5 + (index % 5)) + index * 1.7));
-		const half = 0.75 + level * 8.5 * VOICE_SHAPE[index]! * sway;
+		const half = 0.75 + level * 8 * VOICE_SHAPE[index]! * sway;
 		const x = 2.5 + index * 5;
 		path += `M${x} ${(10 - half).toFixed(2)}V${(10 + half).toFixed(2)}`;
 	}
@@ -230,10 +193,10 @@ function voicePath(level: number, seconds: number): string {
 }
 
 /**
- * The voice on the line, at the bottom centre of the call card: a row of
- * bars, dots at silence, that rise and sway with whoever is speaking, you or
- * them. Still while held, and with reduced motion. The path is drawn
- * straight from the call's level, without re-rendering.
+ * The voice on the line: a row of bars, dots at silence, that rise and sway
+ * with whoever is speaking, you or them. Still while held, and with reduced
+ * motion. The path is drawn straight from the call's level, without
+ * re-rendering.
  */
 function CallVoice({ call, still }: { call: CallSession; still: boolean }) {
 	const path = useRef<SVGPathElement>(null);
@@ -253,27 +216,25 @@ function CallVoice({ call, still }: { call: CallSession; still: boolean }) {
 
 /**
  * What a call is doing, whether the teammate is working off it, and its
- * clock, parted by small dots: on the call's strip, or beside the called
- * teammate's name in its own band. Whatever comes first (a name) leads.
+ * clock, parted by small dots.
  */
-export function CallStatus({ call, roster, children }: { call: CallSession; roster: readonly RosterEntry[]; children?: ReactNode }) {
+function CallStatus({ call, roster }: { call: CallSession; roster: readonly RosterEntry[] }) {
 	const state = useCallSnapshot(call);
 	const live = state.phase !== "ended";
 	const working = callWorking(call.deskId == null || call.deskId === activeDeskId() ? roster : [], call.target?.personaId);
 	return (
-		<span className="call-bar-status" data-phase={state.phase}>
-			{children}
+		<span className="call-status" data-phase={state.phase}>
 			{/* Only the state is announced; the clock would be read out every second. */}
 			<span aria-live="polite">{WORDS[state.phase]}</span>
 			{working && live && state.phase !== "speaking" && (
 				<>
-					<span className="call-bar-dot" aria-hidden="true" />
+					<span className="call-dot" aria-hidden="true" />
 					<span>Working</span>
 				</>
 			)}
 			{live && state.phase !== "connecting" && (
 				<>
-					<span className="call-bar-dot" aria-hidden="true" />
+					<span className="call-dot" aria-hidden="true" />
 					<Clock clock={state.clock} />
 				</>
 			)}
@@ -292,161 +253,47 @@ function Clock({ clock }: { clock: { base: number; since: number | null } }) {
 	const ms = clock.base + (clock.since === null ? 0 : Math.max(0, now - clock.since));
 	const seconds = Math.floor(ms / 1000);
 	return (
-		<span className="call-bar-clock">
+		<span className="call-clock">
 			{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
 		</span>
 	);
 }
 
 /**
- * The desk's line, at the foot of the team rail: at rest a call key (a
- * handset, the desk's mark, where teammates are a soundwave), and while a
- * call to the desk is on, that slot grows into the call's card: the handset
- * ringed green and swelling with the voice, the status and clock, the voice
- * bars, and the transcript, Hold and Hang up keys. In the faces-only rail it
- * is a round key, and on a call the ringed handset over Hang up. While a call
- * to a teammate is on, the desk's key waits, disabled. A plain hang-up folds
- * the card back into the key; trouble stays to be read, with Call again and
- * Close.
+ * The desk's call key, a handset (teammates' call keys are a soundwave): in
+ * the rail's dock, or beside the rail's key while the rail is closed. On a
+ * call to the desk it is green, and pressing it hangs up; while a teammate
+ * is on the line it waits, disabled. The call itself shows in the island.
  */
-export function DeskCall({
+export function DeskCallKey({
 	call,
 	available,
 	onCall,
-	roster,
-	compact,
+	className = "desk-call-key",
 }: {
 	call: CallSession | null;
 	/** The desk can take a call. */
 	available: boolean;
 	onCall(): void;
-	roster: readonly RosterEntry[];
-	compact: boolean;
+	className?: string;
 }) {
-	const desk = call !== null && call.target === undefined ? call : null;
-	if (desk !== null) return <DeskCallCard call={desk} roster={roster} compact={compact} />;
-	if (!available) return null;
-	const busy = call !== null;
-	return (
-		<div className={compact ? "desk-call-slot desk-call-slot-compact" : "desk-call-slot"}>
-			<button
-				type="button"
-				className="desk-call-key"
-				disabled={busy}
-				title={busy ? `On a call with ${call.target?.name ?? "a teammate"}` : `Call the desk${chordKeys("desk") === "" ? "" : ` (${chordKeys("desk")})`}`}
-				aria-label="Call the desk"
-				onClick={onCall}
-			>
-				<PhoneIcon />
-			</button>
-		</div>
-	);
-}
-
-function DeskCallCard({ call, roster, compact }: { call: CallSession; roster: readonly RosterEntry[]; compact: boolean }) {
 	const state = useCallSnapshot(call);
-	const card = useRef<HTMLElement>(null);
-	const [transcript, setTranscript] = useState(false);
-	useEffect(() => call.watchLevel((level) => card.current?.style.setProperty("--level", level.toFixed(3))), [call]);
-	const live = state.phase !== "ended";
-	const folding = !live && state.trouble === undefined;
-	const speaking = state.phase === "speaking" || state.phase === "thinking";
-	const mark = (
+	const live = call !== null && state.phase !== "ended";
+	const desk = live && call.target === undefined;
+	if (!available && !desk) return null;
+	const busy = live && !desk;
+	const keys = chordKeys("desk");
+	return (
 		<button
 			type="button"
-			className="desk-call-mark"
-			title={speaking ? "Press to cut in" : undefined}
-			aria-label={speaking ? "Cut in" : WORDS[state.phase]}
-			aria-disabled={!speaking}
-			onClick={() => {
-				if (speaking) call.interrupt();
-			}}
+			className={className}
+			data-on={desk ? "" : undefined}
+			disabled={busy}
+			title={desk ? "Hang up on the desk" : busy ? `On a call with ${call.target?.name ?? "a teammate"}` : `Call the desk${keys === "" ? "" : ` (${keys})`}`}
+			aria-label={desk ? "Hang up on the desk" : "Call the desk"}
+			onClick={desk ? () => call.hangUp() : onCall}
 		>
 			<PhoneIcon />
-		</button>
-	);
-	const hangUp = (
-		<button type="button" className="call-button call-button-end" title="Hang up" aria-label="Hang up" onClick={() => call.hangUp()}>
-			<HangUpIcon />
-		</button>
-	);
-	return (
-		<section
-			ref={card}
-			className={compact ? "desk-call desk-call-compact" : "desk-call"}
-			data-phase={state.phase}
-			data-folding={folding ? "" : undefined}
-			aria-label="Call with the desk"
-			onAnimationEnd={(event) => {
-				if (folding && event.target === event.currentTarget) closeCall();
-			}}
-		>
-			{compact ? (
-				<>
-					{mark}
-					{live ? hangUp : <CloseKey />}
-				</>
-			) : (
-				<>
-					{transcript && <CallTranscript lines={state.lines} name="The desk" alone={false} />}
-					<div className="desk-call-top">
-						{mark}
-						<CallStatus call={call} roster={roster}>
-							<span className="desk-call-name">Desk</span>
-							<span className="call-bar-dot" aria-hidden="true" />
-						</CallStatus>
-					</div>
-					{state.trouble !== undefined && (
-						<p className="call-trouble desk-call-trouble" role="alert">
-							{state.trouble}
-						</p>
-					)}
-					<div className="desk-call-keys">
-						{live && state.phase !== "connecting" ? <CallVoice call={call} still={state.phase === "held"} /> : <span />}
-						<span className="min-w-0 flex-1" />
-						<button
-							type="button"
-							className="call-button"
-							title={transcript ? "Hide what was said" : "What was said"}
-							aria-label="What was said"
-							aria-pressed={transcript}
-							onClick={() => setTranscript((was) => !was)}
-						>
-							<TranscriptIcon />
-						</button>
-						{live ? (
-							<>
-								<button
-									type="button"
-									className="call-button"
-									disabled={state.phase === "connecting"}
-									title={state.phase === "held" ? "Resume" : "Hold"}
-									aria-label={state.phase === "held" ? "Resume" : "Hold"}
-									onClick={() => call.hold(state.phase !== "held")}
-								>
-									{state.phase === "held" ? <PlayIcon /> : <PauseIcon />}
-								</button>
-								{hangUp}
-							</>
-						) : (
-							<>
-								<button type="button" className="call-button call-button-start" title="Call again" aria-label="Call again" onClick={() => void restartCall(call)}>
-									<PhoneIcon />
-								</button>
-								<CloseKey />
-							</>
-						)}
-					</div>
-				</>
-			)}
-		</section>
-	);
-}
-
-function CloseKey() {
-	return (
-		<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={closeCall}>
-			<CloseIcon />
 		</button>
 	);
 }

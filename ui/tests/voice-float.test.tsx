@@ -3,7 +3,7 @@ import { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
-const { CallBar } = await import("../src/components/Call");
+const { CallIsland, DeskCallKey } = await import("../src/components/Call");
 const { Call } = await import("../src/voice/call");
 const { forgetAvatars } = await import("../src/avatars");
 
@@ -36,8 +36,10 @@ afterEach(async () => {
 	await dom.happyDOM.close();
 });
 
-describe("the call strip's identity", () => {
-	test("a direct call names its chosen teammate and reads their PNG on the call's pinned transport", async () => {
+const island = (call: InstanceType<typeof Call>) => <CallIsland call={call} names={() => "Someone on another desk"} roster={[]} onOpenTeammate={() => {}} />;
+
+describe("the call island", () => {
+	test("a call to a teammate leads with their face, read on the call's pinned transport, and their name", async () => {
 		const reads: Record<string, unknown>[] = [];
 		const call = new Call({
 			command: async (cmd, params) => {
@@ -47,53 +49,67 @@ describe("the call strip's identity", () => {
 			},
 			subscribe: () => () => {},
 		}, () => "Mack", undefined, undefined, { deskId: "desk-a", target: { personaId: "mack", name: "Mack", avatarHash: "mack-call-face" } });
-		await act(async () => {
-			root.render(<CallBar call={call} names={() => "Someone on another desk"} roster={[]} onOpenTeammate={() => {}} />);
-		});
+		await act(async () => root.render(island(call)));
 		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-		expect(container.querySelector("aside")?.getAttribute("aria-label")).toBe("Call with Mack");
-		expect(container.querySelector(".call-bar-status")?.textContent).toBe("MackCalling");
-		expect(container.querySelector(".avatar-picture")).not.toBeNull();
+		expect(container.querySelector(".island")?.getAttribute("aria-label")).toBe("Call with Mack");
+		expect(container.querySelector(".island-name")?.textContent).toBe("Mack");
+		expect(container.querySelector(".call-status")?.textContent).toBe("Calling");
+		expect(container.querySelector(".island-mark .avatar-picture")).not.toBeNull();
 		expect(reads).toEqual([{ personaId: "mack", hash: "mack-call-face", offset: 0 }]);
+		// Dialling, the voice has nothing to show yet; it holds and hangs up, and does not fold.
+		expect(container.querySelector(".call-voice")).toBeNull();
+		expect(container.querySelector('[aria-label="Hang up"]')).not.toBeNull();
+		expect(container.querySelector(".island")?.hasAttribute("data-folding")).toBe(false);
 	});
 
-	test("a desk call keeps the desk identity instead of borrowing the selected teammate", async () => {
+	test("a desk call is the desk's handset, and never borrows a teammate's name", async () => {
 		const call = new Call({ command: async () => null, subscribe: () => () => {} });
-		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} />));
-		expect(container.querySelector("aside")?.getAttribute("aria-label")).toBe("Call with the desk");
-		expect(container.querySelector(".avatar")).toBeNull();
-		expect(container.querySelector(".call-toad")).not.toBeNull();
+		await act(async () => root.render(<CallIsland call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} />));
+		expect(container.querySelector(".island")?.getAttribute("aria-label")).toBe("Call with the desk");
+		expect(container.querySelector(".island-name")?.textContent).toBe("Desk");
+		expect(container.querySelector(".island-mark .avatar")).toBeNull();
+		expect(container.querySelector(".island-mark svg")).not.toBeNull();
 		expect(container.textContent).not.toContain("Mack");
 	});
 
-	test("under the teammate's own band it leaves the face to the band, and atop another pane it is a card of its own", async () => {
-		const call = new Call({ command: async () => null, subscribe: () => () => {} }, () => "Mack", undefined, undefined, { target: { personaId: "mack", name: "Mack" } });
-		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} bare />));
-		// The face and the status are the band's there: the strip holds the keys.
-		expect(container.querySelector(".call-bar-mark")).toBeNull();
-		expect(container.querySelector(".call-bar-status")).toBeNull();
-		expect(container.querySelector('[aria-label="Hang up"]')).not.toBeNull();
-		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} alone />));
-		expect(container.querySelector(".call-bar-mark .avatar")).not.toBeNull();
-		expect(container.querySelector("aside")?.className).toContain("call-bar-alone");
-		// Dialling, the voice has nothing to show yet.
-		expect(container.querySelector(".call-voice")).toBeNull();
-		// Live, it holds and hangs up, and does not fold.
-		expect(container.querySelector('[aria-label="Hang up"]')).not.toBeNull();
-		expect(container.querySelector("aside")?.hasAttribute("data-folding")).toBe(false);
-	});
-
-	test("its transcript key opens what was said under it, and closes it again", async () => {
-		const call = new Call({ command: async () => null, subscribe: () => () => {} }, () => "Mack", undefined, undefined, { target: { personaId: "mack", name: "Mack" } });
-		await act(async () => root.render(<CallBar call={call} names={() => "Mack"} roster={[]} onOpenTeammate={() => {}} bare />));
+	test("its transcript key drops what was said down under it, and takes it away again", async () => {
+		const call = new Call({ command: async () => null, subscribe: () => () => {} });
+		await act(async () => root.render(island(call)));
 		const key = container.querySelector<HTMLButtonElement>('[aria-label="What was said"]');
 		expect(key?.getAttribute("aria-pressed")).toBe("false");
 		expect(container.querySelector(".call-transcript")).toBeNull();
 		await act(async () => key?.click());
-		expect(key?.getAttribute("aria-pressed")).toBe("true");
 		expect(container.querySelector(".call-transcript")?.textContent).toBe("Nothing said yet.");
 		await act(async () => key?.click());
 		expect(container.querySelector(".call-transcript")).toBeNull();
 	});
 });
 
+describe("the desk's call key", () => {
+	test("calls the desk at rest", async () => {
+		let called = 0;
+		await act(async () => root.render(<DeskCallKey call={null} available onCall={() => called++} />));
+		const key = container.querySelector<HTMLButtonElement>('[aria-label="Call the desk"]');
+		expect(key?.disabled).toBe(false);
+		await act(async () => key?.click());
+		expect(called).toBe(1);
+	});
+
+	test("waits, disabled, while a teammate is on the line; is absent where the desk cannot talk", async () => {
+		const teammate = new Call({ command: async () => null, subscribe: () => () => {} }, () => "Mack", undefined, undefined, { target: { personaId: "mack", name: "Mack" } });
+		await act(async () => root.render(<DeskCallKey call={teammate} available onCall={() => {}} />));
+		const key = container.querySelector<HTMLButtonElement>('[aria-label="Call the desk"]');
+		expect(key?.disabled).toBe(true);
+		expect(key?.title).toBe("On a call with Mack");
+		await act(async () => root.render(<DeskCallKey call={null} available={false} onCall={() => {}} />));
+		expect(container.querySelector(".desk-call-key")).toBeNull();
+	});
+
+	test("is green on a call to the desk, and hangs it up", async () => {
+		const desk = new Call({ command: async () => null, subscribe: () => () => {} });
+		await act(async () => root.render(<DeskCallKey call={desk} available onCall={() => {}} />));
+		const key = container.querySelector<HTMLButtonElement>(".desk-call-key");
+		expect(key?.hasAttribute("data-on")).toBe(true);
+		expect(key?.getAttribute("aria-label")).toBe("Hang up on the desk");
+	});
+});

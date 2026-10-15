@@ -2564,6 +2564,27 @@
 	.rail-row:active {
 		background: var(--fill-active);
 	}
+	/* With names showing, each teammate is a presence card on the well: the
+	 * canvas plane with its hairline, a step up when pointed at or open. */
+	.rail:not(.rail-compact) .rail-row {
+		gap: 11px;
+		margin-bottom: 6px;
+		padding: 8px 10px;
+		border-radius: var(--radius-pane);
+		background: var(--canvas);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
+	.rail:not(.rail-compact) .rail-row:hover {
+		background: var(--raised);
+	}
+	.rail:not(.rail-compact) .rail-row[aria-current="true"] {
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line-strong);
+	}
 	/* With more than one desk in the rail, each name says its desk, quietly
 	 * after it. A desk that can't be reached keeps its teammates listed, as
 	 * they last were, dimmed. */
@@ -3460,21 +3481,10 @@
 }
 
 @layer components {
-	/* ---------------------------------------------------------- the call
-	 * A call with the desk floats in the window's bottom-right corner, over
-	 * whatever is open, so the conversation and its composer stay usable.
-	 * Voice only: the mark, the state and the controls. The mark is the
-	 * call, drawn as the phone draws it: the disc swells with your voice
-	 * (--level, 0..1, set from the audio, not from React); bars round the
-	 * mark follow the reply's audio, and an arc runs round it while the
-	 * teammate works off the call (CallStage.tsx), both in the accent
-	 * because the accent is an agent at work. The mark is in ink while you
-	 * speak and in the accent while the desk does. The desk's toad shows
-	 * its own thinking (CallToad.tsx); a teammate's face breathes instead. */
 	/* What floats over the window, down its right edge: a turn's work hangs
 	 * from under the header, where it covers the older conversation rather
-	 * than the newest, and the call keeps the bottom corner by the composer,
-	 * so neither moves the other. The column takes no clicks; its cards do. */
+	 * than the newest, and a new version keeps the bottom corner. The column
+	 * takes no clicks; its cards do. A call is the island's (below). */
 	.float-stack {
 		position: fixed;
 		top: 80px;
@@ -3550,226 +3560,212 @@
 			margin-bottom: 0;
 		}
 	}
-	/* The call strip (Call.tsx CallBar). Under a conversation's band the two
-	 * become one card (`.call-head`) floating 5px in from the pane, raised a
-	 * step off the canvas with a soft shadow beneath, lifting out of the band
-	 * as a call starts and settling back into it when one ends. Inside, one
-	 * margin holds all round: 10px from the card's edge to the face on the
-	 * left, to the band's keys and the call's keys on the right, and under
-	 * the call's row. Under the called teammate's own band the status is the
-	 * name's second line, on the name's left edge (38px: the margin, the
-	 * 20px face and its 8px gap). Atop a pane with no band it is a card of
-	 * its own with the same margin. */
-	.call-head {
+	/* The island (Call.tsx CallIsland): every call, to a teammate or the
+	 * desk, as one black pill on the title bar's centre line where the mark
+	 * rests, the way the phone shows a call. It opens out of the mark and
+	 * folds back into it. Who is on the line leads, ringed green while it is
+	 * live and swelling with `--level`; the keys are small and round; the
+	 * transcript drops down under it on its own card. */
+	.titlebar-island {
+		position: absolute;
+		top: 3px;
+		left: 50%;
+		z-index: 2;
+		transform: translateX(-50%);
+	}
+	.island-wrap {
 		position: relative;
-		z-index: 1;
-		display: flex;
-		flex-shrink: 0;
-		flex-direction: column;
-		margin: 5px 5px 0;
-		border-radius: calc(var(--radius-pane) - 5px);
-		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line),
-			0 14px 28px -18px oklch(0% 0 0 / 0.6);
-		animation: call-head-lift var(--dur-open) var(--ease-out) both;
-		transition:
-			margin var(--dur-open) var(--ease-out),
-			border-radius var(--dur-open) var(--ease-out),
-			background var(--dur-open) var(--ease-out),
-			box-shadow var(--dur-open) var(--ease-out);
 	}
-	/* As the strip folds away the card settles back into the resting band. */
-	.call-head:has(> .call-bar[data-folding]) {
-		margin: 0;
-		border-radius: 0;
-		background: var(--canvas);
-		box-shadow: none;
-	}
-	@keyframes call-head-lift {
-		from {
-			margin: 0;
-			border-radius: 0;
-			background: var(--canvas);
-			box-shadow: none;
-		}
-	}
-	.call-head > .band .band-row {
-		padding: 0 10px;
-	}
-	.call-head:has(> .call-bar[data-folding]) > .band .band-row {
-		padding: 0 8px;
-	}
-	.band-row {
-		transition: padding var(--dur-open) var(--ease-out);
-	}
-	.call-bar {
+	.island {
 		--level: 0;
 		display: flex;
-		height: 46px;
-		flex-shrink: 0;
+		height: 26px;
+		max-width: min(560px, 60vw);
 		align-items: center;
 		gap: 8px;
-		padding: 0 10px 10px;
-		overflow: hidden;
-		animation: call-bar-open var(--dur-open) var(--ease-out) both;
-	}
-	.call-bar[data-bare] {
-		padding-left: 38px;
-	}
-	.call-bar-alone {
-		height: 52px;
-		margin-bottom: 8px;
-		padding-bottom: 0;
-		border-radius: var(--radius-pane);
-		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
-	}
-	.call-bar[data-folding] {
-		animation: call-bar-fold var(--dur-open) var(--ease-out) both;
-	}
-	@keyframes call-bar-open {
-		from {
-			height: 0;
-			padding-bottom: 0;
-			opacity: 0;
-		}
-	}
-	@keyframes call-bar-fold {
-		to {
-			height: 0;
-			padding-bottom: 0;
-			opacity: 0;
-		}
-	}
-	/* What the call is doing, then its clock: the band's type a step down,
-	 * parted by small dots rather than the instrument face's middots. */
-	.call-bar-status {
-		display: flex;
-		min-width: 0;
-		align-items: center;
-		gap: 7px;
-		overflow: hidden;
+		padding: 0 3px 0 3px;
+		border-radius: 999px;
+		background: oklch(0% 0 0);
+		box-shadow: 0 0 0 var(--hairline) var(--line-strong);
 		white-space: nowrap;
+		animation: island-open var(--dur-open) var(--ease-out) both;
+	}
+	.island[data-folding] {
+		animation: island-fold var(--dur-open) var(--ease-out) both;
+	}
+	@keyframes island-open {
+		from {
+			clip-path: inset(0 42% round 999px);
+			opacity: 0;
+		}
+	}
+	@keyframes island-fold {
+		to {
+			clip-path: inset(0 42% round 999px);
+			opacity: 0;
+		}
+	}
+	.island-mark {
+		display: grid;
+		width: 20px;
+		height: 20px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 50%;
+		color: var(--accent);
+		box-shadow:
+			0 0 0 1.5px var(--accent),
+			0 0 0 calc(1.5px + var(--level) * 3.5px) color-mix(in oklch, var(--accent) 30%, transparent);
+	}
+	.island-mark svg {
+		width: 12px;
+		height: 12px;
+	}
+	.island[data-phase="connecting"] .island-mark {
+		animation: call-breathe 1200ms var(--ease-out) infinite;
+	}
+	.island[data-phase="held"] .island-mark,
+	.island[data-phase="ended"] .island-mark {
+		color: var(--ink-3);
+		box-shadow: 0 0 0 1.5px var(--ink-4);
+	}
+	.island-mark[aria-disabled="false"] {
+		cursor: pointer;
+	}
+	@keyframes call-breathe {
+		50% {
+			opacity: 0.6;
+		}
+	}
+	.island-name {
+		color: var(--ink);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		transition: color var(--dur-press) var(--ease-out);
+	}
+	button.island-name:hover {
+		color: var(--accent-ink);
+	}
+	.call-status {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 6px;
+		overflow: hidden;
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
+		color: var(--ink-3);
+	}
+	.call-status[data-phase="hearing"] > [aria-live],
+	.call-status[data-phase="speaking"] > [aria-live] {
 		color: var(--ink-2);
 	}
-	.call-bar-dot {
+	.call-dot {
 		width: 3px;
 		height: 3px;
 		flex-shrink: 0;
 		border-radius: 50%;
 		background: var(--ink-4);
 	}
-	.call-bar-clock {
-		color: var(--ink-3);
+	.call-clock {
 		font-variant-numeric: tabular-nums;
 	}
-	.call-bar[data-phase="hearing"] .call-bar-status > [aria-live],
-	.call-bar[data-phase="speaking"] .call-bar-status > [aria-live] {
-		color: var(--ink);
+	.island-card {
+		flex-shrink: 0;
+		padding: 1px 8px;
+		border-radius: 999px;
+		color: var(--accent-ink);
+		box-shadow: inset 0 0 0 var(--hairline) var(--accent);
+		font-size: var(--text-xs);
 	}
-	/* On a call to the teammate whose conversation this is, the card leads
-	 * with its face at the card's full height less the margin (10 + 56 + 10:
-	 * a 36px name row over a 40px row for the call's keys), the name with the
-	 * call's status beside it to its right, the keys under them. The face
-	 * rings green while the line is live and swells with `--level`; dim while
-	 * held or ending. */
-	.call-head[data-face] {
+	.island-trouble {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		color: var(--ink-2);
+		font-size: var(--text-sm);
+	}
+	.island-key {
 		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
-		grid-template-rows: 36px auto;
-	}
-	.call-head[data-face] > .band {
-		grid-column: 2;
-		height: 36px;
-	}
-	.call-head[data-face] > .band .band-row {
-		padding-left: 12px;
-	}
-	.call-head[data-face] > .call-bar {
-		grid-column: 2;
-		height: 40px;
-		padding: 0 10px 8px 12px;
-	}
-	.call-face {
-		--level: 0;
-		grid-row: 1 / span 2;
-		align-self: center;
-		display: grid;
+		width: 20px;
+		height: 20px;
+		flex-shrink: 0;
 		place-items: center;
-		margin: 10px 0 10px 10px;
 		border-radius: 50%;
-		box-shadow:
-			0 0 0 2px var(--accent),
-			0 0 0 calc(2px + var(--level) * 6px) color-mix(in oklch, var(--accent) 28%, transparent);
-		animation: call-face-grow var(--dur-open) var(--ease-out) both;
+		color: var(--ink-2);
+		background: oklch(22% 0.008 250);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out);
 	}
-	.call-face[data-phase="connecting"] {
-		animation:
-			call-face-grow var(--dur-open) var(--ease-out) both,
-			call-breathe 1200ms var(--ease-out) infinite;
+	.island-key svg {
+		width: 12px;
+		height: 12px;
 	}
-	.call-face[data-phase="held"],
-	.call-face[data-phase="ended"] {
-		box-shadow: 0 0 0 2px var(--ink-4);
+	.island-key:hover:not(:disabled) {
+		color: var(--ink);
+		background: oklch(30% 0.008 250);
 	}
-	.call-head:has(> .call-bar[data-folding]) > .call-face {
-		animation: call-face-shrink var(--dur-open) var(--ease-out) both;
+	.island-key:disabled {
+		opacity: 0.5;
 	}
-	@keyframes call-face-grow {
-		from {
-			opacity: 0;
-			transform: scale(0.36);
-		}
+	.island-key[aria-pressed="true"] {
+		color: var(--ink);
+		background: oklch(34% 0.008 250);
 	}
-	@keyframes call-face-shrink {
-		to {
-			opacity: 0;
-			transform: scale(0.36);
-		}
+	.island-hang-up,
+	.island-hang-up:hover:not(:disabled) {
+		color: white;
+		background: var(--hang-up);
 	}
-	/* What was said on the call, opened under the card's rows from its
-	 * transcript key: the card grows down to hold it, across its whole width,
-	 * and scrolls on its own. Your words sit right in a quiet fill, what was
-	 * said back sits left in plain type, as the conversation does. */
+	.island-again,
+	.island-again:hover:not(:disabled) {
+		color: var(--on-accent);
+		background: var(--accent);
+	}
+	/* The voice on the line, on the island, before its keys. */
+	.call-voice {
+		width: 48px;
+		height: 16px;
+		flex-shrink: 0;
+	}
+	.call-voice path {
+		fill: none;
+		stroke: var(--accent);
+		stroke-width: 2.4;
+		stroke-linecap: round;
+	}
+	.call-voice[data-still] path {
+		stroke: var(--ink-4);
+	}
+	/* What was said on the call, dropped down under the island on a card of
+	 * its own, scrolling on its own. Your words sit right in a quiet fill;
+	 * what was said back sits left in plain type, as the conversation does. */
 	.call-transcript {
+		position: absolute;
+		top: calc(100% + 8px);
+		left: 50%;
 		display: flex;
-		max-height: 240px;
+		width: 380px;
+		max-height: 320px;
 		flex-direction: column;
 		gap: 6px;
 		margin: 0;
-		padding: 10px 12px 12px;
+		padding: 12px;
 		overflow-y: auto;
 		list-style: none;
+		transform: translateX(-50%);
+		border-radius: var(--radius-pane);
+		background: var(--pop);
+		box-shadow: var(--shadow-float);
 		font-size: var(--text-sm);
 		line-height: var(--text-sm--line-height);
-		border-top: var(--hairline) solid var(--line);
-		animation: call-transcript-open var(--dur-open) var(--ease-out) both;
+		animation: call-transcript-drop var(--dur-open) var(--ease-out) both;
 	}
-	.call-head[data-face] > .call-transcript {
-		grid-column: 1 / -1;
-	}
-	.call-head:has(> .call-bar[data-folding]) > .call-transcript {
-		display: none;
-	}
-	.call-transcript-alone {
-		margin-bottom: 8px;
-		border-top: none;
-		border-radius: var(--radius-pane);
-		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
-	}
-	@keyframes call-transcript-open {
+	@keyframes call-transcript-drop {
 		from {
-			max-height: 0;
 			opacity: 0;
+			transform: translateX(-50%) translateY(-6px);
 		}
 	}
 	.call-line-you {
@@ -3789,316 +3785,95 @@
 		align-self: center;
 		color: var(--ink-3);
 	}
-	/* The voice on the line, centred along the bottom of the call card (of
-	 * the strip, when it stands alone), on the keys' row. */
-	.call-voice {
-		position: absolute;
-		bottom: 14px;
-		left: 50%;
-		width: 120px;
-		height: 20px;
-		transform: translateX(-50%);
-		pointer-events: none;
-	}
-	.call-voice path {
-		fill: none;
-		stroke: var(--accent);
-		stroke-width: 2;
-		stroke-linecap: round;
-	}
-	.call-voice[data-still] path {
-		stroke: var(--ink-4);
-	}
-	/* On the call's row, measured from the card's top, so a transcript
-	 * opened under it does not carry the bars down with it. */
-	.call-head .call-voice {
-		top: 48px;
-		bottom: auto;
-	}
-	.call-head[data-face] .call-voice {
-		top: 52px;
-	}
-	.call-bar-alone {
-		position: relative;
-	}
-	.call-bar-alone .call-voice {
-		bottom: 16px;
-	}
-	/* Beside the name, the status sits on its line in the band's quieter type.
-	.band-row > .call-bar-status {
-		margin-left: 2px;
-	}
-	.call-bar-mark {
-		display: grid;
-		flex-shrink: 0;
-		place-items: center;
-		border-radius: 50%;
-		box-shadow: 0 0 0 1.5px var(--accent), 0 0 0 calc(1.5px + var(--level) * 4px) color-mix(in oklch, var(--accent) 30%, transparent);
-	}
-	.call-bar[data-phase="connecting"] .call-bar-mark {
-		animation: call-breathe 1200ms var(--ease-out) infinite;
-	}
-	.call-bar[data-phase="held"] .call-bar-mark,
-	.call-bar[data-phase="ended"] .call-bar-mark {
-		box-shadow: 0 0 0 1.5px var(--ink-4);
-		opacity: 0.7;
-	}
-	.call-bar-mark[aria-disabled="false"] {
-		cursor: pointer;
-	}
-	.call-bar-name {
-		color: var(--ink);
-		font-weight: 600;
-		transition: color var(--dur-press) var(--ease-out);
-	}
-	.call-bar-name:hover {
-		color: var(--accent-ink);
-	}
-	@keyframes call-breathe {
-		50% {
-			opacity: 0.6;
-		}
-	}
-	.call-card {
+
+	/* The rail's dock (Rail.tsx): search, and the desk's call key, floating
+	 * at the foot of the team; round keys stacked in the faces-only rail. */
+	.rail-dock {
 		display: flex;
 		flex-shrink: 0;
 		align-items: center;
-		padding: 2px 10px;
-		border-radius: var(--radius-control);
-		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--accent);
-		font-size: var(--text-sm);
-		text-align: left;
-	}
-	.call-trouble {
-		font-size: var(--text-sm);
-		color: var(--ink-2);
-	}
-	/* On the raised card the call's keys are filled a step lighter, with no
-	 * outline: hold in the pop fill, hang-up in red. */
-	.call-bar .call-button,
-	.desk-call .call-button {
-		width: 32px;
-		height: 32px;
+		gap: 6px;
+		margin: 4px 8px 8px;
+		padding: 5px;
+		border-radius: 999px;
 		background: var(--pop);
-		box-shadow: var(--top-light);
+		box-shadow: var(--shadow-float);
 	}
-	.call-bar .call-button:hover:not(:disabled),
-	.desk-call .call-button:hover:not(:disabled) {
-		filter: brightness(1.15);
+	.rail-dock-compact {
+		flex-direction: column;
+		margin: 4px 6px 8px;
 	}
-	.call-bar .call-button-end,
-	.call-bar .call-button-end:hover:not(:disabled),
-	.desk-call .call-button-end,
-	.desk-call .call-button-end:hover:not(:disabled) {
-		background: var(--hang-up);
-	}
-	.call-bar .call-button-start,
-	.call-bar .call-button-start:hover:not(:disabled),
-	.desk-call .call-button-start,
-	.desk-call .call-button-start:hover:not(:disabled) {
-		background: var(--accent);
-	}
-	.call-button[aria-pressed="true"] {
-		color: var(--ink);
-		background: var(--fill-active);
-	}
-
-	/* The desk's line at the foot of the team rail (Call.tsx DeskCall): a
-	 * call key at rest, a wide quiet key with the handset (a round one in
-	 * the faces-only rail), disabled while a teammate is on the line. On a
-	 * call to the desk the slot grows into the call's card, raised like the
-	 * conversation's call card: the handset ringed green and swelling with
-	 * the voice beside "Desk" and the status, then the voice bars and the
-	 * keys, the transcript opening above them. A hang-up folds it back. */
-	.desk-call-slot {
-		flex-shrink: 0;
-		padding: 0 10px 6px;
-	}
-	.desk-call-slot-compact {
+	.rail-search {
 		display: flex;
-		justify-content: center;
-		padding: 0 0 6px;
-	}
-	.desk-call-key {
-		display: grid;
-		width: 100%;
-		height: 36px;
-		place-items: center;
-		border-radius: var(--radius-control);
-		color: var(--ink-2);
-		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
+		min-width: 0;
+		height: 30px;
+		flex: 1;
+		align-items: center;
+		gap: 8px;
+		padding: 0 10px;
+		border-radius: 999px;
+		color: var(--ink-3);
+		background: var(--canvas);
+		font-size: var(--text-sm);
 		transition:
 			background var(--dur-press) var(--ease-out),
 			color var(--dur-press) var(--ease-out);
 	}
-	.desk-call-key:hover:not(:disabled) {
+	.rail-dock-compact .rail-search {
+		width: 30px;
+		flex: none;
+		justify-content: center;
+		padding: 0;
+	}
+	.rail-search:hover:not(:disabled),
+	.rail-search[aria-pressed="true"] {
 		color: var(--ink);
-		background: var(--pop);
-	}
-	.desk-call-key:disabled {
-		opacity: 0.45;
-	}
-	.desk-call-slot-compact .desk-call-key {
-		width: 36px;
-		border-radius: 50%;
-	}
-	.desk-call {
-		--level: 0;
-		display: flex;
-		flex-shrink: 0;
-		flex-direction: column;
-		gap: 10px;
-		margin: 0 8px 6px;
-		padding: 10px;
-		border-radius: var(--radius-pane);
 		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line),
-			0 14px 28px -18px oklch(0% 0 0 / 0.6);
-		animation: desk-call-open var(--dur-open) var(--ease-out) both;
 	}
-	.desk-call[data-folding] {
-		animation: desk-call-fold var(--dur-open) var(--ease-out) both;
+	.rail-search:disabled {
+		opacity: 0.5;
 	}
-	@keyframes desk-call-open {
-		from {
-			opacity: 0;
-			transform: translateY(6px) scale(0.97);
-		}
+	.rail-search-keys {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--ink-4);
 	}
-	@keyframes desk-call-fold {
-		to {
-			opacity: 0;
-			transform: translateY(6px) scale(0.97);
-		}
-	}
-	.desk-call-compact {
-		align-items: center;
-		gap: 8px;
-		margin: 0 6px 6px;
-		padding: 10px 0;
-	}
-	.desk-call-top {
-		display: flex;
-		min-width: 0;
-		align-items: center;
-		gap: 10px;
-	}
-	.desk-call-mark {
+	.desk-call-key {
 		display: grid;
-		width: 28px;
-		height: 28px;
+		width: 30px;
+		height: 30px;
 		flex-shrink: 0;
 		place-items: center;
 		border-radius: 50%;
-		color: var(--accent);
-		box-shadow:
-			0 0 0 2px var(--accent),
-			0 0 0 calc(2px + var(--level) * 5px) color-mix(in oklch, var(--accent) 28%, transparent);
+		color: var(--canvas);
+		background: var(--ink);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			opacity var(--dur-press) var(--ease-out);
 	}
-	.desk-call-compact .desk-call-mark {
-		width: 32px;
-		height: 32px;
+	.desk-call-key:hover:not(:disabled) {
+		background: var(--ink-2);
 	}
-	.desk-call[data-phase="connecting"] .desk-call-mark {
-		animation: call-breathe 1200ms var(--ease-out) infinite;
+	.desk-call-key[data-on] {
+		color: var(--on-accent);
+		background: var(--accent);
 	}
-	.desk-call[data-phase="held"] .desk-call-mark,
-	.desk-call[data-phase="ended"] .desk-call-mark {
-		color: var(--ink-3);
-		box-shadow: 0 0 0 2px var(--ink-4);
-	}
-	.desk-call-mark[aria-disabled="false"] {
-		cursor: pointer;
-	}
-	.desk-call-name {
-		color: var(--ink);
-		font-weight: 600;
-	}
-	.desk-call-keys {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-	.desk-call .call-voice {
-		position: static;
-		width: 72px;
-		height: 20px;
-		transform: none;
-	}
-	.desk-call-trouble {
-		margin: 0;
-	}
-	.desk-call .call-transcript {
-		max-height: 200px;
-		padding: 0 0 10px;
-		border-top: none;
-		border-bottom: var(--hairline) solid var(--line);
+	.desk-call-key:disabled {
+		opacity: 0.35;
 	}
 	.titlebar-desk-call[data-on] {
 		color: var(--accent);
 	}
-	/* The call's own controls are round and wordless, like a phone's:
-	 * hold and resume in the quiet fill, hanging up in red, calling again
-	 * in the accent. */
-	.call-button {
-		display: grid;
-		place-items: center;
-		width: 36px;
-		height: 36px;
-		border-radius: 50%;
-		color: var(--ink-2);
-		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
-		transition:
-			background var(--dur-press) var(--ease-out),
-			color var(--dur-press) var(--ease-out);
-	}
-	.call-button:hover:not(:disabled) {
-		background: var(--fill-hover);
-		color: var(--ink);
-	}
-	.call-button:disabled {
-		opacity: 0.5;
-	}
-	.call-button-end,
-	.call-button-end:hover:not(:disabled) {
-		color: white;
-		background: var(--hang-up);
-	}
-	.call-button-end:hover:not(:disabled) {
-		filter: brightness(1.1);
-	}
-	.call-button-start,
-	.call-button-start:hover:not(:disabled) {
-		color: var(--on-accent);
-		background: var(--accent);
-	}
-	.call-button-start:hover:not(:disabled) {
-		filter: brightness(1.1);
-	}
 	@media (prefers-reduced-motion: reduce) {
-		.desk-call-mark,
-		.call-bar-mark,
-		.call-face,
-		.call-face[data-phase],
-		.call-head {
+		.island-mark {
 			animation: none;
-			transition: none;
 		}
-		/* Still folds, at once, so the strip still closes when it ends. */
-		.call-bar,
-		.desk-call {
+		/* Still folds, at once, so the island still closes when a call ends. */
+		.island {
 			animation-duration: 1ms;
+		}
+		.call-transcript {
+			animation: none;
 		}
 	}
 }

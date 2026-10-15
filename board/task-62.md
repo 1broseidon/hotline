@@ -21,7 +21,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/tests/voice.rs
   - docs/voice-calls.md
-updatedAt: "2026-10-15T01:57:04.230Z"
+updatedAt: "2026-10-15T02:40:16.331Z"
 contract:
   status: ready
   deliverables:
@@ -44,6 +44,13 @@ contract:
     - Run unfiltered; regenerate contract.ts if VoiceStatus changes
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+assignee: claude
+dispatch:
+  agent: claude
+  model: sonnet
+  effort: medium
+  by: lead
+  at: "2026-10-15T02:40:16.216Z"
 ---
 
 ## Description

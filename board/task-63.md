@@ -1,7 +1,7 @@
 ---
 id: task-63
 title: "Desktop: choose the voice front in Settings"
-column: in-progress
+column: review
 position: 1
 priority: medium
 tags:
@@ -21,9 +21,9 @@ relatedFiles:
   - ui/src/components/UseFor.tsx
   - ui/src/generated/contract.ts
   - docs/voice.md
-updatedAt: "2026-10-15T02:40:27.219Z"
+updatedAt: "2026-10-15T02:46:26.354Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/settings.rs
@@ -47,6 +47,8 @@ contract:
     readyAt: "2026-10-15T01:57:04.232Z"
     pickedUpAt: "2026-10-15T02:40:27.219Z"
     reworkCount: 0
+    deliveredAt: "2026-10-15T02:46:26.354Z"
+    duration: 359
 assignee: claude
 dispatch:
   agent: claude

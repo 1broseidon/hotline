@@ -32,3 +32,6 @@ Wire (from the task notes):
 5. Ledger/record hooks (task-62): front_ready before opening, front_spend about once a minute, front_heard/front_said from RealtimeEvent::Heard/Saying.
 6. Then a LIVE test against Grok (task-58 left unconfirmed): function calling, input transcription arriving without audio.input.transcription, server VAD barge-in, 16 kHz in / 24 kHz out. If any fails, stop and replan.
 Contract: fmt, clippy -D warnings, UNFILTERED cargo test -p hotline-core, ui typecheck/test, a headless harness test for the wired path. Branch off release/0.38.0; merge back into it (never local main). Phone half is hotline-mobile task-30.
+
+## Log
+- 2026-10-15T04:03:59.610Z: [claude] Dispatch branch started from main; fast-forwarded dispatch/task-66 to release/0.38.0 (main's tip is its ancestor) so the work sits on the release as the task asks.

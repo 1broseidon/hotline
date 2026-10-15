@@ -49,3 +49,6 @@ dispatch:
 
 ## Description
 Front instructions: speaks as the teammate (public name, its voice), relays and clarifies, delegates every request, treats teammate output as authoritative, keeps answers short, says when it is waiting. Starting context within a small budget: the chapter's handoff note and recent lines of the DM, the person's name; no secrets, no tool output dumps. Separate prompt for desk calls (the desk/dispatcher as the teammate behind). Fixture tests for prompt assembly and budgets.
+
+## Log
+- 2026-10-15T02:28:43.755Z: [claude] Added voice/front_prompt.rs on branch dispatch/task-60: pure `instructions(&Behind, &Start) -> String` (Behind::Teammate{public_name, voice} | Desk; Start{person, handoff, recent: &[Line]}). Budgets: name 60, handoff 600, voice 600, 6 DM lines ≤240 chars each ≤1200 total (newest kept); text scrubbed via driver::failure::redact_text (now pub(crate)) and code fences dropped. Next tasks: caller must pass only spoken DM lines (no tool output) and set RealtimeConfig.instructions from this; not yet wired to any call. fmt, clippy, cargo test -p hotline-core pass.

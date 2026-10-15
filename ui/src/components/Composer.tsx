@@ -3,7 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
-import { ArrowUpIcon, CloseIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
+import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PhoneIcon, PlusIcon, StopIcon } from "../icons";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
@@ -58,6 +58,7 @@ export function Composer({
 	replyQuote,
 	onSend,
 	onCall,
+	onHangUp,
 	refill,
 	onCancel,
 	onClearReply,
@@ -71,6 +72,8 @@ export function Composer({
 	replyQuote: string | null;
 	onSend(text: string, attachments: Attachment[]): void;
 	onCall?: (() => void) | undefined;
+	/** Ends the call to this teammate, while there is one. */
+	onHangUp?: (() => void) | undefined;
 	/** Words a refused send handed back; a new nonce fills the field again. */
 	refill?: Refill;
 	onCancel(): void;
@@ -146,9 +149,12 @@ export function Composer({
 
 	const hasContent = text.trim().length > 0 || attachments.length > 0;
 	const hasDraft = text.length > 0 || attachments.length > 0 || replyQuote !== null;
+	// With the field empty, the quiet mic dictates and the call key beside it
+	// is the one that stands out; typing turns the call key into Send, and a
+	// call in progress into Hang up.
 	const mic = !hasDraft && canDictate;
-	const voice = !hasDraft && !dictationHere && onCall !== undefined;
-	const actionShown = hasDraft || voice || mic;
+	const hangUp = callLive && onHangUp !== undefined;
+	const call = !hasDraft && !callLive && onCall !== undefined;
 	useEffect(() => { onDraftChange?.(hasContent); }, [hasContent, onDraftChange]);
 
 	// What was heard stays in the field when a call takes the microphone,
@@ -456,23 +462,48 @@ export function Composer({
 							/>
 							<StopIcon className="composer-dictating-stop" />
 						</button>
-					) : (!working || actionShown) && (
-						<button
-							type="button"
-							className={`composer-key composer-send${voice || mic ? " composer-voice" : ""}`}
-							title={mic ? withKeys("Dictate", dictateKeys) : voice ? `Talk to ${name}` : "Send (Enter)"}
-							aria-label={mic ? "Dictate" : voice ? `Talk to ${name}` : "Send"}
-							aria-hidden={!actionShown}
-							tabIndex={actionShown ? 0 : -1}
-							data-shown={actionShown ? "true" : undefined}
-							disabled={!voice && !mic && !hasContent}
-							onPointerDown={mic ? pressKey : undefined}
-							onClick={mic ? (event) => {
-								if (event.detail === 0) dictation.toggle();
-							} : voice ? onCall : submit}
-						>
-							{mic ? <MicIcon /> : voice ? <VoiceIcon /> : <ArrowUpIcon />}
+					) : (
+						mic && (
+							<button
+								type="button"
+								className="composer-key composer-mic"
+								title={withKeys("Dictate", dictateKeys)}
+								aria-label="Dictate"
+								onPointerDown={pressKey}
+								// A pointer acted on the way down; this is the keyboard's Enter or Space.
+								onClick={(event) => {
+									if (event.detail === 0) dictation.toggle();
+								}}
+							>
+								<MicIcon />
+							</button>
+						)
+					)}
+					{hangUp ? (
+						<button type="button" className="composer-key composer-call composer-hang-up" title={`End the call with ${name}`} aria-label="End the call" onClick={onHangUp}>
+							<HangUpIcon />
 						</button>
+					) : call ? (
+						<button type="button" className="composer-key composer-call" title={`Call ${name}`} aria-label={`Call ${name}`} onClick={onCall}>
+							<PhoneIcon />
+						</button>
+					) : (
+						(!working || hasDraft) &&
+						!dictating && (
+							<button
+								type="button"
+								className="composer-key composer-send"
+								title="Send (Enter)"
+								aria-label="Send"
+								aria-hidden={!hasDraft}
+								tabIndex={hasDraft ? 0 : -1}
+								data-shown={hasDraft ? "true" : undefined}
+								disabled={!hasContent}
+								onClick={submit}
+							>
+								<ArrowUpIcon />
+							</button>
+						)
 					)}
 				</div>
 			</div>

@@ -1713,12 +1713,32 @@
 	.composer-send:hover {
 		background: var(--accent-hover);
 	}
-	.composer-voice {
-		background: var(--fill-active);
+	/* Beside the call key the mic is the quiet one: no fill until pointed at. */
+	.composer-mic {
+		color: var(--ink-2);
+	}
+	.composer-mic:hover {
+		background: var(--fill-hover);
 		color: var(--ink);
 	}
-	.composer-voice:hover {
-		background: var(--line-strong);
+	/* The call key is the composer's lead with the field empty: the accent,
+	 * a size up from its neighbours, and red while it hangs up. */
+	.composer-call {
+		width: 32px;
+		height: 32px;
+		background: var(--accent);
+		color: var(--on-accent);
+	}
+	.composer-call:hover {
+		background: var(--accent-hover);
+	}
+	.composer-hang-up,
+	.composer-hang-up:hover {
+		background: var(--danger);
+		color: white;
+	}
+	.composer-hang-up:hover {
+		filter: brightness(1.1);
 	}
 	.composer-send:disabled {
 		background: var(--fill-active);

@@ -1,0 +1,62 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Window } from "happy-dom";
+import type { Root } from "react-dom/client";
+
+// Rendering needs the shell's platform and motion preference, not a live desk.
+Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
+
+let act: typeof import("react").act;
+let root: Root;
+let container: HTMLDivElement;
+let dom: Window;
+let restores: (() => void)[];
+
+beforeEach(async () => {
+	dom = new Window();
+	restores = [];
+	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, localStorage: dom.localStorage, IS_REACT_ACT_ENVIRONMENT: true })) {
+		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
+		restores.push(() => (descriptor ? Object.defineProperty(globalThis, key, descriptor) : Reflect.deleteProperty(globalThis, key)));
+	}
+	act = (await import("react")).act;
+	const { createRoot } = await import("react-dom/client");
+	container = document.createElement("div");
+	document.body.append(container);
+	root = createRoot(container);
+});
+
+afterEach(async () => {
+	await act(async () => root.unmount());
+	for (const restore of restores.reverse()) restore();
+	await dom.happyDOM.close();
+});
+
+describe("the call key in the composer", () => {
+	async function composer(props: { onCall?: () => void; onHangUp?: () => void } = {}) {
+		const { Composer } = await import("../src/components/Composer");
+		await act(async () =>
+			root.render(<Composer personaId="ada" name="Ada" state="ready" replyQuote={null} onSend={() => {}} onCancel={() => {}} onClearReply={() => {}} {...props} />),
+		);
+	}
+
+	test("stands out with the field empty, and calls", async () => {
+		const calls: string[] = [];
+		await composer({ onCall: () => calls.push("call") });
+		const call = container.querySelector<HTMLButtonElement>('[aria-label="Call Ada"]');
+		expect(call?.className).toContain("composer-call");
+		// No Send waits behind it with nothing to send.
+		expect(container.querySelector('[aria-label="Send"]')).toBeNull();
+		await act(async () => call?.click());
+		expect(calls).toEqual(["call"]);
+	});
+
+	test("calls until a call is on, and is absent where the desk cannot call", async () => {
+		await composer({ onCall: () => {}, onHangUp: () => {} });
+		// A call snapshot that has ended is no call: the key still calls.
+		expect(container.querySelector('[aria-label="Call Ada"]')).not.toBeNull();
+		await composer();
+		expect(container.querySelector('[aria-label="Call Ada"]')).toBeNull();
+		expect(container.querySelector(".composer-call")).toBeNull();
+	});
+});

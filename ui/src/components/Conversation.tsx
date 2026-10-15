@@ -4,7 +4,7 @@ import { shownState } from "../activity";
 import { sideTitle } from "../links";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ClockIcon, ComputerIcon, HangUpIcon, MoreIcon, PhoneIcon, ProgressRing, WarningIcon } from "../icons";
+import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
 import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
@@ -386,18 +386,6 @@ export function Conversation({
 					</button>
 				)}
 
-				{/* A call is its own key, beside the teammate's other ways in: the
-				 * composer's voice is dictation where this Mac can hear. */}
-				{onHangUp !== undefined ? (
-					<button type="button" className="control btn-icon" title={`End the call with ${persona.name}`} aria-label="End the call" onClick={onHangUp}>
-						<HangUpIcon />
-					</button>
-				) : onCall !== undefined && (
-					<button type="button" className="control btn-icon" title={`Call ${persona.name}`} aria-label={`Call ${persona.name}`} onClick={onCall}>
-						<PhoneIcon />
-					</button>
-				)}
-
 				{/* A computer on its way fills in where its button will be; the
 				 * conversation carries on around it. */}
 				{pulling !== null ? (
@@ -473,6 +461,7 @@ export function Conversation({
 					replyQuote={replying?.text ?? null}
 					onSend={send}
 					onCall={onCall}
+					onHangUp={onHangUp}
 					{...(refill !== null ? { refill } : {})}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}

@@ -16,9 +16,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_prompt.rs
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/src/voice/dispatcher.rs
-updatedAt: "2026-10-15T02:23:03.270Z"
+updatedAt: "2026-10-15T02:23:03.571Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/front_prompt.rs
@@ -36,6 +36,8 @@ contract:
     - Separate desk-call prompt
   metrics:
     readyAt: "2026-10-15T01:57:04.232Z"
+    pickedUpAt: "2026-10-15T02:23:03.571Z"
+    reworkCount: 0
 assignee: claude
 dispatch:
   agent: claude

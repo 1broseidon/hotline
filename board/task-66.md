@@ -1,8 +1,8 @@
 ---
 id: task-66
 title: "Desk: wire the voice front end to end, then test it live on Grok"
-column: todo
-position: 2
+column: in-progress
+position: 0
 priority: critical
 tags:
   - voice
@@ -12,7 +12,7 @@ tags:
 parentId: epic-6
 createdAt: "2026-10-15T03:57:56.431Z"
 assignee: claude
-updatedAt: "2026-10-15T04:03:40.519Z"
+updatedAt: "2026-10-15T04:03:57.141Z"
 dispatch:
   agent: claude
   model: opus

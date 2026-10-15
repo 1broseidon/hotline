@@ -1,4 +1,4 @@
-# ADR 0003: Live calls get a voice front
+# ADR 0004: Live calls get a voice front
 
 - Status: Accepted (planned for 0.38; nothing here has landed yet)
 - Date: 2026-10-14

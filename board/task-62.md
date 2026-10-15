@@ -57,3 +57,6 @@ dispatch:
 
 ## Description
 Front transcript (person and front lines) goes to calls/<callId>.jsonl and the DM call marker, kept apart from the teammate's tape, which holds only what was handed to it and what it answered. Ledger: per-minute cost for API-key sessions (Grok $0.08/min, GPT-Live $0.05/min), zero for subscription logins, shown in voice status; budget checks before a call starts. Note subscription limits once known.
+
+## Log
+- 2026-10-15T02:46:42.051Z: [claude] Added Kind::Front and ledger::front_usd (xai $0.08/min, openai $0.05/min, subscription/local free, unknown provider charged at $0.08), counted in the Voice budget so voice.status budget shows it with no contract change. Calls gained front_ready (budget check before a call starts), front_spend(front, seconds) (charge; Err means end the call), front_heard / front_said (front lines to calls/<id>.jsonl; the teammate tape is untouched). For later tasks: nothing yet runs a RealtimeSession, so whoever wires it must call front_ready before opening, front_spend about once a minute, and front_heard/front_said from RealtimeEvent::Heard/Saying (said lines are kind "agent" on the call thread). Subscription limits are not yet known and not noted. Tests in tests/voice.rs; cargo test -p hotline-core, clippy and fmt pass. On branch dispatch/task-62.

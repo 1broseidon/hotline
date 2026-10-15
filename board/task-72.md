@@ -16,7 +16,7 @@ subtasks:
     completed: true
   - id: task-72-2
     title: DesksSection.tsx:85 'Let this computer's teammates and this server's see and message each other'
-    completed: false
+    completed: true
   - id: task-72-3
     title: Dock.tsx:427 'Bring this thread back with what it remembers'
     completed: false
@@ -39,7 +39,7 @@ subtasks:
     title: Welcome.tsx:244 'An AI coding tool you already have'
     completed: false
 createdAt: "2026-10-15T23:17:58.177Z"
-updatedAt: "2026-10-15T23:19:30.336Z"
+updatedAt: "2026-10-15T23:19:30.813Z"
 ---
 
 ## Description

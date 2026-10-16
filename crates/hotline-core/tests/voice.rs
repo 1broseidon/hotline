@@ -947,6 +947,14 @@ async fn calls_off_refuses_a_call_and_says_why() {
     server.abort();
 }
 
+/// A message the teammate posted to its DM from a call.
+fn is_call_post(event: &Value) -> bool {
+    event["kind"] == "agent"
+        && event["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("call:"))
+}
+
 /// The front answers from the teammate's own tools: a question about what
 /// was worked on is answered from `search_thread` with the result handed
 /// back for the front to speak, and nothing sent to the teammate or posted
@@ -1064,7 +1072,7 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
     assert_eq!(output, "Posted to the chat.");
     let posted: Vec<Value> = desk.log.load(&tape).split_off(turns);
     assert_eq!(posted.len(), 1, "{posted:?}");
-    assert_eq!(posted[0]["kind"], "notice");
+    assert_eq!(posted[0]["kind"], "agent", "the teammate says it");
     assert_eq!(posted[0]["text"], "From the call: the scheduler fix is in");
 
     // Revoking a grant on the card refuses the next call.
@@ -1295,7 +1303,7 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
     let mut dm = Vec::new();
     for _ in 0..500 {
         dm = desk.log.load(&tape);
-        if dm.iter().any(|event| event["kind"] == "notice") {
+        if dm.iter().any(is_call_post) {
             break;
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
@@ -1303,13 +1311,13 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
     let users: Vec<&Value> = dm.iter().filter(|v| v["kind"] == "user").collect();
     assert_eq!(users.len(), 1, "only the hand-off is a turn: {dm:?}");
     assert_eq!(users[0]["text"], handoff);
-    let summaries: Vec<&Value> = dm.iter().filter(|v| v["kind"] == "notice").collect();
+    let summaries: Vec<&Value> = dm.iter().filter(|v| is_call_post(v)).collect();
     assert_eq!(summaries.len(), 1, "{dm:?}");
     let text = summaries[0]["text"].as_str().unwrap();
     assert!(text.starts_with("From the call:"), "{text}");
     assert!(text.contains("hello there, can you hear me"), "{text}");
     assert!(
-        text.contains(&format!("handed to the working session: \"{handoff}\"")),
+        text.contains(&format!("I'm still working on this: \"{handoff}\"")),
         "{text}"
     );
     for said in ["Loud and clear.", "On it.", "Anytime."] {
@@ -2230,7 +2238,10 @@ async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing(
     let tape = tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             let tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
-            if tape.iter().any(|v| v["kind"] == "agent") {
+            if tape
+                .iter()
+                .any(|v| v["kind"] == "agent" && !is_call_post(v))
+            {
                 return tape;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -2247,7 +2258,10 @@ async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing(
             .unwrap()
             .starts_with(&format!("voice:{call}:"))
     );
-    let agent = tape.iter().find(|v| v["kind"] == "agent").unwrap();
+    let agent = tape
+        .iter()
+        .find(|v| v["kind"] == "agent" && !is_call_post(v))
+        .unwrap();
     assert_eq!(agent["text"], "The release checklist has two items left.");
     assert!(agent.get("spoken").is_none(), "written only: {agent}");
 
@@ -2270,4 +2284,145 @@ async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing(
         !asked.contains("[Voice call: answer twice"),
         "no spoken version: {asked}"
     );
+}
+
+/// After a call that answered a question from `search_thread`, the DM holds
+/// one first-person summary with the question and the front's answer and no
+/// tool name, posted as the teammate; and the teammate's next typed turn is
+/// told what the call said.
+#[tokio::test]
+async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it() {
+    let mut desk = front_desk(true, 64).await;
+    let root = desk.root.path().to_path_buf();
+    let socket = &mut desk.socket;
+    let (provider, requests) = provider_seeing("Noted.").await;
+    let saved = answer(socket, 90, json!({"cmd":"credential.custom_save","params":{"draft":{"name":"Front fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
+    assert_eq!(saved["ok"], true);
+    let persona = answer(socket, 91, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.to_str().unwrap()}}})).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        answer(
+            socket,
+            92,
+            json!({"cmd":"session.start","params":{"personaId":persona}})
+        )
+        .await["ok"],
+        true
+    );
+    assert_eq!(
+        answer(socket, 93, json!({"cmd":"session.prompt","params":{"personaId":persona,"text":"we fixed the zebracrossing scheduler bug"}})).await["ok"],
+        true
+    );
+    let tape = hotline_core::log::StreamId::Tape(persona.clone());
+    for _ in 0..500 {
+        if desk
+            .log
+            .load(&tape)
+            .iter()
+            .any(|event| event["kind"] == "agent")
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let call = Uuid::new_v4().to_string();
+    assert_eq!(
+        answer(socket, 1, json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}})).await["ok"],
+        true
+    );
+    send(socket, json!({"id":2,"sub":{"call":call}})).await;
+    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while desk.front.config.lock().unwrap().is_none() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the front was opened");
+
+    desk.events
+        .send(Ok(RealtimeEvent::Heard(
+            "what did we fix on the scheduler?".into(),
+        )))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::ToolCall {
+            call_id: "s1".into(),
+            name: "search_thread".into(),
+            arguments: json!({"query":"zebracrossing scheduler"}).to_string(),
+        }))
+        .await
+        .unwrap();
+    let Asked::ToolResult { .. } = next_asked(&mut desk.asked).await else {
+        panic!("the search went unanswered")
+    };
+    let answered = "We fixed the zebracrossing bug in the scheduler.";
+    desk.events
+        .send(Ok(RealtimeEvent::Saying(answered.into())))
+        .await
+        .unwrap();
+    desk.events
+        .send(Ok(RealtimeEvent::ResponseDone))
+        .await
+        .unwrap();
+    until(socket, |f| {
+        f["event"]["type"] == "said" && f["event"]["text"] == answered
+    })
+    .await;
+    assert_eq!(
+        answer(
+            socket,
+            3,
+            json!({"cmd":"voice.call_end","params":{"callId":call}})
+        )
+        .await["ok"],
+        true
+    );
+    let mut summaries = Vec::new();
+    for _ in 0..500 {
+        summaries = desk
+            .log
+            .load(&tape)
+            .into_iter()
+            .filter(is_call_post)
+            .collect();
+        if !summaries.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(summaries.len(), 1, "{summaries:?}");
+    let text = summaries[0]["text"].as_str().unwrap();
+    assert!(text.starts_with("From the call:"), "{text}");
+    assert!(text.contains("what did we fix on the scheduler?"), "{text}");
+    assert!(text.contains(answered), "{text}");
+    assert!(
+        !text.contains("search_thread") && !text.contains("working session"),
+        "{text}"
+    );
+
+    // The next typed turn carries on from the call.
+    assert_eq!(
+        answer(
+            socket,
+            94,
+            json!({"cmd":"session.prompt","params":{"personaId":persona,"text":"and the release?"}})
+        )
+        .await["ok"],
+        true
+    );
+    for _ in 0..500 {
+        let told = requests.lock().unwrap().iter().any(|request| {
+            let body = request.to_string();
+            body.contains("and the release?") && body.contains(answered)
+        });
+        if told {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("the follow-up turn was not told what the call said");
 }

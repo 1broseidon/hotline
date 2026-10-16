@@ -519,6 +519,7 @@ impl Calls {
                     replies += 1;
                     if !text.trim().is_empty() {
                         self.front_said(id, &text);
+                        digest.answered(&text);
                         *unanswered = None;
                     }
                     self.change(id, |call| {
@@ -536,7 +537,7 @@ impl Calls {
                     name,
                     arguments,
                 } if let Some(tools) = bridge.desk_tools().filter(|tools| tools.has(&name)) => {
-                    digest.ran(&name);
+                    digest.looked_up();
                     // Run beside the call, so a slow tool does not hold the
                     // front's speech. The model speaks once it has the result.
                     let input = input.clone();

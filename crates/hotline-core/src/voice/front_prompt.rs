@@ -127,7 +127,7 @@ fn recent_lines(lines: &[Line]) -> String {
 
 /// One line of plain words: credentials redacted, code blocks dropped,
 /// whitespace collapsed.
-fn scrub(text: &str) -> String {
+pub(super) fn scrub(text: &str) -> String {
     let mut prose = String::new();
     for (index, part) in text.split("```").enumerate() {
         if index % 2 == 0 {
@@ -142,7 +142,7 @@ fn scrub(text: &str) -> String {
         .join(" ")
 }
 
-fn clip(text: &str, limit: usize) -> String {
+pub(super) fn clip(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text.to_string();
     }

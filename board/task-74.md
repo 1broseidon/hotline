@@ -32,7 +32,7 @@ contract:
 createdAt: "2026-10-16T14:02:49.220Z"
 dependsOn:
   - task-76
-updatedAt: "2026-10-16T14:05:40.080Z"
+updatedAt: "2026-10-16T14:11:14.923Z"
 relatedFiles:
   - crates/hotline-core/src/voice/duplex.rs
   - crates/hotline-core/src/voice/front.rs
@@ -41,7 +41,7 @@ relatedFiles:
 ---
 
 ## Description
-Give the voice front the teammate's own tools as realtime function tools, run desk-side with the same permission asks, grants and audit as a typed turn: search_thread, list_chapters, read a chapter, list files and links, list schedules, web_search, and the MCP servers the teammate is granted (Reach). Grok Voice and GPT Realtime take them through the socket driver's session.update tools (voice/realtime/socket.rs, both dialects); GPT-Live has no function tools and keeps delegate-only. A tool result goes back to the model as the function output; nothing is posted to the DM. New module voice/front_tools.rs; wire in voice/front.rs (the bridge) and voice/duplex.rs. Budget: a tool call's output is clipped before the model hears it. Harness: a front call that asks 'what did we work on last week' answers from search_thread without a send_to_teammate.
+Give the voice front the teammate's own tools as realtime function tools, run desk-side with the same permission asks, grants and audit as a typed turn: search_thread, list_chapters, read a chapter, list files and links, list schedules, web_search, and the MCP servers the teammate is granted (Reach). Grok Voice and GPT Realtime take them through the socket driver's session.update tools (voice/realtime/socket.rs, both dialects). GPT-Live has no realtime function tools; it is task-79's, which reuses the registry built here, so keep the registry provider-neutral. A tool result goes back to the model as the function output; nothing is posted to the DM. New module voice/front_tools.rs; wire in voice/front.rs (the bridge) and voice/duplex.rs. Budget: a tool call's output is clipped before the model hears it. Harness: a front call that asks 'what did we work on last week' answers from search_thread without a send_to_teammate.
 
 ## Log
 - 2026-10-16T14:06:29.802Z: [claude] CORRECTION — GPT-Live does function calling (George, 2026-10-16; developers.openai.com gpt-live-1 lists streaming and function_calling): it delegates reasoning and tool use to a backend, and the backend's function calls come back to the client as response events, answered with function_call_output. Two ways to serve it, to settle in task-74: (a) delegation type responses, a backend model with our desk-side tools declared as functions, each call run desk-side; (b) the ChatGPT sign-in route we use today, delegation type client, answered by a desk-side tool loop instead of the working session. Whether the sign-in route accepts responses delegation is unverified: spike it. All three fronts (Grok Voice, GPT Realtime, GPT-Live) get the full agent; none stays delegate-only.

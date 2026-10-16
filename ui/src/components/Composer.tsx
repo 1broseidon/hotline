@@ -492,16 +492,14 @@ export function Composer({
 							onPress={hangUp ? onHangUp : onCall}
 						/>
 					) : (
-						(!working || hasDraft) &&
+						hasDraft &&
 						!dictating && (
 							<button
 								type="button"
 								className="composer-key composer-send"
 								title="Send (Enter)"
 								aria-label="Send"
-								aria-hidden={!hasDraft}
-								tabIndex={hasDraft ? 0 : -1}
-								data-shown={hasDraft ? "true" : undefined}
+								data-shown="true"
 								disabled={!hasContent}
 								onClick={submit}
 							>

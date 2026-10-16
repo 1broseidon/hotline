@@ -38,7 +38,14 @@ contract:
   metrics:
     readyAt: "2026-10-16T15:06:10.385Z"
 createdAt: "2026-10-16T14:11:07.271Z"
-updatedAt: "2026-10-16T15:06:10.385Z"
+updatedAt: "2026-10-16T15:06:11.601Z"
+dispatch:
+  agent: claude
+  model: sonnet
+  by: lead
+  at: "2026-10-16T15:06:11.476Z"
+  tries: 0
+assignee: claude
 ---
 
 ## Description

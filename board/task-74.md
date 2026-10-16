@@ -32,7 +32,7 @@ contract:
 createdAt: "2026-10-16T14:02:49.220Z"
 dependsOn:
   - task-76
-updatedAt: "2026-10-16T14:23:11.651Z"
+updatedAt: "2026-10-16T14:23:13.457Z"
 relatedFiles:
   - crates/hotline-core/src/voice/duplex.rs
   - crates/hotline-core/src/voice/front.rs
@@ -43,7 +43,12 @@ dispatch:
   model: sonnet
   by: lead
   at: "2026-10-16T14:23:11.521Z"
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 12851
+    at: "2026-10-16T14:23:13.457Z"
 assignee: claude
 ---
 

@@ -14,7 +14,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_prompt.rs
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/src/voice/dispatcher.rs
-updatedAt: "2026-10-15T17:08:41.811Z"
+updatedAt: "2026-10-16T01:06:02.602Z"
 contract:
   status: failed
   deliverables:
@@ -46,8 +46,7 @@ dispatch:
   effort: medium
   by: lead
   at: "2026-10-15T02:22:50.604Z"
-column: review
-position: 0
+completedAt: "2026-10-16T01:06:02.602Z"
 ---
 
 ## Description

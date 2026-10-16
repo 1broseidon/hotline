@@ -12,7 +12,8 @@ tags:
   - 0.39.0
 createdAt: "2026-10-16T13:52:14.099Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T14:03:46.335Z"
+updatedAt: "2026-10-16T14:03:54.784Z"
+assignee: claude
 dispatch:
   agent: claude
   model: opus
@@ -25,7 +26,7 @@ dispatch:
     runner: desktop
     pid: 12851
     at: "2026-10-16T14:03:46.335Z"
-assignee: claude
+  paused: "2026-10-16T14:03:54.784Z"
 ---
 
 ## Description

@@ -30,13 +30,18 @@ contract:
 createdAt: "2026-10-16T15:01:23.373Z"
 dependsOn:
   - task-79
-updatedAt: "2026-10-16T15:19:26.316Z"
+updatedAt: "2026-10-16T15:19:28.167Z"
 dispatch:
   agent: claude
   model: sonnet
   by: lead
   at: "2026-10-16T15:19:26.181Z"
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 12851
+    at: "2026-10-16T15:19:28.167Z"
 assignee: claude
 ---
 

@@ -270,6 +270,9 @@ fn session_update(dialect: Dialect, config: &RealtimeConfig, instructions: &str)
 
 /// A provider's error code, when it is a short identifier. Its message can
 /// echo what was said, so it never leaves the adapter.
+/// The provider's code for a `response.create` sent while a reply is in progress.
+const ACTIVE_RESPONSE: &str = "conversation_already_has_active_response";
+
 fn error_code(event: &Value) -> Option<String> {
     let code = event["error"]["code"].as_str()?;
     let identifier = !code.is_empty()
@@ -537,10 +540,23 @@ impl Driver {
                 }
             }
             "error" => {
-                self.emit(RealtimeEvent::Refused {
-                    code: error_code(&event),
-                })
-                .await?;
+                // A refused `response.create` ends in no `response.done`, so
+                // the flag it set comes down here and a reply queued behind
+                // it goes now. Refused because a reply is already in
+                // progress, the flag is right, and the queued reply waits
+                // for that reply's end.
+                let code = error_code(&event);
+                let in_progress = code.as_deref() == Some(ACTIVE_RESPONSE);
+                if in_progress {
+                    self.responding = true;
+                    self.respond_after = true;
+                } else {
+                    self.responding = false;
+                }
+                self.emit(RealtimeEvent::Refused { code }).await?;
+                if !in_progress && std::mem::take(&mut self.respond_after) {
+                    self.respond(socket).await?;
+                }
             }
             _ => {}
         }

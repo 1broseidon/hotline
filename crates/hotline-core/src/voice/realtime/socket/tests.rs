@@ -646,3 +646,74 @@ async fn gpt_realtime_takes_a_line_to_say_as_a_system_item_and_replies_without_t
     session.close().await;
     finish(server).await;
 }
+
+#[tokio::test]
+async fn a_refused_reply_does_not_block_the_next() {
+    let (listener, url) = listen().await;
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = accept(&listener).await;
+        handshake(&mut socket).await;
+        assert_eq!(
+            receive(&mut socket).await["item"]["type"],
+            "function_call_output"
+        );
+        assert_eq!(receive(&mut socket).await["type"], "response.create");
+        send(
+            &mut socket,
+            json!({"type": "error", "error": {"code": "rate_limit_exceeded", "message": "slow down"}}),
+        )
+        .await;
+        // The refusal left no reply in progress: the next result asks for one at once.
+        assert_eq!(
+            receive(&mut socket).await["item"]["type"],
+            "function_call_output"
+        );
+        assert_eq!(receive(&mut socket).await["type"], "response.create");
+        closed(&mut socket).await;
+    });
+    let mut session = voice(&url).open(config()).await.unwrap();
+    session.input.tool_result("c1", "done", true).await.unwrap();
+    assert_eq!(
+        next(&mut session).await,
+        RealtimeEvent::Refused {
+            code: Some("rate_limit_exceeded".into())
+        }
+    );
+    session.input.tool_result("c2", "more", true).await.unwrap();
+    session.close().await;
+    finish(server).await;
+}
+
+#[tokio::test]
+async fn a_reply_refused_for_one_in_progress_follows_that_reply() {
+    let (listener, url) = listen().await;
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = accept(&listener).await;
+        handshake(&mut socket).await;
+        assert_eq!(
+            receive(&mut socket).await["item"]["type"],
+            "function_call_output"
+        );
+        assert_eq!(receive(&mut socket).await["type"], "response.create");
+        send(
+            &mut socket,
+            json!({"type": "error", "error": {"code": "conversation_already_has_active_response", "message": "busy"}}),
+        )
+        .await;
+        send(&mut socket, json!({"type": "response.done"})).await;
+        // The reply waited for the one in progress, and goes at its end.
+        assert_eq!(receive(&mut socket).await["type"], "response.create");
+        closed(&mut socket).await;
+    });
+    let mut session = voice(&url).open(config()).await.unwrap();
+    session.input.tool_result("c1", "done", true).await.unwrap();
+    assert_eq!(
+        next(&mut session).await,
+        RealtimeEvent::Refused {
+            code: Some("conversation_already_has_active_response".into())
+        }
+    );
+    assert_eq!(next(&mut session).await, RealtimeEvent::ResponseDone);
+    session.close().await;
+    finish(server).await;
+}

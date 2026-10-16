@@ -12,21 +12,8 @@ tags:
   - 0.39.0
 createdAt: "2026-10-16T13:52:14.099Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T14:03:54.784Z"
+updatedAt: "2026-10-16T14:04:29.240Z"
 assignee: claude
-dispatch:
-  agent: claude
-  model: opus
-  by: cli
-  at: "2026-10-16T14:03:45.260Z"
-  until: done
-  role: lead
-  claim:
-    host: Georges-Mac-Studio
-    runner: desktop
-    pid: 12851
-    at: "2026-10-16T14:03:46.335Z"
-  paused: "2026-10-16T14:03:54.784Z"
 ---
 
 ## Description

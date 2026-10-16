@@ -13,7 +13,17 @@ createdAt: "2026-10-16T17:24:29.702Z"
 dependsOn:
   - task-85
   - task-86
-updatedAt: "2026-10-16T18:54:12.744Z"
+updatedAt: "2026-10-16T19:52:51.496Z"
+relatedFiles:
+  - crates/hotline-core/tests/processes.rs
+  - crates/hotline-core/tests/common
+  - crates/hotline-core/tests/voice.rs
+  - crates/hotline-core/src/voice/front.rs
+  - crates/hotline-core/src/voice/mod.rs
+  - crates/hotline-core/src/session/dm.rs
+  - docs/sessions.md
+  - docs/voice-calls.md
+  - CHANGELOG.md
 ---
 
 ## Description

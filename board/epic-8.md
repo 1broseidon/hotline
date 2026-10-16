@@ -32,3 +32,6 @@ Done when:
 - Stop kills the process tree.
 - A call on either front goes Listening after the reply instead of looping "Still on it".
 - A process that exits on its own is reported by the teammate in one new turn.
+
+## Log
+- 2026-10-16T17:55:47.009Z: [claude] Design discussion: dropped `background: true` and port sniffing for one deterministic rule — a shell job still running when the turn parks is handed to the session and the turn ends; its exit wakes the teammate once (subagent precedent). A flag is forgotten, a timer has no right value. task-87's safety net contradicted task-85 and named code that does not exist; its one real proof moved into task-88, so task-87 should be deleted.

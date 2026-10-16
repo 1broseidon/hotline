@@ -1,7 +1,7 @@
 ---
 id: task-85
 title: "Core: a shell job still running when the turn parks becomes a session-owned process"
-column: in-progress
+column: review
 position: 1
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
   - core
 parentId: epic-8
 createdAt: "2026-10-16T17:24:28.069Z"
-updatedAt: "2026-10-16T19:53:21.467Z"
+updatedAt: "2026-10-16T20:17:26.912Z"
 relatedFiles:
   - crates/hotline-core/src/driver/rig/turn.rs
   - crates/hotline-core/src/session/jobs.rs
@@ -22,7 +22,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/mod.rs
   - docs/security.md
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - "test \"$(cargo test -p hotline-core running_process -- --list 2>/dev/null | grep -c ': test$')\" -ge 6"
@@ -38,6 +38,8 @@ contract:
     readyAt: "2026-10-16T19:53:01.083Z"
     pickedUpAt: "2026-10-16T19:53:21.467Z"
     reworkCount: 0
+    deliveredAt: "2026-10-16T20:17:26.912Z"
+    duration: 1445
 dispatch:
   agent: claude
   model: opus

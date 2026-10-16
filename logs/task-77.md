@@ -1,8 +1,6 @@
 ---
 id: task-77
 title: "Desk: the front prompt is a full agent's, and settings follow the teammate"
-column: review
-position: 4
 priority: medium
 tags:
   - voice
@@ -39,7 +37,7 @@ dependsOn:
   - task-75
   - task-79
   - task-80
-updatedAt: "2026-10-16T15:41:24.040Z"
+updatedAt: "2026-10-16T15:41:26.893Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -54,6 +52,7 @@ dispatch:
     ended: "2026-10-16T15:39:55.336Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-16T15:41:26.893Z"
 ---
 
 ## Description

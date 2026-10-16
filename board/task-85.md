@@ -10,7 +10,7 @@ tags:
   - core
 parentId: epic-8
 createdAt: "2026-10-16T17:24:28.069Z"
-updatedAt: "2026-10-16T20:17:26.912Z"
+updatedAt: "2026-10-16T20:17:31.120Z"
 relatedFiles:
   - crates/hotline-core/src/driver/rig/turn.rs
   - crates/hotline-core/src/session/jobs.rs
@@ -52,6 +52,8 @@ dispatch:
     runner: desktop
     pid: 12851
     at: "2026-10-16T19:53:10.142Z"
+    ended: "2026-10-16T20:17:31.120Z"
+    outcome: review
 assignee: claude
 ---
 

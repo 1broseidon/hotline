@@ -29,7 +29,7 @@ contract:
     duration: 80
 createdAt: "2026-10-16T15:25:13.490Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:48:36.668Z"
+updatedAt: "2026-10-16T15:48:43.316Z"
 dependsOn:
   - task-82
 dispatch:
@@ -44,6 +44,8 @@ dispatch:
     runner: desktop
     pid: 12851
     at: "2026-10-16T15:46:18.737Z"
+    ended: "2026-10-16T15:48:43.316Z"
+    outcome: done
 assignee: claude
 completedAt: "2026-10-16T15:48:36.668Z"
 ---

@@ -34,7 +34,7 @@ contract:
 createdAt: "2026-10-16T15:01:23.373Z"
 dependsOn:
   - task-79
-updatedAt: "2026-10-16T15:28:44.022Z"
+updatedAt: "2026-10-16T15:30:06.259Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -56,3 +56,4 @@ Follow-up to task-75 (George's review 2026-10-16). task-75's summary is a mechan
 
 ## Log
 - 2026-10-16T15:28:38.699Z: [claude] Done on dispatch/task-80, make check green. Digest (voice/record.rs) now records the front's answers and composes a first-person summary ("From the call: You asked "…" and I said "…" …"), no tool names, scrubbed/clipped via front_prompt::scrub/clip, newest 6 exchanges. call_posted writes an agent message (not an info notice), so post_to_chat posts as the teammate too; fresh sessions read it from the tape as history, and a live session gets it prefixed to its next message (Session.pending_calls) because Rig/ACP history is read only at start. Decided (ADR 0005, moved from open questions): the front writes it. Harness tests/voice.rs: summary has question+answer, no tool name, and the follow-up request contains the answer. Left: summary is composed deterministically, not by a model call; the "From the call:" tag is a text prefix, not a contract field, so the UI draws no badge; front_prompt.rs still doesn't mention the tools.
+- 2026-10-16T15:30:06.259Z: Landed on release/0.39.0

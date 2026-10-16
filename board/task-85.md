@@ -10,7 +10,7 @@ tags:
   - core
 parentId: epic-8
 createdAt: "2026-10-16T17:24:28.069Z"
-updatedAt: "2026-10-16T18:54:09.678Z"
+updatedAt: "2026-10-16T18:54:10.528Z"
 ---
 
 ## Description
@@ -38,4 +38,5 @@ Tests:
 - The process is alive after the turn; `cancel_job` from a second turn kills it.
 - A turn that starts `sleep 2; echo done` and replies ends; two seconds later the teammate wakes once with `done`.
 - Session stop kills it. Lease revocation kills it.
-- The cap keeps four.
+- With four processes held, a fifth `shell` launch is refused naming the four.
+- On a live call (scripted front), a process exiting wakes a turn whose reply the front is given to say.

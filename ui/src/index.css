@@ -3138,11 +3138,10 @@
 	}
 	.rail-search:focus-within {
 		color: var(--ink);
-		box-shadow: 0 0 0 var(--hairline) var(--line-strong);
 	}
 	.team-results {
 		position: absolute;
-		bottom: calc(100% + 12px);
+		bottom: calc(100% + 13px);
 		left: -5px;
 		width: 360px;
 		z-index: 30;
@@ -4174,50 +4173,68 @@
 	}
 
 	/* The rail's dock (Rail.tsx): the team's search and the desk's call key
-	 * where Settings and New teammate were. It stands on the composer's line:
-	 * the composer's height (6px, a 28px key, 6px) and bottom edge (the
-	 * conversation's 16px under it), so one line runs across the window. The
-	 * field is the pane's material and corners, quiet beside the composer;
-	 * the keys stack in the faces-only rail. */
+	 * in one bar where Settings and New teammate were, the composer's twin
+	 * across the window: its height (6px, a 28px key, 6px), its material and
+	 * corners, on its line (16px off the foot, the composer's own margin), so
+	 * one line of two matching pills runs under the window. A hairline parts
+	 * the key from the field, as the composer parts its keys; the key's half
+	 * fills in the accent while the desk's call is on. In the faces-only rail
+	 * the bar stands on end, the keys over each other. */
 	.rail-dock {
 		display: flex;
 		flex-shrink: 0;
-		align-items: center;
-		gap: 4px;
+		align-items: stretch;
+		height: 40px;
+		gap: 2px;
 		margin: 4px 8px 16px;
+		padding: 5px;
+		border-radius: 20px;
+		background: var(--pop);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			var(--shadow-glass);
+		transition: box-shadow var(--dur-press) var(--ease-out);
+	}
+	.rail-dock:focus-within {
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line-strong),
+			var(--shadow-glass);
 	}
 	.rail-dock-compact {
 		flex-direction: column;
-		margin: 4px 6px 16px;
+		width: 40px;
+		height: auto;
+		margin: 4px auto 16px;
 	}
 	.rail-search {
 		display: flex;
 		min-width: 0;
-		height: 40px;
 		flex: 1;
 		align-items: center;
 		gap: 8px;
-		padding: 0 12px;
-		border-radius: var(--radius-pane);
+		padding: 0 7px;
+		border-radius: 15px;
 		color: var(--ink-3);
-		background: var(--canvas);
-		/* Outside the box, as the composer's is, so the two outlines meet one line. */
-		box-shadow: 0 0 0 var(--hairline) var(--line);
-		font-size: var(--text-sm);
+		font-size: var(--text-read);
 		transition:
 			background var(--dur-press) var(--ease-out),
 			color var(--dur-press) var(--ease-out);
 	}
+	/* As a key, in the faces-only rail: the composer's key, a circle that fills when pointed at. */
 	.rail-dock-compact .rail-search {
-		width: 40px;
+		width: 30px;
+		height: 30px;
 		flex: none;
 		justify-content: center;
 		padding: 0;
+		border-radius: 50%;
 	}
-	.rail-search:hover:not(:disabled),
+	button.rail-search:hover:not(:disabled),
 	.rail-search[aria-pressed="true"] {
-		color: var(--ink-2);
-		background: var(--raised);
+		color: var(--ink);
+		background: var(--fill-hover);
 	}
 	.rail-search:disabled {
 		opacity: 0.5;
@@ -4227,19 +4244,42 @@
 		font-size: var(--text-xs);
 		color: var(--ink-4);
 	}
-	/* The desk's call key: a bare key the field's height, lit in the accent while the desk's call is on. */
+	/* The desk's call key: the bar's other half, with the hairline before
+	 * it, filling the pill's end; lit in the accent while the desk's call is on. */
 	.desk-call-key {
+		position: relative;
 		display: grid;
-		width: 40px;
-		height: 40px;
+		width: 36px;
 		flex-shrink: 0;
 		place-items: center;
-		border-radius: var(--radius-pane);
+		border-radius: 4px 15px 15px 4px;
 		color: var(--ink-3);
 		transition:
 			background var(--dur-press) var(--ease-out),
 			color var(--dur-press) var(--ease-out),
 			opacity var(--dur-press) var(--ease-out);
+	}
+	.desk-call-key::before {
+		content: "";
+		position: absolute;
+		top: 5px;
+		bottom: 5px;
+		left: -1.5px;
+		width: var(--hairline);
+		background: var(--line);
+	}
+	.rail-dock-compact .desk-call-key {
+		width: 30px;
+		height: 30px;
+		border-radius: 50%;
+	}
+	.rail-dock-compact .desk-call-key::before {
+		top: -1.5px;
+		right: 5px;
+		bottom: auto;
+		left: 5px;
+		width: auto;
+		height: var(--hairline);
 	}
 	.desk-call-key:hover:not(:disabled) {
 		color: var(--ink);

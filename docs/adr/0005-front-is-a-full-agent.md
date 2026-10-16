@@ -142,6 +142,9 @@ by the route its protocol gives.
   minutes, not tool calls, but tool output read back fills the model's context
   and a session renewal carries it. Clipping bounds each result; a call-level
   bound is not set.
+- **Summary voice.** Settled in task-80: the front writes it, in the
+  teammate's first person, composed mechanically (no model call) from what
+  was asked and answered. A model-written summary is not built.
 - **GPT-Live's backend.** Which delegation route the ChatGPT sign-in takes
   (above), and, on client delegation, which model runs the desk-side tool
   loop and whose budget it is charged to.
@@ -149,7 +152,8 @@ by the route its protocol gives.
 ## Consequences
 
 - [voice-calls.md](../voice-calls.md) Direct turns and
-  [voice.md](../voice.md) "One brain, two outputs" describe the relay that runs
-  today and point here; each epic-7 task rewrites them as its part lands, and
-  task-78 removes the pointer once the whole front ships.
+  [voice.md](../voice.md) "One brain, two outputs" describe the full agent,
+  and `tests/voice.rs` (`one_call_proves_the_whole_front`) proves it end to
+  end on a function-tool dialect; the GPT-Live case proves lookups, denial
+  and hand-off through its backend tool calls.
 - ADR 0004's latency, barge-in, subscription and fallback decisions stand.

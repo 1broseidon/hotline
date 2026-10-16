@@ -303,6 +303,19 @@ pub trait Dispatcher: Send + Sync {
         written: &str,
         ledger: Arc<Budget>,
     ) -> Result<String, String>;
+    /// A request the voice on a call to a teammate delegated, answered with
+    /// `tools`, the teammate's desk-side tools and the hand-off to its
+    /// working session: what the voice should tell the person, or the
+    /// hand-off's words when it handed the request on.
+    async fn delegated(
+        &self,
+        _preamble: &str,
+        _request: &str,
+        _tools: Vec<DynamicTool>,
+        _ledger: Arc<Budget>,
+    ) -> Result<String, String> {
+        Err("This call assistant runs no tools.".into())
+    }
     /// Whether its model costs nothing per token: a sign-in, a local server.
     /// One that does not say so is treated as paid.
     fn free(&self) -> bool {
@@ -551,6 +564,12 @@ const ANSWER_TOKENS: u64 = 512;
 /// The output ceiling of a narrated or rewritten reply, and so of its
 /// reservation.
 const NARRATION_TOKENS: u64 = 160;
+/// The most one model turn answering a delegated request may write: room for
+/// a tool call's arguments and a short spoken answer.
+const DELEGATED_TOKENS: u64 = 1_024;
+/// The model turns a delegated request may take: a few lookups, then the
+/// answer.
+const DELEGATED_TURNS: usize = 6;
 
 /// How much of a written answer a rewrite is handed. The opening of a long
 /// answer carries its gist, and the rest is in the chat.
@@ -785,6 +804,39 @@ impl Dispatcher for ProviderDispatcher {
             .await
     }
 
+    async fn delegated(
+        &self,
+        preamble: &str,
+        request: &str,
+        tools: Vec<DynamicTool>,
+        ledger: Arc<Budget>,
+    ) -> Result<String, String> {
+        let tool_count = tools.len();
+        let agent = crate::driver::rig::completion_builder_with_effort(
+            &self.vault.provider_auth(),
+            &self.model,
+            self.effort.as_deref(),
+            Some(DELEGATED_TOKENS),
+        )
+        .await?
+        .preamble(preamble)
+        .dynamic_tools(tools)
+        .build();
+        let (meter, denied) = self.meter(ledger, preamble, tool_count, DELEGATED_TOKENS);
+        let result = agent
+            .prompt(untrusted(&json!({"personSaid": request})))
+            .max_turns(DELEGATED_TURNS)
+            .add_hook(meter)
+            .await;
+        result.map_err(|error| {
+            if denied.load(Ordering::SeqCst) {
+                BUDGET_ERROR.to_string()
+            } else {
+                error.to_string()
+            }
+        })
+    }
+
     async fn narrate(&self, name: &str, text: &str, ledger: Arc<Budget>) -> Result<String, String> {
         self.once(
             NARRATION,
@@ -811,6 +863,86 @@ impl Dispatcher for ProviderDispatcher {
         )
         .await
     }
+}
+
+/// What became of a request the front delegated.
+pub(super) enum Delegated {
+    /// What to tell the person, from the teammate's tools.
+    Answer { call_id: String, text: String },
+    /// Work for the teammate's working session, as `send_to_teammate`'s
+    /// arguments.
+    HandOff { call_id: String, arguments: String },
+}
+
+/// The longest the call assistant may take over a delegated request before
+/// it goes to the working session instead.
+const DELEGATED_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Answers a delegated request with the teammate's desk-side tools, or hands
+/// it on: when the assistant calls `send_to_teammate`, fails, or says
+/// nothing, the request goes to the working session as it would have.
+pub(super) async fn answer_delegation(
+    assistant: &dyn Dispatcher,
+    preamble: &str,
+    mut offered: Vec<DynamicTool>,
+    ledger: Arc<Budget>,
+    call_id: String,
+    arguments: String,
+) -> Delegated {
+    let handed = Arc::new(Mutex::new(None::<String>));
+    offered.push(hand_off(handed.clone()));
+    let request = serde_json::from_str::<Value>(&arguments)
+        .ok()
+        .and_then(|arguments| arguments["words"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    let answer = tokio::time::timeout(
+        DELEGATED_LIMIT,
+        assistant.delegated(preamble, &request, offered, ledger),
+    )
+    .await
+    .unwrap_or_else(|_| Err("The call assistant did not answer in time.".into()));
+    if let Some(words) = super::lock(&handed).take() {
+        let arguments = json!({ "words": words }).to_string();
+        return Delegated::HandOff { call_id, arguments };
+    }
+    match answer {
+        Ok(text) if !text.trim().is_empty() => Delegated::Answer { call_id, text },
+        Ok(_) => Delegated::HandOff { call_id, arguments },
+        Err(error) => {
+            eprintln!(
+                "[voice] the call assistant could not answer a delegation: {}",
+                crate::driver::clip(&error, 300)
+            );
+            Delegated::HandOff { call_id, arguments }
+        }
+    }
+}
+
+/// `send_to_teammate` for the call assistant: it keeps the words, for the
+/// call to hand over once the assistant is done.
+fn hand_off(handed: Arc<Mutex<Option<String>>>) -> DynamicTool {
+    let tool = super::front::tools()
+        .into_iter()
+        .find(|tool| tool.name == super::front::SEND_TO_TEAMMATE)
+        .expect("the front's own tools hold send_to_teammate");
+    DynamicTool::new(
+        tool.name,
+        tool.description,
+        tool.parameters,
+        move |_, arguments| {
+            let handed = handed.clone();
+            Box::pin(async move {
+                let words = arguments["words"].as_str().map(str::trim).unwrap_or("");
+                if words.is_empty() {
+                    return Ok(ToolOutput::text(
+                        "send_to_teammate needs the person's words.",
+                    ));
+                }
+                *super::lock(&handed) = Some(words.to_string());
+                Ok(ToolOutput::text("Handed to your working session."))
+            })
+        },
+    )
 }
 
 fn request(context: &Context, text: &str) -> String {
@@ -1044,6 +1176,117 @@ mod tests {
     /// One fixture model call's cost: 20 prompt and 10 completion tokens at
     /// the guard rate, since a custom gateway's models have no listed price.
     const FIXTURE_CALL_USD: f64 = (20.0 * 5.0 + 10.0 * 25.0) / 1_000_000.0;
+
+    /// A request the front delegated is answered from the teammate's tool, or
+    /// handed on when the assistant calls `send_to_teammate`.
+    #[tokio::test]
+    async fn a_delegated_request_is_answered_from_a_tool_or_handed_on() {
+        let root = tempfile::tempdir().unwrap();
+        let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let seen = requests.clone();
+        let app = Router::new().route("/v1/chat/completions", post(move |body: Bytes| {
+            let seen = seen.clone();
+            async move {
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                let messages = request["messages"].as_array().unwrap().clone();
+                seen.lock().unwrap().push(request);
+                let result = messages.iter().find(|m| m["role"] == "tool");
+                let asked = messages.iter().map(|m| m["content"].to_string()).collect::<String>();
+                let call = |name: &str, arguments: Value| json!({"role":"assistant","content":null,"tool_calls":[{"id":"t1","type":"function","function":{"name":name,"arguments":arguments.to_string()}}]});
+                let message = match result {
+                    Some(result) if result["content"].to_string().contains("zebracrossing") => json!({"role":"assistant","content":"We fixed the zebracrossing bug."}),
+                    Some(_) => json!({"role":"assistant","content":""}),
+                    None if asked.contains("rename") => call("send_to_teammate", json!({"words":"rename the module"})),
+                    None => call("search_thread", json!({"query":"fixed"})),
+                };
+                let finish = if message["tool_calls"].is_null() { "stop" } else { "tool_calls" };
+                ([("Content-Type", "application/json")], json!({"id":"voice_test","object":"chat.completion","created":1,"model":"fast-mini","choices":[{"index":0,"message":message,"finish_reason":finish}],"usage":{"prompt_tokens":20,"completion_tokens":10,"total_tokens":30}}).to_string())
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+        let desk =
+            Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
+        let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());
+        let credential = vault
+            .save_custom(
+                None,
+                crate::contract::CustomProviderDraft {
+                    name: "Fixture".into(),
+                    base_url: url,
+                    api: crate::contract::OpenAiApi::ChatCompletions,
+                    models: vec!["fast-mini".into()],
+                    secret: Some("fixture-key".into()),
+                },
+            )
+            .unwrap();
+        desk.log.append(&StreamId::Room, &json!({"kind":"setting","id":"defaultModelId","value":format!("{}/fast-mini", credential.provider_id)})).unwrap();
+        let assistant = ProviderDispatcher::resolve(vault, &desk.log).unwrap();
+        let ledger = Arc::new(Budget::open(desk.log.clone()));
+        let search = || {
+            vec![DynamicTool::new(
+                "search_thread",
+                "Search the conversation.",
+                json!({"type":"object","properties":{"query":{"type":"string"}}}),
+                |_, _| {
+                    Box::pin(async {
+                        Ok(ToolOutput::text(
+                            "We fixed the zebracrossing scheduler bug.",
+                        ))
+                    })
+                },
+            )]
+        };
+
+        let answered = answer_delegation(
+            assistant.as_ref(),
+            "You are Mack.",
+            search(),
+            ledger.clone(),
+            "d1".into(),
+            json!({"words":"what did we fix?"}).to_string(),
+        )
+        .await;
+        let Delegated::Answer { call_id, text } = answered else {
+            panic!("a lookup was handed on")
+        };
+        assert_eq!(
+            (call_id.as_str(), text.as_str()),
+            ("d1", "We fixed the zebracrossing bug.")
+        );
+        let first = requests.lock().unwrap()[0].clone();
+        let offered: Vec<&str> = first["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["function"]["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(offered, ["search_thread", "send_to_teammate"]);
+        assert!(first.to_string().contains("what did we fix?"));
+
+        let handed = answer_delegation(
+            assistant.as_ref(),
+            "You are Mack.",
+            search(),
+            ledger,
+            "d2".into(),
+            json!({"words":"please rename it"}).to_string(),
+        )
+        .await;
+        let Delegated::HandOff { call_id, arguments } = handed else {
+            panic!("work was not handed on")
+        };
+        assert_eq!(call_id, "d2");
+        assert_eq!(
+            serde_json::from_str::<Value>(&arguments).unwrap(),
+            json!({"words":"rename the module"})
+        );
+        server.abort();
+    }
 
     #[tokio::test]
     async fn native_dispatcher_uses_default_provider_fast_model_and_existing_commands() {

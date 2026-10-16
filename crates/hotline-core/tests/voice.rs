@@ -428,6 +428,25 @@ impl Dispatcher for ScriptDispatcher {
     async fn narrate(&self, name: &str, text: &str, _: Arc<Budget>) -> Result<String, String> {
         Ok(format!("{name} says: {text}"))
     }
+    /// Answers a delegated "what did we fix?" from the teammate's tools it
+    /// is offered, and nothing else.
+    async fn delegated(
+        &self,
+        preamble: &str,
+        request: &str,
+        tools: Vec<rig::tool::DynamicTool>,
+        _: Arc<Budget>,
+    ) -> Result<String, String> {
+        let names: Vec<&str> = tools.iter().map(|tool| tool.name()).collect();
+        assert!(names.contains(&"search_thread"), "{names:?}");
+        assert!(names.contains(&"send_to_teammate"), "{names:?}");
+        assert!(preamble.contains("cannot run your tools"), "{preamble}");
+        if request == "what did we fix?" {
+            Ok("We fixed the zebracrossing bug.".into())
+        } else {
+            Err("Not a lookup.".into())
+        }
+    }
     /// Says the untagged reply below again, given what the person said.
     async fn rewrite(&self, words: &str, written: &str, _: Arc<Budget>) -> Result<String, String> {
         assert_eq!(words, "ask Mack to check the failing PR");
@@ -1095,13 +1114,13 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
     );
 }
 
-/// GPT-Live's backend calls arrive as ordinary tool calls on a front whose
-/// config carries the teammate's desk-side registry: a lookup is answered
-/// from `search_thread` with no hand-off, a tool outside the teammate's reach
-/// is refused, and the front's own hand-off stays a hand-off.
+/// A front that runs no tools itself (GPT-Live) delegates everything as
+/// `send_to_teammate`: the call assistant answers a lookup with the
+/// teammate's tools, said back with no hand-off, and what it cannot answer
+/// still reaches the working session.
 #[tokio::test]
-async fn a_gpt_live_backend_call_is_run_desk_side_and_a_tool_outside_reach_is_refused() {
-    let mut desk = front_desk(true, 64).await;
+async fn a_delegating_fronts_lookup_is_answered_desk_side_and_work_is_handed_on() {
+    let mut desk = front_desk_with(true, 64, true).await;
     let root = desk.root.path().to_path_buf();
     let socket = &mut desk.socket;
     let (provider, _requests) = provider_seeing(TAGGED_REPLY).await;
@@ -1164,53 +1183,44 @@ async fn a_gpt_live_backend_call_is_run_desk_side_and_a_tool_outside_reach_is_re
     );
     let turns = desk.log.load(&tape).len();
 
-    let backend_call = |call_id: &'static str, name: &'static str, arguments: Value| {
+    let delegate = |call_id: &'static str, words: &'static str| {
         let events = desk.events.clone();
         async move {
             events
                 .send(Ok(RealtimeEvent::ToolCall {
                     call_id: call_id.into(),
-                    name: name.into(),
-                    arguments: arguments.to_string(),
+                    name: "send_to_teammate".into(),
+                    arguments: json!({ "words": words }).to_string(),
                 }))
                 .await
                 .unwrap();
         }
     };
-    backend_call("call_1", "search_thread", json!({"query":"zebracrossing"})).await;
+    delegate("d1", "what did we fix?").await;
     let Asked::ToolResult {
-        call_id, output, ..
+        call_id,
+        output,
+        reply,
     } = next_asked(&mut desk.asked).await
     else {
         panic!("the lookup went unanswered")
     };
-    assert_eq!(call_id, "call_1");
-    assert!(output.contains("zebracrossing"), "{output}");
+    assert_eq!(
+        (call_id.as_str(), output.as_str(), reply),
+        ("d1", "We fixed the zebracrossing bug.", true)
+    );
     assert_eq!(
         desk.log.load(&tape).len(),
         turns,
         "a lookup is not a hand-off"
     );
 
-    backend_call("call_2", "send_file", json!({"path":"x"})).await;
-    let Asked::ToolResult { output, .. } = next_asked(&mut desk.asked).await else {
-        panic!("the refusal went unanswered")
-    };
-    assert!(
-        output.contains("There is no tool called send_file"),
-        "{output}"
-    );
-
-    // Heavy work is still handed on, not run desk-side.
-    backend_call(
-        "call_3",
-        "send_to_teammate",
-        json!({"words":"rename the module"}),
-    )
-    .await;
-    let Asked::ToolResult { .. } = next_asked(&mut desk.asked).await else {
+    // What the assistant cannot answer is handed on, as it was before.
+    delegate("d2", "rename the module").await;
+    let Asked::ToolResult { call_id, .. } = next_asked(&mut desk.asked).await else {
         panic!("the hand-off went unanswered")
     };
+    assert_eq!(call_id, "d2");
     assert!(
         desk.log.load(&tape).len() > turns,
         "a hand-off reaches the teammate"
@@ -1542,6 +1552,7 @@ async fn one_call_proves_the_whole_front() {
 struct ScriptedFront {
     session: std::sync::Mutex<Option<RealtimeSession>>,
     config: std::sync::Mutex<Option<RealtimeConfig>>,
+    delegates: bool,
 }
 #[async_trait::async_trait]
 impl Realtime for ScriptedFront {
@@ -1554,6 +1565,9 @@ impl Realtime for ScriptedFront {
     }
     fn is_subscription(&self) -> bool {
         true
+    }
+    fn delegates(&self) -> bool {
+        self.delegates
     }
     async fn open(&self, config: RealtimeConfig) -> Result<RealtimeSession, SpeechError> {
         *self.config.lock().unwrap() = Some(config);
@@ -1577,11 +1591,17 @@ struct FrontDesk {
 /// A desk whose front is scripted, with a socket on it. With `front: false`
 /// the desk has no realtime provider at all.
 async fn front_desk(front: bool, queue: usize) -> FrontDesk {
+    front_desk_with(front, queue, false).await
+}
+
+/// The same, with a front that runs no tools itself when `delegates`.
+async fn front_desk_with(front: bool, queue: usize, delegates: bool) -> FrontDesk {
     let root = tempfile::tempdir().unwrap();
     let (session, asked, events) = RealtimeSession::scripted(queue);
     let scripted = Arc::new(ScriptedFront {
         session: std::sync::Mutex::new(Some(session)),
         config: std::sync::Mutex::new(None),
+        delegates,
     });
     let mut services = services();
     if front {

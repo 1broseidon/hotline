@@ -956,11 +956,12 @@ session: it hands a request over as a client `delegation`, which the
 adapter reports as the
 bridge's `send_to_teammate`, and a line for the person goes in on the
 `speakable` channel, which the model says in its own words rather than
-verbatim. On a teammate call the adapter instead
-creates the call with `responses` delegation on a backend model whose
-function calls are the desk-side tools (`realtime/live.rs`); whether the
-ChatGPT sign-in accepts that is unverified, and a rejected call falls back to
-the pipeline. The server stops a reply itself when the person talks; the
+verbatim. On a teammate call the desk answers a delegation itself first:
+the call assistant runs the teammate's desk-side tools on it and the answer
+goes back as commentary for the model to say, and only what it hands on, or
+fails at, reaches the working session ([ADR 0005](adr/0005-front-is-a-full-agent.md)).
+The sign-in cannot use `responses` delegation: the service refuses its
+validation connection with HTTP 401. The server stops a reply itself when the person talks; the
 adapter reports the person's new turn as a barge-in so the client cuts its
 playback. Lines wait for `session.started`. Creating the call is retried on
 a 5xx or an unreachable server, and a dropped sideband is joined again. A

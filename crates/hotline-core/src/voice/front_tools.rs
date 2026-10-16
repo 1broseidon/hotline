@@ -17,8 +17,9 @@ use crate::driver::CapabilityLease;
 use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer, McpTool};
 use crate::session::{FrontReach, Room};
+use rig::tool::{DynamicTool, ToolOutput};
 use serde_json::{Value, json};
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 pub const POST_TO_CHAT: &str = "post_to_chat";
@@ -105,6 +106,32 @@ impl FrontTools {
             parameters: tool.parameters.clone(),
         });
         built_in.chain([post]).chain(granted).collect()
+    }
+
+    /// These as tools a desk-side model calls, for a front whose model calls
+    /// none itself.
+    pub fn dynamic(self: &Arc<Self>) -> Vec<DynamicTool> {
+        self.definitions()
+            .into_iter()
+            .map(|tool| {
+                let tools = self.clone();
+                let name = tool.name.clone();
+                DynamicTool::new(
+                    tool.name,
+                    tool.description,
+                    tool.parameters,
+                    move |_, arguments| {
+                        let tools = tools.clone();
+                        let name = name.clone();
+                        Box::pin(async move {
+                            Ok(ToolOutput::text(
+                                tools.call(&name, &arguments.to_string()).await,
+                            ))
+                        })
+                    },
+                )
+            })
+            .collect()
     }
 
     /// Whether `name` is one of these.

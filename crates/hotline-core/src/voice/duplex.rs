@@ -5,6 +5,7 @@
 //! plays small frames down over the call's own wire, each side numbered, so
 //! a gap is visible and nothing is queued without a bound.
 
+use super::dispatcher::{Delegated, answer_delegation};
 use super::front::{self, FRONT_LINE_PREFIX};
 use super::front_prompt::{self, Behind, Line, Speaker as LineSpeaker, Start};
 use super::front_tools::FrontTools;
@@ -359,8 +360,14 @@ impl Calls {
             .as_ref()
             .map(|tools| tools.definitions())
             .unwrap_or_default();
+        let instructions = self.front_instructions(persona.as_ref(), &desk_definitions);
+        // A model that calls no tools of its own delegates; what it delegates
+        // is answered with the teammate's tools by the call assistant, told
+        // what the front is told.
+        let mind = (realtime.delegates() && desk_tools.is_some())
+            .then(|| front_prompt::delegated(&instructions));
         let config = RealtimeConfig {
-            instructions: self.front_instructions(persona.as_ref(), &desk_definitions),
+            instructions,
             voice: self.front_voice(persona.as_ref()),
             tools: front::tools()
                 .into_iter()
@@ -374,7 +381,7 @@ impl Calls {
             input_rate: FRONT_RATE,
             output_rate: FRONT_RATE,
         };
-        let bridge = bridge.with_desk_tools(desk_tools);
+        let bridge = bridge.with_desk_tools(desk_tools).with_delegation(mind);
         let opened = tokio::select! {
             _ = cancel.cancelled() => return,
             opened = realtime.open(config) => opened,
@@ -448,6 +455,7 @@ impl Calls {
             tokio::time::interval_at(tokio::time::Instant::now() + SPEND_EVERY, SPEND_EVERY);
         let mut summaries =
             tokio::time::interval_at(tokio::time::Instant::now() + SUMMARY_EVERY, SUMMARY_EVERY);
+        let (answered_tx, mut answered) = mpsc::unbounded_channel::<Delegated>();
         loop {
             let event = tokio::select! {
                 _ = cancel.cancelled() => return FrontEnd::Call,
@@ -473,6 +481,19 @@ impl Calls {
                 note = bridge.next_note() => {
                     let Some(note) = note else { return FrontEnd::Call };
                     let _ = input.say(note.text()).await;
+                    continue;
+                }
+                Some(delegated) = answered.recv() => {
+                    match delegated {
+                        Delegated::Answer { call_id, text } => {
+                            digest.looked_up();
+                            let _ = input.tool_result(&call_id, &text, true).await;
+                        }
+                        Delegated::HandOff { call_id, arguments } => {
+                            hand_over(&mut bridge, unanswered, digest, &input, &call_id, &arguments)
+                                .await;
+                        }
+                    }
                     continue;
                 }
                 event = events.recv() => event,
@@ -556,13 +577,45 @@ impl Calls {
                     call_id,
                     name,
                     arguments,
+                } if name == front::SEND_TO_TEAMMATE
+                    && let Some((preamble, tools)) = bridge.delegation()
+                    && let Ok(assistant) = self.dispatcher() =>
+                {
+                    // Answered beside the call, as a tool is; the model says
+                    // the answer once it comes back.
+                    let ledger = self.ledger.clone();
+                    let answered = answered_tx.clone();
+                    let cancel = cancel.clone();
+                    tokio::spawn(async move {
+                        let delegated = tokio::select! {
+                            _ = cancel.cancelled() => return,
+                            delegated = answer_delegation(
+                                assistant.as_ref(), &preamble, tools.dynamic(), ledger, call_id, arguments,
+                            ) => delegated,
+                        };
+                        let _ = answered.send(delegated);
+                    });
+                    Ok(())
+                }
+                RealtimeEvent::ToolCall {
+                    call_id,
+                    name,
+                    arguments,
                 } => {
-                    let (output, reply) = bridge.tool_call(&name, &arguments);
-                    if name == front::SEND_TO_TEAMMATE && !reply {
-                        *unanswered = None;
-                        digest.handed(&handed_words(&arguments));
+                    if name == front::SEND_TO_TEAMMATE {
+                        hand_over(
+                            &mut bridge,
+                            unanswered,
+                            digest,
+                            &input,
+                            &call_id,
+                            &arguments,
+                        )
+                        .await;
+                    } else {
+                        let (output, reply) = bridge.tool_call(&name, &arguments);
+                        let _ = input.tool_result(&call_id, &output, reply).await;
                     }
-                    let _ = input.tool_result(&call_id, &output, reply).await;
                     Ok(())
                 }
                 RealtimeEvent::Refused { code } => {
@@ -631,6 +684,24 @@ struct Kept {
 }
 
 /// The words a `send_to_teammate` call carried.
+/// Hands the person's words to the teammate's working session, through the
+/// bridge, and answers the front's call.
+async fn hand_over(
+    bridge: &mut front::Front,
+    unanswered: &mut Option<(String, u32)>,
+    digest: &mut Digest,
+    input: &RealtimeInput,
+    call_id: &str,
+    arguments: &str,
+) {
+    let (output, reply) = bridge.tool_call(front::SEND_TO_TEAMMATE, arguments);
+    if !reply {
+        *unanswered = None;
+        digest.handed(&handed_words(arguments));
+    }
+    let _ = input.tool_result(call_id, &output, reply).await;
+}
+
 fn handed_words(arguments: &str) -> String {
     serde_json::from_str::<serde_json::Value>(arguments)
         .ok()

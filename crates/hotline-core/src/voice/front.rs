@@ -162,6 +162,9 @@ pub struct Front {
     notes: std::collections::VecDeque<String>,
     /// The teammate's desk-side tools, on a direct call.
     desk_tools: Option<Arc<FrontTools>>,
+    /// What the call assistant is told when it answers a request the front
+    /// delegated, for a front that runs no tools itself.
+    delegation: Option<String>,
 }
 
 impl Front {
@@ -181,12 +184,24 @@ impl Front {
             last_told: Instant::now(),
             notes: std::collections::VecDeque::new(),
             desk_tools: None,
+            delegation: None,
         })
     }
 
     pub fn with_desk_tools(mut self, tools: Option<Arc<FrontTools>>) -> Self {
         self.desk_tools = tools;
         self
+    }
+
+    pub fn with_delegation(mut self, preamble: Option<String>) -> Self {
+        self.delegation = preamble;
+        self
+    }
+
+    /// The instructions a delegated request is answered under, with the
+    /// tools to answer it, when the front delegates rather than calls them.
+    pub fn delegation(&self) -> Option<(String, Arc<FrontTools>)> {
+        self.delegation.clone().zip(self.desk_tools.clone())
     }
 
     /// The desk-side tools a call to a teammate holds, which run beside the

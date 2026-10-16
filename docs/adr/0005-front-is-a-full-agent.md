@@ -106,22 +106,19 @@ by the route its protocol gives.
   The registry is declared on the realtime session, and each
   `function_call` the model makes is run desk-side and answered with its
   `function_call_output` (task-74).
-- **GPT-Live** takes no tools on the realtime session: it delegates
-  reasoning and tool use to a backend, and that backend's function calls
-  come back to the client as response events, answered with
-  `function_call_output`. The desk serves it one of two ways (task-79):
-  - **Responses delegation**: delegation type `responses` with a backend
-    model, the registry declared as its functions, each call run desk-side.
-  - **Client delegation**, the ChatGPT sign-in route the adapter uses today:
-    a `delegation` is answered by a desk-side tool loop with the registry,
-    not by handing it to the working session, which gets only what the loop
-    judges heavy, through `send_to_teammate` as on the other fronts.
-
-  Whether the ChatGPT sign-in route accepts `responses` delegation is
-  unverified: it could not be spiked without a live login. task-79 built the
-  `responses` route (a teammate call declares the registry on a backend model;
-  a desk call keeps client delegation); a call the sign-in refuses falls back to
-  the pipeline. The client-delegation tool loop needs a desk-run model and is not built.
+- **GPT-Live** takes no tools on the realtime session: it delegates every
+  request as a client `delegation`, which the adapter reports as
+  `send_to_teammate` (task-84). On a teammate call the desk answers it with a
+  tool loop: the call assistant (the Voice settings' dispatcher model), told
+  what the front is told, runs the registry and its own `send_to_teammate`,
+  and its answer goes back as commentary on the delegation for GPT-Live to
+  say. When it calls `send_to_teammate`, fails, says nothing or takes over a
+  minute, the request goes to the working session as before; with no call
+  assistant every delegation does. A desk call holds no registry and always
+  hands on. The `responses` route (the registry declared on a backend model)
+  is not used: on the ChatGPT sign-in the service refuses its validation
+  connection (`responses_validation_failed`, HTTP 401), which left every
+  tool request unanswered.
 
 ## Decided
 

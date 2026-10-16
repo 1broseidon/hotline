@@ -123,6 +123,15 @@ pub fn instructions(behind: &Behind, start: &Start) -> String {
     text
 }
 
+/// The front's instructions for the model that answers what its voice
+/// delegated, when the voice runs no tools itself: the same teammate, rules
+/// and tools, and the request arriving in writing.
+pub fn delegated(front: &str) -> String {
+    format!(
+        "{front}\n\nYour voice on this call cannot run your tools, so it has handed you what the person said, below. Do it now: answer it from your tools, calling what fits, or call send_to_teammate with the person's words when it is work for your working session. Then write only what to tell the person, as you would say it on the call. After send_to_teammate, write nothing more."
+    )
+}
+
 /// The newest lines that fit, in their original order.
 fn recent_lines(lines: &[Line]) -> String {
     let mut kept = Vec::new();

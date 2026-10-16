@@ -228,6 +228,12 @@ pub trait Realtime: Send + Sync {
     fn id(&self) -> SpeechId;
     /// Subscription sessions do not incur an additional metered charge.
     fn is_subscription(&self) -> bool;
+    /// Whether the model calls no session tools of its own and hands every
+    /// request over as `send_to_teammate`, for the caller to answer with its
+    /// tools or pass on.
+    fn delegates(&self) -> bool {
+        false
+    }
     /// Connects and applies `config`. Fails, without a session, when the
     /// provider is unreachable, refuses the login or rejects the config.
     async fn open(&self, config: RealtimeConfig) -> Result<RealtimeSession, SpeechError>;

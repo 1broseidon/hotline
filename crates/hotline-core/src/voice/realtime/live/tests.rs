@@ -177,10 +177,10 @@ async fn rates_other_than_24_khz_fail_before_any_call() {
 /// A real call on a ChatGPT login: `HOTLINE_TEST_CHATGPT_DIR` is a login
 /// directory holding `auth.json`, and `HOTLINE_TEST_ASK_WAV` a 24 kHz mono
 /// PCM16 WAV of someone asking for something. It says a line, then hears the
-/// ask and hands it over.
+/// ask and hands it over, and says what the desk answers it with.
 #[tokio::test]
 #[ignore = "places a real GPT-Live call on a ChatGPT login"]
-async fn a_live_call_says_a_line_and_hands_over_what_it_hears() {
+async fn a_live_call_says_a_line_hands_over_what_it_hears_and_says_the_answer() {
     let dir = std::env::var("HOTLINE_TEST_CHATGPT_DIR").expect("a ChatGPT login directory");
     let wav = std::fs::read(std::env::var("HOTLINE_TEST_ASK_WAV").expect("a 24 kHz clip")).unwrap();
     let live = GptLive::new(dir.into());
@@ -220,8 +220,10 @@ async fn a_live_call_says_a_line_and_hands_over_what_it_hears() {
                 RealtimeEvent::Saying(piece) => saying.push_str(&piece),
                 RealtimeEvent::Audio(pcm) => audio += pcm.len(),
                 RealtimeEvent::ToolCall {
-                    name, arguments, ..
-                } => handed = Some((name, arguments)),
+                    call_id,
+                    name,
+                    arguments,
+                } => handed = Some((call_id, name, arguments)),
                 _ => {}
             }
         }
@@ -232,9 +234,31 @@ async fn a_live_call_says_a_line_and_hands_over_what_it_hears() {
         audio > 24_000,
         "a second of speech came back: {audio} bytes"
     );
-    let (name, arguments) = handed.expect("the ask was handed over");
+    let (call_id, name, arguments) = handed.expect("the ask was handed over");
     assert_eq!(name, SEND_TO_TEAMMATE);
     assert!(arguments.contains("laptop"), "{arguments}");
+
+    // What the desk found for the delegation is said.
+    session
+        .input
+        .tool_result(&call_id, "The laptop ships on Thursday.", true)
+        .await
+        .unwrap();
+    let mut answered = String::new();
+    let asked = tokio::time::Instant::now();
+    while asked.elapsed() < Duration::from_secs(20) && !answered.contains("Thursday") {
+        let at = started.elapsed().as_millis() as usize;
+        while sent * 40 < at {
+            session.input.push_audio(silence.clone()).await.unwrap();
+            sent += 1;
+        }
+        if let Ok(Some(event)) = timeout(Duration::from_millis(20), session.events.recv()).await
+            && let RealtimeEvent::Saying(piece) = event.unwrap()
+        {
+            answered.push_str(&piece);
+        }
+    }
+    assert!(answered.contains("Thursday"), "{answered}");
     session.close().await;
 }
 
@@ -286,62 +310,4 @@ async fn a_live_call_moves_onto_a_replacement_before_the_session_ends() {
     assert!(renewed >= Duration::from_secs(15), "{renewed:?}");
     assert!(!said_after.trim().is_empty(), "the replacement spoke");
     session.close().await;
-}
-
-fn config(tools: &[&str]) -> RealtimeConfig {
-    RealtimeConfig {
-        instructions: "You are Mack.".into(),
-        voice: "cove".into(),
-        tools: tools
-            .iter()
-            .map(|name| super::super::RealtimeTool {
-                name: (*name).into(),
-                description: String::new(),
-                parameters: json!({"type": "object"}),
-            })
-            .collect(),
-        input_rate: 24_000,
-        output_rate: 24_000,
-    }
-}
-
-#[test]
-fn desk_side_tools_move_the_reasoning_to_a_backend_that_declares_them() {
-    let desk_only = config(&[SEND_TO_TEAMMATE, crate::voice::front::REMAIN_SILENT]);
-    assert_eq!(delegation(&desk_only), json!({"type": "client"}));
-    assert!(!answers_backend(&desk_only));
-
-    let teammate = config(&[SEND_TO_TEAMMATE, "search_thread"]);
-    let backend = delegation(&teammate);
-    assert_eq!(backend["type"], "responses");
-    let names: Vec<&str> = backend["responses"]["tools"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|tool| tool["name"].as_str().unwrap())
-        .collect();
-    assert_eq!(names, [SEND_TO_TEAMMATE, "search_thread"]);
-    assert!(answers_backend(&teammate));
-}
-
-#[test]
-fn a_function_call_the_backend_makes_is_the_desks_to_run() {
-    let mut heard = Heard::default();
-    let done = json!({
-        "type": "response.event",
-        "delegation_id": "d1",
-        "event": {"type": "response.output_item.done",
-                  "item": {"type": "function_call", "call_id": "call_1",
-                           "name": "search_thread", "arguments": "{\"query\":\"x\"}"}},
-    });
-    assert_eq!(
-        heard.event(&done).unwrap(),
-        [RealtimeEvent::ToolCall {
-            call_id: "call_1".into(),
-            name: "search_thread".into(),
-            arguments: "{\"query\":\"x\"}".into(),
-        }]
-    );
-    let message = json!({"type": "response.event", "event": {"type": "response.output_item.done", "item": {"type": "message"}}});
-    assert!(heard.event(&message).unwrap().is_empty());
 }

@@ -123,6 +123,14 @@ by the route its protocol gives.
   a desk call keeps client delegation); a call the sign-in refuses falls back to
   the pipeline. The client-delegation tool loop needs a desk-run model and is not built.
 
+## Decided
+
+- **Whose words the summary is.** The front's, from its transcript (task-80):
+  cheap and live, and it needs no turn of the working session. It is posted as
+  an agent message from the teammate, so the chat stays in one voice, and the
+  session carries it into its next turn, so a typed follow-up does not start
+  cold.
+
 ## Open questions
 
 - **A harness teammate's own tools.** Claude Code's edits, Codex's shell and
@@ -130,9 +138,6 @@ by the route its protocol gives.
   the front cannot run them and gets only the desk-side grants. For a harness
   teammate, work that needs those tools is a hand-off. Whether the harness can
   lend them to a call (an ACP tool surface the front calls through) is open.
-- **Whose words the summary is.** The front's, from its transcript, or the
-  teammate's, from a turn it is handed. The first is cheaper and live; the
-  second keeps the chat in one voice.
 - **Budget for long, tool-heavy calls.** A per-minute key is charged for
   minutes, not tool calls, but tool output read back fills the model's context
   and a session renewal carries it. Clipping bounds each result; a call-level

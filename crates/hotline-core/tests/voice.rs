@@ -976,6 +976,22 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
         "{output}"
     );
 
+    // Asked to put something in the chat, the front posts it, tagged as from the call.
+    tool_result(
+        "p1",
+        "post_to_chat",
+        json!({"text":"the scheduler fix is in"}),
+    )
+    .await;
+    let Asked::ToolResult { output, .. } = next_asked(&mut desk.asked).await else {
+        panic!("the post went unanswered")
+    };
+    assert_eq!(output, "Posted to the chat.");
+    let posted: Vec<Value> = desk.log.load(&tape).split_off(turns);
+    assert_eq!(posted.len(), 1, "{posted:?}");
+    assert_eq!(posted[0]["kind"], "notice");
+    assert_eq!(posted[0]["text"], "From the call: the scheduler fix is in");
+
     // Revoking a grant on the card refuses the next call.
     let patched = answer(socket, 94, json!({"cmd":"persona.update","params":{"id":persona,"patch":{"mcpPolicy":{"mode":"all","serverIds":[]}}}})).await;
     assert_eq!(patched["ok"], true, "{patched}");
@@ -984,6 +1000,144 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
         panic!("the revoked search went unanswered")
     };
     assert!(output.contains("revoked"), "{output}");
+    tool_result("p2", "post_to_chat", json!({"text":"too late"})).await;
+    let Asked::ToolResult { output, .. } = next_asked(&mut desk.asked).await else {
+        panic!("the revoked post went unanswered")
+    };
+    assert!(output.contains("revoked"), "{output}");
+    assert_eq!(
+        desk.log.load(&tape).len(),
+        turns + 1,
+        "a revoked post is not posted"
+    );
+}
+
+/// A call with three exchanges and one hand-off leaves the hand-off's turn
+/// and one summary in the DM, and none of the front's own turns.
+#[tokio::test]
+async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
+    let mut desk = front_desk(true, 64).await;
+    let root = desk.root.path().to_path_buf();
+    let socket = &mut desk.socket;
+    let (provider, _requests) = provider_seeing("The checks passed.").await;
+    let saved = answer(socket, 90, json!({"cmd":"credential.custom_save","params":{"draft":{"name":"Front fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
+    assert_eq!(saved["ok"], true);
+    let persona = answer(socket, 91, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.to_str().unwrap()}}})).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        answer(
+            socket,
+            92,
+            json!({"cmd":"session.start","params":{"personaId":persona}})
+        )
+        .await["ok"],
+        true
+    );
+    let call = Uuid::new_v4().to_string();
+    let started = answer(
+        socket,
+        1,
+        json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}}),
+    )
+    .await;
+    assert_eq!(started["ok"], true, "{started}");
+    send(socket, json!({"id":2,"sub":{"call":call}})).await;
+    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while desk.front.config.lock().unwrap().is_none() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the front was opened");
+
+    let handoff = "check the failing PR from monday";
+    for (heard, said) in [
+        ("hello there, can you hear me", "Loud and clear."),
+        (handoff, "On it."),
+        ("thanks, that is all for now", "Anytime."),
+    ] {
+        desk.events
+            .send(Ok(RealtimeEvent::Heard(heard.into())))
+            .await
+            .unwrap();
+        if heard == handoff {
+            desk.events
+                .send(Ok(RealtimeEvent::ToolCall {
+                    call_id: "h1".into(),
+                    name: "send_to_teammate".into(),
+                    arguments: json!({ "words": handoff }).to_string(),
+                }))
+                .await
+                .unwrap();
+            let Asked::ToolResult { .. } = next_asked(&mut desk.asked).await else {
+                panic!("the hand-off went unanswered")
+            };
+        }
+        desk.events
+            .send(Ok(RealtimeEvent::Saying(said.into())))
+            .await
+            .unwrap();
+        desk.events
+            .send(Ok(RealtimeEvent::ResponseDone))
+            .await
+            .unwrap();
+        until(socket, |f| {
+            f["event"]["type"] == "said" && f["event"]["text"] == said
+        })
+        .await;
+    }
+    let tape = hotline_core::log::StreamId::Tape(persona.clone());
+    for _ in 0..500 {
+        if desk
+            .log
+            .load(&tape)
+            .iter()
+            .any(|event| event["kind"] == "agent")
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        answer(
+            socket,
+            3,
+            json!({"cmd":"voice.call_end","params":{"callId":call}})
+        )
+        .await["ok"],
+        true
+    );
+    let mut dm = Vec::new();
+    for _ in 0..500 {
+        dm = desk.log.load(&tape);
+        if dm.iter().any(|event| event["kind"] == "notice") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let users: Vec<&Value> = dm.iter().filter(|v| v["kind"] == "user").collect();
+    assert_eq!(users.len(), 1, "only the hand-off is a turn: {dm:?}");
+    assert_eq!(users[0]["text"], handoff);
+    let summaries: Vec<&Value> = dm.iter().filter(|v| v["kind"] == "notice").collect();
+    assert_eq!(summaries.len(), 1, "{dm:?}");
+    let text = summaries[0]["text"].as_str().unwrap();
+    assert!(text.starts_with("From the call:"), "{text}");
+    assert!(text.contains("hello there, can you hear me"), "{text}");
+    assert!(
+        text.contains(&format!("handed to the working session: \"{handoff}\"")),
+        "{text}"
+    );
+    for said in ["Loud and clear.", "On it.", "Anytime."] {
+        assert!(
+            !dm.iter().any(|v| v["text"]
+                .as_str()
+                .is_some_and(|t| t.contains(said) && v["kind"] != "agent")),
+            "the front's {said:?} stays on the call: {dm:?}"
+        );
+    }
 }
 
 /// A realtime provider played by the test: it hands out one scripted session.
@@ -1407,9 +1561,10 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
             "search_thread",
             "list_chapters",
             "list_schedules",
-            "web_search"
+            "web_search",
+            "post_to_chat"
         ],
-        "the bridge's two and the teammate's desk-side reads"
+        "the bridge's two, the teammate's desk-side reads and the post to the chat"
     );
     assert_eq!(config.voice, "rex", "the teammate's own voice");
 

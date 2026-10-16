@@ -16,9 +16,15 @@ use super::front::Tool;
 use crate::driver::CapabilityLease;
 use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer, McpTool};
-use crate::session::FrontReach;
-use serde_json::Value;
+use crate::session::{FrontReach, Room};
+use serde_json::{Value, json};
+use std::sync::Weak;
 use std::time::Duration;
+
+pub const POST_TO_CHAT: &str = "post_to_chat";
+/// The most one post to the chat may say; a long account is the working
+/// session's to write.
+const POST_CHARS: usize = 2_000;
 
 /// The most a tool's output may be before the model hears it. A voice cannot
 /// use more, and the model's context is spent on what it reads.
@@ -29,6 +35,9 @@ const CALL_LIMIT: Duration = Duration::from_secs(30);
 const CONNECT_LIMIT: Duration = Duration::from_secs(10);
 
 pub struct FrontTools {
+    room: Weak<Room>,
+    call_id: String,
+    persona_id: String,
     teammate: TeammateTools,
     capability: CapabilityLease,
     granted: Vec<McpTool>,
@@ -40,7 +49,12 @@ impl FrontTools {
     /// Connects the servers the teammate is granted and holds them for the
     /// call. A server that does not answer in time is left out, and the
     /// front is not given its tools.
-    pub(crate) async fn open(persona_id: &str, reach: FrontReach) -> Self {
+    pub(crate) async fn open(
+        room: Weak<Room>,
+        call_id: &str,
+        persona_id: &str,
+        reach: FrontReach,
+    ) -> Self {
         let FrontReach {
             tools,
             servers,
@@ -57,6 +71,9 @@ impl FrontTools {
             .map(|connections| connections.tools.clone())
             .unwrap_or_default();
         Self {
+            room,
+            call_id: call_id.into(),
+            persona_id: persona_id.into(),
             teammate: tools,
             capability,
             granted,
@@ -73,17 +90,27 @@ impl FrontTools {
                 parameters,
             },
         );
+        let post = Tool {
+            name: POST_TO_CHAT.into(),
+            description: "Put something in the written conversation with the person, when they ask for it (\"put that in the chat\"). Posts the text as from this call; it is not how you hand them work.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {"text": {"type": "string", "description": "What to post, as the person should read it."}},
+                "required": ["text"],
+            }),
+        };
         let granted = self.granted.iter().map(|tool| Tool {
             name: tool.name.clone(),
             description: tool.description.clone(),
             parameters: tool.parameters.clone(),
         });
-        built_in.chain(granted).collect()
+        built_in.chain([post]).chain(granted).collect()
     }
 
     /// Whether `name` is one of these.
     pub fn has(&self, name: &str) -> bool {
-        self.granted.iter().any(|tool| tool.name == name)
+        name == POST_TO_CHAT
+            || self.granted.iter().any(|tool| tool.name == name)
             || TeammateTools::front_descriptors()
                 .iter()
                 .any(|(known, _, _)| known == name)
@@ -103,6 +130,9 @@ impl FrontTools {
         if let Err(refusal) = self.capability.check() {
             return refusal;
         }
+        if name == POST_TO_CHAT {
+            return self.post(&arguments);
+        }
         let run = async {
             match self.granted.iter().find(|tool| tool.name == name) {
                 Some(tool) => tool
@@ -119,6 +149,29 @@ impl FrontTools {
             Err(_) => format!("{name} did not answer in time."),
         };
         crate::driver::clip(&answer, OUTPUT_CHARS)
+    }
+}
+
+impl FrontTools {
+    /// Posts the person's request to the teammate's DM, tagged as from the call.
+    fn post(&self, arguments: &Value) -> String {
+        let Some(text) = arguments["text"]
+            .as_str()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        else {
+            return "post_to_chat needs the text to post.".into();
+        };
+        let Some(room) = self.room.upgrade() else {
+            return "The chat is not available.".into();
+        };
+        let text = crate::driver::clip(text, POST_CHARS);
+        room.call_posted(
+            &self.persona_id,
+            &self.call_id,
+            &format!("From the call: {text}"),
+        );
+        "Posted to the chat.".into()
     }
 }
 

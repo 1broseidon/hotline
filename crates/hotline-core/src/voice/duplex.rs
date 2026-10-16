@@ -110,7 +110,7 @@ impl Calls {
     /// What the front is told before the call: on a call to a teammate, its
     /// name, the open chapter's handoff note and the latest lines of its DM
     /// said in words; on a desk call, only how to behave.
-    fn front_instructions(&self, persona: Option<&Persona>) -> String {
+    fn front_instructions(&self, persona: Option<&Persona>, tools: &[front::Tool]) -> String {
         let Some(persona) = persona else {
             return front_prompt::instructions(&Behind::Desk, &Start::default());
         };
@@ -143,6 +143,7 @@ impl Calls {
                 person: None,
                 handoff,
                 recent: &recent,
+                tools,
             },
         )
     }
@@ -359,7 +360,7 @@ impl Calls {
             .map(|tools| tools.definitions())
             .unwrap_or_default();
         let config = RealtimeConfig {
-            instructions: self.front_instructions(persona.as_ref()),
+            instructions: self.front_instructions(persona.as_ref(), &desk_definitions),
             voice: self.front_voice(persona.as_ref()),
             tools: front::tools()
                 .into_iter()

@@ -10,6 +10,9 @@ tags:
   - contract
 parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
+dependsOn:
+  - task-85
+updatedAt: "2026-10-16T17:24:30.245Z"
 ---
 
 ## Description

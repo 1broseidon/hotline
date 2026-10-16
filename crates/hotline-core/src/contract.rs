@@ -963,6 +963,45 @@ pub struct SessionInfo {
     #[serde(default)]
     #[ts(as = "Option<bool>", optional)]
     pub awaiting_subagents: bool,
+    /// Commands the teammate left running past the turns that started them:
+    /// a server, a watcher. They do not change `state`: a teammate with a
+    /// server up and nothing to do reads idle.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<SessionProcess>>", optional)]
+    pub processes: Vec<SessionProcess>,
+}
+
+/// One command a session holds running, as the desk's chip shows it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SessionProcess {
+    /// The job id the teammate knows it by, and `process.stop` takes.
+    pub id: String,
+    /// The command's first line, clipped.
+    pub title: String,
+    /// Milliseconds since the epoch.
+    pub started_at: i64,
+    pub state: ProcessState,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ProcessState {
+    Running,
+    /// Asked to stop, and not yet gone.
+    Stopping,
+}
+
+/// What `process.output` answers: the whole command, and the latest of what
+/// it has written, stdout and stderr together.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct ProcessOutput {
+    pub command: String,
+    pub tail: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -3438,6 +3477,13 @@ pub enum Command {
     },
     #[serde(rename = "session.cancel")]
     SessionCancel { persona_id: String },
+    /// Stops one command the teammate left running. The teammate is not
+    /// woken by its end: the person stopped it.
+    #[serde(rename = "process.stop")]
+    ProcessStop { persona_id: String, id: String },
+    /// The whole command and the latest of its output, as `ProcessOutput`.
+    #[serde(rename = "process.output")]
+    ProcessOutput { persona_id: String, id: String },
     #[serde(rename = "session.set_model")]
     SessionSetModel {
         persona_id: String,

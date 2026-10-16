@@ -119,7 +119,9 @@ impl Tool for RunCommand {
         _context: &mut ToolContext,
         args: Self::Args,
     ) -> Result<Self::Output, Self::Error> {
-        let outcome = self.run(args, CancellationToken::new()).await?;
+        let outcome = self
+            .run(args, CancellationToken::new(), &OutputTail::default())
+            .await?;
         if matches!(
             outcome.state,
             CommandState::TimedOut | CommandState::Interrupted
@@ -147,6 +149,64 @@ pub(crate) struct CommandOutcome {
 
 /// The line between a command's stdout and its stderr in its output.
 pub(crate) const STDERR_LINE: &str = "\n[stderr]\n";
+
+/// How much of a running command's latest output is kept to be read while it
+/// runs: a screen or two, which is what anyone checking on a server reads.
+const TAIL_BYTES: usize = 16 * 1024;
+
+/// The last of a command's output while it runs, stdout and stderr together
+/// in the order they arrived. The whole output is still the outcome's; this
+/// is only so that somebody can look before the command ends.
+#[derive(Default)]
+pub(crate) struct OutputTail(std::sync::Mutex<std::collections::VecDeque<u8>>);
+
+impl OutputTail {
+    fn push(&self, bytes: &[u8]) {
+        let mut tail = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        tail.extend(bytes);
+        let excess = tail.len().saturating_sub(TAIL_BYTES);
+        tail.drain(..excess);
+    }
+
+    pub(crate) fn text(&self) -> String {
+        let mut tail = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let bytes = tail.make_contiguous();
+        // A cut can land inside a character; start at the next whole one.
+        let start = bytes
+            .iter()
+            .position(|byte| (*byte as i8) >= -0x40)
+            .unwrap_or(bytes.len());
+        String::from_utf8_lossy(&bytes[start..]).into_owned()
+    }
+}
+
+/// Reads one of the command's pipes to its end, keeping all of it and
+/// showing it to the tail as it comes.
+async fn drain(
+    pipe: Option<impl tokio::io::AsyncRead + Unpin>,
+    tail: &OutputTail,
+) -> std::io::Result<Vec<u8>> {
+    use tokio::io::AsyncReadExt;
+    let mut all = Vec::new();
+    let Some(mut pipe) = pipe else {
+        return Ok(all);
+    };
+    let mut chunk = [0u8; 8192];
+    loop {
+        let read = pipe.read(&mut chunk).await?;
+        if read == 0 {
+            return Ok(all);
+        }
+        all.extend_from_slice(&chunk[..read]);
+        tail.push(&chunk[..read]);
+    }
+}
 
 impl RunCommand {
     pub(crate) fn boundary(&self) -> String {
@@ -185,10 +245,12 @@ impl RunCommand {
 
     /// Cancellation owns the same process group as Stop, but keeps waiting
     /// after signalling it so the caller can distinguish a request from exit.
+    /// The output reaches `tail` as it is written.
     pub(crate) async fn run(
         &self,
         args: RunCommandArgs,
         cancel: CancellationToken,
+        tail: &OutputTail,
     ) -> Result<CommandOutcome, ToolError> {
         self.workspace.check_capability()?;
         let command = args.command.trim().to_string();
@@ -218,7 +280,7 @@ impl RunCommand {
                 output: "Cancelled before the command started.".into(),
             });
         }
-        let child = process
+        let mut child = process
             .spawn()
             .map_err(|error| ToolError::other(format!("The command could not start: {error}")))?;
         #[cfg(windows)]
@@ -228,7 +290,16 @@ impl RunCommand {
             ))
         })?;
         let mut group = ProcessGroup::of(&child);
-        let waiting = child.wait_with_output();
+        let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
+        let waiting = async {
+            let (stdout, stderr, status) =
+                tokio::try_join!(drain(stdout, tail), drain(stderr, tail), child.wait())?;
+            std::io::Result::Ok(std::process::Output {
+                status,
+                stdout,
+                stderr,
+            })
+        };
         tokio::pin!(waiting);
         let deadline = async {
             match args.timeout_seconds {
@@ -617,6 +688,7 @@ mod tests {
                     timeout_seconds: None,
                 },
                 cancel,
+                &OutputTail::default(),
             )
             .await
             .unwrap();

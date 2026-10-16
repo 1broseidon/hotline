@@ -442,6 +442,10 @@ impl Driver for InProcess {
         Some(self.processes.subscribe())
     }
 
+    fn processes(&self) -> Option<Arc<crate::session::jobs::Processes>> {
+        Some(self.processes.clone())
+    }
+
     fn cancel(&self) {
         if let Some(steering) = lock(&self.steering).as_ref() {
             steering.close_admission();

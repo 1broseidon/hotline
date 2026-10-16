@@ -47,7 +47,7 @@ contract:
     deliveredAt: "2026-10-16T15:51:27.021Z"
     duration: 510
 createdAt: "2026-10-16T14:05:40.652Z"
-updatedAt: "2026-10-16T15:51:31.908Z"
+updatedAt: "2026-10-16T15:55:28.816Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -70,3 +70,4 @@ Wire and prove the epic end to end against its description of done. One headless
 
 ## Log
 - 2026-10-16T15:51:26.746Z: [claude] Done on dispatch/task-78, make check green. tests/voice.rs: one_call_proves_the_whole_front (card voice rex, search_thread lookup with no hand-off, send_file refused, one send_to_teammate hand-off, post_to_chat, hang-up leaves exactly hand-off turn + post + one first-person summary with no tool names, typed follow-up carries the answer); GPT-Live case extended with a send_to_teammate hand-off. No gaps between children found. Docs: voice-calls.md, voice.md, use/voice.md rewritten to the full agent, ADR 0005 pointers removed, summary-voice question recorded as settled (task-80); harness-native tools, call-level budget, GPT-Live backend stay open in the ADR. Unwired: GPT-Live responses delegation unverified with a real ChatGPT login (ignored live test unrun), client-delegation tool loop not built, "From the call:" is a text prefix with no UI badge, 5-min summary interval untested.
+- 2026-10-16T15:55:28.816Z: Landed on release/0.39.0

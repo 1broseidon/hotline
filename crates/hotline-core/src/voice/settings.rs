@@ -17,7 +17,8 @@
 //! Grok Voice on the first connected xAI login or key, and a desk with
 //! neither keeps the pipeline. `{"provider": "legacy"}`, Legacy voice in
 //! Settings, and a provider this build has no adapter for keep the
-//! transcribe, route and speak pipeline.
+//! transcribe, route and speak pipeline. `{"provider": "off"}`, Live calls
+//! Off in Settings, offers no calls at all, to the desk or to a teammate.
 //!
 //! Every key is optional. A value that cannot be read costs its own
 //! preference and nothing else, like the other room settings.
@@ -104,6 +105,8 @@ pub struct FrontChoice {
 pub struct VoiceSettings {
     /// The live-call voice front; `None` is Legacy voice, the pipeline.
     pub front: Option<FrontChoice>,
+    /// Live calls are Off in Settings: the desk offers no call of any kind.
+    pub calls_off: bool,
     /// The Chat budget's limits, which the call assistant spends against.
     pub chat: BudgetLimits,
     /// The Voice budget's limits, for transcription and speech.
@@ -171,6 +174,7 @@ impl VoiceSettings {
             chat,
             voice: voice_limits,
             front: front(voice),
+            calls_off: calls_off(voice),
             stt: choice(voice, "stt"),
             tts: choice(voice, "tts"),
             fallback_tts: choice(voice, "fallbackTts"),
@@ -202,6 +206,15 @@ fn cap(source: &Map<String, Value>, key: &str) -> Option<f64> {
         .get(key)
         .and_then(Value::as_f64)
         .filter(|usd| usd.is_finite() && *usd >= 0.0)
+}
+
+fn calls_off(voice: &Map<String, Value>) -> bool {
+    voice
+        .get("front")
+        .and_then(Value::as_object)
+        .and_then(|pick| pick.get("provider"))
+        .and_then(Value::as_str)
+        == Some("off")
 }
 
 fn front(voice: &Map<String, Value>) -> Option<FrontChoice> {

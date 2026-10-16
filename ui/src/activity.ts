@@ -12,6 +12,18 @@ export function shownState(session: Pick<SessionInfo, "state" | "awaitingSubagen
 }
 
 /**
+ * The few words a running process's chip says: the command the process is,
+ * past the `cd` that got there and the interpreter that runs it, so
+ * `cd site && python3 -m http.server 8770` reads "http.server 8770". The
+ * whole command is in the chip's card.
+ */
+export function processLabel(title: string): string {
+	const last = title.split(/&&|;/).map((part) => part.trim()).filter((part) => part !== "").pop() ?? "";
+	const label = last.replace(/^exec\s+/, "").replace(/^python[\d.]*\s+-m\s+/, "");
+	return label === "" ? title : label;
+}
+
+/**
  * What a teammate is doing right now, at the grain the mark can show it.
  *
  * A session's state only says a turn is running. That is enough to raise an

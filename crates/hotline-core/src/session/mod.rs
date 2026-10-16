@@ -90,6 +90,7 @@ use crate::thread::ThreadId;
 use crate::vault::Vault;
 use async_trait::async_trait;
 use chrono::{Local, TimeZone};
+use jobs::Processes;
 use quiet::QuietWindow;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -242,6 +243,14 @@ pub trait Agents: Send + Sync {
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String>;
 }
 
+/// A voice front's reach into the room: see [`Room::front_reach`].
+pub(crate) struct FrontReach {
+    pub tools: TeammateTools,
+    pub servers: Vec<mcp::McpServer>,
+    pub vault: Option<Arc<Vault>>,
+    pub capability: CapabilityLease,
+}
+
 /// The agents this desk can really run: Hotline Agent on whatever keys the desk
 /// holds at the moment it is asked, and any ACP harness the registry knows.
 struct DeskAgents {
@@ -361,6 +370,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
         },
         error: None,
         awaiting_subagents: false,
+        processes: Vec::new(),
     }
 }
 
@@ -385,6 +395,11 @@ struct Session {
     input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,
+    /// What the teammate has said of its calls since its last turn began. A
+    /// live session's context was read from the tape when it started, so
+    /// these ride on its next message; a session that starts later reads
+    /// them from the tape.
+    pending_calls: Mutex<Vec<String>>,
     /// The firing the next user line belongs to.
     pending_scheduled: Mutex<Option<Mark<ScheduledRun>>>,
     /// The user lines the driver has taken and not yet shown it read.
@@ -895,6 +910,27 @@ impl Room {
         self.capability_epoch(persona_id).lease()
     }
 
+    /// What a voice front may reach for this teammate, under the teammate's
+    /// current authority: its desk-side tools, the MCP servers its policy
+    /// grants, and the protected store those servers' logins are read from.
+    /// The lease is the teammate's own, so changing its grants on the card
+    /// refuses the front's next call.
+    pub(crate) fn front_reach(self: &Arc<Self>, persona: &Persona) -> FrontReach {
+        let capability = self.capability_lease(&persona.id);
+        let granted = mcp::grant(
+            &mcp::servers(&room::settings(&self.log)),
+            &persona.mcp_policy,
+        );
+        FrontReach {
+            tools: TeammateTools::new(self, persona.id.clone())
+                .with_capability(capability.clone())
+                .for_front(),
+            servers: granted.servers,
+            vault: self.vault.clone(),
+            capability,
+        }
+    }
+
     fn current_session(&self, candidate: &Arc<Session>) -> bool {
         lock(&self.sessions)
             .get(&candidate.persona_id)
@@ -930,9 +966,14 @@ impl Room {
         let driver = agent.driver.clone();
         let has_computer = agent.computer;
         let reported = agent.started.clone();
-        let (info_updates, unprompted, subagents) = match agent.watches.take() {
-            Some(watches) => (watches.info, watches.unprompted, watches.subagents),
-            None => (None, None, None),
+        let (info_updates, unprompted, subagents, wakes) = match agent.watches.take() {
+            Some(watches) => (
+                watches.info,
+                watches.unprompted,
+                watches.subagents,
+                watches.wakes,
+            ),
+            None => (None, None, None, None),
         };
         let mut info = idle_info(&persona.id);
         info.state = if driver.startup_failure().is_some() {
@@ -974,6 +1015,7 @@ impl Room {
             turns: Mutex::new(Turns::default()),
             input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
+            pending_calls: Mutex::new(Vec::new()),
             pending_scheduled: Mutex::new(None),
             unread: Mutex::new(Vec::new()),
             voice_origin: Mutex::new(None),
@@ -1000,6 +1042,12 @@ impl Room {
         }
         if let Some(subagents) = subagents {
             self.watch_subagents(persona.id.clone(), subagents);
+        }
+        if let Some(wakes) = wakes {
+            self.watch_wakes(&session, wakes);
+        }
+        if let Some(processes) = session.driver.processes() {
+            self.watch_processes(&session, &processes);
         }
         // Nothing said is outside a chapter: a session that starts on a tape
         // whose last chapter is closed — or that has none at all — opens one.
@@ -2006,6 +2054,8 @@ impl Room {
             let mut info = lock(&session.info);
             info.state = SessionState::Stopped;
             info.awaiting_subagents = false;
+            // `invalidate` killed them.
+            info.processes.clear();
             info.clone()
         };
         let _ = self.info_changes.send(info);
@@ -2466,6 +2516,14 @@ impl Room {
         );
         let mut wire = sending.wire;
         wire.text = timed_from(ts, client, &wire.text);
+        let calls = std::mem::take(&mut *lock(&session.pending_calls));
+        if !calls.is_empty() {
+            wire.text = format!(
+                "(What you told the person of your calls since you last spoke:\n{})\n\n{}",
+                calls.join("\n"),
+                wire.text
+            );
+        }
         wire.said = Some(id);
         self.dispatch(session.clone(), wire);
     }
@@ -2626,6 +2684,43 @@ impl Room {
                 if room.apply_driver_info(&session, &reported).is_err() {
                     break;
                 }
+            }
+        });
+    }
+
+    /// Wakes the teammate when a command it left running ends on its own: the
+    /// result is a line of Hotline's, never written as the person's, queued
+    /// behind whatever is waiting. On a call to the teammate the turn is
+    /// said on the call as well as written, as a reply to the person's own
+    /// line would be.
+    fn watch_wakes(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        mut wakes: mpsc::UnboundedReceiver<String>,
+    ) {
+        let room = Arc::downgrade(self);
+        let session = Arc::downgrade(session);
+        tokio::spawn(async move {
+            while let Some(text) = wakes.recv().await {
+                let Some(room) = room.upgrade() else {
+                    break;
+                };
+                let Some(session) = session.upgrade() else {
+                    break;
+                };
+                if !session.capability.is_current() || !room.current_session(&session) {
+                    break;
+                }
+                // A room preparing to restart takes no new work, and the
+                // process went with the session that held it.
+                let Ok(_working) = room.working() else {
+                    continue;
+                };
+                let mut wire = Wired::words(text);
+                wire.voice = lock(&room.voice)
+                    .upgrade()
+                    .and_then(|voice| voice.on_call(&session.persona_id));
+                room.dispatch(session, wire);
             }
         });
     }
@@ -4247,6 +4342,27 @@ impl Room {
         Ok(id)
     }
 
+    /// Posts `text` to the teammate's DM as the teammate saying it, tagged as
+    /// from its call: a summary of the call, or what the front was asked to
+    /// put in the chat. It is the teammate's own message, so its next turn
+    /// carries on from it. The call's own turns are never posted; they stay
+    /// on its thread.
+    pub(crate) fn call_posted(&self, persona_id: &str, call_id: &str, text: &str) {
+        self.write_value(
+            persona_id,
+            &json!({
+                "kind": "agent", "id": format!("call:{call_id}:{}", new_id()),
+                "ts": now_ms(), "text": text,
+            }),
+        );
+        if let Ok(session) = self.session(persona_id) {
+            let mut calls = lock(&session.pending_calls);
+            calls.push(text.to_string());
+            let excess = calls.len().saturating_sub(MAX_PENDING_CALLS);
+            calls.drain(..excess);
+        }
+    }
+
     /// Keeps `spoken` as what a call to the teammate said for its reply
     /// `event_id`, on the reply's first bubble: the call assistant's rewrite
     /// of a reply that wrote no spoken version ([`crate::voice::spoken`]).
@@ -4470,6 +4586,74 @@ impl Room {
         let _ = self.info_changes.send(info);
     }
 
+    /// Tells the roster which commands the session holds running whenever
+    /// that changes. A display fact like `awaiting_subagents`: a process
+    /// never makes the session read as working.
+    fn watch_processes(self: &Arc<Self>, session: &Arc<Session>, processes: &Arc<Processes>) {
+        let room = Arc::downgrade(self);
+        let weak_session = Arc::downgrade(session);
+        let weak_processes = Arc::downgrade(processes);
+        let mut changes = processes.changes();
+        tokio::spawn(async move {
+            while changes.changed().await.is_ok() {
+                let (Some(room), Some(session), Some(processes)) = (
+                    room.upgrade(),
+                    weak_session.upgrade(),
+                    weak_processes.upgrade(),
+                ) else {
+                    break;
+                };
+                let listed = processes.listed();
+                let _lifecycle = lock(&room.lifecycle);
+                if !session.capability.is_current() || !room.current_session(&session) {
+                    break;
+                }
+                let info = {
+                    let mut info = lock(&session.info);
+                    if info.processes == listed {
+                        continue;
+                    }
+                    info.processes = listed;
+                    info.clone()
+                };
+                let _ = room.info_changes.send(info);
+            }
+        });
+    }
+
+    /// The processes of this teammate's running session, for the person.
+    fn processes_of(&self, persona_id: &str) -> Result<Arc<Processes>, String> {
+        self.session(persona_id)?
+            .driver
+            .processes()
+            .ok_or_else(|| "This teammate leaves no commands running.".to_string())
+    }
+
+    /// Stops one command the teammate left running. It does not wake the
+    /// teammate: the person stopped it, and the chip going says so.
+    pub fn process_stop(&self, persona_id: &str, id: &str) -> Result<(), String> {
+        self.processes_of(persona_id)?
+            .cancel(jobs::JobArgs {
+                job_id: id.to_string(),
+                reason: Some("stopped by the person".to_string()),
+            })
+            .map(|_| ())
+            .map_err(|_| "That process is not running.".to_string())
+    }
+
+    /// One running command in full, and the latest of its output.
+    pub fn process_output(
+        &self,
+        persona_id: &str,
+        id: &str,
+    ) -> Result<crate::contract::ProcessOutput, String> {
+        let (command, tail) = self
+            .processes_of(persona_id)?
+            .output(id)
+            .ok_or_else(|| "That process is not running.".to_string())?;
+        Ok(crate::contract::ProcessOutput { command, tail })
+    }
+
     fn persona(&self, persona_id: &str) -> Result<Persona, String> {
         room::roster(&self.log)
             .into_iter()
@@ -4600,6 +4784,9 @@ fn follow_model_changes(room: Weak<Room>, mut events: broadcast::Receiver<Value>
         }
     });
 }
+
+/// How many call summaries ride on the next message of a live session.
+const MAX_PENDING_CALLS: usize = 6;
 
 fn sweep_idle_chapters(room: Weak<Room>) {
     tokio::spawn(async move {

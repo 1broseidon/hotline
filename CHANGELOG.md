@@ -8,6 +8,53 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-10-16
+
+### Added
+
+- On a direct call the live voice is a full agent (ADR 0005). It answers
+  conversation itself, looks things up with the teammate's own desk-side
+  tools (search_thread, list_chapters, list_schedules, web_search and the
+  MCP servers the teammate is granted), run on the desk under the
+  teammate's current lease with each output clipped, and hands only heavy
+  or changing work to the working session. Grok Voice and GPT Realtime
+  call the tools themselves. GPT-Live delegates, and the call assistant
+  answers each delegation with the same tools (or hands it on), its answer
+  going back for GPT-Live to say; with no call assistant every delegation
+  is handed on.
+- A call's turns stay on the call. The DM gets one summary in the
+  teammate's own first-person words at hang-up and every 5 minutes, plus
+  whatever the person asks to put in the chat (post_to_chat), and the
+  teammate's next turn carries on from what was said.
+- A teammate can leave a command running. A Hotline Agent teammate that
+  starts a server or a watcher and replies without waiting on it has
+  answered: the turn ends, a call goes back to listening, and the command
+  runs on as a process its session holds. It shows as a chip beside the
+  subagents, opening a card with its latest output and Stop, which ends it
+  and everything it started without waking the teammate. A process that
+  exits on its own wakes the teammate once with its result, said on a call
+  if one is going; stopping the session or changing its grant ends it.
+- Settings › Providers can turn Live calls and Images Off. Off offers
+  nothing: no call is placed, and generate_image is in no teammate's tools.
+  Neither is the default.
+
+### Changed
+
+- A live voice answers talk about the call itself (hello and goodbye,
+  thanks, can you hear me, testing the line) and sends only work to the
+  teammate, so a sound check never lands in the conversation or waits on a
+  turn.
+- About and Shortcuts sit in a quiet footer at the foot of the Settings
+  rail: the version on the left opens About, Shortcuts on the right. The
+  rail lists only the sections.
+- With no call key, the composer's mic sits flush right.
+
+### Fixed
+
+- GPT-Live no longer goes silent when asked to use a tool. Its ChatGPT
+  sign-in refuses the `responses` delegation the desk had declared the
+  tools on (HTTP 401 on validation), so every tool request went unanswered.
+
 ## [0.38.0] - 2026-10-15
 
 ### Added

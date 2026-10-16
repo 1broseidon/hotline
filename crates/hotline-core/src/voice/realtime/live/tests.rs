@@ -177,10 +177,10 @@ async fn rates_other_than_24_khz_fail_before_any_call() {
 /// A real call on a ChatGPT login: `HOTLINE_TEST_CHATGPT_DIR` is a login
 /// directory holding `auth.json`, and `HOTLINE_TEST_ASK_WAV` a 24 kHz mono
 /// PCM16 WAV of someone asking for something. It says a line, then hears the
-/// ask and hands it over.
+/// ask and hands it over, and says what the desk answers it with.
 #[tokio::test]
 #[ignore = "places a real GPT-Live call on a ChatGPT login"]
-async fn a_live_call_says_a_line_and_hands_over_what_it_hears() {
+async fn a_live_call_says_a_line_hands_over_what_it_hears_and_says_the_answer() {
     let dir = std::env::var("HOTLINE_TEST_CHATGPT_DIR").expect("a ChatGPT login directory");
     let wav = std::fs::read(std::env::var("HOTLINE_TEST_ASK_WAV").expect("a 24 kHz clip")).unwrap();
     let live = GptLive::new(dir.into());
@@ -220,8 +220,10 @@ async fn a_live_call_says_a_line_and_hands_over_what_it_hears() {
                 RealtimeEvent::Saying(piece) => saying.push_str(&piece),
                 RealtimeEvent::Audio(pcm) => audio += pcm.len(),
                 RealtimeEvent::ToolCall {
-                    name, arguments, ..
-                } => handed = Some((name, arguments)),
+                    call_id,
+                    name,
+                    arguments,
+                } => handed = Some((call_id, name, arguments)),
                 _ => {}
             }
         }
@@ -232,9 +234,31 @@ async fn a_live_call_says_a_line_and_hands_over_what_it_hears() {
         audio > 24_000,
         "a second of speech came back: {audio} bytes"
     );
-    let (name, arguments) = handed.expect("the ask was handed over");
+    let (call_id, name, arguments) = handed.expect("the ask was handed over");
     assert_eq!(name, SEND_TO_TEAMMATE);
     assert!(arguments.contains("laptop"), "{arguments}");
+
+    // What the desk found for the delegation is said.
+    session
+        .input
+        .tool_result(&call_id, "The laptop ships on Thursday.", true)
+        .await
+        .unwrap();
+    let mut answered = String::new();
+    let asked = tokio::time::Instant::now();
+    while asked.elapsed() < Duration::from_secs(20) && !answered.contains("Thursday") {
+        let at = started.elapsed().as_millis() as usize;
+        while sent * 40 < at {
+            session.input.push_audio(silence.clone()).await.unwrap();
+            sent += 1;
+        }
+        if let Ok(Some(event)) = timeout(Duration::from_millis(20), session.events.recv()).await
+            && let RealtimeEvent::Saying(piece) = event.unwrap()
+        {
+            answered.push_str(&piece);
+        }
+    }
+    assert!(answered.contains("Thursday"), "{answered}");
     session.close().await;
 }
 

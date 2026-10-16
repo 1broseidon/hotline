@@ -4,6 +4,10 @@ import { MICROPHONE_BUSY, NO_MICROPHONE, microphoneDenied, microphoneTrouble } f
 import { DICTATION_DENIED, Dictation, type DictationEngine, type DictationEvent, eitherEngine, levelFromDbfs } from "../src/voice/dictation";
 import { downsample, encodeWav, fromBase64 } from "../src/voice/wav";
 
+// A window without the desktop shell, as a browser has: the microphone's words
+// name no system. Set here rather than left to whichever file ran before.
+if (typeof window === "undefined") Object.assign(globalThis, { window: {} });
+
 /** A world the desk engine can live in: a microphone the test speaks into, a desk that answers when told, and a clock it turns. */
 function world(options: { available?: boolean; micRefused?: boolean } = {}) {
 	let onBlock: ((block: Float32Array, rate: number) => void) | null = null;

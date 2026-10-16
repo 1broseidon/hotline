@@ -1,16 +1,101 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { processLabel } from "../activity";
 import { chordKeys } from "../chords";
+import type { ProcessOutput, SessionProcess } from "../generated/contract";
 import { ArrowDownIcon, CloseIcon } from "../icons";
 import { dmOf, useThread } from "../tape";
 import { Band } from "../ui/Band";
+import { wire } from "../wire";
 import { runEnding, StepRows, stepRuns, stepsSummary } from "./Transcript";
 
-/** What the card shows: a turn's work, by its caption's id, or the turn running now. */
-export type OpenWork = { personaId: string; blockId: string | null };
+/**
+ * What the card shows: a turn's work, by its caption's id, or the turn
+ * running now; or, with `processId`, a command the teammate left running.
+ */
+export type OpenWork = { personaId: string; blockId: string | null; processId?: string };
 
 /** The same work: pressing what opened a card, with it open, closes it. */
 export function sameWork(a: OpenWork, b: OpenWork): boolean {
-	return a.blockId === b.blockId;
+	return a.blockId === b.blockId && a.processId === b.processId;
+}
+
+/** How often an open process card reads its output again; the core only answers when asked. */
+const OUTPUT_EVERY_MS = 1000;
+
+/**
+ * A command the teammate left running, in the work card's place: the whole
+ * command, the latest of what it has written, and Stop. Stop is the person's,
+ * so the teammate is not woken by the end; the card says it ended when the
+ * session stops listing the process, and keeps the last output it read.
+ */
+export function ProcessWork({
+	personaId,
+	processId,
+	process,
+	docked = false,
+	onClose,
+}: {
+	personaId: string;
+	processId: string;
+	/** The process as the session lists it; none once it has ended. */
+	process: SessionProcess | undefined;
+	docked?: boolean;
+	onClose(): void;
+}) {
+	const [read, setRead] = useState<ProcessOutput | null>(null);
+	const [refused, setRefused] = useState<string | null>(null);
+	const running = process !== undefined;
+	useEffect(() => {
+		if (!running) return;
+		let cancelled = false;
+		const readOutput = () => {
+			void wire
+				.command("process.output", { personaId, id: processId })
+				.then((next) => !cancelled && setRead(next))
+				.catch(() => {});
+		};
+		readOutput();
+		const tick = window.setInterval(readOutput, OUTPUT_EVERY_MS);
+		return () => {
+			cancelled = true;
+			window.clearInterval(tick);
+		};
+	}, [personaId, processId, running]);
+	const stop = () => {
+		setRefused(null);
+		void wire.command("process.stop", { personaId, id: processId }).catch((error: unknown) => setRefused(error instanceof Error ? error.message : String(error)));
+	};
+	const heading = process === undefined ? "Ended" : process.state === "stopping" ? "Stopping" : "Running";
+	const title = process?.title ?? read?.command;
+	const tail = read?.tail ?? "";
+
+	return (
+		<WorkCard
+			label="Running process"
+			heading={heading}
+			working={false}
+			{...(title !== undefined ? { detail: processLabel(title) } : {})}
+			docked={docked}
+			following={processId}
+			count={tail.length}
+			actions={
+				process !== undefined && (
+					<button type="button" className="control btn btn-sm" disabled={process.state !== "running"} onClick={stop}>
+						Stop
+					</button>
+				)
+			}
+			onClose={onClose}
+		>
+			{read !== null && <p className="selectable mx-2 mb-2 break-words font-mono text-xs text-ink-2">{read.command}</p>}
+			{refused !== null && <p className="mx-2 mb-2 text-sm text-danger">{refused}</p>}
+			{tail === "" ? (
+				<p className="work-empty">{read === null ? "Reading its output." : "Nothing written yet."}</p>
+			) : (
+				<pre className="selectable mx-2 whitespace-pre-wrap break-words font-mono text-xs">{tail}</pre>
+			)}
+		</WorkCard>
+	);
 }
 
 /** Slack under the newest step that still counts as following it. */
@@ -77,6 +162,7 @@ function WorkCard({
 	docked,
 	following: followKey,
 	count,
+	actions,
 	onClose,
 	children,
 }: {
@@ -88,6 +174,8 @@ function WorkCard({
 	/** What the window is following: a new one starts at its newest. */
 	following: string | undefined;
 	count: number;
+	/** Keys in the band, before Close. */
+	actions?: ReactNode;
 	onClose(): void;
 	children: ReactNode;
 }) {
@@ -100,7 +188,8 @@ function WorkCard({
 						<span className="truncate">{heading}</span>
 					</h2>
 				</div>
-				{detail !== undefined && <span className="instrument shrink-0 pr-1">{detail}</span>}
+				{detail !== undefined && <span className="instrument min-w-0 truncate pr-1">{detail}</span>}
+				{actions}
 				<button type="button" className="control btn-icon" title={`Close (${chordKeys("close")})`} aria-label="Close" onClick={onClose}>
 					<CloseIcon />
 				</button>

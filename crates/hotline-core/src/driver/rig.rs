@@ -9,10 +9,12 @@ mod images;
 mod recovery;
 mod strict;
 mod turn;
+
 use super::failure::{Failure, Kind};
 use images::Input;
 #[cfg(test)]
 use images::user_message;
+pub(crate) use turn::process_ended;
 
 use super::{
     CapabilityLease, Driver, DriverInfo, Escalate, MessageKind, ToolImage, Update, clip,
@@ -243,6 +245,9 @@ pub struct InProcess {
     /// Protected MCP OAuth registrations and tokens. None is retained for
     /// standalone test drivers, which keep OAuth servers refused.
     mcp_vault: Option<Arc<Vault>>,
+    /// Commands this session's turns left running when they replied. They
+    /// die with the driver, and with [`Driver::invalidate`].
+    processes: Arc<crate::session::jobs::Processes>,
 }
 
 impl InProcess {
@@ -272,7 +277,7 @@ impl InProcess {
             stop: Mutex::new(Arc::new(Stop::default())),
             steering: Mutex::new(None),
             unconsumed: Arc::new(Mutex::new(Vec::new())),
-            output_dir,
+            output_dir: output_dir.clone(),
             mcp_servers: Vec::new(),
             mcp_missing: Vec::new(),
             mcp: Mutex::new(None),
@@ -280,6 +285,7 @@ impl InProcess {
             escalation: Mutex::new(None),
             capability: None,
             mcp_vault: None,
+            processes: crate::session::jobs::Processes::new(output_dir.clone()),
         }
     }
 
@@ -385,6 +391,7 @@ impl Driver for InProcess {
                 &self.mcp_missing,
                 &connected,
                 self.teammate.offers_subagents(),
+                &self.teammate.tool_names(),
             );
         }
         *lock(&self.mcp) = Some(connected);
@@ -431,6 +438,14 @@ impl Driver for InProcess {
         std::mem::take(&mut *lock(&self.unconsumed))
     }
 
+    fn subscribe_wakes(&self) -> Option<mpsc::UnboundedReceiver<String>> {
+        Some(self.processes.subscribe())
+    }
+
+    fn processes(&self) -> Option<Arc<crate::session::jobs::Processes>> {
+        Some(self.processes.clone())
+    }
+
     fn cancel(&self) {
         if let Some(steering) = lock(&self.steering).as_ref() {
             steering.close_admission();
@@ -443,6 +458,7 @@ impl Driver for InProcess {
             capability.revoke();
         }
         self.cancel();
+        self.processes.stop_all();
         // Dropping the live connections closes transports and kills granted
         // stdio server groups immediately. Cloned McpTool handles still carry
         // the lease and refuse calls after the room advances it.
@@ -612,6 +628,7 @@ impl InProcess {
             mcp_tools,
             capability: self.capability.clone(),
             delegate: self.teammate.delegate(),
+            processes: self.processes.clone(),
         };
         let history_origin = self.history_origin.clone();
         let unconsumed = self.unconsumed.clone();
@@ -691,6 +708,8 @@ struct Turn {
     capability: Option<CapabilityLease>,
     /// Who runs this teammate's subagents, when this session may start them.
     delegate: Option<Arc<dyn crate::session::jobs::Delegate>>,
+    /// Where a command the turn leaves running goes.
+    processes: Arc<crate::session::jobs::Processes>,
 }
 
 impl Turn {
@@ -1376,6 +1395,7 @@ pub(crate) fn publish_ledger(
     missing: &[String],
     connected: &mcp::Connections,
     subagents: bool,
+    hotline_tools: &[&str],
 ) {
     let mut ledger = ToolLedger::new(
         persona.id.clone(),
@@ -1434,7 +1454,7 @@ pub(crate) fn publish_ledger(
         crate::contract::ToolState::Verified,
         ToolSourceKind::Builtin,
         mcp::server::SERVER_NAME,
-        &mcp::server::TOOL_NAMES,
+        hotline_tools,
         "Hotline's own tools, called in this process",
     );
     for tool in &connected.tools {
@@ -2030,6 +2050,7 @@ mod tests {
             mcp_tools: Vec::new(),
             capability: None,
             delegate: None,
+            processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
         };
         let (sender, _receiver) = mpsc::channel(8);
         let result = turn
@@ -2609,6 +2630,7 @@ mod tests {
             mcp_tools: Vec::new(),
             capability: None,
             delegate: None,
+            processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
         };
         let (sender, mut receiver) = mpsc::channel(256);
         tokio::spawn(async move { while receiver.recv().await.is_some() {} });

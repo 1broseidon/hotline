@@ -7,9 +7,12 @@
 //! 20 ms packets at 48 kHz, paced by the driver and filled with silence when
 //! the microphone is quiet or held, so the peer never starves. Everything
 //! else rides the sideband: the model's speech as 24 kHz PCM, what each side
-//! said, and the model's hand-offs. GPT-Live has no tools; it hands work to
-//! the client as a `delegation`, which this adapter reports as the
-//! `send_to_teammate` call the bridge already answers. A line for the person
+//! said, and the model's hand-offs. GPT-Live has no session tools: it hands
+//! every request to the client as a `delegation`, which this adapter reports
+//! as the `send_to_teammate` call the bridge already answers, and the caller
+//! runs any desk-side tools for it ([`Realtime::delegates`]). The sign-in
+//! cannot use a `responses` backend: the service refuses its validation
+//! connection (HTTP 401). A line for the person
 //! goes in on the `speakable` channel and is said as given, so it can never be
 //! taken for the person's words. The server stops a reply itself when the
 //! person talks; the adapter reports the person's new turn so the caller can
@@ -185,12 +188,13 @@ impl GptLive {
         offer: String,
         instructions: &str,
         voice: &str,
+        delegation: Value,
     ) -> Result<(String, String), SpeechError> {
         let session = json!({
             "model": MODEL,
             "instructions": instructions,
             "audio": {"output": {"voice": voice}},
-            "delegation": {"type": "client"},
+            "delegation": delegation,
         });
         let http = crate::voice::speech::http_client().map_err(|_| self.unreachable())?;
         let mut request = http
@@ -234,14 +238,22 @@ impl GptLive {
                 return Err(self.unreachable());
             }
         };
-        let instructions = instructions(&carry.instructions(&config.instructions));
+        let instructions = carry.instructions(&config.instructions);
+        let instructions = self::instructions(&instructions);
+        let delegation = json!({"type": "client"});
         // A server that fails or cannot be reached is asked again, as Codex
         // does; a refused login or plan will not change.
         let mut wait = REJOIN_WAIT;
         let mut attempt = 0;
         let (answer, call) = loop {
             match self
-                .create(&who, offer.clone(), &instructions, &config.voice)
+                .create(
+                    &who,
+                    offer.clone(),
+                    &instructions,
+                    &config.voice,
+                    delegation.clone(),
+                )
                 .await
             {
                 Ok(created) => break created,
@@ -332,6 +344,10 @@ impl Realtime for GptLive {
         true
     }
 
+    fn delegates(&self) -> bool {
+        true
+    }
+
     async fn open(&self, config: RealtimeConfig) -> Result<RealtimeSession, SpeechError> {
         for rate in [config.input_rate, config.output_rate] {
             if rate != RATE {
@@ -373,12 +389,14 @@ impl Realtime for GptLive {
     }
 }
 
-/// The front's instructions, with how this model hands work over: GPT-Live
-/// delegates rather than calling `send_to_teammate`.
+/// The front's instructions, with how this model reaches its tools: GPT-Live
+/// delegates rather than calling them, and the answer comes back to say.
 fn instructions(base: &str) -> String {
     format!(
-        "{base}\n\nIn this call you reach your working session by delegating: \
-         every mention of send_to_teammate means delegating the person's words."
+        "{base}\n\nIn this call you reach your tools and your working session by \
+         delegating: every mention of send_to_teammate or of another tool means \
+         delegating the person's request. What a delegation finds comes back to you \
+         to tell them."
     )
 }
 
@@ -500,17 +518,30 @@ impl Heard {
                     arguments: json!({"words": words.join(" ")}).to_string(),
                 }]
             }
-            "error" => vec![RealtimeEvent::Refused {
-                code: event["error"]["code"]
-                    .as_str()
-                    .filter(|code| {
-                        code.len() <= 64
-                            && code.bytes().all(|byte| {
-                                byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-')
-                            })
-                    })
-                    .map(str::to_string),
-            }],
+            "error" => {
+                // Which setting or field was refused, and the provider's
+                // sentence about it, so a refusal can be fixed: never the
+                // transcript, which the error does not carry.
+                let error = &event["error"];
+                eprintln!(
+                    "[voice] GPT-Live refused: {} param={} {}",
+                    error["code"].as_str().unwrap_or("?"),
+                    error["param"].as_str().unwrap_or("-"),
+                    crate::driver::clip(error["message"].as_str().unwrap_or(""), 300),
+                );
+                vec![RealtimeEvent::Refused {
+                    code: event["error"]["code"]
+                        .as_str()
+                        .filter(|code| {
+                            code.len() <= 64
+                                && code.bytes().all(|byte| {
+                                    byte.is_ascii_alphanumeric()
+                                        || matches!(byte, b'_' | b'.' | b'-')
+                                })
+                        })
+                        .map(str::to_string),
+                }]
+            }
             _ => Vec::new(),
         })
     }
@@ -952,8 +983,8 @@ impl Driver {
                 )
                 .await
             }
-            // The model already acknowledged a hand-off it made; only a
-            // refusal goes back, as commentary on that delegation.
+            // What a delegation found, or a refusal, goes back as commentary
+            // on it; a plain hand-off the model already acknowledged does not.
             Command::ToolResult {
                 call_id,
                 output,

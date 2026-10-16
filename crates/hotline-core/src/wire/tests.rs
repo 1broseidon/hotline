@@ -52,6 +52,7 @@ fn idle(persona_id: &str) -> SessionInfo {
         },
         error: None,
         awaiting_subagents: false,
+        processes: Vec::new(),
     }
 }
 
@@ -2090,6 +2091,28 @@ fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
         persona_id: persona_id.clone()
     }));
     assert!(!Seat::Phone.permits(&Command::ComputerRuntimes {}));
+}
+
+/// A process a teammate left running is the desk's and the owner's to read
+/// and stop; a companion phone has neither, as it has no `session.stop`.
+#[test]
+fn process_chip_only_the_desk_and_the_owner_reach_a_process() {
+    let commands = [
+        Command::ProcessStop {
+            persona_id: "ada".to_string(),
+            id: "call_serve".to_string(),
+        },
+        Command::ProcessOutput {
+            persona_id: "ada".to_string(),
+            id: "call_serve".to_string(),
+        },
+    ];
+    for command in &commands {
+        assert!(Seat::Desk.permits(command), "{command:?}");
+        assert!(Seat::Owner.permits(command), "{command:?}");
+        assert!(!Seat::Phone.permits(command), "{command:?}");
+        assert!(!Seat::Link.permits(command), "{command:?}");
+    }
 }
 
 /// A failed turn is tried again from wherever the person is: the line is

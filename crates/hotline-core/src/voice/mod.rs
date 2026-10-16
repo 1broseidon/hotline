@@ -4,6 +4,7 @@ pub mod dispatcher;
 mod duplex;
 pub mod front;
 pub mod front_prompt;
+mod front_tools;
 pub mod ledger;
 pub mod metering;
 pub mod realtime;
@@ -118,6 +119,10 @@ impl Speech for FrontSpeech {
         Err(speech::SpeechError::WrongJob)
     }
 }
+
+/// Why a call is refused, and what `voice.status` says, while the owner has
+/// Live calls Off.
+pub const CALLS_OFF: &str = "Calls are off in Settings";
 
 /**
  * The kinds of paid work a call can do, each spent against its own budget:
@@ -638,6 +643,18 @@ impl Calls {
     }
 
     pub fn status_for(&self, input_mode: VoiceInputMode) -> VoiceStatus {
+        let mut status = self.pipeline_status(input_mode);
+        if self.settings().calls_off {
+            status.capabilities.clear();
+            status.available = false;
+            status.direct_available = false;
+            status.unavailable = Some(CALLS_OFF.into());
+            status.front = None;
+        }
+        status
+    }
+
+    fn pipeline_status(&self, input_mode: VoiceInputMode) -> VoiceStatus {
         let speech = self.resolve_speech(input_mode, None);
         // A front takes a call the pipeline could not: it hears and speaks itself.
         let front = self
@@ -759,6 +776,9 @@ impl Calls {
         mic_rate: Option<u32>,
         room: Arc<dyn RoomHandle>,
     ) -> Result<VoiceCall, String> {
+        if self.settings().calls_off {
+            return Err(CALLS_OFF.into());
+        }
         if let Some(target) = &target
             && !crate::room::roster(&self.log)
                 .iter()
@@ -2606,6 +2626,24 @@ impl Calls {
         {
             call.streams.insert(event.into(), stream);
         }
+    }
+
+    /// The call to `persona` going on now, as the origin of a turn its
+    /// session takes by itself: a reply it makes is said on the call, after
+    /// the last line the person said there. None before the person has said
+    /// anything, when there is nothing for the reply to follow.
+    pub(crate) fn on_call(&self, persona: &str) -> Option<Origin> {
+        let calls = lock(&self.calls);
+        let call = calls.iter().rev().find(|call| {
+            call.state != VoiceState::Ended && call.target.as_deref() == Some(persona)
+        })?;
+        Some(Origin {
+            call_id: call.id.clone(),
+            seq: call.seq?,
+            direct: true,
+            front: false,
+            ended: false,
+        })
     }
 
     /// The teammate's session finished a turn said on a call to it, or left

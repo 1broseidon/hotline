@@ -393,6 +393,53 @@ async fn hotline_agent_gets_hotlines_own_tools() {
     }
 }
 
+/// Images Off takes `generate_image` from the teammate's tools, and the
+/// ledger, which reads what the session was built with, stops listing it.
+#[tokio::test(flavor = "multi_thread")]
+async fn with_images_off_generate_image_is_not_in_a_teammates_tools() {
+    let (_root, port) = open("images-off").await;
+    let mut client = Client::connect(port).await;
+    keyed(&mut client).await;
+    let updated = client
+        .call(
+            "settings.update",
+            json!({ "patch": { "images": { "provider": "off" } } }),
+        )
+        .await;
+    assert_eq!(updated["ok"], true, "{updated}");
+
+    let created = client
+        .call(
+            "persona.create",
+            json!({ "draft": { "name": "Ada", "goal": "Remember." } }),
+        )
+        .await;
+    let persona_id = created["result"]["id"].as_str().unwrap().to_string();
+    let started = client
+        .call("session.start", json!({ "personaId": persona_id }))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+
+    let tools = client
+        .call("teammate.tools", json!({ "personaId": persona_id }))
+        .await;
+    let names: Vec<&str> = tools["result"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["name"].as_str().unwrap())
+        .collect();
+    assert!(!names.contains(&"generate_image"), "{names:?}");
+    assert!(names.contains(&"set_avatar"), "{names:?}");
+
+    let options = client.call("capabilities.options", json!({})).await;
+    assert_eq!(options["result"]["images"]["selected"]["providerId"], "off");
+    assert_eq!(
+        options["result"]["images"]["selected"]["providerName"],
+        "Off"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_teammate_gets_no_gateway_tools_even_with_machine_reach() {
     let (_root, port) = open("none").await;

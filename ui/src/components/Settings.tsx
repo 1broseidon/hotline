@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { BackendChoice, CapabilityOptions, CatalogModel, ComputerReleases, ComputerRuntime, ConfigChoice, Credential, Provider, Report, RuntimeReport, RuntimeState, WebSearchProviderStatus } from "../generated/contract";
-import { openLink, pinnedComputerImage } from "../native";
+import { appVersion, openLink, pinnedComputerImage, watchUpdates } from "../native";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronRightIcon, InfoIcon, PlusIcon } from "../icons";
 import { envToLines, linesToEnv } from "../envLines";
@@ -67,6 +67,9 @@ const SECTIONS: { id: SettingsSection; title: string }[] = [
 	{ id: "about", title: "About Hotline" },
 ];
 
+/** About and Shortcuts are routable sections that stand in the rail's footer, not its list. */
+const FOOTER_SECTIONS: SettingsSection[] = ["shortcuts", "about"];
+
 /**
  * The rail while settings are open: the sections stand where the team
  * stood, one row each, and the band carries the way back where the team's
@@ -120,7 +123,7 @@ export function SettingsRail({
 				</div>
 			)}
 			<div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-1">
-				{SECTIONS.map((one) => (
+				{SECTIONS.filter((one) => !FOOTER_SECTIONS.includes(one.id)).map((one) => (
 					<button
 						key={one.id}
 						type="button"
@@ -132,7 +135,47 @@ export function SettingsRail({
 					</button>
 				))}
 			</div>
+			<RailFooter section={section} onSection={onSection} />
 		</nav>
+	);
+}
+
+/**
+ * The quiet foot of the settings rail, where the team rail's dock stands: the
+ * version opens About, and Shortcuts opens the chord list. It does not scroll
+ * with the sections above it.
+ */
+function RailFooter({ section, onSection }: { section: SettingsSection; onSection(section: SettingsSection): void }) {
+	const [updateReady, setUpdateReady] = useState(false);
+	useEffect(() => watchUpdates((status) => setUpdateReady(status.available !== null), () => {}), []);
+
+	const version = appVersion();
+	const shortcutsChord = chordKeys("shortcuts");
+	const aboutTip = updateReady ? "Update ready" : "About Hotline";
+	return (
+		<div className="rail-foot">
+			<button
+				type="button"
+				className="rail-foot-item"
+				title={aboutTip}
+				aria-label={version === "" ? "About Hotline" : `About Hotline, version ${version}`}
+				aria-current={section === "about" ? "true" : undefined}
+				onClick={() => onSection("about")}
+			>
+				{version === "" ? "About" : `Hotline ${version}`}
+				{updateReady && <span className="rail-foot-dot" aria-hidden="true" />}
+			</button>
+			<button
+				type="button"
+				className="rail-foot-item"
+				title={shortcutsChord === "" ? "Keyboard shortcuts" : `Keyboard shortcuts (${shortcutsChord})`}
+				aria-label="Keyboard shortcuts"
+				aria-current={section === "shortcuts" ? "true" : undefined}
+				onClick={() => onSection("shortcuts")}
+			>
+				Shortcuts
+			</button>
+		</div>
 	);
 }
 

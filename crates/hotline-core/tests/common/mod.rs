@@ -41,3 +41,30 @@ pub fn open_vault(root: &Path, log: Log) -> io::Result<Vault> {
 
 #[cfg(unix)]
 pub mod stalled;
+
+/// Stands in for the system's link opener, so a teammate's `open_link` in a
+/// harness opens no tab on the machine running it. The opener the core runs
+/// (`open`, or `xdg-open`) is found on `PATH`; a script by that name goes
+/// first on it and writes each link it is handed to the returned file.
+#[cfg(unix)]
+#[allow(dead_code)]
+pub fn browser() -> &'static Path {
+    static OPENED: OnceLock<std::path::PathBuf> = OnceLock::new();
+    OPENED.get_or_init(|| {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = tempfile::tempdir().unwrap().keep();
+        let opened = bin.join("opened");
+        let script = format!("#!/bin/sh\necho \"$1\" >> '{}'\n", opened.display());
+        for name in ["open", "xdg-open"] {
+            let path = bin.join(name);
+            std::fs::write(&path, &script).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = std::env::var("PATH").unwrap_or_default();
+        // Safety: std takes its environment lock for this and for every read
+        // it makes, Command's PATH lookup included, and nothing in these
+        // harnesses reads the environment through libc directly.
+        unsafe { std::env::set_var("PATH", format!("{}:{path}", bin.display())) };
+        opened
+    })
+}

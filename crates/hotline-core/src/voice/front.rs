@@ -14,6 +14,7 @@
 //! holds the person's words alone.
 
 use super::Calls;
+use super::front_tools::FrontTools;
 use crate::contract::{VoiceEvent, VoiceState};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -26,8 +27,8 @@ pub const REMAIN_SILENT: &str = "remain_silent";
 
 /// One function the front may call. `parameters` is its JSON Schema.
 pub struct Tool {
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: String,
+    pub description: String,
     pub parameters: Value,
 }
 
@@ -35,8 +36,8 @@ pub struct Tool {
 pub fn tools() -> Vec<Tool> {
     vec![
         Tool {
-            name: SEND_TO_TEAMMATE,
-            description: "Pass the person's own words to the teammate, exactly as they said them: do not rephrase, summarize or add to them. The teammate does the work; sending is not doing it.",
+            name: SEND_TO_TEAMMATE.into(),
+            description: "Pass the person's own words to the teammate, exactly as they said them: do not rephrase, summarize or add to them. The teammate does the work; sending is not doing it.".into(),
             parameters: json!({
                 "type": "object",
                 "properties": {"words": {"type": "string", "description": "What the person said, verbatim."}},
@@ -44,8 +45,8 @@ pub fn tools() -> Vec<Tool> {
             }),
         },
         Tool {
-            name: REMAIN_SILENT,
-            description: "Say nothing this time: the person is not talking to you, or there is nothing to add.",
+            name: REMAIN_SILENT.into(),
+            description: "Say nothing this time: the person is not talking to you, or there is nothing to add.".into(),
             parameters: json!({"type": "object", "properties": {}}),
         },
     ]
@@ -159,6 +160,11 @@ pub struct Front {
     /// relays one back would have the teammate answer its own reply, and the
     /// front say that, round and round.
     notes: std::collections::VecDeque<String>,
+    /// The teammate's desk-side tools, on a direct call.
+    desk_tools: Option<Arc<FrontTools>>,
+    /// What the call assistant is told when it answers a request the front
+    /// delegated, for a front that runs no tools itself.
+    delegation: Option<String>,
 }
 
 impl Front {
@@ -177,7 +183,31 @@ impl Front {
             first_thinking_unreported: false,
             last_told: Instant::now(),
             notes: std::collections::VecDeque::new(),
+            desk_tools: None,
+            delegation: None,
         })
+    }
+
+    pub fn with_desk_tools(mut self, tools: Option<Arc<FrontTools>>) -> Self {
+        self.desk_tools = tools;
+        self
+    }
+
+    pub fn with_delegation(mut self, preamble: Option<String>) -> Self {
+        self.delegation = preamble;
+        self
+    }
+
+    /// The instructions a delegated request is answered under, with the
+    /// tools to answer it, when the front delegates rather than calls them.
+    pub fn delegation(&self) -> Option<(String, Arc<FrontTools>)> {
+        self.delegation.clone().zip(self.desk_tools.clone())
+    }
+
+    /// The desk-side tools a call to a teammate holds, which run beside the
+    /// call rather than through [`Front::tool_call`].
+    pub fn desk_tools(&self) -> Option<Arc<FrontTools>> {
+        self.desk_tools.clone()
     }
 
     /// The sequence number the next line handed to the teammate takes.
@@ -314,7 +344,7 @@ mod tests {
 
     #[test]
     fn the_front_has_two_tools_and_neither_reaches_the_room() {
-        let names: Vec<_> = tools().iter().map(|tool| tool.name).collect();
+        let names: Vec<_> = tools().iter().map(|tool| tool.name.clone()).collect();
         assert_eq!(names, [SEND_TO_TEAMMATE, REMAIN_SILENT]);
     }
 

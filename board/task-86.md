@@ -12,16 +12,16 @@ parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
 dependsOn:
   - task-85
-updatedAt: "2026-10-16T17:24:30.245Z"
+updatedAt: "2026-10-16T17:55:46.442Z"
 ---
 
 ## Description
 Contract and desk UI: running processes show as chips.
 
-- `SessionInfo` gains `processes: [{id, title, startedAt, port?, state}]`, where `title` is the command clipped to one line. It is sent on change like `awaitingSubagents`, and a client that predates it ignores it.
+- `SessionInfo` gains `processes: [{id, title, startedAt, state}]`, where `title` is the command clipped to one line. It is sent on change like `awaitingSubagents`, and a client that predates it ignores it. No port: nothing is parsed out of output.
 - `process.stop {personaId, id}` stops one, under the same owner checks as other session commands. Output is read with `process.output {personaId, id}`, which returns the tail.
 - Desk: a chip in the same place and style as the subagents chip.
-  - Label: the port when known ("Server :8770"), otherwise the short command ("http.server").
+  - Label: the short command ("http.server 8770").
   - Tooltip: "Running process" (2-3 words, per ui rules).
   - Click opens a small panel with the output tail, the full command, and Stop.
   - Stop is immediate and the chip goes when the process is gone.

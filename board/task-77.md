@@ -33,11 +33,11 @@ createdAt: "2026-10-16T14:03:20.251Z"
 dependsOn:
   - task-74
   - task-75
-updatedAt: "2026-10-16T14:05:22.988Z"
+updatedAt: "2026-10-16T14:06:31.568Z"
 ---
 
 ## Description
-Rewrite the front prompts (voice/front_prompt.rs, TEAMMATE_RULES and DESK_RULES) for a full agent: answer conversation itself, use tools for lookups, hand heavy or code-changing work to the working session with one short acknowledgement, never fill silence. The tools it has are listed to it from front_tools. Settings parity: the front's voice follows the teammate's card (already), and its grants follow the teammate's Reach (MCP servers, computer within mode). Live calls in Settings (ui/src/components/UseFor.tsx) says GPT-Live 'answers by handing your words to the teammate' since it has no tools. Prompt tests pin the new rules.
+Rewrite the front prompts (voice/front_prompt.rs, TEAMMATE_RULES and DESK_RULES) for a full agent: answer conversation itself, use tools for lookups, hand heavy or code-changing work to the working session with one short acknowledgement, never fill silence. The tools it has are listed to it from front_tools. Settings parity: the front's voice follows the teammate's card (already), and its grants follow the teammate's Reach (MCP servers, computer within mode). Live calls in Settings lists all three fronts as full agents. Prompt tests pin the new rules.
 
 ## Log
 - 2026-10-16T14:06:30.385Z: [claude] CORRECTION — GPT-Live does function calling (George, 2026-10-16; developers.openai.com gpt-live-1 lists streaming and function_calling): it delegates reasoning and tool use to a backend, and the backend's function calls come back to the client as response events, answered with function_call_output. Two ways to serve it, to settle in task-74: (a) delegation type responses, a backend model with our desk-side tools declared as functions, each call run desk-side; (b) the ChatGPT sign-in route we use today, delegation type client, answered by a desk-side tool loop instead of the working session. Whether the sign-in route accepts responses delegation is unverified: spike it. All three fronts (Grok Voice, GPT Realtime, GPT-Live) get the full agent; none stays delegate-only.

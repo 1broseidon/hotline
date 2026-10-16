@@ -1,8 +1,6 @@
 ---
 id: task-71
 title: A teammate's own voice is picked from the voice front's voices
-column: review
-position: 8
 priority: medium
 tags:
   - voice
@@ -13,6 +11,8 @@ relatedFiles:
   - ui/src/components/Teammate.tsx
 parentId: epic-6
 createdAt: "2026-10-15T19:16:02.011Z"
+completedAt: "2026-10-16T01:06:07.534Z"
+updatedAt: "2026-10-16T01:06:07.534Z"
 ---
 
 ## Description

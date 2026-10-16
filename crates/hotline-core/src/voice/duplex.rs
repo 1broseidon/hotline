@@ -7,6 +7,7 @@
 
 use super::front::{self, FRONT_LINE_PREFIX};
 use super::front_prompt::{self, Behind, Line, Speaker as LineSpeaker, Start};
+use super::front_tools::FrontTools;
 use super::realtime::{
     Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession, RealtimeTool,
 };
@@ -337,20 +338,39 @@ impl Calls {
         let Ok(bridge) = front::Front::open(&self, &id, speaks) else {
             return;
         };
+        // A call to a teammate holds the teammate's desk-side tools; a desk
+        // call speaks for no one teammate and holds none.
+        let desk_tools = match (&persona, self.room.upgrade()) {
+            (Some(persona), Some(room)) => {
+                let reach = room.front_reach(persona);
+                let opened = tokio::select! {
+                    _ = cancel.cancelled() => return,
+                    opened = FrontTools::open(&persona.id, reach) => opened,
+                };
+                Some(Arc::new(opened))
+            }
+            _ => None,
+        };
+        let desk_definitions = desk_tools
+            .as_ref()
+            .map(|tools| tools.definitions())
+            .unwrap_or_default();
         let config = RealtimeConfig {
             instructions: self.front_instructions(persona.as_ref()),
             voice: self.front_voice(persona.as_ref()),
             tools: front::tools()
                 .into_iter()
+                .chain(desk_definitions)
                 .map(|tool| RealtimeTool {
-                    name: tool.name.into(),
-                    description: tool.description.into(),
+                    name: tool.name,
+                    description: tool.description,
                     parameters: tool.parameters,
                 })
                 .collect(),
             input_rate: FRONT_RATE,
             output_rate: FRONT_RATE,
         };
+        let bridge = bridge.with_desk_tools(desk_tools);
         let opened = tokio::select! {
             _ = cancel.cancelled() => return,
             opened = realtime.open(config) => opened,
@@ -492,6 +512,24 @@ impl Calls {
                         }
                         Ok(())
                     })
+                }
+                RealtimeEvent::ToolCall {
+                    call_id,
+                    name,
+                    arguments,
+                } if let Some(tools) = bridge.desk_tools().filter(|tools| tools.has(&name)) => {
+                    // Run beside the call, so a slow tool does not hold the
+                    // front's speech. The model speaks once it has the result.
+                    let input = input.clone();
+                    let cancel = cancel.clone();
+                    tokio::spawn(async move {
+                        let output = tokio::select! {
+                            _ = cancel.cancelled() => return,
+                            output = tools.call(&name, &arguments) => output,
+                        };
+                        let _ = input.tool_result(&call_id, &output, true).await;
+                    });
+                    Ok(())
                 }
                 RealtimeEvent::ToolCall {
                     call_id,

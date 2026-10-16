@@ -112,6 +112,14 @@ pub const TOOL_NAMES: [&str; 18] = [
 /// follows the same desk switches and the teammate's own policy.
 const RUN_TOOLS: [&str; 3] = [SEARCH_THREAD, LIST_CHAPTERS, WEB_SEARCH];
 
+/// What a voice front is given of these: the desk-side reads. The front
+/// answers the person on a call, so it may look things up in its teammate's
+/// conversation, its schedules and the web, and nothing that writes, wakes,
+/// messages or moves a chapter: that is the working session's, handed
+/// work through `send_to_teammate`.
+pub(crate) const FRONT_TOOLS: [&str; 4] =
+    [SEARCH_THREAD, LIST_CHAPTERS, LIST_SCHEDULES, WEB_SEARCH];
+
 /// What a work thread is not given of these: the chapter moves. Chapters
 /// belong to the DM, so a thread that rotated one would close the person's main
 /// conversation under them. Everything else is the teammate's own, so a
@@ -443,6 +451,8 @@ pub struct TeammateTools {
     subagents: bool,
     /// Whether these are a subagent run's: [`RUN_TOOLS`] and nothing else.
     run: bool,
+    /// Whether these are a voice front's: [`FRONT_TOOLS`] and nothing else.
+    front: bool,
     /// Whether these answer a colleague in a peer session. That session has
     /// no conversation of its own for an answer to come back into, so a
     /// message it sends a third teammate waits for the reply.
@@ -461,6 +471,7 @@ impl TeammateTools {
             capability: None,
             subagents: false,
             run: false,
+            front: false,
             peer: false,
             work: None,
         }
@@ -497,6 +508,28 @@ impl TeammateTools {
         self.run = true;
         self.subagents = false;
         self
+    }
+
+    /// Narrows these to a voice front's: see [`FRONT_TOOLS`].
+    pub(crate) fn for_front(mut self) -> Self {
+        self.front = true;
+        self.subagents = false;
+        self
+    }
+
+    /// The front's tools as a client is shown them.
+    pub(crate) fn front_descriptors() -> Vec<(String, String, Value)> {
+        descriptors()
+            .into_iter()
+            .filter(|tool| FRONT_TOOLS.contains(&tool.name.as_ref()))
+            .map(|tool| {
+                (
+                    tool.name.to_string(),
+                    tool.description.as_deref().unwrap_or("").to_string(),
+                    Value::Object((*tool.input_schema).clone()),
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn in_run(&self) -> bool {
@@ -540,6 +573,9 @@ impl TeammateTools {
         }
         if self.run && !RUN_TOOLS.contains(&name) {
             return Err(format!("A subagent has no tool called '{name}'."));
+        }
+        if self.front && !FRONT_TOOLS.contains(&name) {
+            return Err(format!("A voice front has no tool called '{name}'."));
         }
         if self.work.is_some() && WORK_WITHOUT.contains(&name) {
             return Err(format!(

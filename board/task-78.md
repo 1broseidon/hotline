@@ -47,7 +47,7 @@ contract:
     deliveredAt: "2026-10-16T15:51:27.021Z"
     duration: 510
 createdAt: "2026-10-16T14:05:40.652Z"
-updatedAt: "2026-10-16T15:51:27.021Z"
+updatedAt: "2026-10-16T15:51:31.908Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -60,6 +60,8 @@ dispatch:
     runner: desktop
     pid: 12851
     at: "2026-10-16T15:42:23.272Z"
+    ended: "2026-10-16T15:51:31.907Z"
+    outcome: review
 assignee: claude
 ---
 

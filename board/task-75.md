@@ -1,7 +1,7 @@
 ---
 id: task-75
 title: "Desk: a call keeps its own transcript and posts summaries to the chat"
-column: in-progress
+column: review
 position: 2
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
   - record
 parentId: epic-7
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/duplex.rs
@@ -31,10 +31,12 @@ contract:
     readyAt: "2026-10-16T14:05:40.363Z"
     pickedUpAt: "2026-10-16T14:49:25.900Z"
     reworkCount: 0
+    deliveredAt: "2026-10-16T14:58:40.993Z"
+    duration: 555
 createdAt: "2026-10-16T14:02:49.796Z"
 dependsOn:
   - task-74
-updatedAt: "2026-10-16T14:49:25.900Z"
+updatedAt: "2026-10-16T14:58:40.993Z"
 relatedFiles:
   - crates/hotline-core/src/voice/duplex.rs
   - crates/hotline-core/src/voice/front.rs

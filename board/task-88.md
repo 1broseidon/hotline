@@ -13,7 +13,7 @@ createdAt: "2026-10-16T17:24:29.702Z"
 dependsOn:
   - task-85
   - task-86
-updatedAt: "2026-10-16T20:50:28.123Z"
+updatedAt: "2026-10-16T20:50:38.040Z"
 relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/common
@@ -57,6 +57,8 @@ dispatch:
     runner: desktop
     pid: 12851
     at: "2026-10-16T20:37:12.417Z"
+    ended: "2026-10-16T20:50:38.040Z"
+    outcome: review
 assignee: claude
 ---
 

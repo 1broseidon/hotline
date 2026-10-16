@@ -1,8 +1,6 @@
 ---
 id: task-81
 title: "Composer: with no call key, the mic sits flush right"
-column: review
-position: 4
 priority: medium
 tags:
   - bug
@@ -31,7 +29,7 @@ contract:
     duration: 66
 createdAt: "2026-10-16T15:07:41.728Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:11:19.599Z"
+updatedAt: "2026-10-16T15:11:21.273Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -45,6 +43,7 @@ dispatch:
     pid: 12851
     at: "2026-10-16T15:09:18.256Z"
 assignee: claude
+completedAt: "2026-10-16T15:11:21.273Z"
 ---
 
 ## Description

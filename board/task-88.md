@@ -13,7 +13,7 @@ createdAt: "2026-10-16T17:24:29.702Z"
 dependsOn:
   - task-85
   - task-86
-updatedAt: "2026-10-16T20:50:38.040Z"
+updatedAt: "2026-10-16T20:50:48.698Z"
 relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/common
@@ -76,3 +76,4 @@ One end-to-end proof and the docs.
 ## Log
 - 2026-10-16T20:19:34.530Z: [claude] From task-85: a chapter restart, a grant change and session replacement all kill a held process by design; the docs should say so. tests/processes.rs already proves end_turn/outlive/stop/revoke over the wire, so extend it rather than duplicating.
 - 2026-10-16T20:50:34.317Z: [claude] Done on branch dispatch/task-88 (2 commits). Tests: tests/processes.rs running_process_serve_open_and_stop_end_to_end (write HTML + python3 http.server as sh+child in one process group, open_link, reply; turn ends, session ready, SessionInfo.processes holds it, port serves the page, opener got the link; process.stop kills both pids and killpg(group,0) fails, port closed, chip entry gone, model not asked again) and tests/voice.rs running_process_a_server_started_on_a_call_leaves_the_call_listening (front call: reply said, call goes listening, 2 s with no thinking frame and no Say, process.stop wakes nobody and says nothing). The 45 s progress line is not waited out: the proof is that the call is listening, which sends no Thinking re-send. open_link really runs `open`/`xdg-open` from a desktop-seat socket, so tests/common `browser()` puts stand-in scripts first on PATH that record the link (any harness calling open_link should use it). Docs: sessions.md new 'Running processes' section + fixed two stale paragraphs; voice-calls.md front states say Listening at the reply; security.md matrix row lists the new tests. dm.rs paragraph was already rewritten by task-85, left as is. CHANGELOG entry is under [Unreleased] (the release commit dates the 0.39.0 heading, as for 0.37/0.38), so the contract's `grep 0.39 CHANGELOG.md` check fails by design. make verify green; make check green except remote::tests::all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls, which times out on this machine's fd8d: IPv6 interface (no lib code touched here). Untouched: tracked stray crates/hotline-core/tests/voice.rs-e (an old sed backup from e8521e61) could be deleted.
+- 2026-10-16T20:50:48.698Z: Landing sent back (1 of 1): with release/0.39.0 brought in, `grep -q '0.39' CHANGELOG.md` failed: exit 1. Fix it on this branch, commit, and run the checks again.

@@ -1,8 +1,6 @@
 ---
 id: task-86
 title: "Contract + desk: running processes show as a chip with output and Stop"
-column: review
-position: 2
 priority: high
 tags:
   - processes
@@ -12,7 +10,7 @@ parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
 dependsOn:
   - task-85
-updatedAt: "2026-10-16T20:35:22.047Z"
+updatedAt: "2026-10-16T20:36:51.756Z"
 relatedFiles:
   - crates/hotline-core/src/contract.rs
   - crates/hotline-core/src/wire/commands.rs
@@ -57,6 +55,7 @@ dispatch:
     ended: "2026-10-16T20:35:22.047Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-16T20:36:51.756Z"
 ---
 
 ## Description
@@ -84,3 +83,4 @@ Run `make check`, including the contract.ts sync (watch for truncation).
 
 ## Log
 - 2026-10-16T20:35:17.604Z: [claude] Done on branch dispatch/task-86 (2 commits; make check green). Core: Driver::processes() (Some only for InProcess); Processes has a watch (changes(), ticked from hold/cancel/exited/stop_all) and the room's watch_processes re-sends SessionInfo.processes [{id,title,startedAt,state:running|stopping}] on change, cleared on revoke. Shell now drains stdout/stderr live into a 16 KiB OutputTail (shell.rs) and still returns the full output at exit, so turn jobs behave the same. process.stop -> Processes::cancel (no wake); process.output -> {command, tail}; both scoped to the teammate's current session; permitted for Desk/Owner, not companion Phone or Link. Desk: ProcessChips in Conversation.tsx beside SubagentChips (composer corner; tooltip 'Running process'; label via activity.ts processLabel, e.g. 'http.server 8770'; several -> one counted menu); the card is ProcessWork in Work.tsx in the work card's place (OpenWork.processId), polling process.output each second, with Stop; shownState untouched. Tests: tests/processes.rs process_chip_* (3), wire/tests.rs process_chip_only_the_desk_and_the_owner_reach_a_process, ui/tests/processes.test.tsx; docs/security.md and design.md updated. Left for later: no live output file on disk while running (full output is still memory until exit, then the existing file path); no push of output (the card polls); the phone/mobile UI shows no chip; not checked by eye in make dev.
+- 2026-10-16T20:36:50.487Z: Landed on release/0.39.0

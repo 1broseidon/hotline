@@ -53,3 +53,6 @@ One end-to-end proof and the docs.
   4. `process.stop` kills it: the port closes, no process of its tree is left (check by pid/process group, not only the port), the chip's entry is gone, and the teammate is not woken.
 - The same flow on a direct front call (scripted front): the call goes Listening when the reply is said, and while the server runs the front is given no progress line (none of `voice/front.rs` `TEAMMATE_PROGRESS`, e.g. "Still on it."). Those lines are the bridge's, given each time `voice/mod.rs` `thinking_again` re-sends a Thinking snapshot (every 15 s); a call that is Listening sends none.
 - Docs: docs/sessions.md says what a running process is (a shell job still running when the turn parks), who owns it, when it stops, and that its exit wakes the teammate once. docs/voice-calls.md says a call goes Listening at the reply. The `dm.rs` paragraph about a command left going is rewritten. Add a CHANGELOG line for 0.39.
+
+## Log
+- 2026-10-16T20:19:34.530Z: [claude] From task-85: a chapter restart, a grant change and session replacement all kill a held process by design; the docs should say so. tests/processes.rs already proves end_turn/outlive/stop/revoke over the wire, so extend it rather than duplicating.

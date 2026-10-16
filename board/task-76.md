@@ -43,11 +43,11 @@ dispatch:
     pid: 12851
     at: "2026-10-16T14:05:48.659Z"
 assignee: claude
-updatedAt: "2026-10-16T14:06:10.812Z"
+updatedAt: "2026-10-16T14:06:30.982Z"
 ---
 
 ## Description
-Supersede the relay-only rule of ADR 0004 (docs/adr/0004-*.md) with the epic's direction: the front answers on the call, runs the teammate's desk-side tools itself, hands only heavy or code-changing work to the working session, and the chat gets summaries, not per-turn mirrors. Record the provider limit (GPT-Live delegates only, no function tools) and the open question of harness-native tools. Update docs/voice-calls.md and docs/voice.md to match.
+Supersede the relay-only rule of ADR 0004 (docs/adr/0004-*.md): the front answers on the call, runs the teammate's desk-side tools itself, hands only heavy or code-changing work to the working session, and the chat gets summaries, not per-turn mirrors. Tools by provider: Grok Voice and GPT Realtime take function tools on the realtime session; GPT-Live delegates tool use to a backend whose function calls come back to the desk to run (delegation type responses with a backend model, or client delegation on the ChatGPT sign-in answered by a desk-side tool loop). None of the three stays delegate-only. Record the open question of harness-native tools. Update docs/voice-calls.md and docs/voice.md to match.
 
 ## Log
 - 2026-10-16T14:06:29.196Z: [claude] CORRECTION — GPT-Live does function calling (George, 2026-10-16; developers.openai.com gpt-live-1 lists streaming and function_calling): it delegates reasoning and tool use to a backend, and the backend's function calls come back to the client as response events, answered with function_call_output. Two ways to serve it, to settle in task-74: (a) delegation type responses, a backend model with our desk-side tools declared as functions, each call run desk-side; (b) the ChatGPT sign-in route we use today, delegation type client, answered by a desk-side tool loop instead of the working session. Whether the sign-in route accepts responses delegation is unverified: spike it. All three fronts (Grok Voice, GPT Realtime, GPT-Live) get the full agent; none stays delegate-only.

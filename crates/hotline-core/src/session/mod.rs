@@ -4276,6 +4276,19 @@ impl Room {
         Ok(id)
     }
 
+    /// Posts `text` to the teammate's DM as from its call: a summary of the
+    /// call, or what the front was asked to put in the chat. The call's own
+    /// turns are never posted; they stay on its thread.
+    pub(crate) fn call_posted(&self, persona_id: &str, call_id: &str, text: &str) {
+        self.write_value(
+            persona_id,
+            &json!({
+                "kind": "notice", "id": format!("call:{call_id}:{}", new_id()),
+                "ts": now_ms(), "level": "info", "text": text,
+            }),
+        );
+    }
+
     /// Keeps `spoken` as what a call to the teammate said for its reply
     /// `event_id`, on the reply's first bubble: the call assistant's rewrite
     /// of a reply that wrote no spoken version ([`crate::voice::spoken`]).

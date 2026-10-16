@@ -1,8 +1,6 @@
 ---
 id: task-80
 title: "Desk: a call's summary is the teammate's own words, and its session knows what was said"
-column: review
-position: 4
 priority: high
 tags:
   - voice
@@ -34,7 +32,7 @@ contract:
 createdAt: "2026-10-16T15:01:23.373Z"
 dependsOn:
   - task-79
-updatedAt: "2026-10-16T15:30:06.259Z"
+updatedAt: "2026-10-16T15:30:09.592Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -49,6 +47,7 @@ dispatch:
     ended: "2026-10-16T15:28:44.022Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-16T15:30:09.592Z"
 ---
 
 ## Description

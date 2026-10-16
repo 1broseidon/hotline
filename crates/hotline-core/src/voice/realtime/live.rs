@@ -7,8 +7,9 @@
 //! 20 ms packets at 48 kHz, paced by the driver and filled with silence when
 //! the microphone is quiet or held, so the peer never starves. Everything
 //! else rides the sideband: the model's speech as 24 kHz PCM, what each side
-//! said, and the model's hand-offs. GPT-Live has no tools; it hands work to
-//! the client as a `delegation`, which this adapter reports as the
+//! said, and the model's hand-offs. GPT-Live has no session tools: with the
+//! teammate's desk-side tools it reasons on a `responses` backend that declares
+//! them, and otherwise it hands work to the client as a `delegation`, which this adapter reports as the
 //! `send_to_teammate` call the bridge already answers. A line for the person
 //! goes in on the `speakable` channel and is said as given, so it can never be
 //! taken for the person's words. The server stops a reply itself when the
@@ -24,7 +25,7 @@
 
 use super::socket::Carry;
 use super::{Command, Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession};
-use crate::voice::front::SEND_TO_TEAMMATE;
+use crate::voice::front::{REMAIN_SILENT, SEND_TO_TEAMMATE};
 use crate::voice::speech::{SpeechError, SpeechId};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -54,6 +55,11 @@ use webrtc::peer_connection::{
 /// The ChatGPT login's provider id.
 pub const PROVIDER_ID: &str = "openai-codex";
 pub const MODEL: &str = "gpt-live-1-codex";
+/// The model behind a call that runs desk-side tools. Whether the ChatGPT
+/// sign-in accepts `responses` delegation and this model is unverified (no
+/// login could be spiked from the build); a call that fails to place falls
+/// back to the pipeline.
+const BACKEND_MODEL: &str = "gpt-6-luna";
 /// The voices GPT-Live speaks in, the default first.
 pub const VOICES: [&str; 8] = [
     "cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "sol",
@@ -185,12 +191,13 @@ impl GptLive {
         offer: String,
         instructions: &str,
         voice: &str,
+        delegation: Value,
     ) -> Result<(String, String), SpeechError> {
         let session = json!({
             "model": MODEL,
             "instructions": instructions,
             "audio": {"output": {"voice": voice}},
-            "delegation": {"type": "client"},
+            "delegation": delegation,
         });
         let http = crate::voice::speech::http_client().map_err(|_| self.unreachable())?;
         let mut request = http
@@ -234,14 +241,26 @@ impl GptLive {
                 return Err(self.unreachable());
             }
         };
-        let instructions = instructions(&carry.instructions(&config.instructions));
+        let instructions = carry.instructions(&config.instructions);
+        let delegation = delegation(config);
+        let instructions = if delegation["type"] == "client" {
+            self::instructions(&instructions)
+        } else {
+            instructions
+        };
         // A server that fails or cannot be reached is asked again, as Codex
         // does; a refused login or plan will not change.
         let mut wait = REJOIN_WAIT;
         let mut attempt = 0;
         let (answer, call) = loop {
             match self
-                .create(&who, offer.clone(), &instructions, &config.voice)
+                .create(
+                    &who,
+                    offer.clone(),
+                    &instructions,
+                    &config.voice,
+                    delegation.clone(),
+                )
                 .await
             {
                 Ok(created) => break created,
@@ -373,6 +392,46 @@ impl Realtime for GptLive {
     }
 }
 
+/// Where GPT-Live's reasoning runs. A call with the teammate's desk-side
+/// tools declares them as functions on a backend model, whose calls come back
+/// to the desk to run; a call without them (the desk's own) hands each
+/// delegation to the client, which answers it as a hand-off.
+fn delegation(config: &RealtimeConfig) -> Value {
+    let tools: Vec<Value> = config
+        .tools
+        .iter()
+        .map(|tool| {
+            json!({
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": tool.parameters,
+            })
+        })
+        .collect();
+    let has_desk_tools = config
+        .tools
+        .iter()
+        .any(|tool| tool.name != SEND_TO_TEAMMATE && tool.name != REMAIN_SILENT);
+    if !has_desk_tools {
+        return json!({"type": "client"});
+    }
+    json!({
+        "type": "responses",
+        "responses": {
+            "model": BACKEND_MODEL,
+            "instructions": config.instructions,
+            "tools": tools,
+        },
+    })
+}
+
+/// Whether a call's delegation is the backend's, whose function calls the
+/// desk answers with `function_call_output`.
+fn answers_backend(config: &RealtimeConfig) -> bool {
+    delegation(config)["type"] == "responses"
+}
+
 /// The front's instructions, with how this model hands work over: GPT-Live
 /// delegates rather than calling `send_to_teammate`.
 fn instructions(base: &str) -> String {
@@ -498,6 +557,18 @@ impl Heard {
                     call_id: text(&item["id"])?,
                     name: SEND_TO_TEAMMATE.into(),
                     arguments: json!({"words": words.join(" ")}).to_string(),
+                }]
+            }
+            // A call the backend model made: the desk runs it and answers.
+            "response.event"
+                if event["event"]["type"] == "response.output_item.done"
+                    && event["event"]["item"]["type"] == "function_call" =>
+            {
+                let item = &event["event"]["item"];
+                vec![RealtimeEvent::ToolCall {
+                    call_id: text(&item["call_id"])?,
+                    name: text(&item["name"])?,
+                    arguments: text(&item["arguments"])?,
                 }]
             }
             "error" => vec![RealtimeEvent::Refused {
@@ -959,6 +1030,18 @@ impl Driver {
                 output,
                 reply,
             } => {
+                if answers_backend(&self.config) {
+                    // Every call is answered, then the backend carries on.
+                    let item = json!({"type": "function_call_output", "call_id": call_id, "output": output});
+                    self.send(
+                        sideband,
+                        json!({"type": "response.item.create", "item": item}),
+                    )
+                    .await?;
+                    return self
+                        .send(sideband, json!({"type": "response.create"}))
+                        .await;
+                }
                 if !reply || output.is_empty() {
                     return Ok(());
                 }

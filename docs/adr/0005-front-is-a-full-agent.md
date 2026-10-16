@@ -118,7 +118,10 @@ by the route its protocol gives.
     judges heavy, through `send_to_teammate` as on the other fronts.
 
   Whether the ChatGPT sign-in route accepts `responses` delegation is
-  unverified; task-79 spikes it and keeps client delegation if it does not.
+  unverified: it could not be spiked without a live login. task-79 built the
+  `responses` route (a teammate call declares the registry on a backend model;
+  a desk call keeps client delegation); a call the sign-in refuses falls back to
+  the pipeline. The client-delegation tool loop needs a desk-run model and is not built.
 
 ## Open questions
 

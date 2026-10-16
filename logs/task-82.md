@@ -1,8 +1,6 @@
 ---
 id: task-82
 title: "Providers: Live calls and Images can be turned Off"
-column: review
-position: 3
 priority: medium
 tags:
   - settings
@@ -34,7 +32,7 @@ contract:
     duration: 248
 createdAt: "2026-10-16T15:22:42.069Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:46:06.758Z"
+updatedAt: "2026-10-16T15:46:13.922Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -48,6 +46,7 @@ dispatch:
     pid: 12851
     at: "2026-10-16T15:38:51.186Z"
 assignee: claude
+completedAt: "2026-10-16T15:46:13.922Z"
 ---
 
 ## Description

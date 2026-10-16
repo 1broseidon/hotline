@@ -12,8 +12,15 @@ tags:
   - 0.39.0
 createdAt: "2026-10-16T13:52:14.099Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T14:04:29.240Z"
+updatedAt: "2026-10-16T14:04:31.101Z"
 assignee: claude
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-16T14:04:30.973Z"
+  until: review
+  role: lead
 ---
 
 ## Description

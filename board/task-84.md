@@ -1,7 +1,7 @@
 ---
 id: task-84
 title: "GPT-Live: the responses delegation fails validation, so a tool call goes silent"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -28,7 +28,7 @@ contract:
   metrics:
     readyAt: "2026-10-16T15:57:47.298Z"
 createdAt: "2026-10-16T15:57:47.304Z"
-updatedAt: "2026-10-16T15:58:36.752Z"
+updatedAt: "2026-10-16T16:23:19.947Z"
 landsOn: release/0.39.0
 ---
 

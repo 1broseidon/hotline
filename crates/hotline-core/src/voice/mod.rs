@@ -4,6 +4,7 @@ pub mod dispatcher;
 mod duplex;
 pub mod front;
 pub mod front_prompt;
+mod front_tools;
 pub mod ledger;
 pub mod metering;
 pub mod realtime;

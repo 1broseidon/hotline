@@ -242,6 +242,14 @@ pub trait Agents: Send + Sync {
     async fn complete(&self, model_id: &str, system: &str, prompt: &str) -> Result<String, String>;
 }
 
+/// A voice front's reach into the room: see [`Room::front_reach`].
+pub(crate) struct FrontReach {
+    pub tools: TeammateTools,
+    pub servers: Vec<mcp::McpServer>,
+    pub vault: Option<Arc<Vault>>,
+    pub capability: CapabilityLease,
+}
+
 /// The agents this desk can really run: Hotline Agent on whatever keys the desk
 /// holds at the moment it is asked, and any ACP harness the registry knows.
 struct DeskAgents {
@@ -893,6 +901,27 @@ impl Room {
 
     fn capability_lease(&self, persona_id: &str) -> CapabilityLease {
         self.capability_epoch(persona_id).lease()
+    }
+
+    /// What a voice front may reach for this teammate, under the teammate's
+    /// current authority: its desk-side tools, the MCP servers its policy
+    /// grants, and the protected store those servers' logins are read from.
+    /// The lease is the teammate's own, so changing its grants on the card
+    /// refuses the front's next call.
+    pub(crate) fn front_reach(self: &Arc<Self>, persona: &Persona) -> FrontReach {
+        let capability = self.capability_lease(&persona.id);
+        let granted = mcp::grant(
+            &mcp::servers(&room::settings(&self.log)),
+            &persona.mcp_policy,
+        );
+        FrontReach {
+            tools: TeammateTools::new(self, persona.id.clone())
+                .with_capability(capability.clone())
+                .for_front(),
+            servers: granted.servers,
+            vault: self.vault.clone(),
+            capability,
+        }
     }
 
     fn current_session(&self, candidate: &Arc<Session>) -> bool {

@@ -253,8 +253,28 @@ impl Calls {
     }
 
     /// The front is gone for the rest of the call, which goes on as a
-    /// pipeline call.
-    fn lose_front(&self, id: &str) {
+    /// pipeline call; a desk with no pipeline to fall back on ends it.
+    pub(super) fn lose_front(&self, id: &str) {
+        let pipeline = self.change(id, |call| {
+            Ok(call
+                .speech_services
+                .front_only
+                .then(|| (call.input_mode, call.target.clone())))
+        });
+        if let Ok(Some((input_mode, target))) = pipeline {
+            match self.resolve_speech(input_mode, target.as_deref()) {
+                Ok(services) => {
+                    let _ = self.change(id, |call| {
+                        call.speech_services = services;
+                        Ok(())
+                    });
+                }
+                Err(_) => {
+                    let _ = self.finish(id, VoiceEndReason::Error);
+                    return;
+                }
+            }
+        }
         let _ = self.change(id, |call| {
             if call.front.take().is_some() {
                 let _ = call.events.send(VoiceEvent::FrontEnded {});

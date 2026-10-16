@@ -18,6 +18,7 @@ use crate::contract::{
     VoiceFront, VoiceInputMode, VoiceModel, VoiceState, VoiceStatus,
 };
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
+use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use dispatcher::{Context, Dispatcher, ProviderDispatcher};
 use duplex::Front;
@@ -87,6 +88,35 @@ struct CallSpeech {
     stt: Option<Arc<dyn speech::Speech>>,
     tts: Arc<dyn speech::Speech>,
     fallback_tts: Option<Arc<dyn speech::Speech>>,
+    /// The front stands in for a pipeline the desk does not have ([`CallSpeech::front`]).
+    front_only: bool,
+}
+
+/// A front's identity as a call's speech, for a desk with no pipeline: the
+/// provider and model the login check and the budgets read, and nothing to
+/// hear or say with, since the front does both itself.
+struct FrontSpeech {
+    id: SpeechId,
+    subscription: bool,
+}
+
+#[async_trait]
+impl Speech for FrontSpeech {
+    fn id(&self) -> SpeechId {
+        self.id.clone()
+    }
+    fn is_subscription(&self) -> bool {
+        self.subscription
+    }
+    fn output_mime(&self) -> &str {
+        "audio/pcm"
+    }
+    async fn transcribe(&self, _clip: Clip) -> Result<String, speech::SpeechError> {
+        Err(speech::SpeechError::WrongJob)
+    }
+    async fn speak(&self, _text: &str) -> Result<Clip, speech::SpeechError> {
+        Err(speech::SpeechError::WrongJob)
+    }
 }
 
 /**
@@ -126,6 +156,7 @@ impl CallSpeech {
             stt: Some(speech.stt),
             tts: speech.tts,
             fallback_tts: speech.fallback_tts,
+            front_only: false,
         }
     }
     fn output(speech: SpeechOutput) -> Self {
@@ -133,6 +164,21 @@ impl CallSpeech {
             stt: None,
             tts: speech.tts,
             fallback_tts: speech.fallback_tts,
+            front_only: false,
+        }
+    }
+    /// A front call on a desk with no pipeline to fall back on: the front
+    /// hears and speaks itself, and its identity stands in for the speech
+    /// the call would otherwise have resolved.
+    fn front(front: &dyn realtime::Realtime) -> Self {
+        Self {
+            stt: None,
+            tts: Arc::new(FrontSpeech {
+                id: front.id(),
+                subscription: front.is_subscription(),
+            }),
+            fallback_tts: None,
+            front_only: true,
         }
     }
 }
@@ -593,6 +639,10 @@ impl Calls {
 
     pub fn status_for(&self, input_mode: VoiceInputMode) -> VoiceStatus {
         let speech = self.resolve_speech(input_mode, None);
+        // A front takes a call the pipeline could not: it hears and speaks itself.
+        let front = self
+            .realtime()
+            .is_some_and(|front| self.front_ready(front.as_ref()).is_ok());
         let dispatcher = self.dispatcher();
         let budget_error = |assistant: Option<&dyn Dispatcher>| {
             self.ledger
@@ -616,10 +666,11 @@ impl Calls {
                 limits.month_usd.unwrap_or(0.0),
             ),
         };
-        let direct_available = speech.is_ok() && direct_budget_error.is_none();
+        let direct_available = (speech.is_ok() || front) && direct_budget_error.is_none();
         let unavailable = speech
             .as_ref()
             .err()
+            .filter(|_| !front)
             .cloned()
             .or_else(|| dispatcher.as_ref().err().cloned())
             .or(budget_error);
@@ -726,8 +777,22 @@ impl Calls {
             return Err("A call cannot change its target or input/output mode.".into());
         }
         if !calls.iter().any(|call| call.id == id) {
-            // Direct calls do not need a separate routing model.
-            let speech_services = self.resolve_speech(input_mode, target.as_deref())?;
+            // A front the budget cannot pay for leaves the call on the pipeline.
+            let realtime = self
+                .realtime()
+                .filter(|_| mode == VoiceCallMode::Front)
+                .filter(|front| self.front_ready(front.as_ref()).is_ok());
+            // Direct calls do not need a separate routing model. A front
+            // hears and speaks itself, so with one the pipeline is only what
+            // the call would fall back on, and a desk with none still takes
+            // the call: a ChatGPT login alone runs GPT-Live.
+            let speech_services = match self.resolve_speech(input_mode, target.as_deref()) {
+                Ok(services) => services,
+                Err(error) => match &realtime {
+                    Some(front) => CallSpeech::front(front.as_ref()),
+                    None => return Err(error),
+                },
+            };
             if target.is_none() {
                 self.dispatcher()?;
             }
@@ -747,11 +812,6 @@ impl Calls {
             }
             let (tx, rx) = mpsc::channel(16);
             let cancel = CancellationToken::new();
-            // A front the budget cannot pay for leaves the call on the pipeline.
-            let realtime = self
-                .realtime()
-                .filter(|_| mode == VoiceCallMode::Front)
-                .filter(|front| self.front_ready(front.as_ref()).is_ok());
             calls.push_back(Call {
                 id: id.into(),
                 output: speech_services.tts.output_mime().into(),

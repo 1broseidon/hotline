@@ -955,7 +955,10 @@ placed in the background with the conversation so far in its instructions,
 and the adapter switches to it between replies (or after 30 s of a reply)
 and hangs up the old one; a replacement that cannot be placed is tried again
 a minute later. A call the server no longer knows or a failed peer drops the
-front and the call goes on as a pipeline call. It costs nothing
+front and the call goes on as a pipeline call, when the desk has one: a
+desk with only the ChatGPT login, which is no speech connection, still
+offers and takes calls on the front alone, and losing the front then ends
+the call rather than carrying it on with nothing to hear or speak with. It costs nothing
 against the Voice budget. Legacy voice's own rows, the voice
 it speaks in and the call assistant, show in Settings only under it;
 Transcription stays under Use for, because dictation uses it.

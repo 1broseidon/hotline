@@ -20,7 +20,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   name). Settings › Live calls picks one model from a list grouped by
   provider: Grok Voice on an xAI login or key (the default), GPT Realtime
   (`gpt-realtime-2.1`) on an OpenAI key, or GPT-Live (`gpt-live-1-codex`) on
-  the ChatGPT sign-in, placed as the Codex app places it. A session is
+  the ChatGPT sign-in alone, with no other speech provider connected, placed
+  as the Codex app places it. A session is
   renewed before its limit with the conversation carried, so a call outlives
   it. Minutes count against the Voice budget: nothing on a subscription,
   $0.08 a minute for Grok Voice and $0.10 for GPT Realtime on a key. Legacy

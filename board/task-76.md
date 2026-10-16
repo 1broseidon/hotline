@@ -35,17 +35,10 @@ dispatch:
   agent: claude
   model: opus
   by: lead
-  at: "2026-10-16T14:05:46.777Z"
-  tries: 1
-  claim:
-    host: Georges-Mac-Studio
-    runner: desktop
-    pid: 12851
-    at: "2026-10-16T14:05:48.659Z"
-    ended: "2026-10-16T14:09:34.340Z"
-    outcome: stopped
+  at: "2026-10-16T14:11:27.976Z"
+  tries: 0
 assignee: claude
-updatedAt: "2026-10-16T14:09:34.340Z"
+updatedAt: "2026-10-16T14:11:28.098Z"
 ---
 
 ## Description

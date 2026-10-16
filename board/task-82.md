@@ -34,7 +34,7 @@ contract:
     duration: 248
 createdAt: "2026-10-16T15:22:42.069Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:43:33.802Z"
+updatedAt: "2026-10-16T15:46:06.758Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -57,3 +57,4 @@ George 2026-10-16: some people will not want live calls or image generation at a
 - 2026-10-16T15:38:30.044Z: [claude] Added Off to Live calls (voice.front provider 'off') and Images (images provider 'off'), last in each picker and never the default. Off calls: voice.status says 'Calls are off in Settings' with no capabilities (call keys vanish), call_start refused; Legacy voice unchanged. Off images: generate_image dropped from Hotline Agent, MCP listing and tool ledger, refused if called, New teammate offers no picture. Harnesses: tests/voice.rs, tests/mcp.rs; docs in voice.md and wire.md; make check passes. Residual: an older desk reads 'off' calls as Legacy voice (still calls). On branch dispatch/task-82.
 - 2026-10-16T15:38:42.326Z: Landing sent back (1 of 1): dispatch/task-82 conflicts with release/0.39.0 in crates/hotline-core/tests/voice.rs. On release/0.39.0 since this branch started: fb886e40 A call's summary is the teammate's own first-person words, and its next turn carries on from it (task-80). Merge release/0.39.0 into this branch (git merge release/0.39.0), keep what both sides meant, commit the merge, and run the checks: make check.
 - 2026-10-16T15:43:33.474Z: [claude] Merged release/0.39.0 into dispatch/task-82; the one conflict (tests/voice.rs) kept both calls_off test and task-80's is_call_post helper; make check passes. On branch dispatch/task-82.
+- 2026-10-16T15:46:06.758Z: Landed on release/0.39.0

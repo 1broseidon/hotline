@@ -429,7 +429,7 @@ impl Jobs {
     pub fn waitable(&self, ids: &[String]) -> Result<(), String> {
         match ids
             .iter()
-            .find(|id| !self.owns(id) && self.processes.holds(id))
+            .find(|id| !self.owns(id) && self.processes.knows(id))
         {
             Some(id) => Err(format!(
                 "Job {id} is a process left running by an earlier reply, so it cannot be waited on. Its result arrives as a later turn when it exits; use inspect_job to check it, or cancel_job to stop it."
@@ -620,6 +620,9 @@ pub(crate) struct Processes {
     /// Where a long result's full output is written, as a turn's are.
     output_dir: PathBuf,
     held: Mutex<BTreeMap<String, Held>>,
+    /// The last few that ended, so a later turn that stopped one can read
+    /// how it ended.
+    ended: Mutex<std::collections::VecDeque<JobSnapshot>>,
     wakes: Mutex<Option<mpsc::UnboundedSender<String>>>,
 }
 
@@ -634,6 +637,7 @@ impl Processes {
         Arc::new(Self {
             output_dir,
             held: Mutex::new(BTreeMap::new()),
+            ended: Mutex::new(std::collections::VecDeque::new()),
             wakes: Mutex::new(None),
         })
     }
@@ -665,6 +669,18 @@ impl Processes {
         lock(&self.held).contains_key(id)
     }
 
+    /// Whether the id names a process, running or lately ended.
+    fn knows(&self, id: &str) -> bool {
+        self.holds(id) || self.ended(id).is_some()
+    }
+
+    fn ended(&self, id: &str) -> Option<JobSnapshot> {
+        lock(&self.ended)
+            .iter()
+            .find(|job| job.job_id == id)
+            .cloned()
+    }
+
     /// The processes still running, without output.
     pub fn running(&self) -> Vec<JobSnapshot> {
         lock(&self.held)
@@ -674,12 +690,20 @@ impl Processes {
     }
 
     fn snapshot(&self, id: &str) -> Option<JobSnapshot> {
-        lock(&self.held).get(id).map(|held| held.snapshot.clone())
+        lock(&self.held)
+            .get(id)
+            .map(|held| held.snapshot.clone())
+            .or_else(|| self.ended(id))
     }
 
     /// Asks one process to stop. Its end is not reported: whoever stopped it
     /// knows.
     pub fn cancel(&self, args: JobArgs) -> Result<Value, String> {
+        if let Some(job) = self.ended(&args.job_id) {
+            return Ok(
+                json!({"outcome":"already_finished","reason":args.reason,"job":job.without_output()}),
+            );
+        }
         let mut held = lock(&self.held);
         let process = held
             .get_mut(&args.job_id)
@@ -698,17 +722,27 @@ impl Processes {
     /// A process ended. One that ended on its own wakes the teammate with
     /// its result, once.
     fn exited(&self, id: &str, outcome: Finished) {
-        let Some(held) = lock(&self.held).remove(id) else {
-            return;
+        // Moved from running to ended under one lock, so it is never neither.
+        let (held, job) = {
+            let mut running = lock(&self.held);
+            let Some(held) = running.remove(id) else {
+                return;
+            };
+            let job = JobSnapshot {
+                state: outcome.state,
+                output: Some(outcome.output),
+                ..held.snapshot.clone()
+            };
+            let mut ended = lock(&self.ended);
+            if ended.len() >= MAX_SHELL {
+                ended.pop_front();
+            }
+            ended.push_back(job.clone());
+            (held, job)
         };
         if held.cancel.is_cancelled() {
             return;
         }
-        let job = JobSnapshot {
-            state: outcome.state,
-            output: Some(outcome.output),
-            ..held.snapshot
-        };
         if let Some(wakes) = lock(&self.wakes).as_ref() {
             let _ = wakes.send(crate::driver::rig::process_ended(&self.output_dir, &job));
         }
@@ -1020,6 +1054,8 @@ mod tests {
             wakes.try_recv().is_err(),
             "a stop the teammate asked for wakes nobody"
         );
+        assert_eq!(later.snapshot("server").unwrap().state, JobState::Cancelled);
+        assert!(later.waitable(&["server".into()]).is_err());
     }
 
     #[cfg(unix)]

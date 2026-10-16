@@ -2,8 +2,6 @@
 id: epic-6
 title: "Live calls get a voice front: Grok Voice / GPT-Live talk, the teammate works (0.38)"
 type: epic
-column: review
-position: 0
 priority: high
 tags:
   - feature
@@ -12,7 +10,7 @@ tags:
   - 0.38.0
 createdAt: "2026-10-14T20:03:32.697Z"
 assignee: claude
-updatedAt: "2026-10-16T01:06:10.024Z"
+updatedAt: "2026-10-16T03:15:52.922Z"
 lead:
   agent: claude
   model: sonnet
@@ -20,6 +18,7 @@ lead:
   by: person
   at: "2026-10-15T01:56:09.669Z"
   until: done
+completedAt: "2026-10-16T03:15:52.922Z"
 ---
 
 ## Description
@@ -45,3 +44,21 @@ Done when a phone call to a teammate runs on Grok Voice with sub-second replies 
 - 2026-10-15T18:50:18.759Z: [claude] 2026-10-15 day: George QA'd Grok Voice on desk (headset) and phone (speaker): near-instant replies, barge-in by voice works on speaker, echo cancellation holds. Phone PR hotline-mobile#75 (feat/voice-front, stacked on #72). Added on release/0.38.0 and QA'd: first-person front on direct calls with one ack per request (new child), Live calls Model picker grouped by provider (new child), GPT Realtime on an OpenAI key incl. the relay-loop fix (new child). Built, pending QA: GPT-Live on the ChatGPT login (task-64, desk holds WebRTC; live test 3/3). OpenRouter has no speech-to-speech API (open FR). Remaining before release: George's GPT-Live QA, then reconcile children to done and open the 0.38.0 PR. Next after release: survey every provider for speech-to-speech (Gemini Live first).
 - 2026-10-16T01:06:09.400Z: [claude] 2026-10-15 evening: George QA'd the whole package and called it ready for 0.38 (20:02). After the 18:50 note, also built and QA'd on release/0.38.0: GPT-Live's hour-limit renewal (live-tested); agent voice settings follow the active voice path (desk and phone); provider list shows Chat/Images/Voice; the call UI and the new shell (task-73: composer call key, inset call card with face and voice bars, transcript key, Said on the call, written follow-up for a question the call ended on, folded call lines, rail dock with a real search field and the desk's call key, title bar New teammate + Settings, … menu merged into Settings); short tooltips and 2-3 word call trouble with an info key (task-72; decisions ui.no-fake-ui and ui.tooltip-length). Phone (hotline-mobile, feat/voice-front, PR #75 on #72): front voice path in agent settings, 22 hints shortened (task-32), call key in the composer and out of the … menu, Stop a quiet round (task-33); installed on George's iPhone. All children complete. Release prep on release/0.38.0: version 0.38.0, CHANGELOG, docs/releases/0.38.0.md. Done pending the 0.38.0 PR, tag desktop-v0.38.0, and the phone's TestFlight build.
 - 2026-10-16T02:53:30.873Z: [claude] 2026-10-15 21:45: George said ship it. Release 0.38.0 committed (52ae9ff2). Codex review on PR #187 raised a real P1 (a ChatGPT-only desk could not start GPT-Live: start_call and voice.status gated on legacy speech) and a real P2 (a refused response.create left the socket mute); both fixed with tests (df1859b5, 8337a38f), CI green, PR #187 merged (c5964d09), tag desktop-v0.38.0 pushed, desktop-release.yml run 38842698038 building. Phone: #72 and #75 merged to main; EAS build 29 (0.5.0) submitted to TestFlight.
+
+## Child Tasks
+Summary: 15/15 children completed.
+- task-57: Voice front: decision record and call docs (completed)
+- task-58: Desk: realtime voice seam and Grok Voice adapter (completed)
+- task-59: Desk: front-to-teammate bridge (completed)
+- task-60: Desk: front prompt and starting context (completed)
+- task-61: Desk: call wire for front calls (completed)
+- task-62: Desk: record front calls truthfully and count their cost (completed)
+- task-63: Desktop: choose the voice front in Settings (completed)
+- task-64: Desk: GPT-Live front over the ChatGPT login (completed)
+- task-66: Desk: wire the voice front end to end, then test it live on Grok (completed)
+- task-67: Desktop: calls go through the voice front by default; the old pipeline becomes Legacy voice (completed)
+- task-68: Desk: a direct call's front is the teammate, in the first person (completed)
+- task-69: Desktop: Live calls picks one model from a list grouped by provider (completed)
+- task-70: Desk: GPT Realtime front on an OpenAI API key (completed)
+- task-71: A teammate's own voice is picked from the voice front's voices (completed)
+- task-73: Desktop: call UI and the new shell (composer call key, call card, dock with search and the desk's call key, Settings merge) (completed)

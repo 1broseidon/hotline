@@ -1,7 +1,7 @@
 ---
 id: task-74
 title: "Desk: the front runs the teammate's desk-side tools itself"
-column: in-progress
+column: review
 position: 1
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
   - tools
 parentId: epic-7
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/front_tools.rs
@@ -31,10 +31,12 @@ contract:
     readyAt: "2026-10-16T14:05:40.080Z"
     pickedUpAt: "2026-10-16T14:23:33.153Z"
     reworkCount: 0
+    deliveredAt: "2026-10-16T14:42:55.647Z"
+    duration: 1162
 createdAt: "2026-10-16T14:02:49.220Z"
 dependsOn:
   - task-76
-updatedAt: "2026-10-16T14:23:33.153Z"
+updatedAt: "2026-10-16T14:42:55.647Z"
 relatedFiles:
   - crates/hotline-core/src/voice/duplex.rs
   - crates/hotline-core/src/voice/front.rs

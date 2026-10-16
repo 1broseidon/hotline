@@ -1709,18 +1709,18 @@
 		color: var(--ink);
 	}
 	/* The send key is a thing that arrives with the first character, not a
-	 * thing that waits greyed out for it. */
+	 * thing that waits greyed out for it. It is not rendered while the field
+	 * is empty, so it holds no space beside the mic. */
 	.composer-send {
 		background: var(--accent);
 		color: var(--on-accent);
-		opacity: 0;
-		transform: scale(0.6);
-		pointer-events: none;
+		animation: composer-send-arrive var(--dur-press) var(--ease-out);
 	}
-	.composer-send[data-shown] {
-		opacity: 1;
-		transform: none;
-		pointer-events: auto;
+	@keyframes composer-send-arrive {
+		from {
+			opacity: 0;
+			transform: scale(0.6);
+		}
 	}
 	.composer-send:hover {
 		background: var(--accent-hover);

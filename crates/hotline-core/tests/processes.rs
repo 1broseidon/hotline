@@ -333,7 +333,16 @@ async fn running_process_serve_open_and_stop_end_to_end() {
     assert_eq!(process["state"], "running");
     let shell = desk.pid("server.pid").await;
     let server = desk.pid("child.pid").await;
-    let page = fetch(port).await;
+    let Some(page) = fetch(port).await else {
+        // What the server said is the only account of why it is not there.
+        let output = desk
+            .call(
+                "process.output",
+                json!({"personaId": desk.persona, "id": job_id}),
+            )
+            .await;
+        panic!("the server did not answer on port {port}: {output}");
+    };
     assert!(page.starts_with("HTTP/1.0 200"), "{page}");
     assert!(page.contains("<h1>The chart</h1>"), "{page}");
     let handed: Vec<String> = std::fs::read_to_string(opened)
@@ -372,8 +381,9 @@ fn free_port() -> u16 {
     listener.local_addr().unwrap().port()
 }
 
-/// The page at `/chart.html` as the server answers it, once it is up.
-async fn fetch(port: u16) -> String {
+/// The page at `/chart.html` as the server answers it, once it is up, or
+/// `None` when it has not answered in 15 seconds.
+async fn fetch(port: u16) -> Option<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {
@@ -390,7 +400,7 @@ async fn fetch(port: u16) -> String {
         }
     })
     .await
-    .expect("the server answered")
+    .ok()
 }
 
 /// Whether any process is left in the group `leader` made. Signal 0 only asks.

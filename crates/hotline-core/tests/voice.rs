@@ -2655,6 +2655,7 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
     panic!("the follow-up turn was not told what the call said");
 }
 
+#[cfg(unix)]
 /// A chat-completions fixture that answers each request with the next of
 /// `answers`, a list of stream chunks, and keeps every request.
 async fn provider_scripted(
@@ -2696,6 +2697,7 @@ async fn provider_scripted(
     (url, seen)
 }
 
+#[cfg(unix)]
 fn reply_chunks(text: &str) -> Vec<Value> {
     vec![
         json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":text},"finish_reason":null}]}),
@@ -2703,6 +2705,7 @@ fn reply_chunks(text: &str) -> Vec<Value> {
     ]
 }
 
+#[cfg(unix)]
 fn shell_chunks(command: &str) -> Vec<Value> {
     let arguments = json!({ "command": command }).to_string();
     vec![
@@ -2711,6 +2714,7 @@ fn shell_chunks(command: &str) -> Vec<Value> {
     ]
 }
 
+#[cfg(unix)]
 /// The next line the front is given to say.
 async fn next_said(asked: &mut tokio::sync::mpsc::Receiver<Asked>) -> String {
     loop {
@@ -2792,6 +2796,7 @@ async fn running_process_that_ends_during_a_call_is_said_on_the_call() {
     assert!(woke.contains("done"), "{woke}");
 }
 
+#[cfg(unix)]
 fn tool_chunks(name: &str, arguments: Value) -> Vec<Value> {
     let arguments = arguments.to_string();
     vec![

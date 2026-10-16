@@ -1022,6 +1022,7 @@ mod tests {
     }
 
     /// A shell on a scratch workspace with machine reach.
+    #[cfg(unix)]
     fn shell(root: &std::path::Path) -> RunCommand {
         RunCommand::new(Workspace::open(root.into(), Reach::Machine, root.join("outputs")).unwrap())
     }

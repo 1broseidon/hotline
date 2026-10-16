@@ -103,32 +103,49 @@ impl Record {
     }
 }
 
-/// The most of one line the summary quotes.
-const QUOTE_CHARS: usize = 160;
+/// The most of what the person said, and of what the front answered, that the
+/// summary quotes, and how many exchanges it keeps: the newest.
+const ASKED_CHARS: usize = 160;
+const ANSWERED_CHARS: usize = 240;
+const EXCHANGES: usize = 6;
 
 /// What a front call has done since its last post to the teammate's DM, for
 /// the one summary that stands for it there. The call's own thread keeps what
-/// was said; the DM gets this, never the turns.
+/// was said word for word; the DM gets this, in the teammate's voice.
 #[derive(Default)]
 pub(super) struct Digest {
-    asked: Vec<String>,
-    /// Tool names with how often each ran, in the order first run.
-    tools: Vec<(String, u32)>,
+    exchanges: Vec<Exchange>,
+    /// Whether the front looked anything up for the person.
+    looked_up: bool,
     handed: Vec<String>,
+}
+
+/// What the person asked, and what the front said back.
+struct Exchange {
+    asked: String,
+    answered: Vec<String>,
 }
 
 impl Digest {
     /// The person asked this.
     pub(super) fn asked(&mut self, words: &str) {
-        self.asked.push(words.trim().to_string());
+        self.exchanges.push(Exchange {
+            asked: words.trim().to_string(),
+            answered: Vec::new(),
+        });
     }
 
-    /// The front ran a desk-side tool.
-    pub(super) fn ran(&mut self, tool: &str) {
-        match self.tools.iter_mut().find(|(name, _)| name == tool) {
-            Some((_, count)) => *count += 1,
-            None => self.tools.push((tool.to_string(), 1)),
+    /// The front said this to the person. A line before anyone asked is
+    /// not an answer.
+    pub(super) fn answered(&mut self, words: &str) {
+        if let Some(exchange) = self.exchanges.last_mut() {
+            exchange.answered.push(words.trim().to_string());
         }
+    }
+
+    /// The front looked something up with a desk-side tool.
+    pub(super) fn looked_up(&mut self) {
+        self.looked_up = true;
     }
 
     /// The front handed these words to the working session.
@@ -136,40 +153,52 @@ impl Digest {
         self.handed.push(words.trim().to_string());
     }
 
-    /// The summary of what has happened since the last one, tagged as from
-    /// the call, or `None` when nothing has. `open` is what the person last
-    /// asked that nothing has answered.
+    /// The summary of what has happened since the last one, as the teammate
+    /// would say it, tagged as from the call, or `None` when nothing has.
+    /// `open` is what the person last asked that nothing has answered. Words
+    /// are scrubbed and clipped as the front's own starting context is, since
+    /// the summary becomes part of the teammate's history.
     pub(super) fn summary(&mut self, open: Option<&str>) -> Option<String> {
-        if self.asked.is_empty() && self.tools.is_empty() && self.handed.is_empty() {
+        if self.exchanges.is_empty() && !self.looked_up && self.handed.is_empty() {
             return None;
         }
-        let quote = |text: &String| format!("\"{}\"", crate::driver::clip(text, QUOTE_CHARS));
-        let mut lines = vec!["From the call:".to_string()];
-        if !self.asked.is_empty() {
-            let asked: Vec<String> = self.asked.iter().map(quote).collect();
-            lines.push(format!("Asked: {}", asked.join("; ")));
+        let quote = |text: &str, limit: usize| {
+            format!(
+                "\"{}\"",
+                super::front_prompt::clip(&super::front_prompt::scrub(text), limit)
+            )
+        };
+        let mut sentences = Vec::new();
+        let skipped = self.exchanges.len().saturating_sub(EXCHANGES);
+        for exchange in self.exchanges.iter().skip(skipped) {
+            let asked = quote(&exchange.asked, ASKED_CHARS);
+            let answered = exchange.answered.join(" ");
+            sentences.push(if answered.trim().is_empty() {
+                format!("You asked {asked}.")
+            } else {
+                format!(
+                    "You asked {asked} and I said {}.",
+                    quote(&answered, ANSWERED_CHARS)
+                )
+            });
         }
-        let mut done: Vec<String> = self
-            .tools
-            .iter()
-            .map(|(name, count)| match count {
-                1 => format!("ran {name}"),
-                count => format!("ran {name} ×{count}"),
-            })
-            .collect();
-        done.extend(
-            self.handed
-                .iter()
-                .map(|words| format!("handed to the working session: {}", quote(words))),
-        );
-        if !done.is_empty() {
-            lines.push(format!("Done: {}", done.join("; ")));
+        if self.looked_up {
+            sentences.push("I looked through our earlier conversations to answer.".to_string());
+        }
+        for words in &self.handed {
+            sentences.push(format!(
+                "I'm still working on this: {}.",
+                quote(words, ASKED_CHARS)
+            ));
         }
         if let Some(open) = open {
-            lines.push(format!("Left open: {}", quote(&open.to_string())));
+            sentences.push(format!(
+                "I have not answered {} yet.",
+                quote(open, ASKED_CHARS)
+            ));
         }
         *self = Self::default();
-        Some(lines.join("\n"))
+        Some(format!("From the call: {}", sentences.join(" ")))
     }
 }
 
@@ -178,19 +207,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_digest_says_what_was_asked_done_and_left_open_once() {
+    fn a_digest_is_the_teammates_account_of_the_call_given_once() {
         let mut digest = Digest::default();
         assert_eq!(digest.summary(None), None);
         digest.asked("what is on the PR?");
-        digest.ran("search_thread");
-        digest.ran("search_thread");
+        digest.looked_up();
+        digest.looked_up();
+        digest.answered("The scheduler fix is in.");
         digest.handed("check the failing PR");
         let summary = digest.summary(Some("and the release?")).unwrap();
-        assert!(summary.starts_with("From the call:"), "{summary}");
-        assert!(summary.contains("Asked: \"what is on the PR?\""));
-        assert!(summary.contains("ran search_thread ×2"));
-        assert!(summary.contains("handed to the working session: \"check the failing PR\""));
-        assert!(summary.contains("Left open: \"and the release?\""));
+        assert!(summary.starts_with("From the call: You asked"), "{summary}");
+        assert!(summary.contains("\"what is on the PR?\" and I said \"The scheduler fix is in.\""));
+        assert!(summary.contains("I'm still working on this: \"check the failing PR\""));
+        assert!(summary.contains("I have not answered \"and the release?\" yet."));
+        assert!(!summary.contains("search_thread") && !summary.contains("session"));
         assert_eq!(digest.summary(None), None, "a summary is given once");
+    }
+
+    #[test]
+    fn a_summary_scrubs_and_keeps_only_the_newest_exchanges() {
+        let mut digest = Digest::default();
+        for n in 0..8 {
+            digest.asked(&format!("question {n}?"));
+            digest.answered("sk-live-abcdefghijklmnopqrstuvwxyz0123456789");
+        }
+        let summary = digest.summary(None).unwrap();
+        assert!(!summary.contains("question 1?") && summary.contains("question 2?"));
+        assert!(
+            !summary.contains("abcdefghijklmnopqrstuvwxyz0123456789"),
+            "{summary}"
+        );
     }
 }

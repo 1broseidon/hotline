@@ -12,7 +12,7 @@ tags:
   - 0.39.0
 createdAt: "2026-10-16T13:52:14.099Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T14:04:31.968Z"
+updatedAt: "2026-10-16T14:04:32.647Z"
 assignee: claude
 dispatch:
   agent: claude
@@ -22,6 +22,11 @@ dispatch:
   until: review
   role: lead
   paused: "2026-10-16T14:04:31.967Z"
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 12851
+    at: "2026-10-16T14:04:32.647Z"
 ---
 
 ## Description

@@ -42,7 +42,7 @@ contract:
     deliveredAt: "2026-10-16T15:17:26.326Z"
     duration: 649
 createdAt: "2026-10-16T14:11:07.271Z"
-updatedAt: "2026-10-16T15:17:31.024Z"
+updatedAt: "2026-10-16T15:19:02.360Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -64,3 +64,4 @@ The epic says all three fronts become full agents; GPT-Live has no realtime func
 
 ## Log
 - 2026-10-16T15:17:26.024Z: [claude] Done on dispatch/task-79, make check green. GPT-Live (realtime/live.rs): a teammate call (config.tools has any desk tool beyond send_to_teammate/remain_silent) now creates the call with delegation type responses, BACKEND_MODEL ("gpt-6-luna", a placeholder from OpenAI's example) and the whole registry as function tools; a desk call keeps type client. The backend's response.event/response.output_item.done function_call becomes RealtimeEvent::ToolCall, which duplex.rs already routes to FrontTools (same handler, lease, clip, no DM post); ToolResult goes back as response.item.create function_call_output then response.create. No second registry; front_tools.rs needed no change. Harness tests/voice.rs: lookup answered from search_thread with no hand-off, send_file refused; unit tests for the delegation shape and event mapping. UNVERIFIED: no ChatGPT login to spike, so whether the sign-in accepts responses delegation, that model, the tools shape inside delegation.responses, and whether function_call_output needs delegation_id are from the public guide only; a rejected call falls back to the pipeline. The client-delegation desk-run tool loop is NOT built (needs a desk-run model and budget). Left for task-77/78: run the ignored live test with a real login to confirm; front_prompt.rs does not mention the tools; the instructions suffix about delegating is dropped in responses mode.
+- 2026-10-16T15:19:02.360Z: Landed on release/0.39.0

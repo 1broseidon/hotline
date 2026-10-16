@@ -1,6 +1,6 @@
 ---
 id: task-85
-title: "Core: shell background processes belong to the session, not the turn"
+title: "Core: a shell job still running when the turn parks becomes a session-owned process"
 column: todo
 position: 1
 priority: high
@@ -10,27 +10,32 @@ tags:
   - core
 parentId: epic-8
 createdAt: "2026-10-16T17:24:28.069Z"
+updatedAt: "2026-10-16T17:55:46.169Z"
 ---
 
 ## Description
-Core: background processes that outlive the turn.
+Core: shell jobs that outlive the turn.
 
-- `shell` gains `background: true`, for a process meant to keep running after the reply (a server, a watcher). It returns a receipt with the job_id. The turn never waits or parks on it, and `end_turn` happens as if it were not there.
-- Ownership moves from the turn's `Jobs` to the teammate's session. A background process survives the turn and later turns. It is stopped, with its whole process tree, when:
-  - the session stops or is replaced,
+The rule, in one place (`driver/rig/turn.rs`, where the loop parks today): when the model has said its reply and made no `wait_jobs` call, every shell job still running is handed to the teammate's session and the turn ends with `end_turn`. The turn parks only for subagents, as it does now. No `background` flag, no timer: the model's own choice not to wait is the signal. `wait_jobs` keeps today's behaviour.
+
+- Ownership moves from the turn's `Jobs` to the teammate's session. A process survives the turn and later turns. It is stopped, with its whole process tree, when:
+  - the session stops or is replaced (a grant change rebuilds the session, so it kills the process; that is by design),
   - the teammate is stopped or removed,
   - its grant (capability lease) is revoked,
   - the desk quits.
   None is orphaned (same guards as today's shell jobs).
-- Cap: 4 background processes per teammate. A fifth is refused in words naming the running ones.
-- `inspect_job` and `cancel_job` work on them from any later turn; `wait_jobs` refuses them, since they never finish.
-- Each process keeps a bounded output tail (stdout and stderr) and its full output file, as jobs do. A listening port is noted when it can be read from the output (e.g. "Serving HTTP on 127.0.0.1 port 8770"). This is best effort: never guess one.
-- When a background process exits on its own, the next turn's context says so once (state, exit code, output tail). It does not wake the teammate.
-- `jobs::INSTRUCTIONS`: tell the model to use `background: true` for anything meant to keep running (servers, watchers, `open` targets), and never a foreground job.
-- A foreground job still running when the turn parks keeps today's behaviour: it is real work.
+- Cap: 4 processes per teammate. When a park would hand over a fifth, the oldest is kept and the turn's context says which were refused; the model is told the cap in `jobs::INSTRUCTIONS`.
+- `inspect_job` and `cancel_job` work on a process from any later turn; `wait_jobs` refuses one, since the turn that could wait on it is over.
+- Each process keeps a bounded output tail (stdout and stderr) and its full output file, as jobs do.
+- When a process exits on its own, its result (state, exit code, output tail) wakes the teammate once, as a subagent's report does, so a build the model did not wait on is still reported and a server that died is said. A stop from the chip or `cancel_job` does not wake it.
+- `session/dm.rs`: the line "a command left going is work" goes; at park no shell job is in the turn.
+- `jobs::INSTRUCTIONS`: say that a job still running when you reply keeps running on its own, its result arrives as a later turn, and `wait_jobs` is for a result you need before replying.
+
+Security (docs/security.md applies; a process now outlives the turn): the PR states default, grant source, enforcement points, tests and residual risk. Residual risk: a model that neither waits nor means to leave a process gets its result one turn later, at one model request per exit.
 
 Tests:
-- A turn that starts `python3 -m http.server` in the background, then replies, ends with `end_turn`.
-- The process is alive after the turn, and `cancel_job` from a second turn kills it.
-- Session stop kills it.
-- The cap refuses a fifth.
+- A turn that starts `python3 -m http.server`, then replies, ends with `end_turn` at once.
+- The process is alive after the turn; `cancel_job` from a second turn kills it.
+- A turn that starts `sleep 2; echo done` and replies ends; two seconds later the teammate wakes once with `done`.
+- Session stop kills it. Lease revocation kills it.
+- The cap keeps four.

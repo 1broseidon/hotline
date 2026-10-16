@@ -1,7 +1,7 @@
 ---
 id: task-86
 title: "Contract + desk: running processes show as a chip with output and Stop"
-column: todo
+column: in-progress
 position: 2
 priority: high
 tags:
@@ -12,7 +12,7 @@ parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
 dependsOn:
   - task-85
-updatedAt: "2026-10-16T20:19:36.699Z"
+updatedAt: "2026-10-16T20:19:52.757Z"
 relatedFiles:
   - crates/hotline-core/src/contract.rs
   - crates/hotline-core/src/wire/commands.rs
@@ -24,7 +24,7 @@ relatedFiles:
   - ui/src/components/Work.tsx
   - ui/src/index.css
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - "test \"$(cargo test -p hotline-core process_chip -- --list 2>/dev/null | grep -c ': test$')\" -ge 3"
@@ -38,6 +38,8 @@ contract:
     - "Do not change ui/src/activity.ts shownState semantics: a running process never makes the session read working."
   metrics:
     readyAt: "2026-10-16T19:53:01.083Z"
+    pickedUpAt: "2026-10-16T20:19:52.757Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

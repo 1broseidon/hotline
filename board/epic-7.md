@@ -11,6 +11,8 @@ tags:
   - front
   - 0.39.0
 createdAt: "2026-10-16T13:52:14.099Z"
+landsOn: release/0.39.0
+updatedAt: "2026-10-16T13:59:02.288Z"
 ---
 
 ## Description

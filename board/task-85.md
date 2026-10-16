@@ -10,7 +10,17 @@ tags:
   - core
 parentId: epic-8
 createdAt: "2026-10-16T17:24:28.069Z"
-updatedAt: "2026-10-16T18:54:10.528Z"
+updatedAt: "2026-10-16T19:52:50.937Z"
+relatedFiles:
+  - crates/hotline-core/src/driver/rig/turn.rs
+  - crates/hotline-core/src/session/jobs.rs
+  - crates/hotline-core/src/session/dm.rs
+  - crates/hotline-core/src/session/mod.rs
+  - crates/hotline-core/src/session/lifecycle.rs
+  - crates/hotline-core/src/session/stopping.rs
+  - crates/hotline-core/src/session/tests.rs
+  - crates/hotline-core/src/voice/mod.rs
+  - docs/security.md
 ---
 
 ## Description

@@ -12,7 +12,17 @@ parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
 dependsOn:
   - task-85
-updatedAt: "2026-10-16T17:55:46.442Z"
+updatedAt: "2026-10-16T19:52:51.239Z"
+relatedFiles:
+  - crates/hotline-core/src/contract.rs
+  - crates/hotline-core/src/wire/commands.rs
+  - crates/hotline-core/src/wire/tests.rs
+  - crates/hotline-core/src/session/mod.rs
+  - ui/src/generated/contract.ts
+  - ui/src/activity.ts
+  - ui/src/components/Dock.tsx
+  - ui/src/components/Work.tsx
+  - ui/src/index.css
 ---
 
 ## Description

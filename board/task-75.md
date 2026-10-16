@@ -17,21 +17,22 @@ contract:
       description: Summary at hang-up and on an interval, no per-turn mirror
     - type: test
       path: crates/hotline-core/tests/voice.rs
-      description: DM holds one summary per call
+      description: DM holds the hand-off's turn plus one summary per call
   validation:
     commands:
       - make check
+      - cargo test -p hotline-core --test voice
   constraints:
     - "AGENTS.md rules: commit messages are one line stating the invariant; new behaviour needs a headless harness in crates/hotline-core/tests/; doc drift is a bug"
     - Run cargo test -p hotline-core UNFILTERED before committing ui/src/generated/contract.ts (a filtered run truncates it)
-    - Capability changes follow docs/security.md
+    - Capability changes follow docs/security.md (post_to_chat is a new front tool)
     - Work on release/0.39.0; do not touch main
   metrics:
-    readyAt: "2026-10-16T14:02:49.790Z"
+    readyAt: "2026-10-16T14:05:40.363Z"
 createdAt: "2026-10-16T14:02:49.796Z"
 dependsOn:
   - task-74
-updatedAt: "2026-10-16T14:05:23.264Z"
+updatedAt: "2026-10-16T14:05:40.363Z"
 relatedFiles:
   - crates/hotline-core/src/voice/duplex.rs
   - crates/hotline-core/src/voice/front.rs

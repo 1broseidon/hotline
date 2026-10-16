@@ -402,6 +402,12 @@ pub trait Driver: Send + Sync {
         None
     }
 
+    /// The commands the agent's turns left running, for the room to show the
+    /// person and let them read and stop. Only Hotline Agent leaves any.
+    fn processes(&self) -> Option<Arc<crate::session::jobs::Processes>> {
+        None
+    }
+
     /// The subagents the agent runs and shows, each as it starts, works and
     /// ends. Hotline Agent's subagents are the room's own runs, so only a
     /// harness that reports its own answers `Some`.

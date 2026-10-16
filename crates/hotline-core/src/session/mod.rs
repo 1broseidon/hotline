@@ -90,6 +90,7 @@ use crate::thread::ThreadId;
 use crate::vault::Vault;
 use async_trait::async_trait;
 use chrono::{Local, TimeZone};
+use jobs::Processes;
 use quiet::QuietWindow;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -369,6 +370,7 @@ pub fn idle_info(persona_id: &str) -> SessionInfo {
         },
         error: None,
         awaiting_subagents: false,
+        processes: Vec::new(),
     }
 }
 
@@ -1043,6 +1045,9 @@ impl Room {
         }
         if let Some(wakes) = wakes {
             self.watch_wakes(&session, wakes);
+        }
+        if let Some(processes) = session.driver.processes() {
+            self.watch_processes(&session, &processes);
         }
         // Nothing said is outside a chapter: a session that starts on a tape
         // whose last chapter is closed — or that has none at all — opens one.
@@ -2049,6 +2054,8 @@ impl Room {
             let mut info = lock(&session.info);
             info.state = SessionState::Stopped;
             info.awaiting_subagents = false;
+            // `invalidate` killed them.
+            info.processes.clear();
             info.clone()
         };
         let _ = self.info_changes.send(info);
@@ -4577,6 +4584,74 @@ impl Room {
             info.clone()
         };
         let _ = self.info_changes.send(info);
+    }
+
+    /// Tells the roster which commands the session holds running whenever
+    /// that changes. A display fact like `awaiting_subagents`: a process
+    /// never makes the session read as working.
+    fn watch_processes(self: &Arc<Self>, session: &Arc<Session>, processes: &Arc<Processes>) {
+        let room = Arc::downgrade(self);
+        let weak_session = Arc::downgrade(session);
+        let weak_processes = Arc::downgrade(processes);
+        let mut changes = processes.changes();
+        tokio::spawn(async move {
+            while changes.changed().await.is_ok() {
+                let (Some(room), Some(session), Some(processes)) = (
+                    room.upgrade(),
+                    weak_session.upgrade(),
+                    weak_processes.upgrade(),
+                ) else {
+                    break;
+                };
+                let listed = processes.listed();
+                let _lifecycle = lock(&room.lifecycle);
+                if !session.capability.is_current() || !room.current_session(&session) {
+                    break;
+                }
+                let info = {
+                    let mut info = lock(&session.info);
+                    if info.processes == listed {
+                        continue;
+                    }
+                    info.processes = listed;
+                    info.clone()
+                };
+                let _ = room.info_changes.send(info);
+            }
+        });
+    }
+
+    /// The processes of this teammate's running session, for the person.
+    fn processes_of(&self, persona_id: &str) -> Result<Arc<Processes>, String> {
+        self.session(persona_id)?
+            .driver
+            .processes()
+            .ok_or_else(|| "This teammate leaves no commands running.".to_string())
+    }
+
+    /// Stops one command the teammate left running. It does not wake the
+    /// teammate: the person stopped it, and the chip going says so.
+    pub fn process_stop(&self, persona_id: &str, id: &str) -> Result<(), String> {
+        self.processes_of(persona_id)?
+            .cancel(jobs::JobArgs {
+                job_id: id.to_string(),
+                reason: Some("stopped by the person".to_string()),
+            })
+            .map(|_| ())
+            .map_err(|_| "That process is not running.".to_string())
+    }
+
+    /// One running command in full, and the latest of its output.
+    pub fn process_output(
+        &self,
+        persona_id: &str,
+        id: &str,
+    ) -> Result<crate::contract::ProcessOutput, String> {
+        let (command, tail) = self
+            .processes_of(persona_id)?
+            .output(id)
+            .ok_or_else(|| "That process is not running.".to_string())?;
+        Ok(crate::contract::ProcessOutput { command, tail })
     }
 
     fn persona(&self, persona_id: &str) -> Result<Persona, String> {

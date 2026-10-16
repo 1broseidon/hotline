@@ -15,7 +15,10 @@
 //! it runs is the room's business — see [`Delegate`] — so nothing here knows
 //! what a run is, only that it ends with a state and some words.
 
-use crate::tools::{CommandOutcome, CommandState, RunCommand, RunCommandArgs, ToolError};
+use crate::contract::{ProcessState, SessionProcess};
+use crate::tools::{
+    CommandOutcome, CommandState, OutputTail, RunCommand, RunCommandArgs, ToolError,
+};
 use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
 use rig::{completion::ToolDefinition, tool::Tool};
@@ -24,7 +27,7 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError, Weak};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -161,6 +164,10 @@ enum Route {
 struct Command {
     route: Arc<Mutex<Route>>,
     task: tokio::task::AbortHandle,
+    /// When it was launched, in milliseconds, for the desk's chip.
+    started_at: i64,
+    /// Its latest output while it runs, for the desk's panel.
+    tail: Arc<OutputTail>,
 }
 
 impl Drop for Command {
@@ -339,8 +346,10 @@ impl Jobs {
         let job_id = id.clone();
         let job_cancel = cancel.clone();
         let job_route = route.clone();
+        let tail = Arc::new(OutputTail::default());
+        let job_tail = tail.clone();
         let task = tokio::spawn(async move {
-            let ended = std::panic::AssertUnwindSafe(runner.run(args, job_cancel))
+            let ended = std::panic::AssertUnwindSafe(runner.run(args, job_cancel, &job_tail))
                 .catch_unwind()
                 .await
                 .map(finished)
@@ -356,7 +365,12 @@ impl Jobs {
             Job {
                 snapshot: snapshot.clone(),
                 cancel,
-                runs: Runs::Command(Command { route, task }),
+                runs: Runs::Command(Command {
+                    route,
+                    task,
+                    started_at: super::now_ms(),
+                    tail,
+                }),
             },
         );
         Ok(json!({"status":"accepted", "job":snapshot}))
@@ -616,7 +630,10 @@ fn deliver(route: &Mutex<Route>, id: String, outcome: Finished) {
 /// Only a session that listens for their ends ([`Self::subscribe`]) is handed
 /// any: a subagent run, a side thread or a peer session has nobody to wake,
 /// and its turn waits on its own commands as before.
-pub(crate) struct Processes {
+///
+/// The desk sees them too, as the session's `processes`: it is told when the
+/// set changes ([`Self::changes`]), reads one's output tail, and stops one.
+pub struct Processes {
     /// Where a long result's full output is written, as a turn's are.
     output_dir: PathBuf,
     held: Mutex<BTreeMap<String, Held>>,
@@ -624,27 +641,68 @@ pub(crate) struct Processes {
     /// how it ended.
     ended: Mutex<std::collections::VecDeque<JobSnapshot>>,
     wakes: Mutex<Option<mpsc::UnboundedSender<String>>>,
+    /// Ticks whenever a process is held, starts stopping or ends.
+    changed: watch::Sender<()>,
 }
 
 struct Held {
     snapshot: JobSnapshot,
     cancel: CancellationToken,
-    _command: Command,
+    command: Command,
 }
 
 impl Processes {
-    pub fn new(output_dir: PathBuf) -> Arc<Self> {
+    pub(crate) fn new(output_dir: PathBuf) -> Arc<Self> {
         Arc::new(Self {
             output_dir,
             held: Mutex::new(BTreeMap::new()),
             ended: Mutex::new(std::collections::VecDeque::new()),
             wakes: Mutex::new(None),
+            changed: watch::Sender::new(()),
+        })
+    }
+
+    /// Marks the set changed for whoever shows it.
+    fn notify(&self) {
+        self.changed.send_replace(());
+    }
+
+    /// Ticks each time the processes change; the receiver ends with them.
+    pub(crate) fn changes(&self) -> watch::Receiver<()> {
+        self.changed.subscribe()
+    }
+
+    /// The processes still running, as the desk shows them, oldest first.
+    pub(crate) fn listed(&self) -> Vec<SessionProcess> {
+        let mut listed: Vec<SessionProcess> = lock(&self.held)
+            .values()
+            .map(|held| SessionProcess {
+                id: held.snapshot.job_id.clone(),
+                title: title_of(None, held.snapshot.command.as_deref().unwrap_or_default()),
+                started_at: held.command.started_at,
+                state: match held.snapshot.state {
+                    JobState::Cancelling => ProcessState::Stopping,
+                    _ => ProcessState::Running,
+                },
+            })
+            .collect();
+        listed.sort_by_key(|process| process.started_at);
+        listed
+    }
+
+    /// One running process's whole command and the latest of its output.
+    pub(crate) fn output(&self, id: &str) -> Option<(String, String)> {
+        lock(&self.held).get(id).map(|held| {
+            (
+                held.snapshot.command.clone().unwrap_or_default(),
+                held.command.tail.text(),
+            )
         })
     }
 
     /// The lines that wake the teammate, one for each process that ended on
     /// its own. Subscribing is what makes this session take processes.
-    pub fn subscribe(&self) -> mpsc::UnboundedReceiver<String> {
+    pub(crate) fn subscribe(&self) -> mpsc::UnboundedReceiver<String> {
         let (sender, receiver) = mpsc::unbounded_channel();
         *lock(&self.wakes) = Some(sender);
         receiver
@@ -660,9 +718,10 @@ impl Processes {
             Held {
                 snapshot,
                 cancel,
-                _command: command,
+                command,
             },
         );
+        self.notify();
     }
 
     fn holds(&self, id: &str) -> bool {
@@ -682,7 +741,7 @@ impl Processes {
     }
 
     /// The processes still running, without output.
-    pub fn running(&self) -> Vec<JobSnapshot> {
+    pub(crate) fn running(&self) -> Vec<JobSnapshot> {
         lock(&self.held)
             .values()
             .map(|held| held.snapshot.clone())
@@ -697,26 +756,34 @@ impl Processes {
     }
 
     /// Asks one process to stop. Its end is not reported: whoever stopped it
-    /// knows.
-    pub fn cancel(&self, args: JobArgs) -> Result<Value, String> {
+    /// knows, the teammate or the person.
+    pub(crate) fn cancel(&self, args: JobArgs) -> Result<Value, String> {
         if let Some(job) = self.ended(&args.job_id) {
             return Ok(
                 json!({"outcome":"already_finished","reason":args.reason,"job":job.without_output()}),
             );
         }
-        let mut held = lock(&self.held);
-        let process = held
-            .get_mut(&args.job_id)
-            .ok_or("Unknown job_id in this activity")?;
-        process.snapshot.state = JobState::Cancelling;
-        process.cancel.cancel();
-        Ok(json!({"outcome":"cancelling","reason":args.reason,"job":process.snapshot}))
+        let cancelling = {
+            let mut held = lock(&self.held);
+            let process = held
+                .get_mut(&args.job_id)
+                .ok_or("Unknown job_id in this activity")?;
+            process.snapshot.state = JobState::Cancelling;
+            process.cancel.cancel();
+            json!({"outcome":"cancelling","reason":args.reason,"job":process.snapshot})
+        };
+        self.notify();
+        Ok(cancelling)
     }
 
     /// Kills every process at once, as the session stops.
-    pub fn stop_all(&self) {
+    pub(crate) fn stop_all(&self) {
         let stopped = std::mem::take(&mut *lock(&self.held));
+        let any = !stopped.is_empty();
         drop(stopped);
+        if any {
+            self.notify();
+        }
     }
 
     /// A process ended. One that ended on its own wakes the teammate with
@@ -740,6 +807,7 @@ impl Processes {
             ended.push_back(job.clone());
             (held, job)
         };
+        self.notify();
         if held.cancel.is_cancelled() {
             return;
         }

@@ -179,6 +179,18 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     async fn start(&self, persona_id: &str) -> Result<SessionInfo, String>;
     fn stop(&self, persona_id: &str) -> Result<(), String>;
+    /// Stops one command a teammate left running (`Room::process_stop`).
+    fn process_stop(&self, _persona_id: &str, _id: &str) -> Result<(), String> {
+        Err("This desk runs no processes.".into())
+    }
+    /// One running command and its output tail (`Room::process_output`).
+    fn process_output(
+        &self,
+        _persona_id: &str,
+        _id: &str,
+    ) -> Result<crate::contract::ProcessOutput, String> {
+        Err("This desk runs no processes.".into())
+    }
     /// Runs the last turn again when it failed (`Room::retry`).
     async fn retry(&self, _persona_id: &str) -> Result<(), String> {
         Err("This desk cannot retry a turn.".into())

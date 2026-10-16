@@ -22,6 +22,7 @@ import type {
 	LoginStatus,
 	PasskeyRegistration,
 	PeerThreadSummary,
+	ProcessOutput,
 	Persona,
 	Provider,
 	Report,
@@ -185,6 +186,8 @@ type Results = {
 	"mobile.persona_access": Persona;
 	"mobile.persona_computer": Persona;
 	"session.cancel": null;
+	"process.stop": null;
+	"process.output": ProcessOutput;
 	"session.set_model": SessionInfo;
 	"session.set_mode": SessionInfo;
 	"session.set_config": SessionInfo;

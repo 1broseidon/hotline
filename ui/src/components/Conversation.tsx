@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, ThreadId, TranscriptEvent } from "../generated/contract";
-import { shownState } from "../activity";
+import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, SessionProcess, ThreadId, TranscriptEvent } from "../generated/contract";
+import { processLabel, shownState } from "../activity";
 import { sideTitle } from "../links";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
@@ -54,6 +54,8 @@ export function Conversation({
 	onOpenThreadList,
 	onOpenWork,
 	workOpen,
+	onOpenProcess,
+	processOpen,
 	threadOpen,
 	paneOpen = false,
 	dock,
@@ -91,6 +93,10 @@ export function Conversation({
 	onOpenWork(blockId: string | null): void;
 	/** Which turn's work is open beside it, if any. */
 	workOpen: string | null | undefined;
+	/** Opens a running process's card where a turn's work opens. */
+	onOpenProcess(processId: string): void;
+	/** Which process's card is open, if any. */
+	processOpen: string | undefined;
 	/** Which thread is open in the right-hand pane, if any. */
 	threadOpen: ThreadId | undefined;
 	/** The threads pane is beside the conversation, listing what the band's side-thread chips would. */
@@ -104,6 +110,9 @@ export function Conversation({
 	const people = usePeople(roster);
 	const opened = (thread: ThreadId) => threadOpen !== undefined && sameThread(threadOpen, thread);
 	const subagents = entry.subagents ?? [];
+	/* Beside the state, never part of it: idle with a server up reads idle. */
+	const processes = session.processes ?? [];
+	const cornered = subagents.length > 0 || processes.length > 0;
 	const sides = entry.sides ?? [];
 	const personaId = persona.id;
 	const { events, streaming, loaded, pulling, more: olderOnDesk, earlier } = useThread(dmOf(personaId));
@@ -441,7 +450,7 @@ export function Conversation({
 					events={shown}
 					streaming={streaming}
 					live={state === "thinking"}
-					cornered={subagents.length > 0}
+					cornered={cornered}
 					focus={focus}
 					onReply={setReplying}
 					onReact={react}
@@ -471,8 +480,19 @@ export function Conversation({
 					{...(refill !== null ? { refill } : {})}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}
-					{...(subagents.length > 0
-						? { corner: <SubagentChips subagents={subagents} opened={(runId) => opened({ kind: "run", key: runId })} onOpenThread={onOpenThread} /> }
+					{...(cornered
+						? {
+								corner: (
+									<>
+										{subagents.length > 0 && (
+											<SubagentChips subagents={subagents} opened={(runId) => opened({ kind: "run", key: runId })} onOpenThread={onOpenThread} />
+										)}
+										{processes.length > 0 && (
+											<ProcessChips processes={processes} opened={(processId) => processId === processOpen} onOpen={onOpenProcess} />
+										)}
+									</>
+								),
+							}
 						: {})}
 				/>
 				{dock !== undefined && <div className="work-dock">{dock}</div>}
@@ -529,6 +549,59 @@ export function SubagentChips({
 		>
 			<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
 			{`${subagents.length} subagents`}
+		</MenuButton>
+	);
+}
+
+/**
+ * Commands the teammate left running past its turns — a server, a watcher —
+ * beside the subagents at the composer's corner. One is named by its short
+ * command, several are counted with a menu, and each opens a card with its
+ * output and Stop. They are only what the session lists, and go when the
+ * process does.
+ */
+export function ProcessChips({
+	processes,
+	opened,
+	onOpen,
+}: {
+	processes: SessionProcess[];
+	/** Whether a process's card is the one open. */
+	opened(processId: string): boolean;
+	onOpen(processId: string): void;
+}) {
+	if (processes.length === 1) {
+		const process = processes[0]!;
+		return (
+			<button
+				type="button"
+				className="control btn btn-sm min-w-0 shrink gap-1.5"
+				title="Running process"
+				aria-label={`Running process: ${process.title}`}
+				aria-pressed={opened(process.id)}
+				onClick={() => onOpen(process.id)}
+			>
+				<span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+				<span className="truncate">{processLabel(process.title)}</span>
+			</button>
+		);
+	}
+	return (
+		<MenuButton
+			className="control btn btn-sm shrink-0 gap-1.5"
+			label={`${processes.length} processes running`}
+			title="Running processes"
+			entries={processes.map((process) => ({
+				kind: "item",
+				id: process.id,
+				text: processLabel(process.title),
+				detail: process.title,
+				checked: opened(process.id),
+				onSelect: () => onOpen(process.id),
+			}))}
+		>
+			<span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+			{`${processes.length} processes`}
 		</MenuButton>
 	);
 }

@@ -425,6 +425,18 @@ impl RoomHandle for Desk {
         self.room.stop(persona_id)
     }
 
+    fn process_stop(&self, persona_id: &str, id: &str) -> Result<(), String> {
+        self.room.process_stop(persona_id, id)
+    }
+
+    fn process_output(
+        &self,
+        persona_id: &str,
+        id: &str,
+    ) -> Result<crate::contract::ProcessOutput, String> {
+        self.room.process_output(persona_id, id)
+    }
+
     async fn retry(&self, persona_id: &str) -> Result<(), String> {
         self.room.retry(persona_id).await
     }

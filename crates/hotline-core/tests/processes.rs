@@ -151,6 +151,142 @@ async fn running_process_dies_when_its_grant_is_revoked() {
     desk.quiet_for(Duration::from_secs(1)).await;
 }
 
+/// The session as the roster says it, the next time `wanted` holds of it.
+async fn session_where(desk: &mut Desk, wanted: impl Fn(&Value) -> bool) -> Value {
+    let persona = desk.persona.clone();
+    let row = desk
+        .client
+        .next_where(Duration::from_secs(15), |frame| {
+            frame["event"]["persona"]["id"] == persona.as_str()
+                && frame["event"]["session"].is_object()
+                && wanted(&frame["event"]["session"])
+        })
+        .await;
+    row["event"]["session"].clone()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn process_chip_a_process_is_on_the_session_until_the_person_stops_it() {
+    let mut desk = Desk::open().await;
+    desk.client.subscribe(json!({"view": "roster"})).await;
+    let pid = desk.leave_running().await;
+    let session = session_where(&mut desk, |session| {
+        session["processes"]
+            .as_array()
+            .is_some_and(|listed| !listed.is_empty())
+    })
+    .await;
+    let process = &session["processes"][0];
+    assert_eq!(process["title"], "echo $$ > sleeper.pid; exec sleep 300");
+    assert_eq!(process["state"], "running");
+    assert!(process["startedAt"].as_i64().unwrap() > 0, "{process}");
+    let id = process["id"].as_str().unwrap().to_owned();
+    // The turn is over: a process running beside it is not work in flight.
+    session_where(&mut desk, |session| {
+        session["state"] != "thinking" && session["processes"][0]["id"] == id.as_str()
+    })
+    .await;
+
+    // Rows from before the process was held say it has none too.
+    desk.client.inbox.clear();
+    let stopped = desk
+        .call("process.stop", json!({"personaId": desk.persona, "id": id}))
+        .await;
+    assert_eq!(stopped["ok"], true, "{stopped}");
+    until_dead(pid).await;
+    let gone = session_where(&mut desk, |session| session.get("processes").is_none()).await;
+    assert_ne!(gone["state"], "thinking");
+    // The person stopped it, so its end wakes nobody.
+    desk.quiet_for(Duration::from_secs(1)).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn process_chip_stop_is_refused_for_a_teammate_that_does_not_hold_it() {
+    let mut desk = Desk::open().await;
+    let (pid, job_id) = desk
+        .leave_running_as("echo $$ > sleeper.pid; exec sleep 300")
+        .await;
+    let made = desk
+        .call(
+            "persona.create",
+            json!({"draft": {
+                "name": "Other", "goal": "Hold nothing",
+                "cwd": desk.workspace.to_string_lossy(), "reach": "machine"
+            }}),
+        )
+        .await;
+    let other = made["result"]["id"].as_str().unwrap().to_owned();
+    for persona in [other.as_str(), "nobody"] {
+        let refused = desk
+            .call("process.stop", json!({"personaId": persona, "id": job_id}))
+            .await;
+        assert_eq!(refused["ok"], false, "{refused}");
+        let unread = desk
+            .call(
+                "process.output",
+                json!({"personaId": persona, "id": job_id}),
+            )
+            .await;
+        assert_eq!(unread["ok"], false, "{unread}");
+    }
+    let started = desk
+        .call("session.start", json!({"personaId": other}))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    let refused = desk
+        .call("process.stop", json!({"personaId": other, "id": job_id}))
+        .await;
+    assert_eq!(
+        refused["ok"], false,
+        "another session's id is not this one's: {refused}"
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(alive(pid), "a refused stop stops nothing");
+
+    let stopped = desk
+        .call(
+            "process.stop",
+            json!({"personaId": desk.persona, "id": job_id}),
+        )
+        .await;
+    assert_eq!(stopped["ok"], true, "{stopped}");
+    until_dead(pid).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn process_chip_output_is_the_latest_of_what_it_wrote() {
+    let mut desk = Desk::open().await;
+    let command = "echo $$ > sleeper.pid; for i in $(seq 1 3000); do echo line $i; done; echo oops >&2; exec sleep 300";
+    let (pid, job_id) = desk.leave_running_as(command).await;
+    let output = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            let read = desk
+                .call(
+                    "process.output",
+                    json!({"personaId": desk.persona, "id": job_id}),
+                )
+                .await;
+            assert_eq!(read["ok"], true, "{read}");
+            if read["result"]["tail"].as_str().unwrap().contains("oops") {
+                return read["result"].clone();
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the output arrived while the command runs");
+    assert_eq!(output["command"], command);
+    let tail = output["tail"].as_str().unwrap();
+    assert!(tail.contains("line 3000\n"), "{tail}");
+    assert!(
+        !tail.contains("line 1\n"),
+        "the tail is bounded: {}",
+        tail.len()
+    );
+    assert!(tail.len() <= 16 * 1024);
+    assert!(alive(pid));
+}
+
 /// A desk with one teammate on a scripted model, its tape subscribed.
 struct Desk {
     client: Client,
@@ -295,21 +431,25 @@ impl Desk {
 
     /// A turn that leaves a long sleep running and replies; its pid.
     async fn leave_running(&mut self) -> i32 {
+        self.leave_running_as("echo $$ > sleeper.pid; exec sleep 300")
+            .await
+            .0
+    }
+
+    /// A turn that leaves `command` running and replies; the pid it wrote
+    /// to `sleeper.pid`, and its job id.
+    async fn leave_running_as(&mut self, command: &str) -> (i32, String) {
         self.script([
-            tool_call(
-                "shell",
-                json!({"command": "echo $$ > sleeper.pid; exec sleep 300"}),
-                "call_sleep",
-            ),
+            tool_call("shell", json!({"command": command}), "call_sleep"),
             text("Left it running."),
         ]);
         self.prompt("start the watcher").await;
         self.request().await;
-        self.request().await;
+        let job_id = receipt(&self.request().await);
         assert_eq!(self.turn_end().await["event"]["stopReason"], "end_turn");
         let pid = self.pid("sleeper.pid").await;
         assert!(alive(pid));
-        pid
+        (pid, job_id)
     }
 }
 

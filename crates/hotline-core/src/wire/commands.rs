@@ -461,6 +461,12 @@ pub(crate) async fn run(
             .await
         }
         Command::SessionCancel { persona_id } => threads::cancel(room, &ThreadId::dm(persona_id)),
+        Command::ProcessStop { persona_id, id } => {
+            room.process_stop(&persona_id, &id).map(|()| Value::Null)
+        }
+        Command::ProcessOutput { persona_id, id } => room
+            .process_output(&persona_id, &id)
+            .map(|output| json!(output)),
         Command::SessionSetModel {
             persona_id,
             model_id,

@@ -32,12 +32,19 @@ contract:
 createdAt: "2026-10-16T14:02:49.796Z"
 dependsOn:
   - task-74
-updatedAt: "2026-10-16T14:05:40.363Z"
+updatedAt: "2026-10-16T14:49:02.672Z"
 relatedFiles:
   - crates/hotline-core/src/voice/duplex.rs
   - crates/hotline-core/src/voice/front.rs
   - crates/hotline-core/src/voice/front_tools.rs
   - crates/hotline-core/tests/voice.rs
+dispatch:
+  agent: claude
+  model: sonnet
+  by: lead
+  at: "2026-10-16T14:49:02.532Z"
+  tries: 0
+assignee: claude
 ---
 
 ## Description

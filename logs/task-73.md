@@ -1,8 +1,6 @@
 ---
 id: task-73
 title: "Desktop: call UI and the new shell (composer call key, call card, dock with search and the desk's call key, Settings merge)"
-column: review
-position: 10
 priority: high
 tags:
   - ui
@@ -11,6 +9,8 @@ tags:
   - 0.38.0
 parentId: epic-6
 createdAt: "2026-10-16T01:05:53.425Z"
+completedAt: "2026-10-16T01:06:08.159Z"
+updatedAt: "2026-10-16T01:06:08.159Z"
 ---
 
 ## Description

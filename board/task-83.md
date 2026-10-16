@@ -1,7 +1,7 @@
 ---
 id: task-83
 title: "Settings: About and Shortcuts move to a quiet footer at the rail's foot"
-column: in-progress
+column: review
 position: 4
 priority: medium
 tags:
@@ -9,7 +9,7 @@ tags:
   - ui
   - 0.39.0
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: ui/src/components/Settings.tsx
@@ -27,9 +27,11 @@ contract:
     readyAt: "2026-10-16T15:25:13.483Z"
     pickedUpAt: "2026-10-16T15:46:59.360Z"
     reworkCount: 0
+    deliveredAt: "2026-10-16T15:48:19.618Z"
+    duration: 80
 createdAt: "2026-10-16T15:25:13.490Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:46:59.360Z"
+updatedAt: "2026-10-16T15:48:19.618Z"
 dependsOn:
   - task-82
 dispatch:

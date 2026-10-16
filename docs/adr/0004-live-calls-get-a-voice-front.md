@@ -1,6 +1,7 @@
 # ADR 0004: Live calls get a voice front
 
-- Status: Accepted (0.38)
+- Status: Accepted (0.38); its guardrails for direct calls superseded by
+  [ADR 0005](0005-front-is-a-full-agent.md)
 - Date: 2026-10-14
 - Supersedes: "No front" in [voice-calls.md](../voice-calls.md) (Direct turns)
 - Design: [voice-calls.md](../voice-calls.md), [voice.md](../voice.md)

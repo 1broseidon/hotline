@@ -525,7 +525,10 @@ while a desk text call also needs the dispatcher.
 A pipeline call to a teammate has nothing in front of the teammate
 (`voice/spoken.rs`); a front call puts a realtime voice there, which relays
 the same way (see the voice front setting below and
-[voice-calls.md](voice-calls.md)). Every utterance goes into the teammate's own session as a
+[voice-calls.md](voice-calls.md)). That relay is what runs today;
+[ADR 0005](adr/0005-front-is-a-full-agent.md) makes a direct call's front a
+full agent that answers and runs the teammate's desk-side tools itself, and
+hands this session only the work that needs it. Every utterance goes into the teammate's own session as a
 turn of its conversation, in the open chapter of its main thread, the same way
 a typed message does (`Calls::hand_off`, `Room::prompt`): same session, same
 harness, same grants. The tape keeps the person's words exactly as they were
@@ -941,11 +944,13 @@ bearer and account, joined by a sideband socket at
 the person's audio up as Opus over RTP, 20 ms packets at 48 kHz paced by
 the adapter and filled with silence when the microphone is quiet or held;
 the model's speech (24 kHz PCM, the front's own rate), what each side said
-and its hand-offs come back on the sideband. It has no tools: it hands a
-request over as a client `delegation`, which the adapter reports as the
+and its hand-offs come back on the sideband. It takes no tools on the
+session: it hands a request over as a client `delegation`, which the
+adapter reports as the
 bridge's `send_to_teammate`, and a line for the person goes in on the
 `speakable` channel, which the model says in its own words rather than
-verbatim. The server stops a reply itself when the person talks; the
+verbatim. Under [ADR 0005](adr/0005-front-is-a-full-agent.md) a
+desk-side tool loop is to answer the delegation instead (task-79). The server stops a reply itself when the person talks; the
 adapter reports the person's new turn as a barge-in so the client cuts its
 playback. Lines wait for `session.started`. Creating the call is retried on
 a 5xx or an unreachable server, and a dropped sideband is joined again. A

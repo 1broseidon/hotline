@@ -30,14 +30,19 @@ contract:
     readyAt: "2026-10-16T15:22:42.062Z"
 createdAt: "2026-10-16T15:22:42.069Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:25:16.129Z"
+updatedAt: "2026-10-16T15:25:19.369Z"
 dispatch:
   agent: claude
   model: sonnet
   by: cli
   at: "2026-10-16T15:25:15.967Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 12851
+    at: "2026-10-16T15:25:19.369Z"
 assignee: claude
 ---
 

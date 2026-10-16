@@ -13,7 +13,7 @@ createdAt: "2026-10-16T17:24:29.702Z"
 dependsOn:
   - task-85
   - task-86
-updatedAt: "2026-10-16T20:50:48.698Z"
+updatedAt: "2026-10-16T20:50:50.282Z"
 relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/common
@@ -51,14 +51,12 @@ dispatch:
   by: lead
   at: "2026-10-16T20:37:10.611Z"
   until: done
-  tries: 1
+  tries: 2
   claim:
     host: Georges-Mac-Studio
     runner: desktop
     pid: 12851
-    at: "2026-10-16T20:37:12.417Z"
-    ended: "2026-10-16T20:50:38.040Z"
-    outcome: review
+    at: "2026-10-16T20:50:50.282Z"
 assignee: claude
 ---
 

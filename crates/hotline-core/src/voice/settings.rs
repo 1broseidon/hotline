@@ -5,8 +5,19 @@
 //!   "tts": { "provider": "openai", "model": "gpt-4o-mini-tts", "voice": "marin" },
 //!   "fallbackTts": { "provider": "google" },
 //!   "dispatcher": { "provider": "openai", "model": "gpt-5-mini", "effort": "low" },
-//!   "listenFor": ["Ophelia", "Groq"] }
+//!   "listenFor": ["Ophelia", "Groq"],
+//!   "front": { "provider": "grok", "credential": "xai-subscription",
+//!              "voices": { "grok": "eve", "openai": "marin" } } }
 //! ```
+//!
+//! `front` is the live-call voice front: Grok Voice (`grok`) on an xAI login
+//! or key, GPT Realtime (`openai`) on an OpenAI key, or GPT-Live
+//! (`gpt-live`) on a ChatGPT login, with the voice picked
+//! for each kept under its provider. Without it, calls are fronted by
+//! Grok Voice on the first connected xAI login or key, and a desk with
+//! neither keeps the pipeline. `{"provider": "legacy"}`, Legacy voice in
+//! Settings, and a provider this build has no adapter for keep the
+//! transcribe, route and speak pipeline.
 //!
 //! Every key is optional. A value that cannot be read costs its own
 //! preference and nothing else, like the other room settings.
@@ -32,8 +43,67 @@ pub struct Choice {
     pub effort: Option<String>,
 }
 
+/// A realtime model that can front a call, each with an adapter in
+/// `realtime/`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrontProvider {
+    Grok,
+    OpenAi,
+    /// GPT-Live on a ChatGPT login.
+    GptLive,
+}
+
+impl FrontProvider {
+    /// Its name in the `front` setting, and its key under `voices`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Grok => "grok",
+            Self::OpenAi => "openai",
+            Self::GptLive => "gpt-live",
+        }
+    }
+
+    /// The voice it speaks in when none is picked.
+    pub fn default_voice(self) -> &'static str {
+        self.voices()[0]
+    }
+
+    /// Every voice it speaks in, the default first.
+    pub fn voices(self) -> &'static [&'static str] {
+        match self {
+            Self::Grok => &["eve", "ara", "rex", "sal", "leo"],
+            Self::OpenAi => &[
+                "marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer",
+                "verse",
+            ],
+            Self::GptLive => &crate::voice::realtime::live::VOICES,
+        }
+    }
+
+    /// `voice` when this front speaks in it, else its default.
+    pub fn voice_or_default(self, voice: Option<&str>) -> &'static str {
+        voice
+            .and_then(|voice| self.voices().iter().find(|known| **known == voice))
+            .copied()
+            .unwrap_or_else(|| self.default_voice())
+    }
+}
+
+/// The owner's voice front: who fronts calls, the login or key it uses
+/// (`xai` or `xai-subscription` for Grok, `openai` for GPT Realtime,
+/// `openai-codex` for GPT-Live; `None` lets the desk choose), and the voice
+/// picked for that provider.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FrontChoice {
+    pub provider: FrontProvider,
+    pub credential: Option<String>,
+    pub voice: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct VoiceSettings {
+    /// The live-call voice front; `None` is Legacy voice, the pipeline.
+    pub front: Option<FrontChoice>,
     /// The Chat budget's limits, which the call assistant spends against.
     pub chat: BudgetLimits,
     /// The Voice budget's limits, for transcription and speech.
@@ -100,6 +170,7 @@ impl VoiceSettings {
         VoiceSettings {
             chat,
             voice: voice_limits,
+            front: front(voice),
             stt: choice(voice, "stt"),
             tts: choice(voice, "tts"),
             fallback_tts: choice(voice, "fallbackTts"),
@@ -133,6 +204,40 @@ fn cap(source: &Map<String, Value>, key: &str) -> Option<f64> {
         .filter(|usd| usd.is_finite() && *usd >= 0.0)
 }
 
+fn front(voice: &Map<String, Value>) -> Option<FrontChoice> {
+    let grok = FrontChoice {
+        provider: FrontProvider::Grok,
+        credential: None,
+        voice: None,
+    };
+    let Some(pick) = voice.get("front").and_then(Value::as_object) else {
+        return Some(grok);
+    };
+    let text = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    };
+    let provider = match pick.get("provider").and_then(Value::as_str) {
+        None | Some("grok") => FrontProvider::Grok,
+        Some("openai") => FrontProvider::OpenAi,
+        Some("gpt-live") => FrontProvider::GptLive,
+        Some(_) => return None,
+    };
+    let voice = text(
+        pick.get("voices")
+            .and_then(Value::as_object)
+            .and_then(|voices| voices.get(provider.key())),
+    );
+    Some(FrontChoice {
+        provider,
+        credential: text(pick.get("credential")),
+        voice,
+    })
+}
+
 fn choice(voice: &Map<String, Value>, key: &str) -> Option<Choice> {
     let pick = voice.get(key)?.as_object()?;
     let text = |field: &str| {
@@ -161,10 +266,23 @@ mod tests {
         settings
     }
 
+    /// What a room that never set voice reads as: no limits or picks, and
+    /// Grok Voice fronting calls on whatever xAI login is connected.
+    fn untouched() -> VoiceSettings {
+        VoiceSettings {
+            front: Some(FrontChoice {
+                provider: FrontProvider::Grok,
+                credential: None,
+                voice: None,
+            }),
+            ..VoiceSettings::default()
+        }
+    }
+
     #[test]
     fn a_room_that_never_set_voice_or_spending_has_no_limits_and_no_picks() {
         let settings = VoiceSettings::from_room(&Map::new());
-        assert_eq!(settings, VoiceSettings::default());
+        assert_eq!(settings, untouched());
         assert_eq!(settings.chat, BudgetLimits::default());
         assert_eq!(settings.voice, BudgetLimits::default());
     }
@@ -273,11 +391,80 @@ mod tests {
         assert_eq!(settings.tts, None);
         assert_eq!(
             VoiceSettings::from_room(&room(json!("nonsense"))),
-            VoiceSettings::default()
+            untouched()
         );
         assert_eq!(
             VoiceSettings::from_room(&room(json!({"dayUsd": "2"}))).voice,
             BudgetLimits::default()
+        );
+    }
+
+    #[test]
+    fn grok_fronts_calls_unless_the_owner_picked_gpt_realtime_or_legacy_voice() {
+        let default = Some(FrontChoice {
+            provider: FrontProvider::Grok,
+            credential: None,
+            voice: None,
+        });
+        assert_eq!(VoiceSettings::from_room(&Map::new()).front, default);
+        for unreadable in [json!("grok"), json!(null), json!({"voices": {}})] {
+            assert_eq!(
+                VoiceSettings::from_room(&room(json!({ "front": unreadable }))).front,
+                default
+            );
+        }
+        let grok = VoiceSettings::from_room(&room(json!({
+            "front": {"provider": "grok", "credential": "xai", "voices": {"grok": " ara ", "gpt-live": "x"}},
+        })));
+        assert_eq!(
+            grok.front,
+            Some(FrontChoice {
+                provider: FrontProvider::Grok,
+                credential: Some("xai".into()),
+                voice: Some("ara".into())
+            })
+        );
+        let openai = VoiceSettings::from_room(&room(json!({
+            "front": {"provider": "openai", "credential": "openai", "voices": {"grok": "ara", "openai": "cedar"}},
+        })));
+        assert_eq!(
+            openai.front,
+            Some(FrontChoice {
+                provider: FrontProvider::OpenAi,
+                credential: Some("openai".into()),
+                voice: Some("cedar".into())
+            })
+        );
+        assert_eq!(
+            VoiceSettings::from_room(&room(
+                json!({"front": {"provider": "gpt-live", "voices": {"gpt-live": "maple"}}})
+            ))
+            .front,
+            Some(FrontChoice {
+                provider: FrontProvider::GptLive,
+                credential: None,
+                voice: Some("maple".into())
+            })
+        );
+        for legacy in [
+            json!({"provider": "legacy", "voices": {"grok": "ara"}}),
+            json!({"provider": "gemini-live"}),
+        ] {
+            assert_eq!(
+                VoiceSettings::from_room(&room(json!({ "front": legacy }))).front,
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn a_front_speaks_only_in_its_own_voices() {
+        assert_eq!(FrontProvider::Grok.voice_or_default(Some("rex")), "rex");
+        assert_eq!(FrontProvider::Grok.voice_or_default(Some("marin")), "eve");
+        assert_eq!(FrontProvider::GptLive.voice_or_default(None), "cove");
+        assert_eq!(
+            FrontProvider::OpenAi.voice_or_default(Some("cedar")),
+            "cedar"
         );
     }
 

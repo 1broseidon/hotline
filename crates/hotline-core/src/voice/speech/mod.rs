@@ -19,12 +19,12 @@ pub mod local;
 mod openai_shape;
 mod providers;
 mod wav;
-mod xai;
+pub(in crate::voice) mod xai;
 
 pub use clip::{MIN_GOODBYE_MS, billable_ms, plausible_goodbye};
 pub use google::Google;
 pub use openai_shape::{AudioFormat, Endpoint, OpenAiShape};
-pub use providers::{listens_for, options, resolve, resolve_output};
+pub use providers::{listens_for, options, resolve, resolve_front, resolve_output, speaks};
 
 use async_trait::async_trait;
 use std::fmt;
@@ -91,10 +91,10 @@ impl fmt::Display for SpeechError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SpeechError::SignInRequired { provider_id } => {
-                let name = if provider_id == "xai-subscription" {
-                    "Grok"
-                } else {
-                    provider_id
+                let name = match provider_id.as_str() {
+                    "xai-subscription" => "Grok",
+                    "openai-codex" => "ChatGPT",
+                    other => other,
                 };
                 write!(f, "Sign in to {name} again to use voice.")
             }

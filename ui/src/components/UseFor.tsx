@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { CapabilityJob, CapabilityOptions } from "../generated/contract";
 import { Refusal } from "../ui/Refusal";
 import { Picker } from "../ui/Menu";
@@ -19,9 +19,15 @@ import {
 	currentId,
 	effortChoices,
 	effortsOf,
+	FRONTS,
+	FRONT_LOGINS,
+	LEGACY,
+	frontOf,
+	frontPatch,
 	listenForOf,
 	listenForPatch,
 	parseWords,
+	type FrontSetting,
 	type PickerChoice,
 	shortModel,
 	splitPickId,
@@ -45,9 +51,12 @@ import {
 export function UseFor({
 	options,
 	voice,
+	connected = [],
 	onChanged,
 }: {
 	options: CapabilityOptions;
+	/** The providers with a live login or key, for the fronts no speech job lists (a ChatGPT sign-in). */
+	connected?: string[];
 	/** `settings.voice` as written, so a write to one job keeps the rest. */
 	voice: unknown;
 	/** The options are stale: ask for them again. */
@@ -91,124 +100,224 @@ export function UseFor({
 	};
 
 	return (
-		<section>
-			<h3 className="group-title">Use for</h3>
-			<div className="grouped use-for">
-				<JobRow title="Images" detail={inUse(options.images)} job={options.images}>
-					<Picker
-						value={currentId(options.images)}
-						choices={shortChoices(options.images)}
-						placeholder="Automatic"
-						label="Model for images"
-						onChange={(id) => {
-							const next = pickModel(id);
-							write({ images: next === null ? null : stored(next.provider, next.model) });
-						}}
-					/>
-				</JobRow>
-				<JobRow
-					title="Voice"
-					detail={
-						speakingNow === undefined
-							? "Talk to the desk"
-							: `${voiceName(speakingNow.voice) ?? "Default voice"} on ${speakingNow.providerName}`
-					}
-					job={speaking}
-				>
-					<Picker
-						value={currentVoiceId(speaking)}
-						choices={allVoices(speaking)}
-						placeholder="Automatic"
-						label="Voice"
-						onChange={pickVoice}
-					/>
-				</JobRow>
-				{/* Transcription and the free models, folded under one row that says what transcribes you now. */}
-				<button
-					type="button"
-					className="nt-fold-row nt-fold-head"
-					aria-expanded={more}
-					aria-label="Transcription"
-					onClick={() => setMore((was) => !was)}
-				>
-					<span className="nt-fold-title">Transcription</span>
-					<span className="nt-fold-value">
-						{hearsHere && hearHere
-							? "On this Mac, free and private"
-							: hearsOnDesk
-								? "On the desk, free and private"
-								: hearingNow !== undefined
-									? hearingNow.providerName
-									: "None yet. Download a free speech model."}
-					</span>
-					<span className="nt-fold-action">{more ? "Done" : hearingNow === undefined && !hearsHere ? "Set up" : "Change"}</span>
-				</button>
-				{more && (
-					<>
-						{hearsHere ? (
-							<div className="group-row use-for-nested">
-								<span className="group-row-text">
-									<span className="group-row-title">Transcribes with</span>
-								</span>
-								<span className="flex shrink-0 items-center gap-1">
-									<Picker
-										value={hearHere ? ON_THIS_MAC : currentId(options.stt)}
-										choices={[{ id: ON_THIS_MAC, name: "On this Mac", group: "This Mac" }, ...shortChoices(options.stt)]}
-										placeholder="Automatic"
-										label="Transcription on calls from this Mac"
-										onChange={(id) => {
-											if (id === ON_THIS_MAC) return setHearOnThisMac(true);
-											setHearOnThisMac(false);
-											setVoice("stt", pickModel(id));
-										}}
-									/>
-								</span>
-							</div>
-						) : (
-							<JobRow title="Transcribes with" detail="" job={options.stt} nested>
-								<Picker
-									value={currentId(options.stt)}
-									choices={shortChoices(options.stt)}
-									placeholder="Automatic"
-									label="Transcription model"
-									onChange={(id) => setVoice("stt", pickModel(id))}
-								/>
-							</JobRow>
-						)}
-						<DeskModels onInstalledChanged={onChanged} />
-						{options.stt.options.some((one) => one.providerId === ON_THE_DESK) && (
-							<ListenFor saved={listenForOf(voice)} onSave={(words) => write({ voice: listenForPatch(voice, words) })} />
-						)}
-					</>
-				)}
-				<JobRow title="Call assistant" detail="Answers calls to the desk, and rewrites a teammate's reply for speech when needed." job={options.dispatcher} wrap>
-					<Picker
-						value={currentId(options.dispatcher)}
-						choices={shortChoices(options.dispatcher)}
-						placeholder="Automatic"
-						label="Model for the call assistant"
-						onChange={(id) => {
-							const next = pickModel(id);
-							setVoice("dispatcher", next === null ? null : stored(next.provider, next.model, undefined, carriedEffort(options.dispatcher, next.provider, next.model)));
-						}}
-					/>
-					{effortsOf(options.dispatcher).length > 0 && (
+		<>
+			<section>
+				<h3 className="group-title">Use for</h3>
+				<div className="grouped use-for">
+					<JobRow title="Images" detail={inUse(options.images)} job={options.images}>
 						<Picker
-							value={options.dispatcher.selected?.effort ?? AUTOMATIC}
-							choices={effortChoices(options.dispatcher)}
-							placeholder="Default thinking"
-							label="Call assistant thinking"
+							value={currentId(options.images)}
+							choices={shortChoices(options.images)}
+							placeholder="Automatic"
+							label="Model for images"
 							onChange={(id) => {
-								const selected = options.dispatcher.selected;
-								if (selected === undefined) return;
-								setVoice("dispatcher", stored(selected.providerId, selected.modelId, undefined, id === AUTOMATIC ? undefined : id));
+								const next = pickModel(id);
+								write({ images: next === null ? null : stored(next.provider, next.model) });
 							}}
 						/>
+					</JobRow>
+					{/* Transcription and the free models, folded under one row that says what transcribes you now. */}
+					<button
+						type="button"
+						className="nt-fold-row nt-fold-head"
+						aria-expanded={more}
+						aria-label="Transcription"
+						onClick={() => setMore((was) => !was)}
+					>
+						<span className="nt-fold-title">Transcription</span>
+						<span className="nt-fold-value">
+							{hearsHere && hearHere
+								? "On this Mac, free and private"
+								: hearsOnDesk
+									? "On the desk, free and private"
+									: hearingNow !== undefined
+										? hearingNow.providerName
+										: "None yet. Download a free speech model."}
+						</span>
+						<span className="nt-fold-action">{more ? "Done" : hearingNow === undefined && !hearsHere ? "Set up" : "Change"}</span>
+					</button>
+					{more && (
+						<>
+							{hearsHere ? (
+								<div className="group-row use-for-nested">
+									<span className="group-row-text">
+										<span className="group-row-title">Transcribes with</span>
+									</span>
+									<span className="flex shrink-0 items-center gap-1">
+										<Picker
+											value={hearHere ? ON_THIS_MAC : currentId(options.stt)}
+											choices={[{ id: ON_THIS_MAC, name: "On this Mac", group: "This Mac" }, ...shortChoices(options.stt)]}
+											placeholder="Automatic"
+											label="Transcription on calls from this Mac"
+											onChange={(id) => {
+												if (id === ON_THIS_MAC) return setHearOnThisMac(true);
+												setHearOnThisMac(false);
+												setVoice("stt", pickModel(id));
+											}}
+										/>
+									</span>
+								</div>
+							) : (
+								<JobRow title="Transcribes with" detail="" job={options.stt} nested>
+									<Picker
+										value={currentId(options.stt)}
+										choices={shortChoices(options.stt)}
+										placeholder="Automatic"
+										label="Transcription model"
+										onChange={(id) => setVoice("stt", pickModel(id))}
+									/>
+								</JobRow>
+							)}
+							<DeskModels onInstalledChanged={onChanged} />
+							{options.stt.options.some((one) => one.providerId === ON_THE_DESK) && (
+								<ListenFor saved={listenForOf(voice)} onSave={(words) => write({ voice: listenForPatch(voice, words) })} />
+							)}
+						</>
 					)}
-				</JobRow>
+				</div>
+			</section>
+			<section>
+				<LiveCalls
+					front={frontOf(voice)}
+					logins={[...new Set([...options.tts.options.map((one) => one.providerId), ...connected])].filter((id) => FRONT_LOGINS.includes(id))}
+					write={(next) => write({ voice: frontPatch(voice, next) })}
+				>
+							<JobRow
+								title="Voice"
+								detail={
+									speakingNow === undefined
+										? "Talk to the desk"
+										: `${voiceName(speakingNow.voice) ?? "Default voice"} on ${speakingNow.providerName}`
+								}
+								job={speaking}
+							>
+								<Picker
+									value={currentVoiceId(speaking)}
+									choices={allVoices(speaking)}
+									placeholder="Automatic"
+									label="Voice"
+									onChange={pickVoice}
+								/>
+							</JobRow>
+							<JobRow title="Call assistant" detail="Answers calls to the desk, and rewrites a teammate's reply for speech when needed." job={options.dispatcher} wrap>
+								<Picker
+									value={currentId(options.dispatcher)}
+									choices={shortChoices(options.dispatcher)}
+									placeholder="Automatic"
+									label="Model for the call assistant"
+									onChange={(id) => {
+										const next = pickModel(id);
+										setVoice("dispatcher", next === null ? null : stored(next.provider, next.model, undefined, carriedEffort(options.dispatcher, next.provider, next.model)));
+									}}
+								/>
+								{effortsOf(options.dispatcher).length > 0 && (
+									<Picker
+										value={options.dispatcher.selected?.effort ?? AUTOMATIC}
+										choices={effortChoices(options.dispatcher)}
+										placeholder="Default thinking"
+										label="Call assistant thinking"
+										onChange={(id) => {
+											const selected = options.dispatcher.selected;
+											if (selected === undefined) return;
+											setVoice("dispatcher", stored(selected.providerId, selected.modelId, undefined, id === AUTOMATIC ? undefined : id));
+										}}
+									/>
+								)}
+							</JobRow>
+				</LiveCalls>
+				{refusal !== null && <Refusal message={refusal} />}
+			</section>
+		</>
+	);
+}
+
+/** A front's picker id: the provider and the login it runs on, `grok|xai`. */
+function frontId(provider: string, login: string): string {
+	return `${provider}|${login}`;
+}
+
+/**
+ * Who answers a live call, to the desk or to a teammate, picked as one model
+ * from a list grouped by the provider it comes from. Grok Voice, the default,
+ * and GPT Realtime are realtime models that talk with the person while the
+ * teammate works, each listed once for every connected login or key that can
+ * run it, since that decides who pays, or once with nothing connected so it
+ * can be found. Legacy voice is the transcribe, route
+ * and speak pipeline, and its own rows show only under it; the desk also
+ * falls back on it by itself when the chosen front has nothing connected.
+ */
+function LiveCalls({
+	front,
+	logins,
+	write,
+	children,
+}: {
+	front: FrontSetting;
+	/** The connected logins and keys that can run a front. */
+	logins: string[];
+	write(next: Parameters<typeof frontPatch>[1]): void;
+	/** Legacy voice's own rows: the voice it speaks in and the call assistant. */
+	children: ReactNode;
+}) {
+	const chosen = FRONTS.find((one) => one.id === front.provider);
+	const usable = chosen?.logins.filter((one) => logins.includes(one.id)) ?? [];
+	const login = usable.find((one) => one.id === front.credential) ?? usable[0];
+	const voice = chosen === undefined ? undefined : (front.voices[chosen.id] ?? chosen.voices[0]);
+	const choices = [
+		...FRONTS.flatMap((one): PickerChoice[] => {
+			const connected = one.logins.filter((via) => logins.includes(via.id));
+			// Listed with nothing connected too, so it can be found; picking it does nothing until it is.
+			if (connected.length === 0) return [{ id: frontId(one.id, ""), name: one.name, detail: one.connect, group: one.group }];
+			return connected.map((via) => ({ id: frontId(one.id, via.id), name: one.name, detail: via.detail, group: one.group }));
+		}),
+		{ id: LEGACY, name: "Legacy voice", detail: "Hears you, thinks, then speaks, one step at a time", group: "Hotline" },
+	];
+	const value = chosen === undefined ? LEGACY : login === undefined ? "" : frontId(chosen.id, login.id);
+	return (
+		<>
+			<h3 className="group-title">Live calls</h3>
+			<div className="grouped use-for">
+				<div className="group-row">
+					<span className="group-row-text">
+						<span className="group-row-title">Model</span>
+						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+							{chosen === undefined
+								? "Calls hear you, think, then speak, one step at a time."
+								: login === undefined
+									? `${chosen.connect}. Until then, calls use Legacy voice.`
+									: `Talks with you while your teammate works. ${login.detail}.`}
+						</span>
+					</span>
+					<Picker
+						value={value}
+						choices={choices}
+						placeholder={chosen === undefined ? "Legacy voice" : chosen.name}
+						label="Model for live calls"
+						onChange={(id) => {
+							if (id === LEGACY) return write({ provider: LEGACY });
+							const at = id.indexOf("|");
+							if (at === id.length - 1) return;
+							write({ provider: id.slice(0, at), credential: id.slice(at + 1) });
+						}}
+					/>
+				</div>
+				{chosen === undefined && children}
+				{chosen !== undefined && (
+					<div className="group-row use-for-nested">
+						<span className="group-row-text">
+							<span className="group-row-title">Voice</span>
+						</span>
+						<Picker
+							value={voice ?? ""}
+							choices={chosen.voices.map((id) => ({ id, name: voiceName(id) ?? id }))}
+							placeholder="Voice"
+							label={`Voice for ${chosen.name}`}
+							onChange={(id) => write({ provider: chosen.id, ...(login !== undefined ? { credential: login.id } : {}), voice: { provider: chosen.id, voice: id } })}
+						/>
+					</div>
+				)}
 			</div>
-			{refusal !== null && <Refusal message={refusal} />}
-		</section>
+		</>
 	);
 }
 

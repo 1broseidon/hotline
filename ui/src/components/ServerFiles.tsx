@@ -159,7 +159,7 @@ function Browser({ browsing }: { browsing: Browsing }) {
 										<button
 											type="button"
 											className="control btn-icon"
-											title="Save a copy on this computer"
+											title="Save a copy"
 											aria-label={`Save a copy of ${entry.name} on this computer`}
 											disabled={busy !== null}
 											onClick={() => void bringDown(entry.path)}

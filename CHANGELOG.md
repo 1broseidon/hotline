@@ -8,6 +8,62 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-10-15
+
+### Added
+
+- Live voice calls. A call to the desk or a teammate runs on a realtime voice
+  model that hears the person, answers at once and stops when talked over,
+  while the teammate still does the work: the voice front passes the
+  person's words on unrephrased, says only what the teammate's turn gave it,
+  and is told only scrubbed context (a handoff note, six DM lines and a
+  name). Settings › Live calls picks one model from a list grouped by
+  provider: Grok Voice on an xAI login or key (the default), GPT Realtime
+  (`gpt-realtime-2.1`) on an OpenAI key, or GPT-Live (`gpt-live-1-codex`) on
+  the ChatGPT sign-in alone, with no other speech provider connected, placed
+  as the Codex app places it. A session is
+  renewed before its limit with the conversation carried, so a call outlives
+  it. Minutes count against the Voice budget: nothing on a subscription,
+  $0.08 a minute for Grok Voice and $0.10 for GPT Realtime on a key. Legacy
+  voice keeps the transcribe, answer and speak pipeline, and a call falls
+  back to it when no front can open, or with an older desk or phone.
+- On a direct call the voice front is the teammate in the first person: it
+  acknowledges a request once, as a colleague would, and its progress lines
+  say I, rotate and back off from 45 seconds to every 3 minutes.
+- A call keeps its whole conversation one press away: the call card's
+  transcript key shows both sides, lines relayed from a call are tagged Said
+  on the call, and a question the call ended on goes to the teammate to
+  answer in writing.
+- Search is a real field in the team rail's dock. Teammates by name and every
+  conversation's matches rise above it grouped by teammate, and the open
+  conversation's chapters show while nothing is typed.
+
+### Changed
+
+- The call key is in the composer: a soundwave in a white circle beside the
+  mic while the field is empty, steady in the accent on a call. A call to a
+  teammate is an inset card on its conversation, its face filling the card's
+  height with the status beside the name and the voice moving beneath. The
+  desk's call key sits in the rail's dock and grows into the desk call's
+  card there.
+- New teammate and Settings move to the title bar's right, and search and
+  the desk's call key take their place at the foot of the rail, on the
+  composer's line. The … menu is gone: its Shortcuts and About are sections
+  of Settings.
+- Live calls replaces Calls talk with and Signs in with. The provider list
+  says what each provider does (Chat, Images, Voice) where it said how to
+  connect, and a teammate's voice is picked from the voices of whatever calls
+  speak with.
+- Calls one after another fold into one line that counts them.
+- Tooltips are two to five words. A call's trouble is two or three words on
+  its card, with the full sentence behind an info key, and a microphone that
+  will not open is told the same on a call as in dictation (missing, busy or
+  refused), with where that system turns it on.
+
+### Fixed
+
+- A remote listener that does not start at launch says why on stderr.
+
 ## [0.37.0] - 2026-10-14
 
 ### Added

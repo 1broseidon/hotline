@@ -2250,7 +2250,9 @@ impl Room {
                     // for the agent alone; the conversation shows what the
                     // person said.
                     text: match crate::wire::commands::voice_origin() {
-                        Some(origin) if origin.direct => crate::voice::spoken::voice_turn(text),
+                        Some(origin) if origin.direct => {
+                            crate::voice::spoken::voice_turn(text, origin.front, origin.ended)
+                        }
                         _ => text.to_string(),
                     },
                     attachments: attachments.clone().unwrap_or_default(),
@@ -2261,8 +2263,11 @@ impl Room {
                     said: None,
                     from: crate::wire::commands::voice_origin().and_then(|origin| origin.from()),
                     voice: crate::wire::commands::voice_origin(),
-                    spoken: crate::wire::commands::from_voice()
-                        || crate::wire::commands::voice_origin().is_some(),
+                    // A question the call ended on is answered only in writing.
+                    spoken: (crate::wire::commands::from_voice()
+                        || crate::wire::commands::voice_origin().is_some())
+                        && !crate::wire::commands::voice_origin()
+                            .is_some_and(|origin| origin.ended),
                     unprompted: None,
                     retry: false,
                 },

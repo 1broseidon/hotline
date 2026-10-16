@@ -12,7 +12,8 @@ use crate::contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
 use crate::credentials::CredentialFile;
 use crate::session::ProviderAuth;
 use crate::vault::Vault;
-use crate::voice::settings::{Choice, VoiceSettings};
+use crate::voice::realtime::{GptLive, Realtime, RealtimeSocket};
+use crate::voice::settings::{Choice, FrontProvider, VoiceSettings};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -41,12 +42,15 @@ struct Row {
     voices: &'static [&'static str],
 }
 
+/// OpenAI's provider id, whose key also runs GPT Realtime as a call's front.
+const OPENAI: &str = "openai";
+
 /// The one table of what each provider hears and says by default, chosen for
 /// a short first sound. xAI has its own `/v1/stt` and `/v1/tts` adapter.
 /// Mistral's voice answers with base64 in JSON, so Mistral only listens.
 const ROWS: &[Row] = &[
     Row {
-        provider_id: "openai",
+        provider_id: OPENAI,
         name: "OpenAI",
         base_url: "https://api.openai.com/v1",
         listen: "gpt-4o-mini-transcribe",
@@ -108,6 +112,12 @@ const ROWS: &[Row] = &[
         voices: &["eve", "ara", "rex", "sal", "leo"],
     },
 ];
+
+/// Whether a connection to this provider can do voice: hear or speak on a
+/// call, or front one (the ChatGPT sign-in runs GPT-Live).
+pub fn speaks(provider_id: &str) -> bool {
+    provider_id == crate::voice::realtime::live::PROVIDER_ID || row(provider_id).is_some()
+}
 
 fn row(provider_id: &str) -> Option<&'static Row> {
     ROWS.iter().find(|row| row.provider_id == provider_id)
@@ -495,6 +505,50 @@ fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Con
         }),
         _ => None,
     }
+}
+
+/// The realtime model that fronts a live call, when the owner turned one on
+/// and the login or key it names is still connected. With no login named,
+/// the first connected one runs it. `None` keeps calls on the pipeline.
+pub fn resolve_front(vault: &Vault, settings: &VoiceSettings) -> Option<Arc<dyn Realtime>> {
+    if settings.front.as_ref()?.provider == FrontProvider::GptLive {
+        // The ChatGPT login is a token directory, not a speech connection.
+        let ProviderAuth::Login { token_dir } = vault
+            .provider_auth()
+            .get(crate::voice::realtime::live::PROVIDER_ID)?
+            .clone()
+        else {
+            return None;
+        };
+        return Some(Arc::new(GptLive::new(token_dir)));
+    }
+    front_from(&connections(vault), settings)
+}
+
+fn front_from(connections: &[Connection], settings: &VoiceSettings) -> Option<Arc<dyn Realtime>> {
+    let front = settings.front.as_ref()?;
+    let logins: &[&str] = match front.provider {
+        FrontProvider::Grok => &[xai::PROVIDER_ID, xai::SUBSCRIPTION_PROVIDER_ID],
+        FrontProvider::OpenAi => &[OPENAI],
+        FrontProvider::GptLive => return None,
+    };
+    let connection = connections.iter().find(|connection| {
+        logins.contains(&connection.provider_id.as_str())
+            && front
+                .credential
+                .as_ref()
+                .is_none_or(|named| *named == connection.provider_id)
+    })?;
+    if front.provider == FrontProvider::OpenAi {
+        // A ChatGPT sign-in is a different provider id; only a key runs it.
+        connection.key.as_ref()?;
+        return Some(Arc::new(RealtimeSocket::openai(connection.endpoint())));
+    }
+    let voice = RealtimeSocket::grok(connection.endpoint());
+    Some(Arc::new(match &connection.login {
+        Some(tokens) => voice.with_subscription(tokens.clone()).ok()?,
+        None => voice,
+    }))
 }
 
 /// STT, TTS and a fallback TTS from what the owner has connected.
@@ -915,6 +969,65 @@ mod tests {
         )
         .file(root.join("auth.json"));
         connection("xai", &ProviderAuth::StoredLogin { tokens }, root).unwrap()
+    }
+
+    #[test]
+    fn a_front_runs_on_the_named_grok_login_or_the_first_connected() {
+        use crate::voice::settings::{FrontChoice, FrontProvider};
+        let dir = tempfile::tempdir().unwrap();
+        let connections = [
+            connected("openai"),
+            connected("xai"),
+            subscription(dir.path()),
+        ];
+        let front = |credential: Option<&str>| VoiceSettings {
+            front: Some(FrontChoice {
+                provider: FrontProvider::Grok,
+                credential: credential.map(str::to_string),
+                voice: None,
+            }),
+            ..VoiceSettings::default()
+        };
+        assert!(front_from(&connections, &VoiceSettings::default()).is_none());
+        let login = front_from(&connections, &front(Some(xai::SUBSCRIPTION_PROVIDER_ID))).unwrap();
+        assert!(login.is_subscription());
+        let key = front_from(&connections, &front(None)).unwrap();
+        assert_eq!(key.id().provider_id, xai::PROVIDER_ID);
+        assert!(!key.is_subscription());
+        // A login that is no longer connected leaves the call on the pipeline.
+        assert!(
+            front_from(
+                &[connected("xai")],
+                &front(Some(xai::SUBSCRIPTION_PROVIDER_ID))
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn gpt_realtime_runs_on_an_openai_key_and_nothing_else() {
+        use crate::voice::settings::{FrontChoice, FrontProvider};
+        let openai = VoiceSettings {
+            front: Some(FrontChoice {
+                provider: FrontProvider::OpenAi,
+                credential: None,
+                voice: None,
+            }),
+            ..VoiceSettings::default()
+        };
+        let front = front_from(&[connected("xai"), connected("openai")], &openai).unwrap();
+        assert_eq!(front.id().provider_id, "openai");
+        assert_eq!(
+            front.id().model_id,
+            crate::voice::realtime::socket::OPENAI_MODEL
+        );
+        assert!(!front.is_subscription());
+        // An xAI login is not an OpenAI key, and an OpenAI row with no key
+        // runs nothing: the call stays on the pipeline.
+        assert!(front_from(&[connected("xai")], &openai).is_none());
+        let mut keyless = connected("openai");
+        keyless.key = None;
+        assert!(front_from(&[keyless], &openai).is_none());
     }
 
     #[test]

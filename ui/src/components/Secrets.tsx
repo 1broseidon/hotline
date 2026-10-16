@@ -508,7 +508,7 @@ export function ComputerSecrets({
 						{missing && (
 							<span
 								className="flex items-center gap-1 text-danger"
-								title="Not stored any more. Untick it, or store it again under Settings → Secrets."
+								title="Store it in Secrets"
 							>
 								<WarningIcon />
 								<span className="group-row-detail text-danger">not stored</span>

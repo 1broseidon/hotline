@@ -103,6 +103,8 @@ type Results = {
 	"voice.utterance": null;
 	"voice.text": null;
 	"voice.audio": null;
+	"voice.front_audio": null;
+	"voice.front_barge": null;
 	"voice.interrupt": null;
 	"voice.hold": null;
 	"voice.call_end": null;

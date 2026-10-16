@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { Credential, CredentialKind, LoginPrompt, Provider } from "../generated/contract";
+import type { Credential, CredentialKind, LoginPrompt, Provider, ProviderJob } from "../generated/contract";
 import { ChevronRightIcon } from "../icons";
 import { openLink } from "../native";
 import { Refusal } from "../ui/Refusal";
@@ -234,10 +234,21 @@ export function ProviderRow({ provider, disabled, onPick }: { provider: Provider
 			<span className="group-row-text">
 				<span className="group-row-title">{provider.name}</span>
 			</span>
-			<span className="text-sm text-ink-3">{provider.credentialKinds.map(connectionMethod).join(" or ")}</span>
+			<span className="text-sm text-ink-3">{jobsOf(provider) ?? provider.credentialKinds.map(connectionMethod).join(" or ")}</span>
 			<ChevronRightIcon className="shrink-0 text-ink-3" />
 		</button>
 	);
+}
+
+const JOB_NAMES: Record<ProviderJob, string> = { chat: "Chat", images: "Images", voice: "Voice" };
+
+/**
+ * What a provider does once connected, as the add list says it, so the ones
+ * that do everything stand out; undefined from a desk too old to say, which
+ * the list shows how it connects instead.
+ */
+export function jobsOf(provider: Provider): string | undefined {
+	return provider.does === undefined || provider.does.length === 0 ? undefined : provider.does.map((job) => JOB_NAMES[job]).join(" · ");
 }
 
 /** How a provider is connected, as the add list says it. */

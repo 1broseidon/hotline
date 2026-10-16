@@ -1146,6 +1146,18 @@
 	/* What a teammate said aloud on a call, above the reply it wrote to be
 	 * read: a transcript in the annotating voice, one line until pressed.
 	 * Hover and keyboard focus are the hover fill; nothing rings. */
+	/* Your line that was said on a call: a quiet caption over it, as a
+	 * reply said aloud has. */
+	.said-on-call {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-bottom: 2px;
+		padding: 0 6px;
+		color: var(--ink-3);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+	}
 	.said-aloud {
 		display: flex;
 		width: fit-content;
@@ -1713,12 +1725,54 @@
 	.composer-send:hover {
 		background: var(--accent-hover);
 	}
-	.composer-voice {
-		background: var(--fill-active);
+	/* Beside the call key the mic is the quiet one: no fill until pointed at. */
+	.composer-mic {
+		color: var(--ink-2);
+	}
+	.composer-mic:hover {
+		background: var(--fill-hover);
 		color: var(--ink);
 	}
-	.composer-voice:hover {
-		background: var(--line-strong);
+	/* The call key is a soundwave in a solid ink circle (Composer.tsx
+	 * CallKey), Send's size so the pill never changes height: it outweighs
+	 * the mic beside it without the accent, which is Send's at rest. On a
+	 * call it holds steady in the accent, the call's on-state (dim while
+	 * held), and pointing at it shows the red hang-up it then is. */
+	.composer-call {
+		position: relative;
+		background: var(--ink);
+		color: var(--canvas);
+	}
+	.composer-call:hover,
+	.composer-call:focus-visible {
+		background: var(--ink-2);
+	}
+	.composer-call[data-call="live"] {
+		background: var(--accent);
+		color: var(--on-accent);
+	}
+	.composer-call[data-call="held"] {
+		background: var(--ink-3);
+	}
+	/* Waiting while another call holds the line: dimmed, as the dock's desk key is. */
+	.composer-call:disabled {
+		opacity: 0.35;
+	}
+	.composer-call-end {
+		position: absolute;
+		inset: 0;
+		display: none;
+		margin: auto;
+		padding: 6px;
+		width: 28px;
+		height: 28px;
+		border-radius: 50%;
+		background: var(--hang-up);
+		color: white;
+	}
+	.composer-call[data-call]:hover .composer-call-end,
+	.composer-call[data-call]:focus-visible .composer-call-end {
+		display: block;
 	}
 	.composer-send:disabled {
 		background: var(--fill-active);
@@ -3058,24 +3112,100 @@
 	}
 
 	/* ------------------------------------------------------------- search
-	 * A panel under the band, at the right, over the conversation: what you
-	 * are looking for is already on screen behind it. Click-away and Escape
-	 * both close it. */
-	.search-panel {
-		position: absolute;
-		top: 4px;
-		right: 8px;
-		z-index: 20;
+	 * The team's search (Search.tsx TeamSearch): a real field in the rail's
+	 * dock, what it finds rising above it on the menus' surface; in the
+	 * faces-only rail a panel beside the rail, and with the rail closed a
+	 * panel under the title bar's key. Click-away and Escape both close. */
+	.team-search {
+		position: relative;
 		display: flex;
-		width: min(400px, calc(100% - 16px));
-		max-height: calc(100% - 12px);
+		min-width: 0;
+		flex: 1;
+	}
+	.rail-dock-compact .team-search,
+	.team-search-under {
+		flex: none;
+	}
+	.rail-search input {
+		min-width: 0;
+		flex: 1;
+		border: 0;
+		background: none;
+		color: var(--ink);
+		font-size: var(--text-sm);
+	}
+	.rail-search input::placeholder {
+		color: var(--ink-3);
+	}
+	.rail-search input:focus {
+		outline: none;
+	}
+	.rail-search:focus-within {
+		color: var(--ink);
+	}
+	.team-results {
+		position: absolute;
+		bottom: calc(100% + 13px);
+		left: -5px;
+		width: 360px;
+		z-index: 30;
+		display: flex;
+		max-height: min(480px, 60vh);
 		flex-direction: column;
-		border-radius: var(--radius-card);
+		border-radius: var(--radius-pane);
 		background: var(--pop);
-		box-shadow:
-			var(--top-light),
-			var(--shadow-float);
+		box-shadow: var(--shadow-float);
 		animation: pop-in var(--dur-open) var(--ease-out) both;
+	}
+	.team-results-list {
+		min-height: 0;
+		overflow-y: auto;
+		padding: 4px;
+	}
+	.team-results-head {
+		margin: 8px 8px 2px;
+		color: var(--ink-4);
+		font-size: var(--text-xs);
+		font-weight: 500;
+	}
+	.hit.hit-person {
+		flex-direction: row;
+		align-items: center;
+		gap: 8px;
+	}
+	.hit.hit-line {
+		flex-direction: row;
+		align-items: baseline;
+		gap: 8px;
+		font-size: var(--text-sm);
+	}
+	.team-float {
+		position: fixed;
+		z-index: 40;
+		display: flex;
+		width: 360px;
+		max-height: min(520px, 70vh);
+		flex-direction: column;
+		border-radius: var(--radius-pane);
+		background: var(--pop);
+		box-shadow: var(--shadow-float);
+		animation: pop-in var(--dur-open) var(--ease-out) both;
+	}
+	.team-float-beside {
+		bottom: 10px;
+		left: 72px;
+	}
+	.team-float-under {
+		top: 38px;
+		right: 12px;
+	}
+	.team-float-results {
+		min-height: 0;
+		overflow-y: auto;
+		border-top: var(--hairline) solid var(--line);
+	}
+	.team-float-results .team-results-list {
+		overflow: visible;
 	}
 	.search-field {
 		display: flex;
@@ -3410,21 +3540,11 @@
 }
 
 @layer components {
-	/* ---------------------------------------------------------- the call
-	 * A call with the desk floats in the window's bottom-right corner, over
-	 * whatever is open, so the conversation and its composer stay usable.
-	 * Voice only: the mark, the state and the controls. The mark is the
-	 * call, drawn as the phone draws it: the disc swells with your voice
-	 * (--level, 0..1, set from the audio, not from React); bars round the
-	 * mark follow the reply's audio, and an arc runs round it while the
-	 * teammate works off the call (CallStage.tsx), both in the accent
-	 * because the accent is an agent at work. The mark is in ink while you
-	 * speak and in the accent while the desk does. The desk's toad shows
-	 * its own thinking (CallToad.tsx); a teammate's face breathes instead. */
 	/* What floats over the window, down its right edge: a turn's work hangs
 	 * from under the header, where it covers the older conversation rather
-	 * than the newest, and the call keeps the bottom corner by the composer,
-	 * so neither moves the other. The column takes no clicks; its cards do. */
+	 * than the newest, and a new version keeps the bottom corner. The column
+	 * takes no clicks; its cards do. A call is the conversation's card, or
+	 * the rail's above its dock. */
 	.float-stack {
 		position: fixed;
 		top: 80px;
@@ -3445,7 +3565,6 @@
 	 * tight one: the float shadow's 32px blur, over a conversation that
 	 * scrolls or streams beneath it, cost WebKit a tenth of a core. */
 	.work-float,
-	.call-float,
 	.update-float {
 		background: color-mix(in oklab, var(--pop) 72%, transparent);
 		-webkit-backdrop-filter: blur(20px) saturate(1.4);
@@ -3455,17 +3574,6 @@
 			0 0 0 var(--hairline) var(--line),
 			var(--shadow-glass);
 		animation: pop-in var(--dur-open) var(--ease-out) both;
-	}
-	.call-float {
-		display: flex;
-		width: 208px;
-		flex-shrink: 0;
-		margin-top: auto;
-		flex-direction: column;
-		align-items: center;
-		gap: 12px;
-		padding: 10px 12px 14px;
-		border-radius: var(--radius-pane);
 	}
 	/* A release's notes in Settings › Updates: the changelog's section, smaller than a bubble. */
 	.update-notes {
@@ -3484,9 +3592,6 @@
 		gap: 6px;
 		padding: 10px 10px 12px 14px;
 		border-radius: var(--radius-pane);
-	}
-	.call-float + .update-float {
-		margin-top: 0;
 	}
 	.update-top {
 		display: flex;
@@ -3515,63 +3620,315 @@
 			margin-bottom: 0;
 		}
 	}
-	.call-top {
-		display: flex;
-		width: 100%;
-		align-items: center;
-		gap: 6px;
-		padding-left: 4px;
-	}
-	.call-mark {
-		--level: 0;
+	/* The call strip (Call.tsx CallBar). Under a conversation's band the two
+	 * become one card (`.call-head`) floating 5px in from the pane, raised a
+	 * step off the canvas with a soft shadow beneath, lifting out of the band
+	 * as a call starts and settling back into it when one ends. Inside, one
+	 * margin holds all round: 10px from the card's edge to the face on the
+	 * left, to the band's keys and the call's keys on the right, and under
+	 * the call's row. Under the called teammate's own band the status is the
+	 * name's second line, on the name's left edge (38px: the margin, the
+	 * 20px face and its 8px gap). Atop a pane with no band it is a card of
+	 * its own with the same margin. */
+	.call-head {
 		position: relative;
-		display: grid;
-		place-items: center;
-		width: 104px;
-		height: 104px;
-		border-radius: 50%;
-		color: var(--ink-3);
+		z-index: 1;
+		display: flex;
+		flex-shrink: 0;
+		flex-direction: column;
+		margin: 5px 5px 0;
+		border-radius: calc(var(--radius-pane) - 5px);
 		background: var(--raised);
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line),
-			0 0 0 calc(var(--level) * 14px) var(--fill-hover);
+			0 14px 28px -18px oklch(0% 0 0 / 0.6);
+		animation: call-head-lift var(--dur-open) var(--ease-out) both;
+		transition:
+			margin var(--dur-open) var(--ease-out),
+			border-radius var(--dur-open) var(--ease-out),
+			background var(--dur-open) var(--ease-out),
+			box-shadow var(--dur-open) var(--ease-out);
 	}
-	.call-mark[data-phase="hearing"] {
-		color: var(--ink);
+	/* As the strip folds away the card settles back into the resting band. */
+	.call-head:has(> .call-bar[data-folding]) {
+		margin: 0;
+		border-radius: 0;
+		background: var(--canvas);
+		box-shadow: none;
 	}
-	.call-mark[data-phase="speaking"],
-	.call-mark[data-phase="thinking"] {
-		color: var(--accent);
-		cursor: pointer;
+	@keyframes call-head-lift {
+		from {
+			margin: 0;
+			border-radius: 0;
+			background: var(--canvas);
+			box-shadow: none;
+		}
 	}
-	/* The reply is the bars, not the disc. */
-	.call-mark[data-phase="speaking"] {
+	.call-head > .band .band-row {
+		padding: 0 10px;
+	}
+	.call-head:has(> .call-bar[data-folding]) > .band .band-row {
+		padding: 0 8px;
+	}
+	.band-row {
+		transition: padding var(--dur-open) var(--ease-out);
+	}
+	.call-bar {
+		--level: 0;
+		display: flex;
+		height: 46px;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 8px;
+		padding: 0 10px 10px;
+		overflow: hidden;
+		animation: call-bar-open var(--dur-open) var(--ease-out) both;
+	}
+	.call-bar[data-bare] {
+		padding-left: 38px;
+	}
+	.call-bar-alone {
+		height: 52px;
+		margin-bottom: 8px;
+		padding-bottom: 0;
+		border-radius: var(--radius-pane);
+		background: var(--raised);
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--line);
 	}
-	.call-mark-face[data-phase="thinking"] {
-		animation: call-breathe 1800ms var(--ease-out) infinite;
+	.call-bar[data-folding] {
+		animation: call-bar-fold var(--dur-open) var(--ease-out) both;
 	}
-	.call-bars,
-	.call-working {
+	.call-bar[data-phase="ended"]:not([data-folding]) {
+		overflow: visible;
+	}
+	@keyframes call-bar-open {
+		from {
+			height: 0;
+			padding-bottom: 0;
+			opacity: 0;
+		}
+	}
+	@keyframes call-bar-fold {
+		to {
+			height: 0;
+			padding-bottom: 0;
+			opacity: 0;
+		}
+	}
+	/* What the call is doing, then its clock: the band's type a step down,
+	 * parted by small dots rather than the instrument face's middots. */
+	.call-bar-status {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		gap: 7px;
+		overflow: hidden;
+	}
+	.call-bar-status:has(.call-trouble) {
+		overflow: visible;
+		white-space: nowrap;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		color: var(--ink-2);
+	}
+	.call-bar-dot {
+		width: 3px;
+		height: 3px;
+		flex-shrink: 0;
+		border-radius: 50%;
+		background: var(--ink-4);
+	}
+	.call-bar-clock {
+		color: var(--ink-3);
+		font-variant-numeric: tabular-nums;
+	}
+	.call-bar[data-phase="hearing"] .call-bar-status > [aria-live],
+	.call-bar[data-phase="speaking"] .call-bar-status > [aria-live] {
+		color: var(--ink);
+	}
+	/* On a call to the teammate whose conversation this is, the card leads
+	 * with its face at the card's full height less the margin (10 + 56 + 10:
+	 * a 36px name row over a 40px row for the call's keys), the name with the
+	 * call's status beside it to its right, the keys under them. The face
+	 * rings green while the line is live and swells with `--level`; dim while
+	 * held or ending. */
+	.call-head[data-face] {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		grid-template-rows: 36px auto;
+	}
+	.call-head[data-face] > .band {
+		grid-column: 2;
+		height: 36px;
+	}
+	.call-head[data-face] > .band .band-row {
+		padding-left: 12px;
+	}
+	.call-head[data-face] > .call-bar {
+		grid-column: 2;
+		height: 40px;
+		padding: 0 10px 8px 12px;
+	}
+	.call-face {
+		--level: 0;
+		grid-row: 1 / span 2;
+		align-self: center;
+		display: grid;
+		place-items: center;
+		margin: 10px 0 10px 10px;
+		border-radius: 50%;
+		box-shadow:
+			0 0 0 2px var(--accent),
+			0 0 0 calc(2px + var(--level) * 6px) color-mix(in oklch, var(--accent) 28%, transparent);
+		animation: call-face-grow var(--dur-open) var(--ease-out) both;
+	}
+	.call-face[data-phase="connecting"] {
+		animation:
+			call-face-grow var(--dur-open) var(--ease-out) both,
+			call-breathe 1200ms var(--ease-out) infinite;
+	}
+	.call-face[data-phase="held"],
+	.call-face[data-phase="ended"] {
+		box-shadow: 0 0 0 2px var(--ink-4);
+	}
+	.call-head:has(> .call-bar[data-folding]) > .call-face {
+		animation: call-face-shrink var(--dur-open) var(--ease-out) both;
+	}
+	@keyframes call-face-grow {
+		from {
+			opacity: 0;
+			transform: scale(0.36);
+		}
+	}
+	@keyframes call-face-shrink {
+		to {
+			opacity: 0;
+			transform: scale(0.36);
+		}
+	}
+	/* What was said on the call, opened under the card's rows from its
+	 * transcript key: the card grows down to hold it, across its whole width,
+	 * and scrolls on its own. Your words sit right in a quiet fill, what was
+	 * said back sits left in plain type, as the conversation does. */
+	.call-transcript {
+		display: flex;
+		max-height: 240px;
+		flex-direction: column;
+		gap: 6px;
+		margin: 0;
+		padding: 10px 12px 12px;
+		overflow-y: auto;
+		list-style: none;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		border-top: var(--hairline) solid var(--line);
+		animation: call-transcript-open var(--dur-open) var(--ease-out) both;
+	}
+	.call-head[data-face] > .call-transcript {
+		grid-column: 1 / -1;
+	}
+	.call-head:has(> .call-bar[data-folding]) > .call-transcript {
+		display: none;
+	}
+	.call-transcript-alone {
+		margin-bottom: 8px;
+		border-top: none;
+		border-radius: var(--radius-pane);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line);
+	}
+	@keyframes call-transcript-open {
+		from {
+			max-height: 0;
+			opacity: 0;
+		}
+	}
+	.call-line-you {
+		align-self: flex-end;
+		max-width: 80%;
+		padding: 4px 10px;
+		border-radius: 12px;
+		background: var(--fill-active);
+		color: var(--ink);
+	}
+	.call-line-them {
+		align-self: flex-start;
+		max-width: 80%;
+		color: var(--ink-2);
+	}
+	.call-transcript-empty {
+		align-self: center;
+		color: var(--ink-3);
+	}
+	/* The voice on the line, centred along the bottom of the call card (of
+	 * the strip, when it stands alone), on the keys' row. */
+	.call-voice {
 		position: absolute;
-		inset: 0;
-		width: 100%;
-		height: 100%;
-		color: var(--accent);
+		bottom: 14px;
+		left: 50%;
+		width: 120px;
+		height: 20px;
+		transform: translateX(-50%);
 		pointer-events: none;
 	}
-	.call-working {
-		animation: avatar-spin 1100ms linear infinite;
+	.call-voice path {
+		fill: none;
+		stroke: var(--accent);
+		stroke-width: 2;
+		stroke-linecap: round;
 	}
-	.call-mark[data-phase="held"],
-	.call-mark[data-phase="ended"] {
-		color: var(--ink-4);
+	.call-voice[data-still] path {
+		stroke: var(--ink-4);
 	}
-	.call-mark[aria-disabled="true"] {
-		cursor: default;
+	/* On the call's row, measured from the card's top, so a transcript
+	 * opened under it does not carry the bars down with it. */
+	.call-head .call-voice {
+		top: 48px;
+		bottom: auto;
+	}
+	.call-head[data-face] .call-voice {
+		top: 52px;
+	}
+	.call-bar-alone {
+		position: relative;
+	}
+	.call-bar-alone .call-voice {
+		bottom: 16px;
+	}
+	/* Beside the name, the status sits on its line in the band's quieter type.
+	.band-row > .call-bar-status {
+		margin-left: 2px;
+	}
+	.call-bar-mark {
+		display: grid;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 50%;
+		box-shadow: 0 0 0 1.5px var(--accent), 0 0 0 calc(1.5px + var(--level) * 4px) color-mix(in oklch, var(--accent) 30%, transparent);
+	}
+	.call-bar[data-phase="connecting"] .call-bar-mark {
+		animation: call-breathe 1200ms var(--ease-out) infinite;
+	}
+	.call-bar[data-phase="held"] .call-bar-mark,
+	.call-bar[data-phase="ended"] .call-bar-mark {
+		box-shadow: 0 0 0 1.5px var(--ink-4);
+		opacity: 0.7;
+	}
+	.call-bar-mark[aria-disabled="false"] {
+		cursor: pointer;
+	}
+	.call-bar-name {
+		color: var(--ink);
+		font-weight: 600;
+		transition: color var(--dur-press) var(--ease-out);
+	}
+	.call-bar-name:hover {
+		color: var(--accent-ink);
 	}
 	@keyframes call-breathe {
 		50% {
@@ -3580,25 +3937,187 @@
 	}
 	.call-card {
 		display: flex;
-		width: 100%;
+		flex-shrink: 0;
 		align-items: center;
-		padding: 6px 10px;
+		padding: 2px 10px;
 		border-radius: var(--radius-control);
 		background: var(--raised);
 		box-shadow:
 			var(--top-light),
 			0 0 0 var(--hairline) var(--accent);
-		font-size: var(--text-md);
+		font-size: var(--text-sm);
 		text-align: left;
 	}
+	/* A call's trouble in two or three words, its info key opening the whole
+	 * sentence on the menus' surface beside it. */
 	.call-trouble {
-		font-size: var(--text-md);
+		position: relative;
+		display: inline-flex;
+		min-width: 0;
+		align-items: center;
+		gap: 4px;
 		color: var(--ink-2);
-		text-align: center;
+		font-size: var(--text-sm);
+		white-space: nowrap;
 	}
-	.call-controls {
+	.call-trouble-info {
+		display: grid;
+		width: 22px;
+		height: 22px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 50%;
+		color: var(--ink-3);
+	}
+	.call-trouble-info:hover,
+	.call-trouble-info[aria-expanded="true"] {
+		color: var(--ink);
+		background: var(--fill-hover);
+	}
+	.call-trouble-info svg {
+		width: 14px;
+		height: 14px;
+	}
+	.call-trouble-more {
+		position: absolute;
+		top: calc(100% + 6px);
+		left: 0;
+		z-index: 30;
+		width: 240px;
+		padding: 8px 10px;
+		border-radius: var(--radius-control);
+		background: var(--pop);
+		box-shadow: var(--shadow-float);
+		color: var(--ink-2);
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		white-space: normal;
+	}
+	/* On the raised card the call's keys are filled a step lighter, with no
+	 * outline: hold in the pop fill, hang-up in red. */
+	.call-bar .call-button,
+	.desk-call .call-button {
+		width: 32px;
+		height: 32px;
+		background: var(--pop);
+		box-shadow: var(--top-light);
+	}
+	.call-bar .call-button:hover:not(:disabled),
+	.desk-call .call-button:hover:not(:disabled) {
+		filter: brightness(1.15);
+	}
+	.call-bar .call-button-end,
+	.call-bar .call-button-end:hover:not(:disabled),
+	.desk-call .call-button-end,
+	.desk-call .call-button-end:hover:not(:disabled) {
+		background: var(--hang-up);
+	}
+	.call-bar .call-button-start,
+	.call-bar .call-button-start:hover:not(:disabled),
+	.desk-call .call-button-start,
+	.desk-call .call-button-start:hover:not(:disabled) {
+		background: var(--accent);
+	}
+	.call-button[aria-pressed="true"] {
+		color: var(--ink);
+		background: var(--fill-active);
+	}
+
+	/* A call to the desk (Call.tsx DeskCallCard): a card that grows up out of
+	 * the rail's dock, raised like the conversation's call card: the handset
+	 * ringed green and swelling with the voice beside "Desk" and the status,
+	 * then the voice bars and the keys, the transcript opening above them.
+	 * A hang-up folds it away. */
+	.desk-call {
+		--level: 0;
 		display: flex;
-		gap: 16px;
+		flex-shrink: 0;
+		flex-direction: column;
+		gap: 10px;
+		margin: 0 8px 6px;
+		padding: 10px;
+		border-radius: var(--radius-pane);
+		background: var(--raised);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			0 14px 28px -18px oklch(0% 0 0 / 0.6);
+		animation: desk-call-open var(--dur-open) var(--ease-out) both;
+	}
+	.desk-call[data-folding] {
+		animation: desk-call-fold var(--dur-open) var(--ease-out) both;
+	}
+	@keyframes desk-call-open {
+		from {
+			opacity: 0;
+			transform: translateY(6px) scale(0.97);
+		}
+	}
+	@keyframes desk-call-fold {
+		to {
+			opacity: 0;
+			transform: translateY(6px) scale(0.97);
+		}
+	}
+	.desk-call-compact {
+		align-items: center;
+		gap: 8px;
+		margin: 0 6px 6px;
+		padding: 10px 0;
+	}
+	.desk-call-top {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		gap: 10px;
+	}
+	.desk-call-mark {
+		display: grid;
+		width: 28px;
+		height: 28px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 50%;
+		color: var(--accent);
+		box-shadow:
+			0 0 0 2px var(--accent),
+			0 0 0 calc(2px + var(--level) * 5px) color-mix(in oklch, var(--accent) 28%, transparent);
+	}
+	.desk-call-compact .desk-call-mark {
+		width: 32px;
+		height: 32px;
+	}
+	.desk-call[data-phase="connecting"] .desk-call-mark {
+		animation: call-breathe 1200ms var(--ease-out) infinite;
+	}
+	.desk-call[data-phase="held"] .desk-call-mark,
+	.desk-call[data-phase="ended"] .desk-call-mark {
+		color: var(--ink-3);
+		box-shadow: 0 0 0 2px var(--ink-4);
+	}
+	.desk-call-mark[aria-disabled="false"] {
+		cursor: pointer;
+	}
+	.desk-call-name {
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.desk-call .call-voice {
+		position: static;
+		width: 72px;
+		height: 20px;
+		transform: none;
+	}
+	.desk-call-keys {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.desk-call .call-transcript {
+		max-height: 200px;
+		padding: 0 0 10px;
+		border-top: none;
+		border-bottom: var(--hairline) solid var(--line);
 	}
 	/* The call's own controls are round and wordless, like a phone's:
 	 * hold and resume in the quiet fill, hanging up in red, calling again
@@ -3628,7 +4147,7 @@
 	.call-button-end,
 	.call-button-end:hover:not(:disabled) {
 		color: white;
-		background: var(--danger);
+		background: var(--hang-up);
 	}
 	.call-button-end:hover:not(:disabled) {
 		filter: brightness(1.1);
@@ -3642,19 +4161,143 @@
 		filter: brightness(1.1);
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.call-mark,
-		.call-working {
+		.desk-call-mark,
+		.call-bar-mark,
+		.call-face,
+		.call-face[data-phase],
+		.call-head {
 			animation: none;
+			transition: none;
 		}
+		/* Still folds, at once, so the strip still closes when it ends. */
+		.call-bar,
+		.desk-call {
+			animation-duration: 1ms;
+		}
+	}
+
+	/* The rail's dock (Rail.tsx): the team's search and the desk's call key
+	 * in one bar where Settings and New teammate were, the composer's twin
+	 * across the window: its height (6px, a 28px key, 6px), its material and
+	 * corners, on its line (16px off the foot, the composer's own margin), so
+	 * one line of two matching pills runs under the window. A hairline parts
+	 * the key from the field, as the composer parts its keys; the key's half
+	 * fills in the accent while the desk's call is on. In the faces-only rail
+	 * the bar stands on end, the keys over each other. */
+	.rail-dock {
+		display: flex;
+		flex-shrink: 0;
+		align-items: stretch;
+		height: 40px;
+		gap: 2px;
+		margin: 4px 8px 16px;
+		padding: 5px;
+		border-radius: 20px;
+		background: var(--pop);
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line),
+			var(--shadow-glass);
+		transition: box-shadow var(--dur-press) var(--ease-out);
+	}
+	.rail-dock:focus-within {
+		box-shadow:
+			var(--top-light),
+			0 0 0 var(--hairline) var(--line-strong),
+			var(--shadow-glass);
+	}
+	.rail-dock-compact {
+		flex-direction: column;
+		width: 40px;
+		height: auto;
+		margin: 4px auto 16px;
+	}
+	.rail-search {
+		display: flex;
+		min-width: 0;
+		flex: 1;
+		align-items: center;
+		gap: 8px;
+		padding: 0 7px;
+		border-radius: 15px;
+		color: var(--ink-3);
+		font-size: var(--text-read);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out);
+	}
+	/* As a key, in the faces-only rail: the composer's key, a circle that fills when pointed at. */
+	.rail-dock-compact .rail-search {
+		width: 30px;
+		height: 30px;
+		flex: none;
+		justify-content: center;
+		padding: 0;
+		border-radius: 50%;
+	}
+	button.rail-search:hover:not(:disabled),
+	.rail-search[aria-pressed="true"] {
+		color: var(--ink);
+		background: var(--fill-hover);
+	}
+	.rail-search:disabled {
+		opacity: 0.5;
+	}
+	.rail-search-keys {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--ink-4);
+	}
+	/* The desk's call key: the bar's other half, with the hairline before
+	 * it, filling the pill's end; lit in the accent while the desk's call is on. */
+	.desk-call-key {
+		position: relative;
+		display: grid;
+		width: 36px;
+		flex-shrink: 0;
+		place-items: center;
+		border-radius: 4px 15px 15px 4px;
+		color: var(--ink-3);
+		transition:
+			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out),
+			opacity var(--dur-press) var(--ease-out);
+	}
+	.desk-call-key::before {
+		content: "";
+		position: absolute;
+		top: 5px;
+		bottom: 5px;
+		left: -1.5px;
+		width: var(--hairline);
+		background: var(--line);
+	}
+	.rail-dock-compact .desk-call-key {
+		width: 30px;
+		height: 30px;
+		border-radius: 50%;
+	}
+	.rail-dock-compact .desk-call-key::before {
+		top: -1.5px;
+		right: 5px;
+		bottom: auto;
+		left: 5px;
+		width: auto;
+		height: var(--hairline);
+	}
+	.desk-call-key:hover:not(:disabled) {
+		color: var(--ink);
+		background: var(--fill-hover);
+	}
+	.desk-call-key[data-on] {
+		color: var(--accent);
+		background: var(--accent-soft);
+	}
+	.desk-call-key:disabled {
+		opacity: 0.35;
+	}
+	.titlebar-desk-call[data-on] {
+		color: var(--accent);
 	}
 }
 
-/* Jump-to-latest sits in the same corner as the call; it steps out from under
- * the card rather than show through its glass. Utilities, to outrank its own
- * right-8; an attribute rather than :has, which a streaming tape would make
- * the engine re-check on every word. */
-@layer utilities {
-	main[data-call] .jump-latest {
-		right: 236px;
-	}
-}

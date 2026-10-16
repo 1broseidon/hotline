@@ -178,8 +178,35 @@ desk. Paid xAI speech requires an API key; the separate explicit Grok
 subscription choice requires its stored login and never uses a paid speech
 fallback. Both output paths check fallback credential revocation before use.
 
+A voice front (ADR 0004) fronts calls by default when the vault holds a
+login or key that can run one: Grok Voice on a Grok login or xAI key, or GPT
+Realtime on an OpenAI API key, or GPT-Live on the ChatGPT sign-in, when the
+owner picks one in Settings (the call's audio then goes to OpenAI; for
+GPT-Live the login's bearer goes to `chatgpt.com` to create the call and to
+`api.openai.com` for its sideband, as the Codex app sends it, and the call's
+media is a WebRTC peer the desk opens with host candidates only). Legacy
+voice turns it off, and a client asks for it per call. The Grok login is
+only ever sent to xAI's voice origin, and GPT Realtime refuses it. GPT-Live
+has no tools at all: its one way to reach the teammate is a client
+delegation, which the core answers as `send_to_teammate`. Its whole reach is two tools enforced in the core
+(`voice/front.rs`): `send_to_teammate` hands words to `Calls::relay`, the same
+owner-seat, sequence-gated, call-origin path as `voice.text`, so the
+teammate's session keeps its own grants and approval gates; `remain_silent`
+does nothing. No other tool name is honoured, the person's own input is
+refused while a front is on the call, and a relay is refused on a call
+without one. Its starting prompt is a scrubbed, budgeted slice of the DM
+(`front_prompt.rs`), never tool output, code or credentials. Its lease is the
+call's: hanging up or replacing the call closes its socket, a paid front
+needs Voice budget room to open and ends the call when a minute cannot be
+paid, and a revoked login is noticed within a minute and drops the front.
+Residual risk: the front is a model, so it can misrepresent the person's
+words in what it relays or say something the teammate did not; the teammate
+is told the input is a transcript behind an intermediary, and the call's
+thread keeps what the front heard and said for review.
+
 Proofs: `wire::tests::voice_is_owner_only_through_the_real_handler`, the
 headless `tests/voice.rs::device_text_reuses_the_direct_agent_session_and_call_origin`,
+`tests/voice.rs::a_front_call_relays_to_the_teammate_and_says_its_spoken_line`,
 direct-call and dispatcher-unavailable readiness tests, and the finalized-text
 replay, pending, mode, bounds, budget, STT-accounting, direct origin, live commit,
 cancellation and streaming failure tests in `voice::tests` and

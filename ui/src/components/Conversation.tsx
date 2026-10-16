@@ -1,10 +1,11 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
-import type { Attachment, ConfigChoice, RunningSubagent, ScheduledJob, ThreadId, TranscriptEvent } from "../generated/contract";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Attachment, ConfigChoice, Persona, RunningSubagent, ScheduledJob, ThreadId, TranscriptEvent } from "../generated/contract";
 import { shownState } from "../activity";
 import { sideTitle } from "../links";
 import { chordGlyph, chordKeys } from "../chords";
 import { openComputer, useComputerViewer } from "../computer";
-import { ClockIcon, ComputerIcon, HangUpIcon, MoreIcon, PhoneIcon, ProgressRing, WarningIcon } from "../icons";
+import { ClockIcon, ComputerIcon, MoreIcon, ProgressRing, WarningIcon } from "../icons";
+import { type Call as CallSession, useCall, useCallSnapshot } from "../voice/call";
 import { carry, onServer, showPath } from "../serverFiles";
 import { nextText } from "../room";
 import { dmOf, sameThread, useThread } from "../tape";
@@ -14,9 +15,9 @@ import { Band } from "../ui/Band";
 import { MenuButton, type MenuEntry } from "../ui/Menu";
 import { useNarrow } from "../narrow";
 import { wire, type RosterEntry } from "../wire";
+import { CallStatus } from "./Call";
 import { Composer, isDown } from "./Composer";
 import { SessionPickers } from "./Pickers";
-import { Search } from "./Search";
 import { Starters, untouched } from "./Starters";
 import { reactionQuote, Transcript, type ReactTarget, type ReplyTarget, type ThreadRef } from "./Transcript";
 
@@ -44,14 +45,11 @@ export function Conversation({
 	roster,
 	jobs,
 	said,
-	searchOpen,
 	inspectorOpen,
 	focus,
 	onToggleInspector,
 	onOpenSchedules,
-	onCloseSearch,
 	onDelete,
-	onPick,
 	onOpenThread,
 	onOpenThreadList,
 	onOpenWork,
@@ -63,6 +61,7 @@ export function Conversation({
 	onSaid,
 	onCall,
 	onHangUp,
+	callBar,
 }: {
 	entry: RosterEntry;
 	/** The room's models, for the model picker in the band. */
@@ -73,18 +72,17 @@ export function Conversation({
 	onCall?: (() => void) | undefined;
 	/** Ends the call, while one with this teammate is live. */
 	onHangUp?: (() => void) | undefined;
+	/** The call strip, which hangs under the band while a call is on. */
+	callBar?: ReactNode;
 	roster: RosterEntry[];
 	jobs: ScheduledJob[];
 	/** What the band's model or effort picker was refused with, or nothing. */
 	said: string | null;
-	searchOpen: boolean;
 	inspectorOpen: boolean;
 	focus: { eventId: string; at: number } | null;
 	onToggleInspector(): void;
 	onOpenSchedules(): void;
-	onCloseSearch(): void;
 	onDelete(): void;
-	onPick(personaId: string, eventId: string): void;
 	/** Opens a thread, of any kind, in the right-hand pane. */
 	onOpenThread(thread: ThreadRef): void;
 	/** Opens the right-hand pane on this teammate's list of threads. */
@@ -312,121 +310,118 @@ export function Conversation({
 	 * so on its own. */
 
 	const notice = session.error !== undefined && session.error !== "" ? session.error : (said ?? refused);
+	// The call on the line, when it is to this teammate: its face then leads the call card.
+	const liveCall = useCall();
+	const ourCall = callBar !== undefined && liveCall !== null && liveCall.target?.personaId === persona.id ? liveCall : null;
 
 	return (
 		<section className="conversation pane" aria-label={`Conversation with ${persona.name}`}>
-			<Band>
-				<button
-					type="button"
-					className="control btn-quiet -ml-1 min-w-0 shrink gap-2 pl-1 pr-2"
-					// The name is the one way into the teammate's pane, the way a
-					// messages app opens a contact from its header.
-					title={`Teammate (${chordKeys("teammate")})`}
-					aria-label={state === "thinking" ? `${persona.name}, working` : persona.name}
-					aria-expanded={inspectorOpen}
-					onClick={onToggleInspector}
-				>
-					<Avatar id={persona.id} name={persona.name} size={20} hash={persona.avatar?.hash} />
-					<span className="shrink-0 text-lg font-semibold text-ink">{persona.name}</span>
-					{state === "thinking" && (
-						<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+			<div className={callBar === undefined ? "contents" : "call-head"} data-face={ourCall !== null ? "" : undefined}>
+				{/* On a call to this teammate its face grows to the card's full height, ringed. */}
+				{ourCall !== null && <CallFace call={ourCall} persona={persona} />}
+				<Band>
+					<button
+						type="button"
+						className="control btn-quiet -ml-1 min-w-0 shrink gap-2 pl-1 pr-2"
+						// The name is the one way into the teammate's pane, the way a
+						// messages app opens a contact from its header.
+						title={`Teammate (${chordKeys("teammate")})`}
+						aria-label={state === "thinking" ? `${persona.name}, working` : persona.name}
+						aria-expanded={inspectorOpen}
+						onClick={onToggleInspector}
+					>
+						{ourCall === null && <Avatar id={persona.id} name={persona.name} size={20} hash={persona.avatar?.hash} />}
+						<span className="shrink-0 text-lg font-semibold text-ink">{persona.name}</span>
+						{state === "thinking" && (
+							<span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+						)}
+					</button>
+					{ourCall !== null && <CallStatus call={ourCall} roster={roster} />}
+	
+					<span className="min-w-0 flex-1" />
+	
+					<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} />
+	
+					{/* Side threads still live: a chip each. They are conversations of
+					 * their own rather than this turn's work, so they stay in the band
+					 * when the subagents sit at the composer. They leave the band when
+					 * archived; the conversation's own line keeps what came of each.
+					 * With the pane open they are in its list, and the band has no
+					 * room to name them. */}
+					{paneOpen ? null : sides.length === 1 ? (
+						<button
+							type="button"
+							className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
+							title="Open the side thread"
+							aria-label={`Side thread: ${sideTitle(sides[0]!.title)}`}
+							aria-pressed={opened({ kind: "side", key: sides[0]!.sideId })}
+							onClick={() => onOpenThread({ thread: { kind: "side", key: sides[0]!.sideId }, title: sides[0]!.title })}
+						>
+							<span className="truncate">{narrow ? "Side" : `Side: ${sideTitle(sides[0]!.title)}`}</span>
+							{sides[0]!.working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+						</button>
+					) : sides.length > 1 ? (
+						<MenuButton
+							className="control btn-quiet shrink-0 gap-1.5 px-2 text-sm"
+							label={`${sides.length} side threads`}
+							entries={sides.map((side) => ({
+								kind: "item",
+								id: side.sideId,
+								text: sideTitle(side.title),
+								checked: opened({ kind: "side", key: side.sideId }),
+								onSelect: () => onOpenThread({ thread: { kind: "side", key: side.sideId }, title: side.title }),
+							}))}
+						>
+							{`${sides.length} side threads`}
+							{sides.some((side) => side.working) && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+						</MenuButton>
+					) : null}
+	
+					{jobs.length > 0 && !narrow && (
+						<button
+							type="button"
+							className="control btn-quiet gap-1.5 px-2 text-sm"
+							title="Schedules"
+							aria-label={`${jobs.length} scheduled, ${scheduleDetail}`}
+							onClick={onOpenSchedules}
+						>
+							<ClockIcon className="text-ink-3" />
+							{jobs.length === 1 ? "1 scheduled" : `${jobs.length} scheduled`}
+							<span className="text-ink-3">{scheduleDetail}</span>
+						</button>
 					)}
-				</button>
-
-				<span className="min-w-0 flex-1" />
-
-				<SessionPickers key={persona.id} entry={entry} models={models} onSaid={onSaid} />
-
-				{/* Side threads still live: a chip each. They are conversations of
-				 * their own rather than this turn's work, so they stay in the band
-				 * when the subagents sit at the composer. They leave the band when
-				 * archived; the conversation's own line keeps what came of each.
-				 * With the pane open they are in its list, and the band has no
-				 * room to name them. */}
-				{paneOpen ? null : sides.length === 1 ? (
-					<button
-						type="button"
-						className="control btn-quiet min-w-0 shrink gap-1.5 px-2 text-sm"
-						title="Open the side thread"
-						aria-label={`Side thread: ${sideTitle(sides[0]!.title)}`}
-						aria-pressed={opened({ kind: "side", key: sides[0]!.sideId })}
-						onClick={() => onOpenThread({ thread: { kind: "side", key: sides[0]!.sideId }, title: sides[0]!.title })}
-					>
-						<span className="truncate">{narrow ? "Side" : `Side: ${sideTitle(sides[0]!.title)}`}</span>
-						{sides[0]!.working && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
-					</button>
-				) : sides.length > 1 ? (
-					<MenuButton
-						className="control btn-quiet shrink-0 gap-1.5 px-2 text-sm"
-						label={`${sides.length} side threads`}
-						entries={sides.map((side) => ({
-							kind: "item",
-							id: side.sideId,
-							text: sideTitle(side.title),
-							checked: opened({ kind: "side", key: side.sideId }),
-							onSelect: () => onOpenThread({ thread: { kind: "side", key: side.sideId }, title: side.title }),
-						}))}
-					>
-						{`${sides.length} side threads`}
-						{sides.some((side) => side.working) && <span aria-hidden="true" className="beat h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />}
+	
+					{/* A computer on its way fills in where its button will be; the
+					 * conversation carries on around it. */}
+					{pulling !== null ? (
+						<span
+							role="progressbar"
+							className="control btn-icon text-ink-3"
+							title={pulling.total > 0 ? `Computer setup · ${Math.round((pulling.done / pulling.total) * 100)}%` : "Computer setup"}
+							aria-label="Setting up the teammate's computer"
+							aria-valuemin={0}
+							aria-valuemax={100}
+							{...(pulling.total > 0 ? { "aria-valuenow": Math.round((pulling.done / pulling.total) * 100) } : {})}
+						>
+							<ProgressRing value={pulling.total > 0 ? pulling.done / pulling.total : null} />
+						</span>
+					) : openScreen !== undefined && (
+						<button
+							type="button"
+							className="control btn-icon"
+							title="Open the teammate's computer"
+							aria-label="Open the teammate's computer"
+							onClick={openScreen}
+						>
+							<ComputerIcon />
+						</button>
+					)}
+					<MenuButton className="control btn-icon" label="More" entries={more}>
+						<MoreIcon />
 					</MenuButton>
-				) : null}
-
-				{jobs.length > 0 && !narrow && (
-					<button
-						type="button"
-						className="control btn-quiet gap-1.5 px-2 text-sm"
-						title="Schedules"
-						aria-label={`${jobs.length} scheduled, ${scheduleDetail}`}
-						onClick={onOpenSchedules}
-					>
-						<ClockIcon className="text-ink-3" />
-						{jobs.length === 1 ? "1 scheduled" : `${jobs.length} scheduled`}
-						<span className="text-ink-3">{scheduleDetail}</span>
-					</button>
-				)}
-
-				{/* A call is its own key, beside the teammate's other ways in: the
-				 * composer's voice is dictation where this Mac can hear. */}
-				{onHangUp !== undefined ? (
-					<button type="button" className="control btn-icon" title={`End the call with ${persona.name}`} aria-label="End the call" onClick={onHangUp}>
-						<HangUpIcon />
-					</button>
-				) : onCall !== undefined && (
-					<button type="button" className="control btn-icon" title={`Call ${persona.name}`} aria-label={`Call ${persona.name}`} onClick={onCall}>
-						<PhoneIcon />
-					</button>
-				)}
-
-				{/* A computer on its way fills in where its button will be; the
-				 * conversation carries on around it. */}
-				{pulling !== null ? (
-					<span
-						role="progressbar"
-						className="control btn-icon text-ink-3"
-						title={pulling.total > 0 ? `Setting up the computer · ${Math.round((pulling.done / pulling.total) * 100)}%` : "Setting up the computer"}
-						aria-label="Setting up the teammate's computer"
-						aria-valuemin={0}
-						aria-valuemax={100}
-						{...(pulling.total > 0 ? { "aria-valuenow": Math.round((pulling.done / pulling.total) * 100) } : {})}
-					>
-						<ProgressRing value={pulling.total > 0 ? pulling.done / pulling.total : null} />
-					</span>
-				) : openScreen !== undefined && (
-					<button
-						type="button"
-						className="control btn-icon"
-						title="Open the teammate's computer"
-						aria-label="Open the teammate's computer"
-						onClick={openScreen}
-					>
-						<ComputerIcon />
-					</button>
-				)}
-				<MenuButton className="control btn-icon" label="More" entries={more}>
-					<MoreIcon />
-				</MenuButton>
-			</Band>
+				</Band>
+				{callBar}
+			</div>
 
 			{notice !== null && (
 				<p
@@ -442,7 +437,6 @@ export function Conversation({
 				<Transcript
 					personaId={personaId}
 					name={persona.name}
-					avatarHash={persona.avatar?.hash}
 					people={people}
 					events={shown}
 					streaming={streaming}
@@ -473,6 +467,7 @@ export function Conversation({
 					replyQuote={replying?.text ?? null}
 					onSend={send}
 					onCall={onCall}
+					onHangUp={onHangUp}
 					{...(refill !== null ? { refill } : {})}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}
@@ -481,9 +476,6 @@ export function Conversation({
 						: {})}
 				/>
 				{dock !== undefined && <div className="work-dock">{dock}</div>}
-				{searchOpen && (
-					<Search personaId={personaId} roster={roster} onClose={onCloseSearch} onPick={onPick} />
-				)}
 			</div>
 		</section>
 	);
@@ -563,4 +555,22 @@ function resumeRefusal(events: TranscriptEvent[], backendId: string): string | n
 		return "The previous chapter ran on a different agent; its context cannot be reopened here.";
 	}
 	return null;
+}
+
+/**
+ * On a call to this teammate its face fills the call card's height beside
+ * the name and the call's row, ringed green while the line is live and
+ * swelling with the voice (dim while held or ending), so nothing else on the
+ * card needs to show who it is. The level is set straight from the call,
+ * sixty times a second, without re-rendering.
+ */
+function CallFace({ call, persona }: { call: CallSession; persona: Persona }) {
+	const phase = useCallSnapshot(call).phase;
+	const ring = useRef<HTMLSpanElement>(null);
+	useEffect(() => call.watchLevel((level) => ring.current?.style.setProperty("--level", level.toFixed(3))), [call]);
+	return (
+		<span ref={ring} className="call-face" data-phase={phase}>
+			<Avatar id={persona.id} name={persona.name} size={56} hash={persona.avatar?.hash} />
+		</span>
+	);
 }

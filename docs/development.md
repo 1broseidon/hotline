@@ -20,6 +20,9 @@ code implements them, are [wire.md](wire.md), [log.md](log.md) and
   `xcrun swiftc`. Its `SpeechAnalyzer` path needs Swift 6.2 or newer
   (Xcode 26); an older compiler builds only the `SFSpeechRecognizer` path
   ([voice.md](voice.md#device-text-on-a-mac)).
+- [CMake](https://cmake.org): the `opus` crate builds libopus from source
+  for GPT-Live calls (`brew install cmake` on macOS; GitHub's runners have
+  it).
 - Python 3 and network access once per target, for the speech engine:
   `hotline-core` links sherpa-onnx's prebuilt static library, which the
   build takes only from `.speech-engine`

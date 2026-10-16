@@ -828,6 +828,21 @@ pub struct Provider {
     pub credential_kinds: Vec<CredentialKind>,
     /// Whether Rig can discover models using this provider connection.
     pub model_discovery: bool,
+    /// What a connection to it can do, in the order Settings names them:
+    /// `chat`, `images`, `voice`. Absent from a desk older than the field.
+    #[serde(default)]
+    #[ts(as = "Option<Vec<ProviderJob>>", optional)]
+    pub does: Vec<ProviderJob>,
+}
+
+/// A job a provider can do once connected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ProviderJob {
+    Chat,
+    Images,
+    Voice,
 }
 
 /// How this connection was established: a pasted key, a provider sign-in,
@@ -2484,6 +2499,24 @@ pub struct VoiceStatus {
     /// model that wrote any, by model. Absent before the first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replies: Option<Vec<VoiceReplies>>,
+    /// The voice front calls run on, when the desk can open one. A
+    /// teammate's own voice is picked from its voices. Absent on a desk with
+    /// no front, or one older than the field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub front: Option<VoiceFrontModel>,
+}
+
+/// A voice front as the desk would open it: which one (`grok`, `openai`,
+/// `gpt-live`), its model, the voice calls speak in when a teammate has none
+/// of its own, and every voice it speaks in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceFrontModel {
+    pub provider_id: String,
+    pub model_id: String,
+    pub voice: String,
+    pub voices: Vec<String>,
 }
 
 /// How one model's replies on calls to teammates were said: each reply is
@@ -2736,6 +2769,35 @@ pub struct VoiceCall {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub persona_id: Option<String>,
+    /// Present only on a front call: the desk's answer to `mode: "front"`.
+    /// Absent means the call runs on the transcribe, answer, speak pipeline,
+    /// as every desk before the front did, so a client falls back on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub front: Option<VoiceFront>,
+}
+
+/// How a front call carries sound. Both directions are mono PCM16
+/// little-endian in `voice.front_audio` and `frontAudio` events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct VoiceFront {
+    /// The rate the desk takes microphone audio at: the `inputRate` asked for
+    /// when it is one the desk resamples, else the front's own rate.
+    pub input_rate: u32,
+    /// The rate of the audio the desk sends, which the speaker plays at.
+    pub output_rate: u32,
+}
+
+/// What answers the person on a call. Omission is the pipeline.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum VoiceCallMode {
+    #[default]
+    Pipeline,
+    Front,
 }
 
 /// Omission preserves remote audio transcription for existing callers.
@@ -2817,6 +2879,23 @@ pub enum VoiceEvent {
         request_id: String,
         kind: String,
     },
+    /// Front call: a piece of the front's speech, at most 100 ms of PCM16 at
+    /// the call's output rate. `seq` rises by one per frame; a gap means the
+    /// desk dropped audio the client was too slow to take.
+    #[serde(rename = "frontAudio")]
+    FrontAudio {
+        seq: u32,
+        data: String,
+    },
+    /// Front call: the person has the floor. Stop playing what is queued and
+    /// answer with `voice.front_barge`, the milliseconds actually played.
+    #[serde(rename = "frontStop")]
+    FrontStop {},
+    /// Front call: the front is gone, for the rest of the call. The call
+    /// goes on as a pipeline call, taking the utterances and text a pipeline
+    /// call takes.
+    #[serde(rename = "frontEnded")]
+    FrontEnded {},
 }
 
 /// Everything a client may ask the room to do or to answer.
@@ -2848,6 +2927,14 @@ pub enum Command {
         stream_audio: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         input_mode: Option<VoiceInputMode>,
+        /// `front` asks for a voice front. The answer is in the reply's
+        /// `front`; a desk that cannot or will not run one leaves it out.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<VoiceCallMode>,
+        /// The rate of the microphone audio a front call will send:
+        /// 16000 or 24000. Omitted, the front's own rate.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input_rate: Option<u32>,
     },
     /// One finalized on-device transcript; partial recognition is never submitted.
     #[serde(rename = "voice.text")]
@@ -2865,6 +2952,20 @@ pub enum Command {
         data: String,
         r#final: bool,
     },
+    /// Front call: microphone PCM16 mono at the negotiated input rate, at most
+    /// 32 KiB, sequence increasing. A desk that is behind refuses the frame;
+    /// drop it rather than queue it.
+    #[serde(rename = "voice.front_audio")]
+    VoiceFrontAudio {
+        call_id: String,
+        seq: u32,
+        data: String,
+    },
+    /// Front call: the person spoke over the front. `playedMs` is how much of
+    /// the front's current reply the speaker had played, which is all the
+    /// front keeps of it.
+    #[serde(rename = "voice.front_barge")]
+    VoiceFrontBarge { call_id: String, played_ms: u32 },
     #[serde(rename = "voice.utterance")]
     VoiceUtterance {
         call_id: String,

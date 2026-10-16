@@ -1,8 +1,12 @@
 //! One owner call per desk, with bounded work and complete sentence clips.
 
 pub mod dispatcher;
+mod duplex;
+pub mod front;
+pub mod front_prompt;
 pub mod ledger;
 pub mod metering;
+pub mod realtime;
 mod record;
 mod replies;
 pub mod settings;
@@ -10,12 +14,14 @@ pub mod speech;
 pub mod spoken;
 
 use crate::contract::{
-    BudgetKind, SpeechModel, VoiceBudget, VoiceCall, VoiceEndReason, VoiceEvent, VoiceInputMode,
-    VoiceModel, VoiceState, VoiceStatus,
+    BudgetKind, SpeechModel, VoiceBudget, VoiceCall, VoiceCallMode, VoiceEndReason, VoiceEvent,
+    VoiceFront, VoiceInputMode, VoiceModel, VoiceState, VoiceStatus,
 };
 use crate::{log::Log, session::Room, vault::Vault, wire::RoomHandle};
+use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use dispatcher::{Context, Dispatcher, ProviderDispatcher};
+use duplex::Front;
 use ledger::Kind;
 use metering::{BUDGET_ERROR, Budget};
 use record::{Record, Speaker};
@@ -39,11 +45,14 @@ const RETRY_LINE: &str = "Sorry, say that again.";
 const ERROR_LINE: &str = "Voice keeps failing. Please continue by text.";
 const MAX_FAILURES: u8 = 3;
 const MAX_AUDIO: usize = 2 * 1024 * 1024;
+const FRONT_LINE: &str = "This call has a voice front. Send front audio.";
 const BUDGET_LINE: &str = "The voice budget is unavailable or spent. Chat carries on by text.";
 /// The capability of a desk whose call to a teammate takes what the person
 /// says while the teammate's turn works: its `thinking` says `listening`, and
 /// the words steer into the open turn.
 pub const LISTEN_WHILE_THINKING: &str = "voiceListenWhileThinking";
+/// A desk with a realtime provider can put a voice front on a call.
+pub const VOICE_FRONT: &str = "voiceFront";
 /// How often a call that is thinking says so again. A phone stops waiting on
 /// a desk it has not heard from for 45 seconds, and a teammate's turn can work
 /// for longer than that without a word. Tests wait a tenth of a second.
@@ -69,6 +78,8 @@ const REWRITE_WAIT: Duration = if cfg!(test) {
 pub struct Services {
     pub speech: SpeechSet,
     pub dispatcher: Option<Arc<dyn Dispatcher>>,
+    /// The realtime model a front call speaks through; none, no front.
+    pub realtime: Option<Arc<dyn realtime::Realtime>>,
 }
 
 /// Text input carries no remote listener, even when an audio listener is configured.
@@ -77,6 +88,35 @@ struct CallSpeech {
     stt: Option<Arc<dyn speech::Speech>>,
     tts: Arc<dyn speech::Speech>,
     fallback_tts: Option<Arc<dyn speech::Speech>>,
+    /// The front stands in for a pipeline the desk does not have ([`CallSpeech::front`]).
+    front_only: bool,
+}
+
+/// A front's identity as a call's speech, for a desk with no pipeline: the
+/// provider and model the login check and the budgets read, and nothing to
+/// hear or say with, since the front does both itself.
+struct FrontSpeech {
+    id: SpeechId,
+    subscription: bool,
+}
+
+#[async_trait]
+impl Speech for FrontSpeech {
+    fn id(&self) -> SpeechId {
+        self.id.clone()
+    }
+    fn is_subscription(&self) -> bool {
+        self.subscription
+    }
+    fn output_mime(&self) -> &str {
+        "audio/pcm"
+    }
+    async fn transcribe(&self, _clip: Clip) -> Result<String, speech::SpeechError> {
+        Err(speech::SpeechError::WrongJob)
+    }
+    async fn speak(&self, _text: &str) -> Result<Clip, speech::SpeechError> {
+        Err(speech::SpeechError::WrongJob)
+    }
 }
 
 /**
@@ -116,6 +156,7 @@ impl CallSpeech {
             stt: Some(speech.stt),
             tts: speech.tts,
             fallback_tts: speech.fallback_tts,
+            front_only: false,
         }
     }
     fn output(speech: SpeechOutput) -> Self {
@@ -123,13 +164,35 @@ impl CallSpeech {
             stt: None,
             tts: speech.tts,
             fallback_tts: speech.fallback_tts,
+            front_only: false,
+        }
+    }
+    /// A front call on a desk with no pipeline to fall back on: the front
+    /// hears and speaks itself, and its identity stands in for the speech
+    /// the call would otherwise have resolved.
+    fn front(front: &dyn realtime::Realtime) -> Self {
+        Self {
+            stt: None,
+            tts: Arc::new(FrontSpeech {
+                id: front.id(),
+                subscription: front.is_subscription(),
+            }),
+            fallback_tts: None,
+            front_only: true,
         }
     }
 }
 
+#[derive(Clone, Copy)]
 enum TranscriptSource {
-    Audio { duration: u32, bytes: usize },
+    Audio {
+        duration: u32,
+        bytes: usize,
+    },
     Device,
+    /// What a voice front relayed. Whether to hang up is the front's call, so
+    /// a relayed "goodbye" is words for the teammate like any others.
+    Front,
 }
 
 impl TranscriptSource {
@@ -137,6 +200,7 @@ impl TranscriptSource {
         match self {
             Self::Audio { duration, bytes } => speech::plausible_goodbye(*duration, *bytes),
             Self::Device => true,
+            Self::Front => false,
         }
     }
 }
@@ -147,6 +211,12 @@ pub(crate) struct Origin {
     pub call_id: String,
     pub seq: u32,
     pub direct: bool,
+    /// The words came through a voice front, not straight from the person,
+    /// so the teammate is told they are a transcript ([`spoken::voice_turn`]).
+    pub front: bool,
+    /// The call ended before the words were answered: the teammate answers
+    /// them in writing, with no version to speak.
+    pub ended: bool,
 }
 
 impl Origin {
@@ -179,6 +249,8 @@ impl Origin {
             call_id: from.thread.clone(),
             seq: from.request.as_deref()?.parse().ok()?,
             direct: true,
+            front: false,
+            ended: false,
         })
     }
 
@@ -203,6 +275,8 @@ impl Origin {
             call_id,
             seq,
             direct,
+            front: false,
+            ended: false,
         })
     }
 }
@@ -253,6 +327,8 @@ struct Call {
     /// What the person last said on a direct call, which a rewrite of the
     /// teammate's reply is handed for context.
     words: String,
+    /// On a front call, its sound; gone once the front is.
+    front: Option<Front>,
 }
 
 impl Call {
@@ -312,6 +388,7 @@ impl Call {
                 record.ended(reason);
             }
             self.input = None;
+            self.front = None;
             self.cancel.cancel();
             self.speech.cancel();
             self.deliveries.cancel();
@@ -352,6 +429,7 @@ enum Work {
     Text {
         seq: u32,
         text: String,
+        source: TranscriptSource,
         speech: CancellationToken,
     },
     Live {
@@ -561,6 +639,10 @@ impl Calls {
 
     pub fn status_for(&self, input_mode: VoiceInputMode) -> VoiceStatus {
         let speech = self.resolve_speech(input_mode, None);
+        // A front takes a call the pipeline could not: it hears and speaks itself.
+        let front = self
+            .realtime()
+            .is_some_and(|front| self.front_ready(front.as_ref()).is_ok());
         let dispatcher = self.dispatcher();
         let budget_error = |assistant: Option<&dyn Dispatcher>| {
             self.ledger
@@ -584,19 +666,24 @@ impl Calls {
                 limits.month_usd.unwrap_or(0.0),
             ),
         };
-        let direct_available = speech.is_ok() && direct_budget_error.is_none();
+        let direct_available = (speech.is_ok() || front) && direct_budget_error.is_none();
         let unavailable = speech
             .as_ref()
             .err()
+            .filter(|_| !front)
             .cloned()
             .or_else(|| dispatcher.as_ref().err().cloned())
             .or(budget_error);
+        let mut capabilities = vec![
+            "voiceDirectCalls".into(),
+            "voiceTextInput".into(),
+            LISTEN_WHILE_THINKING.into(),
+        ];
+        if self.front_available() {
+            capabilities.push(VOICE_FRONT.into());
+        }
         VoiceStatus {
-            capabilities: vec![
-                "voiceDirectCalls".into(),
-                "voiceTextInput".into(),
-                LISTEN_WHILE_THINKING.into(),
-            ],
+            capabilities,
             available: unavailable.is_none(),
             direct_available,
             unavailable,
@@ -617,6 +704,7 @@ impl Calls {
                 spent_month_usd,
             },
             replies: Some(self.replies.counts()).filter(|counts| !counts.is_empty()),
+            front: self.front_model(),
         }
     }
 
@@ -646,6 +734,31 @@ impl Calls {
         input_mode: VoiceInputMode,
         room: Arc<dyn RoomHandle>,
     ) -> Result<VoiceCall, String> {
+        self.start_call(
+            id,
+            target,
+            stream_audio,
+            input_mode,
+            VoiceCallMode::Pipeline,
+            None,
+            room,
+        )
+    }
+
+    /// Starts a call, or answers for one already started. A front is a
+    /// request: the answer says whether the call got one, and a call that
+    /// did not runs on the pipeline.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_call(
+        self: &Arc<Self>,
+        id: &str,
+        target: Option<String>,
+        stream_audio: bool,
+        input_mode: VoiceInputMode,
+        mode: VoiceCallMode,
+        mic_rate: Option<u32>,
+        room: Arc<dyn RoomHandle>,
+    ) -> Result<VoiceCall, String> {
         if let Some(target) = &target
             && !crate::room::roster(&self.log)
                 .iter()
@@ -658,13 +771,28 @@ impl Calls {
         if let Some(call) = calls.iter().find(|call| call.id == id)
             && (call.target != target
                 || call.stream_audio != stream_audio
-                || call.input_mode != input_mode)
+                || call.input_mode != input_mode
+                || (call.front.is_some() && mode != VoiceCallMode::Front))
         {
             return Err("A call cannot change its target or input/output mode.".into());
         }
         if !calls.iter().any(|call| call.id == id) {
-            // Direct calls do not need a separate routing model.
-            let speech_services = self.resolve_speech(input_mode, target.as_deref())?;
+            // A front the budget cannot pay for leaves the call on the pipeline.
+            let realtime = self
+                .realtime()
+                .filter(|_| mode == VoiceCallMode::Front)
+                .filter(|front| self.front_ready(front.as_ref()).is_ok());
+            // Direct calls do not need a separate routing model. A front
+            // hears and speaks itself, so with one the pipeline is only what
+            // the call would fall back on, and a desk with none still takes
+            // the call: a ChatGPT login alone runs GPT-Live.
+            let speech_services = match self.resolve_speech(input_mode, target.as_deref()) {
+                Ok(services) => services,
+                Err(error) => match &realtime {
+                    Some(front) => CallSpeech::front(front.as_ref()),
+                    None => return Err(error),
+                },
+            };
             if target.is_none() {
                 self.dispatcher()?;
             }
@@ -712,7 +840,11 @@ impl Calls {
                     .as_deref()
                     .map(|persona_id| Record::open(self.room.clone(), id, persona_id)),
                 words: String::new(),
+                front: realtime.is_some().then(|| Front::new(mic_rate)),
             });
+            if let Some(realtime) = realtime {
+                tokio::spawn(self.clone().run_front(id.into(), realtime, cancel.clone()));
+            }
             self.thinking_again(id, cancel.clone());
             let this = self.clone();
             let id = id.to_string();
@@ -733,6 +865,10 @@ impl Calls {
         }
         Ok(VoiceCall {
             call_id: id.into(),
+            front: calls
+                .iter()
+                .find(|call| call.id == id)
+                .and_then(|call| call.front.as_ref().map(Front::description)),
             persona_id: target,
             input_mode,
             input: {
@@ -908,19 +1044,37 @@ impl Calls {
             return Err("That voice clip is empty or too large.".into());
         }
         let duration = validate_audio(mime, &bytes, duration)?;
-        self.queue_utterance(id, seq, VoiceInputMode::Audio, |speech| Work::Utterance {
-            seq,
-            clip: Clip {
-                mime: mime.into(),
-                bytes,
-            },
-            duration,
-            speech,
+        self.queue_utterance(id, seq, Some(VoiceInputMode::Audio), |speech| {
+            Work::Utterance {
+                seq,
+                clip: Clip {
+                    mime: mime.into(),
+                    bytes,
+                },
+                duration,
+                speech,
+            }
         })
     }
 
     /// Only a finalized device transcript enters the paid response pipeline.
     pub fn text(&self, id: &str, seq: u32, text: &str) -> Result<(), String> {
+        self.queue_text(id, seq, text, TranscriptSource::Device)
+    }
+
+    /// The words a voice front relays to the teammate on this call, handed
+    /// over as a typed message is ([`front`]).
+    pub(crate) fn relay(&self, id: &str, seq: u32, words: &str) -> Result<(), String> {
+        self.queue_text(id, seq, words, TranscriptSource::Front)
+    }
+
+    fn queue_text(
+        &self,
+        id: &str,
+        seq: u32,
+        text: &str,
+        source: TranscriptSource,
+    ) -> Result<(), String> {
         if text.len() > 32_000 || text.chars().count() > 8_000 {
             return Err("A voice transcript may contain at most 8,000 characters.".into());
         }
@@ -928,22 +1082,37 @@ impl Calls {
         if text.is_empty() {
             return Err("A finalized voice transcript cannot be empty.".into());
         }
-        self.queue_utterance(id, seq, VoiceInputMode::Text, |speech| Work::Text {
+        let input = match source {
+            TranscriptSource::Front => None,
+            _ => Some(VoiceInputMode::Text),
+        };
+        self.queue_utterance(id, seq, input, |speech| Work::Text {
             seq,
             text: text.into(),
+            source,
             speech,
         })
     }
 
+    /// Work on what was said. `input_mode` is the person's own input, which
+    /// a front call refuses; `None` is the front relaying, which only a front
+    /// call takes.
     fn queue_utterance(
         &self,
         id: &str,
         seq: u32,
-        input_mode: VoiceInputMode,
+        input_mode: Option<VoiceInputMode>,
         work: impl FnOnce(CancellationToken) -> Work,
     ) -> Result<(), String> {
         self.change(id, |call| {
-            if call.input_mode != input_mode {
+            match (input_mode, call.front.is_some()) {
+                (Some(_), true) => return Err(FRONT_LINE.into()),
+                (None, false) => return Err("This call has no voice front.".into()),
+                _ => {}
+            }
+            if let Some(input_mode) = input_mode
+                && call.input_mode != input_mode
+            {
                 return Err(match call.input_mode {
                     VoiceInputMode::Text => {
                         "This call accepts finalized text, not microphone audio."
@@ -964,7 +1133,11 @@ impl Calls {
                 return Err("The previous utterance is still being handled.".into());
             }
             let speech = CancellationToken::new();
-            call.speech_services = self.resolve_speech(input_mode, call.target.as_deref())?;
+            // A front speaks for itself; only the person's input is heard
+            // and answered by the pipeline's providers.
+            if let Some(input_mode) = input_mode {
+                call.speech_services = self.resolve_speech(input_mode, call.target.as_deref())?;
+            }
             call.work
                 .try_send(work(speech.clone()))
                 .map_err(|_| "The voice call is busy. Try again shortly.".to_string())?;
@@ -1038,14 +1211,25 @@ impl Calls {
         if speech.id().provider_id == local::PROVIDER_ID {
             return local::chosen(self.vault.root(), Some(&speech.id().model_id)).is_some();
         }
+        self.login_connected(&speech.id().provider_id, speech.is_subscription())
+    }
+
+    /// Whether the key, or the Grok login, a provider was resolved with is
+    /// still in the vault.
+    fn login_connected(&self, provider_id: &str, subscription: bool) -> bool {
         let auth = self.vault.provider_auth();
-        if speech.is_subscription() {
+        if provider_id == realtime::live::PROVIDER_ID {
+            matches!(
+                auth.get(provider_id),
+                Some(crate::session::ProviderAuth::Login { .. })
+            )
+        } else if subscription {
             matches!(
                 auth.get("xai"),
                 Some(crate::session::ProviderAuth::StoredLogin { .. })
             )
         } else {
-            auth.contains_key(&speech.id().provider_id)
+            auth.contains_key(provider_id)
         }
     }
 
@@ -1069,6 +1253,9 @@ impl Calls {
         self.change(id, |call| {
             if call.state == VoiceState::Held {
                 return Err("Resume the call before speaking.".into());
+            }
+            if call.front.is_some() {
+                return Err(FRONT_LINE.into());
             }
             if call.input_mode != VoiceInputMode::Audio
                 || !call.stream_audio
@@ -1227,13 +1414,18 @@ impl Calls {
                 break;
             };
             let result = match &next {
-                Work::Text { seq, text, speech } => {
+                Work::Text {
+                    seq,
+                    text,
+                    source,
+                    speech,
+                } => {
                     self.respond(
                         &id,
                         &context.for_utterance(),
                         *seq,
                         text.clone(),
-                        TranscriptSource::Device,
+                        *source,
                         speech,
                     )
                     .await
@@ -1433,13 +1625,17 @@ impl Calls {
             return Ok(());
         }
         let text = text.trim().chars().take(8_000).collect::<String>();
-        self.emit(
-            id,
-            VoiceEvent::Heard {
-                seq,
-                text: text.clone(),
-            },
-        );
+        // What a front relays, it heard: the call was shown and kept that.
+        let relayed = matches!(source, TranscriptSource::Front);
+        if !relayed {
+            self.emit(
+                id,
+                VoiceEvent::Heard {
+                    seq,
+                    text: text.clone(),
+                },
+            );
+        }
         if text.is_empty() {
             return Ok(());
         }
@@ -1447,7 +1643,9 @@ impl Calls {
         if target.is_none() {
             self.record("user", &text)?;
         } else {
-            self.keep(id, Speaker::Person, &text);
+            if !relayed {
+                self.keep(id, Speaker::Person, &text);
+            }
             let _ = self.change(id, |call| {
                 call.words = text.clone();
                 Ok(())
@@ -1474,6 +1672,8 @@ impl Calls {
             call_id: id.into(),
             seq,
             direct: target.is_some(),
+            front: matches!(source, TranscriptSource::Front),
+            ended: false,
         };
         if let Some(target) = target {
             return self
@@ -1839,6 +2039,45 @@ impl Calls {
         }
     }
 
+    /// Whether a call with this front may begin: a front that costs nothing
+    /// is never refused, a paid one needs the Voice budget to have room.
+    pub fn front_ready(&self, front: &dyn realtime::Realtime) -> Result<(), String> {
+        let provider = front.id().provider_id;
+        let kinds: &[Kind] = if front.is_subscription() || ledger::front_usd(&provider, 1.0) == 0.0
+        {
+            &[]
+        } else {
+            &[Kind::Front]
+        };
+        self.ledger
+            .ready(kinds)
+            .map_err(|_| BUDGET_ERROR.to_string())
+    }
+
+    /// Counts `seconds` of a call's front against the Voice budget. Nothing
+    /// for a subscription login. `Err` says the budget is spent and the call
+    /// should end.
+    pub fn front_spend(&self, front: &dyn realtime::Realtime, seconds: f64) -> Result<(), String> {
+        if front.is_subscription() {
+            return Ok(());
+        }
+        let usd = ledger::front_usd(&front.id().provider_id, seconds);
+        self.pay(Kind::Front, usd)
+    }
+
+    /// What the person said to the front, as the front heard it. Kept on the
+    /// call's thread and nowhere else: the teammate is handed the words by
+    /// [`front::Front`], not by this.
+    pub fn front_heard(&self, id: &str, text: &str) -> String {
+        self.keep(id, Speaker::Person, text)
+    }
+
+    /// What the front said to the person, kept on the call's thread and never
+    /// on the teammate's tape.
+    pub fn front_said(&self, id: &str, text: &str) -> String {
+        self.keep(id, Speaker::Voice, text)
+    }
+
     /// A line said on a direct call, kept on the call's thread. The line's id
     /// is what the clients know it by; the write is made behind the call.
     fn keep(&self, id: &str, speaker: Speaker, text: &str) -> String {
@@ -1863,10 +2102,14 @@ impl Calls {
         if reply.text.is_empty() {
             return Ok(());
         }
-        if self.change(id, |call| Ok(call.target.is_some()))? {
-            self.keep_as(id, Speaker::Voice, &reply.line, &reply.text);
-        } else {
+        let (direct, fronted) =
+            self.change(id, |call| Ok((call.target.is_some(), call.front.is_some())))?;
+        if !direct {
             self.record("agent", &reply.text)?;
+        } else if !fronted {
+            // A front call's thread keeps what the front said of the reply
+            // instead ([`Self::front_said`]).
+            self.keep_as(id, Speaker::Voice, &reply.line, &reply.text);
         }
         Ok(())
     }
@@ -1948,6 +2191,9 @@ impl Calls {
                 text,
             },
         );
+        if self.fronted(id) {
+            return Ok(());
+        }
         self.speaking(id, interrupted);
         let speech = self.speech_for(id)?;
         let streaming = self.change(id, |call| Ok(call.stream_audio))?;
@@ -2004,7 +2250,11 @@ impl Calls {
                     text,
                 },
             );
-            if failure.is_some() || interrupted.is_cancelled() || ended.is_cancelled() {
+            if failure.is_some()
+                || interrupted.is_cancelled()
+                || ended.is_cancelled()
+                || self.fronted(id)
+            {
                 continue;
             }
             if speech.is_none() {

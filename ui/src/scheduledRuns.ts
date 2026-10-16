@@ -5,6 +5,9 @@ export type Step = Extract<TranscriptEvent, { kind: "thought" | "tool" }>;
 /** A prompt a schedule or loop sent, as the operator's line it arrives on. */
 export type ScheduledEvent = Extract<TranscriptEvent, { kind: "user" }> & { scheduled: ScheduledRun };
 
+/** A finished call, as the conversation's line for it. */
+export type CallLink = Extract<TranscriptEvent, { kind: "link" }> & { threadKind: "call" };
+
 /**
  * Either one event, or a run of the machinery between two messages —
  * thoughts and tool calls — folded into one block so a transcript of forty
@@ -15,7 +18,8 @@ export type ScheduledEvent = Extract<TranscriptEvent, { kind: "user" }> & { sche
 export type Block =
 	| { kind: "event"; event: Exclude<TranscriptEvent, Step> }
 	| { kind: "steps"; id: string; ts: number; items: Step[] }
-	| { kind: "scheduled"; id: string; ts: number; jobId: string; name: string; runs: ScheduledEvent[] };
+	| { kind: "scheduled"; id: string; ts: number; jobId: string; name: string; runs: ScheduledEvent[] }
+	| { kind: "calls"; id: string; ts: number; calls: CallLink[] };
 
 function scheduledOf(block: Block): ScheduledEvent | undefined {
 	if (block.kind !== "event" || block.event.kind !== "user" || block.event.scheduled === undefined) return undefined;
@@ -72,6 +76,55 @@ export function groupScheduled(blocks: Block[]): Block[] {
 			runs,
 		});
 		// What draws nothing after the last run belongs to whatever comes next.
+		at = end - pending.length;
+	}
+	return out;
+}
+
+function finishedCall(block: Block): CallLink | undefined {
+	if (block.kind !== "event" || block.event.kind !== "link") return undefined;
+	const link = block.event;
+	return link.threadKind === "call" && link.state === "closed" ? (link as CallLink) : undefined;
+}
+
+/**
+ * Fold two or more finished calls with nothing drawn between them into one
+ * block, oldest first, sitting where the newest sits: a morning of trying
+ * calls is one line, not a column of them. A call still going stays its own
+ * line, and anything drawn between two calls breaks the group, as with
+ * scheduled runs.
+ */
+export function groupCalls(blocks: Block[]): Block[] {
+	const out: Block[] = [];
+	let at = 0;
+	while (at < blocks.length) {
+		const first = finishedCall(blocks[at]!);
+		if (first === undefined) {
+			out.push(blocks[at++]!);
+			continue;
+		}
+		const calls = [first];
+		const quiet: Block[] = [];
+		let pending: Block[] = [];
+		let end = at + 1;
+		for (; end < blocks.length; end++) {
+			const block = blocks[end]!;
+			if (drawsNothing(block)) {
+				pending.push(block);
+				continue;
+			}
+			const call = finishedCall(block);
+			if (call === undefined) break;
+			calls.push(call);
+			quiet.push(...pending);
+			pending = [];
+		}
+		if (calls.length === 1) {
+			out.push(blocks[at++]!);
+			continue;
+		}
+		const newest = calls[calls.length - 1]!;
+		out.push(...quiet, { kind: "calls", id: newest.id, ts: newest.ts, calls });
 		at = end - pending.length;
 	}
 	return out;

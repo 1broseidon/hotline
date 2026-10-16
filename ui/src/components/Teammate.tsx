@@ -391,7 +391,7 @@ export function Teammate({
 							type="button"
 							className="control btn-quiet ml-auto"
 							disabled={busy || (!pinned && pinCount >= MAX_PINS)}
-							title={!pinned && pinCount >= MAX_PINS ? `${MAX_PINS} teammates are pinned. Unpin one first.` : "Pinned teammates sit at the top of the team, on every device"}
+							title={!pinned && pinCount >= MAX_PINS ? "Pins full" : undefined}
 							onClick={() => void togglePin()}
 						>
 							{pinned ? "Unpin" : "Pin to top"}
@@ -413,7 +413,11 @@ export function Teammate({
 /** What the desk speaks with now, and the voices that model offers. */
 type Speaking = { providerId: string; modelId: string; voice?: string; voices: string[] };
 
-/** The desk's speaking model and its voices, or null while the desk cannot speak. */
+/**
+ * What calls speak with and its voices, or null while the desk cannot speak:
+ * the voice front when the desk runs one (Grok Voice, GPT-Live, GPT
+ * Realtime), else Legacy voice's speaking model.
+ */
 function useSpeaking(): Speaking | null {
 	const [speaking, setSpeaking] = useState<Speaking | null>(null);
 	useEffect(() => {
@@ -421,6 +425,10 @@ function useSpeaking(): Speaking | null {
 		void Promise.all([wire.command("voice.status", {}), wire.command("capabilities.options", {})]).then(
 			([status, options]) => {
 				if (cancelled) return;
+				if (status.front !== undefined) {
+					setSpeaking(status.front);
+					return;
+				}
 				const tts = status.tts;
 				const voices = options.tts.options
 					.find((provider) => provider.providerId === tts?.providerId)
@@ -446,9 +454,10 @@ function voiceName(voice: string): string {
 const DESK_VOICE = "";
 
 /**
- * The voice this teammate answers a direct call in. It is one of the desk's
- * speaking model's voices; a voice picked for a model the desk no longer
- * speaks with reads as the desk's, which is what a call would use.
+ * The voice this teammate answers a direct call in. It is one of the voices
+ * of whatever calls speak with now, the voice front or Legacy voice's
+ * speaking model; a voice picked for another reads as the desk's, which is
+ * what a call would use.
  */
 function VoiceRow({ persona, disabled, onSave }: { persona: Persona; disabled: boolean; onSave(patch: Partial<Persona>): void }) {
 	const speaking = useSpeaking();

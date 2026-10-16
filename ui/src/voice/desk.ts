@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from "react";
 import type { SpeechModel } from "../generated/contract";
 import { wire } from "../wire";
 import { webAudio } from "./audio";
+import { microphoneTrouble } from "./microphone";
 import type { DictationEngine, DictationEvent } from "./dictation";
 import { downsample, encodeWav, rms, toBase64, WAV_RATE } from "./wav";
 
@@ -28,9 +29,6 @@ export const SESSION_SECONDS = 30;
 /** How long the desk has to hear the last of it once the person stops. */
 const FINAL_PATIENCE_MS = 20_000;
 
-export const DESK_MICROPHONE_DENIED = "Hotline can't use the microphone. Allow it for Hotline, then try again.";
-export const DESK_NO_MICROPHONE = "No microphone found. Connect one or pick it in your computer's sound settings, then try again.";
-export const DESK_MICROPHONE_BUSY = "The microphone is busy or not working. Close other apps using it, then try again.";
 const DESK_LOST_MICROPHONE = "The microphone went away. What was heard is in the field.";
 const DESK_DID_NOT_FINISH = "The desk did not finish hearing that. Try again.";
 
@@ -52,13 +50,6 @@ export type DeskSeams = {
 	after(callback: () => void, ms: number): () => void;
 };
 
-/** The sentence for a microphone that would not open, by the DOMException `getUserMedia` rejects with: missing, busy, or refused. */
-export function microphoneTrouble(error: unknown): string {
-	const name = typeof error === "object" && error !== null && "name" in error ? error.name : "";
-	if (name === "NotFoundError" || name === "OverconstrainedError") return DESK_NO_MICROPHONE;
-	if (name === "NotReadableError" || name === "AbortError") return DESK_MICROPHONE_BUSY;
-	return DESK_MICROPHONE_DENIED;
-}
 
 function webMicrophone(): Microphone {
 	let audio: ReturnType<typeof webAudio> | null = null;

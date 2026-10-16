@@ -522,8 +522,10 @@ while a desk text call also needs the dispatcher.
 
 ## One brain, two outputs
 
-A call to a teammate has nothing in front of the teammate
-(`voice/spoken.rs`). Every utterance goes into the teammate's own session as a
+A pipeline call to a teammate has nothing in front of the teammate
+(`voice/spoken.rs`); a front call puts a realtime voice there, which relays
+the same way (see the voice front setting below and
+[voice-calls.md](voice-calls.md)). Every utterance goes into the teammate's own session as a
 turn of its conversation, in the open chapter of its main thread, the same way
 a typed message does (`Calls::hand_off`, `Room::prompt`): same session, same
 harness, same grants. The tape keeps the person's words exactly as they were
@@ -681,10 +683,13 @@ The desk's own calls, which name no teammate, are not threads; they stay on the
 `voice-dispatcher` tape, which the dispatcher reads across calls.
 
 A teammate may have its own voice (`Persona.voice`: provider, model and
-voice), picked on its card from the voices of the model the desk speaks with.
-A direct call to that teammate speaks in it while the desk still speaks with
-that provider and model; otherwise, or if the provider refuses the voice, the
-call uses the desk's voice. Desk calls always use the desk's voice.
+voice), picked on its card from the voices of whatever calls speak with: the
+voice front when the desk runs one (`voice.status` reports it as `front`:
+`grok`, `openai` or `gpt-live`, its model, the desk's voice for it and all its
+voices), else Legacy voice's speaking model. A direct call to that teammate
+speaks in it while calls still run on that front, or that provider and model;
+otherwise, or if the provider refuses the voice, the call uses the desk's
+voice. Desk calls always use the desk's voice.
 
 ### A reply written only to be read
 
@@ -902,3 +907,85 @@ The tests in `voice/speech/` use mock servers on localhost and never reach the
 network. `tests/local_speech.rs` serves small fake archives on localhost, and
 runs a real model only when `HOTLINE_TEST_SPEECH_MODEL` names a directory
 holding one.
+
+## The voice front setting
+
+`voice.front` in the room's settings is `{ "provider": "grok" | "openai" |
+"gpt-live", "credential": "xai" | "xai-subscription" | "openai" |
+"openai-codex", "voices": { "grok": "eve", "openai": "marin", "gpt-live":
+"cove" } }`, a voice kept per provider so switching back finds it. Absent, or with no provider, means Grok Voice on the first
+connected xAI login or key: the voice front is the default for calls to the
+desk and to a teammate. `openai` is GPT Realtime (`gpt-realtime-2.1`) on an
+OpenAI API key; a ChatGPT sign-in does not run it. Settings > Use for > Live
+calls picks one Model from a list grouped by provider, each front once per
+connected login or key with who pays beneath it, and lists a front with
+nothing connected so it can be found. `{ "provider": "legacy" }`, Legacy
+voice there, keeps the transcribe, route and speak pipeline, and a provider
+the build has no adapter for is read as Legacy voice too.
+
+Both fronts run on one driver, `voice/realtime/socket.rs`, since xAI's
+realtime protocol follows OpenAI's: the dialects differ in the model, the
+PCM rates (OpenAI takes 24 kHz only, which is the front's own rate), the
+session limit (OpenAI's 60 minutes against xAI's 120, each renewed five
+minutes early with the transcript carried) and where `session.update` puts
+the voice, turn detection and the person's transcription, which OpenAI only
+sends when asked (`gpt-4o-mini-transcribe`). GPT Realtime is charged at $0.10
+a minute against the Voice budget, above its token price with the
+microphone open, so a cap is never exceeded.
+
+`gpt-live` is GPT-Live (`gpt-live-1-codex`) on the ChatGPT sign-in, placed
+the way the Codex app places it (`voice/realtime/live.rs`): a WebRTC call
+created at `chatgpt.com/backend-api/codex/realtime/calls` with the login's
+bearer and account, joined by a sideband socket at
+`wss://api.openai.com/v1/live/<call id>`. The desk is the peer and sends
+the person's audio up as Opus over RTP, 20 ms packets at 48 kHz paced by
+the adapter and filled with silence when the microphone is quiet or held;
+the model's speech (24 kHz PCM, the front's own rate), what each side said
+and its hand-offs come back on the sideband. It has no tools: it hands a
+request over as a client `delegation`, which the adapter reports as the
+bridge's `send_to_teammate`, and a line for the person goes in on the
+`speakable` channel, which the model says in its own words rather than
+verbatim. The server stops a reply itself when the person talks; the
+adapter reports the person's new turn as a barge-in so the client cuts its
+playback. Lines wait for `session.started`. Creating the call is retried on
+a 5xx or an unreachable server, and a dropped sideband is joined again. A
+session lasts an hour, and the call outlives it: 55 minutes in, or five
+minutes before the `expires_at` the server gives, a replacement call is
+placed in the background with the conversation so far in its instructions,
+and the adapter switches to it between replies (or after 30 s of a reply)
+and hangs up the old one; a replacement that cannot be placed is tried again
+a minute later. A call the server no longer knows or a failed peer drops the
+front and the call goes on as a pipeline call, when the desk has one: a
+desk with only the ChatGPT login, which is no speech connection, still
+offers and takes calls on the front alone, and losing the front then ends
+the call rather than carrying it on with nothing to hear or speak with. It costs nothing
+against the Voice budget. Legacy voice's own rows, the voice
+it speaks in and the call assistant, show in Settings only under it;
+Transcription stays under Use for, because dictation uses it.
+
+A front call resolves its front from the vault when it starts
+(`speech::resolve_front`): the named login or key, or with none named the
+first connected that can run it. A desk with nothing that can run the chosen
+front, one whose named login is
+no longer connected, and a Voice budget with no room for a key's minutes all
+leave the call on the pipeline; the desk advertises `voiceFront` only when it
+has a login or key to open one with. The window asks for `mode: "front"` whenever
+`voice.status` advertises it (`ui/src/voice/call.ts`), streams the microphone
+as 16 kHz PCM in 40 ms frames, plays `frontAudio` gaplessly at `outputRate`,
+answers `frontStop` and the Stop button with `voice.front_barge`, and drops
+to the pipeline on `frontEnded`. The phone keeps both paths and picks by what
+the desk advertises. It has no way to change desk voice settings today, so
+it has no mirror.
+
+In the window, a call to a teammate is an inset card under its
+conversation's band (`components/Call.tsx` `CallBar`): the band and the call
+float together, the teammate's face grown to the card's height and ringed
+green while the line is live, the status beside the name, and the
+transcript, Hold and Hang up keys under it, with the voice bars between.
+A call to the desk grows up out of the rail's dock (`DeskCallCard`), whose
+handset key places it and turns green while it is on. With no conversation
+open, or the rail closed or showing Settings, either call is a strip atop
+the pane. A teammate is called from its composer's soundwave key, the desk
+from the dock beside search (`DeskCallKey`), or the title bar while the
+rail is closed. While one call is on, the other call keys wait, disabled. A
+hang-up folds the card away; trouble stays with Call again and Close.

@@ -120,6 +120,16 @@ describe("a connection's tags", () => {
 		expect(tagsFor(options, "groq")).toEqual(["Voice"]);
 		expect(tagsFor(options, "anthropic")).toEqual(["Chat"]);
 		expect(tagsFor(options, "mistral")).toEqual([]);
+		// The ChatGPT sign-in runs GPT-Live, though no speech job lists it.
+		expect(tagsFor(options, "openai-codex")).toEqual(["Voice"]);
+	});
+
+	test("the add list says what a provider does, or how it connects on an older desk", async () => {
+		const { jobsOf } = await import("../src/components/ConnectProvider");
+		const provider = { id: "xai", name: "xAI", credentialKinds: ["api_key" as const, "oauth" as const], modelDiscovery: true };
+		expect(jobsOf({ ...provider, does: ["chat", "images", "voice"] })).toBe("Chat · Images · Voice");
+		expect(jobsOf({ ...provider, does: ["chat"] })).toBe("Chat");
+		expect(jobsOf(provider)).toBeUndefined();
 	});
 
 	test("count a sign-in's own speech toward that provider's connection", () => {

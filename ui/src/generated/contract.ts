@@ -224,7 +224,17 @@ export type Client = "desktop" | "phone";
  * are `noun.verb` and the frame is `{id, cmd, params}` — the tag and the
  * content of this enum, with the id beside them.
  */
-export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
+export type Command = { "cmd": "voice.status", "params": { inputMode?: VoiceInputMode, } } | { "cmd": "voice.call_start", "params": { callId: string, personaId?: string, streamAudio?: boolean, inputMode?: VoiceInputMode, 
+/**
+ * `front` asks for a voice front. The answer is in the reply's
+ * `front`; a desk that cannot or will not run one leaves it out.
+ */
+mode?: VoiceCallMode, 
+/**
+ * The rate of the microphone audio a front call will send:
+ * 16000 or 24000. Omitted, the front's own rate.
+ */
+inputRate?: number, } } | { "cmd": "voice.text", "params": { callId: string, seq: number, text: string, } } | { "cmd": "voice.audio", "params": { callId: string, seq: number, index: number, data: string, final: boolean, } } | { "cmd": "voice.front_audio", "params": { callId: string, seq: number, data: string, } } | { "cmd": "voice.front_barge", "params": { callId: string, playedMs: number, } } | { "cmd": "voice.utterance", "params": { callId: string, seq: number, mimeType: string, data: string, durationMs: number, } } | { "cmd": "voice.interrupt", "params": { callId: string, } } | { "cmd": "voice.hold", "params": { callId: string, hold: boolean, } } | { "cmd": "voice.call_end", "params": { callId: string, } } | { "cmd": "voice.models", "params": Record<symbol, never> } | { "cmd": "voice.model_install", "params": { modelId: string, } } | { "cmd": "voice.model_cancel", "params": { modelId: string, } } | { "cmd": "voice.model_remove", "params": { modelId: string, } } | { "cmd": "voice.transcribe", "params": { mimeType: string, data: string, } } | { "cmd": "remote.status", "params": Record<symbol, never> } | { "cmd": "remote.configure", "params": { enabled: boolean, host: string, } } | { "cmd": "remote.devices", "params": Record<symbol, never> } | { "cmd": "remote.revoke", "params": { deviceId: string, } } | { "cmd": "remote.relay", "params": { deskId?: string, } } | { "cmd": "remote.public_url", "params": { url?: string, } } | { "cmd": "remote.pairing", "params": { role?: DeviceRole, id?: string, cancel: boolean, } } | { "cmd": "desks.links", "params": Record<symbol, never> } | { "cmd": "desks.link", "params": { deskId: string, } } | { "cmd": "desks.link_accept", "params": { deskId: string, name: string, key: string, } } | { "cmd": "desks.unlink", "params": { deskId: string, } } | { "cmd": "federation.roster", "params": { teammates: Array<LinkedTeammate>, } } | { "cmd": "federation.deliver", "params": { delivery: LinkedDelivery, } } | { "cmd": "federation.unlink", "params": Record<symbol, never> } | { "cmd": "mobile.prompt", "params": { operationId: string, personaId: string, text: string, attachmentIds: Array<string>, replyTo?: string, thread?: ThreadId, } } | { "cmd": "mobile.attachment", "params": { upload: MobileAttachmentChunk, } } | { "cmd": "files.browse", "params": { path: string, } } | { "cmd": "files.mkdir", "params": { path: string, } } | { "cmd": "files.download", "params": { path: string, offset: number, } } | { "cmd": "files.upload_start", "params": UploadDestination } | { "cmd": "files.upload_chunk", "params": { uploadId: string, offset: number, data: string, } } | { "cmd": "files.upload_finish", "params": { uploadId: string, } } | { "cmd": "files.upload_cancel", "params": { uploadId: string, } } | { "cmd": "file.read", "params": { personaId: string, eventId: string, index?: number, offset: number, 
 /**
  * A picture at most this many px on its longer side, as a JPEG the
  * desk keeps, rather than the file itself: what a phone draws in
@@ -977,7 +987,17 @@ export type Provider = { id: string, name: string, doc?: string, credentialKinds
 /**
  * Whether Rig can discover models using this provider connection.
  */
-modelDiscovery: boolean, };
+modelDiscovery: boolean, 
+/**
+ * What a connection to it can do, in the order Settings names them:
+ * `chat`, `images`, `voice`. Absent from a desk older than the field.
+ */
+does?: Array<ProviderJob>, };
+
+/**
+ * A job a provider can do once connected.
+ */
+export type ProviderJob = "chat" | "images" | "voice";
 
 export type PullStatus = "pulling" | "done" | "failed";
 
@@ -1892,7 +1912,18 @@ monthUsd?: number,
  */
 spentDayUsd: number, spentMonthUsd: number, };
 
-export type VoiceCall = { callId: string, input: Array<string>, output: string, inputMode: VoiceInputMode, personaId?: string, };
+export type VoiceCall = { callId: string, input: Array<string>, output: string, inputMode: VoiceInputMode, personaId?: string, 
+/**
+ * Present only on a front call: the desk's answer to `mode: "front"`.
+ * Absent means the call runs on the transcribe, answer, speak pipeline,
+ * as every desk before the front did, so a client falls back on it.
+ */
+front?: VoiceFront, };
+
+/**
+ * What answers the person on a call. Omission is the pipeline.
+ */
+export type VoiceCallMode = "pipeline" | "front";
 
 export type VoiceEndReason = "client" | "goodbye" | "budget" | "replaced" | "error" | "idle";
 
@@ -1904,7 +1935,29 @@ export type VoiceEvent = { "type": "state", state: VoiceState, reason?: VoiceEnd
  * playing speech. Absent, `thinking` means the desk is still taking
  * the last thing said and has the floor, as from desks before it.
  */
-listening?: boolean, } | { "type": "heard", seq: number, text: string, } | { "type": "said", id: string, text: string, } | { "type": "clip", id: string, index: number, final: boolean, mimeType: string, data: string, } | { "type": "delivery", personaId: string, eventId: string, text: string, } | { "type": "card", personaId: string, requestId: string, kind: string, };
+listening?: boolean, } | { "type": "heard", seq: number, text: string, } | { "type": "said", id: string, text: string, } | { "type": "clip", id: string, index: number, final: boolean, mimeType: string, data: string, } | { "type": "delivery", personaId: string, eventId: string, text: string, } | { "type": "card", personaId: string, requestId: string, kind: string, } | { "type": "frontAudio", seq: number, data: string, } | { "type": "frontStop", } | { "type": "frontEnded", };
+
+/**
+ * How a front call carries sound. Both directions are mono PCM16
+ * little-endian in `voice.front_audio` and `frontAudio` events.
+ */
+export type VoiceFront = { 
+/**
+ * The rate the desk takes microphone audio at: the `inputRate` asked for
+ * when it is one the desk resamples, else the front's own rate.
+ */
+inputRate: number, 
+/**
+ * The rate of the audio the desk sends, which the speaker plays at.
+ */
+outputRate: number, };
+
+/**
+ * A voice front as the desk would open it: which one (`grok`, `openai`,
+ * `gpt-live`), its model, the voice calls speak in when a teammate has none
+ * of its own, and every voice it speaks in.
+ */
+export type VoiceFrontModel = { providerId: string, modelId: string, voice: string, voices: Array<string>, };
 
 /**
  * Omission preserves remote audio transcription for existing callers.
@@ -1959,7 +2012,13 @@ directAvailable?: boolean, unavailable?: string, stt?: VoiceModel, tts?: VoiceMo
  * How teammates' replies on calls to them were said, one entry per
  * model that wrote any, by model. Absent before the first.
  */
-replies?: Array<VoiceReplies>, };
+replies?: Array<VoiceReplies>, 
+/**
+ * The voice front calls run on, when the desk can open one. A
+ * teammate's own voice is picked from its voices. Absent on a desk with
+ * no front, or one older than the field.
+ */
+front?: VoiceFrontModel, };
 
 /**
  * What the desk's own model heard in one clip.

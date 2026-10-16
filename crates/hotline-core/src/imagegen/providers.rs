@@ -135,6 +135,12 @@ const ROWS: &[Row] = &[
     },
 ];
 
+/// Whether a connection to this provider can draw: one with an image row,
+/// or the ChatGPT sign-in.
+pub fn draws(provider_id: &str) -> bool {
+    provider_id == chatgpt::PROVIDER_ID || row(provider_id).is_some()
+}
+
 fn row(provider_id: &str) -> Option<&'static Row> {
     ROWS.iter().find(|row| row.provider_id == provider_id)
 }

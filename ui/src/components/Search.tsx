@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { ChapterClose, ChapterSummary, GlobalSearchHit, ThreadSearchHit } from "../generated/contract";
-import { matchChord } from "../chords";
+import { chordKeys } from "../chords";
 import { ChevronDownIcon, ChevronRightIcon, SearchIcon } from "../icons";
-import { onTablistKey } from "../ui/Menu";
+import { Avatar } from "../ui/Avatar";
 import { wire, type RosterEntry } from "../wire";
 
 /** How long to wait after a keystroke before asking the index. */
@@ -10,30 +10,37 @@ const DEBOUNCE_MS = 150;
 
 type Hit = ThreadSearchHit | GlobalSearchHit;
 
+/** One thing the arrows can land on: a teammate, a message or chapter of one. */
+type Row = { key: string; personaId: string; eventId?: string };
+
 /**
- * A search over the conversation that is already on screen, in a panel that
- * hangs under the band.
- *
- * Empty, this is the table of contents: chapters are how the tape is
- * divided, so they are what you scan before you type. A query asks the
- * index; chapter hits still outrank messages because a note is the agent's
- * own summary of the thing, not the wording of it. Everywhere drops the
- * teammate filter and names who said it. Arrows walk the list, Enter lands
- * on a hit, Escape and a click outside both close.
+ * The team's search, a real field in the rail's dock (`dock`); in the
+ * faces-only rail a key that opens the same search in a panel beside the rail
+ * (`beside`), and with the rail closed a key in the title bar that opens it
+ * under the bar (`under`). What it finds rises above the field as you type:
+ * teammates whose name matches, to jump to, then matches from every
+ * conversation, grouped by teammate, each opening its conversation at the
+ * line. With nothing typed it lists the open conversation's chapters, which
+ * is how a tape is divided. Arrows walk the list, Enter lands, Escape clears
+ * and lets go, a click elsewhere closes. `ask` changing is the Search chord:
+ * the field takes the caret, or the panel opens.
  */
-export function Search({
-	personaId,
+export function TeamSearch({
 	roster,
-	onClose,
+	selectedId,
+	placement,
+	ask,
 	onPick,
 }: {
-	personaId: string;
 	roster: RosterEntry[];
-	onClose(): void;
-	onPick(personaId: string, eventId: string): void;
+	/** The conversation on screen, whose chapters an empty query lists. */
+	selectedId: string | null;
+	placement: "dock" | "beside" | "under";
+	ask: number;
+	onPick(personaId: string, eventId?: string): void;
 }) {
 	const [query, setQuery] = useState("");
-	const [everywhere, setEverywhere] = useState(false);
+	const [open, setOpen] = useState(false);
 	const [chapters, setChapters] = useState<ChapterSummary[] | null>(null);
 	const [hits, setHits] = useState<Hit[] | null>(null);
 	const [truncated, setTruncated] = useState(false);
@@ -42,45 +49,45 @@ export function Search({
 	 * that looks like it has already chosen for you. Enter takes the first. */
 	const [active, setActive] = useState(-1);
 	const input = useRef<HTMLInputElement>(null);
-	const panel = useRef<HTMLDivElement>(null);
+	const box = useRef<HTMLDivElement>(null);
+	const needle = query.trim();
+	const floating = placement !== "dock";
 
-	useEffect(() => {
-		input.current?.focus({ preventScroll: true });
+	const close = useCallback(() => {
+		setOpen(false);
+		setQuery("");
+		input.current?.blur();
 	}, []);
 
+	// The Search chord: take the caret, or open the panel.
 	useEffect(() => {
-		const onKey = (event: KeyboardEvent) => {
-			if (matchChord(event) === "close") {
-				event.preventDefault();
-				onClose();
-				return;
-			}
-			// Already open: put the caret back rather than letting the browser
-			// find-in-page steal a chord the band advertised as ours.
-			if (matchChord(event) === "search") {
-				event.preventDefault();
-				input.current?.focus({ preventScroll: true });
-				input.current?.select();
-			}
-		};
-		const away = (event: MouseEvent) => {
-			if (panel.current?.contains(event.target as Node)) return;
-			onClose();
-		};
-		window.addEventListener("keydown", onKey);
-		document.addEventListener("mousedown", away);
-		return () => {
-			window.removeEventListener("keydown", onKey);
-			document.removeEventListener("mousedown", away);
-		};
-	}, [onClose]);
+		if (ask === 0) return;
+		setOpen(true);
+		requestAnimationFrame(() => {
+			input.current?.focus({ preventScroll: true });
+			input.current?.select();
+		});
+	}, [ask]);
 
 	useEffect(() => {
+		if (!open) return;
+		const away = (event: MouseEvent) => {
+			if (box.current?.contains(event.target as Node)) return;
+			close();
+		};
+		document.addEventListener("mousedown", away);
+		return () => document.removeEventListener("mousedown", away);
+	}, [open, close]);
+
+	useEffect(() => {
+		if (!open || selectedId === null) {
+			setChapters(null);
+			return;
+		}
 		let cancelled = false;
-		setChapters(null);
-		void wire.command("chapter.list", { personaId }).then(
-			(list) => {
-				if (!cancelled) setChapters(list);
+		void wire.command("chapter.list", { personaId: selectedId }).then(
+			(result) => {
+				if (!cancelled) setChapters(result);
 			},
 			() => {
 				if (!cancelled) setChapters([]);
@@ -89,9 +96,7 @@ export function Search({
 		return () => {
 			cancelled = true;
 		};
-	}, [personaId]);
-
-	const needle = query.trim();
+	}, [open, selectedId]);
 
 	useEffect(() => {
 		setHits(null);
@@ -101,10 +106,7 @@ export function Search({
 		if (needle === "") return;
 		let cancelled = false;
 		const timer = window.setTimeout(() => {
-			const ask = everywhere
-				? wire.command("search.all", { query: needle })
-				: wire.command("search.thread", { personaId, query: needle });
-			void ask.then(
+			void wire.command("search.all", { query: needle }).then(
 				(result) => {
 					if (cancelled) return;
 					setHits(result.hits);
@@ -113,7 +115,6 @@ export function Search({
 				(error: unknown) => {
 					if (cancelled) return;
 					setSearchError(error instanceof Error ? error.message : "Search is unavailable right now. Please try again.");
-					setTruncated(false);
 				},
 			);
 		}, DEBOUNCE_MS);
@@ -121,29 +122,44 @@ export function Search({
 			cancelled = true;
 			window.clearTimeout(timer);
 		};
-	}, [needle, everywhere, personaId]);
+	}, [needle]);
 
 	const names = new Map(roster.map((entry) => [entry.persona.id, entry.persona.name]));
-	const here = names.get(personaId) ?? "Them";
-	const searching = needle !== "";
-	/* What the arrows walk: the hits, or the chapters when nothing is typed. */
-	const rows: { key: string; personaId: string; eventId: string }[] = searching
-		? (hits ?? []).map((hit) => ({ key: hitKey(hit, personaId), personaId: personaOf(hit, personaId), eventId: eventOf(hit) }))
-		: (chapters ?? []).map((chapter) => ({ key: chapter.id, personaId, eventId: chapter.id }));
+	const lower = needle.toLowerCase();
+	const people = needle === "" ? [] : roster.filter((entry) => entry.persona.name.toLowerCase().includes(lower));
+	/* Matches, grouped by whose conversation they are in, in the order the index ranked them. */
+	const groups: { personaId: string; hits: Hit[] }[] = [];
+	for (const hit of hits ?? []) {
+		const who = personaOf(hit, selectedId ?? "");
+		const group = groups.find((one) => one.personaId === who);
+		if (group) group.hits.push(hit);
+		else groups.push({ personaId: who, hits: [hit] });
+	}
+	const rows: Row[] =
+		needle === ""
+			? (chapters ?? []).map((chapter) => ({ key: chapter.id, personaId: selectedId ?? "", eventId: chapter.id }))
+			: [
+					...people.map((entry) => ({ key: `person:${entry.persona.id}`, personaId: entry.persona.id })),
+					...groups.flatMap((group) => group.hits.map((hit) => ({ key: hitKey(hit, group.personaId), personaId: group.personaId, eventId: eventOf(hit) }))),
+				];
 
 	useEffect(() => {
 		if (active < 0) return;
-		panel.current?.querySelector<HTMLElement>(`[data-row="${active}"]`)?.scrollIntoView({ block: "nearest" });
+		box.current?.querySelector<HTMLElement>(`[data-row="${active}"]`)?.scrollIntoView({ block: "nearest" });
 	}, [active]);
 
-	/* Changing where to look is not leaving the field: the caret goes back. */
-	const scope = (wide: boolean) => {
-		setEverywhere(wide);
-		input.current?.focus({ preventScroll: true });
+	const pick = (row: Row) => {
+		close();
+		onPick(row.personaId, row.eventId);
 	};
 
 	const onFieldKey = (event: ReactKeyboardEvent) => {
-		if (event.key === "ArrowDown") {
+		if (event.key === "Escape") {
+			// Ours, not the window's: it would close a pane behind us too.
+			event.preventDefault();
+			event.stopPropagation();
+			close();
+		} else if (event.key === "ArrowDown") {
 			event.preventDefault();
 			setActive((at) => Math.min(rows.length - 1, at + 1));
 		} else if (event.key === "ArrowUp") {
@@ -153,82 +169,131 @@ export function Search({
 			const row = rows[Math.max(0, active)];
 			if (!row) return;
 			event.preventDefault();
-			onPick(row.personaId, row.eventId);
+			pick(row);
 		}
 	};
 
-	return (
-		<div ref={panel} className="search-panel" role="dialog" aria-label="Search">
-			<div className="flex flex-col gap-2 p-2">
-				<label className="search-field">
-					<SearchIcon className="shrink-0" />
-					<input
-						ref={input}
-						type="search"
-						placeholder={everywhere ? "Search every conversation" : "Search this conversation"}
-						aria-label={everywhere ? "Search every conversation" : "Search this conversation"}
-						value={query}
-						spellCheck={false}
-						onChange={(event) => setQuery(event.target.value)}
-						onKeyDown={onFieldKey}
-					/>
-				</label>
-				<div className="flex items-center justify-between px-1">
-					<div className="segmented" role="tablist" aria-label="Where to search" onKeyDown={onTablistKey}>
-						<button type="button" role="tab" className="segment" aria-selected={!everywhere} onClick={() => scope(false)}>
-							Here
-						</button>
-						<button type="button" role="tab" className="segment" aria-selected={everywhere} onClick={() => scope(true)}>
-							Everywhere
-						</button>
-					</div>
-					{!searching && chapters !== null && chapters.length > 0 && (
-						<span className="text-xs text-ink-3">
-							{chapters.length} {chapters.length === 1 ? "chapter" : "chapters"}
-						</span>
-					)}
-					{searching && hits !== null && (
-						<span className="text-xs text-ink-3">
-							{hits.length === 0 ? "No matches" : `${hits.length}${truncated ? "+" : ""} ${hits.length === 1 && !truncated ? "match" : "matches"}`}
-						</span>
-					)}
-				</div>
-			</div>
-
-			<div className="min-h-0 flex-1 overflow-y-auto border-t border-line p-1">
-				{!searching && (
-					<Contents
-						chapters={chapters}
-						active={active}
-						onHover={setActive}
-						onPick={(eventId) => onPick(personaId, eventId)}
-					/>
-				)}
-				{searching && searchError && <p role="alert" className="px-3 py-2 text-sm text-ink-3">{searchError}</p>}
-				{searching && !searchError && hits === null && <p className="px-3 py-2 text-sm text-ink-3">Searching…</p>}
-				{searching && hits !== null && hits.length === 0 && (
-					<p className="px-3 py-2 text-sm text-ink-3">Nothing matches that yet.</p>
-				)}
-				{searching &&
-					hits?.map((hit, index) => {
-						const who = personaOf(hit, personaId);
+	const keys = chordKeys("search");
+	const field = (
+		<label className={floating ? "search-field" : "rail-search"}>
+			<SearchIcon className="shrink-0" />
+			<input
+				ref={input}
+				type="search"
+				placeholder="Search"
+				aria-label="Search teammates and conversations"
+				value={query}
+				spellCheck={false}
+				onFocus={() => setOpen(true)}
+				onChange={(event) => {
+					setQuery(event.target.value);
+					setOpen(true);
+				}}
+				onKeyDown={onFieldKey}
+			/>
+			{!floating && keys !== "" && query === "" && <kbd className="rail-search-keys">{keys}</kbd>}
+		</label>
+	);
+	let index = 0;
+	const results = (
+		<div className="team-results-list">
+			{needle === "" && selectedId !== null && (
+				<>
+					<p className="team-results-head">Chapters · {names.get(selectedId) ?? "this conversation"}</p>
+					<Contents chapters={chapters} active={active} onHover={setActive} onPick={(eventId) => pick({ key: eventId, personaId: selectedId, eventId })} />
+				</>
+			)}
+			{needle === "" && selectedId === null && <p className="px-3 py-2 text-sm text-ink-3">Search your teammates and every conversation.</p>}
+			{needle !== "" && people.length > 0 && (
+				<>
+					<p className="team-results-head">Teammates</p>
+					{people.map((entry) => {
+						const at = index++;
 						return (
-							<HitRow
-								key={hitKey(hit, personaId)}
-								index={index}
-								active={index === active}
-								hit={hit}
-								name={everywhere ? (names.get(who) ?? "?") : undefined}
-								here={here}
-								onHover={() => setActive(index)}
-								onPick={() => onPick(who, eventOf(hit))}
-							/>
+							<button
+								key={entry.persona.id}
+								type="button"
+								className="hit hit-person"
+								data-row={at}
+								data-active={at === active ? "true" : undefined}
+								onMouseEnter={() => setActive(at)}
+								onClick={() => pick({ key: entry.persona.id, personaId: entry.persona.id })}
+							>
+								<Avatar id={entry.persona.id} name={entry.persona.name} size={20} hash={entry.persona.avatar?.hash} />
+								<span className="min-w-0 flex-1 truncate font-medium text-ink">{entry.persona.name}</span>
+							</button>
 						);
 					})}
-				{truncated && (
-					<p className="px-3 py-2 text-xs text-ink-3">More matched than are shown. Narrow the words.</p>
+				</>
+			)}
+			{needle !== "" && searchError && <p role="alert" className="px-3 py-2 text-sm text-ink-3">{searchError}</p>}
+			{needle !== "" && !searchError && hits === null && <p className="px-3 py-2 text-sm text-ink-3">Searching…</p>}
+			{needle !== "" && hits !== null && hits.length === 0 && people.length === 0 && <p className="px-3 py-2 text-sm text-ink-3">Nothing matches that yet.</p>}
+			{groups.map((group) => (
+				<div key={group.personaId}>
+					<p className="team-results-head">{names.get(group.personaId) ?? "A teammate"}</p>
+					{group.hits.map((hit) => {
+						const at = index++;
+						return (
+							<button
+								key={hitKey(hit, group.personaId)}
+								type="button"
+								className="hit hit-line"
+								data-row={at}
+								data-active={at === active ? "true" : undefined}
+								onMouseEnter={() => setActive(at)}
+								onClick={() => pick({ key: hitKey(hit, group.personaId), personaId: group.personaId, eventId: eventOf(hit) })}
+							>
+								{/* The group says whose; the row is the line itself. */}
+								<span className="min-w-0 flex-1 truncate text-ink-2">
+									{hit.kind === "chapter" ? hit.title : `${hit.from === "me" ? "You: " : ""}${hit.excerpt}`}
+								</span>
+								<span className="shrink-0 text-xs text-ink-3">{when(hit.ts)}</span>
+							</button>
+						);
+					})}
+				</div>
+			))}
+			{truncated && <p className="px-3 py-2 text-xs text-ink-3">More matched than are shown. Narrow the words.</p>}
+		</div>
+	);
+
+	if (!floating) {
+		return (
+			<div ref={box} className="team-search">
+				{open && (needle !== "" || selectedId !== null) && (
+					<div className="team-results" role="listbox" aria-label="Search results">
+						{results}
+					</div>
 				)}
+				{field}
 			</div>
+		);
+	}
+	return (
+		<div ref={box} className={placement === "under" ? "team-search team-search-under" : "team-search"}>
+			<button
+				type="button"
+				className={placement === "under" ? "control btn-icon" : "rail-search"}
+				title={`Search${keys === "" ? "" : ` (${keys})`}`}
+				aria-label="Search"
+				aria-expanded={open}
+				onClick={() => {
+					if (open) close();
+					else {
+						setOpen(true);
+						requestAnimationFrame(() => input.current?.focus({ preventScroll: true }));
+					}
+				}}
+			>
+				<SearchIcon />
+			</button>
+			{open && (
+				<div className={placement === "under" ? "team-float team-float-under" : "team-float team-float-beside"} role="dialog" aria-label="Search">
+					<div className="p-2">{field}</div>
+					<div className="team-float-results">{results}</div>
+				</div>
+			)}
 		</div>
 	);
 }
@@ -323,56 +388,6 @@ function ChapterRow({
 				</div>
 			)}
 		</div>
-	);
-}
-
-function HitRow({
-	index,
-	active,
-	hit,
-	name,
-	here,
-	onHover,
-	onPick,
-}: {
-	index: number;
-	active: boolean;
-	hit: Hit;
-	/** Whose tape the hit is from, when the search was everywhere. */
-	name: string | undefined;
-	/** The teammate on screen, for a hit from their own tape. */
-	here: string;
-	onHover(): void;
-	onPick(): void;
-}) {
-	const heading =
-		hit.kind === "chapter"
-			? name !== undefined
-				? `${name} · ${hit.title}`
-				: hit.title
-			: (name ?? (hit.from === "me" ? "You" : here));
-	const detail =
-		hit.kind === "chapter"
-			? hit.status !== undefined
-				? statusOf(hit.status)
-				: hit.excerpt
-			: `${name !== undefined && hit.from === "me" ? "You: " : ""}${hit.excerpt}`;
-
-	return (
-		<button
-			type="button"
-			className="hit"
-			data-row={index}
-			data-active={active ? "true" : undefined}
-			onMouseEnter={onHover}
-			onClick={onPick}
-		>
-			<span className="flex items-baseline gap-2">
-				<span className="min-w-0 flex-1 truncate font-medium text-ink">{heading}</span>
-				<span className="shrink-0 text-xs text-ink-3">{when(hit.ts)}</span>
-			</span>
-			{detail !== "" && <span className="block truncate text-xs text-ink-3">{detail}</span>}
-		</button>
 	);
 }
 

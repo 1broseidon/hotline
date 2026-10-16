@@ -50,7 +50,7 @@ export function SentFile({
 			<button
 				type="button"
 				className="control btn btn-sm"
-				title={onServer() ? "Show in its folder on the server" : "Show in folder"}
+				title={onServer() ? "Show on the server" : "Show in folder"}
 				aria-label={onServer() ? "Show in its folder on the server" : "Show in folder"}
 				onClick={() => showPath(file.path)}
 			>

@@ -49,6 +49,13 @@ dunce = "1.0.5"
 oauth2 = { version = "5", default-features = false }
 bytes = "1"
 base64 = "0.22"
+# GPT-Live on a ChatGPT login is a WebRTC call, as the Codex app places it:
+# the desk is the peer and sends the person's audio as Opus over RTP; the
+# model's speech and events come back on a sideband socket. Pinned with the
+# versions Codex ships; opus builds libopus from source with cmake.
+webrtc = "=0.20.3"
+rtc = "=0.20.5"
+opus = "=0.4.0"
 # What a sent file is, from its name, when its bytes do not say.
 mime_guess = "2.0.5"
 http = "1"

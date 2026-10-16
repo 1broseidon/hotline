@@ -3,7 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type { Attachment, SessionState } from "../generated/contract";
 import type { Refill } from "./Conversation";
 import { VoiceMeter } from "./VoiceMeter";
-import { ArrowUpIcon, CloseIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
+import { ArrowUpIcon, CloseIcon, HangUpIcon, MicIcon, PlusIcon, StopIcon, VoiceIcon } from "../icons";
 import { readImage } from "@tauri-apps/plugin-clipboard-manager";
 import { pickAttachments, stage } from "../serverFiles";
 import { sizeText } from "../sizes";
@@ -58,6 +58,7 @@ export function Composer({
 	replyQuote,
 	onSend,
 	onCall,
+	onHangUp,
 	refill,
 	onCancel,
 	onClearReply,
@@ -71,6 +72,8 @@ export function Composer({
 	replyQuote: string | null;
 	onSend(text: string, attachments: Attachment[]): void;
 	onCall?: (() => void) | undefined;
+	/** Ends the call to this teammate, while there is one. */
+	onHangUp?: (() => void) | undefined;
 	/** Words a refused send handed back; a new nonce fills the field again. */
 	refill?: Refill;
 	onCancel(): void;
@@ -139,16 +142,23 @@ export function Composer({
 	};
 	const dictationHere = useDictationAvailable();
 	// A call has the microphone, so there is no dictating over one.
-	const callLive = useCallSnapshot(useCall()).phase !== "ended";
+	const live = useCall();
+	const callSnapshot = useCallSnapshot(live);
+	const callLive = callSnapshot.phase !== "ended";
 	const canDictate = dictationHere && !callLive;
 	const dictating = heard.phase !== "idle";
 	const dictateKeys = hotkeyLabel(useHotkeys().dictate);
 
 	const hasContent = text.trim().length > 0 || attachments.length > 0;
 	const hasDraft = text.length > 0 || attachments.length > 0 || replyQuote !== null;
+	// With the field empty, the quiet mic dictates and the call key beside it
+	// is the one that stands out; typing turns the call key into Send, and a
+	// call in progress into Hang up.
 	const mic = !hasDraft && canDictate;
-	const voice = !hasDraft && !dictationHere && onCall !== undefined;
-	const actionShown = hasDraft || voice || mic;
+	const hangUp = callLive && onHangUp !== undefined;
+	// A call to someone else (the desk, another teammate) holds the line: the key waits, disabled.
+	const call = !hasDraft && onCall !== undefined && !hangUp;
+	const lineBusy = callLive && !hangUp ? `On a call with ${live?.target?.name ?? "the desk"}` : undefined;
 	useEffect(() => { onDraftChange?.(hasContent); }, [hasContent, onDraftChange]);
 
 	// What was heard stays in the field when a call takes the microphone,
@@ -456,23 +466,48 @@ export function Composer({
 							/>
 							<StopIcon className="composer-dictating-stop" />
 						</button>
-					) : (!working || actionShown) && (
-						<button
-							type="button"
-							className={`composer-key composer-send${voice || mic ? " composer-voice" : ""}`}
-							title={mic ? withKeys("Dictate", dictateKeys) : voice ? `Talk to ${name}` : "Send (Enter)"}
-							aria-label={mic ? "Dictate" : voice ? `Talk to ${name}` : "Send"}
-							aria-hidden={!actionShown}
-							tabIndex={actionShown ? 0 : -1}
-							data-shown={actionShown ? "true" : undefined}
-							disabled={!voice && !mic && !hasContent}
-							onPointerDown={mic ? pressKey : undefined}
-							onClick={mic ? (event) => {
-								if (event.detail === 0) dictation.toggle();
-							} : voice ? onCall : submit}
-						>
-							{mic ? <MicIcon /> : voice ? <VoiceIcon /> : <ArrowUpIcon />}
-						</button>
+					) : (
+						mic && (
+							<button
+								type="button"
+								className="composer-key composer-mic"
+								title={withKeys("Dictate", dictateKeys)}
+								aria-label="Dictate"
+								onPointerDown={pressKey}
+								// A pointer acted on the way down; this is the keyboard's Enter or Space.
+								onClick={(event) => {
+									if (event.detail === 0) dictation.toggle();
+								}}
+							>
+								<MicIcon />
+							</button>
+						)
+					)}
+					{hangUp || call ? (
+						<CallKey
+							name={name}
+							onCall={hangUp}
+							busy={lineBusy}
+							held={callSnapshot.phase === "held"}
+							onPress={hangUp ? onHangUp : onCall}
+						/>
+					) : (
+						(!working || hasDraft) &&
+						!dictating && (
+							<button
+								type="button"
+								className="composer-key composer-send"
+								title="Send (Enter)"
+								aria-label="Send"
+								aria-hidden={!hasDraft}
+								tabIndex={hasDraft ? 0 : -1}
+								data-shown={hasDraft ? "true" : undefined}
+								disabled={!hasContent}
+								onClick={submit}
+							>
+								<ArrowUpIcon />
+							</button>
+						)
 					)}
 				</div>
 			</div>
@@ -480,6 +515,44 @@ export function Composer({
 	);
 }
 
+
+/** The call key's bars: where each sits, its height at rest, and how far the voice moves it. */
+/**
+ * The call key is a soundwave in a solid ink circle, the way voice apps mark
+ * talking as against dictating. On a call to this teammate it holds steady
+ * in the accent, the call's own on-state, dim while held; the voice moves on
+ * the call card instead. Pointing at it then shows the red hang-up it is.
+ */
+function CallKey({
+	name,
+	onCall,
+	busy,
+	held,
+	onPress,
+}: {
+	name: string;
+	/** A call to this teammate is on. */
+	onCall: boolean;
+	/** Why the key waits: a call to someone else holds the line. */
+	busy: string | undefined;
+	held: boolean;
+	onPress: (() => void) | undefined;
+}) {
+	return (
+		<button
+			type="button"
+			className="composer-key composer-call"
+			data-call={onCall ? (held ? "held" : "live") : undefined}
+			disabled={busy !== undefined}
+			title={onCall ? `End the call with ${name}` : (busy ?? `Call ${name}`)}
+			aria-label={onCall ? "End the call" : `Call ${name}`}
+			onClick={onPress}
+		>
+			<VoiceIcon />
+			{onCall && <HangUpIcon className="composer-call-end" />}
+		</button>
+	);
+}
 
 /** "Dictate (⌃⌥H)", or the bare words when the shortcut is off. */
 function withKeys(words: string, keys: string): string {

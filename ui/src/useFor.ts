@@ -209,7 +209,8 @@ export function tagsFor(options: CapabilityOptions, providerId: string): string[
 	const tags: string[] = [];
 	if (offers(options.dispatcher.options)) tags.push("Chat");
 	if (offers(options.images.options)) tags.push("Images");
-	if (offers(options.stt.options) || offers(options.tts.options)) tags.push("Voice");
+	// A login that runs a voice front does voice even with no speech job (the ChatGPT sign-in).
+	if (offers(options.stt.options) || offers(options.tts.options) || FRONT_LOGINS.includes(providerId)) tags.push("Voice");
 	return tags;
 }
 
@@ -224,4 +225,84 @@ export function parseCap(raw: string): number | null {
 	if (raw.trim() === "") return null;
 	const amount = Number(raw.replace(/^\$/, ""));
 	return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) / 100 : null;
+}
+
+/**
+ * The voice fronts a desk can run, in the order Live calls lists them, each
+ * under the provider it comes from and once for every login or key that can
+ * run it, told apart by who pays (the per-minute prices are the ones the
+ * Voice budget counts).
+ */
+export const FRONTS = [
+	{
+		id: "grok",
+		name: "Grok Voice",
+		group: "xAI",
+		connect: "Connect xAI or sign in to Grok above",
+		voices: ["eve", "ara", "rex", "sal", "leo"],
+		logins: [
+			{ id: "xai-subscription", detail: "Included with your Grok subscription" },
+			{ id: "xai", detail: "$0.08 a minute on your xAI key" },
+		],
+	},
+	{
+		id: "gpt-live",
+		name: "GPT-Live",
+		group: "OpenAI",
+		connect: "Sign in with ChatGPT above",
+		voices: ["cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "sol"],
+		logins: [{ id: "openai-codex", detail: "Included with your ChatGPT subscription" }],
+	},
+	{
+		id: "openai",
+		name: "GPT Realtime",
+		group: "OpenAI",
+		// A ChatGPT sign-in does not run it.
+		connect: "Add an OpenAI API key above",
+		voices: ["marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer", "verse"],
+		logins: [{ id: "openai", detail: "About $0.10 a minute on your OpenAI key" }],
+	},
+] as const;
+
+/** Every login or key some front can run on. */
+export const FRONT_LOGINS: readonly string[] = FRONTS.flatMap((one) => one.logins.map((login) => login.id));
+
+export type FrontSetting = { provider: string; credential?: string; voices: Record<string, string> };
+
+/** The pipeline: calls are heard, answered and spoken one step at a time, as before the front. */
+export const LEGACY = "legacy";
+
+/**
+ * The voice front `settings.voice` holds. Without one, Grok Voice fronts
+ * calls (the desk falls back to the pipeline when no xAI login or key is
+ * connected); `legacy`, or a provider this window does not know, is the
+ * pipeline.
+ */
+export function frontOf(voice: unknown): FrontSetting {
+	const fallback: FrontSetting = { provider: "grok", voices: {} };
+	if (voice === null || typeof voice !== "object" || Array.isArray(voice)) return fallback;
+	const front = (voice as Record<string, unknown>).front;
+	if (front === null || typeof front !== "object" || Array.isArray(front)) return fallback;
+	const { provider, credential, voices } = front as Record<string, unknown>;
+	const named: Record<string, string> = {};
+	if (voices !== null && typeof voices === "object" && !Array.isArray(voices)) {
+		for (const [key, value] of Object.entries(voices)) if (typeof value === "string") named[key] = value;
+	}
+	const known = typeof provider !== "string" || provider === "grok" ? "grok" : FRONTS.some((one) => one.id === provider) ? provider : LEGACY;
+	return { provider: known, ...(typeof credential === "string" ? { credential } : {}), voices: named };
+}
+
+/**
+ * `settings.voice` with the front changed, the rest kept. Legacy voice keeps
+ * the voices picked, so going back to the front finds them; the default, Grok
+ * on whatever xAI login is connected with nothing picked, removes the key.
+ */
+export function frontPatch(current: unknown, next: { provider: string; credential?: string; voice?: { provider: string; voice: string } }): Record<string, unknown> | null {
+	const voice: Record<string, unknown> =
+		current !== null && typeof current === "object" && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
+	const before = frontOf(current);
+	const voices = { ...before.voices, ...(next.voice ? { [next.voice.provider]: next.voice.voice } : {}) };
+	if (next.provider === "grok" && next.credential === undefined && Object.keys(voices).length === 0) delete voice.front;
+	else voice.front = { provider: next.provider, ...(next.credential !== undefined ? { credential: next.credential } : {}), voices };
+	return Object.keys(voice).length === 0 ? null : voice;
 }

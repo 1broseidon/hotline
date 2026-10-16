@@ -20,7 +20,7 @@ import { chordKeys } from "../chords";
 import { REST, step, type Bubble, type Cadence } from "../cadence";
 import { bubbleId, pacedLive } from "../pacing";
 import { wholeBubbles } from "../reveal";
-import { type Block, type ScheduledEvent, type Step, groupScheduled } from "../scheduledRuns";
+import { type Block, type CallLink, type ScheduledEvent, type Step, groupCalls, groupScheduled } from "../scheduledRuns";
 import { ArrowDownIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, ClockIcon, CopyIcon, ReplyIcon, SmileIcon, SpeakerIcon, WarningIcon } from "../icons";
 import { popupMessageMenu, writeClipboard } from "../native";
 import { answerCard, dmOf, type Streaming } from "../tape";
@@ -316,7 +316,7 @@ export function Transcript({
 	// marker. Your own answer to a card is on the card, so it draws no row.
 	// A job that fired again and again with nothing drawn between is one row,
 	// so this is decided on what is left to draw.
-	const blocks = groupScheduled(
+	const blocks = groupCalls(groupScheduled(
 		arrived.filter(
 			(block) =>
 				!(
@@ -328,7 +328,7 @@ export function Transcript({
 						(onOpenThreads !== undefined && block.event.kind === "link" && handedIn(block.event, personaId)))
 				),
 		),
-	);
+	));
 	const underway = onOpenThreads === undefined ? { count: 0, from: [] } : handoffsUnderway(events, personaId);
 	// Which side each block speaks from, with the machinery between two
 	// messages transparent, so two agent lines around a tool call are still
@@ -380,6 +380,8 @@ export function Transcript({
 							{stamp && <p className="rule-line rule-line-plain">{stampText(block_ts(block))}</p>}
 							{block.kind === "scheduled" ? (
 								<ScheduledGroup name={block.name} runs={block.runs} />
+							) : block.kind === "calls" ? (
+								<CallGroup calls={block.calls} personaId={personaId} people={people} onOpen={(link) => onOpenThread?.({ thread: threadOfLink(link), title: link.title })} />
 							) : block.kind === "steps" ? (
 								<Steps
 									id={block.id}
@@ -591,7 +593,7 @@ type Side = "me" | "them" | "other" | null;
 type Run = { top: boolean; bottom: boolean };
 
 function sideOf(block: Block): Side {
-	if (block.kind === "scheduled") return "other";
+	if (block.kind === "scheduled" || block.kind === "calls") return "other";
 	if (block.kind !== "event") return null;
 	const event = block.event;
 	if (event.kind === "user") return event.scheduled === undefined ? "me" : "other";
@@ -1256,8 +1258,16 @@ function UserBubble({
 		copy: () => void writeClipboard(text),
 		...(onReply !== undefined && sent ? { reply: () => onReply({ eventId: event.id, text: lineOf({ text }) }) } : {}),
 	};
+	// Said on a call and handed over: the call's own record has the rest of it.
+	const onCall = event.id.startsWith("voice:");
 	return (
 		<div className={`said-group flex flex-col items-end ${run.top ? "mt-1" : "mt-3"}`}>
+			{onCall && !run.top && (
+				<span className="said-on-call">
+					<SpeakerIcon className="said-aloud-mark" />
+					Said on the call
+				</span>
+			)}
 			<div className={`speech said-me ${runClass(run)}`} onContextMenu={(click) => bubbleMenu(click, actions)}>
 				{quote !== undefined && answered !== undefined && (
 					<button type="button" className="quote" title="Go to the message" onClick={() => onJump(answered)}>
@@ -1492,6 +1502,48 @@ function ScheduledGroup({ name, runs }: { name: string; runs: ScheduledEvent[] }
 					<div className="speech said-me mt-1">{latest.text}</div>
 				</>
 			)}
+		</div>
+	);
+}
+
+/**
+ * Calls one after another with nothing said between: one quiet line that
+ * counts them and their time on the line. Pressed, it lists each call's own
+ * line, oldest first, each opening that call.
+ */
+function CallGroup({
+	calls,
+	personaId,
+	people,
+	onOpen,
+}: {
+	calls: CallLink[];
+	personaId: string;
+	people: ReadonlyMap<string, Person> | undefined;
+	onOpen(link: CallLink): void;
+}) {
+	const [open, setOpen] = useState(false);
+	const minutes = Math.round(calls.reduce((sum, link) => sum + ((link.at ?? link.ts) - link.ts), 0) / 60_000);
+	const words = `${calls.length} calls · ${minutes < 1 ? "under a minute" : `${minutes} min`} in all`;
+	return (
+		<div className="flex flex-col">
+			<button type="button" className="rule-line rule-line-plain w-full" aria-expanded={open} aria-label={`${words}. ${open ? "Hide" : "Show"} them`} onClick={() => setOpen((was) => !was)}>
+				<span className="min-w-0 truncate">{words}</span>
+				<span className="shrink-0">· {open ? "Hide" : "Show"}</span>
+			</button>
+			{open &&
+				calls.map((link) => (
+					<button
+						key={link.id}
+						type="button"
+						className="rule-line rule-line-plain w-full"
+						aria-label={`${linkLine(link, personaId, people)}. Open it`}
+						onClick={() => onOpen(link)}
+					>
+						<span className="min-w-0 truncate">{linkLine(link, personaId, people)}</span>
+						<span className="shrink-0">· Open</span>
+					</button>
+				))}
 		</div>
 	);
 }

@@ -30,9 +30,9 @@ contract:
     readyAt: "2026-10-16T14:02:49.790Z"
 createdAt: "2026-10-16T14:02:49.796Z"
 dependsOn:
-  - task-76
-updatedAt: "2026-10-16T14:03:32.785Z"
+  - task-74
+updatedAt: "2026-10-16T14:05:22.646Z"
 ---
 
 ## Description
-Stop mirroring each front turn into the teammate's DM. The call's own record (voice/record.rs, the call card's transcript) keeps what was said. At hang-up, and every 5 minutes on a longer call, post one summary to the DM: what was asked, what was done (tools run, work handed off), anything left open, tagged as from the call. A post_to_chat front tool posts on request ('put that in the chat'). Work handed to the working session still runs in the open chapter as today. Keep the follow-up for a question the call ended on. Files: voice/duplex.rs, voice/spoken.rs, voice/record.rs, voice/mod.rs (Origin). Harness: a call with three exchanges and one hand-off leaves exactly the hand-off's turn plus one summary in the DM.
+Stop mirroring each front turn into the teammate's DM. The call's own record (voice/record.rs, the call card's transcript) keeps what was said. At hang-up, and every 5 minutes on a longer call, post one summary to the DM: what was asked, what was done (tools run, work handed off), anything left open, tagged as from the call. A post_to_chat front tool posts on request ('put that in the chat'): add it to the registry in voice/front_tools.rs that task-74 built, run desk-side like the others. Work handed to the working session still runs in the open chapter as today. Keep the follow-up for a question the call ended on. Files: voice/duplex.rs (carry_front, which task-74 also changed), voice/spoken.rs, voice/record.rs, voice/mod.rs (Origin), voice/front_tools.rs. Harness in crates/hotline-core/tests/voice.rs: a call with three exchanges and one hand-off leaves exactly the hand-off's turn plus one summary in the DM.

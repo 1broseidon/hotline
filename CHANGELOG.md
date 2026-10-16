@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.39.0] - Unreleased
+
 ### Added
 
 - A teammate can leave a command running. A Hotline Agent teammate that

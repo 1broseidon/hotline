@@ -1,8 +1,6 @@
 ---
 id: task-85
 title: "Core: a shell job still running when the turn parks becomes a session-owned process"
-column: review
-position: 1
 priority: high
 tags:
   - processes
@@ -10,7 +8,7 @@ tags:
   - core
 parentId: epic-8
 createdAt: "2026-10-16T17:24:28.069Z"
-updatedAt: "2026-10-16T20:17:31.120Z"
+updatedAt: "2026-10-16T20:18:58.994Z"
 relatedFiles:
   - crates/hotline-core/src/driver/rig/turn.rs
   - crates/hotline-core/src/session/jobs.rs
@@ -55,6 +53,7 @@ dispatch:
     ended: "2026-10-16T20:17:31.120Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-16T20:18:58.994Z"
 ---
 
 ## Description
@@ -89,3 +88,4 @@ Tests:
 - 2026-10-16T20:17:20.235Z: [claude] Done on branch dispatch/task-85 (make check green). At park in driver/rig/turn.rs, Jobs::release() hands every running shell job to session/jobs.rs `Processes` (owned by the InProcess driver) and the turn ends with end_turn; the card closes 'Still running on its own'. Only a driver whose wakes are subscribed takes processes: Driver::subscribe_wakes, subscribed for the DM only (Watches.wakes), so subagent runs, sides and peers still park on their own commands. A process that exits on its own sends a wake line; Room::watch_wakes queues it as a Hotline nudge (never on the tape) with voice = Calls::on_call(persona), so on a direct call the reply goes to the front. cancel_job and the chip-to-be (Processes::cancel) do not wake. wait_jobs refuses a process; inspect_job/cancel_job reach it from later turns, and the last 4 ended stay readable. Cap: launch counts the turn's running commands plus held processes, 4 in all, and the refusal names each id and command.
 - 2026-10-16T20:17:23.578Z: [claude] Security (docs/security.md 'Running processes' + matrix row). Default: nothing newly granted; the command was launched under the shell grant and the turn's lease; only the DM session takes processes. Grant source: reach/shell, unchanged. Enforcement points: InProcess::invalidate -> Processes::stop_all (session stop, removal, grant change, which rebuilds the session by design, and revocation all call it); driver drop / desk quit drop the task and the shell's process-group guard kills the tree; launch cap in Jobs::launch; wakes are queued only while the session and its lease are current. Tests: tests/processes.rs running_process_* (4), tests/voice.rs running_process_that_ends_during_a_call_is_said_on_the_call, session/jobs.rs running_process_* (3). Residual risk: a model that neither waits nor means to leave a command gets its result a turn later, at one model request per exit; output is held in memory until exit, as for any job; a chapter restart replaces the session, so it kills a process too.
 - 2026-10-16T20:17:26.435Z: [claude] For task-86/88: the room reaches processes through the driver; add a Driver method (e.g. processes() -> Option<Arc<Processes>>) for SessionInfo.processes, process.stop (Processes::cancel; it does not wake) and process.output. Processes::running() gives id/command/state; there is no startedAt yet (add it to the held entry). No live tail exists: RunCommand::run captures output only at exit (wait_with_output). process.output needs the shell to stream stdout/stderr into a bounded tail and a file while it runs. A change notification is needed for the chip: Processes has no watch channel yet (hold/exited are the two places to send one).
+- 2026-10-16T20:18:57.737Z: Landed on release/0.39.0

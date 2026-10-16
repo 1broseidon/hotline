@@ -36,7 +36,7 @@ contract:
 createdAt: "2026-10-16T14:02:49.220Z"
 dependsOn:
   - task-76
-updatedAt: "2026-10-16T14:42:55.647Z"
+updatedAt: "2026-10-16T14:43:03.967Z"
 relatedFiles:
   - crates/hotline-core/src/voice/duplex.rs
   - crates/hotline-core/src/voice/front.rs
@@ -53,6 +53,8 @@ dispatch:
     runner: desktop
     pid: 12851
     at: "2026-10-16T14:23:13.457Z"
+    ended: "2026-10-16T14:43:03.967Z"
+    outcome: review
 assignee: claude
 ---
 

@@ -1,8 +1,6 @@
 ---
 id: task-78
 title: "Desk: one call proves the whole front — tools, hand-off, summary, settings — and the docs say so"
-column: review
-position: 5
 priority: high
 tags:
   - voice
@@ -47,7 +45,7 @@ contract:
     deliveredAt: "2026-10-16T15:51:27.021Z"
     duration: 510
 createdAt: "2026-10-16T14:05:40.652Z"
-updatedAt: "2026-10-16T15:55:28.816Z"
+updatedAt: "2026-10-16T15:55:30.297Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -63,6 +61,7 @@ dispatch:
     ended: "2026-10-16T15:51:31.907Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-16T15:55:30.297Z"
 ---
 
 ## Description

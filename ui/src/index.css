@@ -2564,27 +2564,6 @@
 	.rail-row:active {
 		background: var(--fill-active);
 	}
-	/* With names showing, each teammate is a presence card on the well: the
-	 * canvas plane with its hairline, a step up when pointed at or open. */
-	.rail:not(.rail-compact) .rail-row {
-		gap: 11px;
-		margin-bottom: 6px;
-		padding: 8px 10px;
-		border-radius: var(--radius-pane);
-		background: var(--canvas);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line);
-	}
-	.rail:not(.rail-compact) .rail-row:hover {
-		background: var(--raised);
-	}
-	.rail:not(.rail-compact) .rail-row[aria-current="true"] {
-		background: var(--raised);
-		box-shadow:
-			var(--top-light),
-			0 0 0 var(--hairline) var(--line-strong);
-	}
 	/* With more than one desk in the rail, each name says its desk, quietly
 	 * after it. A desk that can't be reached keeps its teammates listed, as
 	 * they last were, dimmed. */
@@ -3159,8 +3138,7 @@
 	}
 	.rail-search:focus-within {
 		color: var(--ink);
-		background: var(--raised);
-		box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
+		box-shadow: 0 0 0 var(--hairline) var(--line-strong);
 	}
 	.team-results {
 		position: absolute;
@@ -4195,48 +4173,50 @@
 		}
 	}
 
-	/* The rail's dock (Rail.tsx): search, and the desk's call key, floating
-	 * at the foot of the team; round keys stacked in the faces-only rail. */
+	/* The rail's dock (Rail.tsx): the team's search and the desk's call key
+	 * where Settings and New teammate were. It stands on the composer's line:
+	 * the composer's height (6px, a 28px key, 6px) and bottom edge (the
+	 * conversation's 16px under it), so one line runs across the window. The
+	 * field is the pane's material and corners, quiet beside the composer;
+	 * the keys stack in the faces-only rail. */
 	.rail-dock {
 		display: flex;
 		flex-shrink: 0;
 		align-items: center;
-		gap: 6px;
-		margin: 4px 8px 8px;
-		padding: 5px;
-		border-radius: 999px;
-		background: var(--pop);
-		box-shadow: var(--shadow-float);
+		gap: 4px;
+		margin: 4px 8px 16px;
 	}
 	.rail-dock-compact {
 		flex-direction: column;
-		margin: 4px 6px 8px;
+		margin: 4px 6px 16px;
 	}
 	.rail-search {
 		display: flex;
 		min-width: 0;
-		height: 30px;
+		height: 40px;
 		flex: 1;
 		align-items: center;
 		gap: 8px;
-		padding: 0 10px;
-		border-radius: 999px;
+		padding: 0 12px;
+		border-radius: var(--radius-pane);
 		color: var(--ink-3);
 		background: var(--canvas);
+		/* Outside the box, as the composer's is, so the two outlines meet one line. */
+		box-shadow: 0 0 0 var(--hairline) var(--line);
 		font-size: var(--text-sm);
 		transition:
 			background var(--dur-press) var(--ease-out),
 			color var(--dur-press) var(--ease-out);
 	}
 	.rail-dock-compact .rail-search {
-		width: 30px;
+		width: 40px;
 		flex: none;
 		justify-content: center;
 		padding: 0;
 	}
 	.rail-search:hover:not(:disabled),
 	.rail-search[aria-pressed="true"] {
-		color: var(--ink);
+		color: var(--ink-2);
 		background: var(--raised);
 	}
 	.rail-search:disabled {
@@ -4247,25 +4227,27 @@
 		font-size: var(--text-xs);
 		color: var(--ink-4);
 	}
+	/* The desk's call key: a bare key the field's height, lit in the accent while the desk's call is on. */
 	.desk-call-key {
 		display: grid;
-		width: 30px;
-		height: 30px;
+		width: 40px;
+		height: 40px;
 		flex-shrink: 0;
 		place-items: center;
-		border-radius: 50%;
-		color: var(--canvas);
-		background: var(--ink);
+		border-radius: var(--radius-pane);
+		color: var(--ink-3);
 		transition:
 			background var(--dur-press) var(--ease-out),
+			color var(--dur-press) var(--ease-out),
 			opacity var(--dur-press) var(--ease-out);
 	}
 	.desk-call-key:hover:not(:disabled) {
-		background: var(--ink-2);
+		color: var(--ink);
+		background: var(--fill-hover);
 	}
 	.desk-call-key[data-on] {
-		color: var(--on-accent);
-		background: var(--accent);
+		color: var(--accent);
+		background: var(--accent-soft);
 	}
 	.desk-call-key:disabled {
 		opacity: 0.35;

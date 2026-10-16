@@ -256,7 +256,6 @@ function Row({
 			type="button"
 			data-teammate-row
 			data-offline={offline || undefined}
-			data-working={working || undefined}
 			aria-current={active ? "true" : undefined}
 			aria-label={`${named}${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
 			className="rail-row group relative"
@@ -293,7 +292,7 @@ function Row({
 					)}
 				</span>
 			) : (
-			<Avatar id={entry.persona.id} name={entry.persona.name} size={32} hash={entry.persona.avatar?.hash} busy={busy} />
+			<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} busy={busy} />
 			)}
 			{onTip === undefined && (
 			<span className="min-w-0 flex-1">

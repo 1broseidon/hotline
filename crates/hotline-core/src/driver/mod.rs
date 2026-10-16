@@ -393,6 +393,15 @@ pub trait Driver: Send + Sync {
         None
     }
 
+    /// Lines the agent is to be woken with between turns: a command a turn
+    /// of its left running ended on its own. The session takes each as a
+    /// turn of its own, queued behind any in flight. Subscribing is what lets
+    /// the driver leave commands running past a turn, so only the session
+    /// that can be woken does; a driver that never leaves one answers `None`.
+    fn subscribe_wakes(&self) -> Option<mpsc::UnboundedReceiver<String>> {
+        None
+    }
+
     /// The subagents the agent runs and shows, each as it starts, works and
     /// ends. Hotline Agent's subagents are the room's own runs, so only a
     /// harness that reports its own answers `Some`.

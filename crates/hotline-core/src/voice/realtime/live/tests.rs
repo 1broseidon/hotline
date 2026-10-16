@@ -287,3 +287,61 @@ async fn a_live_call_moves_onto_a_replacement_before_the_session_ends() {
     assert!(!said_after.trim().is_empty(), "the replacement spoke");
     session.close().await;
 }
+
+fn config(tools: &[&str]) -> RealtimeConfig {
+    RealtimeConfig {
+        instructions: "You are Mack.".into(),
+        voice: "cove".into(),
+        tools: tools
+            .iter()
+            .map(|name| super::super::RealtimeTool {
+                name: (*name).into(),
+                description: String::new(),
+                parameters: json!({"type": "object"}),
+            })
+            .collect(),
+        input_rate: 24_000,
+        output_rate: 24_000,
+    }
+}
+
+#[test]
+fn desk_side_tools_move_the_reasoning_to_a_backend_that_declares_them() {
+    let desk_only = config(&[SEND_TO_TEAMMATE, crate::voice::front::REMAIN_SILENT]);
+    assert_eq!(delegation(&desk_only), json!({"type": "client"}));
+    assert!(!answers_backend(&desk_only));
+
+    let teammate = config(&[SEND_TO_TEAMMATE, "search_thread"]);
+    let backend = delegation(&teammate);
+    assert_eq!(backend["type"], "responses");
+    let names: Vec<&str> = backend["responses"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, [SEND_TO_TEAMMATE, "search_thread"]);
+    assert!(answers_backend(&teammate));
+}
+
+#[test]
+fn a_function_call_the_backend_makes_is_the_desks_to_run() {
+    let mut heard = Heard::default();
+    let done = json!({
+        "type": "response.event",
+        "delegation_id": "d1",
+        "event": {"type": "response.output_item.done",
+                  "item": {"type": "function_call", "call_id": "call_1",
+                           "name": "search_thread", "arguments": "{\"query\":\"x\"}"}},
+    });
+    assert_eq!(
+        heard.event(&done).unwrap(),
+        [RealtimeEvent::ToolCall {
+            call_id: "call_1".into(),
+            name: "search_thread".into(),
+            arguments: "{\"query\":\"x\"}".into(),
+        }]
+    );
+    let message = json!({"type": "response.event", "event": {"type": "response.output_item.done", "item": {"type": "message"}}});
+    assert!(heard.event(&message).unwrap().is_empty());
+}

@@ -1012,6 +1012,113 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
     );
 }
 
+/// GPT-Live's backend calls arrive as ordinary tool calls on a front whose
+/// config carries the teammate's desk-side registry: a lookup is answered
+/// from `search_thread` with no hand-off, a tool outside the teammate's reach
+/// is refused, and the front's own hand-off stays a hand-off.
+#[tokio::test]
+async fn a_gpt_live_backend_call_is_run_desk_side_and_a_tool_outside_reach_is_refused() {
+    let mut desk = front_desk(true, 64).await;
+    let root = desk.root.path().to_path_buf();
+    let socket = &mut desk.socket;
+    let (provider, _requests) = provider_seeing(TAGGED_REPLY).await;
+    let saved = answer(socket, 90, json!({"cmd":"credential.custom_save","params":{"draft":{"name":"Front fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
+    assert_eq!(saved["ok"], true);
+    let persona = answer(socket, 91, json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.to_str().unwrap()}}})).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    answer(
+        socket,
+        92,
+        json!({"cmd":"session.start","params":{"personaId":persona}}),
+    )
+    .await;
+    let typed = answer(socket, 93, json!({"cmd":"session.prompt","params":{"personaId":persona,"text":"we fixed the zebracrossing scheduler bug"}})).await;
+    assert_eq!(typed["ok"], true, "{typed}");
+    let tape = hotline_core::log::StreamId::Tape(persona.clone());
+    for _ in 0..500 {
+        if desk
+            .log
+            .load(&tape)
+            .iter()
+            .any(|event| event["kind"] == "agent")
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let call = Uuid::new_v4().to_string();
+    let started = answer(
+        socket,
+        1,
+        json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}}),
+    )
+    .await;
+    assert_eq!(started["ok"], true, "{started}");
+    tokio::time::timeout(Duration::from_secs(15), async {
+        while desk.front.config.lock().unwrap().is_none() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the front was opened");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let declared: Vec<String> = desk
+        .front
+        .config
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .tools
+        .iter()
+        .map(|tool| tool.name.clone())
+        .collect();
+    assert!(
+        declared.contains(&"search_thread".to_string()),
+        "{declared:?}"
+    );
+    let turns = desk.log.load(&tape).len();
+
+    let backend_call = |call_id: &'static str, name: &'static str, arguments: Value| {
+        let events = desk.events.clone();
+        async move {
+            events
+                .send(Ok(RealtimeEvent::ToolCall {
+                    call_id: call_id.into(),
+                    name: name.into(),
+                    arguments: arguments.to_string(),
+                }))
+                .await
+                .unwrap();
+        }
+    };
+    backend_call("call_1", "search_thread", json!({"query":"zebracrossing"})).await;
+    let Asked::ToolResult {
+        call_id, output, ..
+    } = next_asked(&mut desk.asked).await
+    else {
+        panic!("the lookup went unanswered")
+    };
+    assert_eq!(call_id, "call_1");
+    assert!(output.contains("zebracrossing"), "{output}");
+    assert_eq!(
+        desk.log.load(&tape).len(),
+        turns,
+        "a lookup is not a hand-off"
+    );
+
+    backend_call("call_2", "send_file", json!({"path":"x"})).await;
+    let Asked::ToolResult { output, .. } = next_asked(&mut desk.asked).await else {
+        panic!("the refusal went unanswered")
+    };
+    assert!(
+        output.contains("There is no tool called send_file"),
+        "{output}"
+    );
+}
+
 /// A call with three exchanges and one hand-off leaves the hand-off's turn
 /// and one summary in the DM, and none of the front's own turns.
 #[tokio::test]

@@ -12,8 +12,21 @@ tags:
   - 0.39.0
 createdAt: "2026-10-16T13:52:14.099Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T14:10:00.605Z"
+updatedAt: "2026-10-16T14:10:15.668Z"
 assignee: claude
+dispatch:
+  agent: claude
+  model: sonnet
+  effort: medium
+  by: person
+  at: "2026-10-16T14:10:15.552Z"
+  until: review
+  role: lead
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 12851
+    at: "2026-10-16T14:10:15.668Z"
 ---
 
 ## Description

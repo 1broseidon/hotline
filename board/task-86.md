@@ -12,7 +12,7 @@ parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
 dependsOn:
   - task-85
-updatedAt: "2026-10-16T20:19:34.223Z"
+updatedAt: "2026-10-16T20:19:35.453Z"
 relatedFiles:
   - crates/hotline-core/src/contract.rs
   - crates/hotline-core/src/wire/commands.rs
@@ -38,6 +38,14 @@ contract:
     - "Do not change ui/src/activity.ts shownState semantics: a running process never makes the session read working."
   metrics:
     readyAt: "2026-10-16T19:53:01.083Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-16T20:19:35.330Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

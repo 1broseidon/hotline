@@ -10,6 +10,11 @@ tags:
   - docs
 parentId: epic-8
 createdAt: "2026-10-16T17:24:29.702Z"
+dependsOn:
+  - task-85
+  - task-86
+  - task-87
+updatedAt: "2026-10-16T17:24:30.779Z"
 ---
 
 ## Description

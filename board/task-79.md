@@ -1,7 +1,7 @@
 ---
 id: task-79
 title: "Desk: GPT-Live runs the teammate's tools through a desk-side tool loop"
-column: todo
+column: in-progress
 position: 5
 description: "The epic says all three fronts become full agents; GPT-Live has no realtime function tools and delegates tool use to a backend (see ADR 0005, task-76: delegation type responses with a backend model, or client delegation on the ChatGPT sign-in). Give GPT-Live the same registry task-74 builds in voice/front_tools.rs: when the backend returns function calls, run them desk-side through the same handler, grants and audit, and return the outputs. Reuse front_tools; add no second registry. Harness in crates/hotline-core/tests/voice.rs on the GPT-Live dialect fake: a lookup is answered from search_thread with no send_to_teammate, and a tool outside Reach is refused. If the ADR finds the ChatGPT-sign-in path cannot be done without a larger change, write that in a note and stop at the backend-model path."
 priority: high
@@ -18,7 +18,7 @@ parentId: epic-7
 dependsOn:
   - task-74
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/front_tools.rs
@@ -37,8 +37,10 @@ contract:
     - Work on release/0.39.0; do not touch main
   metrics:
     readyAt: "2026-10-16T15:06:10.385Z"
+    pickedUpAt: "2026-10-16T15:06:36.952Z"
+    reworkCount: 0
 createdAt: "2026-10-16T14:11:07.271Z"
-updatedAt: "2026-10-16T15:06:12.950Z"
+updatedAt: "2026-10-16T15:06:36.952Z"
 dispatch:
   agent: claude
   model: sonnet

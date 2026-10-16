@@ -299,10 +299,13 @@ async fn running_process_serve_open_and_stop_end_to_end() {
     let port = free_port();
     let link = format!("http://127.0.0.1:{port}/chart.html");
     // The shell stays the group's leader and the server its child, so the
-    // tree is two processes and the group is the shell's pid.
+    // tree is two processes and the group is the shell's pid. The server is
+    // the system perl, a real binary on every Unix runner: macOS's
+    // /usr/bin/python3 is a shim into the developer tools, and on a hosted
+    // Mac it starts inside the sandbox but never serves.
     let serve = format!(
         "printf '<h1>The chart</h1>' > chart.html; echo $$ > server.pid; \
-         python3 -m http.server {port} --bind 127.0.0.1 & echo $! > child.pid; wait"
+         {SERVE} {port} & echo $! > child.pid; wait"
     );
     desk.script([
         tool_call("shell", json!({"command": serve}), "call_serve"),
@@ -376,6 +379,11 @@ async fn running_process_serve_open_and_stop_end_to_end() {
 }
 
 /// A port nothing listens on now, for a server the teammate starts.
+/// A static server for `chart.html` on the port it is given, in perl: it
+/// says when it is listening, answers each request with the page, and runs
+/// until it is killed.
+const SERVE: &str = r#"perl -MIO::Socket::INET -e '$| = 1; my $s = IO::Socket::INET->new(LocalAddr => "127.0.0.1", LocalPort => $ARGV[0], Listen => 5, ReuseAddr => 1) or die "cannot listen: $!\n"; print "listening\n"; while (my $c = $s->accept) { <$c>; open(my $f, "<", "chart.html"); print $c "HTTP/1.0 200 OK\r\n\r\n", <$f>; close $c }'"#;
+
 fn free_port() -> u16 {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.local_addr().unwrap().port()

@@ -10,11 +10,11 @@ mod recovery;
 mod strict;
 mod turn;
 
-pub(crate) use turn::process_ended;
 use super::failure::{Failure, Kind};
 use images::Input;
 #[cfg(test)]
 use images::user_message;
+pub(crate) use turn::process_ended;
 
 use super::{
     CapabilityLease, Driver, DriverInfo, Escalate, MessageKind, ToolImage, Update, clip,

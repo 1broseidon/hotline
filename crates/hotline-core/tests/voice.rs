@@ -2657,22 +2657,37 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
 
 /// A chat-completions fixture that answers each request with the next of
 /// `answers`, a list of stream chunks, and keeps every request.
-async fn provider_scripted(answers: Vec<Vec<Value>>) -> (String, Arc<std::sync::Mutex<Vec<Value>>>) {
+async fn provider_scripted(
+    answers: Vec<Vec<Value>>,
+) -> (String, Arc<std::sync::Mutex<Vec<Value>>>) {
     use axum::{Router, body::Bytes, routing::post};
     let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let requests = seen.clone();
-    let answers = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(answers)));
-    let app = Router::new().route("/v1/chat/completions", post(move |body: Bytes| {
-        let request: Value = serde_json::from_slice(&body).unwrap();
-        let chunks = answers
-            .lock()
-            .unwrap()
-            .pop_front()
-            .unwrap_or_else(|| panic!("an unscripted request: {request}"));
-        requests.lock().unwrap().push(request);
-        let body: String = chunks.into_iter().map(|chunk| format!("data: {chunk}\n\n")).collect();
-        async move { ([("Content-Type", "text/event-stream")], format!("{body}data: [DONE]\n\n")) }
-    }));
+    let answers = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::from(
+        answers,
+    )));
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move |body: Bytes| {
+            let request: Value = serde_json::from_slice(&body).unwrap();
+            let chunks = answers
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| panic!("an unscripted request: {request}"));
+            requests.lock().unwrap().push(request);
+            let body: String = chunks
+                .into_iter()
+                .map(|chunk| format!("data: {chunk}\n\n"))
+                .collect();
+            async move {
+                (
+                    [("Content-Type", "text/event-stream")],
+                    format!("{body}data: [DONE]\n\n"),
+                )
+            }
+        }),
+    );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/v1", listener.local_addr().unwrap());
     tokio::spawn(async move {
@@ -2770,6 +2785,9 @@ async fn running_process_that_ends_during_a_call_is_said_on_the_call() {
     let requests = requests.lock().unwrap();
     assert_eq!(requests.len(), 3);
     let woke = requests[2].to_string();
-    assert!(woke.contains("a command you left running has ended"), "{woke}");
+    assert!(
+        woke.contains("a command you left running has ended"),
+        "{woke}"
+    );
     assert!(woke.contains("done"), "{woke}");
 }

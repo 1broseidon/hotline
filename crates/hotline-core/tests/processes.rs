@@ -41,7 +41,10 @@ async fn running_process_a_server_left_running_ends_the_turn_and_a_later_turn_st
                 && frame["event"]["status"] == "completed"
         })
         .await;
-    assert!(card.to_string().contains("Still running on its own"), "{card}");
+    assert!(
+        card.to_string().contains("Still running on its own"),
+        "{card}"
+    );
 
     let pid = desk.pid("server.pid").await;
     assert!(alive(pid), "the server outlives the turn that started it");
@@ -75,7 +78,11 @@ async fn running_process_a_server_left_running_ends_the_turn_and_a_later_turn_st
 async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     let mut desk = Desk::open().await;
     desk.script([
-        tool_call("shell", json!({"command": "sleep 2; echo done"}), "call_build"),
+        tool_call(
+            "shell",
+            json!({"command": "sleep 2; echo done"}),
+            "call_build",
+        ),
         text("The build is going."),
         text("The build finished: done."),
     ]);
@@ -91,13 +98,17 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
 
     let woke = desk.request().await;
     let said = woke.to_string();
-    assert!(said.contains("a command you left running has ended"), "{said}");
+    assert!(
+        said.contains("a command you left running has ended"),
+        "{said}"
+    );
     assert!(said.contains("done"), "{said}");
     assert!(said.contains("succeeded"), "{said}");
     assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
     desk.client
         .next_where(Duration::from_secs(15), |frame| {
-            frame["event"]["kind"] == "agent" && frame["event"]["text"] == "The build finished: done."
+            frame["event"]["kind"] == "agent"
+                && frame["event"]["text"] == "The build finished: done."
         })
         .await;
     desk.quiet_for(Duration::from_secs(1)).await;
@@ -400,7 +411,9 @@ impl Client {
         let id = self.next_id;
         self.next_id += 1;
         self.socket
-            .send(Message::text(json!({ "id": id, "sub": target }).to_string()))
+            .send(Message::text(
+                json!({ "id": id, "sub": target }).to_string(),
+            ))
             .await
             .unwrap();
         loop {

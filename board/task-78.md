@@ -1,7 +1,7 @@
 ---
 id: task-78
 title: "Desk: one call proves the whole front — tools, hand-off, summary, settings — and the docs say so"
-column: in-progress
+column: review
 position: 5
 priority: high
 tags:
@@ -23,7 +23,7 @@ dependsOn:
   - task-79
   - task-80
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/tests/voice.rs
@@ -44,8 +44,10 @@ contract:
     readyAt: "2026-10-16T14:05:40.647Z"
     pickedUpAt: "2026-10-16T15:42:57.048Z"
     reworkCount: 0
+    deliveredAt: "2026-10-16T15:51:27.021Z"
+    duration: 510
 createdAt: "2026-10-16T14:05:40.652Z"
-updatedAt: "2026-10-16T15:42:57.048Z"
+updatedAt: "2026-10-16T15:51:27.021Z"
 dispatch:
   agent: claude
   model: sonnet

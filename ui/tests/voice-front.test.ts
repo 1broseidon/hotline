@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LEGACY, frontOf, frontPatch } from "../src/useFor";
+import { LEGACY, OFF, frontOf, frontPatch } from "../src/useFor";
 
 describe("the voice front setting", () => {
 	test("is Grok Voice until Legacy voice is picked", () => {
@@ -24,5 +24,12 @@ describe("the voice front setting", () => {
 
 	test("the default with nothing picked removes the key, and the setting with it", () => {
 		expect(frontPatch({ front: { provider: LEGACY, voices: {} } }, { provider: "grok" })).toBeNull();
+	});
+
+	test("Off is its own choice, kept apart from Legacy voice", () => {
+		const off = frontPatch({ listenFor: ["Ophelia"] }, { provider: OFF });
+		expect(off).toEqual({ listenFor: ["Ophelia"], front: { provider: OFF, voices: {} } });
+		expect(frontOf(off).provider).toBe(OFF);
+		expect(frontOf(frontPatch(off, { provider: "grok" })).provider).toBe("grok");
 	});
 });

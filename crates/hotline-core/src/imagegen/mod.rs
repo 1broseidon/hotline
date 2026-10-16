@@ -272,6 +272,7 @@ impl Model {
 
 /// The owner's choice, from `settings.images`. Both keys are optional: none
 /// means the first connected provider that can draw, on its default model.
+/// The provider `off` (see [`OFF`]) means no images at all.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -280,6 +281,20 @@ pub struct ImageSettings {
     pub provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+}
+
+/// The `settings.images` provider that turns image generation off. Stored as
+/// a provider so a desk that never heard of it still reads a string there,
+/// and so the picker's one choice is the setting's one key.
+pub const OFF: &str = "off";
+
+/// Why nothing draws while the owner has images off; also a teammate's refusal.
+pub const IMAGES_OFF: &str = "Image generation is off in Settings";
+
+impl ImageSettings {
+    pub fn is_off(&self) -> bool {
+        self.provider.as_deref() == Some(OFF)
+    }
 }
 
 /// What the owner's connected providers give the desk: a model to draw

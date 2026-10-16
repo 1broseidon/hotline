@@ -160,8 +160,8 @@ fn schema(value: Value) -> Arc<JsonObject> {
 /// Code does — rejects the listing and the teammate ends up with no tools at
 /// all. Zero and private is the truthful answer: the tools do not change, but
 /// what they reach is one teammate's tape.
-fn listing() -> ListToolsResult {
-    ListToolsResult::with_all_items(descriptors())
+fn listing(tools: Vec<Tool>) -> ListToolsResult {
+    ListToolsResult::with_all_items(tools)
         .with_ttl_ms(0)
         .with_cache_scope(CacheScope::Private)
 }
@@ -906,14 +906,39 @@ impl TeammateTools {
         }
     }
 
-    /// The same set, registered on a Rig agent.
-    pub fn as_dynamic(&self) -> Vec<rig::tool::DynamicTool> {
+    /// Whether the owner has image generation off, which takes
+    /// `generate_image` away from every teammate.
+    fn images_off(&self) -> bool {
+        self.room.upgrade().is_some_and(|room| room.images_off())
+    }
+
+    /// [`TOOL_NAMES`] as this teammate is offered them now, for the ledger.
+    pub(crate) fn tool_names(&self) -> Vec<&'static str> {
+        let images_off = self.images_off();
+        TOOL_NAMES
+            .into_iter()
+            .filter(|name| !(images_off && *name == GENERATE_IMAGE))
+            .collect()
+    }
+
+    /// The tools this teammate is shown: the work thread's or the full set,
+    /// less `generate_image` while the owner has image generation off.
+    fn offered(&self) -> Vec<Tool> {
+        let images_off = self.images_off();
         let tools = if self.work.is_some() {
             work_descriptors()
         } else {
             descriptors()
         };
         tools
+            .into_iter()
+            .filter(|tool| !(images_off && tool.name == GENERATE_IMAGE))
+            .collect()
+    }
+
+    /// The same set, registered on a Rig agent.
+    pub fn as_dynamic(&self) -> Vec<rig::tool::DynamicTool> {
+        self.offered()
             .into_iter()
             .filter(|tool| !self.run || RUN_TOOLS.contains(&tool.name.as_ref()))
             .map(|tool| {
@@ -1101,18 +1126,16 @@ impl ServerHandler for TeammateTools {
         if self.work.is_some() {
             // A work thread's listing is not the teammate's: the ledger says
             // what the teammate's own session was handed.
-            return Ok(ListToolsResult::with_all_items(work_descriptors())
-                .with_ttl_ms(0)
-                .with_cache_scope(CacheScope::Private));
+            return Ok(listing(self.offered()));
         }
         ledger::mark_verified(
             &self.persona_id,
             ToolSourceKind::Builtin,
             SERVER_NAME,
-            &TOOL_NAMES,
+            &self.tool_names(),
             "the agent listed the tools on this teammate's own endpoint",
         );
-        Ok(listing())
+        Ok(listing(self.offered()))
     }
 
     async fn call_tool(
@@ -1242,7 +1265,7 @@ mod tests {
         assert!(HOW_TO_USE.contains("style `avatar`"));
         assert!(HOW_TO_USE.contains("custom subject/theme, omit style"));
         assert!(HOW_TO_USE.contains("operator-provided photo directly"));
-        let tools = listing().tools;
+        let tools = listing(descriptors()).tools;
         let generate = tools
             .iter()
             .find(|tool| tool.name == GENERATE_IMAGE)
@@ -1382,7 +1405,7 @@ mod tests {
     /// hid every Hotline tool from a Claude Code teammate.
     #[test]
     fn the_listing_carries_the_cache_hints_a_modern_client_requires() {
-        let wire = serde_json::to_value(listing()).unwrap();
+        let wire = serde_json::to_value(listing(descriptors())).unwrap();
         assert_eq!(wire["ttlMs"], json!(0), "{wire}");
         assert_eq!(wire["cacheScope"], json!("private"), "{wire}");
         assert_eq!(wire["tools"].as_array().unwrap().len(), TOOL_NAMES.len());
@@ -2041,7 +2064,7 @@ mod tests {
 
     #[test]
     fn web_search_is_listed_with_its_arguments_and_every_kind_of_session_has_it() {
-        let listed = listing().tools;
+        let listed = listing(descriptors()).tools;
         let tool = listed.iter().find(|tool| tool.name == WEB_SEARCH).unwrap();
         assert!(
             tool.description

@@ -135,7 +135,7 @@ export function NewTeammateForm({
 			.catch(() => setComputerReady(false));
 		void wire
 			.command("capabilities.options", {})
-			.then(({ images }) => setImagesBy((images.selected ?? images.automatic)?.providerName ?? null))
+			.then(({ images }) => setImagesBy(images.selected?.providerId === "off" ? null : ((images.selected ?? images.automatic)?.providerName ?? null)))
 			.catch(() => setImagesBy(null));
 	}, []);
 

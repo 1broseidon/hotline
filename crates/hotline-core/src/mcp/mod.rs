@@ -1713,6 +1713,7 @@ mod tests {
             &[],
             &Connections::for_test(tools, Vec::new()),
             false,
+            &server::TOOL_NAMES,
         );
         let rows = crate::session::ledger::teammate_tools(persona_id)
             .expect("published")

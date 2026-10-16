@@ -31,7 +31,7 @@ contract:
     duration: 80
 createdAt: "2026-10-16T15:25:13.490Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:48:19.618Z"
+updatedAt: "2026-10-16T15:48:34.324Z"
 dependsOn:
   - task-82
 dispatch:
@@ -66,3 +66,4 @@ Check in the dev window: list shows only single-word sections; footer aligned to
 
 ## Log
 - 2026-10-16T15:48:19.316Z: [claude] Settings rail footer on dispatch/task-83: version button (About, 'Update ready' + accent dot via watchUpdates) and Shortcuts button, aria-current when open; both removed from the list; tests/settings.test.tsx; make ui-check passes. Not checked in a live dev window. No chord is bound to shortcuts, so its tooltip has none. The narrow window keeps the rail, so the footer is always at the rail's foot.
+- 2026-10-16T15:48:34.324Z: Landed on release/0.39.0

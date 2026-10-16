@@ -12,7 +12,7 @@ parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
 dependsOn:
   - task-85
-updatedAt: "2026-10-16T19:53:01.081Z"
+updatedAt: "2026-10-16T20:19:34.223Z"
 relatedFiles:
   - crates/hotline-core/src/contract.rs
   - crates/hotline-core/src/wire/commands.rs
@@ -53,5 +53,12 @@ Contract and desk UI: running processes show as chips.
   - With several processes, one chip with a count opens the list.
 - The session's state is unaffected: idle with a process running reads idle, with the chip beside it.
 - No fake UI: the chip only appears for real processes from `SessionInfo`.
+
+What task-85 left (it landed on release/0.39.0; read session/jobs.rs `Processes` and its notes):
+- The room reaches processes only through the driver. Add one Driver method (e.g. `processes() -> Option<Arc<Processes>>`, Some only for the InProcess DM session) and use it for SessionInfo.processes, process.stop and process.output.
+- `process.stop` calls `Processes::cancel`, which kills the tree and does not wake the teammate (the person did it).
+- `Processes::running()` gives id/command/state; there is no startedAt yet: record it on the held entry.
+- There is no live output: `RunCommand::run` captures output only at exit (`wait_with_output`). `process.output` needs the shell to stream stdout/stderr into a bounded in-memory tail (and the full output file, as jobs keep) while it runs. Keep the turn's own jobs working the same.
+- There is no change notification: add a watch/notify in `Processes` sent from `hold` and `exited` (and cancel), and have the room re-send SessionInfo on it, the way awaitingSubagents is sent.
 
 Run `make check`, including the contract.ts sync (watch for truncation).

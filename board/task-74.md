@@ -29,6 +29,9 @@ contract:
   metrics:
     readyAt: "2026-10-16T14:02:49.214Z"
 createdAt: "2026-10-16T14:02:49.220Z"
+dependsOn:
+  - task-76
+updatedAt: "2026-10-16T14:03:32.221Z"
 ---
 
 ## Description

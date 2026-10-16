@@ -571,6 +571,7 @@ export type HumanAnswer = "done" | "declined";
 /**
  * The owner's choice, from `settings.images`. Both keys are optional: none
  * means the first connected provider that can draw, on its default model.
+ * The provider `off` (see [`OFF`]) means no images at all.
  */
 export type ImageSettings = { provider?: string, model?: string, };
 

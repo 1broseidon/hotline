@@ -40,6 +40,16 @@ impl Room {
         self.spending.summary()
     }
 
+    /// Whether the owner has turned image generation off in Settings. A
+    /// setting that cannot be read is not off: it fails where it is used.
+    pub(crate) fn images_off(&self) -> bool {
+        crate::room::try_settings(self.log())
+            .ok()
+            .and_then(|settings| settings.get("images").cloned())
+            .and_then(|images| serde_json::from_value::<ImageSettings>(images).ok())
+            .is_some_and(|images| images.is_off())
+    }
+
     pub(crate) async fn generate_image(
         &self,
         persona_id: &str,
@@ -47,6 +57,9 @@ impl Room {
         capability: Option<CapabilityLease>,
         home: Option<&str>,
     ) -> Result<String, String> {
+        if self.images_off() {
+            return Err(format!("{}.", imagegen::IMAGES_OFF));
+        }
         let started = Instant::now();
         let args: Arguments = serde_json::from_value(arguments.clone()).map_err(|_| {
             "generate_image needs a prompt, a supported aspect and optional image references, style and name.".to_string()
@@ -255,6 +268,9 @@ impl Room {
     }
 
     fn resolve_images(&self, settings: &ImageSettings) -> Result<ImageSet, String> {
+        if settings.is_off() {
+            return Err(format!("{}.", imagegen::IMAGES_OFF));
+        }
         #[cfg(test)]
         if let Some(generators) = super::lock(&self.image_generators).clone() {
             return Ok(generators);

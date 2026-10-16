@@ -269,14 +269,20 @@ export const FRONT_LOGINS: readonly string[] = FRONTS.flatMap((one) => one.login
 
 export type FrontSetting = { provider: string; credential?: string; voices: Record<string, string> };
 
+/** Off in Settings: the picker's last choice for Live calls and for Images, never the default. */
+export const OFF = "off";
+
+/** The Images picker's Off, in the picker's own `provider|model` ids. */
+export const IMAGES_OFF_CHOICE: PickerChoice = { id: pickId(OFF, undefined), name: "Off" };
+
 /** The pipeline: calls are heard, answered and spoken one step at a time, as before the front. */
 export const LEGACY = "legacy";
 
 /**
  * The voice front `settings.voice` holds. Without one, Grok Voice fronts
  * calls (the desk falls back to the pipeline when no xAI login or key is
- * connected); `legacy`, or a provider this window does not know, is the
- * pipeline.
+ * connected); `off` offers no calls; `legacy`, or a provider this window
+ * does not know, is the pipeline.
  */
 export function frontOf(voice: unknown): FrontSetting {
 	const fallback: FrontSetting = { provider: "grok", voices: {} };
@@ -288,7 +294,12 @@ export function frontOf(voice: unknown): FrontSetting {
 	if (voices !== null && typeof voices === "object" && !Array.isArray(voices)) {
 		for (const [key, value] of Object.entries(voices)) if (typeof value === "string") named[key] = value;
 	}
-	const known = typeof provider !== "string" || provider === "grok" ? "grok" : FRONTS.some((one) => one.id === provider) ? provider : LEGACY;
+	const known =
+		typeof provider !== "string" || provider === "grok"
+			? "grok"
+			: provider === OFF || FRONTS.some((one) => one.id === provider)
+				? provider
+				: LEGACY;
 	return { provider: known, ...(typeof credential === "string" ? { credential } : {}), voices: named };
 }
 

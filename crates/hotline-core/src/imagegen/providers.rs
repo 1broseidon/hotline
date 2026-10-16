@@ -388,6 +388,9 @@ fn subscriptions_first(connections: &[Connection]) -> impl Iterator<Item = &Conn
 }
 
 fn resolve_from(connections: &[Connection], settings: &ImageSettings) -> Result<ImageSet, String> {
+    if settings.is_off() {
+        return Err(format!("{}.", super::IMAGES_OFF));
+    }
     let (from, model) = match &settings.provider {
         Some(provider_id) => {
             let connection = connections

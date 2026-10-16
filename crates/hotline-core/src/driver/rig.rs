@@ -385,6 +385,7 @@ impl Driver for InProcess {
                 &self.mcp_missing,
                 &connected,
                 self.teammate.offers_subagents(),
+                &self.teammate.tool_names(),
             );
         }
         *lock(&self.mcp) = Some(connected);
@@ -1376,6 +1377,7 @@ pub(crate) fn publish_ledger(
     missing: &[String],
     connected: &mcp::Connections,
     subagents: bool,
+    hotline_tools: &[&str],
 ) {
     let mut ledger = ToolLedger::new(
         persona.id.clone(),
@@ -1434,7 +1436,7 @@ pub(crate) fn publish_ledger(
         crate::contract::ToolState::Verified,
         ToolSourceKind::Builtin,
         mcp::server::SERVER_NAME,
-        &mcp::server::TOOL_NAMES,
+        hotline_tools,
         "Hotline's own tools, called in this process",
     );
     for tool in &connected.tools {

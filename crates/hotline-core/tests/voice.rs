@@ -872,6 +872,81 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     server.abort();
 }
 
+/// Live calls Off offers no call at all, to the desk or to a teammate, and
+/// `voice.status` says why; turning it back on restores both.
+#[tokio::test]
+async fn calls_off_refuses_a_call_and_says_why() {
+    let root = tempfile::tempdir().unwrap();
+    let desk =
+        Arc::new(hotline_core::desk::Desk::open_with_store(root.path(), common::store()).unwrap());
+    let door = Door::bind(desk.log.clone(), "calls-off-test".into(), desk).unwrap();
+    let port = door.port();
+    let server = tokio::spawn(door.run());
+    let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=calls-off-test"))
+        .await
+        .unwrap();
+    send(&mut socket, json!({"id":1,"cmd":"credential.create","params":{"providerId":"openai","label":"Speech fixture","secret":"unused-test-key"}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 1).await["ok"], true);
+    send(&mut socket, json!({"id":2,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
+    let persona = until(&mut socket, |f| f["id"] == 2).await["result"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    send(
+        &mut socket,
+        json!({"id":3,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    let status = until(&mut socket, |f| f["id"] == 3).await;
+    assert_eq!(status["result"]["directAvailable"], true);
+
+    send(&mut socket, json!({"id":4,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"off"}}}}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 4).await["ok"], true);
+    send(
+        &mut socket,
+        json!({"id":5,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    let status = until(&mut socket, |f| f["id"] == 5).await;
+    assert_eq!(status["result"]["available"], false);
+    assert_eq!(status["result"]["directAvailable"], false);
+    assert_eq!(status["result"]["unavailable"], "Calls are off in Settings");
+    for (id, params) in [
+        (6, json!({"callId":Uuid::new_v4().to_string()})),
+        (
+            7,
+            json!({"callId":Uuid::new_v4().to_string(),"personaId":persona}),
+        ),
+    ] {
+        send(
+            &mut socket,
+            json!({"id":id,"cmd":"voice.call_start","params":params}),
+        )
+        .await;
+        let refused = until(&mut socket, |f| f["id"] == id).await;
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert!(
+            refused.to_string().contains("Calls are off in Settings"),
+            "{refused}"
+        );
+    }
+
+    send(&mut socket, json!({"id":8,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"}}}}})).await;
+    assert_eq!(until(&mut socket, |f| f["id"] == 8).await["ok"], true);
+    send(
+        &mut socket,
+        json!({"id":9,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    let status = until(&mut socket, |f| f["id"] == 9).await;
+    assert_eq!(
+        status["result"]["directAvailable"], true,
+        "Legacy voice still calls"
+    );
+    socket.close(None).await.unwrap();
+    server.abort();
+}
+
 /// A message the teammate posted to its DM from a call.
 fn is_call_post(event: &Value) -> bool {
     event["kind"] == "agent"

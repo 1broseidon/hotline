@@ -1754,6 +1754,10 @@
 	.composer-call[data-call="held"] {
 		background: var(--ink-3);
 	}
+	/* Waiting while another call holds the line: dimmed, as the dock's desk key is. */
+	.composer-call:disabled {
+		opacity: 0.35;
+	}
 	.composer-call-end {
 		position: absolute;
 		inset: 0;

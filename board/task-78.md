@@ -21,6 +21,7 @@ dependsOn:
   - task-76
   - task-77
   - task-79
+  - task-80
 contract:
   status: ready
   deliverables:
@@ -42,8 +43,8 @@ contract:
   metrics:
     readyAt: "2026-10-16T14:05:40.647Z"
 createdAt: "2026-10-16T14:05:40.652Z"
-updatedAt: "2026-10-16T14:11:15.471Z"
+updatedAt: "2026-10-16T15:06:05.331Z"
 ---
 
 ## Description
-Wire and prove the epic end to end against its description of done. One headless harness in crates/hotline-core/tests/voice.rs drives a single call over the wire on a function-tool dialect (Grok Voice / GPT Realtime socket fake): the front answers a lookup from a desk-side tool (no send_to_teammate), hands one code-changing request to the working session with one short acknowledgement, honours 'put that in the chat' via post_to_chat, and at hang-up the DM holds exactly the hand-off's turn, the post, and one summary; a teammate with a tool not in its Reach has it refused; the front's voice and model follow the teammate's card. A second case on the GPT-Live dialect (task-79) shows the same lookup answered through its desk-side tool loop and a denied tool refused, with heavy work still handed off. Fix whatever gaps between the children this exposes. Check docs/voice-calls.md, docs/voice.md, docs-site/src/content/docs/use/voice.md and ADR 0005 against what shipped, and record any still-open question (harness-native tools, summary voice, per-minute budget) in the ADR.
+Wire and prove the epic end to end against its description of done. One headless harness in crates/hotline-core/tests/voice.rs drives a single call over the wire on a function-tool dialect (Grok Voice / GPT Realtime socket fake): the front answers a lookup from a desk-side tool (no send_to_teammate), hands one code-changing request to the working session with one short acknowledgement, honours 'put that in the chat' via post_to_chat, and at hang-up the DM holds exactly the hand-off's turn, the post, and one first-person summary (task-80: the teammate's own words, no tool names, also in the teammate's history so a typed follow-up carries on from the call); a teammate with a tool not in its Reach has it refused; the front's voice and model follow the teammate's card. A second case on the GPT-Live dialect (task-79) shows the same lookup answered through its desk-side tool loop and a denied tool refused, with heavy work still handed off. Fix whatever gaps between the children this exposes. Check docs/voice-calls.md, docs/voice.md, docs-site/src/content/docs/use/voice.md and ADR 0005 against what shipped, and record any still-open question (harness-native tools, per-minute budget; summary voice if task-80 left it open) in the ADR.

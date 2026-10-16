@@ -27,9 +27,17 @@ contract:
     readyAt: "2026-10-16T15:25:13.483Z"
 createdAt: "2026-10-16T15:25:13.490Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:25:14.912Z"
+updatedAt: "2026-10-16T15:25:16.469Z"
 dependsOn:
   - task-82
+dispatch:
+  agent: claude
+  model: sonnet
+  by: cli
+  at: "2026-10-16T15:25:16.295Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

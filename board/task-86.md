@@ -12,7 +12,7 @@ parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
 dependsOn:
   - task-85
-updatedAt: "2026-10-16T20:35:12.117Z"
+updatedAt: "2026-10-16T20:35:22.047Z"
 relatedFiles:
   - crates/hotline-core/src/contract.rs
   - crates/hotline-core/src/wire/commands.rs
@@ -54,6 +54,8 @@ dispatch:
     runner: desktop
     pid: 12851
     at: "2026-10-16T20:19:36.699Z"
+    ended: "2026-10-16T20:35:22.047Z"
+    outcome: review
 assignee: claude
 ---
 

@@ -964,9 +964,14 @@ impl Room {
         let driver = agent.driver.clone();
         let has_computer = agent.computer;
         let reported = agent.started.clone();
-        let (info_updates, unprompted, subagents) = match agent.watches.take() {
-            Some(watches) => (watches.info, watches.unprompted, watches.subagents),
-            None => (None, None, None),
+        let (info_updates, unprompted, subagents, wakes) = match agent.watches.take() {
+            Some(watches) => (
+                watches.info,
+                watches.unprompted,
+                watches.subagents,
+                watches.wakes,
+            ),
+            None => (None, None, None, None),
         };
         let mut info = idle_info(&persona.id);
         info.state = if driver.startup_failure().is_some() {
@@ -1035,6 +1040,9 @@ impl Room {
         }
         if let Some(subagents) = subagents {
             self.watch_subagents(persona.id.clone(), subagents);
+        }
+        if let Some(wakes) = wakes {
+            self.watch_wakes(&session, wakes);
         }
         // Nothing said is outside a chapter: a session that starts on a tape
         // whose last chapter is closed — or that has none at all — opens one.
@@ -2669,6 +2677,43 @@ impl Room {
                 if room.apply_driver_info(&session, &reported).is_err() {
                     break;
                 }
+            }
+        });
+    }
+
+    /// Wakes the teammate when a command it left running ends on its own: the
+    /// result is a line of Hotline's, never written as the person's, queued
+    /// behind whatever is waiting. On a call to the teammate the turn is
+    /// said on the call as well as written, as a reply to the person's own
+    /// line would be.
+    fn watch_wakes(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        mut wakes: mpsc::UnboundedReceiver<String>,
+    ) {
+        let room = Arc::downgrade(self);
+        let session = Arc::downgrade(session);
+        tokio::spawn(async move {
+            while let Some(text) = wakes.recv().await {
+                let Some(room) = room.upgrade() else {
+                    break;
+                };
+                let Some(session) = session.upgrade() else {
+                    break;
+                };
+                if !session.capability.is_current() || !room.current_session(&session) {
+                    break;
+                }
+                // A room preparing to restart takes no new work, and the
+                // process went with the session that held it.
+                let Ok(_working) = room.working() else {
+                    continue;
+                };
+                let mut wire = Wired::words(text);
+                wire.voice = lock(&room.voice)
+                    .upgrade()
+                    .and_then(|voice| voice.on_call(&session.persona_id));
+                room.dispatch(session, wire);
             }
         });
     }

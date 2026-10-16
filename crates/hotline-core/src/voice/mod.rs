@@ -2628,6 +2628,24 @@ impl Calls {
         }
     }
 
+    /// The call to `persona` going on now, as the origin of a turn its
+    /// session takes by itself: a reply it makes is said on the call, after
+    /// the last line the person said there. None before the person has said
+    /// anything, when there is nothing for the reply to follow.
+    pub(crate) fn on_call(&self, persona: &str) -> Option<Origin> {
+        let calls = lock(&self.calls);
+        let call = calls.iter().rev().find(|call| {
+            call.state != VoiceState::Ended && call.target.as_deref() == Some(persona)
+        })?;
+        Some(Origin {
+            call_id: call.id.clone(),
+            seq: call.seq?,
+            direct: true,
+            front: false,
+            ended: false,
+        })
+    }
+
     /// The teammate's session finished a turn said on a call to it, or left
     /// it open only for its subagents: once what it said is said, the call
     /// listens.

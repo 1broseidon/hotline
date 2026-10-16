@@ -94,6 +94,7 @@ pub(super) struct Watches {
     pub info: Option<watch::Receiver<DriverInfo>>,
     pub unprompted: Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>,
     pub subagents: Option<mpsc::UnboundedReceiver<SubagentReport>>,
+    pub wakes: Option<mpsc::UnboundedReceiver<String>>,
 }
 
 impl ThreadAgent {
@@ -368,6 +369,7 @@ impl Room {
             info: driver.subscribe_info(),
             unprompted: driver.subscribe_unprompted(),
             subagents: driver.subscribe_subagents(),
+            wakes: driver.subscribe_wakes(),
         });
         let mut starting = Starting(Some(driver.clone()));
         let mut info = driver.start(&checkpointed).await?;

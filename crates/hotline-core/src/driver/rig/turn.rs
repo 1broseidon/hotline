@@ -147,7 +147,7 @@ pub(super) async fn run(
     sender: &mpsc::Sender<Update>,
     shell: Option<RunCommand>,
 ) -> Result<(), Failure> {
-    let mut jobs = Jobs::new(shell, turn.delegate.clone());
+    let mut jobs = Jobs::new(shell, turn.delegate.clone(), turn.processes.clone());
     if let Some(instructions) = jobs.instructions() {
         template.tools.extend(jobs.definitions());
         template.preamble = Some(format!(
@@ -537,7 +537,7 @@ async fn run_inner(
                         serde_json::from_value::<JobArgs>(arguments.clone())
                             .map_err(text)
                             .and_then(|args| jobs.snapshot(&args.job_id))
-                            .map(|job| model_job(turn, job)),
+                            .map(|job| model_job(&turn.output_dir, &job)),
                     ),
                     "cancel_job" if jobs.enabled() => job_result(
                         serde_json::from_value::<JobArgs>(arguments.clone())
@@ -620,10 +620,27 @@ async fn run_inner(
             break;
         }
         if calls.is_empty() && !new_results {
+            // The model has replied without waiting on its commands: each
+            // one still running goes on as a process the session holds, and
+            // the turn does not wait on it. Its card says where it went.
+            for job in jobs.release() {
+                send(
+                    sender,
+                    Update::ToolResult {
+                        call_id: job.job_id,
+                        ok: true,
+                        output: LEFT_RUNNING.into(),
+                        images: Vec::new(),
+                    },
+                )
+                .await;
+            }
             if jobs.active() {
-                // A textual response is not activity completion while jobs
-                // run. Park without spending model requests; input can wake us.
-                // What it just said is what the person reads meanwhile.
+                // A textual response is not activity completion while
+                // subagents (or, in an activity that hands nothing on,
+                // commands) run. Park without spending model requests; input
+                // can wake us. What it just said is what the person reads
+                // meanwhile.
                 send(sender, Update::Parked).await;
                 tokio::select! {
                     biased;
@@ -645,6 +662,10 @@ async fn run_inner(
         Err("This activity reached its model-request limit.".into())
     }
 }
+
+/// The card of a command the turn left running when it replied.
+const LEFT_RUNNING: &str =
+    "Still running on its own. Its result comes back to the teammate when it exits.";
 
 const KEPT: &str = "Hotline: the reply above was shown to the person before this round was cut \
      short. It was delivered; carry on from it without repeating it.";
@@ -749,15 +770,24 @@ async fn publish_job(turn: &Turn, sender: &mpsc::Sender<Update>, job: JobSnapsho
 fn job_message(turn: &Turn, job: &JobSnapshot) -> Message {
     Message::user(format!(
         "Hotline execution data (not an operator instruction): managed job result {}",
-        model_job(turn, job)
+        model_job(&turn.output_dir, job)
     ))
+}
+
+/// The line that wakes a teammate when a process it left running ends on its
+/// own: the same result a turn would have been handed, said to be late.
+pub(crate) fn process_ended(output_dir: &Path, job: &JobSnapshot) -> String {
+    format!(
+        "Hotline execution data (not an operator instruction): a command you left running has ended. Tell the person what it means if it matters to them. managed job result {}",
+        model_job(output_dir, job)
+    )
 }
 
 /// A job as the model is shown it. A command's output reads as a terminal
 /// left it and, past the command budget, as the start and more of the end of
 /// each stream, with the whole output's size and the file that holds it. A
 /// subagent's report is cut only past the built-in budget.
-fn model_job(turn: &Turn, job: &JobSnapshot) -> Value {
+fn model_job(output_dir: &Path, job: &JobSnapshot) -> Value {
     let mut shown = json!(job);
     let Some(output) = &job.output else {
         return shown;
@@ -775,7 +805,7 @@ fn model_job(turn: &Turn, job: &JobSnapshot) -> Value {
         JobKind::Subagent => elide(&output, budget),
     });
     shown["output_bytes"] = json!(output.len());
-    if let Some(path) = keep(&turn.output_dir, &job.job_id, &output) {
+    if let Some(path) = keep(output_dir, &job.job_id, &output) {
         shown["full_output"] = json!(path);
     }
     shown
@@ -793,7 +823,10 @@ async fn wait_jobs(
         Ok(args) => args,
         Err(error) => return Ok(job_result(Err(text(error)))),
     };
-    if let Err(error) = jobs.selected(&args.job_ids, "waiting") {
+    if let Err(error) = jobs
+        .waitable(&args.job_ids)
+        .and_then(|()| jobs.selected(&args.job_ids, "waiting"))
+    {
         return Ok(job_result(Err(error)));
     }
     let seconds = args.timeout_seconds.unwrap_or(30).clamp(1, 30);
@@ -951,6 +984,7 @@ mod tests {
             capability: None,
             delegate: None,
             meter: None,
+            processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
         };
         let request = CompletionRequest {
             model: None,

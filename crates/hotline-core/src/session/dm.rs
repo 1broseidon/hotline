@@ -330,9 +330,10 @@ impl Witness for Heard<'_> {
             }
             // The agent has said what it has to say and the turn stays open
             // only for subagents it started: it reads as done. The reply is
-            // heard now, where a turn's end would have said it. A tool still
-            // running that did not launch a subagent (a command left going)
-            // is work, and the turn goes on reading as it does.
+            // heard now, where a turn's end would have said it. Hotline
+            // Agent hands its commands to the session before it parks, so a
+            // tool still open here is a harness's own, which is work, and the
+            // turn goes on reading as it does.
             Update::Parked
                 if in_flight
                     .values()

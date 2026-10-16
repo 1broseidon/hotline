@@ -1,8 +1,6 @@
 ---
 id: task-70
 title: "Desk: GPT Realtime front on an OpenAI API key"
-column: review
-position: 7
 priority: high
 tags:
   - voice
@@ -15,6 +13,8 @@ relatedFiles:
   - crates/hotline-core/src/voice/speech/providers.rs
 parentId: epic-6
 createdAt: "2026-10-15T18:50:11.566Z"
+completedAt: "2026-10-16T01:06:06.898Z"
+updatedAt: "2026-10-16T01:06:06.898Z"
 ---
 
 ## Description

@@ -254,7 +254,16 @@ notices, the quiet window, chapters' gate, receipts, the ledger — and a
   and its loop. A shared loop makes ordinary Rig model requests and admits
   operator steering between them, independently of the selected provider.
   Owned shell jobs outlive individual model requests; waits yield to operator
-  input, and cancellation observes exit before reporting completion.
+  input, and cancellation observes exit before reporting completion. A
+  command still running when the model replies without calling `wait_jobs`
+  is handed to the DM session as a running process and the turn ends: there
+  is no flag and no timer, because the model's choice not to wait is the
+  signal. A process lives as long as the session's driver, counts toward the
+  teammate's four commands, is inspected or cancelled from any later turn,
+  and when it ends on its own its result wakes the teammate once, as a line
+  of Hotline's queued like any other, said on a live call to the teammate
+  as well as written. A stop the teammate or the person asked for wakes
+  nobody.
 - `Driver::Child`: an external harness over the Agent Client Protocol on
   Zed's `agent-client-protocol` crate, a child on tokio.
 

@@ -1,8 +1,6 @@
 ---
 id: task-88
 title: "End-to-end: serve, open, stop — one proof over the wire, and the docs"
-column: review
-position: 0
 priority: high
 tags:
   - processes
@@ -13,7 +11,7 @@ createdAt: "2026-10-16T17:24:29.702Z"
 dependsOn:
   - task-85
   - task-86
-updatedAt: "2026-10-16T20:52:53.865Z"
+updatedAt: "2026-10-16T21:15:09.926Z"
 relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/common
@@ -117,6 +115,7 @@ dispatch:
     ended: "2026-10-16T20:52:53.865Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-16T21:15:09.926Z"
 ---
 
 ## Description
@@ -136,3 +135,4 @@ One end-to-end proof and the docs.
 - 2026-10-16T20:50:48.698Z: Landing sent back (1 of 1): with release/0.39.0 brought in, `grep -q '0.39' CHANGELOG.md` failed: exit 1. Fix it on this branch, commit, and run the checks again.
 - 2026-10-16T20:51:13.326Z: [claude] Lead: landing failed on `grep -q '0.39' CHANGELOG.md`. Add a CHANGELOG entry that literally names 0.39 (heading or line). make check also gates landing: if the TLS test (all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls) fails on main too, it is environmental. Say so with its output in a note, and don't change TLS code from this task.
 - 2026-10-16T20:52:50.933Z: [claude] Landing fix on dispatch/task-88 (df7db39e): the CHANGELOG entry now sits under '## [0.39.0] - Unreleased' below an empty [Unreleased], so `grep -q 0.39` passes; the release commit only swaps 'Unreleased' for the date (scripts/release_notes.py finds the section, previous = 0.38.0). Contract re-run: all commands pass except make check's remote::tests::all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls, the same machine-specific IPv6 failure as before (no lib code on this branch). Still left: stray tracked crates/hotline-core/tests/voice.rs-e.
+- 2026-10-16T21:15:09.543Z: Landed on release/0.39.0

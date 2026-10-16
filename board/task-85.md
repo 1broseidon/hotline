@@ -10,7 +10,7 @@ tags:
   - core
 parentId: epic-8
 createdAt: "2026-10-16T17:24:28.069Z"
-updatedAt: "2026-10-16T19:52:50.937Z"
+updatedAt: "2026-10-16T19:53:01.081Z"
 relatedFiles:
   - crates/hotline-core/src/driver/rig/turn.rs
   - crates/hotline-core/src/session/jobs.rs
@@ -21,6 +21,21 @@ relatedFiles:
   - crates/hotline-core/src/session/tests.rs
   - crates/hotline-core/src/voice/mod.rs
   - docs/security.md
+contract:
+  status: ready
+  validation:
+    commands:
+      - "test \"$(cargo test -p hotline-core running_process -- --list 2>/dev/null | grep -c ': test$')\" -ge 6"
+      - cargo test -p hotline-core running_process
+      - "! grep -n 'a command left going' crates/hotline-core/src/session/dm.rs"
+      - make check
+  constraints:
+    - Name every new test running_process_<what it proves> so the contract can find them; the six in the description are the minimum.
+    - Run `cargo test -p hotline-core` unfiltered (make check does) last, so ui/src/generated/contract.ts is whole.
+    - "No background flag and no timer: the park in turn.rs is the only rule."
+    - State default, grant source, enforcement points, tests and residual risk in the final note (docs/security.md).
+  metrics:
+    readyAt: "2026-10-16T19:53:01.083Z"
 ---
 
 ## Description

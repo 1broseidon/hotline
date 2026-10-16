@@ -13,7 +13,7 @@ createdAt: "2026-10-16T17:24:29.702Z"
 dependsOn:
   - task-85
   - task-86
-updatedAt: "2026-10-16T19:52:51.496Z"
+updatedAt: "2026-10-16T19:53:01.081Z"
 relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/common
@@ -24,6 +24,23 @@ relatedFiles:
   - docs/sessions.md
   - docs/voice-calls.md
   - CHANGELOG.md
+contract:
+  status: ready
+  validation:
+    commands:
+      - cargo test -p hotline-core --test processes
+      - "test \"$(cargo test -p hotline-core --test processes -- --list 2>/dev/null | grep -c ': test$')\" -ge 2"
+      - grep -qi 'running process' docs/sessions.md
+      - grep -qi 'listening' docs/voice-calls.md
+      - grep -q '0.39' CHANGELOG.md
+      - make verify
+      - make check
+  constraints:
+    - The harness lives in crates/hotline-core/tests/processes.rs and drives the real core over the wire; the call proof may live there or extend tests/voice.rs.
+    - Check the tree is gone by pid/process group, not only by the port closing.
+    - Docs say only what is; keep the dm.rs paragraph and docs in step with the code task-85 shipped.
+  metrics:
+    readyAt: "2026-10-16T19:53:01.083Z"
 ---
 
 ## Description

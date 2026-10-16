@@ -12,7 +12,7 @@ parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
 dependsOn:
   - task-85
-updatedAt: "2026-10-16T19:52:51.239Z"
+updatedAt: "2026-10-16T19:53:01.081Z"
 relatedFiles:
   - crates/hotline-core/src/contract.rs
   - crates/hotline-core/src/wire/commands.rs
@@ -23,6 +23,21 @@ relatedFiles:
   - ui/src/components/Dock.tsx
   - ui/src/components/Work.tsx
   - ui/src/index.css
+contract:
+  status: ready
+  validation:
+    commands:
+      - "test \"$(cargo test -p hotline-core process_chip -- --list 2>/dev/null | grep -c ': test$')\" -ge 3"
+      - cargo test -p hotline-core process_chip
+      - grep -q 'processes' ui/src/generated/contract.ts
+      - grep -q 'process.stop' ui/src/generated/contract.ts
+      - make check
+  constraints:
+    - "Name the new wire/contract tests process_chip_<what> and cover: SessionInfo.processes sent on change, process.stop refused for a non-owner and killing for the owner, process.output returning the tail."
+    - The chip reuses the subagents chip's place and style; find it in ui/src/components (Dock.tsx/Work.tsx) rather than adding a new component tree.
+    - "Do not change ui/src/activity.ts shownState semantics: a running process never makes the session read working."
+  metrics:
+    readyAt: "2026-10-16T19:53:01.083Z"
 ---
 
 ## Description

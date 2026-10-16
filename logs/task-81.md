@@ -29,7 +29,7 @@ contract:
     duration: 66
 createdAt: "2026-10-16T15:07:41.728Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:11:21.273Z"
+updatedAt: "2026-10-16T15:11:25.470Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -42,6 +42,8 @@ dispatch:
     runner: desktop
     pid: 12851
     at: "2026-10-16T15:09:18.256Z"
+    ended: "2026-10-16T15:11:25.470Z"
+    outcome: done
 assignee: claude
 completedAt: "2026-10-16T15:11:21.273Z"
 ---

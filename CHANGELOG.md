@@ -8,6 +8,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A teammate can leave a command running. A Hotline Agent teammate that
+  starts a server or a watcher and replies without waiting on it has
+  answered: the turn ends, a call goes back to listening, and the command
+  runs on as a process its session holds. It shows as a chip beside the
+  subagents, opening a card with its latest output and Stop, which ends it
+  and everything it started without waking the teammate. A process that
+  exits on its own wakes the teammate once with its result, said on a call
+  if one is going; stopping the session or changing its grant ends it.
+
 ## [0.38.0] - 2026-10-15
 
 ### Added

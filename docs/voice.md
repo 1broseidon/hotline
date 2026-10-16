@@ -523,12 +523,11 @@ while a desk text call also needs the dispatcher.
 ## One brain, two outputs
 
 A pipeline call to a teammate has nothing in front of the teammate
-(`voice/spoken.rs`); a front call puts a realtime voice there, which relays
-the same way (see the voice front setting below and
-[voice-calls.md](voice-calls.md)). That relay is what runs today;
-[ADR 0005](adr/0005-front-is-a-full-agent.md) makes a direct call's front a
-full agent that answers and runs the teammate's desk-side tools itself, and
-hands this session only the work that needs it. Every utterance goes into the teammate's own session as a
+(`voice/spoken.rs`); a front call puts a realtime voice there, which answers
+conversation and runs the teammate's desk-side tools itself, and hands
+the teammate's session only work that needs it (see the voice front setting
+below, [voice-calls.md](voice-calls.md) and
+[ADR 0005](adr/0005-front-is-a-full-agent.md)). Every handed-off utterance goes into the teammate's own session as a
 turn of its conversation, in the open chapter of its main thread, the same way
 a typed message does (`Calls::hand_off`, `Room::prompt`): same session, same
 harness, same grants. The tape keeps the person's words exactly as they were
@@ -949,8 +948,11 @@ session: it hands a request over as a client `delegation`, which the
 adapter reports as the
 bridge's `send_to_teammate`, and a line for the person goes in on the
 `speakable` channel, which the model says in its own words rather than
-verbatim. Under [ADR 0005](adr/0005-front-is-a-full-agent.md) a
-desk-side tool loop is to answer the delegation instead (task-79). The server stops a reply itself when the person talks; the
+verbatim. On a teammate call the adapter instead
+creates the call with `responses` delegation on a backend model whose
+function calls are the desk-side tools (`realtime/live.rs`); whether the
+ChatGPT sign-in accepts that is unverified, and a rejected call falls back to
+the pipeline. The server stops a reply itself when the person talks; the
 adapter reports the person's new turn as a barge-in so the client cuts its
 playback. Lines wait for `session.started`. Creating the call is retried on
 a 5xx or an unreachable server, and a dropped sideband is joined again. A

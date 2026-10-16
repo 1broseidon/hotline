@@ -92,9 +92,13 @@ Press the phone key in the band at the top of the conversation
 (**Call** and the teammate's name). If dictation is not set up, the key in an
 empty message box (**Talk to** and the teammate's name) starts a call too.
 
-A call reaches the teammate's own agent and model; no other model answers
-for it. What you say goes into its own conversation, in the chapter you are
-in, with the same folders, tools and permissions as when you type to it.
+A live call opens with a voice that speaks as the teammate, in the voice set
+on its card. It answers conversation and looks things up itself, with the
+tools the teammate is allowed; anything that changes code goes to the
+teammate's own agent and model, in the chapter you are in, with the same
+folders, tools and permissions as when you type to it. Afterwards the
+conversation holds that request and one short summary of the call, in the
+teammate's words, so a typed follow-up carries on from it.
 
 - The teammate answers twice: once in a short reply written to be heard, and
   once in the full reply written to be read, with the code, tables and links.

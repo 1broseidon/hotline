@@ -31,7 +31,7 @@ contract:
     duration: 66
 createdAt: "2026-10-16T15:07:41.728Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:10:57.816Z"
+updatedAt: "2026-10-16T15:11:19.599Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -52,3 +52,4 @@ George 2026-10-16 (screenshot): when calls are unavailable, the composer's mic s
 
 ## Log
 - 2026-10-16T15:10:57.463Z: [claude] Send now renders only with a draft (arrival animation kept as a keyframe), so no hidden key holds the slot beside the mic; new ui/tests/composer.test.tsx covers mic-last and call-key unchanged. ui typecheck and tests pass. On branch dispatch/task-81.
+- 2026-10-16T15:11:19.599Z: Landed on release/0.39.0

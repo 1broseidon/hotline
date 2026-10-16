@@ -1,7 +1,7 @@
 ---
 id: task-80
 title: "Desk: a call's summary is the teammate's own words, and its session knows what was said"
-column: todo
+column: in-progress
 position: 4
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
   - record
 parentId: epic-7
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/record.rs
@@ -27,10 +27,12 @@ contract:
     - Work on release/0.39.0; do not touch main
   metrics:
     readyAt: "2026-10-16T15:01:23.363Z"
+    pickedUpAt: "2026-10-16T15:19:46.199Z"
+    reworkCount: 0
 createdAt: "2026-10-16T15:01:23.373Z"
 dependsOn:
   - task-79
-updatedAt: "2026-10-16T15:19:28.167Z"
+updatedAt: "2026-10-16T15:19:46.199Z"
 dispatch:
   agent: claude
   model: sonnet

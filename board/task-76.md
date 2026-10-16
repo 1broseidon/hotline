@@ -1,7 +1,7 @@
 ---
 id: task-76
 title: "ADR 0005: the live voice is a full agent on the call"
-column: in-progress
+column: review
 position: 3
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
   - adr
 parentId: epic-7
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: docs/adr/0005-front-is-a-full-agent.md
@@ -30,6 +30,8 @@ contract:
     readyAt: "2026-10-16T14:03:19.674Z"
     pickedUpAt: "2026-10-16T14:11:48.865Z"
     reworkCount: 1
+    deliveredAt: "2026-10-16T14:17:03.350Z"
+    duration: 314
 createdAt: "2026-10-16T14:03:19.681Z"
 dispatch:
   agent: claude
@@ -43,7 +45,7 @@ dispatch:
     pid: 12851
     at: "2026-10-16T14:11:30.214Z"
 assignee: claude
-updatedAt: "2026-10-16T14:11:48.865Z"
+updatedAt: "2026-10-16T14:17:03.350Z"
 ---
 
 ## Description

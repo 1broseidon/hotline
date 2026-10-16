@@ -2,8 +2,8 @@
 id: epic-6
 title: "Live calls get a voice front: Grok Voice / GPT-Live talk, the teammate works (0.38)"
 type: epic
-column: todo
-position: 36
+column: review
+position: 0
 priority: high
 tags:
   - feature
@@ -12,7 +12,7 @@ tags:
   - 0.38.0
 createdAt: "2026-10-14T20:03:32.697Z"
 assignee: claude
-updatedAt: "2026-10-15T01:56:09.941Z"
+updatedAt: "2026-10-16T01:06:10.024Z"
 lead:
   agent: claude
   model: sonnet

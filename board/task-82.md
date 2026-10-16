@@ -1,0 +1,35 @@
+---
+id: task-82
+title: "Providers: Live calls and Images can be turned Off"
+column: todo
+position: 3
+priority: medium
+tags:
+  - settings
+  - voice
+  - images
+  - ui
+  - 0.39.0
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: ui/src/components/UseFor.tsx
+      description: Off on both pickers
+    - type: test
+      path: crates/hotline-core/tests/voice.rs
+      description: Calls off refuses a call and says why
+  validation:
+    commands:
+      - make check
+  constraints:
+    - "AGENTS.md rules: commit messages are one line stating the invariant; new behaviour needs a headless harness; doc drift is a bug"
+    - Run cargo test -p hotline-core UNFILTERED before committing ui/src/generated/contract.ts
+    - Work on release/0.39.0; do not touch main
+  metrics:
+    readyAt: "2026-10-16T15:22:42.062Z"
+createdAt: "2026-10-16T15:22:42.069Z"
+---
+
+## Description
+George 2026-10-16: some people will not want live calls or image generation at all. Settings › Providers › Use for gets an Off choice on both pickers, last in each list and never the default (a new or unset desk keeps today's behaviour). Live calls Off: the desk offers no calls, to the desk or a teammate: voice.status reports calls unavailable with a reason ('Calls are off in Settings'), so the window's composer call key and dock desk key are not drawn (no fake UI) and the phone draws no call key either (its capability check already follows voice.status). This is distinct from Legacy voice, which still calls. Images Off: no teammate is offered generate_image (Hotline Agent's tool list and the MCP tool both refuse with 'Image generation is off in Settings'), avatar generation for a new teammate is offered without a picture, and the Images picker shows Off. Stored in the room's settings beside the existing picks (voice.front provider 'off'? or a separate enabled flag: pick the shape that an older desk reads as the default, and record it in docs/voice.md and the images doc). Mirror on the phone: hotline-mobile Voice & images lists Off in both choice pages (separate mobile task once the desk ships). Harness: with Live calls Off, voice.call_start is refused and voice.status says why; with Images Off, generate_image is not in a teammate's tools.

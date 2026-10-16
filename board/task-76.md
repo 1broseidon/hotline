@@ -28,8 +28,8 @@ contract:
     - Work on release/0.39.0; do not touch main
   metrics:
     readyAt: "2026-10-16T14:03:19.674Z"
-    pickedUpAt: "2026-10-16T14:06:10.812Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-16T14:11:48.865Z"
+    reworkCount: 1
 createdAt: "2026-10-16T14:03:19.681Z"
 dispatch:
   agent: claude
@@ -43,7 +43,7 @@ dispatch:
     pid: 12851
     at: "2026-10-16T14:11:30.214Z"
 assignee: claude
-updatedAt: "2026-10-16T14:11:30.214Z"
+updatedAt: "2026-10-16T14:11:48.865Z"
 ---
 
 ## Description

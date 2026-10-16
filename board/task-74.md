@@ -17,21 +17,22 @@ contract:
       description: Tool registry and desk-side execution
     - type: test
       path: crates/hotline-core/tests/voice.rs
-      description: A front call answers from a tool with no hand-off
+      description: A front call answers from a tool with no hand-off, and a denied grant is refused through the real handler
   validation:
     commands:
       - make check
+      - cargo test -p hotline-core --test voice
   constraints:
     - "AGENTS.md rules: commit messages are one line stating the invariant; new behaviour needs a headless harness in crates/hotline-core/tests/; doc drift is a bug"
     - Run cargo test -p hotline-core UNFILTERED before committing ui/src/generated/contract.ts (a filtered run truncates it)
-    - Capability changes follow docs/security.md
+    - "Capability changes follow docs/security.md: prove each tool allowed and denied through the real handler, revocable via the session lease, and state default, grant source, enforcement points, tests, residual risk in the PR"
     - Work on release/0.39.0; do not touch main
   metrics:
-    readyAt: "2026-10-16T14:02:49.214Z"
+    readyAt: "2026-10-16T14:05:40.080Z"
 createdAt: "2026-10-16T14:02:49.220Z"
 dependsOn:
   - task-76
-updatedAt: "2026-10-16T14:05:23.264Z"
+updatedAt: "2026-10-16T14:05:40.080Z"
 relatedFiles:
   - crates/hotline-core/src/voice/duplex.rs
   - crates/hotline-core/src/voice/front.rs

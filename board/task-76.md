@@ -34,9 +34,14 @@ dispatch:
   model: opus
   by: lead
   at: "2026-10-16T14:05:46.777Z"
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 12851
+    at: "2026-10-16T14:05:48.659Z"
 assignee: claude
-updatedAt: "2026-10-16T14:05:46.903Z"
+updatedAt: "2026-10-16T14:05:48.659Z"
 ---
 
 ## Description

@@ -43,14 +43,19 @@ contract:
   metrics:
     readyAt: "2026-10-16T14:05:40.647Z"
 createdAt: "2026-10-16T14:05:40.652Z"
-updatedAt: "2026-10-16T15:42:20.773Z"
+updatedAt: "2026-10-16T15:42:23.272Z"
 dispatch:
   agent: claude
   model: sonnet
   by: lead
   at: "2026-10-16T15:42:20.631Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 12851
+    at: "2026-10-16T15:42:23.272Z"
 assignee: claude
 ---
 

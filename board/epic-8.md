@@ -12,7 +12,7 @@ tags:
   - ui
 createdAt: "2026-10-16T17:24:27.523Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T19:52:05.991Z"
+updatedAt: "2026-10-16T19:52:07.216Z"
 dispatch:
   agent: claude
   model: opus
@@ -20,6 +20,11 @@ dispatch:
   at: "2026-10-16T19:52:05.863Z"
   until: done
   role: lead
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 12851
+    at: "2026-10-16T19:52:07.216Z"
 assignee: claude
 ---
 

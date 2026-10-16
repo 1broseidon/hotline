@@ -1,8 +1,6 @@
 ---
 id: task-68
 title: "Desk: a direct call's front is the teammate, in the first person"
-column: review
-position: 5
 priority: high
 tags:
   - voice
@@ -13,6 +11,8 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_prompt.rs
 parentId: epic-6
 createdAt: "2026-10-15T18:50:10.567Z"
+completedAt: "2026-10-16T01:06:05.656Z"
+updatedAt: "2026-10-16T01:06:05.656Z"
 ---
 
 ## Description

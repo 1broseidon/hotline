@@ -924,7 +924,15 @@ calls picks one Model from a list grouped by provider, each front once per
 connected login or key with who pays beneath it, and lists a front with
 nothing connected so it can be found. `{ "provider": "legacy" }`, Legacy
 voice there, keeps the transcribe, route and speak pipeline, and a provider
-the build has no adapter for is read as Legacy voice too.
+the build has no adapter for is read as Legacy voice too. `{ "provider":
+"off" }`, Off there (last in the list, never the default), offers no calls at
+all: `voice.status` reports `available` and `directAvailable` false with
+`unavailable: "Calls are off in Settings"` and no capabilities, so no client
+draws a call key, and `voice.call_start` to the desk or a teammate is refused
+with the same words. It is a provider value rather than a separate flag so the
+picker's one choice is the setting's one key; a desk older than it reads the
+unknown provider as Legacy voice and keeps calling, which is the only way an
+older desk differs.
 
 Both fronts run on one driver, `voice/realtime/socket.rs`, since xAI's
 realtime protocol follows OpenAI's: the dialects differ in the model, the

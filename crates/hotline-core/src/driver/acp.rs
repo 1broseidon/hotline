@@ -2052,19 +2052,20 @@ impl ChildAgent {
             AgentKind::Acp,
             persona.backend_id.clone(),
         );
+        let hotline_tools = self.teammate.tool_names();
         match &serving {
             Ok(()) => ledger.all(
                 ToolState::Declared,
                 ToolSourceKind::Builtin,
                 mcp::server::SERVER_NAME,
-                &mcp::server::TOOL_NAMES,
+                &hotline_tools,
                 "served on this teammate's own loopback endpoint and named in its session",
             ),
             Err(reason) => ledger.all(
                 ToolState::Absent,
                 ToolSourceKind::Builtin,
                 mcp::server::SERVER_NAME,
-                &mcp::server::TOOL_NAMES,
+                &hotline_tools,
                 reason,
             ),
         };

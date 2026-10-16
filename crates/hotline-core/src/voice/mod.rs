@@ -120,6 +120,10 @@ impl Speech for FrontSpeech {
     }
 }
 
+/// Why a call is refused, and what `voice.status` says, while the owner has
+/// Live calls Off.
+pub const CALLS_OFF: &str = "Calls are off in Settings";
+
 /**
  * The kinds of paid work a call can do, each spent against its own budget:
  * hearing and speaking against Voice when their provider charges, and the
@@ -639,6 +643,18 @@ impl Calls {
     }
 
     pub fn status_for(&self, input_mode: VoiceInputMode) -> VoiceStatus {
+        let mut status = self.pipeline_status(input_mode);
+        if self.settings().calls_off {
+            status.capabilities.clear();
+            status.available = false;
+            status.direct_available = false;
+            status.unavailable = Some(CALLS_OFF.into());
+            status.front = None;
+        }
+        status
+    }
+
+    fn pipeline_status(&self, input_mode: VoiceInputMode) -> VoiceStatus {
         let speech = self.resolve_speech(input_mode, None);
         // A front takes a call the pipeline could not: it hears and speaks itself.
         let front = self
@@ -760,6 +776,9 @@ impl Calls {
         mic_rate: Option<u32>,
         room: Arc<dyn RoomHandle>,
     ) -> Result<VoiceCall, String> {
+        if self.settings().calls_off {
+            return Err(CALLS_OFF.into());
+        }
         if let Some(target) = &target
             && !crate::room::roster(&self.log)
                 .iter()

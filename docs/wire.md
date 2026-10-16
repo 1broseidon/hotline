@@ -395,7 +395,15 @@ its Voice limits, and no others.
 defaulting to `{}`. An omitted provider selects the first connected provider
 that can make images, on its default model; a model is used only with an
 explicit provider. An unavailable explicit provider is reported rather than
-silently switched. `spending` is a `SpendingSettings` object with a budget
+silently switched. The provider `off` (Settings › Providers › Use for ›
+Images › Off, never the default) turns image generation off: `images.status`
+is unavailable with "Image generation is off in Settings", `generate_image`
+is left out of every teammate's tools (Hotline Agent's list, the MCP listing
+and the tool ledger) and refuses with those words if called, and
+`capabilities.options` reports the pick as `off` named "Off". A new
+teammate's picture is then not offered. An older desk reads `off` as an
+explicit provider that is not connected, so it reports images unavailable
+too. `spending` is a `SpendingSettings` object with a budget
 each for `chat` (teammates and the call assistant), `voice` (transcription
 and speech) and `images`, each `{dayUsd?: number, monthUsd?: number}`:
 

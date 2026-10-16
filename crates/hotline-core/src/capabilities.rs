@@ -37,7 +37,7 @@ pub async fn options(
     CapabilityOptions {
         images: CapabilityJob {
             selected: images.provider.as_ref().map(|provider_id| {
-                pick(
+                let mut selected = pick(
                     &image_options,
                     &Choice {
                         provider_id: provider_id.clone(),
@@ -45,7 +45,11 @@ pub async fn options(
                         voice: None,
                         effort: None,
                     },
-                )
+                );
+                if images.is_off() {
+                    selected.provider_name = "Off".into();
+                }
+                selected
             }),
             automatic: imagegen::describe(vault, &ImageSettings::default())
                 .ok()

@@ -21,7 +21,9 @@ import {
 	effortsOf,
 	FRONTS,
 	FRONT_LOGINS,
+	IMAGES_OFF_CHOICE,
 	LEGACY,
+	OFF,
 	frontOf,
 	frontPatch,
 	listenForOf,
@@ -104,10 +106,10 @@ export function UseFor({
 			<section>
 				<h3 className="group-title">Use for</h3>
 				<div className="grouped use-for">
-					<JobRow title="Images" detail={inUse(options.images)} job={options.images}>
+					<JobRow title="Images" detail={options.images.selected?.providerId === OFF ? "Teammates cannot make images" : inUse(options.images)} job={options.images}>
 						<Picker
 							value={currentId(options.images)}
-							choices={shortChoices(options.images)}
+							choices={withOff(shortChoices(options.images))}
 							placeholder="Automatic"
 							label="Model for images"
 							onChange={(id) => {
@@ -271,8 +273,10 @@ function LiveCalls({
 			return connected.map((via) => ({ id: frontId(one.id, via.id), name: one.name, detail: via.detail, group: one.group }));
 		}),
 		{ id: LEGACY, name: "Legacy voice", detail: "Hears you, thinks, then speaks, one step at a time", group: "Hotline" },
+		{ id: OFF, name: "Off", detail: "No calls, to the desk or a teammate", group: "Hotline" },
 	];
-	const value = chosen === undefined ? LEGACY : login === undefined ? "" : frontId(chosen.id, login.id);
+	const off = front.provider === OFF;
+	const value = off ? OFF : chosen === undefined ? LEGACY : login === undefined ? "" : frontId(chosen.id, login.id);
 	return (
 		<>
 			<h3 className="group-title">Live calls</h3>
@@ -281,7 +285,9 @@ function LiveCalls({
 					<span className="group-row-text">
 						<span className="group-row-title">Model</span>
 						<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
-							{chosen === undefined
+							{off
+								? "Calls are off."
+								: chosen === undefined
 								? "Calls hear you, think, then speak, one step at a time."
 								: login === undefined
 									? `${chosen.connect}. Until then, calls use Legacy voice.`
@@ -291,17 +297,17 @@ function LiveCalls({
 					<Picker
 						value={value}
 						choices={choices}
-						placeholder={chosen === undefined ? "Legacy voice" : chosen.name}
+						placeholder={off ? "Off" : chosen === undefined ? "Legacy voice" : chosen.name}
 						label="Model for live calls"
 						onChange={(id) => {
-							if (id === LEGACY) return write({ provider: LEGACY });
+							if (id === LEGACY || id === OFF) return write({ provider: id });
 							const at = id.indexOf("|");
 							if (at === id.length - 1) return;
 							write({ provider: id.slice(0, at), credential: id.slice(at + 1) });
 						}}
 					/>
 				</div>
-				{chosen === undefined && children}
+				{chosen === undefined && !off && children}
 				{chosen !== undefined && (
 					<div className="group-row use-for-nested">
 						<span className="group-row-text">
@@ -346,6 +352,11 @@ function inUse(job: CapabilityJob): string {
 /** The picker's own words stay short: the row's second line says what Automatic comes to. */
 function shortChoices(job: CapabilityJob): PickerChoice[] {
 	return choicesFor(job).map((choice) => (choice.id === AUTOMATIC ? { ...choice, name: "Automatic" } : choice));
+}
+
+/** Off, last: choicesFor lists a pick no provider offers as "Not connected", which Off is not. */
+function withOff(choices: PickerChoice[]): PickerChoice[] {
+	return [...choices.filter((choice) => choice.id !== IMAGES_OFF_CHOICE.id), IMAGES_OFF_CHOICE];
 }
 
 /** Voices read as names: "eve" is Eve. */

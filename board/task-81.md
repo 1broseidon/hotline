@@ -1,7 +1,7 @@
 ---
 id: task-81
 title: "Composer: with no call key, the mic sits flush right"
-column: todo
+column: in-progress
 position: 4
 priority: medium
 tags:
@@ -10,7 +10,7 @@ tags:
   - composer
   - 0.39.0
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: ui/src/components/Composer.tsx
@@ -25,9 +25,11 @@ contract:
     - Work on release/0.39.0; do not touch main
   metrics:
     readyAt: "2026-10-16T15:07:41.722Z"
+    pickedUpAt: "2026-10-16T15:09:52.253Z"
+    reworkCount: 0
 createdAt: "2026-10-16T15:07:41.728Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:09:18.256Z"
+updatedAt: "2026-10-16T15:09:52.253Z"
 dispatch:
   agent: claude
   model: sonnet

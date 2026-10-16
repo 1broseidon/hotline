@@ -239,9 +239,10 @@ function frontId(provider: string, login: string): string {
 /**
  * Who answers a live call, to the desk or to a teammate, picked as one model
  * from a list grouped by the provider it comes from. Grok Voice, the default,
- * and GPT Realtime are realtime models that talk with the person while the
- * teammate works, each listed once for every connected login or key that can
- * run it, since that decides who pays, or once with nothing connected so it
+ * and GPT Realtime are realtime models that talk with the person and run the
+ * teammate's lookups themselves, and GPT-Live is the same agent with its
+ * reasoning delegated to a backend model, all handing heavy work to the teammate. Each is listed once for every connected
+ * login or key that can run it, since that decides who pays, or once with nothing connected so it
  * can be found. Legacy voice is the transcribe, route
  * and speak pipeline, and its own rows show only under it; the desk also
  * falls back on it by itself when the chosen front has nothing connected.
@@ -285,7 +286,7 @@ function LiveCalls({
 								? "Calls hear you, think, then speak, one step at a time."
 								: login === undefined
 									? `${chosen.connect}. Until then, calls use Legacy voice.`
-									: `Talks with you while your teammate works. ${login.detail}.`}
+									: `A full agent: talks with you, looks things up and hands heavy work to your teammate. ${login.detail}.`}
 						</span>
 					</span>
 					<Picker

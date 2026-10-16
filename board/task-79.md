@@ -18,7 +18,7 @@ parentId: epic-7
 dependsOn:
   - task-74
 contract:
-  status: draft
+  status: ready
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/front_tools.rs
@@ -35,7 +35,10 @@ contract:
     - Run cargo test -p hotline-core UNFILTERED before committing ui/src/generated/contract.ts
     - "Capability changes follow docs/security.md: allowed and denied through the real handler, revocable via the session lease"
     - Work on release/0.39.0; do not touch main
+  metrics:
+    readyAt: "2026-10-16T15:06:10.385Z"
 createdAt: "2026-10-16T14:11:07.271Z"
+updatedAt: "2026-10-16T15:06:10.385Z"
 ---
 
 ## Description

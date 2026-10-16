@@ -1,7 +1,7 @@
 ---
 id: task-86
 title: "Contract + desk: running processes show as a chip with output and Stop"
-column: in-progress
+column: review
 position: 2
 priority: high
 tags:
@@ -12,7 +12,7 @@ parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
 dependsOn:
   - task-85
-updatedAt: "2026-10-16T20:19:52.757Z"
+updatedAt: "2026-10-16T20:35:12.117Z"
 relatedFiles:
   - crates/hotline-core/src/contract.rs
   - crates/hotline-core/src/wire/commands.rs
@@ -24,7 +24,7 @@ relatedFiles:
   - ui/src/components/Work.tsx
   - ui/src/index.css
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - "test \"$(cargo test -p hotline-core process_chip -- --list 2>/dev/null | grep -c ': test$')\" -ge 3"
@@ -40,6 +40,8 @@ contract:
     readyAt: "2026-10-16T19:53:01.083Z"
     pickedUpAt: "2026-10-16T20:19:52.757Z"
     reworkCount: 0
+    deliveredAt: "2026-10-16T20:35:12.117Z"
+    duration: 919
 dispatch:
   agent: claude
   model: opus

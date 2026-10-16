@@ -1,8 +1,8 @@
 ---
 id: task-88
 title: "End-to-end: serve, open, stop — one proof over the wire, and the docs"
-column: review
-position: 4
+column: in-progress
+position: 0
 priority: high
 tags:
   - processes
@@ -13,7 +13,7 @@ createdAt: "2026-10-16T17:24:29.702Z"
 dependsOn:
   - task-85
   - task-86
-updatedAt: "2026-10-16T20:50:50.282Z"
+updatedAt: "2026-10-16T20:51:19.411Z"
 relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/common

@@ -12,7 +12,7 @@ tags:
   - 0.39.0
 createdAt: "2026-10-16T13:52:14.099Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T14:04:44.290Z"
+updatedAt: "2026-10-16T14:06:42.316Z"
 assignee: claude
 dispatch:
   agent: claude
@@ -36,7 +36,7 @@ Shape:
 2. Heavy work still has a path: long or code-changing work goes to the working session as today, but by the front's choice, not for every utterance.
 3. The call keeps its own transcript; nothing mirrors into the DM per turn. A summary posts at hang-up and every N minutes on a long call; "put that in the chat" posts at once.
 4. Settings parity: model, voice, reach and grants follow the teammate's card.
-5. Providers: Grok Voice and GPT Realtime take function tools; GPT-Live only delegates, so on GPT-Live the front stays delegate-only (say so in Live calls).
+5. Providers: Grok Voice and GPT Realtime take function tools on the realtime session; GPT-Live delegates tool use to a backend whose function calls come back to the desk to run. All three get the full agent.
 
 Open questions: how a harness teammate's own tools (Claude Code edits, Codex) map, since those live inside the harness; whether the summary is the front's or the teammate's words; budget for long tool-heavy calls on per-minute keys.
 

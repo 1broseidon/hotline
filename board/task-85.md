@@ -10,7 +10,7 @@ tags:
   - core
 parentId: epic-8
 createdAt: "2026-10-16T17:24:28.069Z"
-updatedAt: "2026-10-16T19:53:01.081Z"
+updatedAt: "2026-10-16T19:53:09.011Z"
 relatedFiles:
   - crates/hotline-core/src/driver/rig/turn.rs
   - crates/hotline-core/src/session/jobs.rs
@@ -36,6 +36,14 @@ contract:
     - State default, grant source, enforcement points, tests and residual risk in the final note (docs/security.md).
   metrics:
     readyAt: "2026-10-16T19:53:01.083Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-16T19:53:08.888Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

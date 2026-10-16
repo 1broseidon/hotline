@@ -15,7 +15,7 @@ import { UpdateFloat } from "./components/UpdateFloat";
 import { closeCall, startCall, useCall, useCallSnapshot, useVoiceSupport } from "./voice/call";
 import { WindowEdges } from "./ui/WindowEdges";
 import { Teammate } from "./components/Teammate";
-import { sameWork, Work, type OpenWork } from "./components/Work";
+import { ProcessWork, sameWork, Work, type OpenWork } from "./components/Work";
 import type { ThreadRef } from "./components/Transcript";
 import { EmptyRoom, Welcome } from "./components/Welcome";
 import { matchChord } from "./chords";
@@ -628,16 +628,26 @@ export function App() {
 
 	/* The work card shows only on its own teammate's conversation: not over
 	 * Settings or another pane, and not on a teammate who has none open. */
-	const workCard = (entry: RosterEntry, open: OpenWork) => (
-		<Work
-			key={`work-${entry.persona.id}`}
-			open={open}
-			name={entry.persona.name}
-			live={shownState(entry.session) === "thinking"}
-			docked={dockWork}
-			onClose={() => closeWork(entry.persona.id)}
-		/>
-	);
+	const workCard = (entry: RosterEntry, open: OpenWork) =>
+		open.processId !== undefined ? (
+			<ProcessWork
+				key={`process-${entry.persona.id}-${open.processId}`}
+				personaId={entry.persona.id}
+				processId={open.processId}
+				process={entry.session.processes?.find((process) => process.id === open.processId)}
+				docked={dockWork}
+				onClose={() => closeWork(entry.persona.id)}
+			/>
+		) : (
+			<Work
+				key={`work-${entry.persona.id}`}
+				open={open}
+				name={entry.persona.name}
+				live={shownState(entry.session) === "thinking"}
+				docked={dockWork}
+				onClose={() => closeWork(entry.persona.id)}
+			/>
+		);
 	const floatWork = pane === null && !welcome && selected !== null && workOf !== undefined && !dockWork && !dockOverlay ? workCard(selected, workOf) : null;
 
 
@@ -777,7 +787,9 @@ export function App() {
 							onOpenThread={openThread}
 							onOpenThreadList={openThreadList}
 							onOpenWork={(blockId) => openWork({ personaId: selected.persona.id, blockId })}
-							workOpen={workOf?.blockId}
+							workOpen={workOf?.processId === undefined ? workOf?.blockId : undefined}
+							onOpenProcess={(processId) => openWork({ personaId: selected.persona.id, blockId: null, processId })}
+							processOpen={workOf?.processId}
 							threadOpen={dock?.open?.thread}
 							paneOpen={dock !== null}
 							{...(dockWork && workOf !== undefined ? { dock: workCard(selected, workOf) } : {})}

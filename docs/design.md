@@ -263,7 +263,9 @@ notices, the quiet window, chapters' gate, receipts, the ledger — and a
   and when it ends on its own its result wakes the teammate once, as a line
   of Hotline's queued like any other, said on a live call to the teammate
   as well as written. A stop the teammate or the person asked for wakes
-  nobody.
+  nobody. The desk shows each beside the session's state, never as part of
+  it (`SessionInfo.processes`, sent when the set changes), with its output
+  tail read on demand (`process.output`) and a Stop (`process.stop`).
 - `Driver::Child`: an external harness over the Agent Client Protocol on
   Zed's `agent-client-protocol` crate, a child on tokio.
 

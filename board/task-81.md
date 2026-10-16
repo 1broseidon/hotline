@@ -1,0 +1,32 @@
+---
+id: task-81
+title: "Composer: with no call key, the mic sits flush right"
+column: todo
+position: 4
+priority: medium
+tags:
+  - bug
+  - ui
+  - composer
+  - 0.39.0
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: ui/src/components/Composer.tsx
+      description: No hidden Send holding the slot
+    - type: test
+      path: ui/tests/composer.test.tsx
+      description: Mic is the last key when there is no call key
+  validation:
+    commands:
+      - make ui-check
+  constraints:
+    - Work on release/0.39.0; do not touch main
+  metrics:
+    readyAt: "2026-10-16T15:07:41.722Z"
+createdAt: "2026-10-16T15:07:41.728Z"
+---
+
+## Description
+George 2026-10-16 (screenshot): when calls are unavailable, the composer's mic stops short of the right edge with an empty key-sized gap after it. Cause (ui/src/components/Composer.tsx, the right slot): with no call key and an empty field, the Send key still renders, hidden by opacity (.composer-send without data-shown is opacity 0 and pointer-events none) but still taking its 28px plus the gap. With a call key the slot is the call key, so nothing shows wrong. Fix: when there is no call key, the empty field's Send takes no space (render it only with a draft, or collapse its width while hidden and keep the arrival animation), so the mic sits at the right edge with the composer's usual inset, and typing brings Send in beside it. Check: empty field with calls unavailable, empty field with calls available (call key unchanged), typing (Send arrives, no jump), dictating, working with no draft (Stop).

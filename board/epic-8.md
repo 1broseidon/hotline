@@ -12,21 +12,23 @@ tags:
   - ui
 createdAt: "2026-10-16T17:24:27.523Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T17:24:31.292Z"
+updatedAt: "2026-10-16T17:55:45.829Z"
 ---
 
 ## Description
 A teammate often has to leave a process running: a local server so the person can open a page, a dev server, a watcher. Today a Hotline Agent's shell command is a job owned by the turn. The turn parks on it, a process that never exits keeps it "Working" forever, and on a call the front keeps saying "Still on it" (QA 2026-10-16: Goldie served a chart with `python3 -m http.server 8770`, said "the chart is open", and both GPT-Live and Grok calls stalled). This is a common voice flow: the person asks the teammate to fix something and open it in the browser.
 
-Goal: a process the teammate means to leave running is a **running process**:
-- It belongs to the teammate's session, not the turn, so the turn ends normally.
-- It shows as a chip, as subagents do.
-- It can be stopped from the chip, or by the teammate in a later turn.
+Goal: a shell job still running when the teammate has said its reply is a **running process**:
+- The rule is deterministic and needs nothing from the model: when the turn parks (`driver/rig/turn.rs`, the model has replied and made no `wait_jobs` call) every shell job still running is handed to the teammate's session and the turn ends. A model that waits with `wait_jobs` is unchanged. There is no flag and no timer: a timer has no right value, and a flag is something the model forgets (Goldie did not know her server would never exit).
+- It belongs to the session, not the turn, so the turn ends normally and everything that waits on a turn (chapters, schedules, queued lines, stop) proceeds.
+- It shows as a chip, as subagents do, and can be stopped from the chip or by the teammate in a later turn.
+- When it exits on its own, its result wakes the teammate once (the subagent precedent: the report wakes you), so a build the model did not wait on is still reported, and a server that dies is said. A stop from the chip does not wake it: the person did it.
 - It never makes the chat or a call read as working.
 
-Scope: the Hotline Agent's own shell (`session/jobs.rs`, `driver/rig/turn.rs`). ACP agents run their own shells and are out of scope. A phone mirror of the chip is a later hotline-mobile task.
+Scope: the Hotline Agent's own shell (`session/jobs.rs`, `driver/rig/turn.rs`, `session/dm.rs`). ACP agents run their own shells and are out of scope. A phone mirror of the chip is a later hotline-mobile task.
 
 Done when:
-- A teammate can serve a page and open it, its turn ends, and the chip shows the server.
+- A teammate can serve a page and open it, its turn ends the moment it replies, and the chip shows the server.
 - Stop kills the process tree.
-- A call on either front goes quiet after the reply instead of looping "Still on it".
+- A call on either front goes Listening after the reply instead of looping "Still on it".
+- A process that exits on its own is reported by the teammate in one new turn.

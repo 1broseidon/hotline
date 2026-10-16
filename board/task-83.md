@@ -61,3 +61,6 @@ Spec:
 - Narrow window (settings full-width, no rail): the footer sits at the end of the section list instead.
 - No other entry changes: the ⌘, and any existing chords still open the same sections.
 Check in the dev window: list shows only single-word sections; footer aligned to the rows' text edge and 16px off the foot; About and Shortcuts open from it with the right item lit; Tab order; tooltips 2-3 words.
+
+## Log
+- 2026-10-16T15:48:19.316Z: [claude] Settings rail footer on dispatch/task-83: version button (About, 'Update ready' + accent dot via watchUpdates) and Shortcuts button, aria-current when open; both removed from the list; tests/settings.test.tsx; make ui-check passes. Not checked in a live dev window. No chord is bound to shortcuts, so its tooltip has none. The narrow window keeps the rail, so the footer is always at the rail's foot.

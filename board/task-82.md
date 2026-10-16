@@ -1,7 +1,7 @@
 ---
 id: task-82
 title: "Providers: Live calls and Images can be turned Off"
-column: in-progress
+column: review
 position: 3
 priority: medium
 tags:
@@ -11,7 +11,7 @@ tags:
   - ui
   - 0.39.0
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: ui/src/components/UseFor.tsx
@@ -30,9 +30,11 @@ contract:
     readyAt: "2026-10-16T15:22:42.062Z"
     pickedUpAt: "2026-10-16T15:26:04.077Z"
     reworkCount: 0
+    deliveredAt: "2026-10-16T15:38:30.639Z"
+    duration: 747
 createdAt: "2026-10-16T15:22:42.069Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:26:04.077Z"
+updatedAt: "2026-10-16T15:38:30.639Z"
 dispatch:
   agent: claude
   model: sonnet

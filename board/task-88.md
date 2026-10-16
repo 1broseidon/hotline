@@ -1,7 +1,7 @@
 ---
 id: task-88
 title: "End-to-end: serve, open, stop — one proof over the wire, and the docs"
-column: in-progress
+column: review
 position: 4
 priority: high
 tags:
@@ -13,7 +13,7 @@ createdAt: "2026-10-16T17:24:29.702Z"
 dependsOn:
   - task-85
   - task-86
-updatedAt: "2026-10-16T20:37:29.171Z"
+updatedAt: "2026-10-16T20:50:28.123Z"
 relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/common
@@ -25,7 +25,7 @@ relatedFiles:
   - docs/voice-calls.md
   - CHANGELOG.md
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - cargo test -p hotline-core --test processes
@@ -43,6 +43,8 @@ contract:
     readyAt: "2026-10-16T19:53:01.083Z"
     pickedUpAt: "2026-10-16T20:37:29.171Z"
     reworkCount: 0
+    deliveredAt: "2026-10-16T20:50:28.123Z"
+    duration: 779
 dispatch:
   agent: claude
   model: opus

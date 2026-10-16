@@ -26,3 +26,6 @@ Shape:
 Open questions: how a harness teammate's own tools (Claude Code edits, Codex) map, since those live inside the harness; whether the summary is the front's or the teammate's words; budget for long tool-heavy calls on per-minute keys.
 
 Step 0 shipped separately: 0.38.1 (release/0.38.1, e2fab793) keeps talk about the call in the voice.
+
+## Log
+- 2026-10-16T13:57:42.600Z: [claude] 2026-10-16: George chose to roll the small-talk fix into 0.39 rather than ship 0.38.1. Integration branch release/0.39.0 cut from main (desktop-v0.38.0) with e2fab793 on it; 0.39 features merge there.

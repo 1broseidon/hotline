@@ -13,7 +13,7 @@ createdAt: "2026-10-16T17:24:29.702Z"
 dependsOn:
   - task-85
   - task-86
-updatedAt: "2026-10-16T20:51:19.411Z"
+updatedAt: "2026-10-16T20:52:40.208Z"
 relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/common
@@ -25,7 +25,7 @@ relatedFiles:
   - docs/voice-calls.md
   - CHANGELOG.md
 contract:
-  status: delivered
+  status: failed
   validation:
     commands:
       - cargo test -p hotline-core --test processes
@@ -45,6 +45,63 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-16T20:50:28.123Z"
     duration: 779
+  feedback: |-
+    $ tsc --noEmit
+    $ bun test tests
+
+     405 pass
+     0 fail
+     1444 expect() calls
+    Ran 405 tests across 53 files. [4.38s]
+    .........
+    ----------------------------------------------------------------------
+    Ran 9 tests in 0.062s
+
+    OK
+    ......................................
+    ----------------------------------------------------------------------
+    Ran 38 tests in 2.520s
+
+    OK
+    warning: failed to parse serde attribute
+      | 
+      | deny_unknown_fields 
+      | 
+      = note: ts-rs failed to parse this attribute. It will be ignored.
+    warning: failed to parse serde attribute
+      | 
+      | deny_unknown_fields 
+      | 
+      = note: ts-rs failed to parse this attribute. It will be ignored.
+        Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.37s
+    warning: failed to parse serde attribute
+      | 
+      | deny_unknown_fields 
+      | 
+      = note: ts-rs failed to parse this attribute. It will be ignored.
+    warning: failed to parse serde attribute
+      | 
+      | deny_unknown_fields 
+      | 
+      = note: ts-rs failed to parse this attribute. It will be ignored.
+    warning: linker stderr: ld: __eh_frame section too large (max 16MB) to encode dwarf unwind offsets in compact unwind table, performance of exception handling might be affected
+      |
+      = note: `#[warn(linker_messages)]` on by default
+
+    warning: `hotline-core` (lib test) generated 1 warning
+    warning: `hotline-app` (bin "hotline-app") generated 1 warning (1 duplicate)
+        Finished `test` profile [unoptimized + debuginfo] target(s) in 0.38s
+         Running unittests src/lib.rs (target/debug/deps/hotline_app_lib-3876fee8015cbda9)
+         Running unittests src/main.rs (target/debug/deps/hotline_app-c925c6eadb842371)
+         Running tests/shell_path.rs (target/debug/deps/shell_path-4032b83f3f1a27b2)
+         Running tests/window_capabilities.rs (target/debug/deps/window_capabilities-171c368444cbd4a5)
+         Running unittests src/main.rs (target/debug/deps/hotline-c9b827b8c9ac2579)
+         Running tests/pair.rs (target/debug/deps/pair-20761e290aa78be2)
+         Running tests/serve.rs (target/debug/deps/serve-be2007ccd7ab31f0)
+         Running tests/update.rs (target/debug/deps/update-944aa050d3278592)
+         Running unittests src/lib.rs (target/debug/deps/hotline_core-4cf127663d311f45)
+    error: test failed, to rerun pass `-p hotline-core --lib`
+    make: *** [check] Error 101
 dispatch:
   agent: claude
   model: opus

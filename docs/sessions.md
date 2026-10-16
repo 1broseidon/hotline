@@ -192,7 +192,10 @@ when those launch slots are occupied.
 A launch receives exactly one model tool reply. Later results arrive as
 labelled execution data and update the original shell card on the tape. The
 shell card stays in progress until its actual result, including partial output,
-is available. A textual model response cannot finish the logical activity while
+is available. In a teammate's DM session a reply ends the turn: a command
+still running then becomes a [running process](#running-processes) and the
+turn does not wait on it. Elsewhere (a subagent run, a side thread, a peer
+session) a textual model response cannot finish the logical activity while
 jobs remain: the loop waits for an operator message or a job result without
 issuing idle model requests. Job completion resumes the loop once with the new
 result. Job handles live for that activity; completed facts remain in its
@@ -265,6 +268,36 @@ updates are ignored. A subagent the harness never ends is settled as
 take the capability keeps showing subagents as tool calls on the
 teammate's turn.
 
+### Running processes
+
+A **running process** is a shell job still running when a Hotline Agent turn
+parks: the model replied without calling `wait_jobs` on it. There is no flag
+and no timer; not waiting is the signal. The turn hands the job to its
+session and ends at once, so the session reads `ready` and a call to the
+teammate goes `listening` at the reply. The job's card says it is still
+running on its own.
+
+The DM session owns it, through its driver (`Processes` in
+`session/jobs.rs`, reached by `Driver::processes`). Only the DM session takes
+processes: a subagent run, a side thread or a peer session still waits on its
+own commands. A process counts toward the teammate's four commands. Every
+later turn is told it is running, and can `inspect_job` or `cancel_job` it,
+but not `wait_jobs` on it. The person sees each on the session's
+`processes` (a chip beside the subagents, sent whenever the set changes,
+never part of `state`), reads its command and the last 16 KiB of its output
+with `process.output`, and stops it with `process.stop`.
+
+It stops when it exits on its own, when the teammate cancels it, when the
+person stops it, and with its session: a session stop or removal, a grant
+change, a chapter restart, anything else that replaces the session, and a
+revoked lease all kill it with its whole process group, and dropping the
+driver or quitting the desk kills it through the shell's group guard, as for
+any job. Its exit on its own wakes the teammate once, with the result as a
+line of Hotline's (never written to the tape as the person's), queued behind
+anything waiting and said on a live call to the teammate as well as written.
+A stop the teammate or the person asked for wakes nobody. The grant rules
+are [security.md](security.md#grant-lifecycle).
+
 ### A turn left open for its subagents
 
 A turn can stay open after the agent has said its reply, because a subagent
@@ -283,8 +316,10 @@ The driver says the agent has nothing more to say with `Update::Parked`
 (`driver/mod.rs`), which releases a held line as the report
 (`session/narration.rs`). The DM witness (`session/dm.rs`) reads the turn as
 waiting on subagents only when every tool still in flight launched one:
-Hotline Agent's `subagent` call stays running until its run reports, while a
-shell job it left going is work, so that turn still reads as working.
+Hotline Agent's `subagent` call stays running until its run reports, and a
+command still running has been handed to the session as a running process
+before the turn parks, so a tool still open that launched no subagent is an
+ACP harness's own, which is work, and that turn still reads as working.
 `awaitingSubagents` goes false when the agent works again (a tool call or
 result, a thought, a card), when a line is steered into the turn, and when
 the turn ends. A reply said while waiting lands as any reply does.

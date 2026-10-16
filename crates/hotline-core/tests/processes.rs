@@ -287,6 +287,117 @@ async fn process_chip_output_is_the_latest_of_what_it_wrote() {
     assert!(alive(pid));
 }
 
+/// The whole of what this is for: the person asks for a page, the teammate
+/// serves it, opens it and replies without waiting; the server stays up on
+/// its own, the person sees it beside the session, and stopping it there
+/// takes its whole process tree and wakes nobody.
+#[tokio::test(flavor = "multi_thread")]
+async fn running_process_serve_open_and_stop_end_to_end() {
+    let opened = common::browser();
+    let mut desk = Desk::open().await;
+    desk.client.subscribe(json!({"view": "roster"})).await;
+    let port = free_port();
+    let link = format!("http://127.0.0.1:{port}/chart.html");
+    // The shell stays the group's leader and the server its child, so the
+    // tree is two processes and the group is the shell's pid.
+    let serve = format!(
+        "printf '<h1>The chart</h1>' > chart.html; echo $$ > server.pid; \
+         python3 -m http.server {port} --bind 127.0.0.1 & echo $! > child.pid; wait"
+    );
+    desk.script([
+        tool_call("shell", json!({"command": serve}), "call_serve"),
+        tool_call("open_link", json!({"url": link}), "call_open"),
+        text("The chart is open in your browser."),
+    ]);
+    desk.prompt("make me a chart page and open it").await;
+    desk.request().await;
+    let job_id = receipt(&desk.request().await);
+    let answered = desk.request().await;
+    assert!(
+        answered
+            .to_string()
+            .contains("Opened in the person's browser"),
+        "{answered}"
+    );
+    assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
+
+    let session = session_where(&mut desk, |session| {
+        session["state"] == "ready"
+            && session["processes"]
+                .as_array()
+                .is_some_and(|listed| !listed.is_empty())
+    })
+    .await;
+    let process = &session["processes"][0];
+    assert_eq!(process["id"], job_id.as_str());
+    assert_eq!(process["state"], "running");
+    let shell = desk.pid("server.pid").await;
+    let server = desk.pid("child.pid").await;
+    let page = fetch(port).await;
+    assert!(page.starts_with("HTTP/1.0 200"), "{page}");
+    assert!(page.contains("<h1>The chart</h1>"), "{page}");
+    let handed: Vec<String> = std::fs::read_to_string(opened)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert!(handed.contains(&link), "the link was opened: {handed:?}");
+
+    desk.client.inbox.clear();
+    let stopped = desk
+        .call(
+            "process.stop",
+            json!({"personaId": desk.persona, "id": job_id}),
+        )
+        .await;
+    assert_eq!(stopped["ok"], true, "{stopped}");
+    until_dead(server).await;
+    until_dead(shell).await;
+    assert!(
+        !group_alive(shell),
+        "no process of the server's group is left"
+    );
+    assert!(
+        TcpStream::connect(("127.0.0.1", port)).await.is_err(),
+        "the port is closed"
+    );
+    let gone = session_where(&mut desk, |session| session.get("processes").is_none()).await;
+    assert_eq!(gone["state"], "ready");
+    desk.quiet_for(Duration::from_secs(1)).await;
+}
+
+/// A port nothing listens on now, for a server the teammate starts.
+fn free_port() -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.local_addr().unwrap().port()
+}
+
+/// The page at `/chart.html` as the server answers it, once it is up.
+async fn fetch(port: u16) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)).await {
+                stream
+                    .write_all(b"GET /chart.html HTTP/1.0\r\n\r\n")
+                    .await
+                    .unwrap();
+                let mut page = String::new();
+                stream.read_to_string(&mut page).await.unwrap();
+                return page;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the server answered")
+}
+
+/// Whether any process is left in the group `leader` made. Signal 0 only asks.
+fn group_alive(leader: i32) -> bool {
+    unsafe { libc::killpg(leader, 0) == 0 }
+}
+
 /// A desk with one teammate on a scripted model, its tape subscribed.
 struct Desk {
     client: Client,

@@ -26,6 +26,8 @@ contract:
   metrics:
     readyAt: "2026-10-16T15:07:41.722Z"
 createdAt: "2026-10-16T15:07:41.728Z"
+landsOn: release/0.39.0
+updatedAt: "2026-10-16T15:07:42.344Z"
 ---
 
 ## Description

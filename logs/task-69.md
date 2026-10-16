@@ -1,8 +1,6 @@
 ---
 id: task-69
 title: "Desktop: Live calls picks one model from a list grouped by provider"
-column: review
-position: 6
 priority: medium
 tags:
   - voice
@@ -14,6 +12,8 @@ relatedFiles:
   - ui/src/useFor.ts
 parentId: epic-6
 createdAt: "2026-10-15T18:50:11.063Z"
+completedAt: "2026-10-16T01:06:06.280Z"
+updatedAt: "2026-10-16T01:06:06.280Z"
 ---
 
 ## Description

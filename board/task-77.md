@@ -1,7 +1,7 @@
 ---
 id: task-77
 title: "Desk: the front prompt is a full agent's, and settings follow the teammate"
-column: in-progress
+column: review
 position: 4
 priority: medium
 tags:
@@ -11,7 +11,7 @@ tags:
   - ui
 parentId: epic-7
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/front_prompt.rs
@@ -31,13 +31,15 @@ contract:
     readyAt: "2026-10-16T14:03:20.244Z"
     pickedUpAt: "2026-10-16T15:31:39.355Z"
     reworkCount: 0
+    deliveredAt: "2026-10-16T15:39:44.678Z"
+    duration: 485
 createdAt: "2026-10-16T14:03:20.251Z"
 dependsOn:
   - task-74
   - task-75
   - task-79
   - task-80
-updatedAt: "2026-10-16T15:31:39.355Z"
+updatedAt: "2026-10-16T15:39:44.678Z"
 dispatch:
   agent: claude
   model: sonnet

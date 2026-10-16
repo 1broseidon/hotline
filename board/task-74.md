@@ -31,7 +31,12 @@ contract:
 createdAt: "2026-10-16T14:02:49.220Z"
 dependsOn:
   - task-76
-updatedAt: "2026-10-16T14:03:32.221Z"
+updatedAt: "2026-10-16T14:05:23.264Z"
+relatedFiles:
+  - crates/hotline-core/src/voice/duplex.rs
+  - crates/hotline-core/src/voice/front.rs
+  - crates/hotline-core/src/voice/front_tools.rs
+  - crates/hotline-core/tests/voice.rs
 ---
 
 ## Description

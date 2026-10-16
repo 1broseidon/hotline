@@ -12,7 +12,15 @@ tags:
   - ui
 createdAt: "2026-10-16T17:24:27.523Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T17:55:45.829Z"
+updatedAt: "2026-10-16T19:52:05.991Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-16T19:52:05.863Z"
+  until: done
+  role: lead
+assignee: claude
 ---
 
 ## Description

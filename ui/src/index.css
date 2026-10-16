@@ -56,7 +56,7 @@
 	:focus-visible {
 		outline: none;
 	}
-	:where(.control, .rail-row, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control):focus-visible {
+	:where(.control, .rail-row, .rail-foot-item, .step, .steps-caption, .group-row-choice, .hit, .chip-x, .composer-key, .window-control):focus-visible {
 		background-color: var(--fill-hover);
 	}
 
@@ -2567,6 +2567,48 @@
 	}
 	.rail-row:active {
 		background: var(--fill-active);
+	}
+	/* The settings rail's foot: 8px of the rail's own padding and 8px here put
+	 * the line 16px off the window's foot, as the team view's dock does, and
+	 * the row's 8px inset (px-2 + 8px) starts its text on the rows' text edge. */
+	.rail-foot {
+		display: flex;
+		height: 32px;
+		flex-shrink: 0;
+		align-items: center;
+		justify-content: space-between;
+		margin: 0 8px 8px;
+		padding: 0 8px;
+	}
+	.rail-foot-item {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 4px 6px;
+		margin: 0 -6px;
+		border-radius: 6px;
+		font-size: var(--text-sm);
+		line-height: var(--text-sm--line-height);
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-3);
+		transition: background-color var(--dur-press) var(--ease-out);
+	}
+	.rail-foot-item:hover,
+	.rail-foot-item:focus-visible {
+		color: var(--ink-2);
+		background: var(--fill-hover);
+	}
+	.rail-foot-item:active {
+		background: var(--fill-active);
+	}
+	.rail-foot-item[aria-current="true"] {
+		color: var(--ink);
+	}
+	.rail-foot-dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: var(--accent);
 	}
 	/* With more than one desk in the rail, each name says its desk, quietly
 	 * after it. A desk that can't be reached keeps its teammates listed, as

@@ -2,8 +2,6 @@
 id: epic-7
 title: "The live voice is the teammate: a full agent on the call, with the chat as its record"
 type: epic
-column: todo
-position: 0
 priority: high
 tags:
   - voice
@@ -12,8 +10,9 @@ tags:
   - 0.39.0
 createdAt: "2026-10-16T13:52:14.099Z"
 landsOn: release/0.39.0
-updatedAt: "2026-10-16T15:55:39.464Z"
+updatedAt: "2026-10-16T15:55:42.213Z"
 assignee: claude
+completedAt: "2026-10-16T15:55:42.213Z"
 ---
 
 ## Description
@@ -36,3 +35,13 @@ Step 0 shipped separately: 0.38.1 (release/0.38.1, e2fab793) keeps talk about th
 - 2026-10-16T14:06:32.156Z: [claude] CORRECTION — GPT-Live does function calling (George, 2026-10-16; developers.openai.com gpt-live-1 lists streaming and function_calling): it delegates reasoning and tool use to a backend, and the backend's function calls come back to the client as response events, answered with function_call_output. Two ways to serve it, to settle in task-74: (a) delegation type responses, a backend model with our desk-side tools declared as functions, each call run desk-side; (b) the ChatGPT sign-in route we use today, delegation type client, answered by a desk-side tool loop instead of the working session. Whether the sign-in route accepts responses delegation is unverified: spike it. All three fronts (Grok Voice, GPT Realtime, GPT-Live) get the full agent; none stays delegate-only.
 - 2026-10-16T14:11:27.194Z: [claude] Plan: task-76 (ADR 0005) first, so every build child rests on the decision. Then task-74 (front_tools.rs registry plus Grok/GPT Realtime function tools). task-75 (summaries, post_to_chat) waits on task-74 because it adds to the same registry and to carry_front in duplex.rs. task-79 (added by lead: GPT-Live tool loop reusing the registry) also waits on task-74. task-77 (prompts and settings) waits on 74, 75 and 79 since the prompt lists the tools. task-78 (one end-to-end call harness and docs check) is last. Fix: task-74 and task-78 said GPT-Live stays delegate-only, which contradicts the epic ("all three get the full agent"), so I added task-79 and rewrote both. task-79 was added by me, so the person must hand it off, and 77 and 78 wait on it.
 - 2026-10-16T15:06:10.648Z: [claude] Plan: strictly serial, 79 -> 80 -> 77 -> 78. task-79 (GPT-Live tool loop, front_tools.rs/duplex.rs/voice.rs) and task-80 (first-person summary, record.rs/voice.rs) both edit tests/voice.rs, so 80 now waits on 79. task-77 (front prompt rules; names the tools and the summary) waits on 79 and 80 so the prompt describes what shipped. task-78 is the last wiring/proof child and now also waits on 80 and expects the first-person summary in its harness; it also reconciles docs and ADR 0005. task-79 contract was draft; activated. Hand off task-79 first (claude/sonnet).
+
+## Child Tasks
+Summary: 7/7 children completed.
+- task-74: Desk: the front runs the teammate's desk-side tools itself (completed)
+- task-75: Desk: a call keeps its own transcript and posts summaries to the chat (completed)
+- task-76: ADR 0005: the live voice is a full agent on the call (completed)
+- task-77: Desk: the front prompt is a full agent's, and settings follow the teammate (completed)
+- task-78: Desk: one call proves the whole front — tools, hand-off, summary, settings — and the docs say so (completed)
+- task-79: Desk: GPT-Live runs the teammate's tools through a desk-side tool loop (completed)
+- task-80: Desk: a call's summary is the teammate's own words, and its session knows what was said (completed)

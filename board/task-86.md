@@ -12,7 +12,7 @@ parentId: epic-8
 createdAt: "2026-10-16T17:24:28.605Z"
 dependsOn:
   - task-85
-updatedAt: "2026-10-16T20:19:35.453Z"
+updatedAt: "2026-10-16T20:19:36.699Z"
 relatedFiles:
   - crates/hotline-core/src/contract.rs
   - crates/hotline-core/src/wire/commands.rs
@@ -44,7 +44,12 @@ dispatch:
   by: lead
   at: "2026-10-16T20:19:35.330Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 12851
+    at: "2026-10-16T20:19:36.699Z"
 assignee: claude
 ---
 

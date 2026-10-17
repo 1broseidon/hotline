@@ -51,3 +51,6 @@ Phase 2 group B (Delete dead code), plan row 8 in docs/audits/0.40/README.md on 
 - Size: XS
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-17T22:59:04.346Z: [claude] Deleted paths::resolve_command (kept resolve_command_in), dropped the allow(dead_code) on Job's field, removed the never-read `seen` string in desks.rs ssh pairing. make precheck (7 legs) and make check pass. Committed on dispatch/task-120. Nothing for later tasks.

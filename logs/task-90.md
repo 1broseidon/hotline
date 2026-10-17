@@ -1,15 +1,13 @@
 ---
 id: task-90
 title: "ADR 0006: server capabilities and the relay grant role"
-column: review
-position: 4
 priority: high
 tags:
   - relay
   - adr
 parentId: epic-11
 createdAt: "2026-10-17T05:37:00.895Z"
-updatedAt: "2026-10-17T07:51:32.535Z"
+updatedAt: "2026-10-17T07:51:35.621Z"
 relatedFiles:
   - docs/adr/0006-relay-only-servers.md
   - docs/adr/0002-a-served-desk-relays-sealed-records.md
@@ -53,6 +51,7 @@ dispatch:
     ended: "2026-10-17T07:51:23.092Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T07:51:35.621Z"
 ---
 
 ## Description

@@ -9,6 +9,12 @@ tags:
   - restructure
 parentId: epic-13
 createdAt: "2026-10-17T22:40:49.698Z"
+relatedFiles:
+  - crates/hotline-core/src/imagegen/chatgpt.rs
+  - crates/hotline-core/src/imagegen/chatgpt_tests.rs
+  - crates/hotline-core/src/driver/acp/auth_tests.rs
+  - crates/hotline-core/src/remote/tests/
+updatedAt: "2026-10-17T22:46:32.500Z"
 ---
 
 ## Description

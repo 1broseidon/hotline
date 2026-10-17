@@ -10,7 +10,15 @@ tags:
   - quality
 createdAt: "2026-10-17T20:09:09.114Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T20:09:09.618Z"
+updatedAt: "2026-10-17T20:09:10.511Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-17T20:09:10.385Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

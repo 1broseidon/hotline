@@ -57,11 +57,7 @@ impl Remote {
                             persona_id: known.persona_id.clone(),
                             name: known.name.clone(),
                             state: "offline".into(),
-                            activity: None,
-                            working_on: linked::WorkingOn {
-                                title: String::new(),
-                                last_turn_at: None,
-                            },
+                            ..Default::default()
                         })
                         .collect()
                 });

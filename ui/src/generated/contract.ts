@@ -114,6 +114,32 @@ export type BudgetLimits = { dayUsd?: number, monthUsd?: number, };
 export type CallStatus = "live" | "ended";
 
 /**
+ * What a teammate can do here, never how: no path, address or tool list.
+ */
+export type Capabilities = { 
+/**
+ * none, attached, or in use (its session is running with it now).
+ */
+computer: string, webSearch: boolean, imageGeneration: boolean, 
+/**
+ * Whether it may schedule its own wake-ups.
+ */
+backgroundWork: boolean, 
+/**
+ * How it messages a colleague: directly, or after the person's
+ * approval on first contact.
+ */
+messageTeammates: string, 
+/**
+ * workspace or whole machine.
+ */
+reach: string, 
+/**
+ * The names of the MCP servers it is granted.
+ */
+mcpServers: Array<string>, };
+
+/**
  * One job the owner can pick a provider for.
  */
 export type CapabilityJob = { 
@@ -601,8 +627,9 @@ intent: string, } | { "kind": "result", requestId: string, reply: string, failed
 
 /**
  * What a linked desk publishes about one of its teammates: exactly what
- * `list_teammates` shows of a local one, and nothing more. No workspace,
- * tools, model, message or secret has a field here to travel in.
+ * `list_teammates` shows of a local one, and nothing more. No workspace
+ * path, tool list, server address, message or secret has a field here to
+ * travel in.
  */
 export type LinkedTeammate = { personaId: string, name: string, 
 /**
@@ -612,7 +639,20 @@ state: string,
 /**
  * The tool or task it is doing right now, while it is working.
  */
-activity: string | null, workingOn: WorkingOn, };
+activity: string | null, workingOn: WorkingOn, goal: string, 
+/**
+ * The agent behind it, by the name a person knows: Hotline Agent,
+ * Claude Code, Codex.
+ */
+agent: string, 
+/**
+ * The model id, when the teammate or its session names one.
+ */
+model: string | null, 
+/**
+ * The model's effort, when one is set.
+ */
+effort: string | null, capabilities: Capabilities, };
 
 /**
  * Instructions for provider sign-in. Browser callback flows leave `user_code`
@@ -1003,6 +1043,27 @@ export type Preview = { from: Side, text: string, at: number, };
 export type ProcessOutput = { command: string, tail: string, };
 
 export type ProcessState = "running" | "stopping";
+
+/**
+ * Who a teammate is and what it can do here, as its colleagues see it:
+ * the goal the person gave it, the agent and model it runs, and its
+ * capabilities as words and switches. Every field defaults, because a desk
+ * from before these were published sends none of them.
+ */
+export type Profile = { goal: string, 
+/**
+ * The agent behind it, by the name a person knows: Hotline Agent,
+ * Claude Code, Codex.
+ */
+agent: string, 
+/**
+ * The model id, when the teammate or its session names one.
+ */
+model: string | null, 
+/**
+ * The model's effort, when one is set.
+ */
+effort: string | null, capabilities: Capabilities, };
 
 /**
  * A provider Hotline Agent can hold a credential for, as the key form offers

@@ -9,7 +9,7 @@ tags:
   - adr
 parentId: epic-11
 createdAt: "2026-10-17T05:37:00.895Z"
-updatedAt: "2026-10-17T07:51:23.093Z"
+updatedAt: "2026-10-17T07:51:32.535Z"
 relatedFiles:
   - docs/adr/0006-relay-only-servers.md
   - docs/adr/0002-a-served-desk-relays-sealed-records.md
@@ -70,3 +70,4 @@ Reference ADR 0002 and ADR 0003, and docs/security.md (state default, grant sour
 ## Log
 - 2026-10-17T07:51:16.555Z: [claude] For the children: relay grants live in remote.json `relayGrants` (old readers ignore it; never in `grants`); pair Claim gains optional `purpose`, which must match the window role (relay⇔"relay"); a mismatch makes no grant, keeps the window open, and is answered sealed {"refused":"relay"|"device"}; a role refusal is sealed {"error":"role_not_permitted"} (not device_not_authorized); QR r=relay / payload role "relay", nothing new; discovery field is `serves` (pair answer, relay `ready`, owner hello), because the hello already uses `capabilities`; mode is persisted in serve.json, the flag wins and is recorded, default agents,relay; `hotline pair --relay` on full servers; narrowing is an owner-seat command taking no device id, offered only when the server has no teammates; desktop keeps relay servers out of desks.json.
 - 2026-10-17T07:51:17.414Z: [claude] Wrote docs/adr/0006-relay-only-servers.md and an ADR index in docs/design.md; docs only, committed on dispatch/task-90.
+- 2026-10-17T07:51:32.535Z: Landed on release/0.40.0

@@ -1,7 +1,7 @@
 ---
 id: task-94
 title: "Phone contract: a relay-only server's QR says it is a relay, a phone's pair claim there makes no grant, and wire.md tells hotline-mobile what to show"
-column: todo
+column: in-progress
 position: 8
 priority: high
 tags:
@@ -11,7 +11,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:02.975Z"
 dependsOn:
   - task-98
-updatedAt: "2026-10-17T08:53:02.229Z"
+updatedAt: "2026-10-17T08:53:21.858Z"
 relatedFiles:
   - crates/hotline-cli/src/remote.rs
   - crates/hotline-core/src/remote/mod.rs
@@ -19,7 +19,7 @@ relatedFiles:
   - crates/hotline-cli/tests/pair.rs
   - docs/wire.md
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - cargo test -p hotline-cli --test pair
@@ -28,6 +28,8 @@ contract:
       - grep -qi 'relay' docs/wire.md && grep -qi 'capabilities' docs/wire.md
   metrics:
     readyAt: "2026-10-17T07:47:18.324Z"
+    pickedUpAt: "2026-10-17T08:53:21.858Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

@@ -1,7 +1,7 @@
 ---
 id: task-162
 title: "P2-D-2 (E): Server docs"
-column: in-progress
+column: review
 position: 51
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - docs-site/src/content/docs/server/
   - docs-site/src/content/docs/phone/pair.md
   - docs/serve.md
-updatedAt: "2026-10-17T23:12:35.345Z"
+updatedAt: "2026-10-17T23:19:56.121Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - grep -q 'hotline update' docs/serve.md
@@ -24,6 +24,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-17T23:12:35.345Z"
     reworkCount: 0
+    deliveredAt: "2026-10-17T23:19:56.121Z"
+    duration: 441
 dispatch:
   agent: claude
   model: opus

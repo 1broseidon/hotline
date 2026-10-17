@@ -9,6 +9,15 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:01.678Z"
+relatedFiles:
+  - crates/hotline-core/src/wire/subscribe.rs
+  - crates/hotline-core/src/voice/call.rs
+  - crates/hotline-core/src/voice/synthesis.rs
+  - crates/hotline-core/src/wire/commands/persona.rs
+  - crates/hotline-core/src/session/exchanges.rs
+  - crates/hotline-core/src/remote.rs
+  - crates/hotline-core/src/driver/rig/turn.rs
+updatedAt: "2026-10-17T22:46:59.846Z"
 ---
 
 ## Description

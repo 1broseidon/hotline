@@ -1,8 +1,6 @@
 ---
 id: task-114
 title: "P2-2 (A): Patch rustls"
-column: review
-position: 3
 priority: high
 tags:
   - phase2
@@ -11,7 +9,7 @@ parentId: epic-13
 createdAt: "2026-10-17T22:40:43.005Z"
 relatedFiles:
   - Cargo.lock
-updatedAt: "2026-10-17T23:05:30.409Z"
+updatedAt: "2026-10-17T23:05:34.240Z"
 contract:
   status: delivered
   validation:
@@ -40,6 +38,7 @@ dispatch:
     ended: "2026-10-17T22:59:10.268Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T23:05:34.240Z"
 ---
 
 ## Description

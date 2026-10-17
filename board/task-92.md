@@ -1,7 +1,7 @@
 ---
 id: task-92
 title: "Core + CLI: serve --capabilities, a relay-only boot with no agent machinery, and mode switching"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.930Z"
 dependsOn:
   - task-91
-updatedAt: "2026-10-17T08:06:39.924Z"
+updatedAt: "2026-10-17T08:26:50.624Z"
 relatedFiles:
   - crates/hotline-cli/src/serve.rs
   - crates/hotline-cli/src/main.rs
@@ -26,7 +26,7 @@ relatedFiles:
   - crates/hotline-core/src/desk.rs
   - docs/serve.md
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - cargo test -p hotline-cli --test serve
@@ -38,6 +38,8 @@ contract:
     readyAt: "2026-10-17T07:46:58.259Z"
     pickedUpAt: "2026-10-17T08:06:39.924Z"
     reworkCount: 0
+    deliveredAt: "2026-10-17T08:26:50.624Z"
+    duration: 1211
 dispatch:
   agent: claude
   model: opus

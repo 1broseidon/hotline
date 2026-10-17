@@ -2,8 +2,8 @@
 id: epic-11
 title: "Relay-only servers: a server can just relay, and a desktop can pair with it only to relay"
 type: epic
-column: backlog
-position: 43
+column: todo
+position: 3
 priority: high
 tags:
   - relay
@@ -12,7 +12,7 @@ tags:
   - pi
 createdAt: "2026-10-17T05:37:00.361Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T05:39:55.720Z"
+updatedAt: "2026-10-17T05:42:58.512Z"
 ---
 
 ## Description

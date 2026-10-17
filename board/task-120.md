@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/paths.rs
   - crates/hotline-core/src/process_windows.rs
   - crates/hotline-app/src/desks.rs
-updatedAt: "2026-10-17T22:59:09.850Z"
+updatedAt: "2026-10-17T23:01:14.733Z"
 contract:
   status: delivered
   validation:
@@ -58,3 +58,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-17T22:59:04.346Z: [claude] Deleted paths::resolve_command (kept resolve_command_in), dropped the allow(dead_code) on Job's field, removed the never-read `seen` string in desks.rs ssh pairing. make precheck (7 legs) and make check pass. Committed on dispatch/task-120. Nothing for later tasks.
+- 2026-10-17T23:01:14.733Z: Landed on release/0.40.0

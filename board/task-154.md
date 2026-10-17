@@ -1,6 +1,6 @@
 ---
 id: task-154
-title: "P2-45 (D): Shared test plumbing"
+title: "P2-45a (D): Shared test plumbing: one bounded test Client in tests/common"
 column: todo
 position: 43
 priority: high
@@ -9,16 +9,12 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:03.758Z"
+updatedAt: "2026-10-17T22:45:43.125Z"
 ---
 
 ## Description
-Phase 2 group D (Fixes in the moved files), plan row 45 in docs/audits/0.40/README.md on release/0.40.0. Read that row, its source report section and the Standards before starting.
+Phase 2 group D, the first half of plan row 45 in docs/audits/0.40/README.md on release/0.40.0. Read tests-and-docs.md T4, T9, T14 and the Standards first. The `until(what, cond)` helper and the T8 sleep-then-assert sites are task-175, after this one.
 
-**Shared test plumbing.** One bounded test `Client` in `tests/common/mod.rs`, then one file per commit for the seven copies. The CLI tests get a `tests/common`. Add one `until(what, cond)` with one deadline, then replace the T8 sleep-then-assert sites module by module
+One bounded test `Client` in `crates/hotline-core/tests/common/mod.rs`, then one file per commit for the seven copies. The CLI tests get a `crates/hotline-cli/tests/common` of their own. `tests/common` allows stay `#[allow(…, reason)]`, never `expect` (C5: each test binary uses a different subset).
 
-- Source: tests-and-docs T4, T8, T9, T14, tasks 7, 8, 18
-- Files: `crates/hotline-core/tests/*.rs`, `tests/common/{mod,stalled}.rs`, `crates/hotline-cli/tests/*`, and the T8/T9 sites
-- Collides with: 23, 24, 32 (land first)
-- Size: L
-
-End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+End with `make precheck` and `make verify` (the hooks are on; never --no-verify). Follow the epic's rules.

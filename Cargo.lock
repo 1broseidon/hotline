@@ -4254,8 +4254,10 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "snow",
  "tempfile",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite 0.30.0",
 ]
 

@@ -55,3 +55,6 @@ Phase 2 group B (Delete dead code), plan row 10 in docs/audits/0.40/README.md on
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-17T23:10:52.534Z: [claude] Done on dispatch/task-122 (2e446a98): deleted BookIcon, currentCall, voiceOf; unexported the 21 other F7 values and 12 of the 14 types. RosterHandlers/TapeHandlers in wire.ts had no use at all (not even local), so they were deleted with the now-unused StreamDelta import. Knip after: only the mobile-shared cadence/pacing/reveal exports + Segment (C2), the generated contract.ts types, and computerViewer.css (linked from computer.html) remain — exactly what row 54's knip config should exempt. make ui-check and make precheck pass.

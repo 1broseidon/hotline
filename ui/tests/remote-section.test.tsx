@@ -67,6 +67,8 @@ beforeEach(() => {
 		throw new Error(`Unexpected command ${cmd}`);
 	};
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
+		// The servers paired only as a relay are relay-picker.test.tsx's.
+		if (cmd === "remote.relays") return [];
 		const call = { cmd, params };
 		calls.push(call);
 		return respond(call);

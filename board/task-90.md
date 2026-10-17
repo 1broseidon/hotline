@@ -62,3 +62,6 @@ Settle these, which later children rely on:
 - How the QR / pairing link of a relay-only server marks it a relay so a phone can explain before trying.
 
 Reference ADR 0002 and ADR 0003, and docs/security.md (state default, grant source, enforcement points, tests, residual risk). Link the ADR from docs/design.md where ADRs are listed.
+
+## Log
+- 2026-10-17T07:51:16.555Z: [claude] For the children: relay grants live in remote.json `relayGrants` (old readers ignore it; never in `grants`); pair Claim gains optional `purpose`, which must match the window role (relay⇔"relay"); a mismatch makes no grant, keeps the window open, and is answered sealed {"refused":"relay"|"device"}; a role refusal is sealed {"error":"role_not_permitted"} (not device_not_authorized); QR r=relay / payload role "relay", nothing new; discovery field is `serves` (pair answer, relay `ready`, owner hello), because the hello already uses `capabilities`; mode is persisted in serve.json, the flag wins and is recorded, default agents,relay; `hotline pair --relay` on full servers; narrowing is an owner-seat command taking no device id, offered only when the server has no teammates; desktop keeps relay servers out of desks.json.

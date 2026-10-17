@@ -81,7 +81,7 @@ and `cargo fmt --check` both pass today. No `[lints]` table, `clippy.toml`,
 | `clippy::or_fun_call` | 14 | `crates/hotline-core/src/computer/mod.rs:685` | adopt now |
 | `clippy::unused_async_trait_impl` | 15 | `crates/hotline-core/src/driver/rig.rs:566` | not worth it: the trait fixes `async` |
 | `clippy::cast_sign_loss` | 16 | `crates/hotline-core/src/driver/auth.rs:187` | adopt later (see casts below) |
-| `clippy::wildcard_imports` | 16 | `crates/hotline-core/src/driver/acp/auth.rs:2` | adopt later: likely `use super::*` in tests, which the lint exempts when configured (`allow-wildcard-imports` is not a key; fix the non-test ones) |
+| `clippy::wildcard_imports` | 16 | `crates/hotline-core/src/driver/acp/auth.rs:2` | adopt later: check whether these are `use super::*` in tests (the lint exempts that) and fix the rest |
 | `clippy::items_after_statements` | 17 | `crates/hotline-core/src/driver/acp.rs:645` | adopt later |
 | `clippy::suboptimal_flops` | 17 | `crates/hotline-core/src/driver/rig/turn.rs:50` | not worth it: `mul_add` obscures budget arithmetic |
 | `clippy::unreadable_literal` | 17 | `crates/hotline-core/src/vault.rs:1003` | adopt now (add `_`) |

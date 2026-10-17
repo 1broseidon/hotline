@@ -9,6 +9,10 @@ tags:
   - hooks
   - quality
 createdAt: "2026-10-17T20:18:20.491Z"
+dependsOn:
+  - task-110
+landsOn: release/0.40.0
+updatedAt: "2026-10-17T20:18:21.575Z"
 ---
 
 ## Description

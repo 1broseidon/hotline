@@ -10,7 +10,7 @@ tags:
   - mcp
 createdAt: "2026-10-17T22:24:05.896Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T23:11:44.152Z"
+updatedAt: "2026-10-17T23:25:46.438Z"
 parentId: epic-13
 relatedFiles:
   - crates/hotline-core/src/mcp/server.rs
@@ -75,3 +75,4 @@ Tests: the fields are present for local and linked teammates; none of the "never
 
 ## Log
 - 2026-10-17T23:11:31.355Z: [claude] Done on branch dispatch/task-112 (eaadcf65); make check and make precheck (7/7) pass. Each list_teammates row (local and linked) now carries goal, agent, model, effort, capabilities {computer: none|attached|in use, webSearch, imageGeneration, backgroundWork, messageTeammates: directly|after approval, reach: workspace|whole machine, mcpServers: [names]}. Type: linked::Profile (flattened into LinkedTeammate), built by mcp::server::profile(room, persona, settings); linked::plausible_profile cuts a linked desk's words to known ones (older desks read as narrowest). For later tasks: there is no constant 'can message' bool: messageTeammates says directly vs after approval, and both it and 'whole machine' are true only for a Hotline Agent (ACP harness callbacks stay in workspace). Agent names come from new driver::acp::registry::name_of (no PATH probing). Federation row cache key now includes the profile, so settings changes republish. docs/security.md: new 'What a colleague sees' section (residual risk: secrets in a goal/MCP server name/model id reach colleagues and linked desks), :683 matrix row and :43 table cell re-worded; wire.md, sessions.md, ADR 0003, hotline-room SKILL.md and the tool description updated. No UI change.
+- 2026-10-17T23:25:46.438Z: Landed on release/0.40.0

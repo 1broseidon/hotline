@@ -17,7 +17,7 @@ relatedFiles:
   - ui/src/components/Rail.tsx
   - ui/src/components/Skills.tsx
   - ui/src/wire.ts
-updatedAt: "2026-10-17T23:11:01.614Z"
+updatedAt: "2026-10-17T23:15:37.014Z"
 contract:
   status: delivered
   validation:
@@ -62,3 +62,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-17T23:10:52.534Z: [claude] Done on dispatch/task-122 (2e446a98): deleted BookIcon, currentCall, voiceOf; unexported the 21 other F7 values and 12 of the 14 types. RosterHandlers/TapeHandlers in wire.ts had no use at all (not even local), so they were deleted with the now-unused StreamDelta import. Knip after: only the mobile-shared cadence/pacing/reveal exports + Segment (C2), the generated contract.ts types, and computerViewer.css (linked from computer.html) remain — exactly what row 54's knip config should exempt. make ui-check and make precheck pass.
+- 2026-10-17T23:15:37.014Z: Landed on release/0.40.0

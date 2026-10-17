@@ -27,7 +27,14 @@ contract:
     - Do not commit ui/src/generated/contract.ts
   metrics:
     readyAt: "2026-10-17T19:29:18.238Z"
-updatedAt: "2026-10-17T19:29:18.236Z"
+updatedAt: "2026-10-17T19:29:26.521Z"
+relatedFiles:
+  - docs/audits/0.40/window.md
+  - ui/src
+  - ui/tests
+  - ui/package.json
+  - ui/tsconfig.json
+  - ui/src/generated/contract.ts
 ---
 
 ## Description

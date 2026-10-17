@@ -9,6 +9,11 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:01.159Z"
+relatedFiles:
+  - crates/hotline-core/src/
+  - crates/hotline-app/src/
+  - crates/hotline-cli/src/
+updatedAt: "2026-10-17T22:46:59.581Z"
 ---
 
 ## Description

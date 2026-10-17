@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.930Z"
 dependsOn:
   - task-91
-updatedAt: "2026-10-17T08:06:39.632Z"
+updatedAt: "2026-10-17T08:06:39.924Z"
 relatedFiles:
   - crates/hotline-cli/src/serve.rs
   - crates/hotline-cli/src/main.rs
@@ -26,7 +26,7 @@ relatedFiles:
   - crates/hotline-core/src/desk.rs
   - docs/serve.md
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - cargo test -p hotline-cli --test serve
@@ -36,6 +36,8 @@ contract:
       - grep -q -- '--capabilities' docs/serve.md
   metrics:
     readyAt: "2026-10-17T07:46:58.259Z"
+    pickedUpAt: "2026-10-17T08:06:39.924Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

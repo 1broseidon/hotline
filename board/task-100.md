@@ -45,7 +45,7 @@ dispatch:
     ended: "2026-10-17T09:07:16.469Z"
     outcome: review
 assignee: claude
-updatedAt: "2026-10-17T09:07:16.469Z"
+updatedAt: "2026-10-17T09:07:31.484Z"
 ---
 
 ## Description
@@ -57,3 +57,4 @@ Tests: extend ui/tests/add-desk.test.ts (or relay-picker.test.tsx) through the r
 
 ## Log
 - 2026-10-17T09:07:10.898Z: [claude] Done on dispatch/task-100. RemoteSection exports keepPairedRelay(deskId): it always asks this computer's own core (wireFor of the local desk, even while a server's desk is active), and when the id is in remote.relays it chooses that relay only if none is chosen yet. AddDesk (link and SSH) and the Relay servers fold both use it. A relay in Add a server now shows "Added X as a relay" with either "Phones also reach this desk through it." or "Choose it under Settings › Remote › Relay.", stays open and never calls setActiveDesk. Behaviour change: the fold no longer replaces a relay that is already chosen. Also fixed the fold hint `--role relay` to the real CLI flag `hotline pair --relay --link`. Tests: add-desk.test.ts drives the real Wire over fake sockets (relay with none chosen, relay with one chosen from a server's desk, desk link unchanged); relay-picker.test.tsx now mocks the local desk's own Wire instead of `wire`. ui typecheck and all 420 tests pass.
+- 2026-10-17T09:07:31.484Z: Landed on release/0.40.0

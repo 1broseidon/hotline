@@ -10,7 +10,9 @@ is separate; until then use the local Door for setup.
 ## Install
 
 The release has `hotline-server_<version>_linux_x86_64.tar.gz` and
-`_linux_aarch64.tar.gz`, holding the `hotline` binary and a systemd unit.
+`_linux_aarch64.tar.gz`, holding the `hotline` binary and two systemd
+units: `hotline.service` for a full server and `hotline-relay.service` for a
+[relay-only server](#a-relay-only-server).
 
 ```sh
 tar xzf hotline-server_*_linux_x86_64.tar.gz
@@ -166,6 +168,15 @@ saying the server runs only a relay. `hotline pair` there opens a relay
 invitation, its only kind; `--companion` is refused, since a phone has
 nothing to reach on it.
 
+`packaging/hotline-relay.service` is its unit. Install it as
+`/etc/systemd/system/hotline.service`, the name the commands above look up
+the served room by, and set its `--listen` and `--public-url` as for any
+unit. It carries `--capabilities relay` and a system-only `PATH`, since a
+relay runs no teammate tools. `install --server --relay` installs it that
+way, as the `hotline` service account; a re-run keeps the mode, refusing
+`--relay` on a full server and its absence on a relay. The docs site's "Run
+a relay" page walks a Raspberry Pi through it.
+
 Measured idle, on an Apple M5 Max (aarch64, macOS 27), release build, with
 nothing paired: a relay-only server holds **14 MB** resident and used under
 10 ms of CPU in a minute (below what `ps` resolves); the same server running
@@ -316,6 +327,8 @@ On the machine running the desk, as the service account or root:
 hotline pair
 # Or grant the existing limited phone seat explicitly:
 hotline pair --companion
+# Or a desktop that may only stand in on the relay:
+hotline pair --relay --link
 hotline devices
 hotline revoke DEVICE_ID
 ```
@@ -343,9 +356,20 @@ with Ctrl-C. Desktop and served desks pair only through the sealed QR or
 link; neither offers a six-digit manual code or a legacy bearer route. The
 v2 claim endpoint is absent when no pairing window is open.
 Removing every device does not open an owner bootstrap route: run `pair`
-again explicitly. An owner has the same commands and subscriptions as the
-local desk, including providers, grants and server paths. A companion keeps
-the limited phone command set. Existing grants without a role remain owners.
+again explicitly.
+
+A grant has one of three roles. An **owner** has the same commands and
+subscriptions as the local desk, including providers, grants and server
+paths. A **companion** (`hotline pair --companion`) keeps the limited phone
+command set. A **relay** grant (`hotline pair --relay`, or plain `hotline
+pair` on a relay-only server) is for a desktop that stands in on the relay
+and nothing else: it opens `/v2/relay` and `/v2/relay/accept`, and `/v2`,
+`/v2/computer/…` and `/v2/link` answer it `role_not_permitted` (on a
+relay-only server those doors have no route at all). Only a claim that
+declares `purpose:"relay"` takes a relay invitation, so a phone's scan makes
+no grant. `hotline devices` lists relay grants beside the others, and
+`hotline revoke` ends them the same way. An owner desktop may narrow its own
+grant to relay, never another device's; nothing widens one. Existing grants without a role remain owners.
 Old grants with only a token hash and no public key remain listed and
 revocable, but give no access or push delivery. Phones paired with the
 six-digit code before 0.33 scan the new QR once.

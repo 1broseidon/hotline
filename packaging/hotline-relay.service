@@ -1,0 +1,37 @@
+# Hotline as a relay only, for a small machine such as a Raspberry Pi
+# (docs/serve.md, "A relay-only server"; ADR 0006). It carries phones and
+# linked desks to the desktops that stand in on it, and runs no agents.
+#
+# Install it under the name hotline.service, so `hotline pair`, `devices`,
+# `revoke` and `status` find its room the way they find a full server's:
+# copy the `hotline` binary to /usr/local/bin, create the account
+# (`useradd --system --create-home --home-dir /var/lib/hotline hotline`),
+# copy this file to /etc/systemd/system/hotline.service, set --listen and
+# --public-url below for this host, then `systemctl enable --now hotline`.
+#
+# A relay runs no teammate tools, so PATH is only the system's. To run agents
+# here later, change --capabilities to agents,relay; the pairings are kept.
+
+[Unit]
+Description=Hotline relay
+Documentation=https://hotline.dev
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=hotline
+Group=hotline
+Environment=HOME=/var/lib/hotline
+Environment=HOTLINE_DATA_DIR=/var/lib/hotline/room
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Replace this documentation address and hostname before enabling the unit.
+ExecStart=/usr/local/bin/hotline serve --store file --capabilities relay --listen 192.0.2.10:9443 --public-url https://relay.example:9443
+TimeoutStopSec=15
+KillMode=mixed
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

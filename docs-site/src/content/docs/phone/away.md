@@ -31,5 +31,6 @@ Pair the desk with a [Hotline server](/docs/server/) and choose it under
 server, so nothing on your home network has to accept connections, and the
 server can't read what passes through it: the phone only trusts the desk's
 key. Phones paired after that get the relay in their QR code; phones paired
-before pick it up the next time they connect at home.
+before pick it up the next time they connect at home. A server that only
+does this, with no agents, can be a Raspberry Pi: [Run a relay](/docs/server/relay/).
 

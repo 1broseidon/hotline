@@ -60,3 +60,6 @@ Audit: Rust structure and module layout.
 - Decide whether any boundary deserves its own crate (contract/wire types, remote, voice, tools), weighing build-time gains against churn.
 - Check the app and cli crates for logic that belongs in core.
 - Report: docs/audits/0.40/structure.md.
+
+## Log
+- 2026-10-17T19:44:50.593Z: [claude] For the tasks after this: the report is at docs/audits/0.40/structure.md and is committed on branch dispatch/task-103. Its 21 Phase 2 tasks run in order. Tasks 1–2 rename the 16 mod.rs files to foo.rs and give test files one naming style; do them first, so every later split lands on the new paths. Task 3 makes contract a leaf before task 4 splits it, and both must leave ui/src/generated/contract.ts byte-identical after an unfiltered cargo test. session/tests.rs and wire/tests.rs are the merge hot spots (76 and 81 commits since 2026-09-01), so split them early. No new crates: incremental check is 3–6s and the test rebuild 12s; revisit if the test rebuild passes 30s or the contract gets a second consumer. Building needs .speech-engine/ copied in from the main checkout.

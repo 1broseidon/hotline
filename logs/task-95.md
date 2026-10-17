@@ -1,8 +1,6 @@
 ---
 id: task-95
 title: "Docs and packaging: Run a relay on a Raspberry Pi"
-column: review
-position: 9
 priority: high
 tags:
   - relay
@@ -11,7 +9,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:03.487Z"
 dependsOn:
   - task-99
-updatedAt: "2026-10-17T09:19:23.967Z"
+updatedAt: "2026-10-17T09:19:25.419Z"
 relatedFiles:
   - docs-site/src/content/docs/server/relay.md
   - docs-site/src/content/docs/server/index.md
@@ -50,6 +48,7 @@ dispatch:
     ended: "2026-10-17T09:19:15.219Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T09:19:25.419Z"
 ---
 
 ## Description

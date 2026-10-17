@@ -35,7 +35,7 @@ function modelText(pick: CapabilityPick): string {
 }
 
 /** The first choice: Automatic, and what it comes to now. */
-export function automaticText(job: CapabilityJob): string {
+function automaticText(job: CapabilityJob): string {
 	const automatic = job.automatic;
 	if (automatic === undefined) return "Automatic";
 	return ["Automatic", automatic.providerName, modelText(automatic)].filter((part) => part !== "").join(" · ");
@@ -65,7 +65,7 @@ export function choicesFor(job: CapabilityJob): PickerChoice[] {
 	return choices;
 }
 
-export function selectedId(pick: CapabilityPick | undefined): string {
+function selectedId(pick: CapabilityPick | undefined): string {
 	return pick === undefined ? AUTOMATIC : pickId(pick.providerId, pick.modelId);
 }
 
@@ -82,17 +82,12 @@ export function currentId(job: CapabilityJob): string {
 }
 
 /** The voices the speaking row offers: those of the model in use, automatic's included. */
-export function voicesOf(job: CapabilityJob): string[] {
+function voicesOf(job: CapabilityJob): string[] {
 	const pick = job.selected ?? job.automatic;
 	if (pick === undefined) return [];
 	const provider = job.options.find((one) => one.providerId === pick.providerId);
 	const model = provider?.models.find((one) => one.id === pick.modelId) ?? provider?.models[0];
 	return model?.voices ?? [];
-}
-
-/** The voice in use: the owner's, else the provider's own. */
-export function voiceOf(job: CapabilityJob): string | undefined {
-	return job.selected?.voice ?? (job.selected === undefined ? job.automatic?.voice : undefined);
 }
 
 export function voiceChoices(job: CapabilityJob): PickerChoice[] {
@@ -124,7 +119,7 @@ const EFFORT_LABELS: Record<string, string> = {
 	max: "Max",
 };
 
-export function effortLabel(id: string): string {
+function effortLabel(id: string): string {
 	return EFFORT_LABELS[id] ?? id;
 }
 

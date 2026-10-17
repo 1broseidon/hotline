@@ -29,7 +29,7 @@ export type CallLine =
 	| { kind: "you"; id: string; text: string }
 	| { kind: "desk"; id: string; text: string; from?: string };
 
-export type CallCard = { personaId: string; requestId: string; kind: string };
+type CallCard = { personaId: string; requestId: string; kind: string };
 
 export type EndReason = VoiceEndReason;
 
@@ -152,12 +152,12 @@ function afterRecognizedPrefix(text: string, prefix: string): string {
  * both. It is gentler than the curve for your voice, which would hold the
  * mouth wide open through a whole sentence.
  */
-export function speechLevel(rms: number): number {
+function speechLevel(rms: number): number {
 	return Math.min(1, Math.pow(rms * 5, 0.65));
 }
 
 /** Whether the desk can put a voice front on a call: it says so in `voice.status`. */
-export function offersFront(status: unknown): boolean {
+function offersFront(status: unknown): boolean {
 	const capabilities = (status as { capabilities?: unknown } | null)?.capabilities;
 	return Array.isArray(capabilities) && capabilities.includes("voiceFront");
 }
@@ -1024,11 +1024,6 @@ export class Call {
 
 let active: Call | null = null;
 const holders = new Set<() => void>();
-
-/** The window's call, if one is open or just ended. */
-export function currentCall(): Call | null {
-	return active;
-}
 
 export async function startCall(names?: Names, target?: CallTarget): Promise<Call> {
 	active?.hangUp();

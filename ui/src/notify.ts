@@ -64,7 +64,7 @@ export function toastTarget(payload: string): { deskId: string | null; personaId
 }
 
 /** The chrome names who is open, so the task bar is the rail's selected row. */
-export function windowTitle(name: string | null): string {
+function windowTitle(name: string | null): string {
 	return name === null ? "Hotline" : `${name} — Hotline`;
 }
 

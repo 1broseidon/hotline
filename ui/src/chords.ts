@@ -30,10 +30,10 @@ export const CHORD_GROUPS = [
 	{ id: "anywhere", title: "Anywhere on this computer" },
 ] as const;
 
-export type ChordGroup = (typeof CHORD_GROUPS)[number]["id"];
+type ChordGroup = (typeof CHORD_GROUPS)[number]["id"];
 
 /** A letter or comma under the chord key, a digit seat, or Escape with no modifier. */
-export type ChordMatch =
+type ChordMatch =
 	| { mod: true; key: string; code?: string }
 	| { mod: true; digit: true }
 	| { key: "Escape" };

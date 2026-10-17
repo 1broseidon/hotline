@@ -32,7 +32,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:53:46.910Z"
     duration: 691
-updatedAt: "2026-10-17T19:53:54.282Z"
+updatedAt: "2026-10-17T19:54:03.114Z"
 relatedFiles:
   - docs/audits/0.40/tests-and-docs.md
   - crates/hotline-core/tests
@@ -66,3 +66,4 @@ Audit: tests and docs.
 
 ## Log
 - 2026-10-17T19:53:50.279Z: [claude] Report at docs/audits/0.40/tests-and-docs.md on dispatch/task-108 (5f77588e): 15 test findings, 11 doc findings, 18 phase-2 tasks. For the next tasks: (1) security.md cites 4 tests that don't exist (:330 :683 :703 :1426), so fix those first; (2) the remote test Harness connects through the host's first real address (remote/tests.rs:115), the sibling of 1859ec74, and the 15s ANSWER from a1cd577d is private to sealed_network while relay/admission tests still wait 1-3s; (3) nothing uses a paused tokio clock, and the 30s viewer-token sleep plus the 10s xai deadline are ~40s of a 98s suite; (4) a new worktree needs .speech-engine (copy from a sibling worktree and run scripts/fetch-speech-engine) before cargo test builds; (5) the full suite passed and left contract.ts unchanged.
+- 2026-10-17T19:54:03.114Z: Landed on release/0.40.0

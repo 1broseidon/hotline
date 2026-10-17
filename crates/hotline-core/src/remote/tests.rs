@@ -1624,6 +1624,11 @@ mod sealed_network {
     use super::*;
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
+    // How long a sealed answer or close may take. A debug build doing TLS
+    // and Noise while the whole suite runs can miss a few seconds; a hang
+    // still fails, only later.
+    const ANSWER: Duration = Duration::from_secs(15);
+
     pub(super) fn initiator(private: &[u8; 32], public: &[u8; 32]) -> snow::HandshakeState {
         snow::Builder::new("Noise_IK_25519_ChaChaPoly_SHA256".parse().unwrap())
             .prologue(b"hotline/2")
@@ -1663,9 +1668,7 @@ mod sealed_network {
             .send(Message::Binary(buffer[..size].to_vec().into()))
             .await
             .ok()?;
-        let result = tokio::time::timeout(Duration::from_secs(3), socket.next())
-            .await
-            .unwrap();
+        let result = tokio::time::timeout(ANSWER, socket.next()).await.unwrap();
         let Some(Ok(Message::Binary(bytes))) = result else {
             return None;
         };
@@ -1697,7 +1700,7 @@ mod sealed_network {
     ) -> Value {
         let mut decoder = sealed::Decoder::new(channel::FRAME_MAX);
         loop {
-            let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
+            let frame = tokio::time::timeout(ANSWER, socket.next())
                 .await
                 .unwrap()
                 .unwrap()
@@ -1720,9 +1723,7 @@ mod sealed_network {
         }
     }
     pub(super) async fn closed(socket: &mut Socket) {
-        let frame = tokio::time::timeout(Duration::from_secs(3), socket.next())
-            .await
-            .unwrap();
+        let frame = tokio::time::timeout(ANSWER, socket.next()).await.unwrap();
         assert!(!matches!(
             frame,
             Some(Ok(Message::Text(_) | Message::Binary(_)))

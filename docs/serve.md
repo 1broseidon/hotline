@@ -172,8 +172,10 @@ nothing to reach on it.
 `/etc/systemd/system/hotline.service`, the name the commands above look up
 the served room by, and set its `--listen` and `--public-url` as for any
 unit. It carries `--capabilities relay` and a system-only `PATH`, since a
-relay runs no teammate tools. The docs site's "Run a relay" page walks a
-Raspberry Pi through it.
+relay runs no teammate tools. `install --server --relay` installs it that
+way, as the `hotline` service account; a re-run keeps the mode, refusing
+`--relay` on a full server and its absence on a relay. The docs site's "Run
+a relay" page walks a Raspberry Pi through it.
 
 Measured idle, on an Apple M5 Max (aarch64, macOS 27), release build, with
 nothing paired: a relay-only server holds **14 MB** resident and used under

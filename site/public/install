@@ -3,11 +3,15 @@
 #
 #   curl -fsSL https://hotline.dev/install | sh                  the desktop app
 #   curl -fsSL https://hotline.dev/install | sh -s -- --server   the desk with no window
+#   curl -fsSL https://hotline.dev/install | sh -s -- --server --relay
+#                                a relay only, for a Raspberry Pi say: no agents
 #
 # Server options, asked for when they are missing and a terminal is attached:
 #   --listen IP:PORT             one local address and a fixed port
 #   --public-url https://HOST:PORT  where phones reach the desk
-# And, on a first install:
+# A server installed with --relay stays a relay, and one without it keeps its
+# agents: a re-run says how to change which it is and stops.
+# And, on a first install of a full server:
 #   --user NAME                  run the desk as this user, with their HOME and their
 #                                claude, codex and logins (default: whoever ran the
 #                                installer or sudo; as root alone, the one person's
@@ -45,6 +49,11 @@ as_root() {
 
 # The user the unit runs the desk as: hotline, unless a drop-in changed it
 # (User=agent, to reach a signed-in CLI), and then only that user can read the room.
+# Whether the installed unit serves only a relay. agents,relay is a full server.
+unit_is_relay() {
+    grep -Eq '^ExecStart=.* --capabilities relay( |$)' "$UNIT"
+}
+
 desk_user() {
     user=$(systemctl show -p User --value hotline 2>/dev/null || true)
     echo "${user:-hotline}"
@@ -335,10 +344,24 @@ server() {
     # Who runs the desk is chosen once, at the first install. Moving an
     # installed desk to another user means moving its room, which is not for
     # an installer to do unasked, and sudo's name is no reason to.
+    # A re-run never changes what the server is. Turning a relay into a full
+    # server opens a new room, and turning a full server into a relay shuts
+    # its teammates out; each is a deliberate edit of the unit, not a flag
+    # left off or added to an update.
+    if [ -z "$fresh" ] && unit_is_relay && [ -z "$relay" ]; then
+        fail "this server runs only a relay; update it with --relay, or to run agents there too see https://hotline.dev/docs/server/relay/#run-agents-there-later"
+    fi
+    if [ -z "$fresh" ] && ! unit_is_relay && [ -n "$relay" ]; then
+        fail "this server runs agents, and --relay would leave them unreachable; update it without --relay, or change its unit's --capabilities by hand"
+    fi
+    # A relay runs no teammates, so it has no one's CLIs to reach and runs as
+    # the hotline service account.
     run_user=
-    if [ -n "$fresh" ]; then
+    if [ -n "$relay" ] && [ -n "$run_as" ]; then
+        fail "a relay runs no agents and runs as the hotline service account; leave out --user"
+    elif [ -n "$fresh" ] && [ -z "$relay" ]; then
         pick_user
-    elif [ -n "$run_as" ]; then
+    elif [ -z "$fresh" ] && [ -n "$run_as" ]; then
         fail "the desk is already installed and runs as $(desk_user); --user is for a first install (see https://hotline.dev/docs/server/ to move one)"
     fi
     if [ -n "$run_user" ]; then
@@ -382,8 +405,16 @@ server() {
         nologin=$(command -v nologin || echo /usr/sbin/nologin)
         as_root useradd --system --create-home --home-dir /var/lib/hotline --shell "$nologin" hotline
     fi
+    unit_file=hotline.service
+    capabilities=
+    if [ -n "$relay" ]; then
+        # Installed under hotline.service all the same, the name pair, status
+        # and update look for.
+        unit_file=hotline-relay.service
+        capabilities="--capabilities relay "
+    fi
     if [ -n "$fresh" ]; then
-        as_root install -m 0644 "$work/$dir/hotline.service" "$UNIT"
+        as_root install -m 0644 "$work/$dir/$unit_file" "$UNIT"
         if [ -n "$run_user" ]; then
             run_unit_as "$run_user" "$run_group" "$run_home"
         fi
@@ -392,7 +423,7 @@ server() {
         as_root cp "$UNIT" "$UNIT.previous"
     fi
     if [ -n "$listen" ]; then
-        exec_start="ExecStart=/usr/local/bin/hotline serve --store file --listen $listen --public-url $public_url"
+        exec_start="ExecStart=/usr/local/bin/hotline serve --store file $capabilities--listen $listen --public-url $public_url"
         edit_unit -e '/^# Replace this documentation address/d' \
             -e "s|^ExecStart=.*|$exec_start|"
     fi
@@ -427,6 +458,18 @@ server() {
         say "Hotline $version is running, with the same room and pairings."
         return
     fi
+    if [ -n "$relay" ]; then
+        say "Open the port for your desktop and phones and nothing else."
+        say ""
+        if has_tty; then
+            as_desk /usr/local/bin/hotline pair --link </dev/tty ||
+                say "Pair your desktop later with: sudo -u hotline HOTLINE_DATA_DIR=$ROOM hotline pair --link"
+        else
+            say "Pair your desktop with: sudo -u hotline HOTLINE_DATA_DIR=$ROOM hotline pair --link"
+        fi
+        say "Then choose the relay on the desktop: https://hotline.dev/docs/server/relay/"
+        return
+    fi
     say "Open the port for your phones and nothing else. Teammates that run"
     say "through npx need Node on the unit's PATH: sudo systemctl edit hotline."
     say ""
@@ -453,11 +496,13 @@ main() {
     listen=
     public_url=
     run_as=
+    relay=
     yes=
     force=
     while [ $# -gt 0 ]; do
         case "$1" in
             --server) mode=server ;;
+            --relay) relay=1 ;;
             -y | --yes) yes=1 ;;
             --force) force=1 ;;
             --version) version=${2:?--version needs a value}; shift ;;
@@ -469,7 +514,7 @@ main() {
             --user) run_as=${2:?--user needs a value}; shift ;;
             --user=*) run_as=${1#*=} ;;
             -h | --help)
-                say "usage: install [--server [--listen IP:PORT] [--public-url https://HOST:PORT] [--user NAME]] [--version X.Y.Z] [--yes] [--force]"
+                say "usage: install [--server [--relay] [--listen IP:PORT] [--public-url https://HOST:PORT] [--user NAME]] [--version X.Y.Z] [--yes] [--force]"
                 say "Docs: https://hotline.dev/docs/"
                 return
                 ;;
@@ -477,8 +522,8 @@ main() {
         esac
         shift
     done
-    if [ "$mode" = desktop ] && [ -n "$listen$public_url$run_as" ]; then
-        fail "--listen, --public-url and --user are for --server"
+    if [ "$mode" = desktop ] && [ -n "$listen$public_url$run_as$relay" ]; then
+        fail "--relay, --listen, --public-url and --user are for --server"
     fi
     need curl
     need tar

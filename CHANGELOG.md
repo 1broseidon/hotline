@@ -18,6 +18,11 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   walks through installing it, pairing a desktop, choosing it under
   Settings › Remote › Relay, and later running agents there with every
   pairing kept.
+- `curl -fsSL https://hotline.dev/install | sh -s -- --server --relay`
+  installs a relay-only server with that unit, as the `hotline` service
+  account. A re-run keeps the server what it is: a relay updates only with
+  `--relay`, and `--relay` on a full server is refused before anything
+  changes.
 
 ## [0.39.0] - 2026-10-16
 

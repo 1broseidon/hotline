@@ -1,8 +1,6 @@
 ---
 id: task-122
 title: "P2-10 (B): Window dead code"
-column: review
-position: 11
 priority: high
 tags:
   - phase2
@@ -17,7 +15,7 @@ relatedFiles:
   - ui/src/components/Rail.tsx
   - ui/src/components/Skills.tsx
   - ui/src/wire.ts
-updatedAt: "2026-10-17T23:15:37.014Z"
+updatedAt: "2026-10-17T23:15:40.664Z"
 contract:
   status: delivered
   validation:
@@ -46,6 +44,7 @@ dispatch:
     ended: "2026-10-17T23:11:01.614Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T23:15:40.664Z"
 ---
 
 ## Description

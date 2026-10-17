@@ -1,0 +1,24 @@
+---
+id: task-121
+title: "P2-9 (B): Narrow `lib.rs`"
+column: todo
+position: 10
+priority: high
+tags:
+  - phase2
+  - dead-code
+parentId: epic-13
+createdAt: "2026-10-17T22:40:46.601Z"
+---
+
+## Description
+Phase 2 group B (Delete dead code), plan row 9 in docs/audits/0.40/README.md on release/0.40.0. Read that row, its source report section and the Standards before starting.
+
+**Narrow `lib.rs`.** Make the nine modules no outside crate names `pub(crate)`, and delete whatever the compiler then reports as unused. Moved up from structure's step 19 (C10)
+
+- Source: structure F12, task 19
+- Files: `crates/hotline-core/src/lib.rs:14-48`, plus whatever the compiler reports
+- Collides with: 16 (contract leaf) touches `thread`, `spending`, `linked`: land 9 first
+- Size: S–M
+
+End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.

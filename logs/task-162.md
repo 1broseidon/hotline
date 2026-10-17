@@ -1,8 +1,6 @@
 ---
 id: task-162
 title: "P2-D-2 (E): Server docs"
-column: review
-position: 51
 priority: high
 tags:
   - phase2
@@ -13,7 +11,7 @@ relatedFiles:
   - docs-site/src/content/docs/server/
   - docs-site/src/content/docs/phone/pair.md
   - docs/serve.md
-updatedAt: "2026-10-17T23:25:49.409Z"
+updatedAt: "2026-10-17T23:25:54.133Z"
 contract:
   status: delivered
   validation:
@@ -39,6 +37,7 @@ dispatch:
     pid: 50333
     at: "2026-10-17T23:11:47.306Z"
 assignee: claude
+completedAt: "2026-10-17T23:25:54.133Z"
 ---
 
 ## Description

@@ -52,3 +52,6 @@ Phase 2 group B (Delete dead code), plan row 9 in docs/audits/0.40/README.md on 
 - Size: S–M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-17T23:21:04.818Z: [claude] Made link_preview, linked, push, session, skills, spending, store, thread, websearch pub(crate) in lib.rs (checked first: no other crate names them; the workspace builds). Deleted what the compiler then reported: the re-exports session::{DeliverResult, Sent, MAX_LIVE_SIDES} and thread::{Seed, Surface}; QUIET_MS/SIDE_IDLE_MS are now re-exported only under cfg(test); the four unused provider ::new constructors (attempt() uses ::at); the never-read rank::Source.provider (the rank tests' src() helper lost its provider argument); Request::plain and Search::with_bounds moved into websearch/tests.rs because only tests call them; Indexer::forget and its test deleted. LEFT FOR LATER (George): nothing ever called Indexer::forget (the reference tree doesn't either), so delete_persona leaves a deleted teammate's rows in search.db, and search_all can still return them. If that matters, it's a behaviour fix with its own harness, and git has the old method. make check, make verify and make precheck (7 legs) pass. Commit 5f6885c8 on dispatch/task-121. Task 16 (contract leaf) can now proceed on thread/spending/linked.

@@ -1,8 +1,8 @@
 ---
 id: task-94
 title: "Phone: never pair with a relay-only server, explain why (hotline-mobile)"
-column: backlog
-position: 48
+column: todo
+position: 8
 priority: high
 tags:
   - relay
@@ -11,7 +11,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:02.975Z"
 dependsOn:
   - task-92
-updatedAt: "2026-10-17T05:37:05.523Z"
+updatedAt: "2026-10-17T05:43:01.105Z"
 ---
 
 ## Description

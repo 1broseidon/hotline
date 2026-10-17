@@ -1,8 +1,6 @@
 ---
 id: task-93
 title: "Desktop: Add a relay, the Relay picker, and the offer to drop owner to relay"
-column: review
-position: 7
 priority: high
 tags:
   - relay
@@ -11,7 +9,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:02.457Z"
 dependsOn:
   - task-98
-updatedAt: "2026-10-17T09:02:44.761Z"
+updatedAt: "2026-10-17T09:02:59.414Z"
 relatedFiles:
   - ui/src/components/RemoteSection.tsx
   - ui/src/desks.ts
@@ -45,6 +43,7 @@ dispatch:
     ended: "2026-10-17T09:02:44.761Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T09:02:59.414Z"
 ---
 
 ## Description
@@ -67,3 +66,4 @@ Tests: UI tests (`bun test`) for the picker (relay-only labelled, not in the des
 
 ## Log
 - 2026-10-17T09:02:39.181Z: [claude] Done on dispatch/task-93 (7932bf89); ui-check green (417 pass), no Rust touched. WIRE: Wire now keeps the `{type:"hello"}` frame's `serves` (it was dropped) as `wire.serves()` (null = not said; reset per socket). REMOTE SECTION: Relay picker = useDesks() remote desks + `remote.relays` not in the desk list, the latter with detail "Relay only"; a "Relay servers" fold lists relay-only servers with Forget, and pairs a `hotline pair --link --role relay` link via pairDeskByLink then chooses it with remote.relay (a desk link pasted there says it paired a desk). Forget clears the core's remote.relay first when it is the chosen one (the task-98 gap). OFFER: useRelayOffer subscribes the chosen relay desk's roster afresh; shown only when that desk is the chosen relay, !relayDeclined, its hello serves "relay", and the roster snapshot is empty (a roster event hides it). Accept → moveDeskToRelay, then re-reads remote.relays; Keep as desk → declineRelay, remembered by the shell's re-sent list (a declined desk isn't even asked). Relay-only servers never reach the rail/desk list/links because the shell doesn't list them. TESTS: ui/tests/relay-picker.test.tsx drives the real Wire over a fake socket and Tauri's invoke. LEFT: a relay's `serves` is still what pairing/the move said, not refreshed; AddDesk ("Add a server") given a relay link still pairs it as a relay and closes with nothing switched, no message.
+- 2026-10-17T09:02:57.744Z: Landed on release/0.40.0

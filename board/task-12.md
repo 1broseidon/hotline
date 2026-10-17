@@ -1,8 +1,8 @@
 ---
 id: task-12
 title: "Desk: remote.devices marks the caller; hello carries desk kind, version and which endpoint is public"
-column: backlog
-position: 9
+column: todo
+position: 2
 priority: medium
 tags:
   - bro-160
@@ -16,7 +16,7 @@ description: |-
   - The optional summary read from the original task is out of scope; file it separately if wanted.
 
   All fields are optional, and an older phone ignores them. Run the contract sync with `make check`. Tests over the wire for each.
-updatedAt: "2026-10-17T05:24:54.854Z"
+updatedAt: "2026-10-17T05:24:55.355Z"
 subtasks:
   - id: task-12-1
     title: Mark the requesting device in remote.devices

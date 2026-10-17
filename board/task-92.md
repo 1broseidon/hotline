@@ -1,8 +1,8 @@
 ---
 id: task-92
 title: "Core + CLI: serve --capabilities, a relay-only boot with no agent machinery, and mode switching"
-column: todo
-position: 6
+column: in-progress
+position: 0
 priority: high
 tags:
   - relay
@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.930Z"
 dependsOn:
   - task-91
-updatedAt: "2026-10-17T08:06:23.490Z"
+updatedAt: "2026-10-17T08:06:39.632Z"
 relatedFiles:
   - crates/hotline-cli/src/serve.rs
   - crates/hotline-cli/src/main.rs

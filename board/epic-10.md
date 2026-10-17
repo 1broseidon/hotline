@@ -11,7 +11,15 @@ tags:
   - reachability
 createdAt: "2026-10-17T05:24:53.348Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T05:39:55.063Z"
+updatedAt: "2026-10-17T05:43:03.136Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-17T05:43:03.005Z"
+  until: done
+  role: lead
+assignee: claude
 ---
 
 ## Description

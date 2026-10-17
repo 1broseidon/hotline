@@ -1,8 +1,6 @@
 ---
 id: task-109
 title: "Audit synthesis: one ordered Phase 2 plan from the six 0.40 reports"
-column: review
-position: 7
 priority: high
 tags:
   - audit
@@ -44,7 +42,7 @@ contract:
     deliveredAt: "2026-10-17T20:01:23.767Z"
     duration: 404
 createdAt: "2026-10-17T19:29:38.067Z"
-updatedAt: "2026-10-17T20:01:44.103Z"
+updatedAt: "2026-10-17T20:01:45.538Z"
 dispatch:
   agent: claude
   model: opus
@@ -60,6 +58,7 @@ dispatch:
     ended: "2026-10-17T20:01:35.735Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T20:01:45.538Z"
 ---
 
 ## Description

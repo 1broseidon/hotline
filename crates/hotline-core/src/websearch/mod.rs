@@ -247,17 +247,6 @@ impl Request {
         }
     }
 
-    /// A plain query at a depth, for a test or a smoke run.
-    pub fn plain(query: &str, depth: usize) -> Self {
-        Self {
-            query: query.to_string(),
-            depth,
-            language: None,
-            window: None,
-            today: chrono::Utc::now().date_naive(),
-        }
-    }
-
     /// What to add to a natural-language `objective` for the providers whose
     /// API takes the goal as a sentence and has no language or date field.
     pub(crate) fn objective(&self) -> String {
@@ -515,13 +504,6 @@ impl Search {
         }
     }
 
-    /// Tighter bounds, so a test of the timeouts does not take seconds.
-    pub fn with_bounds(mut self, timeout: Duration, budget: Duration) -> Self {
-        self.timeout = timeout;
-        self.budget = budget;
-        self
-    }
-
     /// Shares a room's memory of resting providers and recent answers.
     pub fn with_state(mut self, state: Arc<State>) -> Self {
         self.state = state;
@@ -608,7 +590,6 @@ impl Search {
                 Some(Outcome::Hits(hits)) => {
                     answered.push(attempt.provider);
                     sources.push(rank::Source {
-                        provider: attempt.provider,
                         keyed: attempt.key.is_some(),
                         hits,
                     });

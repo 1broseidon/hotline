@@ -60,9 +60,8 @@ mod turns;
 mod web_search;
 pub use stopping::Stopped;
 
-pub use peers::{DeliverResult, Sent, TEAMMATE_MESSAGE_MAX};
+pub use peers::TEAMMATE_MESSAGE_MAX;
 pub use schedule::{parse_duration, parse_when};
-pub use sides::MAX_LIVE as MAX_LIVE_SIDES;
 
 use crate::computer::Computer;
 use crate::contract::{

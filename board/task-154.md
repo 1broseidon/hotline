@@ -9,7 +9,11 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:03.758Z"
-updatedAt: "2026-10-17T22:45:43.125Z"
+updatedAt: "2026-10-17T22:47:18.398Z"
+relatedFiles:
+  - crates/hotline-core/tests/common/mod.rs
+  - crates/hotline-core/tests/
+  - crates/hotline-cli/tests/
 ---
 
 ## Description

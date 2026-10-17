@@ -53,9 +53,6 @@ pub struct PairedRelay {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub public: Option<String>,
-    /// What the server said it runs when this computer last asked.
-    #[serde(default)]
-    pub serves: Vec<String>,
 }
 impl PairedRelay {
     /// The server as the sealed dialer reaches it: its own address, then its
@@ -215,7 +212,6 @@ impl Client {
                 url: payload.url.clone(),
                 desk_key: payload.desk_key.clone(),
                 public: payload.public.clone(),
-                serves: serves(&reply),
             }));
         }
         Ok(Paired::Desk(PairedDesk {
@@ -291,7 +287,6 @@ impl Client {
             url: desk.url.clone(),
             desk_key: desk.desk_key.clone(),
             public: desk.public.clone(),
-            serves,
         })
     }
 

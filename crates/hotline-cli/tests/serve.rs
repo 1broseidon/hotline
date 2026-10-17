@@ -350,7 +350,6 @@ async fn a_relay_only_server_opens_no_room_and_carries_a_desktops_visitors() {
     let laptop_store = dir.path().join("laptop");
     let pi = claim_relay(&laptop_store, &invitation, "Laptop").await;
     assert!(paired_as(pairing).contains("as relay"));
-    assert_eq!(pi.serves, ["relay"]);
     laptop.relay_through(Some(pi.desk_id.clone())).unwrap();
     let deadline = Instant::now() + Duration::from_secs(20);
     let url = loop {

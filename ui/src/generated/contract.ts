@@ -662,11 +662,7 @@ export type PairedRelay = { deskId: string, name: string, url: string, deskKey: 
 /**
  * The person's public address for the server, tried after its own.
  */
-public?: string, 
-/**
- * What the server said it runs when this computer last asked.
- */
-serves: Array<string>, };
+public?: string, };
 
 /**
  * The link and SSH formats carry the same short-lived capability as the QR.

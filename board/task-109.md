@@ -54,3 +54,6 @@ Phase 1 ends with one document George can approve from: docs/audits/0.40/README.
 - Flag every contradiction between reports and recommend a resolution.
 - List what docs/standards.md should say, drawn from the reports' conventions: module layout, test layout, file budget, error and panic policy, and lint policy.
 - Read-only: don't edit the six reports, and change no code.
+
+## Log
+- 2026-10-17T19:54:17.771Z: [claude] Lead: tests-and-docs.md found docs/security.md cites four proof tests that don't exist. Rank that with the advisories, in the security group at the top of the Phase 2 order. Each missing proof means either a capability with no proof, or a stale index; say which for each.

@@ -1,7 +1,7 @@
 ---
 id: task-122
 title: "P2-10 (B): Window dead code"
-column: todo
+column: in-progress
 position: 11
 priority: high
 tags:
@@ -17,9 +17,9 @@ relatedFiles:
   - ui/src/components/Rail.tsx
   - ui/src/components/Skills.tsx
   - ui/src/wire.ts
-updatedAt: "2026-10-17T23:03:34.645Z"
+updatedAt: "2026-10-17T23:04:07.693Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - "! git grep -nE '\\b(BookIcon|currentCall|voiceOf)\\b' -- ui/src"
@@ -27,6 +27,8 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-17T23:04:07.693Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

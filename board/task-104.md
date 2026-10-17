@@ -31,7 +31,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:43:13.785Z"
     duration: 454
-updatedAt: "2026-10-17T19:43:27.715Z"
+updatedAt: "2026-10-17T19:43:38.450Z"
 relatedFiles:
   - docs/audits/0.40/dead-code-and-deps.md
   - Cargo.toml
@@ -72,3 +72,4 @@ Audit: dead code and dependencies.
 - 2026-10-17T19:39:23.145Z: [codex] Audit in progress on dispatch/task-104, report only. Early handoff for task-107/109: Knip 6.41.0 finds no unused ui/package.json deps; 30 unused exports mostly need only export removed, generated contract types and mobile-shared pacing/reveal/cadence must not be deleted from scanner output. cargo-deny reports 10 vulnerability diagnostics (rustls + both zip versions), 9 unmaintained; Bun audit reports KaTeX and source-map-js. Report will separate exposure, exact cleanups, and independent followups.
 - 2026-10-17T19:43:23.182Z: [codex] Handoff for epic-12/task-109: review docs/audits/0.40/dead-code-and-deps.md, then file the 18 independent Phase 2 proposals after George approves. Prioritize rustls patch and ZIP ownership paths (direct ACP, Tauri updater, sherpa build separately); Bun alerts include a KaTeX copy inside Mermaid's classic bundle, so lockfile overrides alone do not prove it fixed. Coordinate 22 private value exports + 14 private types with task-107 and three stale phase sentences with task-108; retain mobile-shared exports, generated contract, supported platform gates, scripts/packaging/fixtures. All 10 suppression sites accounted for (one redundant). No confirmed unused direct Cargo/npm dependency; machete's tauri-build result is false positive, nightly udeps passes. Enable gates only after approved fixes and explicit upstream exceptions.
 - 2026-10-17T19:43:23.473Z: [codex] Finished the read-only audit and committed only its report as f7de57ea on dispatch/task-104. make check, UI build, nightly udeps and all contract validation commands pass; advisory/license scan failures are documented findings. Worktree is clean; ready for human review, not completed.
+- 2026-10-17T19:43:38.450Z: Landed on release/0.40.0

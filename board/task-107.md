@@ -27,7 +27,7 @@ contract:
     - Do not commit ui/src/generated/contract.ts
   metrics:
     readyAt: "2026-10-17T19:29:18.238Z"
-updatedAt: "2026-10-17T19:29:26.521Z"
+updatedAt: "2026-10-17T19:39:00.451Z"
 relatedFiles:
   - docs/audits/0.40/window.md
   - ui/src
@@ -35,6 +35,14 @@ relatedFiles:
   - ui/package.json
   - ui/tsconfig.json
   - ui/src/generated/contract.ts
+dispatch:
+  agent: claude
+  model: sonnet
+  by: lead
+  at: "2026-10-17T19:38:59.987Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

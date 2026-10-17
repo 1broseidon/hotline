@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.930Z"
 dependsOn:
   - task-91
-updatedAt: "2026-10-17T08:28:21.581Z"
+updatedAt: "2026-10-17T08:29:34.806Z"
 relatedFiles:
   - crates/hotline-cli/src/serve.rs
   - crates/hotline-cli/src/main.rs
@@ -72,3 +72,4 @@ Measure the RSS and idle CPU of relay-only on this machine (aarch64 macOS) and n
 
 ## Log
 - 2026-10-17T08:28:17.147Z: [claude] Done on dispatch/task-92 (28c1f481, a8479ce6, e9e3becc). CORE: Remote's room half is now `agents: Option<remote::Agents{log, room}>` (None = relay-only); `open_served_with_store(root, Option<Agents>, store, ServeOptions)` and ServeOptions gains `relay: bool`. No new trait: the existing RoomHandle seam stays, and Remote simply holds none. `Purpose::of` gates /v2, /v2/computer, /v2/link on agents and /v2/relay(+accept) plus visitor routes on `relays()` → 404 before Noise. `Remote::serves()` replaces task-91's fixed list; `serves` is in the pair answer, ready, and owner hello. `Remote::pairing(role?, id?, cancel)` is now shared by the wire and the new relay door; with no role it defaults to owner (agents) or relay (relay-only). pairing_v2 refuses owner/companion on relay-only and relay on a no-relay server. `Door::bind_relay(token, remote)` (wire/relay_door.rs) answers remote.status/pairing/devices/revoke and refuses everything else with remote::RELAY_ONLY. `credentials::atomic_write` is now pub. BUG FIXED from task-91: configure_served armed device tokens only for `grants`, so a relay grant could not authenticate after a served restart; now uses all_grants (the CLI mode-switch test proves it). CLI: `serve --capabilities`, serve.json (written when the flag is given; stderr `capabilities: X → Y`, with no record counted as agents,relay); a relay-only boot opens no Desk; door.json gains `capabilities`; `hotline status` prints `runs` and, on relay-only, its address and device count; `hotline pair` sends no role unless flagged and prints from payload.role. MEASURED (release, M5 Max aarch64 macOS 27, idle 60s, nothing paired): relay-only 14 MB RSS, under 10 ms CPU; agents,relay on an empty room 25 MB, 30 ms. Pi figure still for George. LEFT FOR LATER: the ADR's narrowing command (owner → relay offer) is not built; the desktop app does not read `serves` yet (task-93/98); task-91's notes for task-98 (desks.rs refusing relay payloads, role_not_permitted → Unreachable) still stand.
+- 2026-10-17T08:29:34.806Z: Landed on release/0.40.0

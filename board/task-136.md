@@ -9,6 +9,13 @@ tags:
   - restructure
 parentId: epic-13
 createdAt: "2026-10-17T22:40:54.356Z"
+relatedFiles:
+  - crates/hotline-core/src/driver/acp.rs
+  - crates/hotline-core/src/driver/acp/oauth_proxy.rs
+  - crates/hotline-core/src/driver/acp/live.rs
+  - crates/hotline-core/src/driver/acp/translate.rs
+  - crates/hotline-core/src/driver/acp/session.rs
+updatedAt: "2026-10-17T22:46:56.306Z"
 ---
 
 ## Description

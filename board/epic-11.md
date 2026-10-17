@@ -12,19 +12,7 @@ tags:
   - pi
 createdAt: "2026-10-17T05:37:00.361Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T07:44:21.543Z"
-dispatch:
-  agent: claude
-  model: opus
-  by: cli
-  at: "2026-10-17T07:44:20.215Z"
-  until: done
-  role: lead
-  claim:
-    host: Georges-Mac-Studio
-    runner: desktop
-    pid: 50333
-    at: "2026-10-17T07:44:21.543Z"
+updatedAt: "2026-10-17T09:24:46.969Z"
 assignee: claude
 ---
 

@@ -1,8 +1,6 @@
 ---
 id: task-100
 title: "Desktop: a relay link pasted into \"Add a server\" says it added a relay and chooses it, instead of closing silently"
-column: review
-position: 3
 description: |-
   Left by task-93 (7932bf89, on release/0.40.0): AddDesk ("Add a server") given a `hotline pair --link --role relay` link pairs it as a relay via `pairDeskByLink` (the shell keeps it in relays.json) and then closes with nothing switched and no message, so the person sees nothing happen. UI only; the shell and core already do the pairing.
 
@@ -45,7 +43,8 @@ dispatch:
     ended: "2026-10-17T09:07:16.469Z"
     outcome: review
 assignee: claude
-updatedAt: "2026-10-17T09:07:31.484Z"
+updatedAt: "2026-10-17T09:07:35.132Z"
+completedAt: "2026-10-17T09:07:35.132Z"
 ---
 
 ## Description

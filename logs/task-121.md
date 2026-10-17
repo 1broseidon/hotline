@@ -1,8 +1,6 @@
 ---
 id: task-121
 title: "P2-9 (B): Narrow `lib.rs`"
-column: review
-position: 10
 priority: high
 tags:
   - phase2
@@ -12,7 +10,7 @@ createdAt: "2026-10-17T22:40:46.601Z"
 relatedFiles:
   - crates/hotline-core/src/lib.rs
   - crates/hotline-core/src/
-updatedAt: "2026-10-17T23:21:05.308Z"
+updatedAt: "2026-10-17T23:32:42.816Z"
 contract:
   status: delivered
   validation:
@@ -41,6 +39,7 @@ dispatch:
     pid: 50333
     at: "2026-10-17T23:03:24.259Z"
 assignee: claude
+completedAt: "2026-10-17T23:32:42.816Z"
 ---
 
 ## Description
@@ -57,3 +56,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-17T23:21:04.818Z: [claude] Made link_preview, linked, push, session, skills, spending, store, thread, websearch pub(crate) in lib.rs (checked first: no other crate names them; the workspace builds). Deleted what the compiler then reported: the re-exports session::{DeliverResult, Sent, MAX_LIVE_SIDES} and thread::{Seed, Surface}; QUIET_MS/SIDE_IDLE_MS are now re-exported only under cfg(test); the four unused provider ::new constructors (attempt() uses ::at); the never-read rank::Source.provider (the rank tests' src() helper lost its provider argument); Request::plain and Search::with_bounds moved into websearch/tests.rs because only tests call them; Indexer::forget and its test deleted. LEFT FOR LATER (George): nothing ever called Indexer::forget (the reference tree doesn't either), so delete_persona leaves a deleted teammate's rows in search.db, and search_all can still return them. If that matters, it's a behaviour fix with its own harness, and git has the old method. make check, make verify and make precheck (7 legs) pass. Commit 5f6885c8 on dispatch/task-121. Task 16 (contract leaf) can now proceed on thread/spending/linked.
+- 2026-10-17T23:32:41.822Z: Landed on release/0.40.0

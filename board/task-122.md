@@ -17,7 +17,7 @@ relatedFiles:
   - ui/src/components/Rail.tsx
   - ui/src/components/Skills.tsx
   - ui/src/wire.ts
-updatedAt: "2026-10-17T23:03:22.725Z"
+updatedAt: "2026-10-17T23:03:34.645Z"
 contract:
   status: ready
   validation:
@@ -33,7 +33,12 @@ dispatch:
   by: lead
   at: "2026-10-17T23:03:22.558Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T23:03:34.645Z"
 assignee: claude
 ---
 

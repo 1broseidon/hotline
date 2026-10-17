@@ -9,6 +9,11 @@ tags:
   - docs
 parentId: epic-11
 createdAt: "2026-10-17T05:37:03.487Z"
+dependsOn:
+  - task-91
+  - task-92
+  - task-93
+updatedAt: "2026-10-17T05:37:06.072Z"
 ---
 
 ## Description

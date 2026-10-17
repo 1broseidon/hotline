@@ -11,7 +11,15 @@ tags:
   - phase2
 createdAt: "2026-10-17T22:40:41.476Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T22:40:41.970Z"
+updatedAt: "2026-10-17T22:41:27.788Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-17T22:41:27.659Z"
+  until: done
+  role: lead
+assignee: claude
 ---
 
 ## Description

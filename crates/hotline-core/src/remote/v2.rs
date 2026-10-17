@@ -126,11 +126,50 @@ impl Remote {
             .collect()
     }
 
+    /// `remote.pairing`, from the wire or a relay-only server's door: start
+    /// an invitation, or poll or cancel one by its id. With no role named it
+    /// is for the role this server's capabilities make the usual one: owner
+    /// where it runs agents, relay where it runs only a relay.
+    pub fn pairing(
+        &self,
+        role: Option<DeviceRole>,
+        id: Option<String>,
+        cancel: bool,
+    ) -> Result<Value, String> {
+        let Some(id) = id else {
+            if cancel {
+                return Err("Name the pairing invitation to cancel.".into());
+            }
+            let usual = if self.agents.is_some() {
+                DeviceRole::Owner
+            } else {
+                DeviceRole::Relay
+            };
+            return Ok(json!(self.pairing_v2(role.unwrap_or(usual))?));
+        };
+        if role.is_some() {
+            return Err("A pairing role is chosen when the invitation is created.".into());
+        }
+        if cancel {
+            self.cancel_pairing(&id)?;
+            return Ok(Value::Null);
+        }
+        Ok(json!(self.pairing_result(&id)?))
+    }
+
     pub fn pairing_v2(&self, role: DeviceRole) -> Result<SealedPairing, String> {
         // A desktop's own Remote never hosts a relay, so a relay grant there
-        // could do nothing.
+        // could do nothing; nor could one on a server that does not relay.
         if role == DeviceRole::Relay && self.served.is_none() {
             return Err("Only a served desk carries a relay.".into());
+        }
+        if role == DeviceRole::Relay && !self.relays() {
+            return Err("This server does not run a relay. Serve it with --capabilities agents,relay to pair one.".into());
+        }
+        // A relay-only server has no wire, so an owner or companion grant
+        // there could do nothing but stand in, which a relay grant does.
+        if role != DeviceRole::Relay && self.agents.is_none() {
+            return Err("This server runs only a relay, so it pairs a desktop to relay through it and nothing else: phones pair with a server that runs agents.".into());
         }
         let (_, public) = self.noise_keys()?;
         let mut s = self.state.lock().unwrap();

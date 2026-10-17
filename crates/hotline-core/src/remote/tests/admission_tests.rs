@@ -134,14 +134,17 @@ async fn relay_server() -> (tempfile::TempDir, Arc<Remote>, String) {
     let public_url = format!("https://{listen}/room");
     let remote = Remote::open_served_with_store(
         root.path(),
-        desk.log.clone(),
-        desk,
+        Some(Agents {
+            log: desk.log.clone(),
+            room: desk,
+        }),
         store,
         ServeOptions {
             listen,
             public_url: public_url.clone(),
             tls_cert: None,
             tls_key: None,
+            relay: true,
         },
     )
     .unwrap();

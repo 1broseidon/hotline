@@ -126,7 +126,7 @@ async fn handle(
         return Ok(sealed_door(remote, request, slot, &path).await);
     }
     if request.method() == "GET"
-        && remote.served.is_some()
+        && remote.relays()
         && let Some(route) = super::relay::Route::of(&path)
     {
         return Ok(relay_door(remote, request, slot, route).await);
@@ -249,8 +249,10 @@ pub(super) fn handshake_config() -> WebSocketConfig {
         .max_frame_size(Some(65535))
 }
 
-/// What a sealed socket is for, from its path. Pairing needs an open window;
-/// hosting a relay is a served desk's door only.
+/// What a sealed socket is for, from its path. Pairing needs an open window.
+/// Every other door belongs to a capability (ADR 0006): the wire, the
+/// computer and the link to `agents`, hosting a relay to a served desk's
+/// `relay`. A door of a capability this server does not run is not there.
 #[derive(Clone)]
 pub(super) enum Purpose {
     Wire,
@@ -263,17 +265,19 @@ pub(super) enum Purpose {
 }
 impl Purpose {
     pub(super) fn of(remote: &Remote, path: &str) -> Option<Self> {
-        match path {
-            "/v2" => Some(Self::Wire),
-            "/v2/pair" => remote.pairing_open().then_some(Self::Pair),
-            "/v2/relay" => remote.served.is_some().then_some(Self::Relay),
-            "/v2/relay/accept" => remote.served.is_some().then_some(Self::RelayAccept),
-            "/v2/link" => Some(Self::Link),
-            _ => path
-                .strip_prefix("/v2")
-                .and_then(computer_path)
-                .map(|persona| Self::Computer(persona.to_owned())),
-        }
+        let purpose = match path {
+            "/v2" => Self::Wire,
+            "/v2/pair" => return remote.pairing_open().then_some(Self::Pair),
+            "/v2/relay" => Self::Relay,
+            "/v2/relay/accept" => Self::RelayAccept,
+            "/v2/link" => Self::Link,
+            _ => Self::Computer(path.strip_prefix("/v2").and_then(computer_path)?.to_owned()),
+        };
+        let runs = match purpose {
+            Self::Relay | Self::RelayAccept => remote.relays(),
+            _ => remote.agents.is_some(),
+        };
+        runs.then_some(purpose)
     }
 
     /// Which grant roles this door opens to (ADR 0006). The wire and the
@@ -487,11 +491,14 @@ pub(super) async fn sealed_session<S>(
             };
             // The wire owns its writer and subscription tasks and must reach
             // their cleanup on revocation; dropping that future leaks them.
+            let Ok(Agents { log, room }) = remote.agents() else {
+                return;
+            };
             let desktop_id = remote.state.lock().unwrap().saved.desktop_id.clone();
             let _ = crate::wire::seated_phone_v2(
                 socket,
-                remote.log.clone(),
-                remote.room.clone(),
+                log.clone(),
+                room.clone(),
                 phone,
                 role,
                 &desktop_id,
@@ -521,7 +528,10 @@ async fn sealed_computer<S>(
         r#type: String,
         data: String,
     }
-    let Ok(status) = remote.room.computer_status(persona).await else {
+    let Ok(Agents { log, room }) = remote.agents() else {
+        return;
+    };
+    let Ok(status) = room.computer_status(persona).await else {
         return;
     };
     let Some((port, token)) = computer_target(&status) else {
@@ -540,7 +550,7 @@ async fn sealed_computer<S>(
         return;
     };
     let Ok(mut files) =
-        super::viewer_files::Relay::start(port, token, remote.log.root().join("viewer-uploads"))
+        super::viewer_files::Relay::start(port, token, log.root().join("viewer-uploads"))
     else {
         return;
     };

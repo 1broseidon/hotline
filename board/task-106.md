@@ -32,7 +32,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:33:57.148Z"
     duration: 221
-updatedAt: "2026-10-17T19:34:07.377Z"
+updatedAt: "2026-10-17T19:34:35.532Z"
 relatedFiles:
   - docs/audits/0.40/lints.md
   - Cargo.toml
@@ -68,3 +68,4 @@ Audit: lint policy.
 
 ## Log
 - 2026-10-17T19:33:58.380Z: [claude] Report is docs/audits/0.40/lints.md on branch dispatch/task-106 (read-only audit, no Cargo.toml change). For later tasks: fmt and edition are clean and need no change; the proposed [workspace.lints] table goes in first with only zero-hit lints, then autofix slices; there are 9 (not 8) too_many_arguments allows, all removable by grouping args; Failure's size (result_large_err) was not measured. Clippy needs .speech-engine copied from a sibling checkout to build.
+- 2026-10-17T19:34:35.532Z: Landed on release/0.40.0

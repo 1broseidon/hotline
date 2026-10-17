@@ -1,8 +1,8 @@
 ---
 id: task-91
 title: "Core: a relay grant role that may only stand in and carry visits"
-column: backlog
-position: 45
+column: todo
+position: 5
 priority: high
 tags:
   - relay
@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.415Z"
 dependsOn:
   - task-90
-updatedAt: "2026-10-17T05:37:03.997Z"
+updatedAt: "2026-10-17T05:42:59.538Z"
 ---
 
 ## Description

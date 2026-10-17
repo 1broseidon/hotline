@@ -32,6 +32,10 @@ pub struct DoorFile {
     pub started_at: String,
     pub data_dir: String,
     pub store: String,
+    /// What the server runs (ADR 0006). Absent from a door written before
+    /// there was a choice, which ran both.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 pub fn path(root: &Path) -> PathBuf {
@@ -186,6 +190,12 @@ pub fn status(room: &Room) -> ExitCode {
     );
     println!("  data    {}", door.data_dir);
     println!("  store   {}", door.store);
+    if !door.capabilities.is_empty() {
+        println!("  runs    {}", door.capabilities.join(", "));
+    }
+    if !door.capabilities.is_empty() && !door.capabilities.iter().any(|name| name == "agents") {
+        return relay_status(&door);
+    }
     match runtime().block_on(ask(&door, "welcome", json!({}))) {
         Ok(welcome) => {
             let providers = welcome["providers"]
@@ -216,6 +226,31 @@ pub fn status(room: &Room) -> ExitCode {
         }
         Err(problem) => {
             println!("  ! The desk did not answer: {problem}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// A relay-only server has no teammates or models to report: where it is
+/// reached, and how many desktops may stand in on it.
+fn relay_status(door: &DoorFile) -> ExitCode {
+    match runtime().block_on(ask(door, "remote.status", json!({}))) {
+        Ok(status) => {
+            println!(
+                "  address {}",
+                status["endpoint"].as_str().unwrap_or("not listening yet")
+            );
+            println!(
+                "  devices {}",
+                status["devices"].as_array().map_or(0, Vec::len)
+            );
+            if let Some(error) = status["error"].as_str() {
+                println!("  ! {error}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(problem) => {
+            println!("  ! The server did not answer: {problem}");
             ExitCode::from(1)
         }
     }

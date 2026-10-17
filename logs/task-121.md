@@ -10,7 +10,7 @@ createdAt: "2026-10-17T22:40:46.601Z"
 relatedFiles:
   - crates/hotline-core/src/lib.rs
   - crates/hotline-core/src/
-updatedAt: "2026-10-17T23:32:42.816Z"
+updatedAt: "2026-10-17T23:32:45.285Z"
 contract:
   status: delivered
   validation:
@@ -38,6 +38,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T23:03:24.259Z"
+    ended: "2026-10-17T23:32:45.285Z"
+    outcome: done
 assignee: claude
 completedAt: "2026-10-17T23:32:42.816Z"
 ---

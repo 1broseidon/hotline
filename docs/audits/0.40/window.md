@@ -5,7 +5,7 @@ Method: `bunx knip` (no config), Biome 2.5.15 with `recommended` plus
 `noExplicitAny`, and grep, all run ad hoc against `ui/src` with
 `src/generated/**` excluded. Nothing was added to `ui/package.json`.
 `typescript-eslint` was tried and refuses to load: it rejects TypeScript 7.0,
-which `ui/package.json:41` pins. Counts below are from that run. `ui/` is
+which `ui/package.json:35` pins. Counts below are from that run. `ui/` is
 ~30k lines of TypeScript, of which 2149 are the generated contract.
 
 ## Findings
@@ -15,9 +15,9 @@ more).
 
 ### 1. Effects the compiler cannot check: 52 dependency-list hits (high, M)
 
-Biome's `useExhaustiveDependencies` reports 52 hits, 13 of them in
+Biome's `useExhaustiveDependencies` reports 52 hits, 12 of them in
 `src/App.tsx` (`:82`, `:180`, `:193`, `:234`, `:350`, `:361`, `:365`, `:421`,
-`:486`), 10 in `Settings.tsx` (`:731`, `:1548`, `:1637`), and the rest in
+`:486`), 9 in `Settings.tsx` (`:731`, `:1548`, `:1637`), and the rest in
 `ConnectProvider.tsx:73,80`, `Welcome.tsx:120` and others. They are two kinds:
 
 - *Missing* dependencies, mostly `setDock` / `setInspector` at

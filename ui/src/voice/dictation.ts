@@ -406,7 +406,7 @@ export class TapOrHold {
 export const SEND_AFTER_MS = 1_500;
 
 /** Fewer than two letters is a cough or a click, not a message. */
-export function worthSending(heard: string): boolean {
+function worthSending(heard: string): boolean {
 	return heard.replace(/\s/g, "").length >= 2;
 }
 

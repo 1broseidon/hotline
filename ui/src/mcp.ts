@@ -8,7 +8,7 @@
  * imported data directory, see the same entries.
  */
 
-export type McpStdioServer = {
+type McpStdioServer = {
 	id: string;
 	type: "stdio";
 	name: string;
@@ -26,7 +26,7 @@ export type McpStdioServer = {
  */
 export type McpHttpAuth = { mode: "none" } | { mode: string; [key: string]: unknown };
 
-export type McpHttpServer = {
+type McpHttpServer = {
 	id: string;
 	type: "http";
 	name: string;

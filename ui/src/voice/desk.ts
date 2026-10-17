@@ -33,7 +33,7 @@ const DESK_LOST_MICROPHONE = "The microphone went away. What was heard is in the
 const DESK_DID_NOT_FINISH = "The desk did not finish hearing that. Try again.";
 
 /** The microphone as dictation needs it: blocks of samples, until closed. */
-export type Microphone = {
+type Microphone = {
 	/** Rejects when the microphone cannot be had. */
 	open(onBlock: (block: Float32Array, rate: number) => void, onLost: () => void): Promise<void>;
 	close(): void;
@@ -241,7 +241,7 @@ export function noteDeskModels(models: readonly SpeechModel[]): void {
 }
 
 /** Asks the desk; a desk too old to have models has none. */
-export async function refreshDeskHearing(): Promise<boolean> {
+async function refreshDeskHearing(): Promise<boolean> {
 	try {
 		noteDeskModels(await wire.command("voice.models", {}));
 	} catch {

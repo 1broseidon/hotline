@@ -23,10 +23,10 @@ import { Wire } from "./wire";
  * the active desk's: it lists every desk's teammates at once (BRO-178), and
  * the desk filter narrows it without changing which desk is active.
  */
-export type DeskKind = "local" | "remote";
+type DeskKind = "local" | "remote";
 
 /** How a remote desk's bridge is doing. A local desk is always reachable while the window runs. */
-export type DeskState = "connecting" | "open" | "unreachable" | "revoked";
+type DeskState = "connecting" | "open" | "unreachable" | "revoked";
 
 export type Desk = {
 	id: string;

@@ -11,7 +11,7 @@ parentId: epic-13
 createdAt: "2026-10-17T22:40:43.005Z"
 relatedFiles:
   - Cargo.lock
-updatedAt: "2026-10-17T22:48:59.119Z"
+updatedAt: "2026-10-17T22:49:03.304Z"
 contract:
   status: ready
   validation:
@@ -27,7 +27,12 @@ dispatch:
   by: lead
   at: "2026-10-17T22:48:58.989Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T22:49:03.304Z"
 assignee: claude
 ---
 

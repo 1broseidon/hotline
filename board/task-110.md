@@ -10,7 +10,7 @@ tags:
   - quality
 createdAt: "2026-10-17T20:09:09.114Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T21:05:58.276Z"
+updatedAt: "2026-10-17T21:06:11.957Z"
 dispatch:
   agent: claude
   model: opus
@@ -61,3 +61,4 @@ Done when, run on the 0.39.0 failing commits:
 
 ## Log
 - 2026-10-17T21:05:57.999Z: [claude] Done on branch dispatch/task-110. `make precheck` (scripts/precheck) runs fmt, lockfile, actionlint, contract (written from nothing, then diffed), clippy on the host, clippy for Windows via cargo-xwin (whole workspace, ring/aws-lc-sys/libopus included, nothing skipped), and the ui tests (typecheck, each file alone, then the full run): 15 s warm, 4 min cold. `make precheck-full` adds linux (Ubuntu 24.04 under Apple's container: arm64, checkout read-only, five warm volumes, --init, /proc unmasked so bwrap works, unprivileged user), bare-path (test binaries run through scripts/precheck-runner-env) and shuffle (stable libtest via RUSTC_BOOTSTRAP set only in the runner, so nothing rebuilds): 3.5 min warm. On 7b1fe52a it catches the Windows dead code and the dictation window failure. On release/0.40.0 it found and fixed: ui/tests/work.test.ts fails when run alone; actionlint flagged matrix.target read in jobs whose matrix has no target, plus SC2129; Linux threads-test race (turn ends before the subscribe); relay test counting onnxruntime's stderr warning. The Linux leg passes on release/0.40.0 with those fixes. Landing: `brainfile land` runs each task's contract validation and there is no board-wide hook, so AGENTS.md now names precheck as the check before pushing and landing; contracts should list `make precheck`. Gaps: the container is arm64 where CI is x86_64, and bare-path can't reproduce an Xcode-only Mac (task-89).
+- 2026-10-17T21:06:11.957Z: Landed on release/0.40.0

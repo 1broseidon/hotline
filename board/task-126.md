@@ -9,6 +9,24 @@ tags:
   - restructure
 parentId: epic-13
 createdAt: "2026-10-17T22:40:49.183Z"
+relatedFiles:
+  - crates/hotline-core/src/computer/mod.rs
+  - crates/hotline-core/src/driver/mod.rs
+  - crates/hotline-core/src/imagegen/mod.rs
+  - crates/hotline-core/src/log/mod.rs
+  - crates/hotline-core/src/mcp/mod.rs
+  - crates/hotline-core/src/remote/mod.rs
+  - crates/hotline-core/src/session/mod.rs
+  - crates/hotline-core/src/skills/mod.rs
+  - crates/hotline-core/src/store/mod.rs
+  - crates/hotline-core/src/thread/mod.rs
+  - crates/hotline-core/src/tools/mod.rs
+  - crates/hotline-core/src/voice/mod.rs
+  - crates/hotline-core/src/voice/realtime/mod.rs
+  - crates/hotline-core/src/voice/speech/mod.rs
+  - crates/hotline-core/src/websearch/mod.rs
+  - crates/hotline-core/src/wire/mod.rs
+updatedAt: "2026-10-17T22:46:32.232Z"
 ---
 
 ## Description

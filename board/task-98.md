@@ -1,7 +1,7 @@
 ---
 id: task-98
 title: "Core + app: a desktop pairs with a server as relay, keeps it as a relay not a desk, and can move its own owner grant to relay"
-column: in-progress
+column: review
 position: 7
 priority: high
 tags:
@@ -23,7 +23,7 @@ parentId: epic-11
 dependsOn:
   - task-92
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - cargo test -p hotline-core
@@ -34,8 +34,10 @@ contract:
     readyAt: "2026-10-17T07:46:27.374Z"
     pickedUpAt: "2026-10-17T08:30:20.674Z"
     reworkCount: 0
+    deliveredAt: "2026-10-17T08:50:03.157Z"
+    duration: 1182
 createdAt: "2026-10-17T07:46:27.380Z"
-updatedAt: "2026-10-17T08:30:20.674Z"
+updatedAt: "2026-10-17T08:50:03.157Z"
 dispatch:
   agent: claude
   model: opus

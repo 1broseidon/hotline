@@ -1,7 +1,7 @@
 ---
 id: task-120
 title: "P2-8 (B): Rust dead code"
-column: todo
+column: in-progress
 position: 9
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - crates/hotline-core/src/paths.rs
   - crates/hotline-core/src/process_windows.rs
   - crates/hotline-app/src/desks.rs
-updatedAt: "2026-10-17T22:49:06.634Z"
+updatedAt: "2026-10-17T22:49:31.128Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - "! git grep -nE 'fn resolve_command\\b' -- crates/hotline-core/src/paths.rs"
@@ -23,6 +23,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-17T22:49:31.128Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: sonnet

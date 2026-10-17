@@ -1,8 +1,6 @@
 ---
 id: task-103
 title: "Audit: Rust structure and module layout, with a target tree and file splits"
-column: review
-position: 1
 priority: high
 tags:
   - audit
@@ -31,7 +29,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:44:50.921Z"
     duration: 873
-updatedAt: "2026-10-17T19:45:16.493Z"
+updatedAt: "2026-10-17T19:45:18.146Z"
 relatedFiles:
   - docs/audits/0.40/structure.md
   - crates/hotline-core/src
@@ -53,6 +51,7 @@ dispatch:
     ended: "2026-10-17T19:44:58.190Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T19:45:18.146Z"
 ---
 
 ## Description

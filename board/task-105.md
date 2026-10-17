@@ -59,3 +59,6 @@ Audit: error handling and panics.
 - Review the 12 allow(clippy::result_large_err) and the error types: String errors vs typed errors, and where a typed error would pay off.
 - Check that errors shown to the person stay a few words, with detail behind (ui rules).
 - Report: docs/audits/0.40/errors.md, with the top reachable panics first.
+
+## Log
+- 2026-10-17T19:34:03.813Z: [codex] Audit scope is docs-only per contract. Production src inventory (test=false, all OS branches) is 84 unwrap, 94 expect, 1 panic!, 5 unreachable!, 562 index expressions; 58 unwraps are std mutex poisoning. Baseline has 13 result_large_err allowances, 7 production + 6 test helpers. Top source-traced reachable cases: desktop startup disk/socket/Tauri errors, discovery HTTP setup, CLI runtime/signal/entropy setup. Report will distinguish these from guarded invariants; no code fixes in this phase.

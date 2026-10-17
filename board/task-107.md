@@ -31,7 +31,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:41:28.367Z"
     duration: 114
-updatedAt: "2026-10-17T19:41:33.667Z"
+updatedAt: "2026-10-17T19:41:40.934Z"
 relatedFiles:
   - docs/audits/0.40/window.md
   - ui/src
@@ -69,3 +69,4 @@ Audit: the window (ui/).
 
 ## Log
 - 2026-10-17T19:41:29.701Z: [claude] Wrote docs/audits/0.40/window.md on branch dispatch/task-107 (only file changed). For later tasks: typescript-eslint rejects TS 7, so the report recommends Biome for lint; 52 useExhaustiveDependencies hits (12 in App.tsx) need triage before the rule can be on; 30 dead values + 15 dead non-generated types to delete; contract.ts is gitignored; the report lists 14 Phase 2 tasks. No package.json or config changes made.
+- 2026-10-17T19:41:40.934Z: Landed on release/0.40.0

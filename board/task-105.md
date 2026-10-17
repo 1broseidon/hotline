@@ -31,7 +31,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:38:04.193Z"
     duration: 462
-updatedAt: "2026-10-17T19:38:18.146Z"
+updatedAt: "2026-10-17T19:38:38.712Z"
 relatedFiles:
   - docs/audits/0.40/errors.md
   - crates/hotline-core/src
@@ -67,3 +67,4 @@ Audit: error handling and panics.
 ## Log
 - 2026-10-17T19:34:03.813Z: [codex] Audit scope is docs-only per contract. Production src inventory (test=false, all OS branches) is 84 unwrap, 94 expect, 1 panic!, 5 unreachable!, 562 index expressions; 58 unwraps are std mutex poisoning. Baseline has 13 result_large_err allowances, 7 production + 6 test helpers. Top source-traced reachable cases: desktop startup disk/socket/Tauri errors, discovery HTTP setup, CLI runtime/signal/entropy setup. Report will distinguish these from guarded invariants; no code fixes in this phase.
 - 2026-10-17T19:38:14.007Z: [codex] Delivered docs/audits/0.40/errors.md in commit 4aae9f29 on dispatch/task-105; only that report changed. make check passed (2,024 Rust tests, 11 ignored; 420 UI tests; typecheck/Clippy/fmt/Python checks); contract validation passed in this worktree. Handoff for epic-12/task-109: prioritize desktop startup's four fallible expects, discovery client creation, CLI OS setup, then the 58 poison unwraps (especially Permit::drop). Source totals 84 unwrap/94 expect/1 panic/5 unreachable/562 indices; no unguarded malformed-input indexing panic established. There are 13 result_large_err allowances, seven production and six test: retain eight upstream tungstenite callback allows, consider boxing only five internal Rig Failure results with task-106. Search cooldowns branch on diagnostic strings; updater/provider/settings and retry UI still expose detail inline. Phase 2 proposals are in report; these are recommendations awaiting George's review, no behavior fixes or new standing decisions.
+- 2026-10-17T19:38:38.712Z: Landed on release/0.40.0

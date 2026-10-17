@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.930Z"
 dependsOn:
   - task-91
-updatedAt: "2026-10-17T08:28:03.954Z"
+updatedAt: "2026-10-17T08:28:21.581Z"
 relatedFiles:
   - crates/hotline-cli/src/serve.rs
   - crates/hotline-cli/src/main.rs
@@ -52,6 +52,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T08:06:23.490Z"
+    ended: "2026-10-17T08:28:21.581Z"
+    outcome: review
 assignee: claude
 ---
 

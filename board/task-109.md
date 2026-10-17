@@ -44,7 +44,7 @@ contract:
     deliveredAt: "2026-10-17T20:01:23.767Z"
     duration: 404
 createdAt: "2026-10-17T19:29:38.067Z"
-updatedAt: "2026-10-17T20:01:24.130Z"
+updatedAt: "2026-10-17T20:01:35.735Z"
 dispatch:
   agent: claude
   model: opus
@@ -57,6 +57,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T19:54:20.321Z"
+    ended: "2026-10-17T20:01:35.735Z"
+    outcome: review
 assignee: claude
 ---
 

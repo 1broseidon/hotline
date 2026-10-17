@@ -31,7 +31,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:41:28.367Z"
     duration: 114
-updatedAt: "2026-10-17T19:41:28.367Z"
+updatedAt: "2026-10-17T19:41:33.667Z"
 relatedFiles:
   - docs/audits/0.40/window.md
   - ui/src
@@ -51,6 +51,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T19:39:06.245Z"
+    ended: "2026-10-17T19:41:33.667Z"
+    outcome: review
 assignee: claude
 ---
 

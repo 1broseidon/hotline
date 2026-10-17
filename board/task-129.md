@@ -9,6 +9,10 @@ tags:
   - restructure
 parentId: epic-13
 createdAt: "2026-10-17T22:40:50.735Z"
+relatedFiles:
+  - crates/hotline-core/src/contract.rs
+  - crates/hotline-core/src/contract/
+updatedAt: "2026-10-17T22:46:33.048Z"
 ---
 
 ## Description

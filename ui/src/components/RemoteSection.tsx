@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { DeviceRole, RemoteStatus, SealedPairing } from "../generated/contract";
-import { useDesks } from "../desks";
-import { writeClipboard } from "../native";
+import type { DeviceRole, PairedRelay, RemoteStatus, SealedPairing } from "../generated/contract";
+import { useDesks, wireFor, type Desk } from "../desks";
+import { declineRelay, forgetRelay, moveDeskToRelay, pairDeskByLink, writeClipboard } from "../native";
 import { Fold } from "../ui/Fold";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
-import { wire } from "../wire";
+import { wire, type RosterEntry } from "../wire";
 
 /** A relay device may only stand in on this desk's relay (ADR 0006). */
 const ROLE_LABELS: Record<DeviceRole, string> = { owner: "Owner", companion: "Companion", relay: "Relay only" };
@@ -42,6 +42,54 @@ function PublicAddress({ status, busy, onSave }: { status: RemoteStatus; busy: b
 	);
 }
 
+/**
+ * Whether to offer keeping `desk`'s server as a relay only (ADR 0006): its
+ * hello on this session said it runs a relay, the person has not declined,
+ * and this desktop has no teammates there. The roster is asked for afresh,
+ * since a kept one may be from before a teammate was made.
+ */
+function useRelayOffer(desk: Desk | undefined): boolean {
+	const [offer, setOffer] = useState(false);
+	const deskId = desk?.id;
+	const declined = desk?.relayDeclined === true;
+	// A new endpoint is a new connection, and its hello is the one to read.
+	const endpoint = desk === undefined ? "" : `${desk.origin} ${desk.token}`;
+	useEffect(() => {
+		setOffer(false);
+		if (deskId === undefined || declined) return;
+		const remote = wireFor(deskId);
+		remote.connect();
+		return remote.subscribe<RosterEntry>({ view: "roster" }, {
+			snapshot: (entries) => setOffer(entries.length === 0 && (remote.serves()?.includes("relay") ?? false)),
+			event: () => setOffer(false),
+		});
+	}, [deskId, declined, endpoint]);
+	return offer;
+}
+
+/**
+ * The servers this desktop is paired with only as a relay, and pairing
+ * another from the link `hotline pair --link --role relay` prints there.
+ */
+function RelayServers({ relays, busy, onAdd, onForget }: { relays: PairedRelay[]; busy: boolean; onAdd(link: string): Promise<boolean>; onForget(deskId: string): void }) {
+	const [open, setOpen] = useState(false);
+	const [link, setLink] = useState("");
+	const ready = link.trim().startsWith("hotline://pair");
+	return (
+		<Fold title="Relay servers" value={relays.length > 0 ? `${relays.length} paired` : "None"} action="Add a relay" open={open} onToggle={() => setOpen((was) => !was)}>
+			{relays.length > 0 && <ul className="space-y-1">{relays.map((relay) => <li key={relay.deskId} className="flex items-center gap-2">
+				<span className="min-w-0 flex-1 truncate text-sm">{relay.name}</span>
+				<button type="button" className="control btn-quiet btn-sm text-danger" disabled={busy} onClick={() => onForget(relay.deskId)}>Forget</button>
+			</li>)}</ul>}
+			<p className="hint">On the server, run <code>hotline pair --link --role relay</code> and paste the link here. It works once, for two minutes.</p>
+			<form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void onAdd(link.trim()).then((added) => { if (added) setLink(""); }); }}>
+				<input className="field min-w-0 flex-1 font-mono text-sm" spellCheck={false} placeholder="hotline://pair?p=…" aria-label="Relay link" value={link} disabled={busy} onChange={(e) => setLink(e.target.value)} />
+				<button type="submit" className="control btn btn-primary shrink-0" disabled={busy || !ready}>Pair</button>
+			</form>
+		</Fold>
+	);
+}
+
 export function RemoteSection() {
 	const [status, setStatus] = useState<RemoteStatus | null>(null);
 	const [pairing, setPairing] = useState<SealedPairing | null>(null);
@@ -51,6 +99,7 @@ export function RemoteSection() {
 	const [copied, setCopied] = useState(false);
 	const [linked, setLinked] = useState(false);
 	const [showAddresses, setShowAddresses] = useState(false);
+	const [relays, setRelays] = useState<PairedRelay[]>([]);
 	const revision = useRef(0);
 	const pending = useRef(false);
 	const mounted = useRef(false);
@@ -69,6 +118,9 @@ export function RemoteSection() {
 			}).finally(() => { refreshing = false; });
 		};
 		refresh();
+		void wire.command("remote.relays", {}).then((paired) => { if (active) setRelays(paired); }).catch((e: unknown) => {
+			if (active) setError(String(e));
+		});
 		const timer = setInterval(() => { setClock(Date.now()); refresh(); }, 2000);
 		return () => { active = false; mounted.current = false; clearInterval(timer); };
 	}, []);
@@ -133,12 +185,40 @@ export function RemoteSection() {
 		setCopied(false);
 	});
 	const host = status?.host ?? "all";
-	// A relay is a desk this computer pairs with; the server carries sealed
-	// records it cannot read, and phones still pin this desk.
-	const relays = useDesks().filter((desk) => desk.kind === "remote");
+	// A relay is a server this computer pairs with, as a desk or as a relay
+	// only; the server carries sealed records it cannot read, and phones
+	// still pin this desk.
+	const desks = useDesks().filter((desk) => desk.kind === "remote");
+	const relayOnly = relays.filter((one) => !desks.some((desk) => desk.id === one.deskId));
 	const relay = status?.relay ?? null;
+	const relayDesk = desks.find((desk) => desk.id === relay?.deskId);
+	const offered = useRelayOffer(relayDesk);
 	const relayThrough = (deskId: string | null) => run(async () => {
 		setStatus(await wire.command("remote.relay", deskId ? { deskId } : {}));
+	});
+	const addRelay = async (link: string) => {
+		let added = false;
+		await run(async () => {
+			const deskId = await pairDeskByLink(link);
+			const paired = await wire.command("remote.relays", {});
+			setRelays(paired);
+			// A desk's link pairs a desk, which the shell keeps as one.
+			if (!paired.some((one) => one.deskId === deskId)) throw new Error("That link paired a desk, not a relay. It is under Desks.");
+			setStatus(await wire.command("remote.relay", { deskId }));
+			added = true;
+		});
+		return added;
+	};
+	const forget = (deskId: string) => run(async () => {
+		// The core keeps its chosen relay by id, and forgetting the server
+		// does not clear it: stop standing in on it first.
+		if (relay?.deskId === deskId) setStatus(await wire.command("remote.relay", {}));
+		await forgetRelay(deskId);
+		setRelays(await wire.command("remote.relays", {}));
+	});
+	const moveToRelay = (deskId: string) => run(async () => {
+		await moveDeskToRelay(deskId);
+		setRelays(await wire.command("remote.relays", {}));
 	});
 	return <>
 		<section aria-label="Remote access">
@@ -169,7 +249,7 @@ export function RemoteSection() {
 						onChange={(id) => void configure(status?.enabled ?? false, id)}
 					/>
 				</div>
-				{(relays.length > 0 || relay) && <div className="group-row">
+				{(desks.length > 0 || relayOnly.length > 0 || relay) && <div className="group-row">
 					<span className="group-row-text">
 						<span className="group-row-title">Relay</span>
 						<span className="group-row-detail">{relay?.url ? `Phones also reach this desk through ${relay.name}.` : "Through a server it is paired with, no VPN needed."}</span>
@@ -178,8 +258,9 @@ export function RemoteSection() {
 						value={relay?.deskId ?? ""}
 						choices={[
 							{ id: "", name: "None" },
-							...(relay && !relays.some((desk) => desk.id === relay.deskId) ? [{ id: relay.deskId, name: relay.name }] : []),
-							...relays.map((desk) => ({ id: desk.id, name: desk.name })),
+							...(relay && !desks.some((desk) => desk.id === relay.deskId) && !relayOnly.some((one) => one.deskId === relay.deskId) ? [{ id: relay.deskId, name: relay.name }] : []),
+							...desks.map((desk) => ({ id: desk.id, name: desk.name })),
+							...relayOnly.map((one) => ({ id: one.deskId, name: one.name, detail: "Relay only" })),
 						]}
 						placeholder="None"
 						label="Relay"
@@ -187,6 +268,7 @@ export function RemoteSection() {
 						onChange={(id) => void relayThrough(id || null)}
 					/>
 				</div>}
+				<RelayServers relays={relayOnly} busy={busy} onAdd={addRelay} onForget={(deskId) => void forget(deskId)} />
 				{status && <PublicAddress key={status.publicUrl ?? ""} status={status} busy={busy} onSave={(url) => run(async () => {
 					setStatus(await wire.command("remote.public_url", url ? { url } : {}));
 				})} />}
@@ -195,6 +277,13 @@ export function RemoteSection() {
 				</Fold>}
 			</div>
 			{relay?.error && status?.enabled && <p className="group-hint">{relay.name}: {relay.error}</p>}
+			{offered && relayDesk && <div className="nt-card mt-3" role="group" aria-label="Relay only">
+				<p className="text-sm text-ink-2">Use {relayDesk.name} only as your relay? Your desktop will no longer be able to run or read anything on it.</p>
+				<div className="flex flex-wrap gap-2">
+					<button type="button" className="control btn-primary" disabled={busy} onClick={() => void moveToRelay(relayDesk.id)}>Use only as relay</button>
+					<button type="button" className="control btn" disabled={busy} onClick={() => void run(() => declineRelay(relayDesk.id))}>Keep as desk</button>
+				</div>
+			</div>}
 			<p className="group-hint">Turning Remote off disconnects every phone.</p>
 		</section>
 		{status?.enabled && <section aria-label="Mobile pairing">

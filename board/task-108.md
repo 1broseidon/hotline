@@ -1,7 +1,7 @@
 ---
 id: task-108
 title: "Audit: tests (slow, flaky, duplicated) and docs drift"
-column: todo
+column: in-progress
 position: 6
 priority: high
 tags:
@@ -11,7 +11,7 @@ tags:
 parentId: epic-12
 createdAt: "2026-10-17T19:28:05.760Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: docs
       path: docs/audits/0.40/tests-and-docs.md
@@ -28,7 +28,9 @@ contract:
     - If a cargo run rewrites ui/src/generated/contract.ts, restore it before committing
   metrics:
     readyAt: "2026-10-17T19:29:18.238Z"
-updatedAt: "2026-10-17T19:41:56.593Z"
+    pickedUpAt: "2026-10-17T19:42:16.112Z"
+    reworkCount: 0
+updatedAt: "2026-10-17T19:42:16.112Z"
 relatedFiles:
   - docs/audits/0.40/tests-and-docs.md
   - crates/hotline-core/tests

@@ -1,8 +1,6 @@
 ---
 id: task-105
 title: "Audit: error handling and reachable panics"
-column: review
-position: 3
 priority: high
 tags:
   - audit
@@ -31,7 +29,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:38:04.193Z"
     duration: 462
-updatedAt: "2026-10-17T19:38:38.712Z"
+updatedAt: "2026-10-17T19:38:40.289Z"
 relatedFiles:
   - docs/audits/0.40/errors.md
   - crates/hotline-core/src
@@ -53,6 +51,7 @@ dispatch:
     ended: "2026-10-17T19:38:18.146Z"
     outcome: review
 assignee: codex
+completedAt: "2026-10-17T19:38:40.289Z"
 ---
 
 ## Description

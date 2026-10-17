@@ -9,6 +9,11 @@ tags:
   - docs
 parentId: epic-13
 createdAt: "2026-10-17T22:41:07.934Z"
+relatedFiles:
+  - docs-site/src/content/docs/server/
+  - docs-site/src/content/docs/phone/pair.md
+  - docs/serve.md
+updatedAt: "2026-10-17T22:47:20.561Z"
 ---
 
 ## Description

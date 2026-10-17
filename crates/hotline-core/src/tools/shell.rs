@@ -520,6 +520,10 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    /// Two tests in one process may read the same clock; the counter keeps
+    /// their roots apart.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     pub(super) struct TestDirectory(PathBuf);
 
     impl TestDirectory {
@@ -532,7 +536,11 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let root = parent.join(format!("hotline-core-shell-{}-{nonce}", std::process::id()));
+            let root = parent.join(format!(
+                "hotline-core-shell-{}-{nonce}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
             fs::create_dir_all(&root).unwrap();
             Self(root)
         }

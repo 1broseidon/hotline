@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/paths.rs
   - crates/hotline-core/src/process_windows.rs
   - crates/hotline-app/src/desks.rs
-updatedAt: "2026-10-17T22:59:04.607Z"
+updatedAt: "2026-10-17T22:59:09.850Z"
 contract:
   status: delivered
   validation:
@@ -39,6 +39,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T22:49:06.634Z"
+    ended: "2026-10-17T22:59:09.850Z"
+    outcome: review
 assignee: claude
 ---
 

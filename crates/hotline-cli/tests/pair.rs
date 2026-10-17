@@ -192,4 +192,44 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
                 .is_err()
         );
     }
+
+    // A relay invitation says so, and makes a grant `devices` names relay.
+    let both = command(root.path(), &["pair", "--companion", "--relay"])
+        .output()
+        .unwrap();
+    assert!(!both.status.success());
+    let mut pair = OwnedChild(
+        command(root.path(), &["pair", "--relay", "--link"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let line = {
+        use std::io::BufRead;
+        let stdout = pair.0.stdout.take().unwrap();
+        std::io::BufReader::new(stdout)
+            .lines()
+            .next()
+            .unwrap()
+            .unwrap()
+    };
+    let payload = hotline_core::remote::PairingPayload::from_link(&line).unwrap();
+    assert_eq!(payload.role, hotline_core::remote::DeviceRole::Relay);
+    let client_root = tempfile::tempdir().unwrap();
+    let client = hotline_core::remote::client::Client::new(std::sync::Arc::new(
+        hotline_core::credentials::FileStore::open(client_root.path()).unwrap(),
+    ));
+    runtime
+        .block_on(client.pair(&payload, "Relay laptop"))
+        .unwrap();
+    eventually(|| pair.0.try_wait().unwrap().is_some());
+    let devices = command(root.path(), &["devices"]).output().unwrap();
+    let devices = String::from_utf8_lossy(&devices.stdout);
+    assert!(
+        devices
+            .lines()
+            .any(|line| line.contains("  relay  Relay laptop")),
+        "{devices}"
+    );
 }

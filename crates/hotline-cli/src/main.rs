@@ -31,7 +31,7 @@ usage:
   hotline --version
   hotline update [--check] [--version X.Y.Z]
   hotline status [--data <dir>]
-  hotline pair [--companion] [--json | --link] [--data <dir>]
+  hotline pair [--companion | --relay] [--json | --link] [--data <dir>]
   hotline devices [--data <dir>]
   hotline revoke <device-id> [--data <dir>]
   hotline links [--data <dir>]
@@ -117,12 +117,18 @@ fn main() -> ExitCode {
         }
         "pair" => {
             let companion = take_flag(&mut args, "--companion");
+            let relay = take_flag(&mut args, "--relay");
             let json = take_flag(&mut args, "--json");
             let link = take_flag(&mut args, "--link");
-            if !args.is_empty() || (json && link) {
-                return usage("pair takes --companion and either --json or --link");
+            if !args.is_empty() || (json && link) || (companion && relay) {
+                return usage("pair takes --companion or --relay, and either --json or --link");
             }
-            remote::pair(&room(), companion, json, link)
+            let role = match (companion, relay) {
+                (true, _) => "companion",
+                (_, true) => "relay",
+                _ => "owner",
+            };
+            remote::pair(&room(), role, json, link)
         }
         "devices" if args.is_empty() => remote::devices(&room()),
         "revoke" if args.len() == 1 => remote::revoke(&room(), &args[0]),

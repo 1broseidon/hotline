@@ -370,8 +370,17 @@ where
         if link.is_none() && cancel.is_cancelled() {
             return None;
         }
+        // A relay grant is told its role does not open this door, so its
+        // desktop does not take a working relay pairing for a revoked one.
+        let relay_grant = || {
+            remote
+                .authenticate_v2(&public)
+                .is_some_and(|phone| phone.role == DeviceRole::Relay)
+        };
         let answer = if link.is_some() {
             Vec::new()
+        } else if relay_grant() {
+            sealed::ROLE_REFUSED.to_vec()
         } else {
             sealed::DEVICE_REJECTED.to_vec()
         };

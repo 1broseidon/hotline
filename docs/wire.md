@@ -1043,14 +1043,22 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
   Successful room session payloads are empty. Viewer payloads bind the target as
   described below. For pairing, message 1 carries UTF-8 JSON
   `{"secret":"<b64url>","name":"<device name>"}` and message 2 carries
-  `{"role":"owner"|"companion","deskName":"…","deskId":"…"}`. The desk closes after
+  `{"role":"owner"|"companion"|"relay","deskName":"…","deskId":"…","serves":[…]}`,
+  where `serves` names what the desk runs (`agents`, `relay`). The desk closes after
   message 2. Grant creation and single-use secret consumption are atomic;
-  scanning one QR with two devices yields only one grant.
+  scanning one QR with two devices yields only one grant. A desktop pairing
+  only to use a served desk's relay adds `"purpose":"relay"` to the claim, and
+  only for a relay invitation (`r=relay`, ADR 0006). A relay invitation answers
+  any other claim `{"refused":"relay"}`, and an owner or companion invitation
+  answers a relay claim `{"refused":"device"}`; either makes no grant and
+  leaves the invitation open.
 - No wire hello or banner precedes authentication. After successfully reading
   Noise message 1 and validating the room/viewer binding, an unknown or revoked
   session key receives message 2 with `{"error":"device_not_authorized"}` and
   the socket closes. The client may report revoked only after verifying that
-  message under the pinned desk identity. Invalid first messages close silently.
+  message under the pinned desk identity. A known key whose role does not open
+  the path (a relay grant at `/v2`, `/v2/computer/…` or `/v2/link`) receives
+  `{"error":"role_not_permitted"}` instead, which is not a revocation. Invalid first messages close silently.
   Pending connection limits apply per TCP peer IP, with a separate global
   pending cap, absolute authentication deadline and byte cap. Authenticated
   sessions have independent limits keyed by the proven device identity.
@@ -1078,10 +1086,12 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
   certificate; rotating certificates does not revoke v2 grants. Old
   pinned-certificate grants cannot authenticate; the phone must re-pair
   through the sealed QR or link.
-- Grants record the device public key and explicit `owner` or `companion`
-  role. Missing legacy roles migrate to owner; an empty grant set never
+- Grants record the device public key and explicit `owner`, `companion` or
+  `relay` role. Missing legacy roles migrate to owner; an empty grant set never
   bootstraps an owner. Companion retains the existing phone allowlist;
-  owner has the same command and subscription set as the local desk.
+  owner has the same command and subscription set as the local desk. A relay
+  grant has no seat: it may only stand in on the desk's relay and accept its
+  visits. `remote.devices` lists every role.
 - Fixed-key interoperability vectors are at
   `crates/hotline-core/tests/fixtures/noise_v2.json`: desk/device static keys,
   both ephemerals, and expected handshake and first transport bytes.

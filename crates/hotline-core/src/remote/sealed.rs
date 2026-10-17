@@ -8,6 +8,9 @@ use snow::{Builder, HandshakeState, TransportState};
 
 // Only an authenticated Noise message 2 may carry this session rejection.
 pub(super) const DEVICE_REJECTED: &[u8] = br#"{"error":"device_not_authorized"}"#;
+/// A known key at a door its role does not open. Not a revocation: the
+/// client keeps the pairing, which still opens the doors its role does.
+pub(super) const ROLE_REFUSED: &[u8] = br#"{"error":"role_not_permitted"}"#;
 
 const PATTERN: &str = "Noise_IK_25519_ChaChaPoly_SHA256";
 const PROLOGUE: &[u8] = b"hotline/2";

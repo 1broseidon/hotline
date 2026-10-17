@@ -692,6 +692,7 @@ extend; when a change adds a boundary, it adds a row.
 | A companion reads one living teammate's schedules and nothing it could change them with: no job made, cancelled or quieted, no whole-room list, no room stream (a thread between two teammates and a subagent's run are read like a tape); the entry leaves out who made a job; an unknown teammate or an unreadable room is a refusal, never an empty list; a revoked phone's socket closes and cannot reopen | `wire/tests.rs` `the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them`, `a_teammate_the_room_does_not_hold_or_cannot_read_is_refused_rather_than_empty`; `remote/tests.rs` `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away` | — |
 | A companion adds a teammate only through `mobile.persona_create`, never the full `persona.create`: the draft core builds always has workspace reach, this desk's default workspace, no computer and no background work, whatever the phone's JSON names for those fields; `requestId` must parse as a uuid and becomes the id, and a repeated one answers the teammate already made rather than appending a second; a blank name and a `backendId` that is unknown or `backends.list` reports `unavailable` are each refused; `backends.list` itself carries only `id`, `name`, `description` and `unavailable` | `wire/tests.rs` `the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create`, `mobile_persona_create_builds_a_confined_draft_the_phone_could_not_express`, `a_repeated_request_id_does_not_duplicate_the_teammate`, `mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_that_is_not_ready`; `remote/tests.rs` `a_phone_creates_a_confined_teammate_but_not_through_persona_create` | — |
 | A companion renames a teammate or changes its goal only through `mobile.persona_update`, never `persona.update`: the patch core builds holds `name` and `goal` and nothing else, whatever the phone's JSON names for reach, path, computer or background work; a blank name, an edit naming neither field and an unknown teammate are refused; the phone may `persona.delete` | `wire/tests.rs` `the_phone_seat_renames_and_deletes_a_teammate_but_never_patches_one`, `mobile_persona_update_changes_only_the_name_and_goal`; `remote/tests.rs` `a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update` | — |
+| A relay grant stands in on a served desk's relay and accepts its visits, and opens no other door: `/v2`, `/v2/computer/…` and the server's own `/v2/link` answer it sealed `role_not_permitted`, never `device_not_authorized`; a phone's claim on a relay invitation and a relay claim on an owner or companion invitation make no grant, keep the window open and count toward the throttle; relay grants are saved in `relayGrants`, never `grants`, so a reader from before the role loads the file and authenticates none of them; only a served desk invites a relay | `remote/tests/relay_tests.rs` `a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door`, `a_claim_whose_purpose_does_not_match_the_window_makes_no_grant`, `a_reader_from_before_the_relay_role_loads_relay_grants_and_trusts_none`, `only_a_served_desk_invites_a_relay` | — |
 | A teammate sends the person only what its own read reach opens and what its own computer holds, under the session's lease; nothing is sent from a quiet scheduled run or past the caps, and a refusal leaves no message and no kept copy; `file.read` names a message and never a path, serves only that message's one kept file for teammate messages, and refuses a path-like id, an unknown teammate and an offset outside the file; the phone may read it; the shell opens only a kept copy, and only a PDF or a picture whose name and first bytes agree, so a script that starts like a PDF is never run | `session/tests.rs` `sent_files::a_picture_reaches_the_person_as_a_jpeg_with_its_caption`, `sent_files::what_cannot_be_sent_is_refused_and_leaves_nothing_behind`, `sent_files::a_quiet_scheduled_run_sends_nothing_and_says_so`, `sent_files::a_file_and_the_screen_come_off_the_computer`; `sent.rs` `a_kept_file_reads_back_a_part_at_a_time_and_only_by_its_message`; `wire/tests.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time`, `the_phone_seat_reads_a_sent_file_by_its_message`; `sent.rs` `anything_else_is_kept_as_it_is_and_told_by_its_bytes_before_its_name`; `hotline-app` `files.rs` `only_a_kept_copy_is_touched`, `only_a_pdf_or_a_picture_opens_and_only_when_name_and_bytes_agree` | Unix for the computer row |
 | User image readback uses a send-time copy at the original attachment index; default zero, mixed attachments, chunk continuation, real MIME and no transcoding; source replacement/deletion cannot change it, missing/legacy copies never reopen paths; non-image, invalid index/offset, wrong teammate/message, planted file link and over-cap copy are refused; a paired phone can refetch its image but not a user text file | `tests/desk.rs` `user_images_read_back_by_original_index_without_reopening_the_source`; `sent.rs` `user_image_copies_keep_their_bytes_and_cannot_be_replaced`; `remote/tests.rs` `a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk`; `wire/tests.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time` | Unix for planted link |
 | A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
@@ -1224,6 +1225,31 @@ made it so.
   `rust_client_reports_revoked_only_after_a_pinned_authenticated_rejection`
   covers live/offline revocation and a wrong pin; `rust_client_does_not_trust_a_close_or_an_unsealed_rejection`
   covers unauthenticated closure and a forged refusal over TLS/WebSocket.
+
+### The relay grant role (ADR 0006)
+
+- **Default and grant source:** no grant changes role, and nothing is a relay
+  grant until the person at a served desk's terminal runs `hotline pair
+  --relay` (or `remote.pairing` with role `relay` from an owner seat) and a
+  claim declaring `purpose:"relay"` takes it. A desktop's own Remote never
+  invites a relay, because it never hosts one.
+- **Enforcement:** the role table `Purpose::admits` in `remote/server.rs`
+  runs after Noise message 1 authenticates the key and before any seat, wire
+  or relay registration: `/v2` and `/v2/computer/…` admit owner and
+  companion, `/v2/relay` and `/v2/relay/accept` admit owner and relay. The
+  relay's `/v2/link` answers a relay key `role_not_permitted` too.
+  `Seat::for_phone` takes a `WireRole`, which has no relay, so a seat cannot
+  be made for one. `claim_v2` checks the claim's purpose against the
+  window's role after the secret, refusing a mismatch without consuming the
+  window. Relay grants live in `remote.json`'s `relayGrants`, which an older
+  reader ignores; the sixteen-device limit counts both lists, and a key is in
+  one list at most. Revocation is the grant's lease, as for any device.
+- **Tests:** the relay row of the regression matrix.
+- **Residual risk:** a relay grant may stand in for any desk id, as an owner
+  may (ADR 0002): denial of service at worst, since visitors pin the desk's
+  key. An older build that saves `remote.json` drops relay grants, which
+  fails closed. An old phone shown a relay's code learns only that its claim
+  failed.
 
 ### Loopback bridge, server files and laptop cookies
 

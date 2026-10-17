@@ -275,6 +275,21 @@ impl Purpose {
                 .map(|persona| Self::Computer(persona.to_owned())),
         }
     }
+
+    /// Which grant roles this door opens to (ADR 0006). The wire and the
+    /// computer are the desk's own; the relay is for whoever stands in.
+    /// Pairing and the link authenticate by other means and name no role.
+    pub(super) fn admits(&self, role: DeviceRole) -> bool {
+        match self {
+            Self::Wire | Self::Computer(_) => {
+                matches!(role, DeviceRole::Owner | DeviceRole::Companion)
+            }
+            Self::Relay | Self::RelayAccept => {
+                matches!(role, DeviceRole::Owner | DeviceRole::Relay)
+            }
+            Self::Pair | Self::Link => false,
+        }
+    }
 }
 
 /// Where a sealed session sits. A direct socket holds an admission seat; a
@@ -345,11 +360,16 @@ pub(super) async fn sealed_session<S>(
         let public = noise.get_remote_static()?.to_vec();
         let mut desk = None;
         let (phone, answer) = if let Purpose::Pair = purpose {
-            let role = remote.claim_v2(&public, &payload[..size]).ok()?;
-            (
-                None,
-                serde_json::to_vec(&json!({"role": role, "deskName": desktop_name(), "deskId": remote.status_desktop_id()})).ok()?,
-            )
+            let answer = match remote.claim_v2(&public, &payload[..size]).ok()? {
+                super::v2::Claimed::Granted(role) => json!({
+                    "role": role,
+                    "deskName": desktop_name(),
+                    "deskId": remote.status_desktop_id(),
+                    "serves": remote.serves(),
+                }),
+                super::v2::Claimed::Refused(invitation) => json!({"refused": invitation}),
+            };
+            (None, serde_json::to_vec(&answer).ok()?)
         } else {
             // A TLS proxy or a relay can rewrite the HTTP target, but not
             // this authenticated Noise payload. Bind it before looking up or
@@ -381,18 +401,14 @@ pub(super) async fn sealed_session<S>(
             if phone.is_none() && cancel.is_cancelled() {
                 return None;
             }
-            // Only an owner's device may stand in for a desk on the relay.
-            let refused = phone.as_ref().is_none_or(|phone| {
-                matches!(purpose, Purpose::Relay) && phone.role != DeviceRole::Owner
-            });
-            let answer = if !refused {
-                Vec::new()
-            } else {
-                // Message 1 decrypted successfully: the initiator knows the
-                // desk key. Seal the refusal under that same Noise identity.
-                sealed::DEVICE_REJECTED.to_vec()
+            // Message 1 decrypted successfully: the initiator knows the desk
+            // key. Seal any refusal under that same Noise identity.
+            let answer = match &phone {
+                None => sealed::DEVICE_REJECTED.to_vec(),
+                Some(phone) if !purpose.admits(phone.role) => sealed::ROLE_REFUSED.to_vec(),
+                Some(_) => Vec::new(),
             };
-            (phone.filter(|_| !refused), answer)
+            (phone.filter(|_| answer.is_empty()), answer)
         };
         let mut response = [0u8; 4096];
         let size = noise.write_message(&answer, &mut response).ok()?;
@@ -465,6 +481,10 @@ pub(super) async fn sealed_session<S>(
         }
         Purpose::RelayAccept | Purpose::Link => {}
         Purpose::Wire | Purpose::Pair => {
+            // The role table above admitted only a role the wire seats.
+            let Some(role) = phone.role.seated() else {
+                return;
+            };
             // The wire owns its writer and subscription tasks and must reach
             // their cleanup on revocation; dropping that future leaks them.
             let desktop_id = remote.state.lock().unwrap().saved.desktop_id.clone();
@@ -473,6 +493,7 @@ pub(super) async fn sealed_session<S>(
                 remote.log.clone(),
                 remote.room.clone(),
                 phone,
+                role,
                 &desktop_id,
             )
             .await;

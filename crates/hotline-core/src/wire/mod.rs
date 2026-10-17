@@ -678,10 +678,11 @@ pub enum Seat {
 }
 
 impl Seat {
-    fn for_phone(phone: &crate::remote::Phone) -> Self {
-        match phone.role() {
-            crate::remote::DeviceRole::Owner => Self::Owner,
-            crate::remote::DeviceRole::Companion => Self::Phone,
+    /// A relay grant has no `WireRole`, so there is no seat to ask for.
+    fn for_phone(role: crate::remote::WireRole) -> Self {
+        match role {
+            crate::remote::WireRole::Owner => Self::Owner,
+            crate::remote::WireRole::Companion => Self::Phone,
         }
     }
 
@@ -1139,6 +1140,7 @@ pub(crate) async fn seated_phone_v2<S>(
     log: Log,
     room: Arc<dyn RoomHandle>,
     phone: crate::remote::Phone,
+    role: crate::remote::WireRole,
     desktop_id: &str,
 ) -> Result<(), Error>
 where
@@ -1156,7 +1158,7 @@ where
         // phone paired before the relay was chosen learns of it here.
         "endpoints": phone.endpoints(),
         "mode": "team",
-        "capabilities": Seat::for_phone(&phone).capabilities_for(room.as_ref()),
+        "capabilities": Seat::for_phone(role).capabilities_for(room.as_ref()),
     });
     // Which of those endpoints is public, so a phone can tell it from the
     // VPN or LAN ones without the owner-only `remote.status`.
@@ -1164,7 +1166,7 @@ where
         hello["publicEndpoint"] = json!(public);
     }
     // What kind of desk this is and how new: the owner's to know.
-    if phone.role() == crate::remote::DeviceRole::Owner {
+    if role == crate::remote::WireRole::Owner {
         hello["deskKind"] = json!(phone.desk_kind());
         hello["version"] = json!(env!("CARGO_PKG_VERSION"));
     }
@@ -1173,7 +1175,7 @@ where
         _ = phone.cancel.cancelled() => return Ok(()),
         result = socket.send(Message::text(hello.to_string())) => result?,
     }
-    seated_inner(socket, Seat::for_phone(&phone), log, room, Some(phone)).await
+    seated_inner(socket, Seat::for_phone(role), log, room, Some(phone)).await
 }
 
 async fn seated<S>(

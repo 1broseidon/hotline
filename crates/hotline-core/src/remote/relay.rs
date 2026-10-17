@@ -388,7 +388,7 @@ where
         }
         let public = noise.get_remote_static()?;
         let phone = remote.authenticate_v2(public)?;
-        if phone.role != DeviceRole::Owner {
+        if !Purpose::RelayAccept.admits(phone.role) {
             return None;
         }
         let waiting = remote.relay.claim(&claim.capability, &phone.id)?;

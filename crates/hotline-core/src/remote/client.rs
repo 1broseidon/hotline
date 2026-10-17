@@ -102,7 +102,12 @@ impl Client {
                 }
             }
         };
-        let claim = json!({"secret":payload.secret,"name":device_name.trim()});
+        let mut claim = json!({"secret":payload.secret,"name":device_name.trim()});
+        // Only a relay invitation is answered with a purpose: an older server
+        // never issues one, and refuses a claim with a field it does not know.
+        if payload.role == super::DeviceRole::Relay {
+            claim["purpose"] = json!("relay");
+        }
         let claim = claim.to_string();
         let addresses = [
             Some(payload.url.as_str()),
@@ -112,6 +117,13 @@ impl Client {
         let (_, reply) = handshake_first(addresses, "v2/pair", &identity, &claim).await?;
         let reply: Value = serde_json::from_slice(&reply)
             .map_err(|_| "The desk sent an invalid pairing reply.")?;
+        match reply["refused"].as_str() {
+            Some("relay") => {
+                return Err("This invitation is for using the server as a relay.".into());
+            }
+            Some(_) => return Err("This invitation is not for a relay.".into()),
+            None => {}
+        }
         let desk_id = reply["deskId"]
             .as_str()
             .filter(|id| !id.is_empty())

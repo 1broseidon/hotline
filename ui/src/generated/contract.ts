@@ -475,7 +475,7 @@ teammates: Array<LinkedTeammate>, };
  */
 export type DeskLinkState = "connected" | "offline";
 
-export type DeviceRole = "owner" | "companion";
+export type DeviceRole = "owner" | "companion" | "relay";
 
 /**
  * The idle effort picker's reply for one catalogue model: the levels it

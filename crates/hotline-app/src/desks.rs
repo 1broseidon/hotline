@@ -294,6 +294,15 @@ impl Host {
             "The invitation isn't one this Hotline understands. Update Hotline on both ends."
                 .to_string()
         })?;
+        // A relay is never kept here, where an older window would list it as
+        // a desk and dial its `/v2` (ADR 0006), and there is nowhere else to
+        // keep one yet.
+        if payload.role == hotline_core::remote::DeviceRole::Relay {
+            return Err(
+                "This invitation is for using the server as a relay, which this Hotline can't do yet."
+                    .into(),
+            );
+        }
         let desk = hotline_core::remote::client::pair(&payload, &device_name()).await?;
         {
             let mut paired = self.paired.lock().unwrap_or_else(PoisonError::into_inner);

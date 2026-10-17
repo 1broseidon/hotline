@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/paths.rs
   - crates/hotline-core/src/process_windows.rs
   - crates/hotline-app/src/desks.rs
-updatedAt: "2026-10-17T22:49:00.266Z"
+updatedAt: "2026-10-17T22:49:06.634Z"
 contract:
   status: ready
   validation:
@@ -29,7 +29,12 @@ dispatch:
   by: lead
   at: "2026-10-17T22:49:00.138Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T22:49:06.634Z"
 assignee: claude
 ---
 

@@ -9,6 +9,11 @@ tags:
   - gates
 parentId: epic-13
 createdAt: "2026-10-17T22:41:12.690Z"
+relatedFiles:
+  - deny.toml
+  - Makefile
+  - THIRD-PARTY-NOTICES.md
+updatedAt: "2026-10-17T22:47:22.972Z"
 ---
 
 ## Description

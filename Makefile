@@ -2,7 +2,7 @@
 # nothing done in it can reach real data.
 dev: export HOTLINE_DATA_DIR := $(CURDIR)/.hotline-dev
 
-.PHONY: check ui-check dev build verify icons tray-icons speech-engine precheck precheck-full
+.PHONY: check ui-check dev build verify icons tray-icons speech-engine precheck precheck-full hooks hooks-nudge
 
 # What GitHub's runners would fail, caught on this Mac before a push: Windows
 # by cross-compiling, each window test file alone, the workflows linted.
@@ -14,7 +14,16 @@ precheck:
 precheck-full:
 	scripts/precheck --full
 
-check: ui-check speech-engine
+# The git hooks in .githooks: pre-commit in seconds, pre-push runs
+# precheck. Worktrees share the setting, so every agent's commits pass the
+# same gate. dev and check only say when it is off; turning it on is yours.
+hooks:
+	git config core.hooksPath .githooks
+
+hooks-nudge:
+	@[ "$$(git config --get core.hooksPath)" = .githooks ] || echo "git hooks are off: make hooks turns them on (docs/development.md#git-hooks)"
+
+check: hooks-nudge ui-check speech-engine
 	python3 -m unittest discover -s scripts -p 'test_*.py'
 	python3 -m unittest discover -s site/tests -p 'test_*.py'
 	cargo fmt --all --check
@@ -41,7 +50,7 @@ ui-check:
 ifeq ($(shell uname -s),Darwin)
 dev: DEV_RUNNER := --runner $(CURDIR)/scripts/cargo-dev-sign
 endif
-dev: speech-engine
+dev: hooks-nudge speech-engine
 	cd crates/hotline-app && cargo tauri dev $(DEV_RUNNER)
 
 # A release: the window built by Vite, the shell by cargo, bundled by the

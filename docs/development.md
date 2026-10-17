@@ -201,6 +201,40 @@ downloaded and cargo-xwin's MSVC files already cached:
 | `shuffle` | 75 s | a `cargo test` build first |
 | `make precheck-full` | 3.5 min | about 12 min |
 
+## Git hooks
+
+```bash
+make hooks   # git config core.hooksPath .githooks, once per clone
+```
+
+The hooks are plain `sh` in `.githooks/`, versioned with the code they
+check; there is no hook manager. `make dev` and `make check` print a line
+while they are off and never turn them on themselves. The setting lives in
+the repository's shared config, so every worktree, a dispatched agent's
+included, runs the hooks its own branch carries; a branch cut before
+`.githooks/` existed runs none.
+
+| Hook | What it runs | How long |
+| --- | --- | --- |
+| `pre-commit` | refuses a staged `*.p8`, `*.pem` or `auth.json`; `cargo fmt --all -- --check` when a `.rs` file is staged; when `contract.ts` is staged, refuses it if it lost more than a quarter of HEAD's lines or does not compile alone; `bun run typecheck` when anything under `ui/` is staged | 1–2 s |
+| `pre-push` | `make precheck` ([Before pushing](#before-pushing)) | 15 s warm, 4 min cold |
+
+The `contract.ts` check is for the filtered run's truncation
+([The generated contract](#the-generated-contract)): a file missing types
+either shrinks or names a type it no longer defines. The typecheck and
+`cargo fmt` read the working tree, not the index, so a partly staged file
+is checked as it stands on disk.
+
+`git push --no-verify` skips pre-push, and the hook says so when it
+fails; it is for an emergency, and the push then has only CI behind it.
+There is no `pre-merge-commit`: a clean merge (`brainfile land`'s) joins
+commits that each passed pre-commit, and a merge that stopped on a
+conflict is finished with `git commit`, which runs pre-commit on
+everything the merge brought in. `scripts/test_githooks.py`, in `make
+check`, stages a clean change, unformatted Rust, a truncated contract, a
+contract that does not compile and a key file in a clone, and runs
+pre-commit on each.
+
 ## Application updates
 
 Settings → Updates checks GitHub every six hours while a packaged Hotline is
@@ -487,7 +521,7 @@ every number on this wire arrives as `JSON.parse` produces it.
 A filtered run (`cargo test session`) writes only the types it matched
 and leaves a file the window cannot compile against. Run
 `cargo test -p hotline-core` unfiltered before committing that file; `make
-check` catches it. Never run a filtered test as the last run.
+check` and the pre-commit hook catch it. Never run a filtered test as the last run.
 
 ## The model catalogue
 

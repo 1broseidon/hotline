@@ -55,6 +55,7 @@ make dev        # the Tauri shell, Vite with hot reload, on .hotline-dev
 make check      # cargo fmt --check, clippy -D warnings, cargo test, the UI's typecheck
 make verify     # the headless harnesses, driving the real core over the wire
 make precheck   # what GitHub's runners would fail: Windows, each UI test alone, the workflows
+make hooks      # pre-commit (fmt, typecheck, contract, keys), pre-push (precheck)
 ```
 
 ## Verifying

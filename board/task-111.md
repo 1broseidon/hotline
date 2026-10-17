@@ -12,7 +12,7 @@ createdAt: "2026-10-17T20:18:20.491Z"
 dependsOn:
   - task-110
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T21:08:39.392Z"
+updatedAt: "2026-10-17T21:08:43.779Z"
 dispatch:
   agent: claude
   model: opus
@@ -45,3 +45,4 @@ Tests: a script test (or a CI-free shell test under scripts/) that a mis-formatt
 
 ## Log
 - 2026-10-17T21:08:39.049Z: [claude] Done on branch dispatch/task-111 (0bb2106b). .githooks/pre-commit (1–2 s): refuses staged *.p8/*.pem/auth.json; cargo fmt --check when .rs staged; staged contract.ts refused if it lost >1/4 of HEAD's lines or fails tsc alone; bun typecheck when ui/ staged. .githooks/pre-push: make precheck, naming --no-verify on failure. make hooks sets core.hooksPath; make dev/check print a nudge only. scripts/test_githooks.py (in make check) proves clean passes and misformatted Rust, truncated contract, uncompilable contract, key file are refused. No pre-merge-commit: clean merges join pre-commit-checked commits, conflicted merges finish via git commit which runs pre-commit. Left out: prettier, which the repo neither depends on nor configures, so --check would mean reformatting the whole window first. Not enabled: George runs make hooks (shared config, affects every worktree).
+- 2026-10-17T21:08:43.779Z: Landed on release/0.40.0

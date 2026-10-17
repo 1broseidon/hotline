@@ -27,7 +27,7 @@ contract:
     - If a cargo run rewrites ui/src/generated/contract.ts, restore it before committing
   metrics:
     readyAt: "2026-10-17T19:29:18.238Z"
-updatedAt: "2026-10-17T19:29:49.372Z"
+updatedAt: "2026-10-17T19:29:52.955Z"
 relatedFiles:
   - docs/audits/0.40/errors.md
   - crates/hotline-core/src
@@ -40,7 +40,12 @@ dispatch:
   by: lead
   at: "2026-10-17T19:29:49.248Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T19:29:52.955Z"
 assignee: codex
 ---
 

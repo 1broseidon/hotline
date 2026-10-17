@@ -31,7 +31,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:44:50.921Z"
     duration: 873
-updatedAt: "2026-10-17T19:44:58.190Z"
+updatedAt: "2026-10-17T19:45:16.493Z"
 relatedFiles:
   - docs/audits/0.40/structure.md
   - crates/hotline-core/src
@@ -68,3 +68,4 @@ Audit: Rust structure and module layout.
 ## Log
 - 2026-10-17T19:44:50.593Z: [claude] For the tasks after this: the report is at docs/audits/0.40/structure.md and is committed on branch dispatch/task-103. Its 21 Phase 2 tasks run in order. Tasks 1–2 rename the 16 mod.rs files to foo.rs and give test files one naming style; do them first, so every later split lands on the new paths. Task 3 makes contract a leaf before task 4 splits it, and both must leave ui/src/generated/contract.ts byte-identical after an unfiltered cargo test. session/tests.rs and wire/tests.rs are the merge hot spots (76 and 81 commits since 2026-09-01), so split them early. No new crates: incremental check is 3–6s and the test rebuild 12s; revisit if the test rebuild passes 30s or the contract gets a second consumer. Building needs .speech-engine/ copied in from the main checkout.
 - 2026-10-17T19:44:54.087Z: [claude] Done: wrote the structure audit at docs/audits/0.40/structure.md, with 14 findings including the splits for all 11 files over budget, a Leave alone list and 21 Phase 2 tasks. It is committed on branch dispatch/task-103 as 0887eff9, and all four validation commands pass.
+- 2026-10-17T19:45:16.493Z: Landed on release/0.40.0

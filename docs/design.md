@@ -197,6 +197,14 @@ The desk alone resolves the viewer address and supplies its bearer. The proxy
 still sees paths, timing and sizes and can deny service. Protocol and limits
 are in `docs/wire.md`; listener setup is in `docs/serve.md`.
 
+A desktop may also keep a Public address: the https origin of a tunnel,
+proxy or forwarded port that reaches its listener. It is one saved value,
+read by both the pairing QR (as `x`, tried after the network address `u`)
+and the hello (as `publicEndpoint`), so a phone away from home pairs through
+it and then knows which of the desk's endpoints it is. The Remote settings
+hint points the tunnel at `localhost` on all host IPs, and at the one
+address and port when Remote listens on a single address.
+
 A phone that cannot scan opens the pairing link instead. There is no typed
 short code. A fresh desktop install listens on 8788; a busy port falls back to
 an ephemeral one that is saved and reused.

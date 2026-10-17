@@ -11,7 +11,7 @@ tags:
   - reachability
 createdAt: "2026-10-17T05:24:53.348Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T05:43:03.136Z"
+updatedAt: "2026-10-17T05:43:04.481Z"
 dispatch:
   agent: claude
   model: opus
@@ -19,6 +19,11 @@ dispatch:
   at: "2026-10-17T05:43:03.005Z"
   until: done
   role: lead
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 12851
+    at: "2026-10-17T05:43:04.481Z"
 assignee: claude
 ---
 

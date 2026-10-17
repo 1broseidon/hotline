@@ -9,6 +9,26 @@ tags:
   - lints
 parentId: epic-12
 createdAt: "2026-10-17T19:28:04.724Z"
+contract:
+  status: ready
+  deliverables:
+    - type: docs
+      path: docs/audits/0.40/lints.md
+      description: Lint policy audit report with a proposed [lints] table
+  validation:
+    commands:
+      - test $(wc -l < docs/audits/0.40/lints.md) -ge 60
+      - grep -q '^## Findings' docs/audits/0.40/lints.md && grep -q '^## Leave alone' docs/audits/0.40/lints.md && grep -q '^## Phase 2 tasks' docs/audits/0.40/lints.md
+      - grep -q '\[workspace.lints' docs/audits/0.40/lints.md
+      - grep -Eq '[A-Za-z0-9_/.-]+\.rs:[0-9]+' docs/audits/0.40/lints.md
+      - test -z "$(git diff --name-only release/0.40.0...HEAD -- . ':(exclude)docs/audits/0.40/lints.md')"
+  constraints:
+    - "Read-only audit: commit only docs/audits/0.40/lints.md; propose the [lints] table in the report, do not add it to Cargo.toml"
+    - "Report has exactly these sections: '## Findings' (each lint with count and a file:line sample), '## Leave alone' (with why), '## Phase 2 tasks' (each small, landable alone behind make check)"
+    - If a cargo run rewrites ui/src/generated/contract.ts, restore it before committing
+  metrics:
+    readyAt: "2026-10-17T19:29:18.238Z"
+updatedAt: "2026-10-17T19:29:18.236Z"
 ---
 
 ## Description

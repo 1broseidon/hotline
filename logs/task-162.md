@@ -11,7 +11,7 @@ relatedFiles:
   - docs-site/src/content/docs/server/
   - docs-site/src/content/docs/phone/pair.md
   - docs/serve.md
-updatedAt: "2026-10-17T23:25:54.133Z"
+updatedAt: "2026-10-17T23:26:03.047Z"
 contract:
   status: delivered
   validation:
@@ -36,6 +36,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T23:11:47.306Z"
+    ended: "2026-10-17T23:26:03.047Z"
+    outcome: done
 assignee: claude
 completedAt: "2026-10-17T23:25:54.133Z"
 ---

@@ -10,8 +10,15 @@ tags:
   - mcp
 createdAt: "2026-10-17T22:24:05.896Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T22:41:13.211Z"
+updatedAt: "2026-10-17T22:46:28.442Z"
 parentId: epic-13
+relatedFiles:
+  - crates/hotline-core/src/mcp/server.rs
+  - crates/hotline-core/src/linked.rs
+  - crates/hotline-core/src/desk.rs
+  - crates/hotline-core/skills/hotline-room/SKILL.md
+  - docs/security.md
+  - ui/src/generated/contract.ts
 ---
 
 ## Description

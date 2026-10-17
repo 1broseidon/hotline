@@ -9,6 +9,13 @@ tags:
   - docs
 parentId: epic-13
 createdAt: "2026-10-17T22:41:08.998Z"
+relatedFiles:
+  - crates/hotline-core/src/lib.rs
+  - Makefile
+  - docs/design.md
+  - docs/development.md
+  - AGENTS.md
+updatedAt: "2026-10-17T22:47:21.105Z"
 ---
 
 ## Description

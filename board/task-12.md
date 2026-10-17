@@ -18,7 +18,7 @@ description: |-
   - The optional summary read from the original task is out of scope; file it separately if wanted.
 
   All fields are optional, and an older phone ignores them. Tests over the wire in `crates/hotline-core/src/remote/tests.rs` (the TestPhone harness), one each: the paired phone sees `current` on its own grant only; the owner hello has deskKind and version; a companion's hello marks the public endpoint when one is set and has none when unset. Regenerate `ui/src/generated/contract.ts` with an unfiltered `cargo test -p hotline-core`, then `make check`.
-updatedAt: "2026-10-17T05:44:14.749Z"
+updatedAt: "2026-10-17T05:44:31.066Z"
 subtasks:
   - id: task-12-1
     title: Mark the requesting device in remote.devices
@@ -61,6 +61,14 @@ contract:
     - Keep endpoints local-first
   metrics:
     readyAt: "2026-10-17T05:44:14.749Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T05:44:30.937Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Log

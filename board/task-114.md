@@ -11,7 +11,7 @@ parentId: epic-13
 createdAt: "2026-10-17T22:40:43.005Z"
 relatedFiles:
   - Cargo.lock
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-17T22:48:59.119Z"
 contract:
   status: ready
   validation:
@@ -21,6 +21,14 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+dispatch:
+  agent: claude
+  model: sonnet
+  by: lead
+  at: "2026-10-17T22:48:58.989Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

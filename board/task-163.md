@@ -52,3 +52,6 @@ Phase 2 group E (Docs), plan row D-3 in docs/audits/0.40/README.md on release/0.
 - Size: XS
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-17T23:27:40.240Z: [claude] Done on dispatch/task-163 (aec82827), make precheck passes: threads.md's side-run note points at Room::run_queue; the Today table's call Resume is "none: each front starts from the DM's recent lines (front_prompt)" in place of Exchange::from_thread; sessions.md says the window declares threads2 and gets link, only the phone gets markers; ADR 0005 is "Accepted (0.39)" and says the 0.38.1 step was never tagged and shipped in 0.39.0. For later tasks: threads.md:345 (phase-4 log) still says "run_turns says so where it reads the ids"; run_turns is gone, left alone as history beyond D8's scope.

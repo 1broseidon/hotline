@@ -36,7 +36,8 @@ const FRAME_MAX: usize = 1024 * 1024;
 
 impl Remote {
     fn link_registry(&self) -> Result<Arc<linked::Links>, String> {
-        self.room
+        self.agents()?
+            .room
             .links()
             .ok_or_else(|| "This desk cannot link with another.".to_string())
     }
@@ -44,7 +45,7 @@ impl Remote {
     /// Every desk this one is linked with, and how each link is doing.
     pub fn desk_links(&self) -> Result<Vec<DeskLink>, String> {
         let links = self.link_registry()?;
-        Ok(linked::records(&self.log)
+        Ok(linked::records(&self.agents()?.log)
             .into_iter()
             .map(|record| {
                 let (state, error) = links.state(&record.desk_id);
@@ -88,7 +89,8 @@ impl Remote {
     /// sides keep it as a room event, and this side dials from then on.
     pub async fn link(self: &Arc<Self>, desk_id: &str) -> Result<DeskLink, String> {
         let links = self.link_registry()?;
-        if linked::record(&self.log, desk_id).is_some() {
+        let log = &self.agents()?.log;
+        if linked::record(log, desk_id).is_some() {
             return self.desk_link(desk_id);
         }
         let me = self.status_desktop_id();
@@ -143,7 +145,7 @@ impl Remote {
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| linked::plain(&desk.name, 80));
         linked::save(
-            &self.log,
+            log,
             &Record {
                 desk_id: desk_id.to_string(),
                 name,
@@ -162,6 +164,7 @@ impl Remote {
     /// identity, for `/v2/link`. Asked over an owner seat here, so it is the
     /// owner's decision on this desk too.
     pub async fn accept_link(&self, desk_id: &str, name: &str, key: &str) -> Result<Value, String> {
+        let Agents { log, room } = self.agents()?;
         let name = linked::plain(name, 80);
         if !linked::valid_desk_id(desk_id) || desk_id == self.status_desktop_id() {
             return Err("That is not another desk's id.".into());
@@ -175,21 +178,21 @@ impl Remote {
         {
             return Err("That is not a desk identity key.".into());
         }
-        if linked::record(&self.log, desk_id).is_some_and(|record| record.dials) {
+        if linked::record(log, desk_id).is_some_and(|record| record.dials) {
             return Err("This desk already links with that one from here.".into());
         }
         // A link accepted again — the other desk ended it while this one
         // could not hear, and linked again — ends the old one first, with
         // everything it held, so the new one starts from nothing.
-        if linked::record(&self.log, desk_id).is_some() {
-            self.room.unlinked(desk_id).await?;
+        if linked::record(log, desk_id).is_some() {
+            room.unlinked(desk_id).await?;
         }
         // Nor does anything a frame of an earlier link left behind here.
         if let Ok(links) = self.link_registry() {
             links.forget(desk_id);
         }
         linked::save(
-            &self.log,
+            log,
             &Record {
                 desk_id: desk_id.to_string(),
                 name,
@@ -205,8 +208,9 @@ impl Remote {
     /// ends it now whatever the other says.
     pub async fn unlink(self: &Arc<Self>, desk_id: &str) -> Result<(), String> {
         let links = self.link_registry()?;
+        let Agents { log, room } = self.agents()?;
         let record =
-            linked::record(&self.log, desk_id).ok_or("This desk is not linked with that one.")?;
+            linked::record(log, desk_id).ok_or("This desk is not linked with that one.")?;
         if links.is_open(desk_id) {
             let _ = tokio::time::timeout(
                 STEP_WITHIN,
@@ -221,7 +225,7 @@ impl Remote {
             // there too.
             let _ = tokio::time::timeout(STEP_WITHIN * 2, self.say_goodbye(desk_id)).await;
         }
-        self.room.unlinked(desk_id).await
+        room.unlinked(desk_id).await
     }
 
     async fn say_goodbye(&self, desk_id: &str) -> Result<(), OpenError> {
@@ -246,7 +250,10 @@ impl Remote {
 
     /// Dials every link this desk made. Called once the desk is up.
     pub(super) fn restore_links(self: &Arc<Self>) {
-        for record in linked::records(&self.log) {
+        let Ok(agents) = self.agents() else {
+            return;
+        };
+        for record in linked::records(&agents.log) {
             if record.dials {
                 self.dial(record.desk_id);
             }
@@ -275,9 +282,12 @@ impl Remote {
         };
         let remote = self.clone();
         tokio::spawn(async move {
+            let Ok(Agents { log, room }) = remote.agents() else {
+                return;
+            };
             let mut tries = 0u32;
             loop {
-                if !linked::record(&remote.log, &desk_id).is_some_and(|record| record.dials) {
+                if !linked::record(log, &desk_id).is_some_and(|record| record.dials) {
                     return;
                 }
                 let opened = tokio::select! {
@@ -299,7 +309,7 @@ impl Remote {
                     // its link record is gone: it ended the link.
                     Err(OpenError::Revoked) => {
                         if !cancel.is_cancelled()
-                            && let Err(error) = remote.room.unlinked(&desk_id).await
+                            && let Err(error) = room.unlinked(&desk_id).await
                         {
                             eprintln!("[link] {desk_id} could not be ended here: {error}");
                         }
@@ -327,9 +337,10 @@ impl Remote {
             return None;
         }
         let public = URL_SAFE_NO_PAD.encode(public);
-        linked::record(&self.log, desk_id)
+        let Agents { log, room } = self.agents().ok()?;
+        linked::record(log, desk_id)
             .filter(|record| !record.dials && record.key.as_deref() == Some(public.as_str()))?;
-        Some(self.room.links()?.token(desk_id).child_token())
+        Some(room.links()?.token(desk_id).child_token())
     }
 }
 
@@ -449,7 +460,10 @@ async fn session<S>(
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let Some(links) = remote.room.links() else {
+    let Ok(room) = remote.agents().map(|agents| agents.room.clone()) else {
+        return;
+    };
+    let Some(links) = room.links() else {
         return;
     };
     let mut channel = channel.limited(FRAME_MAX);
@@ -466,7 +480,7 @@ async fn session<S>(
     // The roster goes before anything else that crosses: a message names its
     // sender, and the other desk takes only senders it has been shown.
     let mut publish = |next: &mut i64| {
-        let now = remote.room.federation_roster_entries();
+        let now = room.federation_roster_entries();
         if published.as_ref() == Some(&now) {
             return None;
         }
@@ -517,7 +531,7 @@ async fn session<S>(
                     heard = tokio::time::Instant::now();
                     let Ok(received) = serde_json::from_str::<Value>(&text) else { continue };
                     if received.get("ok").is_none() {
-                        frames.extend(crate::wire::federation(&received, &desk_id, &remote.room).await);
+                        frames.extend(crate::wire::federation(&received, &desk_id, &room).await);
                     } else if let Some(answer) = received["id"].as_i64().and_then(|id| answers.remove(&id)) {
                         let _ = answer.send(if received["ok"] == true {
                             Ok(received.get("result").cloned().unwrap_or(Value::Null))

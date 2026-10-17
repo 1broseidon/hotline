@@ -52,6 +52,7 @@ use tokio_tungstenite::{WebSocketStream, accept_hdr_async};
 
 pub(crate) mod commands;
 mod files;
+mod relay_door;
 mod roster;
 mod schedules;
 mod threads;
@@ -901,12 +902,28 @@ pub struct Door {
     listener: StdTcpListener,
     port: u16,
     desk_token: String,
-    log: Log,
-    room: Arc<dyn RoomHandle>,
+    behind: Behind,
+}
+
+/// What a door seats its socket on: the room's whole wire, or, on a server
+/// that runs only a relay, the four commands that administer it (ADR 0006).
+#[derive(Clone)]
+enum Behind {
+    Room { log: Log, room: Arc<dyn RoomHandle> },
+    Relay(Arc<crate::remote::Remote>),
 }
 
 impl Door {
     pub fn bind(log: Log, desk_token: String, room: Arc<dyn RoomHandle>) -> io::Result<Self> {
+        Self::bind_to(desk_token, Behind::Room { log, room })
+    }
+
+    /// The door of a server that runs only a relay: no room behind it.
+    pub fn bind_relay(desk_token: String, remote: Arc<crate::remote::Remote>) -> io::Result<Self> {
+        Self::bind_to(desk_token, Behind::Relay(remote))
+    }
+
+    fn bind_to(desk_token: String, behind: Behind) -> io::Result<Self> {
         let listener = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
@@ -914,8 +931,7 @@ impl Door {
             listener,
             port,
             desk_token,
-            log,
-            room,
+            behind,
         })
     }
 
@@ -943,10 +959,9 @@ impl Door {
                 },
             };
             let desk_token = desk_token.clone();
-            let log = self.log.clone();
-            let room = self.room.clone();
+            let behind = self.behind.clone();
             tokio::spawn(async move {
-                if let Err(error) = serve(stream, &desk_token, log, room).await {
+                if let Err(error) = serve(stream, &desk_token, behind).await {
                     eprintln!("[wire] a socket ended: {error}");
                 }
             });
@@ -1004,12 +1019,7 @@ fn accept_again(error: &io::Error) -> Option<AcceptAgain> {
 // HTTP response by value; the trait fixes the type, so the lint has nothing to
 // offer here.
 #[allow(clippy::result_large_err)]
-async fn serve(
-    stream: TcpStream,
-    desk_token: &str,
-    log: Log,
-    room: Arc<dyn RoomHandle>,
-) -> Result<(), Error> {
+async fn serve(stream: TcpStream, desk_token: &str, behind: Behind) -> Result<(), Error> {
     let socket = accept_hdr_async(stream, |request: &Request, response: Response| {
         let uri = request.uri();
         if uri.path() != "/ws" {
@@ -1032,7 +1042,10 @@ async fn serve(
         Ok(response)
     })
     .await?;
-    seated(socket, Seat::Desk, log, room).await
+    match behind {
+        Behind::Room { log, room } => seated(socket, Seat::Desk, log, room).await,
+        Behind::Relay(remote) => relay_door::serve(socket, remote).await,
+    }
 }
 
 fn refuse(status: StatusCode, body: &str) -> ErrorResponse {
@@ -1165,9 +1178,10 @@ where
     if let Some(public) = phone.public_endpoint() {
         hello["publicEndpoint"] = json!(public);
     }
-    // What kind of desk this is and how new: the owner's to know.
+    // What kind of desk this is, how new, and what it runs: the owner's to know.
     if role == crate::remote::WireRole::Owner {
         hello["deskKind"] = json!(phone.desk_kind());
+        hello["serves"] = json!(phone.serves());
         hello["version"] = json!(env!("CARGO_PKG_VERSION"));
     }
     tokio::select! {

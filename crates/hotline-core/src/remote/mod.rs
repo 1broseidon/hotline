@@ -240,9 +240,17 @@ pub struct Remote {
     server: AsyncMutex<Option<tokio::task::JoinHandle<()>>>,
     lifecycle: AsyncMutex<()>,
     prompts: AsyncMutex<()>,
-    log: Log,
-    room: Arc<dyn RoomHandle>,
+    /// The desk behind this Remote's wire, computer and link: absent on a
+    /// server that runs only a relay (ADR 0006), whose room is never opened.
+    agents: Option<Agents>,
 }
+/// The room a Remote opens doors onto when its server runs agents.
+pub struct Agents {
+    pub log: Log,
+    pub room: Arc<dyn RoomHandle>,
+}
+/// Why a relay-only server answers nothing that needs the room.
+pub const RELAY_ONLY: &str = "This server runs only a relay: it has no teammates, links or wire. Serve it with --capabilities agents,relay to use them.";
 #[derive(Clone)]
 pub(crate) struct Phone {
     remote: Arc<Remote>,
@@ -266,6 +274,10 @@ impl Phone {
         } else {
             "desktop"
         }
+    }
+    /// What the server runs, for an owner's hello.
+    pub(crate) fn serves(&self) -> Vec<&'static str> {
+        self.remote.serves()
     }
     /// The paired phones, this one marked.
     pub(crate) fn devices(&self) -> Vec<RemoteDevice> {
@@ -342,12 +354,11 @@ impl Remote {
         room: Arc<dyn RoomHandle>,
         store: Arc<dyn SecretStore>,
     ) -> io::Result<Arc<Self>> {
-        Self::open_options(root, log, room, store, None)
+        Self::open_options(root, Some(Agents { log, room }), store, None)
     }
     fn open_options(
         root: &Path,
-        log: Log,
-        room: Arc<dyn RoomHandle>,
+        agents: Option<Agents>,
         store: Arc<dyn SecretStore>,
         served: Option<ServeOptions>,
     ) -> io::Result<Arc<Self>> {
@@ -402,8 +413,7 @@ impl Remote {
             server: AsyncMutex::new(None),
             lifecycle: AsyncMutex::new(()),
             prompts: AsyncMutex::new(()),
-            log,
-            room,
+            agents,
         }))
     }
     fn save(&self, saved: &Saved) -> Result<(), String> {
@@ -416,14 +426,25 @@ impl Remote {
     pub fn addresses() -> Vec<String> {
         network::addresses()
     }
-    /// What this desk runs, as a device pairing with it is told: a served
-    /// desk also carries a relay; a desktop never does.
-    fn serves(&self) -> &'static [&'static str] {
-        if self.served.is_some() {
-            &["agents", "relay"]
-        } else {
-            &["agents"]
+    /// The room behind the wire, or why there is none.
+    fn agents(&self) -> Result<&Agents, String> {
+        self.agents.as_ref().ok_or_else(|| RELAY_ONLY.to_string())
+    }
+    /// Whether this is a served desk that carries a relay. A desktop's own
+    /// Remote never does.
+    fn relays(&self) -> bool {
+        self.served.as_ref().is_some_and(|options| options.relay)
+    }
+    /// What this server runs, as a device is told (ADR 0006 § Discovery).
+    pub(crate) fn serves(&self) -> Vec<&'static str> {
+        let mut serves = Vec::new();
+        if self.agents.is_some() {
+            serves.push("agents");
         }
+        if self.relays() {
+            serves.push("relay");
+        }
+        serves
     }
 
     pub(crate) fn status_desktop_id(&self) -> String {
@@ -699,6 +720,7 @@ impl Remote {
         {
             return Err("Supply a message and a valid operation id (maximum 32 KiB).".into());
         }
+        let room = &self.agents()?.room;
         let _held = self.prompts.lock().await;
         if phone.cancel.is_cancelled() {
             return Err("This phone has been disconnected.".into());
@@ -748,23 +770,21 @@ impl Remote {
         let result = async {
             if let Some(side) = side {
                 // A work thread brings its own agent up; the main session is not started for it.
-                return self
-                    .room
+                return room
                     .side_prompt(side, text, reply_to.map(str::to_owned), Some(attachments))
                     .await;
             }
-            self.room.start(persona).await?;
+            room.start(persona).await?;
             if phone.cancel.is_cancelled() {
                 return Err("This phone has been disconnected.".into());
             }
-            self.room
-                .prompt(
-                    persona,
-                    text,
-                    reply_to.map(str::to_owned),
-                    Some(attachments),
-                )
-                .await
+            room.prompt(
+                persona,
+                text,
+                reply_to.map(str::to_owned),
+                Some(attachments),
+            )
+            .await
         }
         .await;
         receipt.result = Some(result.clone());

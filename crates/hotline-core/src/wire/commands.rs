@@ -205,24 +205,7 @@ pub(crate) async fn run(
         Command::RemotePublicUrl { url } => {
             Ok(json!(remote(room)?.set_public_url(url.as_deref())?))
         }
-        Command::RemotePairing { role, id, cancel } => {
-            let remote = remote(room)?;
-            if let Some(id) = id {
-                if role.is_some() {
-                    return Err("A pairing role is chosen when the invitation is created.".into());
-                }
-                if cancel {
-                    remote.cancel_pairing(&id)?;
-                    Ok(Value::Null)
-                } else {
-                    Ok(json!(remote.pairing_result(&id)?))
-                }
-            } else if cancel {
-                Err("Name the pairing invitation to cancel.".into())
-            } else {
-                Ok(json!(remote.pairing_v2(role.unwrap_or_default())?))
-            }
-        }
+        Command::RemotePairing { role, id, cancel } => remote(room)?.pairing(role, id, cancel),
         Command::DesksLinks {} => Ok(json!(remote(room)?.desk_links()?)),
         Command::DesksLink { desk_id } => Ok(json!(remote(room)?.link(&desk_id).await?)),
         Command::DesksLinkAccept { desk_id, name, key } => {

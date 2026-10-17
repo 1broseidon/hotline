@@ -334,6 +334,7 @@ mod tests {
                 started_at: "2026-09-30T00:00:00Z".into(),
                 data_dir: root.to_string_lossy().into(),
                 store: "file".into(),
+                capabilities: Vec::new(),
             },
         )
         .unwrap();

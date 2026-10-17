@@ -2,7 +2,8 @@
 
 `hotline serve` runs the desk with no window: the same room, teammates,
 scheduler and Remote access as the desktop app, on a Linux machine you
-reach over SSH. It needs no display and no session bus. This page covers
+reach over SSH. Or it runs only a relay for your desktops, with no agents
+at all ([What it runs](#what-it-runs-capabilities)). It needs no display and no session bus. This page covers
 the sealed phone connection. Owner onboarding from the phone (BRO-116)
 is separate; until then use the local Door for setup.
 
@@ -127,12 +128,73 @@ ciphertext for the handshake payloads and application frames. It can
 still observe connection timing and sizes and deny service. Do not put
 credentials in `--public-url` or its query string.
 
+## What it runs: capabilities
+
+A server runs `agents` (the room, its scheduler, teammates, drivers,
+computers, models and provider keys, and the wire at `/v2`), `relay` (the
+relay below), or both. `--capabilities` chooses, and is remembered in
+`serve.json` in the data directory (`{"capabilities":["relay"]}`), so the
+mode belongs to the data and not to the unit:
+
+```sh
+hotline serve --store file --listen … --public-url … --capabilities relay
+```
+
+A boot with the flag uses it and records it, saying so on stderr when it
+changes what the server ran (`capabilities: agents,relay → relay`). A boot
+without it runs what the record says, and `agents,relay` when there is no
+record, which is what every server ran before the choice. A door of a
+capability the server does not run answers `404 not_found` before any
+Noise, as an unknown path does: no `/v2`, `/v2/computer/…` or `/v2/link`
+without agents, no `/v2/relay`, `/v2/relay/accept` or `/relay/<deskId>/…`
+without the relay. See [ADR 0006](adr/0006-relay-only-servers.md).
+
+### A relay-only server
+
+`--capabilities relay` is for a small machine, a Raspberry Pi say, that
+only carries visitors to your desktops. It takes the room's lock and claims
+the secret store, because Remote's TLS and Noise identities live there,
+then opens Remote and its loopback Door, and nothing else: no room stream,
+vault, index, scheduler, session, driver, MCP, skills, computer, voice,
+model catalogue or importer, and it reads no provider key. Nothing of a
+room is created in the data directory.
+
+Its Door answers `hotline status` (which says `runs relay`, the address and
+how many devices are paired), `hotline pair`, `hotline devices` and `hotline
+revoke`. `hotline links`, `unlink` and `wire` are refused with a sentence
+saying the server runs only a relay. `hotline pair` there opens a relay
+invitation, its only kind; `--companion` is refused, since a phone has
+nothing to reach on it.
+
+Measured idle, on an Apple M5 Max (aarch64, macOS 27), release build, with
+nothing paired: a relay-only server holds **14 MB** resident and used under
+10 ms of CPU in a minute (below what `ps` resolves); the same server running
+`agents,relay` on an empty room holds 25 MB and used 30 ms. The figure on a
+Raspberry Pi is still to be measured there.
+
+### Switching modes
+
+Serve again with another `--capabilities`. `remote.json` is not touched, so
+every pairing survives and keeps its role:
+
+- **relay → agents,relay** opens the room for the first time, as any new
+  server: no teammates, no provider keys, no models; set them up as below.
+  A desktop that wants the teammates pairs again as an owner, which replaces
+  its relay grant.
+- **agents,relay → relay** leaves the room on disk, unopened and unchanged;
+  nothing is lost, so no confirmation is asked. Owner and companion grants
+  stay saved, and an owner may still stand in on the relay.
+- **dropping relay** makes `/v2/relay` `404`; desktops standing in back off
+  and keep trying, and relay grants stay saved for a later return.
+
 ## Relay
 
-A served desk is also a relay for desktops paired with it as owners, so a
+A served desk running `relay` carries visitors for desktops paired with it
+as owners or as relays, so a
 phone reaches a desktop through the server instead of over a VPN. On the
-desktop, add the server as an owner (Add a server, with `hotline pair --link`
-from the server), then turn on Remote and choose the server under **Relay**.
+desktop, add the server (Add a server, with `hotline pair --link` from the
+server, or `hotline pair --relay --link` for a grant that may only stand in),
+then turn on Remote and choose the server under **Relay**.
 The desktop dials out to the server and stands in there, so the server never
 needs a way into the desktop's network.
 
@@ -166,7 +228,9 @@ sessions per desk and four per device as its direct listener. Changing or
 deselecting the relay, turning Remote off, losing control, or revoking the
 host device cancels its relayed sessions. Joined writes, closes, and control
 writes have a 10-second bound. Standing URLs clear before reconnect, whose
-backoff resets after `ready` and varies by ±20%.
+backoff resets after `ready` and varies by ±20%. `ready` also carries
+`serves`, what the server runs (`["relay"]`, `["agents","relay"]`): it is
+the only frame a relay grant ever reads.
 
 The Rust client pairs at the invitation's direct URL, then its relay if the
 direct route fails. Authenticated v2 hello frames update the session and
@@ -334,7 +398,9 @@ journalctl -u hotline
 ```
 
 `hotline status` asks the running desk, through its loopback Door, for its
-version, uptime, store, teammates and connected models. When the service is
+version, uptime, store, what it runs, teammates and connected models (a
+relay-only server has no teammates or models, and reports its address and
+paired devices instead). When the service is
 down it says so and exits 3.
 
 `hotline wire <command>` sends one wire command (`docs/wire.md`) on the
@@ -395,6 +461,7 @@ is dropped. None of this is exactly-once. A desk killed outright
 | `desk.lock` | The room's lock. Never delete it while a desk runs. |
 | `door.json` | The Door's loopback port and this process's token, 0600, removed on a clean stop. |
 | `store.json` | Which secret store the room uses. |
+| `serve.json` | What the server runs, `{"capabilities":[…]}`; absent means both. |
 | `secrets/` | The file store, 0700, one 0600 file per record. |
 | `pending.json` | Lines kept by the last stop for the next start; absent otherwise. |
 

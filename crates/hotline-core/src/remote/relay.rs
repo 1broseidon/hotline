@@ -530,7 +530,7 @@ pub(super) async fn host<S>(
         .served
         .as_ref()
         .map(|options| format!("{}/relay/{desk}", options.public_url.trim_end_matches('/')));
-    let ready = json!({"type": "ready", "url": url}).to_string();
+    let ready = json!({"type": "ready", "url": url, "serves": remote.serves()}).to_string();
     if matches!(
         tokio::time::timeout(IO_WITHIN, control.send(Message::Text(ready.into()))).await,
         Ok(Ok(()))

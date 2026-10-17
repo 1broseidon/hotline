@@ -15,6 +15,9 @@ pub struct ServeOptions {
     pub public_url: String,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
+    /// Whether this server carries a relay for desktops (ADR 0006). Whether
+    /// it runs agents is whether it is opened with a room.
+    pub relay: bool,
 }
 impl ServeOptions {
     pub fn validate(&self) -> Result<(), String> {
@@ -48,16 +51,20 @@ impl ServeOptions {
     }
 }
 impl Remote {
+    /// A served desk, with the room it runs agents on, or none for a server
+    /// that runs only a relay.
     pub fn open_served_with_store(
         root: &Path,
-        log: Log,
-        room: Arc<dyn RoomHandle>,
+        agents: Option<Agents>,
         store: Arc<dyn SecretStore>,
         mut options: ServeOptions,
     ) -> io::Result<Arc<Self>> {
         options.validate().map_err(io::Error::other)?;
+        if agents.is_none() && !options.relay {
+            return Err(io::Error::other("A server runs agents, a relay, or both."));
+        }
         options.public_url = options.public_url.trim_end_matches('/').into();
-        Self::open_options(root, log, room, store, Some(options))
+        Self::open_options(root, agents, store, Some(options))
     }
 
     pub(super) async fn restore_served(self: &Arc<Self>) {
@@ -175,10 +182,15 @@ impl Remote {
                             }
                             s.endpoints = vec![options.public_url.clone()];
                             s.error = None;
-                            for grant in s.saved.grants.clone() {
-                                if grant.device.public_key.is_some() {
-                                    s.devices.insert(grant.device.id, cancel.child_token());
-                                }
+                            // Relay grants too: a relay pairing outlives a restart.
+                            let keyed: Vec<_> = s
+                                .saved
+                                .all_grants()
+                                .filter(|grant| grant.device.public_key.is_some())
+                                .map(|grant| grant.device.id.clone())
+                                .collect();
+                            for id in keyed {
+                                s.devices.insert(id, cancel.child_token());
                             }
                         }
                         server::run(remote, listener, tls, cancel).await;

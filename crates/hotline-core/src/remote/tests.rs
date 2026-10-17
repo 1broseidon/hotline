@@ -2190,11 +2190,14 @@ async fn served_listener_waits_for_exact_socket_and_has_no_legacy_routes() {
         public_url: format!("https://{listen}/room"),
         tls_cert: None,
         tls_key: None,
+        relay: true,
     };
     let remote = Remote::open_served_with_store(
         root.path(),
-        desk.log.clone(),
-        desk.clone(),
+        Some(Agents {
+            log: desk.log.clone(),
+            room: desk.clone(),
+        }),
         store,
         options.clone(),
     )
@@ -2259,6 +2262,7 @@ fn served_listen_validation_never_permits_wildcard_or_implicit_tls() {
         public_url: "https://desk.example/room".into(),
         tls_cert: None,
         tls_key: None,
+        relay: true,
     };
     assert!(options.validate().is_ok());
     for address in [
@@ -2305,10 +2309,18 @@ async fn served_listener_uses_supplied_pem_certificate_and_key() {
         public_url: format!("https://{listen}"),
         tls_cert: Some(cert_path),
         tls_key: Some(key_path),
+        relay: true,
     };
-    let remote =
-        Remote::open_served_with_store(root.path(), desk.log.clone(), desk, store, options.clone())
-            .unwrap();
+    let remote = Remote::open_served_with_store(
+        root.path(),
+        Some(Agents {
+            log: desk.log.clone(),
+            room: desk,
+        }),
+        store,
+        options.clone(),
+    )
+    .unwrap();
     remote.restore().await;
     tokio::time::timeout(Duration::from_secs(3), async {
         while !remote.status().enabled {
@@ -3216,10 +3228,12 @@ async fn the_owner_hello_says_what_kind_of_desk_and_which_version() {
     let hello = read(&mut phone).await;
     assert_eq!(hello["deskKind"], "desktop");
     assert_eq!(hello["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(hello["serves"], json!(["agents"]));
     let companion = h.pair_companion().await;
     let mut companion = h.socket(&companion.private).await.unwrap();
     let hello = read(&mut companion).await;
     assert_eq!(hello.get("deskKind"), None);
+    assert_eq!(hello.get("serves"), None);
     assert_eq!(hello.get("version"), None);
     h.remote.configure(false, network::ALL).await.unwrap();
 }

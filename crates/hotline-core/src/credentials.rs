@@ -470,7 +470,7 @@ pub(crate) fn private_read(path: &Path) -> io::Result<fs::File> {
     Ok(file)
 }
 
-pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path.parent().ok_or_else(corrupt)?;
     check_private_path(parent)?;
     match check_private_path(path) {

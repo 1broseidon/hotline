@@ -3,21 +3,32 @@
 use super::*;
 
 pub(super) async fn served() -> (tempfile::TempDir, Arc<Remote>, String) {
+    served_running(true, true).await
+}
+
+/// A served desk running agents (a room is opened), a relay, or both.
+async fn served_running(agents: bool, relay: bool) -> (tempfile::TempDir, Arc<Remote>, String) {
     let root = tempfile::tempdir().unwrap();
     let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let listen = reserved.local_addr().unwrap();
     drop(reserved);
     let store = Arc::new(MemoryStore::default());
-    let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
+    let agents = agents.then(|| {
+        let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
+        Agents {
+            log: desk.log.clone(),
+            room: desk,
+        }
+    });
     let options = ServeOptions {
         listen,
         public_url: format!("https://{listen}/room"),
         tls_cert: None,
         tls_key: None,
+        relay,
     };
     let remote =
-        Remote::open_served_with_store(root.path(), desk.log.clone(), desk, store, options.clone())
-            .unwrap();
+        Remote::open_served_with_store(root.path(), agents, store, options.clone()).unwrap();
     remote.restore().await;
     tokio::time::timeout(Duration::from_secs(3), async {
         while !remote.status().enabled {
@@ -293,7 +304,9 @@ async fn a_relay_callback_proves_the_hosting_device_before_switching_to_sealed_r
     let owner = client::Client::new(h.store.clone());
     let desk_id = h.remote.status_desktop_id();
     let mut control = owner.host_relay(&server, &desk_id).await.unwrap();
-    assert_eq!(control_notice(&mut control).await["type"], "ready");
+    let ready = control_notice(&mut control).await;
+    assert_eq!(ready["type"], "ready");
+    assert_eq!(ready["serves"], json!(["agents", "relay"]));
     let (mut visitor, capability) = visit(&relay, &public_url, &desk_id, &mut control).await;
 
     for role in [DeviceRole::Owner, DeviceRole::Companion] {
@@ -874,6 +887,126 @@ async fn only_a_served_desk_invites_a_relay() {
         h.remote.pairing_v2(DeviceRole::Relay).err().as_deref(),
         Some("Only a served desk carries a relay.")
     );
+}
+
+#[tokio::test]
+async fn a_relay_only_server_stands_a_desktop_in_and_opens_no_desk_door() {
+    let (root, relay, public_url) = served_running(false, true).await;
+    // Pairing with no role named makes the only grant this server makes.
+    let invitation = relay.pairing(None, None, false).unwrap();
+    assert_eq!(invitation["payload"]["role"], "relay");
+    for role in [DeviceRole::Owner, DeviceRole::Companion] {
+        assert!(
+            relay
+                .pairing_v2(role)
+                .err()
+                .unwrap()
+                .contains("runs only a relay")
+        );
+    }
+    let (desktop, _) = sealed::keypair().unwrap();
+    let payload: PairingPayload = serde_json::from_value(invitation["payload"].clone()).unwrap();
+    let answer = claim(&relay, &public_url, &payload, &desktop, Some("relay")).await;
+    assert_eq!(answer["role"], "relay");
+    assert_eq!(answer["serves"], json!(["relay"]));
+
+    // A desktop stands in and is told, in `ready`, what the server runs.
+    let h = Harness::new().await;
+    let server = pair_desk(&h, &relay, DeviceRole::Relay).await;
+    let desk_id = h.remote.status_desktop_id();
+    let mut control = client::Client::new(h.store.clone())
+        .host_relay(&server, &desk_id)
+        .await
+        .unwrap();
+    let ready = control_notice(&mut control).await;
+    assert_eq!(ready["type"], "ready");
+    assert_eq!(ready["serves"], json!(["relay"]));
+    let (_visitor, _) = visit(&relay, &public_url, &desk_id, &mut control).await;
+
+    // The desk's own doors are not there, before any Noise: not refused, absent.
+    for path in ["/v2", "/v2/link", "/v2/computer/scout/ws"] {
+        let socket = relay_refused(&relay, &public_url, path).await;
+        assert_eq!(socket, 404, "{path}");
+    }
+    // And nothing of a room was made: Remote's own files are all there is.
+    for entry in fs::read_dir(root.path()).unwrap() {
+        let name = entry.unwrap().file_name().into_string().unwrap();
+        assert!(name.starts_with("remote"), "{name}");
+    }
+    relay.configure(false, &relay.status().host).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_server_that_runs_no_relay_has_no_relay_door() {
+    let (_root, desk, public_url) = served_running(true, false).await;
+    assert!(
+        desk.pairing_v2(DeviceRole::Relay)
+            .err()
+            .unwrap()
+            .contains("does not run a relay")
+    );
+    for path in ["/v2/relay", "/v2/relay/accept", "/relay/0123/v2"] {
+        assert_eq!(relay_refused(&desk, &public_url, path).await, 404, "{path}");
+    }
+    // An owner's hello says what the server runs; a served desk running both
+    // says so in the pair answer.
+    let phone = client::Client::new(Arc::new(MemoryStore::default()));
+    let paired = phone
+        .pair(
+            &desk.pairing_v2(DeviceRole::Owner).unwrap().payload,
+            "Owner phone",
+        )
+        .await
+        .unwrap();
+    let mut session = phone.connect(&paired);
+    let hello = hello(&mut session).await;
+    assert_eq!(hello["deskKind"], "server");
+    assert_eq!(hello["serves"], json!(["agents"]));
+    desk.configure(false, &desk.status().host).await.unwrap();
+
+    let (_root, both, public_url) = served().await;
+    let (private, _) = sealed::keypair().unwrap();
+    let invitation = both.pairing_v2(DeviceRole::Owner).unwrap().payload;
+    let answer = claim(&both, &public_url, &invitation, &private, None).await;
+    assert_eq!(answer["serves"], json!(["agents", "relay"]));
+    both.configure(false, &both.status().host).await.unwrap();
+}
+
+/// The HTTP status a path answers a WebSocket upgrade with, before any Noise.
+async fn relay_refused(relay: &Remote, public_url: &str, path: &str) -> u16 {
+    let identity: Identity =
+        serde_json::from_slice(&relay.identity.read().unwrap().unwrap()).unwrap();
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(rustls::pki_types::CertificateDer::from(
+            identity.certificate,
+        ))
+        .unwrap();
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    let url = url::Url::parse(public_url).unwrap();
+    let name = rustls::pki_types::ServerName::try_from(
+        url.host_str().unwrap().trim_matches(['[', ']']).to_owned(),
+    )
+    .unwrap();
+    let stream = TcpStream::connect(url.socket_addrs(|| None).unwrap()[0])
+        .await
+        .unwrap();
+    let tls = TlsConnector::from(Arc::new(config))
+        .connect(name, stream)
+        .await
+        .unwrap();
+    let request = format!("{}{path}", public_url.replace("https:", "wss:"));
+    match tokio_tungstenite::client_async(request, tls).await {
+        Err(tokio_tungstenite::tungstenite::Error::Http(response)) => response.status().as_u16(),
+        Err(error) => panic!("{path}: {error}"),
+        Ok(_) => 101,
+    }
 }
 
 /// `Saved` and its grant as a reader from before the relay role has them:

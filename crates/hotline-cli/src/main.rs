@@ -27,7 +27,8 @@ use std::process::ExitCode;
 const USAGE: &str = "\
 usage:
   hotline serve --store file|native --listen <IP:port> --public-url <https://host:port>
-      [--tls self | --tls-cert <PEM> --tls-key <PEM>] [--data <dir>]
+      [--tls self | --tls-cert <PEM> --tls-key <PEM>]
+      [--capabilities agents,relay | agents | relay] [--data <dir>]
   hotline --version
   hotline update [--check] [--version X.Y.Z]
   hotline status [--data <dir>]
@@ -42,7 +43,9 @@ usage:
 neither, and no desk running in that directory, status, pair, devices, revoke,
 links, unlink and wire use the room of the hotline service on this machine.
 `wire` reads the command's params as JSON on stdin, never from arguments,
-so a secret in them does not reach shell history or the process list.";
+so a secret in them does not reach shell history or the process list.
+`--capabilities` is remembered in serve.json in the data directory; without it,
+a server runs what it ran last, and agents,relay the first time.";
 
 /// The desk with no window is a Unix service: it stops on SIGTERM and keeps
 /// its files owner-only. On Windows, the Hotline app is the desk.
@@ -102,6 +105,14 @@ fn main() -> ExitCode {
                 }
                 Err(error) => return usage(&error),
             };
+            let capabilities = match take_value(&mut args, "--capabilities") {
+                Ok(Some(text)) => match serve::Capabilities::parse(&text) {
+                    Ok(capabilities) => Some(capabilities),
+                    Err(error) => return usage(&error),
+                },
+                Ok(None) => None,
+                Err(error) => return usage(&error),
+            };
             let options = match serve_options(&mut args) {
                 Ok(options) => options,
                 Err(error) => return usage(&error),
@@ -112,6 +123,7 @@ fn main() -> ExitCode {
             serve::run(
                 data.unwrap_or_else(hotline_core::paths::data_root),
                 &store,
+                capabilities,
                 options,
             )
         }
@@ -123,10 +135,12 @@ fn main() -> ExitCode {
             if !args.is_empty() || (json && link) || (companion && relay) {
                 return usage("pair takes --companion or --relay, and either --json or --link");
             }
+            // With neither, the server makes its usual grant: owner where it
+            // runs agents, relay where it runs only a relay.
             let role = match (companion, relay) {
-                (true, _) => "companion",
-                (_, true) => "relay",
-                _ => "owner",
+                (true, _) => Some("companion"),
+                (_, true) => Some("relay"),
+                _ => None,
             };
             remote::pair(&room(), role, json, link)
         }
@@ -211,6 +225,8 @@ fn serve_options(args: &mut Vec<String>) -> Result<hotline_core::remote::ServeOp
         public_url,
         tls_cert,
         tls_key,
+        // Settled by `serve` once it has read serve.json.
+        relay: true,
     };
     options.validate()?;
     Ok(options)

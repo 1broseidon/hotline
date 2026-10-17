@@ -84,8 +84,9 @@ pub fn unlink(room: &Room, id: &str) -> ExitCode {
     }))
 }
 
-/// `role` is the grant the invitation makes: owner, companion or relay.
-pub fn pair(room: &Room, role: &str, json: bool, link: bool) -> ExitCode {
+/// `role` is the grant the invitation makes: owner, companion or relay, or
+/// none for the one the server usually makes.
+pub fn pair(room: &Room, role: Option<&str>, json: bool, link: bool) -> ExitCode {
     outcome(door::runtime().block_on(async {
         let desk = door::running(room)?;
         let url = format!("ws://127.0.0.1:{}/ws?token={}", desk.port, desk.token);
@@ -111,7 +112,7 @@ pub fn pair(room: &Room, role: &str, json: bool, link: bool) -> ExitCode {
         } else if link {
             println!("{}", field(&invitation, "link")?);
         } else {
-            print_invitation(&invitation, role)?;
+            print_invitation(&invitation)?;
         }
         use std::io::Write;
         std::io::stdout().flush().map_err(|e| e.to_string())?;
@@ -122,8 +123,9 @@ pub fn pair(room: &Room, role: &str, json: bool, link: bool) -> ExitCode {
     }))
 }
 
-fn print_invitation(invitation: &Value, role: &str) -> Result<(), String> {
+fn print_invitation(invitation: &Value) -> Result<(), String> {
     let url = field(invitation, "url")?;
+    let role = invitation["payload"]["role"].as_str().unwrap_or("owner");
     let code =
         qrcode::QrCode::new(url.as_bytes()).map_err(|_| "The pairing QR could not be drawn")?;
     // A relay grant is for a desktop that stands in here, never a phone.

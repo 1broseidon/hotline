@@ -1,7 +1,7 @@
 ---
 id: task-107
 title: "Audit: the window — dead exports, big components, lint setup"
-column: in-progress
+column: review
 position: 5
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
 parentId: epic-12
 createdAt: "2026-10-17T19:28:05.232Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: docs
       path: docs/audits/0.40/window.md
@@ -29,7 +29,9 @@ contract:
     readyAt: "2026-10-17T19:29:18.238Z"
     pickedUpAt: "2026-10-17T19:39:34.425Z"
     reworkCount: 0
-updatedAt: "2026-10-17T19:39:34.425Z"
+    deliveredAt: "2026-10-17T19:41:28.367Z"
+    duration: 114
+updatedAt: "2026-10-17T19:41:28.367Z"
 relatedFiles:
   - docs/audits/0.40/window.md
   - ui/src

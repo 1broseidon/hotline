@@ -9,6 +9,10 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:44.032Z"
+relatedFiles:
+  - crates/hotline-app/Cargo.toml
+  - Cargo.lock
+updatedAt: "2026-10-17T22:46:29.521Z"
 ---
 
 ## Description

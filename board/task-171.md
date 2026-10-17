@@ -1,0 +1,24 @@
+---
+id: task-171
+title: "P2-56 (F): The license gate"
+column: todo
+position: 60
+priority: high
+tags:
+  - phase2
+  - gates
+parentId: epic-13
+createdAt: "2026-10-17T22:41:12.690Z"
+---
+
+## Description
+Phase 2 group F (Gates), plan row 56 in docs/audits/0.40/README.md on release/0.40.0. Read that row, its source report section and the Standards before starting.
+
+**The license gate.** A reviewed cargo-deny allow list, and a UI license and notice inventory covering fonts, bundled distributions and the native speech assets
+
+- Source: dead-code F4, task 18
+- Files: `deny.toml`, the notice inventory
+- Collides with: 13, 55
+- Size: S
+
+End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.

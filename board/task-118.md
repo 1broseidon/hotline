@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:45.054Z"
 relatedFiles:
   - ui/bun.lock
   - ui/package.json
-updatedAt: "2026-10-17T23:17:12.204Z"
+updatedAt: "2026-10-17T23:35:04.024Z"
 contract:
   status: delivered
   validation:
@@ -55,3 +55,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-17T23:17:11.615Z: [claude] ui/bun.lock now resolves source-map-js 1.2.2 (one-line lockfile edit, npm integrity, no package.json change; postcss and @tailwindcss/node both accept ^1.2.1). bun install --frozen-lockfile, bun audit (only KaTeX low left, that is row 7), bun run build, make ui-check and make precheck all pass. Committed 44805428 on dispatch/task-118. For rows 7 and 12: the only lockfile change is the source-map-js package line, so a conflict there resolves by keeping 1.2.2.
+- 2026-10-17T23:35:04.024Z: Landed on release/0.40.0

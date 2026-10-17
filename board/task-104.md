@@ -31,7 +31,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:43:13.785Z"
     duration: 454
-updatedAt: "2026-10-17T19:43:14.137Z"
+updatedAt: "2026-10-17T19:43:27.715Z"
 relatedFiles:
   - docs/audits/0.40/dead-code-and-deps.md
   - Cargo.toml
@@ -54,6 +54,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T19:35:07.229Z"
+    ended: "2026-10-17T19:43:27.714Z"
+    outcome: review
 assignee: codex
 ---
 

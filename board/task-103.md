@@ -1,7 +1,7 @@
 ---
 id: task-103
 title: "Audit: Rust structure and module layout, with a target tree and file splits"
-column: in-progress
+column: review
 position: 1
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
 parentId: epic-12
 createdAt: "2026-10-17T19:28:03.176Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: docs
       path: docs/audits/0.40/structure.md
@@ -29,7 +29,9 @@ contract:
     readyAt: "2026-10-17T19:29:18.238Z"
     pickedUpAt: "2026-10-17T19:30:17.898Z"
     reworkCount: 0
-updatedAt: "2026-10-17T19:30:17.898Z"
+    deliveredAt: "2026-10-17T19:44:50.921Z"
+    duration: 873
+updatedAt: "2026-10-17T19:44:50.921Z"
 relatedFiles:
   - docs/audits/0.40/structure.md
   - crates/hotline-core/src

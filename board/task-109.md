@@ -1,7 +1,7 @@
 ---
 id: task-109
 title: "Audit synthesis: one ordered Phase 2 plan from the six 0.40 reports"
-column: in-progress
+column: review
 position: 7
 priority: high
 tags:
@@ -24,7 +24,7 @@ dependsOn:
   - task-107
   - task-108
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: docs
       path: docs/audits/0.40/README.md
@@ -41,8 +41,10 @@ contract:
     readyAt: "2026-10-17T19:29:38.062Z"
     pickedUpAt: "2026-10-17T19:54:40.033Z"
     reworkCount: 0
+    deliveredAt: "2026-10-17T20:01:23.767Z"
+    duration: 404
 createdAt: "2026-10-17T19:29:38.067Z"
-updatedAt: "2026-10-17T19:54:40.033Z"
+updatedAt: "2026-10-17T20:01:23.767Z"
 dispatch:
   agent: claude
   model: opus

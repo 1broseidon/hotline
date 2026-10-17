@@ -50,3 +50,6 @@ Phase 2 group A (Security), plan row 6 in docs/audits/0.40/README.md on release/
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-17T23:17:11.615Z: [claude] ui/bun.lock now resolves source-map-js 1.2.2 (one-line lockfile edit, npm integrity, no package.json change; postcss and @tailwindcss/node both accept ^1.2.1). bun install --frozen-lockfile, bun audit (only KaTeX low left, that is row 7), bun run build, make ui-check and make precheck all pass. Committed 44805428 on dispatch/task-118. For rows 7 and 12: the only lockfile change is the source-map-js package line, so a conflict there resolves by keeping 1.2.2.

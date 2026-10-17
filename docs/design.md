@@ -8,6 +8,21 @@ agents changing this tree is `AGENTS.md`; the method for changing what a
 teammate can reach, and the index of the tests that prove each boundary, is
 [security.md](security.md).
 
+Single decisions too large for a section here are recorded as ADRs in
+`docs/adr/`:
+
+- [ADR 0001](adr/0001-threads-are-a-primitive.md): threads are a primitive.
+- [ADR 0002](adr/0002-a-served-desk-relays-sealed-records.md): a served desk
+  relays sealed records.
+- [ADR 0003](adr/0003-linked-desks.md): linked desks trust each other's
+  keys, not each other's owners.
+- [ADR 0004](adr/0004-live-calls-get-a-voice-front.md): live calls get a
+  voice front.
+- [ADR 0005](adr/0005-front-is-a-full-agent.md): the live voice is a full
+  agent on the call.
+- [ADR 0006](adr/0006-relay-only-servers.md): a server can just relay, and a
+  desktop can pair with it only to relay.
+
 George's reasons, in his words: the proof that the thing works is in the
 core of the Bun edition; Rust is for sheer speed and far more control, with
 Rig and our own custom tools; and Tauri is much more actively maintained

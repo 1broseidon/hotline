@@ -1,7 +1,7 @@
 ---
 id: task-100
 title: "Desktop: a relay link pasted into \"Add a server\" says it added a relay and chooses it, instead of closing silently"
-column: todo
+column: in-progress
 position: 3
 description: |-
   Left by task-93 (7932bf89, on release/0.40.0): AddDesk ("Add a server") given a `hotline pair --link --role relay` link pairs it as a relay via `pairDeskByLink` (the shell keeps it in relays.json) and then closes with nothing switched and no message, so the person sees nothing happen. UI only; the shell and core already do the pairing.
@@ -19,12 +19,14 @@ relatedFiles:
   - ui/tests/relay-picker.test.tsx
 parentId: epic-11
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - cd ui && bun install --frozen-lockfile && bun run typecheck && bun run test
   metrics:
     readyAt: "2026-10-17T09:03:23.679Z"
+    pickedUpAt: "2026-10-17T09:03:50.248Z"
+    reworkCount: 0
 createdAt: "2026-10-17T09:03:23.684Z"
 dispatch:
   agent: claude
@@ -39,7 +41,7 @@ dispatch:
     pid: 50333
     at: "2026-10-17T09:03:32.898Z"
 assignee: claude
-updatedAt: "2026-10-17T09:03:32.898Z"
+updatedAt: "2026-10-17T09:03:50.248Z"
 ---
 
 ## Description

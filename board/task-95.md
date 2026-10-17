@@ -1,8 +1,8 @@
 ---
 id: task-95
 title: "Docs and packaging: Run a relay on a Raspberry Pi"
-column: backlog
-position: 49
+column: todo
+position: 9
 priority: high
 tags:
   - relay
@@ -13,7 +13,7 @@ dependsOn:
   - task-91
   - task-92
   - task-93
-updatedAt: "2026-10-17T05:37:06.072Z"
+updatedAt: "2026-10-17T05:43:01.622Z"
 ---
 
 ## Description

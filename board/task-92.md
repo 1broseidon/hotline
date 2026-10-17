@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.930Z"
 dependsOn:
   - task-91
-updatedAt: "2026-10-17T08:26:50.624Z"
+updatedAt: "2026-10-17T08:28:03.954Z"
 relatedFiles:
   - crates/hotline-cli/src/serve.rs
   - crates/hotline-cli/src/main.rs
@@ -26,7 +26,7 @@ relatedFiles:
   - crates/hotline-core/src/desk.rs
   - docs/serve.md
 contract:
-  status: delivered
+  status: done
   validation:
     commands:
       - cargo test -p hotline-cli --test serve

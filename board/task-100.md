@@ -26,6 +26,15 @@ contract:
   metrics:
     readyAt: "2026-10-17T09:03:23.679Z"
 createdAt: "2026-10-17T09:03:23.684Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T09:03:27.260Z"
+  until: done
+  tries: 0
+assignee: claude
+updatedAt: "2026-10-17T09:03:27.379Z"
 ---
 
 ## Description

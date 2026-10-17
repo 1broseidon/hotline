@@ -1,8 +1,6 @@
 ---
 id: task-12
 title: "Desk: remote.devices marks the caller; hello carries desk kind, version and which endpoint is public"
-column: in-progress
-position: 0
 priority: medium
 tags:
   - bro-160
@@ -18,7 +16,7 @@ description: |-
   - The optional summary read from the original task is out of scope; file it separately if wanted.
 
   All fields are optional, and an older phone ignores them. Tests over the wire in `crates/hotline-core/src/remote/tests.rs` (the TestPhone harness), one each: the paired phone sees `current` on its own grant only; the owner hello has deskKind and version; a companion's hello marks the public endpoint when one is set and has none when unset. Regenerate `ui/src/generated/contract.ts` with an unfiltered `cargo test -p hotline-core`, then `make check`.
-updatedAt: "2026-10-17T06:22:25.672Z"
+updatedAt: "2026-10-17T06:22:26.182Z"
 subtasks:
   - id: task-12-1
     title: Mark the requesting device in remote.devices
@@ -71,6 +69,7 @@ dispatch:
     ended: "2026-10-17T05:55:23.684Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T06:22:26.182Z"
 ---
 
 ## Log

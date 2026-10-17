@@ -9,6 +9,11 @@ tags:
   - restructure
 parentId: epic-13
 createdAt: "2026-10-17T22:40:56.966Z"
+relatedFiles:
+  - crates/hotline-core/src/voice/tests.rs
+  - crates/hotline-core/tests/voice.rs
+  - crates/hotline-core/tests/desk.rs
+updatedAt: "2026-10-17T22:46:57.654Z"
 ---
 
 ## Description

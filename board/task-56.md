@@ -8,7 +8,7 @@ tags:
   - remote
   - pairing
 createdAt: "2026-10-14T19:29:48.828Z"
-updatedAt: "2026-10-17T05:44:14.482Z"
+updatedAt: "2026-10-17T05:44:15.028Z"
 parentId: epic-10
 relatedFiles:
   - crates/hotline-core/src/remote/v2.rs
@@ -19,6 +19,23 @@ relatedFiles:
   - ui/src/generated/contract.ts
 dependsOn:
   - task-12
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/src/remote/tests.rs
+      description: pairing link with/without Public address and relay; a client pairs via the public endpoint when the local one is unreachable
+  validation:
+    commands:
+      - cargo test -p hotline-core
+      - git diff --exit-code ui/src/generated/contract.ts
+      - make check
+  constraints:
+    - u= stays the first local endpoint
+    - New param must not clash with r=/a=; old phones ignore it
+    - Use task-12's public-endpoint marking rather than a second source of truth
+  metrics:
+    readyAt: "2026-10-17T05:44:15.028Z"
 ---
 
 ## Description

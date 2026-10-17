@@ -144,8 +144,18 @@ impl Harness {
         path: &str,
         token: &str,
     ) -> Result<Socket, tokio_tungstenite::tungstenite::Error> {
+        self.socket_via(&self.endpoint(), path, token).await
+    }
+    /// A socket that reaches the listener through `base`, which may be a
+    /// tunnel: the TLS it carries is still this desk's own certificate.
+    async fn socket_via(
+        &self,
+        base: &str,
+        path: &str,
+        token: &str,
+    ) -> Result<Socket, tokio_tungstenite::tungstenite::Error> {
         let endpoint = self.endpoint();
-        let stream = TcpStream::connect(endpoint.trim_start_matches("https://"))
+        let stream = TcpStream::connect(base.trim_start_matches("https://"))
             .await
             .unwrap();
         let tls = self
@@ -164,7 +174,7 @@ impl Harness {
             )
             .await
             .unwrap();
-        let mut request = format!("{}{path}", endpoint.replace("https:", "wss:"))
+        let mut request = format!("{}{path}", base.replace("https:", "wss:"))
             .into_client_request()
             .unwrap();
         request
@@ -1660,7 +1670,17 @@ mod sealed_network {
         public: &[u8; 32],
         payload: &[u8],
     ) -> Option<(Socket, snow::TransportState, Vec<u8>)> {
-        let mut socket = h.socket_at(path, "").await.ok()?;
+        exchange_via(h, &h.endpoint(), path, private, public, payload).await
+    }
+    pub(super) async fn exchange_via(
+        h: &Harness,
+        base: &str,
+        path: &str,
+        private: &[u8; 32],
+        public: &[u8; 32],
+        payload: &[u8],
+    ) -> Option<(Socket, snow::TransportState, Vec<u8>)> {
+        let mut socket = h.socket_via(base, path, "").await.ok()?;
         let mut noise = initiator(private, public);
         let mut buffer = [0u8; 4096];
         let size = noise.write_message(payload, &mut buffer).unwrap();
@@ -3220,5 +3240,153 @@ async fn a_companion_hello_marks_the_public_endpoint_only_when_one_is_set() {
     let endpoints = hello["endpoints"].as_array().unwrap();
     assert_eq!(endpoints[0], h.endpoint().as_str());
     assert!(endpoints.contains(&json!("https://desk.example.com")));
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+/// A tunnel on this computer, as a person runs one for a Public address: it
+/// forwards each connection, TLS untouched, to wherever it is pointed.
+struct Tunnel {
+    url: String,
+    target: Arc<std::sync::Mutex<String>>,
+    task: tokio::task::JoinHandle<()>,
+}
+impl Tunnel {
+    async fn to(target: &str) -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("https://{}", listener.local_addr().unwrap());
+        let target = Arc::new(std::sync::Mutex::new(target.to_owned()));
+        let pointed = target.clone();
+        let task = tokio::spawn(async move {
+            while let Ok((mut inbound, _)) = listener.accept().await {
+                let target = pointed.lock().unwrap().clone();
+                tokio::spawn(async move {
+                    let address = target.trim_start_matches("https://");
+                    if let Ok(mut outbound) = TcpStream::connect(address).await {
+                        let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+                    }
+                });
+            }
+        });
+        Self { url, target, task }
+    }
+    fn point(&self, target: &str) {
+        *self.target.lock().unwrap() = target.into();
+    }
+}
+impl Drop for Tunnel {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+/// What the Public address hint in RemoteSection tells a person to point a
+/// tunnel at; ui/tests/remote-section.test.tsx proves the window says it.
+fn tunnel_hint(status: &RemoteStatus) -> String {
+    let endpoint = status.endpoint.clone().unwrap();
+    if status.host == network::ALL {
+        let port = url::Url::parse(&endpoint).unwrap().port().unwrap();
+        format!("https://localhost:{port}")
+    } else {
+        endpoint
+    }
+}
+async fn sealed_via(h: &Harness, base: &str, private: &[u8; 32]) -> PhoneSocket {
+    let (_, desk_key) = h.remote.noise_keys().unwrap();
+    let (socket, state, payload) =
+        sealed_network::exchange_via(h, base, "/v2", private, &desk_key, &[])
+            .await
+            .unwrap();
+    assert!(payload.is_empty());
+    PhoneSocket { socket, state }
+}
+
+/// Epic-10 on the desk side: a phone off the desk's networks pairs from the
+/// QR through the Public address, and its hello and device list tell it
+/// which desk it reached, which endpoint is public, and which grant is its own.
+#[tokio::test]
+async fn a_phone_away_from_home_pairs_through_the_public_address_and_sees_itself_and_the_desk() {
+    let h = Harness::new().await;
+    // A phone paired at home, so the mark has a grant to leave off.
+    let home = h.pair().await;
+    // On all host IPs the hint names localhost, and a tunnel pointed there
+    // reaches the desk.
+    let status = h.remote.status();
+    let port = url::Url::parse(&h.endpoint()).unwrap().port().unwrap();
+    assert_eq!(tunnel_hint(&status), format!("https://localhost:{port}"));
+    let tunnel = Tunnel::to(&tunnel_hint(&status)).await;
+    h.remote.set_public_url(Some(&tunnel.url)).unwrap();
+
+    let pairing = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
+    let params: HashMap<String, String> = url::Url::parse(&pairing.url)
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect();
+    // Away from home, none of this computer's own addresses route. In one
+    // process they would, so the phone passes over them as its network
+    // would refuse them, trying the link's addresses in the order it must.
+    let routes = |base: &str| {
+        let url = url::Url::parse(base).unwrap();
+        let host = url.host_str().unwrap().trim_matches(['[', ']']);
+        !status.addresses.iter().any(|own| own == host)
+    };
+    assert!(!routes(&params["u"]));
+    let base = ["u", "x", "a"]
+        .into_iter()
+        .filter_map(|key| params.get(key))
+        .find(|base| routes(base))
+        .unwrap();
+    assert_eq!(base, &tunnel.url);
+
+    let (desk_key, secret) = sealed_network::invitation(&pairing);
+    let (private, _) = sealed::keypair().unwrap();
+    let claim = json!({"secret": secret, "name": "Away phone"}).to_string();
+    let (_, _, answer) =
+        sealed_network::exchange_via(&h, base, "/v2/pair", &private, &desk_key, claim.as_bytes())
+            .await
+            .unwrap();
+    let answer: Value = serde_json::from_slice(&answer).unwrap();
+    assert_eq!(answer["role"], "owner", "{answer}");
+    let ours = h.remote.pairing_result(&pairing.id).unwrap().unwrap().id;
+
+    // The hello names the desk and marks as public the very address the QR
+    // offered, because both read one Public address.
+    let mut phone = sealed_via(&h, base, &private).await;
+    let hello = read(&mut phone).await;
+    assert_eq!(hello["deskKind"], "desktop");
+    assert_eq!(hello["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(hello["publicEndpoint"], params["x"].as_str());
+    assert!(
+        hello["endpoints"]
+            .as_array()
+            .unwrap()
+            .contains(&hello["publicEndpoint"])
+    );
+
+    send(&mut phone, json!({"id": 1, "cmd": "remote.devices"})).await;
+    let listed = read(&mut phone).await;
+    assert_eq!(listed["ok"], true, "{listed}");
+    let devices = listed["result"].as_array().unwrap();
+    let ids: Vec<_> = devices.iter().map(|device| &device["id"]).collect();
+    assert_eq!(ids.len(), 2);
+    assert!(ids.contains(&&json!(home.id)) && ids.contains(&&json!(ours)));
+    for device in devices {
+        let current = device["id"] == ours.as_str();
+        assert_eq!(device.get("current"), current.then_some(&json!(true)));
+    }
+    drop(phone);
+
+    // Listening on one address, the hint names that address and port, and
+    // localhost no longer reaches the desk.
+    let address = status.addresses[0].clone();
+    let status = h.remote.configure(true, &address).await.unwrap();
+    assert_eq!(tunnel_hint(&status), network::endpoint(&address, port));
+    assert!(TcpStream::connect(("localhost", port)).await.is_err());
+    tunnel.point(&tunnel_hint(&status));
+    let mut phone = sealed_via(&h, base, &private).await;
+    assert_eq!(
+        read(&mut phone).await["publicEndpoint"],
+        params["x"].as_str()
+    );
+    drop(phone);
     h.remote.configure(false, network::ALL).await.unwrap();
 }

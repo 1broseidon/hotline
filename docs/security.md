@@ -1150,9 +1150,11 @@ made it so.
 
 - **Default and grant source:** none. An owner or the local desk may keep one
   https origin in Settings › Remote for a tunnel, reverse proxy or forwarded
-  port. It grants nothing: it is only advertised in the hello, after the
-  computer's own addresses and only while Remote is on. The pairing QR keeps
-  the network address, so pairing still happens beside the desk.
+  port. It grants nothing: it is only advertised, while Remote is on, in the
+  hello (after the computer's own addresses, and named `publicEndpoint`) and
+  in the pairing QR as `x`, a fallback after the network address `u`. A phone
+  away from home can pair through it, but only with the same two-minute,
+  single-use invitation it would claim beside the desk.
 - **Enforcement:** `Remote::set_public_url` accepts only a bare https origin
   (no path, credentials, query or fragment); a served desk refuses it, since
   its `--public-url` is fixed at start. Changing it restarts nothing and
@@ -1161,6 +1163,8 @@ made it so.
   self-signed TLS stays as it is and the proxy must accept it.
 - **Tests:** `remote::tests::a_public_address_is_advertised_after_this_computers_own_and_never_replaces_the_pairing_address`
   covers the order, the QR, validation, persistence and clearing;
+  `remote::tests::a_phone_away_from_home_pairs_through_the_public_address_and_sees_itself_and_the_desk`
+  pairs and connects through a tunnel at the QR's `x` with the own address unreachable;
   `wire::tests::remote_controls_are_denied_to_companions` covers the seat.
 - **Residual risk:** everything in "Remote admission behind a tunnel" applies:
   every visitor arrives from the proxy's address and shares its pending

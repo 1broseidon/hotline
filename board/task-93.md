@@ -9,6 +9,10 @@ tags:
   - ui
 parentId: epic-11
 createdAt: "2026-10-17T05:37:02.457Z"
+dependsOn:
+  - task-91
+  - task-92
+updatedAt: "2026-10-17T05:37:05.011Z"
 ---
 
 ## Description

@@ -1,0 +1,62 @@
+#!/bin/sh
+# What a commit must not carry, checked in seconds against what is staged.
+# The minutes-long checks are pre-push's. docs/development.md says what
+# each step catches; `make hooks` turns this on.
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=d)
+staged_any() {
+    printf '%s\n' "$staged" | grep -qE "$1"
+}
+
+# A key or token committed is published the moment the branch is pushed,
+# and deleting it later leaves it in the history.
+echo "==> secrets"
+secrets=$(printf '%s\n' "$staged" | grep -E '(\.p8|\.pem|(^|/)auth\.json)$' || true)
+if [ -n "$secrets" ]; then
+    echo "pre-commit: these look like keys or tokens; unstage them with git restore --staged:"
+    echo "$secrets"
+    exit 1
+fi
+
+if staged_any '\.rs$'; then
+    echo "==> cargo fmt"
+    cargo fmt --all -- --check || {
+        echo "pre-commit: run cargo fmt --all"
+        exit 1
+    }
+fi
+
+# A filtered test run (cargo test session) writes only the types it matched
+# into contract.ts. The staged file is refused when it lost more than a
+# quarter of HEAD's lines, or when it does not compile on its own: a type
+# it names that the run did not write.
+contract=ui/src/generated/contract.ts
+if staged_any "^$contract\$"; then
+    echo "==> contract.ts"
+    if [ ! -x ui/node_modules/.bin/tsc ]; then
+        (cd ui && bun install --frozen-lockfile)
+    fi
+    tsc="$PWD/ui/node_modules/.bin/tsc"
+    refuse_contract() {
+        echo "pre-commit: the staged $contract $1; run cargo test -p hotline-core, unfiltered, and stage what it writes"
+        exit 1
+    }
+    staged_lines=$(git show ":$contract" | wc -l)
+    head_lines=$(git show "HEAD:$contract" 2>/dev/null | wc -l)
+    if [ $((staged_lines * 4)) -lt $((head_lines * 3)) ]; then
+        refuse_contract "has $staged_lines lines where HEAD's has $head_lines"
+    fi
+    alone=$(mktemp -d)
+    trap 'rm -rf "$alone"' EXIT
+    git show ":$contract" >"$alone/contract.ts"
+    (cd "$alone" && "$tsc" --noEmit --strict contract.ts) || refuse_contract "does not compile on its own"
+fi
+
+if staged_any '^ui/'; then
+    echo "==> ui typecheck"
+    if [ ! -d ui/node_modules ]; then
+        (cd ui && bun install --frozen-lockfile)
+    fi
+    (cd ui && bun run typecheck)
+fi

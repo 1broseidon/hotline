@@ -27,7 +27,7 @@ contract:
     - If a cargo run rewrites ui/src/generated/contract.ts, restore it before committing
   metrics:
     readyAt: "2026-10-17T19:29:18.238Z"
-updatedAt: "2026-10-17T19:29:25.747Z"
+updatedAt: "2026-10-17T19:35:04.916Z"
 relatedFiles:
   - docs/audits/0.40/dead-code-and-deps.md
   - Cargo.toml
@@ -37,6 +37,15 @@ relatedFiles:
   - ui/package.json
   - scripts
   - packaging
+dispatch:
+  agent: codex
+  model: gpt-6.1-sol
+  effort: high
+  by: lead
+  at: "2026-10-17T19:35:04.741Z"
+  until: done
+  tries: 0
+assignee: codex
 ---
 
 ## Description

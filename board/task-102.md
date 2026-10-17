@@ -40,16 +40,14 @@ dispatch:
   by: lead
   at: "2026-10-17T09:19:49.816Z"
   until: done
-  tries: 1
+  tries: 2
   claim:
     host: Georges-Mac-Studio
     runner: desktop
     pid: 50333
-    at: "2026-10-17T09:19:51.501Z"
-    ended: "2026-10-17T09:22:29.450Z"
-    outcome: review
+    at: "2026-10-17T09:22:50.259Z"
 assignee: claude
-updatedAt: "2026-10-17T09:22:29.450Z"
+updatedAt: "2026-10-17T09:22:50.259Z"
 ---
 
 ## Description
@@ -61,3 +59,4 @@ Tests: extend site/tests/test_install.py for the relay unit chosen, the default 
 
 ## Log
 - 2026-10-17T09:22:24.699Z: [claude] Done on dispatch/task-102 (6fd3d051): `install --server --relay` installs hotline-relay.service as hotline.service under the hotline service account (no pick_user; --relay --user refused), keeps `--capabilities relay` when --listen rewrites ExecStart, and on a fresh relay offers `hotline pair --link`. Re-run rule: refuse and change nothing — relay unit (ExecStart has `--capabilities relay`, agents,relay counts as full) without --relay, or full unit with --relay. Docs: relay.md's manual steps replaced by the one command, install.md and docs/serve.md mention it, CHANGELOG Unreleased. For later tasks: `hotline update` never touches the unit, so mode only changes by hand-editing --capabilities. 44 installer tests pass; docs-site builds.
+- 2026-10-17T09:22:48.737Z: Landing sent back (1 of 1): with release/0.40.0 brought in, `python3 -m pytest site/tests/test_install.py` failed: /Users/george/.local/share/mise/installs/python/3.14.8/bin/python3: No module named pytest. Fix it on this branch, commit, and run the checks again.

@@ -12,7 +12,7 @@ import { wire } from "../wire";
 const STANDARD_FOLDER = "~/.agents/skills";
 
 /** One word for where a skill came from, as the row's second line says it. */
-export function skillSourceName(entry: SkillEntry): string {
+function skillSourceName(entry: SkillEntry): string {
 	switch (entry.source) {
 		case "builtin":
 			return "Built in";

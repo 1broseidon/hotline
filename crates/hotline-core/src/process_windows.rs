@@ -35,7 +35,7 @@ fn owned(handle: HANDLE) -> io::Result<OwnedHandle> {
     Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
 }
 
-pub(crate) struct Job(#[allow(dead_code)] OwnedHandle);
+pub(crate) struct Job(OwnedHandle);
 
 impl Job {
     pub(crate) fn terminate(&self) -> io::Result<()> {

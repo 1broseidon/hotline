@@ -6,7 +6,7 @@ import type { LinkEvent } from "./dock";
 export const threadOfLink = (link: LinkEvent): ThreadId => ({ kind: link.threadKind, key: link.thread });
 
 /** A run is seconds to many minutes long: say it the way a person would. */
-export function runWords(ms: number): string {
+function runWords(ms: number): string {
 	const seconds = Math.round(ms / 1000);
 	if (seconds < 1) return "under a second";
 	if (seconds < 60) return `${seconds} s`;

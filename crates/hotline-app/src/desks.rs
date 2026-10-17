@@ -657,13 +657,10 @@ async fn payload_over_ssh(target: &str) -> Result<(Value, tokio::process::Child)
     let stdout = child.stdout.take().ok_or("ssh gave no output")?;
     let mut lines = BufReader::new(stdout).lines();
     let found = tokio::time::timeout(SSH_PAYLOAD_TIMEOUT, async {
-        let mut seen = String::new();
         while let Ok(Some(line)) = lines.next_line().await {
             if let Some(payload) = payload_from_output(&line) {
                 return Some(payload);
             }
-            seen.push_str(&line);
-            seen.push('\n');
         }
         None
     })

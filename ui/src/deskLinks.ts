@@ -26,7 +26,7 @@ function local() {
 }
 
 /** Asks this computer's desk again. A refusal leaves what it last said. */
-export async function readDeskLinks(): Promise<void> {
+async function readDeskLinks(): Promise<void> {
 	const wire = local();
 	if (wire === null) {
 		publish([]);

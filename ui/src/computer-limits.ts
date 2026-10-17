@@ -15,7 +15,7 @@ export type Capacity = {
 export const MEMORY_STEP_MB = 512;
 export const CPU_STEP = 0.5;
 /** A computer with no memory set gets this much. */
-export const DEFAULT_MEMORY_MB = 4096;
+const DEFAULT_MEMORY_MB = 4096;
 
 const MB = 1024 * 1024;
 

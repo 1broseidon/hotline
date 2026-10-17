@@ -38,7 +38,6 @@ import type {
 	SideThreadSummary,
 	SkillEntry,
 	SpeechModel,
-	StreamDelta,
 	Target,
 	TeammateToolLedger,
 	ThreadSearchHit,
@@ -68,10 +67,10 @@ export type { RosterEntry, Target };
 // ---------------------------------------------------------------------------
 
 /** `search.thread`'s answer: what matched, and whether the index stopped early. */
-export type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean };
+type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean };
 
 /** `search.all`'s answer: the same hits, each named with whose tape they came from. */
-export type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean };
+type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean };
 
 /** OAuth gateway status; access and refresh tokens never cross this type. */
 export type McpOAuthStatus = {
@@ -303,11 +302,6 @@ export type Handlers<Item, Ephemeral = never> = {
 	ephemeral?(frame: Ephemeral): void;
 	removed?(id: string): void;
 };
-
-/** What the roster subscription carries. */
-export type RosterHandlers = Handlers<RosterEntry>;
-/** What a tape subscription carries. */
-export type TapeHandlers = Handlers<TranscriptEvent, StreamDelta>;
 
 // ---------------------------------------------------------------------------
 // The door the shell opened for us

@@ -1,7 +1,7 @@
 ---
 id: task-91
 title: "Core: a relay grant role that may only stand in and carry visits"
-column: todo
+column: in-progress
 position: 5
 priority: high
 tags:
@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.415Z"
 dependsOn:
   - task-90
-updatedAt: "2026-10-17T07:52:31.627Z"
+updatedAt: "2026-10-17T07:52:49.654Z"
 relatedFiles:
   - crates/hotline-core/src/remote/mod.rs
   - crates/hotline-core/src/remote/server.rs
@@ -27,7 +27,7 @@ relatedFiles:
   - ui/src/generated/contract.ts
   - docs/security.md
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - cargo test -p hotline-core
@@ -37,6 +37,8 @@ contract:
       - grep -qi 'relay' docs/security.md
   metrics:
     readyAt: "2026-10-17T07:46:57.749Z"
+    pickedUpAt: "2026-10-17T07:52:49.654Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

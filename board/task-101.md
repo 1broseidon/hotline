@@ -1,7 +1,7 @@
 ---
 id: task-101
 title: "Desktop: a relay's serves is read from its ready frame, so a relay switched to agents,relay is not shown as relay-only"
-column: in-progress
+column: review
 position: 2
 description: |-
   Left by task-98/99: relays.json keeps a relay's `serves` as pairing (or the owner→relay move) said it, and nothing refreshes it. task-99 proved standing in never reads it, so this is display only: after `hotline serve --capabilities agents,relay`, the Relay picker still labels the server "Relay only".
@@ -20,7 +20,7 @@ relatedFiles:
   - ui/tests/relay-picker.test.tsx
 parentId: epic-11
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - cargo clippy --workspace --all-targets -- -D warnings
@@ -29,6 +29,8 @@ contract:
     readyAt: "2026-10-17T09:15:29.082Z"
     pickedUpAt: "2026-10-17T09:15:58.480Z"
     reworkCount: 0
+    deliveredAt: "2026-10-17T09:23:59.376Z"
+    duration: 481
 createdAt: "2026-10-17T09:15:29.087Z"
 dispatch:
   agent: claude
@@ -43,7 +45,7 @@ dispatch:
     pid: 50333
     at: "2026-10-17T09:15:38.967Z"
 assignee: claude
-updatedAt: "2026-10-17T09:15:58.480Z"
+updatedAt: "2026-10-17T09:23:59.376Z"
 ---
 
 ## Description

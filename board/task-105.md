@@ -31,7 +31,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:38:04.193Z"
     duration: 462
-updatedAt: "2026-10-17T19:38:04.714Z"
+updatedAt: "2026-10-17T19:38:18.146Z"
 relatedFiles:
   - docs/audits/0.40/errors.md
   - crates/hotline-core/src
@@ -50,6 +50,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T19:29:52.955Z"
+    ended: "2026-10-17T19:38:18.146Z"
+    outcome: review
 assignee: codex
 ---
 

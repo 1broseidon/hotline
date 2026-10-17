@@ -1,7 +1,7 @@
 ---
 id: task-121
 title: "P2-9 (B): Narrow `lib.rs`"
-column: todo
+column: in-progress
 position: 10
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:40:46.601Z"
 relatedFiles:
   - crates/hotline-core/src/lib.rs
   - crates/hotline-core/src/
-updatedAt: "2026-10-17T23:03:24.259Z"
+updatedAt: "2026-10-17T23:04:12.279Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make precheck
@@ -22,6 +22,8 @@ contract:
       - make verify
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-17T23:04:12.279Z"
+    reworkCount: 0
 dependsOn:
   - task-120
 dispatch:

@@ -1,8 +1,6 @@
 ---
 id: task-118
 title: "P2-6 (A): Patch source-map-js"
-column: review
-position: 7
 priority: high
 tags:
   - phase2
@@ -12,7 +10,7 @@ createdAt: "2026-10-17T22:40:45.054Z"
 relatedFiles:
   - ui/bun.lock
   - ui/package.json
-updatedAt: "2026-10-17T23:35:04.024Z"
+updatedAt: "2026-10-17T23:35:07.168Z"
 contract:
   status: delivered
   validation:
@@ -39,6 +37,7 @@ dispatch:
     pid: 50333
     at: "2026-10-17T23:11:03.081Z"
 assignee: claude
+completedAt: "2026-10-17T23:35:07.168Z"
 ---
 
 ## Description

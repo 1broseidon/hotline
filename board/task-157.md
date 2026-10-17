@@ -9,6 +9,17 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:05.313Z"
+relatedFiles:
+  - ui/src/App.tsx
+  - ui/src/components/Settings.tsx
+  - ui/src/components/settings/
+  - ui/src/components/ConnectProvider.tsx
+  - ui/src/components/Welcome.tsx
+  - ui/src/icons.tsx
+  - ui/src/stepText.ts
+  - ui/src/voice/call.ts
+  - ui/src/voice/dictation.ts
+updatedAt: "2026-10-17T22:47:19.201Z"
 ---
 
 ## Description

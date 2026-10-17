@@ -9,6 +9,14 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:03.238Z"
+relatedFiles:
+  - crates/hotline-core/tests/desk.rs
+  - crates/hotline-core/tests/local_speech.rs
+  - crates/hotline-core/src/tools/shell.rs
+  - crates/hotline-core/tests/processes.rs
+  - crates/hotline-core/tests/voice.rs
+  - crates/hotline-core/src/tools/shell/macos.rs
+updatedAt: "2026-10-17T22:47:18.127Z"
 ---
 
 ## Description

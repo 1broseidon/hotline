@@ -1,8 +1,6 @@
 ---
 id: task-112
 title: Colleagues see each other's goal, agent, model and capabilities (computer, web search, images, background work, MCP server names)
-column: review
-position: 0
 priority: high
 tags:
   - teammates
@@ -10,7 +8,7 @@ tags:
   - mcp
 createdAt: "2026-10-17T22:24:05.896Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T23:25:46.438Z"
+updatedAt: "2026-10-17T23:25:50.360Z"
 parentId: epic-13
 relatedFiles:
   - crates/hotline-core/src/mcp/server.rs
@@ -47,6 +45,7 @@ dispatch:
     ended: "2026-10-17T23:11:44.152Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T23:25:50.360Z"
 ---
 
 ## Description

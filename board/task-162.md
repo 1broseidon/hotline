@@ -13,7 +13,7 @@ relatedFiles:
   - docs-site/src/content/docs/server/
   - docs-site/src/content/docs/phone/pair.md
   - docs/serve.md
-updatedAt: "2026-10-17T23:19:56.121Z"
+updatedAt: "2026-10-17T23:25:49.409Z"
 contract:
   status: delivered
   validation:
@@ -55,3 +55,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-17T23:19:59.055Z: [claude] Done on dispatch/task-162 (7da5d9ca), docs only, make precheck passes. operate.md: sudo hotline update, the full status output (data, runs, relay-only form), serve.json and pending.json in the file table. relay.md/pair.md: Revoke and Relay labels, the sudo -u hotline form for pair --link, the --capabilities line no longer reads as runnable. D5: troubleshooting, computers and serve.md say "the account the desk runs as" with systemctl show -p User. install.md's manual-install line still says the hotline account, which is correct because the shipped unit does run as hotline. serve.md: Paired/PairedDesk/PairedRelay and pair_relay, a new ## Update section and a hotline help line. Left for D-3+: HOTLINE_EXTRA_DESKS and HOTLINE_DEV_SIGN_IDENTITY in development.md (task 17's other half), threads.md (D8).
+- 2026-10-17T23:25:49.409Z: Landed on release/0.40.0

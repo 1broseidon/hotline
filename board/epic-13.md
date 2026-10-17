@@ -11,7 +11,7 @@ tags:
   - phase2
 createdAt: "2026-10-17T22:40:41.476Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T22:41:27.788Z"
+updatedAt: "2026-10-17T22:41:28.810Z"
 dispatch:
   agent: claude
   model: opus
@@ -19,6 +19,11 @@ dispatch:
   at: "2026-10-17T22:41:27.659Z"
   until: done
   role: lead
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T22:41:28.810Z"
 assignee: claude
 ---
 

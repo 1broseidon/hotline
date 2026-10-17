@@ -1,14 +1,15 @@
 ---
 id: task-90
 title: "ADR 0006: server capabilities and the relay grant role"
-column: backlog
-position: 44
+column: todo
+position: 4
 priority: high
 tags:
   - relay
   - adr
 parentId: epic-11
 createdAt: "2026-10-17T05:37:00.895Z"
+updatedAt: "2026-10-17T05:42:59.020Z"
 ---
 
 ## Description

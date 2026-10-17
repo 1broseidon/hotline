@@ -367,19 +367,23 @@ run_unit_as agent staff /home/agent
         out = self.run_shell('as_root() { "$@"; }; run_unit_as agent agent /home/agent', success=False)
         self.assertIn("could not set Group=agent", out)
 
-    def server_run(self, args, sudo_user=None, unit_exists=False, hotline_exists=False, success=True, home=None, alone=False):
+    PACKAGING = INSTALL.parents[2] / "packaging"
+
+    def server_run(self, args, sudo_user=None, unit_exists=False, hotline_exists=False, success=True, home=None, alone=False,
+                   installed_unit="hotline.service"):
         """The real server() over a real archive, with privileged commands logged instead of run."""
         directory = "hotline-server_0.26.0_linux_x86_64"
-        packaged = (INSTALL.parents[2] / "packaging/hotline.service").read_bytes()
         archive = self.root / (directory + ".tar.gz")
         with tarfile.open(archive, "w:gz") as tar:
-            for name, data in (("hotline", b"binary\n"), ("hotline.service", packaged)):
+            for name, data in (("hotline", b"binary\n"),
+                               ("hotline.service", (self.PACKAGING / "hotline.service").read_bytes()),
+                               ("hotline-relay.service", (self.PACKAGING / "hotline-relay.service").read_bytes())):
                 entry = tarfile.TarInfo(f"{directory}/{name}")
                 entry.size = len(data)
                 tar.addfile(entry, io.BytesIO(data))
         (self.root / "checksums.txt").write_text(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
         if unit_exists:
-            self.unit.write_bytes(packaged)
+            self.unit.write_bytes((self.PACKAGING / installed_unit).read_bytes())
         source = INSTALL.read_text()
         server = source[source.index("server() {"):source.index("\nmain() {")]
         agent_home = self.home if home is None else home
@@ -477,11 +481,77 @@ main --server --version 0.26.0 --yes {args}
         self.assertIn("characters the unit cannot carry", out)
         self.assertEqual(self.actions(), [])
 
+    # -- a relay-only server (task-102) -----------------------------------------
+
+    def exec_start(self):
+        return [line for line in self.unit.read_text().splitlines() if line.startswith("ExecStart=")]
+
+    def test_a_first_relay_install_installs_the_relay_unit_as_hotline_service(self):
+        out = self.server_run(f"--relay {self.LISTEN}", sudo_user="agent")
+        unit = self.unit.read_text().splitlines()
+        self.assertIn("Description=Hotline relay", unit)
+        self.assertEqual(self.exec_start(), [
+            "ExecStart=/usr/local/bin/hotline serve --store file --capabilities relay "
+            "--listen 192.0.2.10:9443 --public-url https://desk.example:9443"])
+        # Nothing for agents: the service account, the system's PATH, no user's home.
+        self.assertIn("User=hotline", unit)
+        self.assertIn("Environment=PATH=/usr/local/bin:/usr/bin:/bin", unit)
+        actions = self.actions()
+        self.assertTrue(any(a.startswith("useradd --system --create-home --home-dir /var/lib/hotline") for a in actions), actions)
+        self.assertFalse([a for a in actions if a.startswith("install -d")], actions)
+        self.assertIn("enable --now hotline", "\n".join(actions))
+        self.assertNotIn("The desk will run as", out)
+        self.assertIn(f"sudo -u hotline HOTLINE_DATA_DIR={self.room} hotline pair --link", out)
+        self.assertNotIn("sudo -u hotline -H bash", out)
+        self.assertNotIn("connect a model", out)
+
+    def test_a_first_install_without_relay_is_a_full_server(self):
+        self.server_run(self.LISTEN)
+        self.assertIn("Description=Hotline desk", self.unit.read_text().splitlines())
+        self.assertEqual(self.exec_start(), [
+            "ExecStart=/usr/local/bin/hotline serve --store file "
+            "--listen 192.0.2.10:9443 --public-url https://desk.example:9443"])
+
+    def test_a_relay_is_updated_as_a_relay_and_keeps_its_mode_with_a_new_address(self):
+        out = self.server_run("--relay", unit_exists=True, hotline_exists=True, installed_unit="hotline-relay.service")
+        self.assertIn("same room and pairings", out)
+        self.assertIn("--capabilities relay ", self.exec_start()[0])
+        self.server_run(f"--relay {self.LISTEN}", unit_exists=True, hotline_exists=True, installed_unit="hotline-relay.service")
+        self.assertEqual(self.exec_start(), [
+            "ExecStart=/usr/local/bin/hotline serve --store file --capabilities relay "
+            "--listen 192.0.2.10:9443 --public-url https://desk.example:9443"])
+
+    def test_a_rerun_never_changes_whether_the_server_is_a_relay(self):
+        for args, installed, complaint in (
+            ("", "hotline-relay.service", "runs only a relay; update it with --relay"),
+            (self.LISTEN, "hotline-relay.service", "runs only a relay; update it with --relay"),
+            ("--relay", "hotline.service", "runs agents, and --relay would leave them unreachable"),
+        ):
+            self.log.unlink(missing_ok=True)
+            out = self.server_run(args, unit_exists=True, hotline_exists=True, installed_unit=installed, success=False)
+            self.assertIn(complaint, out)
+            self.assertEqual(self.actions(), [])
+            self.assertEqual(self.unit.read_bytes(), (self.PACKAGING / installed).read_bytes())
+
+    def test_a_relay_switched_to_agents_is_a_full_server_to_the_installer(self):
+        relay = (self.PACKAGING / "hotline-relay.service").read_text()
+        self.unit.write_text(relay)
+        self.assertEqual(self.run_shell("unit_is_relay && echo relay || echo full").strip(), "relay")
+        self.unit.write_text(relay.replace("--capabilities relay", "--capabilities agents,relay"))
+        self.assertEqual(self.run_shell("unit_is_relay && echo relay || echo full").strip(), "full")
+
+    def test_a_relay_takes_no_user(self):
+        out = self.server_run("--relay --user agent", success=False)
+        self.assertIn("leave out --user", out)
+        self.assertEqual(self.actions(), [])
+
     def test_help_lists_user_and_the_desktop_install_refuses_it(self):
         self.assertIn("--user NAME", self.run_shell("main --help"))
-        out = self.run_shell("main --user agent", success=False)
-        self.assertIn("are for --server", out)
-        self.assertEqual(self.actions(), [])
+        self.assertIn("--relay", self.run_shell("main --help"))
+        for args in ("--user agent", "--relay"):
+            out = self.run_shell(f"main {args}", success=False)
+            self.assertIn("are for --server", out)
+            self.assertEqual(self.actions(), [])
 
     def test_pipe_to_sh_help(self):
         result = subprocess.run(["sh", "-s", "--", "--help"], input=INSTALL.read_text(),

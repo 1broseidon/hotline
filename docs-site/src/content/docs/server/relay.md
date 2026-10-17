@@ -25,41 +25,46 @@ can't run anything on it, or read anything.
 
 No Docker, Node or model provider: a relay runs none of them.
 
-## Get the binary
-
-Each [release](https://github.com/1broseidon/hotline/releases/latest)
-carries `hotline-server_<version>_linux_aarch64.tar.gz` for a Pi (and
-`_linux_x86_64` for a PC). It holds the `hotline` binary,
-`hotline.service` for a full server and `hotline-relay.service` for a
-relay. To build it yourself on the Pi:
-
-```sh
-cargo build --release -p hotline-cli   # target/release/hotline
-```
-
 ## Install it as a relay
 
 ```sh
-tar xzf hotline-server_*_linux_aarch64.tar.gz
-sudo install -m 0755 hotline-server_*/hotline /usr/local/bin/hotline
-sudo useradd --system --create-home --home-dir /var/lib/hotline --shell /usr/sbin/nologin hotline
-sudo install -m 0644 hotline-server_*/hotline-relay.service /etc/systemd/system/hotline.service
-sudo systemctl edit --full hotline     # set --listen and --public-url
-sudo systemctl daemon-reload
-sudo systemctl enable --now hotline
+curl -fsSL https://hotline.dev/install | sh -s -- --server --relay
 ```
 
-The relay's unit is installed as `hotline.service`, the name `hotline pair`,
-`hotline status` and `hotline update` look for. It runs:
+The installer downloads the server build for the machine's architecture,
+checks it against the release's checksums, installs `hotline` to
+`/usr/local/bin`, creates the `hotline` service account, and installs the
+release's `hotline-relay.service` as `hotline.service`, the name
+`hotline pair`, `hotline status` and `hotline update` look for. Nothing for
+agents goes in: no one's home or CLIs on its `PATH`, and no room. It asks
+for `sudo` when it needs it, and for the listen address and public URL, or
+takes them as `--listen` and `--public-url`:
 
 ```sh
-hotline serve --store file --capabilities relay --listen 192.0.2.10:9443 --public-url https://relay.example:9443
+curl -fsSL https://hotline.dev/install | sh -s -- --server --relay \
+  --listen 192.0.2.10:9443 --public-url https://relay.example:9443
 ```
 
 Set `--listen` to the Pi's own address and a fixed port, and `--public-url`
 to where the desktop and phone reach it, as for any server
 ([Listen address and TLS](/docs/server/install/#listen-address-and-tls)).
-Open that port in the firewall and nothing else.
+Open that port in the firewall and nothing else. Once the relay is up the
+installer shows its status and, with a terminal attached, a link to
+[pair your desktop](#pair-your-desktop-with-it). The unit runs:
+
+```sh
+hotline serve --store file --capabilities relay --listen 192.0.2.10:9443 --public-url https://relay.example:9443
+```
+
+Update it with `sudo hotline update`, or by running the installer again
+with `--relay`. Without `--relay` the installer says the server runs only a
+relay and stops, so a relay is never made a full server by an update; to do
+that on purpose, see [Run agents there later](#run-agents-there-later).
+
+Each [release](https://github.com/1broseidon/hotline/releases/latest)
+carries `hotline-server_<version>_linux_aarch64.tar.gz` for a Pi (and
+`_linux_x86_64` for a PC), with the binary and both units, for an install
+by hand; the comment at the top of `hotline-relay.service` lists the steps.
 
 Check it:
 

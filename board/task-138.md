@@ -9,6 +9,15 @@ tags:
   - restructure
 parentId: epic-13
 createdAt: "2026-10-17T22:40:55.411Z"
+relatedFiles:
+  - crates/hotline-core/src/wire.rs
+  - crates/hotline-core/src/wire/room_handle.rs
+  - crates/hotline-core/src/wire/seat.rs
+  - crates/hotline-core/src/wire/door.rs
+  - crates/hotline-core/src/wire/socket.rs
+  - crates/hotline-core/src/wire/subscribe.rs
+  - crates/hotline-core/src/wire/phone.rs
+updatedAt: "2026-10-17T22:46:56.844Z"
 ---
 
 ## Description

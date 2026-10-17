@@ -9,7 +9,7 @@ tags:
   - adr
 parentId: epic-11
 createdAt: "2026-10-17T05:37:00.895Z"
-updatedAt: "2026-10-17T07:46:15.023Z"
+updatedAt: "2026-10-17T07:46:15.314Z"
 relatedFiles:
   - docs/adr/0006-relay-only-servers.md
   - docs/adr/0002-a-served-desk-relays-sealed-records.md
@@ -18,6 +18,22 @@ relatedFiles:
   - docs/security.md
   - crates/hotline-core/src/remote/mod.rs
   - crates/hotline-core/src/remote/server.rs
+contract:
+  status: ready
+  deliverables:
+    - type: docs
+      path: docs/adr/0006-relay-only-servers.md
+      description: "the decision: capabilities, relay role, old-reader story, pair-claim purpose, QR marker, migration"
+  validation:
+    commands:
+      - test -f docs/adr/0006-relay-only-servers.md
+      - grep -qi 'old' docs/adr/0006-relay-only-servers.md && grep -qi 'capabilities' docs/adr/0006-relay-only-servers.md && grep -qi 'migrat' docs/adr/0006-relay-only-servers.md
+      - grep -q '0006' docs/design.md
+  constraints:
+    - "No code changes: this child writes the decision only."
+    - "docs/ holds only what is: write the ADR as the decision record, not as shipped behaviour in serve.md or security.md."
+  metrics:
+    readyAt: "2026-10-17T07:46:15.314Z"
 ---
 
 ## Description

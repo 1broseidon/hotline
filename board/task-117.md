@@ -9,6 +9,12 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:44.541Z"
+relatedFiles:
+  - crates/hotline-core/Cargo.toml
+  - scripts/fetch-speech-engine
+  - scripts/speech-engine.sha256
+  - Cargo.lock
+updatedAt: "2026-10-17T22:46:29.790Z"
 ---
 
 ## Description

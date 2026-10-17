@@ -9,6 +9,10 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:45.054Z"
+relatedFiles:
+  - ui/bun.lock
+  - ui/package.json
+updatedAt: "2026-10-17T22:46:30.066Z"
 ---
 
 ## Description

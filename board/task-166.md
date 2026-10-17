@@ -9,6 +9,10 @@ tags:
   - docs
 parentId: epic-13
 createdAt: "2026-10-17T22:41:10.035Z"
+relatedFiles:
+  - docs/standards.md
+  - AGENTS.md
+updatedAt: "2026-10-17T22:47:21.633Z"
 ---
 
 ## Description

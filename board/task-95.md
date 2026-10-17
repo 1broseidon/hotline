@@ -11,7 +11,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:03.487Z"
 dependsOn:
   - task-99
-updatedAt: "2026-10-17T07:52:36.445Z"
+updatedAt: "2026-10-17T09:15:31.958Z"
 relatedFiles:
   - docs-site/src/content/docs/server/relay.md
   - docs-site/src/content/docs/server/index.md
@@ -31,6 +31,14 @@ contract:
       - grep -qi 'relay' CHANGELOG.md
   metrics:
     readyAt: "2026-10-17T07:47:18.837Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T09:15:31.841Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

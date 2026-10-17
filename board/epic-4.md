@@ -1,6 +1,6 @@
 ---
 id: epic-4
-title: "Composer: @ teammates and / commands anywhere in a message (0.38)"
+title: "Composer: @ teammates and / commands anywhere in a message"
 type: epic
 column: backlog
 position: 6
@@ -11,7 +11,7 @@ tags:
   - 0.38.0
   - bro-136
 createdAt: "2026-10-11T21:25:33.991Z"
-updatedAt: "2026-10-14T20:05:15.943Z"
+updatedAt: "2026-10-17T04:59:25.775Z"
 ---
 
 ## Description

@@ -46,8 +46,10 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T09:19:51.501Z"
+    ended: "2026-10-17T09:22:29.450Z"
+    outcome: review
 assignee: claude
-updatedAt: "2026-10-17T09:22:21.554Z"
+updatedAt: "2026-10-17T09:22:29.450Z"
 ---
 
 ## Description

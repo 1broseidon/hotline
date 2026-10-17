@@ -24,7 +24,7 @@ dependsOn:
   - task-107
   - task-108
 contract:
-  status: delivered
+  status: done
   deliverables:
     - type: docs
       path: docs/audits/0.40/README.md
@@ -44,7 +44,7 @@ contract:
     deliveredAt: "2026-10-17T20:01:23.767Z"
     duration: 404
 createdAt: "2026-10-17T19:29:38.067Z"
-updatedAt: "2026-10-17T20:01:23.767Z"
+updatedAt: "2026-10-17T20:01:24.130Z"
 dispatch:
   agent: claude
   model: opus

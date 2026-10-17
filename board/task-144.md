@@ -9,6 +9,9 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:40:58.554Z"
+relatedFiles:
+  - crates/hotline-core/src/providers/discovery.rs
+updatedAt: "2026-10-17T22:46:58.194Z"
 ---
 
 ## Description

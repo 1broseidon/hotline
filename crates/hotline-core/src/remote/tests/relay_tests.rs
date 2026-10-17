@@ -56,6 +56,22 @@ async fn pair_desk(h: &Harness, relay: &Remote, role: DeviceRole) -> client::Pai
     paired
 }
 
+/// The desk pairs with the served desk as a relay, as the shell would, and
+/// keeps it beside the desks, never among them.
+async fn pair_relay(h: &Harness, relay: &Remote) -> client::PairedRelay {
+    let invitation = relay.pairing_v2(DeviceRole::Relay).unwrap();
+    let paired = client::Client::new(h.store.clone())
+        .pair_relay(&invitation.payload, "Relayed laptop")
+        .await
+        .unwrap();
+    fs::write(
+        h.root.path().join("relays.json"),
+        serde_json::to_vec(&vec![paired.clone()]).unwrap(),
+    )
+    .unwrap();
+    paired
+}
+
 async fn standing(h: &Harness) -> String {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -741,13 +757,28 @@ async fn claim(
 async fn a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door() {
     let (_relay_root, relay, public_url) = served().await;
     let h = Harness::new().await;
-    let server = pair_desk(&h, &relay, DeviceRole::Relay).await;
+    // A desk's claim on a relay's invitation is refused before it is spent.
+    let invitation = relay.pairing_v2(DeviceRole::Relay).unwrap();
+    assert!(
+        client::Client::new(h.store.clone())
+            .pair(&invitation.payload, "Relayed laptop")
+            .await
+            .is_err()
+    );
+    assert!(relay.pairing_result(&invitation.id).unwrap().is_none());
+    let server = pair_relay(&h, &relay).await;
+    assert_eq!(server.serves, ["agents", "relay"]);
     let devices = relay.devices();
     assert_eq!(devices.len(), 1);
     assert_eq!(devices[0].role, DeviceRole::Relay);
-    h.remote
+    // The desktop lists it as a relay and not as a desk, and chooses it.
+    assert!(relay::paired(h.root.path()).is_empty());
+    assert_eq!(h.remote.relay_servers()[0].desk_id, server.desk_id);
+    let status = h
+        .remote
         .relay_through(Some(server.desk_id.clone()))
         .unwrap();
+    assert_eq!(status.relay.unwrap().name, server.name);
     let url = standing(&h).await;
 
     // A phone pairs with the desk and talks to it through the relay grant's
@@ -912,10 +943,10 @@ async fn a_relay_only_server_stands_a_desktop_in_and_opens_no_desk_door() {
 
     // A desktop stands in and is told, in `ready`, what the server runs.
     let h = Harness::new().await;
-    let server = pair_desk(&h, &relay, DeviceRole::Relay).await;
+    let server = pair_relay(&h, &relay).await;
     let desk_id = h.remote.status_desktop_id();
     let mut control = client::Client::new(h.store.clone())
-        .host_relay(&server, &desk_id)
+        .host_relay(&server.dialed(), &desk_id)
         .await
         .unwrap();
     let ready = control_notice(&mut control).await;
@@ -1081,4 +1112,114 @@ async fn a_reader_from_before_the_relay_role_loads_relay_grants_and_trusts_none(
         serde_json::from_slice(&fs::read(root.path().join("remote.json")).unwrap()).unwrap();
     assert!(saved.relay_grants.is_empty());
     assert_eq!(saved.grants.len(), 1);
+}
+
+/// Reads frames until the answer to command 1, or none when the socket ends
+/// first: a move ends the caller's sessions, which may cut its answer off.
+async fn answer_to_one(wire: &mut client::Connection) -> Option<Value> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while let Some(Ok(message)) = wire.next().await {
+            if let Message::Text(text) = message {
+                let frame: Value = serde_json::from_str(&text).unwrap();
+                if frame["id"] == 1 {
+                    return Some(frame);
+                }
+            }
+        }
+        None
+    })
+    .await
+    .expect("the served desk neither answered nor closed")
+}
+
+#[tokio::test]
+async fn an_owner_moves_its_own_grant_to_relay_in_place_and_keeps_standing_in() {
+    let (relay_root, relay, _public_url) = served().await;
+    let h = Harness::new().await;
+    let server = pair_desk(&h, &relay, DeviceRole::Owner).await;
+    let other = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = relay.pairing_v2(DeviceRole::Owner).unwrap().payload;
+    let other_desk = other.pair(&invitation, "Another owner").await.unwrap();
+    let named = |name: &str| {
+        relay
+            .devices()
+            .into_iter()
+            .find(|device| device.name == name)
+            .unwrap()
+    };
+    let laptop = named("Relayed laptop");
+    h.remote
+        .relay_through(Some(server.desk_id.clone()))
+        .unwrap();
+    standing(&h).await;
+
+    // A phone paired with the desk reaches it only through the relay.
+    h.remote.state.lock().unwrap().endpoints = vec!["https://127.0.0.1:9".into()];
+    let phone = client::Client::new(Arc::new(MemoryStore::default()));
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap().payload;
+    let desk = phone.pair(&invitation, "Relayed phone").await.unwrap();
+
+    // The move names no device: one sent beside it is not read, and the
+    // grant that moves is the caller's own.
+    let mut wire = other.open(&other_desk, None).await.unwrap();
+    let Some(Ok(Message::Text(hello))) = wire.next().await else {
+        panic!("the served desk sent no hello");
+    };
+    assert_eq!(
+        serde_json::from_str::<Value>(&hello).unwrap()["serves"],
+        json!(["agents", "relay"])
+    );
+    let command = json!({"id": 1, "cmd": "remote.become_relay", "params": {"deviceId": laptop.id}});
+    wire.send(Message::text(command.to_string())).await.unwrap();
+    if let Some(answer) = answer_to_one(&mut wire).await {
+        assert_eq!(answer["ok"], true, "{answer}");
+        assert_eq!(answer["result"]["role"], "relay");
+    }
+    assert_eq!(named("Relayed laptop").role, DeviceRole::Owner);
+    assert_eq!(named("Another owner").role, DeviceRole::Relay);
+    assert!(matches!(
+        other.open(&other_desk, None).await,
+        Err(client::OpenError::NotPermitted)
+    ));
+
+    // The laptop moves its own, in place, and is told what it now is.
+    let owner = client::Client::new(h.store.clone());
+    let moved = owner.become_relay(&server).await.unwrap();
+    assert_eq!(moved.desk_id, server.desk_id);
+    assert_eq!(moved.desk_key, server.desk_key);
+    assert_eq!(moved.serves, ["agents", "relay"]);
+    let after = named("Relayed laptop");
+    assert_eq!(after.role, DeviceRole::Relay);
+    assert_eq!(after.id, laptop.id);
+    assert_eq!(after.public_key, laptop.public_key);
+    assert_eq!(after.paired_at, laptop.paired_at);
+    let saved: Value =
+        serde_json::from_slice(&fs::read(relay_root.path().join("remote.json")).unwrap()).unwrap();
+    assert_eq!(saved["grants"], json!([]));
+    assert_eq!(saved["relayGrants"].as_array().unwrap().len(), 2);
+
+    // The wire refuses it for its role, which never reads as revoked, and
+    // a relay grant cannot widen itself back to an owner.
+    assert!(matches!(
+        owner.open(&server, None).await,
+        Err(client::OpenError::NotPermitted)
+    ));
+    assert!(owner.become_relay(&server).await.is_err());
+
+    // The desk stands in again under the relay role: the phone gets through.
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            if let Ok(mut wire) = phone.open(&desk, None).await
+                && let Some(Ok(Message::Text(_))) = wire.next().await
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the desk did not stand in again under its relay grant");
+    assert!(h.remote.status().relay.unwrap().url.is_some());
+    h.remote.configure(false, network::ALL).await.unwrap();
+    relay.configure(false, &relay.status().host).await.unwrap();
 }

@@ -37,6 +37,8 @@ export type Desk = {
 	state?: DeskState;
 	/** Why a remote desk can't be reached from here, when the shell knows: its bridge would not start. */
 	error?: string;
+	/** The person said to keep this desk as it is rather than as a relay only (ADR 0006), so it is not offered again. */
+	relayDeclined?: boolean;
 };
 
 declare global {

@@ -1123,6 +1123,8 @@ Remote controls require an owner or local desk seat, used by the window and CLI:
 | `remote.pairing` | `{role?}` | `SealedPairing` with id, QR, URI and expiry; owner by default |
 | `remote.pairing` | `{id}` | paired device, or explicit JSON `null` while waiting |
 | `remote.pairing` | `{id, cancel: true}` | none; ends only the matching invitation |
+| `remote.relays` | `{}` | `PairedRelay[]`: the servers this desktop is paired with only as a relay, each with the `serves` it last said; `remote.relay` chooses one as it does a desk |
+| `remote.become_relay` | `{}` | `{role:"relay", deskName, deskId, serves}`; sent by a paired owner device to a served desk that runs a relay. It moves the caller's own grant, from its handshake, from `grants` to `relayGrants` with the same id, key, name and pairing time, then ends the device's sessions as a revocation does, which may cut this answer off. It names no device, and nothing moves a grant back |
 
 The socket creating a sealed invitation owns its disconnect cleanup. A new
 invitation replaces the previous one; disconnecting an old socket cannot

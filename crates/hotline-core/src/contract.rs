@@ -3051,6 +3051,15 @@ pub enum Command {
         #[serde(default)]
         desk_id: Option<String>,
     },
+    /// The servers this computer is paired with only as a relay, each with
+    /// what it last said it runs. They are chosen with `remote.relay`.
+    #[serde(rename = "remote.relays")]
+    RemoteRelays {},
+    /// Sent by a paired device to a served desk: move the caller's own owner
+    /// grant to a relay grant (ADR 0006 § Migration). It names no device;
+    /// the grant is the one the caller's handshake authenticated.
+    #[serde(rename = "remote.become_relay")]
+    RemoteBecomeRelay {},
     /// Keep the https address a tunnel or proxy gives this desk, for phones
     /// away from home, or clear it with none or a blank one.
     #[serde(rename = "remote.public_url")]

@@ -7,7 +7,7 @@
 
 use hotline_core::credentials::{FileStore, SecretStore};
 use hotline_core::desk::Desk;
-use hotline_core::remote::client::{Client, PairedDesk};
+use hotline_core::remote::client::{Client, PairedDesk, PairedRelay};
 use hotline_core::remote::{PairingPayload, Remote};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -219,6 +219,20 @@ async fn claim(dir: &Path, payload: &PairingPayload, name: &str) -> (Client, Pai
     (client, paired)
 }
 
+/// A desktop, with a store of its own, that claims a relay's invitation and
+/// keeps the server where the shell does: beside its desks, not among them.
+async fn claim_relay(dir: &Path, payload: &PairingPayload, name: &str) -> PairedRelay {
+    std::fs::create_dir_all(dir).unwrap();
+    let client = Client::new(Arc::new(FileStore::open(dir).unwrap()));
+    let paired = client.pair_relay(payload, name).await.unwrap();
+    std::fs::write(
+        dir.join("relays.json"),
+        serde_json::to_vec(&vec![paired.clone()]).unwrap(),
+    )
+    .unwrap();
+    paired
+}
+
 /// The pair command, once its window is claimed, says who paired as what.
 fn paired_as(child: Child) -> String {
     let output = child.wait_with_output().unwrap();
@@ -334,13 +348,9 @@ async fn a_relay_only_server_opens_no_room_and_carries_a_desktops_visitors() {
     assert_eq!(invitation.role, hotline_core::remote::DeviceRole::Relay);
     let (_desk, laptop, _) = desktop(&dir.path().join("laptop")).await;
     let laptop_store = dir.path().join("laptop");
-    let (_, pi) = claim(&laptop_store, &invitation, "Laptop").await;
+    let pi = claim_relay(&laptop_store, &invitation, "Laptop").await;
     assert!(paired_as(pairing).contains("as relay"));
-    std::fs::write(
-        laptop_store.join("desks.json"),
-        serde_json::to_vec(&vec![pi.clone()]).unwrap(),
-    )
-    .unwrap();
+    assert_eq!(pi.serves, ["relay"]);
     laptop.relay_through(Some(pi.desk_id.clone())).unwrap();
     let deadline = Instant::now() + Duration::from_secs(20);
     let url = loop {
@@ -404,13 +414,8 @@ async fn serving_in_another_mode_keeps_every_pairing_and_its_role() {
     let laptop_root = dir.path().join("laptop");
     let (_laptop_desk, laptop, _) = desktop(&laptop_root).await;
     let (pairing, invitation) = invite(&root, &["--relay"]);
-    let (_, server_desk) = claim(&laptop_root, &invitation, "Laptop").await;
+    let server_desk = claim_relay(&laptop_root, &invitation, "Laptop").await;
     assert!(paired_as(pairing).contains("as relay"));
-    std::fs::write(
-        laptop_root.join("desks.json"),
-        serde_json::to_vec(&vec![server_desk.clone()]).unwrap(),
-    )
-    .unwrap();
     let said_hello = hello(&phone, &desk).await;
     assert_eq!(said_hello["deskKind"], "server");
     assert_eq!(said_hello["serves"], json!(["agents", "relay"]));

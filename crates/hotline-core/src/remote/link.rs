@@ -315,8 +315,8 @@ impl Remote {
                         }
                         return;
                     }
-                    Err(OpenError::Unreachable(error)) => {
-                        links.closed(&desk_id, None, Some(error));
+                    Err(error) => {
+                        links.closed(&desk_id, None, Some(error.to_string()));
                     }
                 }
                 let wait = Duration::from_millis((500u64 << tries.min(6)).min(30_000));

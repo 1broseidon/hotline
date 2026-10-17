@@ -72,3 +72,6 @@ Tests:
 - a Rust client pairs via the public endpoint when the local one is unreachable;
 - the hint follows Listen on.
 - Phone: hotline-mobile parses and tries the new endpoint. Coordinate with that board.
+
+## Log
+- 2026-10-17T06:23:40.465Z: [claude] task-12 landed (2850899b on release/0.40.0): the one source for the public endpoint is `public_endpoint()` in remote/mod.rs (served options' public_url, else saved.public_url), sent as hello `publicEndpoint`. The QR's fallback endpoint must come from that same function, not a second reading of saved.public_url.

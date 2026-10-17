@@ -299,6 +299,7 @@ async fn old_grants_do_not_consume_the_sealed_device_limit() {
                     paired_at: 1,
                     role: DeviceRole::Owner,
                     public_key: None,
+                    current: None,
                 },
                 push: None,
             });
@@ -1121,6 +1122,7 @@ async fn an_unreadable_identity_is_replaced_but_a_locked_store_is_reported() {
             paired_at: now(),
             role: DeviceRole::Owner,
             public_key: None,
+            current: None,
         },
         push: None,
     });
@@ -3077,4 +3079,68 @@ async fn an_owner_phone_that_names_lean_is_sent_phone_sized_frames() {
     let roster = read(&mut phone).await;
     assert_eq!(roster["snapshot"][0]["session"]["slashCommands"], json!([]));
     task.abort();
+}
+
+#[tokio::test]
+async fn a_phone_sees_its_own_grant_marked_current_and_no_other() {
+    let h = Harness::new().await;
+    let other = h.pair().await;
+    let grant = h.pair().await;
+    let mut phone = h.socket(&grant.private).await.unwrap();
+    assert_eq!(read(&mut phone).await["type"], "hello");
+    send(&mut phone, json!({"id": 1, "cmd": "remote.devices"})).await;
+    let listed = read(&mut phone).await;
+    assert_eq!(listed["ok"], true, "{listed}");
+    let devices = listed["result"].as_array().unwrap();
+    assert_eq!(devices.len(), 2);
+    for device in devices {
+        let ours = device["id"] == grant.id.as_str();
+        assert!(ours || device["id"] == other.id.as_str());
+        assert_eq!(device.get("current"), ours.then_some(&json!(true)));
+    }
+    // The mark is put on the answer, never on the saved grant.
+    assert!(
+        h.remote
+            .devices()
+            .iter()
+            .all(|device| device.current.is_none())
+    );
+    let saved = fs::read_to_string(h.root.path().join("remote.json")).unwrap();
+    assert!(!saved.contains("current"));
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn the_owner_hello_says_what_kind_of_desk_and_which_version() {
+    let h = Harness::new().await;
+    let grant = h.pair().await;
+    let mut phone = h.socket(&grant.private).await.unwrap();
+    let hello = read(&mut phone).await;
+    assert_eq!(hello["deskKind"], "desktop");
+    assert_eq!(hello["version"], env!("CARGO_PKG_VERSION"));
+    let companion = h.pair_companion().await;
+    let mut companion = h.socket(&companion.private).await.unwrap();
+    let hello = read(&mut companion).await;
+    assert_eq!(hello.get("deskKind"), None);
+    assert_eq!(hello.get("version"), None);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_companion_hello_marks_the_public_endpoint_only_when_one_is_set() {
+    let h = Harness::new().await;
+    let grant = h.pair_companion().await;
+    let mut phone = h.socket(&grant.private).await.unwrap();
+    assert_eq!(read(&mut phone).await.get("publicEndpoint"), None);
+    h.remote
+        .set_public_url(Some("https://desk.example.com"))
+        .unwrap();
+    let mut phone = h.socket(&grant.private).await.unwrap();
+    let hello = read(&mut phone).await;
+    assert_eq!(hello["publicEndpoint"], "https://desk.example.com");
+    // The endpoints keep this computer's own addresses first.
+    let endpoints = hello["endpoints"].as_array().unwrap();
+    assert_eq!(endpoints[0], h.endpoint().as_str());
+    assert!(endpoints.contains(&json!("https://desk.example.com")));
+    h.remote.configure(false, network::ALL).await.unwrap();
 }

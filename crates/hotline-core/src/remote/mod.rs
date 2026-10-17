@@ -72,6 +72,12 @@ pub struct RemoteDevice {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub public_key: Option<String>,
+    /// Set only on the grant a phone's own `remote.devices` came in on, so it
+    /// can name itself and warn before revoking itself. Never saved true:
+    /// the flag is put on a copy as the list is answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub current: Option<bool>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -219,6 +225,27 @@ impl Phone {
     }
     pub(crate) fn role(&self) -> DeviceRole {
         self.role
+    }
+    /// Which address among the endpoints is outside the networks this
+    /// computer is on, so any seat can tell it from a VPN or LAN one.
+    pub(crate) fn public_endpoint(&self) -> Option<String> {
+        self.remote.public_endpoint()
+    }
+    /// A served desk is a headless server; anything else is a person's desktop.
+    pub(crate) fn desk_kind(&self) -> &'static str {
+        if self.remote.served.is_some() {
+            "server"
+        } else {
+            "desktop"
+        }
+    }
+    /// The paired phones, this one marked.
+    pub(crate) fn devices(&self) -> Vec<RemoteDevice> {
+        let mut devices = self.remote.devices();
+        for device in &mut devices {
+            device.current = (device.id == self.id).then_some(true);
+        }
+        devices
     }
     pub(crate) async fn prompt(
         &self,
@@ -390,6 +417,18 @@ impl Remote {
             error: s.error.clone(),
             relay: self.relay_status(&s),
             public_url: s.saved.public_url.clone(),
+        }
+    }
+    /// A served desk's only address is its public one; a desktop's is the
+    /// person's own, advertised while Remote is on.
+    fn public_endpoint(&self) -> Option<String> {
+        let s = self.state.lock().unwrap();
+        if s.endpoints.is_empty() {
+            return None;
+        }
+        match &self.served {
+            Some(options) => Some(options.public_url.clone()),
+            None => s.saved.public_url.clone(),
         }
     }
     /// Keeps, replaces or clears (`None` or blank) the public address. It is

@@ -246,6 +246,7 @@ impl Remote {
             paired_at: now(),
             role,
             public_key: Some(public_key),
+            current: None,
         };
         let mut saved = s.saved.clone();
         saved

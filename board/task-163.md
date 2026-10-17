@@ -1,7 +1,7 @@
 ---
 id: task-163
 title: "P2-D-3 (E): threads.md and sessions.md name live code"
-column: todo
+column: in-progress
 position: 52
 priority: high
 tags:
@@ -13,15 +13,17 @@ relatedFiles:
   - docs/threads.md
   - docs/sessions.md
   - docs/adr/0005-front-is-a-full-agent.md
-updatedAt: "2026-10-17T23:19:05.081Z"
+updatedAt: "2026-10-17T23:22:27.203Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - grep -q 'Accepted (0.39)' docs/adr/0005-front-is-a-full-agent.md
       - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-17T23:22:27.203Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

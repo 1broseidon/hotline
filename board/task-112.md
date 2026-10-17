@@ -10,7 +10,7 @@ tags:
   - mcp
 createdAt: "2026-10-17T22:24:05.896Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-17T22:48:57.945Z"
 parentId: epic-13
 relatedFiles:
   - crates/hotline-core/src/mcp/server.rs
@@ -27,6 +27,15 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-17T22:48:57.813Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

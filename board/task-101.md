@@ -20,7 +20,7 @@ relatedFiles:
   - ui/tests/relay-picker.test.tsx
 parentId: epic-11
 contract:
-  status: delivered
+  status: done
   validation:
     commands:
       - cargo clippy --workspace --all-targets -- -D warnings
@@ -45,7 +45,7 @@ dispatch:
     pid: 50333
     at: "2026-10-17T09:15:38.967Z"
 assignee: claude
-updatedAt: "2026-10-17T09:23:59.376Z"
+updatedAt: "2026-10-17T09:24:07.882Z"
 ---
 
 ## Description

@@ -12,7 +12,15 @@ tags:
   - pi
 createdAt: "2026-10-17T05:37:00.361Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T05:42:58.512Z"
+updatedAt: "2026-10-17T07:44:20.340Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-17T07:44:20.215Z"
+  until: done
+  role: lead
+assignee: claude
 ---
 
 ## Description

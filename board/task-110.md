@@ -10,14 +10,19 @@ tags:
   - quality
 createdAt: "2026-10-17T20:09:09.114Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T20:09:10.511Z"
+updatedAt: "2026-10-17T20:09:12.194Z"
 dispatch:
   agent: claude
   model: opus
   by: cli
   at: "2026-10-17T20:09:10.385Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T20:09:12.194Z"
 assignee: claude
 ---
 

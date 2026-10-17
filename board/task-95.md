@@ -11,7 +11,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:03.487Z"
 dependsOn:
   - task-99
-updatedAt: "2026-10-17T07:47:18.837Z"
+updatedAt: "2026-10-17T07:52:36.445Z"
 relatedFiles:
   - docs-site/src/content/docs/server/relay.md
   - docs-site/src/content/docs/server/index.md
@@ -34,8 +34,8 @@ contract:
 ---
 
 ## Description
-Docs and packaging: a relay on a Raspberry Pi. Last: it describes what task-99 proved works end to end.
+Docs and packaging: a relay on a Raspberry Pi. Last: it describes what task-99 proved works end to end. Use the names in docs/adr/0006-relay-only-servers.md.
 
-- docs-site: "Run a relay" under Server (`docs-site/src/content/docs/server/relay.md`, added to the sidebar). Covers the aarch64 hotline-server build, a systemd unit for `--capabilities relay` (packaging/), pairing a desktop as relay (`hotline pair --link --role relay`), choosing it under Settings › Remote › Relay, the measured footprint (from docs/serve.md, with its platform stated), and switching a relay to a full server later.
-- docs/serve.md: capabilities and roles, as shipped. docs/security.md: check the relay role's matrix row and test index match the tests that exist (task-91, task-99).
+- docs-site: "Run a relay" under Server (`docs-site/src/content/docs/server/relay.md`, added to the sidebar). Covers the aarch64 hotline-server build, a systemd unit for `--capabilities relay` (packaging/), pairing a desktop as relay (`hotline pair` on a relay-only server; `hotline pair --relay` on one that also runs agents), choosing it under Settings › Remote › Relay, the offer to drop an owner grant to relay, the measured footprint (from docs/serve.md, with its platform stated), and switching a relay to a full server later (`serve.json`, pairings kept, agents set up as a new server).
+- docs/serve.md: capabilities and roles, as shipped. docs/security.md: check the relay role's matrix row and test index match the tests that exist (task-91, task-92, task-98, task-99).
 - CHANGELOG line.

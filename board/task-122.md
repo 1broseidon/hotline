@@ -9,6 +9,15 @@ tags:
   - dead-code
 parentId: epic-13
 createdAt: "2026-10-17T22:40:47.122Z"
+relatedFiles:
+  - ui/src/icons.tsx
+  - ui/src/voice/call.ts
+  - ui/src/useFor.ts
+  - ui/src/components/Transcript.tsx
+  - ui/src/components/Rail.tsx
+  - ui/src/components/Skills.tsx
+  - ui/src/wire.ts
+updatedAt: "2026-10-17T22:46:31.146Z"
 ---
 
 ## Description

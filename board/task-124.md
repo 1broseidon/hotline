@@ -9,6 +9,10 @@ tags:
   - dead-code
 parentId: epic-13
 createdAt: "2026-10-17T22:40:48.155Z"
+relatedFiles:
+  - ui/bun.lock
+  - ui/package.json
+updatedAt: "2026-10-17T22:46:31.686Z"
 ---
 
 ## Description

@@ -27,7 +27,7 @@ contract:
     - Do not commit ui/src/generated/contract.ts
   metrics:
     readyAt: "2026-10-17T19:29:18.238Z"
-updatedAt: "2026-10-17T19:39:00.451Z"
+updatedAt: "2026-10-17T19:39:06.245Z"
 relatedFiles:
   - docs/audits/0.40/window.md
   - ui/src
@@ -41,7 +41,12 @@ dispatch:
   by: lead
   at: "2026-10-17T19:38:59.987Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T19:39:06.245Z"
 assignee: claude
 ---
 

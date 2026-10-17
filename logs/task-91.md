@@ -1,8 +1,6 @@
 ---
 id: task-91
 title: "Core: a relay grant role that may only stand in and carry visits"
-column: review
-position: 5
 priority: high
 tags:
   - relay
@@ -12,7 +10,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.415Z"
 dependsOn:
   - task-90
-updatedAt: "2026-10-17T08:04:31.733Z"
+updatedAt: "2026-10-17T08:05:47.435Z"
 relatedFiles:
   - crates/hotline-core/src/remote/mod.rs
   - crates/hotline-core/src/remote/server.rs
@@ -56,6 +54,7 @@ dispatch:
     ended: "2026-10-17T08:04:31.733Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T08:05:47.435Z"
 ---
 
 ## Description
@@ -71,3 +70,4 @@ Tests through the real handler: a relay grant stands in and carries a phone visi
 
 ## Log
 - 2026-10-17T08:04:27.986Z: [claude] Done on dispatch/task-91 (8319da55). DeviceRole::Relay; relay grants in remote.json `relayGrants` (Saved::all_grants for lookups, limit, revoke, devices); role table `Purpose::admits` in remote/server.rs (Wire/Computer: owner+companion; Relay/RelayAccept: owner+relay), used by sealed_session and relay::accept; sealed ROLE_REFUSED `{"error":"role_not_permitted"}` also from the relay's /v2/link for a relay key; `Seat::for_phone(WireRole)` and seated_phone_v2 take a WireRole (no relay variant). Claim gains optional `purpose`; v2::Claimed::{Granted,Refused}; mismatch answers {"refused":"relay"|"device"}, keeps the window, counts toward throttle. Pair answer now carries `serves` for every role: fixed ["agents","relay"] on a served desk, ["agents"] on a desktop (Remote::serves in remote/mod.rs) — task-92 replaces it with capabilities. pairing_v2(Relay) is refused on a desktop's own Remote. CLI `hotline pair --relay` (refused with --companion); QR r=relay. core client::pair sends purpose:"relay" for a relay payload and reads `refused`. FOR TASK-98: hotline-app desks.rs `claim` currently REFUSES relay payloads so a relay never lands in desks.json — replace that guard with the real relay storage. client.rs still maps role_not_permitted to OpenError::Unreachable("refused this session") (not Revoked); task-98 may want a distinct variant. RemoteSection labels relay devices "Relay only". docs: security.md matrix row + "The relay grant role" section; wire.md pair claim/answer/role_not_permitted updated; serve.md NOT updated (no desktop can claim a relay invite yet — task-98/95). Not done here: capabilities, serve.json, serves in hello/ready, narrowing command.
+- 2026-10-17T08:05:46.166Z: Landed on release/0.40.0

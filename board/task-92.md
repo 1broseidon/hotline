@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.930Z"
 dependsOn:
   - task-91
-updatedAt: "2026-10-17T07:52:29.006Z"
+updatedAt: "2026-10-17T08:06:22.344Z"
 relatedFiles:
   - crates/hotline-cli/src/serve.rs
   - crates/hotline-cli/src/main.rs
@@ -36,6 +36,14 @@ contract:
       - grep -q -- '--capabilities' docs/serve.md
   metrics:
     readyAt: "2026-10-17T07:46:58.259Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T08:06:22.222Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

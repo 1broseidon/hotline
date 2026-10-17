@@ -1,8 +1,6 @@
 ---
 id: task-101
 title: "Desktop: a relay's serves is read from its ready frame, so a relay switched to agents,relay is not shown as relay-only"
-column: review
-position: 2
 description: |-
   Left by task-98/99: relays.json keeps a relay's `serves` as pairing (or the owner→relay move) said it, and nothing refreshes it. task-99 proved standing in never reads it, so this is display only: after `hotline serve --capabilities agents,relay`, the Relay picker still labels the server "Relay only".
 
@@ -47,7 +45,8 @@ dispatch:
     ended: "2026-10-17T09:24:21.017Z"
     outcome: review
 assignee: claude
-updatedAt: "2026-10-17T09:24:21.018Z"
+updatedAt: "2026-10-17T09:24:40.227Z"
+completedAt: "2026-10-17T09:24:40.227Z"
 ---
 
 ## Description
@@ -59,3 +58,4 @@ Tests: if (a), extend crates/hotline-cli/tests/relay.rs step 6 to show the new s
 
 ## Log
 - 2026-10-17T09:24:02.377Z: [claude] Took (b), on branch dispatch/task-101 (d95e4ffc): the Relay picker labels a server held only as a relay "Relay" (this desktop's grant), not "Relay only" (what the server runs). PairedRelay.serves is deleted from relays.json, the contract and every test, since nothing but tests read it; old files with the key still load (serde ignores it). The hello's serves still gates become_relay and the keep-as-relay offer. ROLE_LABELS "Relay only" for phone devices is a grant and is unchanged. For later tasks: nothing on this desktop records what a relay server runs; ask its hello/ready frame if you need it. Proved in ui/tests/relay-picker.test.tsx (a moved agents,relay server reads "GrizzlyRelay"); cargo test -p hotline-core, clippy, UI typecheck and tests green.
+- 2026-10-17T09:24:38.859Z: Landed on release/0.40.0

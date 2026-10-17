@@ -18,8 +18,6 @@ columns:
     title: Review
   - id: backlog
     title: Backlog
-  - id: wont-do
-    title: Won't do
   - id: done
     title: Done
     completionColumn: true

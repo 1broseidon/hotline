@@ -1,7 +1,7 @@
 ---
 id: task-90
 title: "ADR 0006: server capabilities and the relay grant role"
-column: todo
+column: in-progress
 position: 4
 priority: high
 tags:
@@ -9,7 +9,7 @@ tags:
   - adr
 parentId: epic-11
 createdAt: "2026-10-17T05:37:00.895Z"
-updatedAt: "2026-10-17T07:47:31.109Z"
+updatedAt: "2026-10-17T07:47:42.492Z"
 relatedFiles:
   - docs/adr/0006-relay-only-servers.md
   - docs/adr/0002-a-served-desk-relays-sealed-records.md
@@ -19,7 +19,7 @@ relatedFiles:
   - crates/hotline-core/src/remote/mod.rs
   - crates/hotline-core/src/remote/server.rs
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: docs
       path: docs/adr/0006-relay-only-servers.md
@@ -34,6 +34,8 @@ contract:
     - "docs/ holds only what is: write the ADR as the decision record, not as shipped behaviour in serve.md or security.md."
   metrics:
     readyAt: "2026-10-17T07:46:15.314Z"
+    pickedUpAt: "2026-10-17T07:47:42.492Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

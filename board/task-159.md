@@ -9,6 +9,10 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:06.356Z"
+relatedFiles:
+  - ui/src/components/
+  - ui/src/App.tsx
+updatedAt: "2026-10-17T22:47:19.758Z"
 ---
 
 ## Description

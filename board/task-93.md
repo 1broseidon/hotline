@@ -11,7 +11,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:02.457Z"
 dependsOn:
   - task-98
-updatedAt: "2026-10-17T08:52:54.021Z"
+updatedAt: "2026-10-17T08:52:55.057Z"
 relatedFiles:
   - ui/src/components/RemoteSection.tsx
   - ui/src/desks.ts
@@ -26,6 +26,14 @@ contract:
       - ls ui/tests | grep -qi relay
   metrics:
     readyAt: "2026-10-17T07:47:17.813Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T08:52:54.926Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

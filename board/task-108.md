@@ -1,7 +1,7 @@
 ---
 id: task-108
 title: "Audit: tests (slow, flaky, duplicated) and docs drift"
-column: in-progress
+column: review
 position: 6
 priority: high
 tags:
@@ -11,7 +11,7 @@ tags:
 parentId: epic-12
 createdAt: "2026-10-17T19:28:05.760Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: docs
       path: docs/audits/0.40/tests-and-docs.md
@@ -30,7 +30,9 @@ contract:
     readyAt: "2026-10-17T19:29:18.238Z"
     pickedUpAt: "2026-10-17T19:42:16.112Z"
     reworkCount: 0
-updatedAt: "2026-10-17T19:42:16.112Z"
+    deliveredAt: "2026-10-17T19:53:46.910Z"
+    duration: 691
+updatedAt: "2026-10-17T19:53:46.910Z"
 relatedFiles:
   - docs/audits/0.40/tests-and-docs.md
   - crates/hotline-core/tests

@@ -1,0 +1,24 @@
+---
+id: task-145
+title: "P2-36 (D): Lock recovery"
+column: todo
+position: 34
+priority: high
+tags:
+  - phase2
+  - fixes
+parentId: epic-13
+createdAt: "2026-10-17T22:40:59.075Z"
+---
+
+## Description
+Phase 2 group D (Fixes in the moved files), plan row 36 in docs/audits/0.40/README.md on release/0.40.0. Read that row, its source report section and the Standards before starting.
+
+**Lock recovery.** Use the one `PoisonError::into_inner` idiom for `Permit::drop` and admission first, then relay, then Remote and bridge, then the five `transfer.rs` sites. One domain per commit, with partial mutations reviewed
+
+- Source: errors F4, tasks 4 and 5
+- Files: `remote/{admission,relay,bridge}.rs`, `remote.rs`, `crates/hotline-app/src/transfer.rs`
+- Collides with: 39, 51 (`significant_drop_in_scrutinee` lens)
+- Size: M
+
+End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.

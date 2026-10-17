@@ -279,6 +279,10 @@ impl Phone {
     pub(crate) fn serves(&self) -> Vec<&'static str> {
         self.remote.serves()
     }
+    /// Narrows this device's own owner grant to a relay grant.
+    pub(crate) fn become_relay(&self) -> Result<Value, String> {
+        self.remote.become_relay(&self.id)
+    }
     /// The paired phones, this one marked.
     pub(crate) fn devices(&self) -> Vec<RemoteDevice> {
         let mut devices = self.remote.devices();
@@ -680,6 +684,42 @@ impl Remote {
         s.sealed_pairing = None;
         drop(s);
         Ok(self.status())
+    }
+    /// `remote.become_relay`: the grant `id` holds moves from `grants` to
+    /// `relayGrants` (ADR 0006 § Migration), keeping its id, key, name and
+    /// pairing time, and its sessions end as a revocation's would. `id` is
+    /// only ever the caller's own, from its handshake. An owner grant alone
+    /// may narrow, and nothing widens one.
+    fn become_relay(&self, id: &str) -> Result<Value, String> {
+        if !self.relays() {
+            return Err("This server does not run a relay.".into());
+        }
+        let mut s = self.state.lock().unwrap();
+        let mut saved = s.saved.clone();
+        let at = saved
+            .grants
+            .iter()
+            .position(|g| g.device.id == id && g.device.role == DeviceRole::Owner)
+            .ok_or("Only an owner's pairing can become a relay pairing.")?;
+        let mut grant = saved.grants.remove(at);
+        grant.device.role = DeviceRole::Relay;
+        // A relay is never notified: push targets are a phone's.
+        grant.push = None;
+        saved.relay_grants.push(grant);
+        self.save(&saved)?;
+        s.saved = saved;
+        if let Some(cancel) = s.devices.remove(id) {
+            cancel.cancel();
+        }
+        let fresh = s.cancel.child_token();
+        s.devices.insert(id.to_owned(), fresh);
+        drop(s);
+        Ok(json!({
+            "role": DeviceRole::Relay,
+            "deskName": desktop_name(),
+            "deskId": self.status_desktop_id(),
+            "serves": self.serves(),
+        }))
     }
     /// Every pairing request, on any path, spends from one budget.
     fn throttle(s: &mut Live) -> Result<(), &'static str> {

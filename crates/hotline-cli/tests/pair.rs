@@ -221,7 +221,7 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
         hotline_core::credentials::FileStore::open(client_root.path()).unwrap(),
     ));
     runtime
-        .block_on(client.pair(&payload, "Relay laptop"))
+        .block_on(client.pair_relay(&payload, "Relay laptop"))
         .unwrap();
     eventually(|| pair.0.try_wait().unwrap().is_some());
     let devices = command(root.path(), &["devices"]).output().unwrap();

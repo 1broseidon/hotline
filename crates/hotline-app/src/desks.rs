@@ -5,7 +5,13 @@
 //!
 //! Remote desks are the ones this computer has paired with (`desks.json` in
 //! the room, the keys in the OS credential store via `remote::client`), each
-//! reached through a loopback bridge the shell starts at launch. For
+//! reached through a loopback bridge the shell starts at launch.
+//!
+//! A server paired only to use its relay (ADR 0006) is not a desk: its grant
+//! opens no wire, so it has no bridge and is not listed. It is kept in
+//! `relays.json` beside the registry, never in it, because an older window
+//! would list anything in `desks.json` as a desk and dial its `/v2`. The
+//! shell writes both files; the core reads them to stand in on a relay. For
 //! development, `HOTLINE_EXTRA_DESKS` also adds desks by endpoint:
 //! a JSON list of `{ "id", "name", "origin", "token" }`, for example a second
 //! `hotline serve` on this machine, whose Door speaks the same wire contract
@@ -13,7 +19,7 @@
 
 use hotline_core::remote::PairingPayload;
 use hotline_core::remote::bridge::Bridge;
-use hotline_core::remote::client::{PairedDesk, State};
+use hotline_core::remote::client::{Client, Paired, PairedDesk, PairedRelay, State};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -23,6 +29,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 const REGISTRY: &str = "desks.json";
+const RELAYS: &str = "relays.json";
 /// The event the window listens on for a new list (see `ui/src/desks.ts`).
 const EVENT: &str = "hotline://desks";
 
@@ -31,6 +38,7 @@ pub(crate) struct Host {
     registry: PathBuf,
     local: (String, String),
     paired: Mutex<Vec<PairedDesk>>,
+    relays: Mutex<Vec<PairedRelay>>,
     bridges: Mutex<HashMap<String, Live>>,
     /// Numbers each start of a desk's bridge, so a watcher or a retry left
     /// over from an earlier one never touches the one that replaced it.
@@ -57,14 +65,17 @@ impl Host {
     /// The local desk's endpoint and whatever this computer has paired with.
     pub(crate) fn open(root: &Path, origin: String, token: String) -> Arc<Self> {
         let registry = root.join(REGISTRY);
-        let paired = std::fs::read(&registry)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Vec<PairedDesk>>(&bytes).ok())
-            .unwrap_or_default();
+        let relays: Vec<PairedRelay> = read_list(&root.join(RELAYS));
+        let mut paired: Vec<PairedDesk> = read_list(&registry);
+        // A server is a desk or a relay. Both files name it only when moving
+        // it to a relay stopped between the two saves, and the relay is
+        // saved first, so the relay is what it became.
+        paired.retain(|desk| !relays.iter().any(|relay| relay.desk_id == desk.desk_id));
         Arc::new(Self {
             registry,
             local: (origin, token),
             paired: Mutex::new(paired),
+            relays: Mutex::new(relays),
             bridges: Mutex::new(HashMap::new()),
             generations: AtomicU64::new(0),
             app: OnceLock::new(),
@@ -278,42 +289,118 @@ impl Host {
 
     fn save(&self) -> Result<(), String> {
         let paired = self.paired.lock().unwrap_or_else(PoisonError::into_inner);
-        let bytes = serde_json::to_vec_pretty(&*paired).map_err(|error| error.to_string())?;
-        let staged = self
-            .registry
-            .with_extension(format!("json.{}", std::process::id()));
-        write_private(&staged, &bytes)
-            .and_then(|()| std::fs::rename(&staged, &self.registry))
+        save_list(&self.registry, &paired)
             .map_err(|error| format!("Couldn't save the paired desks: {error}"))
     }
 
-    /// Claims the invitation as this computer, keeps the desk, starts its
-    /// bridge and tells the window. Pairing the same desk again replaces it.
+    fn save_relays(&self) -> Result<(), String> {
+        let relays = self.relays.lock().unwrap_or_else(PoisonError::into_inner);
+        save_list(&self.root().join(RELAYS), &relays)
+            .map_err(|error| format!("Couldn't save the paired relays: {error}"))
+    }
+
+    /// Claims the invitation as this computer and keeps what it made: a
+    /// desk, whose bridge starts, or a relay. Pairing the same server again
+    /// replaces it, as a desk or a relay, never both.
     async fn claim(self: &Arc<Self>, payload: Value) -> Result<String, String> {
         let payload: PairingPayload = serde_json::from_value(payload).map_err(|_| {
             "The invitation isn't one this Hotline understands. Update Hotline on both ends."
                 .to_string()
         })?;
-        // A relay is never kept here, where an older window would list it as
-        // a desk and dial its `/v2` (ADR 0006), and there is nowhere else to
-        // keep one yet.
-        if payload.role == hotline_core::remote::DeviceRole::Relay {
-            return Err(
-                "This invitation is for using the server as a relay, which this Hotline can't do yet."
-                    .into(),
-            );
+        match hotline_core::remote::client::pair(&payload, &device_name()).await? {
+            Paired::Relay(relay) => {
+                let id = relay.desk_id.clone();
+                self.keep_relay(relay)?;
+                Ok(id)
+            }
+            Paired::Desk(desk) => {
+                let was_relay = {
+                    let mut relays = self.relays.lock().unwrap_or_else(PoisonError::into_inner);
+                    let before = relays.len();
+                    relays.retain(|known| known.desk_id != desk.desk_id);
+                    relays.len() != before
+                };
+                {
+                    let mut paired = self.paired.lock().unwrap_or_else(PoisonError::into_inner);
+                    paired.retain(|known| known.desk_id != desk.desk_id);
+                    paired.push(desk.clone());
+                }
+                self.save()?;
+                if was_relay {
+                    self.save_relays()?;
+                }
+                // Replaces the old bridge, whose watcher then stands down.
+                self.start(&desk).await;
+                self.emit();
+                Ok(desk.desk_id)
+            }
         }
-        let desk = hotline_core::remote::client::pair(&payload, &device_name()).await?;
+    }
+
+    /// Keeps `relay` as a relay, and stops listing and reaching it as a desk
+    /// if it was one. The relay is saved first: see `open`.
+    fn keep_relay(&self, relay: PairedRelay) -> Result<(), String> {
+        let id = relay.desk_id.clone();
+        {
+            let mut relays = self.relays.lock().unwrap_or_else(PoisonError::into_inner);
+            relays.retain(|known| known.desk_id != id);
+            relays.push(relay);
+        }
+        self.save_relays()?;
+        let was_desk = {
+            let mut paired = self.paired.lock().unwrap_or_else(PoisonError::into_inner);
+            let before = paired.len();
+            paired.retain(|known| known.desk_id != id);
+            paired.len() != before
+        };
+        if was_desk {
+            self.lock_bridges().remove(&id);
+            self.save()?;
+            self.emit();
+        }
+        Ok(())
+    }
+
+    /// Narrows this computer's owner grant on a paired desk to a relay grant
+    /// (ADR 0006 § Migration), then keeps the server as a relay. If this
+    /// desk stands in there, it stands in again under the relay role.
+    async fn move_to_relay(&self, desk_id: &str) -> Result<PairedRelay, String> {
+        let desk = self
+            .paired
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|desk| desk.desk_id == desk_id)
+            .cloned()
+            .ok_or("That desk is not paired with this computer.")?;
+        let relay = Client::default().become_relay(&desk).await?;
+        self.keep_relay(relay.clone())?;
+        Ok(relay)
+    }
+
+    /// Remembers that the person would keep this desk as it is, so it is not
+    /// offered as a relay again.
+    fn decline_relay(&self, desk_id: &str) -> Result<(), String> {
         {
             let mut paired = self.paired.lock().unwrap_or_else(PoisonError::into_inner);
-            paired.retain(|known| known.desk_id != desk.desk_id);
-            paired.push(desk.clone());
+            let desk = paired
+                .iter_mut()
+                .find(|desk| desk.desk_id == desk_id)
+                .ok_or("That desk is not paired with this computer.")?;
+            desk.relay_declined = true;
         }
         self.save()?;
-        // Replaces the old bridge, whose watcher then stands down.
-        self.start(&desk).await;
         self.emit();
-        Ok(desk.desk_id)
+        Ok(())
+    }
+
+    /// Forgets a server paired as a relay.
+    fn forget_relay(&self, desk_id: &str) -> Result<(), String> {
+        self.relays
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|known| known.desk_id != desk_id);
+        self.save_relays()
     }
 
     /// Asks a desk on a server one thing, from the shell rather than the
@@ -413,11 +500,28 @@ fn remote_entry(desk: &PairedDesk, live: Option<&Live>) -> Value {
         "origin": bridge.map(|bridge| bridge.origin.as_str()).unwrap_or(""),
         "token": bridge.map(|bridge| bridge.token.as_str()).unwrap_or(""),
         "state": live.map_or(State::Connecting, |live| live.state),
+        "relayDeclined": desk.relay_declined,
     });
     if let Some(error) = live.and_then(|live| live.error.as_deref()) {
         entry["error"] = json!(error);
     }
     entry
+}
+
+fn read_list<T: serde::de::DeserializeOwned>(path: &Path) -> Vec<T> {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Replaces `path` with `list`, staged beside it so a reader never sees half.
+fn save_list<T: serde::Serialize>(path: &Path, list: &[T]) -> Result<(), String> {
+    let bytes = serde_json::to_vec_pretty(list).map_err(|error| error.to_string())?;
+    let staged = path.with_extension(format!("json.{}", std::process::id()));
+    write_private(&staged, &bytes)
+        .and_then(|()| std::fs::rename(&staged, path))
+        .map_err(|error| error.to_string())
 }
 
 /// Writes a file only this user can read. The registry holds no secret,
@@ -651,6 +755,29 @@ pub async fn desk_forget(host: tauri::State<'_, Arc<Host>>, desk_id: String) -> 
     host.forget(&desk_id)
 }
 
+/// Keeps a paired desk's server as a relay only: the window offers it when
+/// the server runs a relay and its teammates are not used (ADR 0006).
+#[tauri::command]
+pub async fn desk_move_to_relay(
+    host: tauri::State<'_, Arc<Host>>,
+    desk_id: String,
+) -> Result<PairedRelay, String> {
+    host.move_to_relay(&desk_id).await
+}
+
+#[tauri::command]
+pub fn desk_decline_relay(
+    host: tauri::State<'_, Arc<Host>>,
+    desk_id: String,
+) -> Result<(), String> {
+    host.decline_relay(&desk_id)
+}
+
+#[tauri::command]
+pub fn relay_forget(host: tauri::State<'_, Arc<Host>>, desk_id: String) -> Result<(), String> {
+    host.forget_relay(&desk_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -663,6 +790,7 @@ mod tests {
             desk_key: "k".into(),
             relay: None,
             public: None,
+            relay_declined: false,
         }
     }
 
@@ -718,6 +846,40 @@ mod tests {
         host.learn_relay("d1", "k", 3, relay).unwrap();
         let reopened = Host::open(dir.path(), "http://127.0.0.1:1".into(), "t".into());
         assert!(reopened.paired.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_relay_is_kept_beside_the_desks_and_never_listed_as_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = Host::open(dir.path(), "http://127.0.0.1:1".into(), "t".into());
+        host.paired.lock().unwrap().push(desk());
+        host.save().unwrap();
+        host.decline_relay("d1").unwrap();
+        assert_eq!(host.listed()[1]["relayDeclined"], true);
+
+        // Kept as a relay, the server leaves the desks and their list.
+        host.keep_relay(PairedRelay {
+            desk_id: "d1".into(),
+            name: "Studio".into(),
+            url: desk().url,
+            desk_key: "k".into(),
+            public: None,
+            serves: vec!["relay".into()],
+        })
+        .unwrap();
+        assert_eq!(host.listed().as_array().unwrap().len(), 1);
+        let desks: Vec<PairedDesk> = read_list(&dir.path().join(REGISTRY));
+        assert!(desks.is_empty());
+        let relays: Vec<PairedRelay> = read_list(&dir.path().join(RELAYS));
+        assert_eq!(relays[0].serves, ["relay"]);
+
+        // A move that stopped between its two saves reopens as the relay.
+        save_list(&dir.path().join(REGISTRY), &[desk()]).unwrap();
+        let reopened = Host::open(dir.path(), "http://127.0.0.1:1".into(), "t".into());
+        assert!(reopened.paired.lock().unwrap().is_empty());
+        assert_eq!(reopened.relays.lock().unwrap().len(), 1);
+        reopened.forget_relay("d1").unwrap();
+        assert!(read_list::<PairedRelay>(&dir.path().join(RELAYS)).is_empty());
     }
 
     #[test]

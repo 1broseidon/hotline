@@ -202,6 +202,7 @@ pub(crate) async fn run(
         Command::RemoteDevices {} => Ok(json!(remote(room)?.devices())),
         Command::RemoteRevoke { device_id } => Ok(json!(remote(room)?.revoke(&device_id)?)),
         Command::RemoteRelay { desk_id } => Ok(json!(remote(room)?.relay_through(desk_id)?)),
+        Command::RemoteRelays {} => Ok(json!(remote(room)?.relay_servers())),
         Command::RemotePublicUrl { url } => {
             Ok(json!(remote(room)?.set_public_url(url.as_deref())?))
         }
@@ -228,6 +229,9 @@ pub(crate) async fn run(
         Command::MobilePrompt { .. }
         | Command::MobileAttachment { .. }
         | Command::MobilePushRegister { .. } => Err("This command requires a paired phone.".into()),
+        Command::RemoteBecomeRelay {} => {
+            Err("Only a paired device changes its own pairing.".into())
+        }
         Command::MobilePersonaCreate {
             request_id,
             name,

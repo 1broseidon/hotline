@@ -143,7 +143,8 @@ rule: never write a role where a reader that does not know it reads roles.
 
 The desktop applies the same rule to its own record of servers: a server
 paired as a relay is not written into `desks.json`, where an older window
-would list it as a desk and dial its `/v2` (task-98 says where it is kept).
+would list it as a desk and dial its `/v2`. It is kept in `relays.json`
+beside it, which the shell alone writes and the core reads to stand in.
 
 ### A pair claim declares its purpose
 

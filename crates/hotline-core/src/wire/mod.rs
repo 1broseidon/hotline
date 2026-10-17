@@ -1671,6 +1671,8 @@ async fn command(
                     Ok(json!({ "capabilities": seat.capabilities_for(room.as_ref()) }))
                 }
                 (Command::RemoteDevices {}, Some(phone)) => Ok(json!(phone.devices())),
+                // Seat::Phone does not permit it, so this is an owner's.
+                (Command::RemoteBecomeRelay {}, Some(phone)) => phone.become_relay(),
                 (Command::MobilePushRegister { token, platform }, Some(phone)) => {
                     phone.register_push(token.clone(), platform.clone())
                 }

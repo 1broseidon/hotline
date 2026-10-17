@@ -2,7 +2,8 @@
 //! holds a key that could read them.
 //!
 //! A desk with no reachable listener dials out to a served desk it is paired
-//! with as an owner, over a sealed control socket (`/v2/relay`), and stands
+//! with, as an owner or only as a relay (ADR 0006), over a sealed control
+//! socket (`/v2/relay`), and stands
 //! in there under its own desk id. A visitor dials `/relay/{deskId}/v2…` on
 //! the served desk exactly as it would dial the desk itself. The served desk
 //! hands the desk a single-use capability over the control socket; the desk
@@ -10,7 +11,7 @@
 //! sockets message for message. The Noise handshake inside runs between the
 //! visitor and the desk, so a relay can drop a session but cannot read,
 //! forge or redirect one: the visitor pins the desk's key, not the relay's.
-use super::client::{Client, OpenError, PairedDesk};
+use super::client::{Client, OpenError, PairedDesk, PairedRelay};
 use super::server::{Purpose, Seat, sealed_session};
 use super::*;
 use futures_util::{SinkExt, StreamExt};
@@ -579,9 +580,28 @@ pub(super) struct Standing {
     cancel: Option<CancellationToken>,
 }
 
-/// The desks this computer has paired with, as the shell keeps them.
+/// The desks this computer has paired with as an owner, as the shell keeps
+/// them in `desks.json`.
 pub(super) fn paired(root: &Path) -> Vec<PairedDesk> {
-    fs::read(root.join("desks.json"))
+    read_list(&root.join("desks.json"))
+}
+
+/// The servers this computer is paired with only as a relay. The shell
+/// keeps them in `relays.json`, apart from the desks, so an older window
+/// never lists one as a desk and dials its `/v2` (ADR 0006).
+fn relay_servers(root: &Path) -> Vec<PairedRelay> {
+    read_list(&root.join("relays.json"))
+}
+
+/// Every server this desk may stand in on: a desk it owns, or a relay.
+fn stand_ins(root: &Path) -> Vec<PairedDesk> {
+    let mut servers = paired(root);
+    servers.extend(relay_servers(root).iter().map(PairedRelay::dialed));
+    servers
+}
+
+fn read_list<T: serde::de::DeserializeOwned>(path: &Path) -> Vec<T> {
+    fs::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
@@ -591,6 +611,11 @@ pub(super) fn paired(root: &Path) -> Vec<PairedDesk> {
 pub(super) const RELAYED_MAX: usize = 32;
 
 impl Remote {
+    /// `remote.relays`: the servers this desk may stand in on as a relay only.
+    pub fn relay_servers(&self) -> Vec<PairedRelay> {
+        relay_servers(&self.root)
+    }
+
     /// Stand in on a paired desk's relay, or stop. The choice is kept, and
     /// the desk stands in whenever Remote is on.
     pub fn relay_through(
@@ -601,7 +626,7 @@ impl Remote {
             return Err("A served desk is a relay; it does not use one.".into());
         }
         if let Some(id) = &desk_id
-            && !paired(&self.root).iter().any(|desk| &desk.desk_id == id)
+            && !stand_ins(&self.root).iter().any(|desk| &desk.desk_id == id)
         {
             return Err("Pair with that desk first.".into());
         }
@@ -616,7 +641,7 @@ impl Remote {
 
     pub(super) fn relay_status(&self, s: &Live) -> Option<RemoteRelay> {
         let id = s.saved.relay.as_ref()?;
-        let name = paired(&self.root)
+        let name = stand_ins(&self.root)
             .into_iter()
             .find(|desk| &desk.desk_id == id)
             .map(|desk| desk.name)
@@ -642,7 +667,7 @@ impl Remote {
             let Some(id) = s.saved.relay.clone().filter(|_| on) else {
                 return;
             };
-            let Some(desk) = paired(&self.root).into_iter().find(|d| d.desk_id == id) else {
+            let Some(desk) = stand_ins(&self.root).into_iter().find(|d| d.desk_id == id) else {
                 s.relay.error = Some("This computer no longer pairs with that desk.".into());
                 return;
             };
@@ -677,7 +702,8 @@ impl Remote {
                                     "That desk no longer accepts this computer. Pair with it again."
                                         .into()
                                 }
-                                OpenError::Unreachable(message) => message,
+                                // A role refusal is not a revocation: keep trying.
+                                other => other.to_string(),
                             }),
                         );
                         if revoked {

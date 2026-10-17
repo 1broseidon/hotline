@@ -22,6 +22,7 @@ import type {
 	LoginStatus,
 	PasskeyRegistration,
 	PeerThreadSummary,
+	PairedRelay,
 	ProcessOutput,
 	Persona,
 	Provider,
@@ -119,6 +120,10 @@ type Results = {
     "remote.devices": RemoteDevice[];
     "remote.revoke": RemoteStatus;
     "remote.relay": RemoteStatus;
+	/** The servers this computer is paired with only as a relay, chosen with `remote.relay`. */
+	"remote.relays": PairedRelay[];
+	/** A paired device's own command to a server; the window never sends it, the shell's `desk_move_to_relay` does. */
+	"remote.become_relay": { role: "relay"; deskName: string; deskId: string; serves: string[] };
     "remote.public_url": RemoteStatus;
     "remote.pairing": SealedPairing | RemoteDevice | null;
 	/** The desks this one is linked with (ADR 0003), and how each link is doing. */

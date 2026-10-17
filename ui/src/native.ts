@@ -15,6 +15,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { isPermissionGranted, requestPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
+import type { PairedRelay } from "./generated/contract";
 
 export function isDesktop(): boolean {
 	return window.__hotlineDesk !== undefined;
@@ -404,7 +405,9 @@ export async function saveSentFile(path: string): Promise<string | null> {
  * Pairs this window with a remote desk from the link `hotline pair --link`
  * printed on the server, and answers the new desk's id. The shell claims
  * the invitation, keeps the keys, starts the desk's bridge and sends the
- * new desk list (see desks.ts).
+ * new desk list (see desks.ts). A relay's invitation (`hotline pair` on a
+ * relay-only server) is kept as a relay instead: no desk, no bridge, and the
+ * id answered is the one `remote.relays` lists it under.
  */
 export async function pairDeskByLink(link: string): Promise<string> {
 	return invoke<string>("desk_pair_link", { link });
@@ -418,4 +421,24 @@ export async function pairDeskOverSsh(target: string): Promise<string> {
 /** Unpairs a remote desk from this window: it forgets the keys and the desk leaves the list. */
 export async function forgetDesk(deskId: string): Promise<void> {
 	await invoke("desk_forget", { deskId });
+}
+
+/**
+ * Keeps a paired desk's server as a relay only (ADR 0006): its owner grant
+ * becomes a relay grant, the desk leaves the list, and the server is listed
+ * by `remote.relays`. Offer it only when the desk's hello `serves` a relay and
+ * its teammates are not used; nothing widens the grant again.
+ */
+export async function moveDeskToRelay(deskId: string): Promise<PairedRelay> {
+	return invoke<PairedRelay>("desk_move_to_relay", { deskId });
+}
+
+/** Remembers that the person keeps this desk as it is; its entry says `relayDeclined`. */
+export async function declineRelay(deskId: string): Promise<void> {
+	await invoke("desk_decline_relay", { deskId });
+}
+
+/** Forgets a server paired as a relay; it leaves `remote.relays`. */
+export async function forgetRelay(deskId: string): Promise<void> {
+	await invoke("relay_forget", { deskId });
 }

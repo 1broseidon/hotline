@@ -13,6 +13,7 @@ use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{Message, protocol::WebSocketConfig},
 };
+use ts_rs::TS;
 
 type Socket = WebSocketStream<TlsStream<TcpStream>>;
 pub(super) type Connection = Channel<TlsStream<TcpStream>>;
@@ -30,6 +31,54 @@ pub struct PairedDesk {
     /// The person's public address for the desk, tried after its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public: Option<String>,
+    /// The person declined keeping this server as a relay only (ADR 0006
+    /// § Migration), so it is not offered again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relay_declined: bool,
+}
+
+/// A server this computer pairs with only to stand in on its relay (ADR
+/// 0006). It is not a desk: its grant opens no wire, so it has no bridge and
+/// is never in `desks.json`, where an older window would list it and dial
+/// its `/v2`. The shell keeps these in `relays.json` beside that file.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct PairedRelay {
+    pub desk_id: String,
+    pub name: String,
+    pub url: String,
+    pub desk_key: String,
+    /// The person's public address for the server, tried after its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub public: Option<String>,
+    /// What the server said it runs when this computer last asked.
+    #[serde(default)]
+    pub serves: Vec<String>,
+}
+impl PairedRelay {
+    /// The server as the sealed dialer reaches it: its own address, then its
+    /// public one. A relay is not reached through another relay.
+    pub(super) fn dialed(&self) -> PairedDesk {
+        PairedDesk {
+            desk_id: self.desk_id.clone(),
+            name: self.name.clone(),
+            url: self.url.clone(),
+            desk_key: self.desk_key.clone(),
+            relay: None,
+            public: self.public.clone(),
+            relay_declined: false,
+        }
+    }
+}
+
+/// What a claimed invitation made of this computer: a device of a desk, or
+/// a stand-in on a server's relay.
+#[derive(Debug)]
+pub enum Paired {
+    Desk(PairedDesk),
+    Relay(PairedRelay),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -49,8 +98,9 @@ impl Default for Client {
     }
 }
 
-pub async fn pair(payload: &PairingPayload, device_name: &str) -> Result<PairedDesk, String> {
-    Client::default().pair(payload, device_name).await
+/// Claims an invitation as this computer: a desk's, or a relay's.
+pub async fn pair(payload: &PairingPayload, device_name: &str) -> Result<Paired, String> {
+    Client::default().claim(payload, device_name).await
 }
 
 impl Client {
@@ -58,11 +108,37 @@ impl Client {
         Self { store }
     }
 
+    /// Claims a desk's invitation. A relay's is refused before it is spent.
     pub async fn pair(
         &self,
         payload: &PairingPayload,
         device_name: &str,
     ) -> Result<PairedDesk, String> {
+        if payload.role == super::DeviceRole::Relay {
+            return Err("This invitation is for using the server as a relay.".into());
+        }
+        match self.claim(payload, device_name).await? {
+            Paired::Desk(desk) => Ok(desk),
+            Paired::Relay(_) => Err("The desk granted a different pairing role.".into()),
+        }
+    }
+
+    /// Claims a relay's invitation. Any other is refused before it is spent.
+    pub async fn pair_relay(
+        &self,
+        payload: &PairingPayload,
+        device_name: &str,
+    ) -> Result<PairedRelay, String> {
+        if payload.role != super::DeviceRole::Relay {
+            return Err("This invitation is not for a relay.".into());
+        }
+        match self.claim(payload, device_name).await? {
+            Paired::Relay(relay) => Ok(relay),
+            Paired::Desk(_) => Err("The desk granted a different pairing role.".into()),
+        }
+    }
+
+    async fn claim(&self, payload: &PairingPayload, device_name: &str) -> Result<Paired, String> {
         if payload.version != 2 {
             return Err("This pairing invitation needs a newer Hotline.".into());
         }
@@ -131,13 +207,91 @@ impl Client {
         if reply["role"] != serde_json::to_value(payload.role).map_err(storage)? {
             return Err("The desk granted a different pairing role.".into());
         }
-        Ok(PairedDesk {
+        let name = reply["deskName"].as_str().unwrap_or(&payload.name).into();
+        if payload.role == super::DeviceRole::Relay {
+            return Ok(Paired::Relay(PairedRelay {
+                desk_id: desk_id.into(),
+                name,
+                url: payload.url.clone(),
+                desk_key: payload.desk_key.clone(),
+                public: payload.public.clone(),
+                serves: serves(&reply),
+            }));
+        }
+        Ok(Paired::Desk(PairedDesk {
             desk_id: desk_id.into(),
-            name: reply["deskName"].as_str().unwrap_or(&payload.name).into(),
+            name,
             url: payload.url.clone(),
             desk_key: payload.desk_key.clone(),
             relay: payload.relay.clone(),
             public: payload.public.clone(),
+            relay_declined: false,
+        }))
+    }
+
+    /// Moves this device's owner grant on `desk` to a relay grant, over its
+    /// own wire (ADR 0006 § Migration), and answers the server as a relay.
+    /// The server ends this device's sessions as it moves the grant, which
+    /// may cut the answer off; then a `/v2` refused for its role is the
+    /// answer, since only the move makes an owner key refused there.
+    pub async fn become_relay(&self, desk: &PairedDesk) -> Result<PairedRelay, String> {
+        let mut wire = self
+            .open(desk, None)
+            .await
+            .map_err(|error| error.to_string())?;
+        let hello = match tokio::time::timeout(Duration::from_secs(5), wire.next()).await {
+            Ok(Some(Ok(Message::Text(text)))) => serde_json::from_str::<Value>(&text).ok(),
+            _ => None,
+        }
+        .ok_or("The server did not say hello.")?;
+        let serves = serves(&hello);
+        if !serves.iter().any(|capability| capability == "relay") {
+            return Err("That server does not run a relay.".into());
+        }
+        let command = json!({"id": 1, "cmd": "remote.become_relay", "params": {}});
+        wire.send(Message::text(command.to_string()))
+            .await
+            .map_err(|_| "The server disconnected.")?;
+        let answer = tokio::time::timeout(Duration::from_secs(10), async {
+            while let Some(Ok(message)) = wire.next().await {
+                if let Message::Text(text) = message
+                    && let Ok(reply) = serde_json::from_str::<Value>(&text)
+                    && reply["id"] == 1
+                {
+                    return Some(reply);
+                }
+            }
+            None
+        })
+        .await
+        .ok()
+        .flatten();
+        drop(wire);
+        match answer {
+            Some(reply) if reply["ok"] == true => {}
+            Some(reply) => {
+                return Err(reply["error"]
+                    .as_str()
+                    .unwrap_or("The server refused that.")
+                    .into());
+            }
+            None => match self.open(desk, None).await {
+                Err(OpenError::NotPermitted) => {}
+                _ => {
+                    return Err(
+                        "The server did not say whether it kept this computer as a relay. Try again."
+                            .into(),
+                    );
+                }
+            },
+        }
+        Ok(PairedRelay {
+            desk_id: desk.desk_id.clone(),
+            name: desk.name.clone(),
+            url: desk.url.clone(),
+            desk_key: desk.desk_key.clone(),
+            public: desk.public.clone(),
+            serves,
         })
     }
 
@@ -240,6 +394,10 @@ async fn sealed_as(
     if response == sealed::DEVICE_REJECTED {
         return Err(OpenError::Revoked);
     }
+    // The key is known and its grant stands; this door is not its role's.
+    if response == sealed::ROLE_REFUSED {
+        return Err(OpenError::NotPermitted);
+    }
     if !response.is_empty() {
         return Err("The desk refused this session.".into());
     }
@@ -337,6 +495,9 @@ mod discovery_tests {
 pub(super) enum OpenError {
     Unreachable(String),
     Revoked,
+    /// The grant stands but does not open this door: a relay grant at the
+    /// wire. Never a reason to forget a pairing.
+    NotPermitted,
 }
 impl From<String> for OpenError {
     fn from(message: String) -> Self {
@@ -353,8 +514,22 @@ impl std::fmt::Display for OpenError {
         match self {
             Self::Unreachable(message) => f.write_str(message),
             Self::Revoked => f.write_str("This device is no longer authorized. Pair it again."),
+            Self::NotPermitted => {
+                f.write_str("This computer is paired with that server only to use its relay.")
+            }
         }
     }
+}
+
+/// The capabilities a pair answer or a hello says the server runs.
+fn serves(said: &Value) -> Vec<String> {
+    said["serves"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
 }
 
 fn storage(error: impl std::fmt::Display) -> String {

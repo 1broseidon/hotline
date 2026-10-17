@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.415Z"
 dependsOn:
   - task-90
-updatedAt: "2026-10-17T07:46:57.749Z"
+updatedAt: "2026-10-17T07:52:28.751Z"
 relatedFiles:
   - crates/hotline-core/src/remote/mod.rs
   - crates/hotline-core/src/remote/server.rs
@@ -40,12 +40,12 @@ contract:
 ---
 
 ## Description
-Core: a `relay` grant role. Follows ADR 0006 (task-90).
+Core: a `relay` grant role. Build exactly what docs/adr/0006-relay-only-servers.md decides (§ the relay grant role, § old-reader story, § a pair claim declares its purpose); where this text and the ADR differ, the ADR wins.
 
-- `DeviceRole` gains `Relay` (`remote/mod.rs:54`), with serde and the old-reader story ADR 0006 settles. Note `role` is a plain serde enum inside `remote.json`: an unknown role must refuse that one grant, never treat it as owner and never fail the whole file (which would lose every pairing).
-- Relay grants may only open the relay control socket (`/v2/relay`), claim visits (`/v2/relay/accept`) and carry link-through (`/v2/link` via the relay). Every other seat purpose (`/v2` wire, computer paths, pair, door) is refused at admission in `sealed_session` with the sealed refusal. The owner-only check near server.rs:384 becomes "owner or relay".
-- `hotline pair --link --role relay` makes one (keep `--companion` working, or fold it into `--role companion` and delete the old flag).
+- `DeviceRole` gains `Relay`. Relay grants are saved in their own `relayGrants` list in `remote.json` (same `Grant` shape), never in `grants`; a key is in one list at most; the 16-device limit counts both.
+- The owner-only check in `sealed_session` becomes a role table: `Wire` and `Computer` admit owner and companion; `Relay` admits owner and relay. `relay::accept` admits owner and relay. `Seat::for_phone` cannot yield a seat for a relay grant (make the type say so). A key refused for its role gets sealed `{"error":"role_not_permitted"}`, not `device_not_authorized`.
+- The relay invitation: `hotline pair --relay` opens a pairing window with role relay (on a server that runs agents; task-92 makes it the only kind on a relay-only server). The pair claim gains optional `purpose`; a relay window admits only `purpose:"relay"`, an owner/companion window refuses it; a mismatch makes no grant, does not consume the window, answers `{"refused":"relay"}` / `{"refused":"device"}`, and counts toward the throttle. The relay pair answer is `{"role":"relay", deskName, deskId, serves}` (serves may be a fixed `["agents","relay"]` until task-92 adds capabilities). The QR says `r=relay` and the link payload `"role":"relay"`.
 - `remote.devices` lists the role. Revocation works as today.
-- Not here: a relay-only server making only relay grants (task-92, which owns capabilities).
+- Not here: capabilities, `serve.json`, `serves` in the hello and ready (task-92); the desktop's side of pairing as relay (task-98).
 
-Tests: a relay grant stands in and carries a phone visit end to end, and is refused every owner and companion command, the computer paths and the door. An unknown role on disk is refused, not upgraded, and the other grants still load. Add the relay role's row to docs/security.md's matrix and test index. Run `cargo test -p hotline-core` unfiltered before committing contract.ts.
+Tests through the real handler: a relay grant stands in and carries a phone visit end to end, and is refused at `/v2`, `/v2/computer` and the server's `/v2/link` with `role_not_permitted`; a phone claim on a relay window and a relay claim on an owner window make no grant; an old-shaped reader (the `Saved` struct without `relayGrants`) loads a file with relay grants and authenticates nothing from it. Add the relay role's row to docs/security.md's matrix and test index. Run `cargo test -p hotline-core` unfiltered before committing contract.ts.

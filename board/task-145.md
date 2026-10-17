@@ -9,6 +9,13 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:40:59.075Z"
+relatedFiles:
+  - crates/hotline-core/src/remote.rs
+  - crates/hotline-core/src/remote/admission.rs
+  - crates/hotline-core/src/remote/relay.rs
+  - crates/hotline-core/src/remote/bridge.rs
+  - crates/hotline-app/src/transfer.rs
+updatedAt: "2026-10-17T22:46:58.467Z"
 ---
 
 ## Description

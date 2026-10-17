@@ -653,6 +653,7 @@ mod tests {
             url: "https://studio.example:9443".into(),
             desk_key: "k".into(),
             relay: None,
+            public: None,
         }
     }
 

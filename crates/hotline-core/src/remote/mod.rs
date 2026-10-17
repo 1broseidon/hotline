@@ -422,7 +422,9 @@ impl Remote {
     /// A served desk's only address is its public one; a desktop's is the
     /// person's own, advertised while Remote is on.
     fn public_endpoint(&self) -> Option<String> {
-        let s = self.state.lock().unwrap();
+        self.public_endpoint_of(&self.state.lock().unwrap())
+    }
+    fn public_endpoint_of(&self, s: &Live) -> Option<String> {
         if s.endpoints.is_empty() {
             return None;
         }

@@ -1063,7 +1063,10 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
 - QR: `hotline://pair?v=2&k=<desk static public key>&u=<public URL>&s=<secret>`.
   `k` and `s` are 32-byte values encoded base64url without padding; `u` is
   URL-encoded. The QR also carries `r` (role), `e` (expiry in Unix milliseconds)
-  and `n` (desk name). Desktop links use `hotline://pair?p=<base64url JSON>`;
+  and `n` (desk name), and, when set, `x` (the Public address) and `a` (the
+  desk's relay address). `u` is always this computer's first own address, so
+  a phone pairs on the network it stands in; it tries `x`, then `a`, only
+  when `u` does not answer, and a phone that knows neither ignores them. Desktop links use `hotline://pair?p=<base64url JSON>`;
   [serve.md](serve.md) defines the versioned JSON fields and CLI outputs.
   No bearer token travels in v2 requests or transport.
 - The phone validates publicly trusted certificates normally and allows

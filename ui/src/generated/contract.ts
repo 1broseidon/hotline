@@ -660,7 +660,12 @@ export type PairingPayload = { version: number, url: string, deskKey: string, se
  * The desk's address on its relay, when it stands in on one: the same
  * desk and key, reached through a desk that carries sealed records.
  */
-relay?: string, };
+relay?: string, 
+/**
+ * The person's public address for the desk, tried after `url` and
+ * before the relay when the device is not on the desk's own network.
+ */
+public?: string, };
 
 /**
  * What a site asked for when it called for a passkey under an arming: the

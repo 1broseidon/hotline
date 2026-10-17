@@ -128,6 +128,22 @@ describe("Remote settings over the wire", () => {
 		expect(text()).not.toContain("Test owner");
 	});
 
+	test("the tunnel hint names the address Remote listens on", async () => {
+		let host = "all";
+		respond = ({ cmd, params }) => {
+			if (cmd === "remote.configure") host = String(params.host);
+			const endpoint = host === "all" ? enabled.endpoint : `https://${host.includes(":") ? `[${host}]` : host}:8788`;
+			return { ...enabled, host, endpoint, endpoints: host === "all" ? enabled.endpoints : [endpoint] };
+		};
+		await mount();
+		await settle(() => [...container.querySelectorAll("button")].find((node) => node.textContent?.startsWith("Public address"))!.click());
+		expect(text()).toContain("Point it at https://localhost:8788");
+		await pick("Listen on", "192.0.2.1");
+		expect(text()).toContain("Point it at https://192.0.2.1:8788");
+		await pick("Listen on", "2001:db8::1");
+		expect(text()).toContain("Point it at https://[2001:db8::1]:8788");
+	});
+
 	test("a paired server is offered as a relay, and the choice is the desk's", async () => {
 		const server = { id: "server-desk", name: "Grizzly", kind: "remote" as const, origin: "http://127.0.0.1:1", token: "t" };
 		await settle(() => replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "http://127.0.0.1:2", token: "t" }]));

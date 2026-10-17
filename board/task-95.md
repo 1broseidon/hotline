@@ -11,7 +11,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:03.487Z"
 dependsOn:
   - task-99
-updatedAt: "2026-10-17T09:15:31.958Z"
+updatedAt: "2026-10-17T09:15:33.279Z"
 relatedFiles:
   - docs-site/src/content/docs/server/relay.md
   - docs-site/src/content/docs/server/index.md
@@ -37,7 +37,12 @@ dispatch:
   by: lead
   at: "2026-10-17T09:15:31.841Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T09:15:33.279Z"
 assignee: claude
 ---
 

@@ -63,3 +63,6 @@ Audit: dead code and dependencies.
 - Unused dependencies (cargo machete; cargo +nightly udeps if available), duplicate crate versions (cargo tree -d), heavy deps with a lighter alternative, cargo deny advisories/licenses/bans.
 - The same for ui/package.json.
 - Report: docs/audits/0.40/dead-code-and-deps.md. List exact removals as proposed Phase 2 tasks, grouped so each lands alone.
+
+## Log
+- 2026-10-17T19:39:23.145Z: [codex] Audit in progress on dispatch/task-104, report only. Early handoff for task-107/109: Knip 6.41.0 finds no unused ui/package.json deps; 30 unused exports mostly need only export removed, generated contract types and mobile-shared pacing/reveal/cadence must not be deleted from scanner output. cargo-deny reports 10 vulnerability diagnostics (rustls + both zip versions), 9 unmaintained; Bun audit reports KaTeX and source-map-js. Report will separate exposure, exact cleanups, and independent followups.

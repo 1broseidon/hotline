@@ -9,6 +9,11 @@ tags:
   - docs
 parentId: epic-13
 createdAt: "2026-10-17T22:41:08.469Z"
+relatedFiles:
+  - docs/threads.md
+  - docs/sessions.md
+  - docs/adr/0005-front-is-a-full-agent.md
+updatedAt: "2026-10-17T22:47:20.842Z"
 ---
 
 ## Description

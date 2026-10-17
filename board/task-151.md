@@ -9,6 +9,12 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:02.193Z"
+relatedFiles:
+  - crates/hotline-core/src/driver/rig/turn.rs
+  - crates/hotline-core/src/driver/rig.rs
+  - crates/hotline-core/src/wire/
+  - crates/hotline-core/src/remote/bridge.rs
+updatedAt: "2026-10-17T22:47:00.126Z"
 ---
 
 ## Description

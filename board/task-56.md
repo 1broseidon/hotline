@@ -1,14 +1,14 @@
 ---
 id: task-56
 title: Pairing QR carries the Public address as a fallback endpoint; tunnel hint names the real listen address
-column: backlog
-position: 39
+column: todo
+position: 1
 priority: medium
 tags:
   - remote
   - pairing
 createdAt: "2026-10-14T19:29:48.828Z"
-updatedAt: "2026-10-17T05:24:53.854Z"
+updatedAt: "2026-10-17T05:24:54.353Z"
 parentId: epic-10
 ---
 

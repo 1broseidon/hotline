@@ -1,8 +1,6 @@
 ---
 id: task-163
 title: "P2-D-3 (E): threads.md and sessions.md name live code"
-column: review
-position: 52
 priority: high
 tags:
   - phase2
@@ -13,7 +11,7 @@ relatedFiles:
   - docs/threads.md
   - docs/sessions.md
   - docs/adr/0005-front-is-a-full-agent.md
-updatedAt: "2026-10-17T23:35:06.856Z"
+updatedAt: "2026-10-17T23:35:10.078Z"
 contract:
   status: delivered
   validation:
@@ -39,6 +37,7 @@ dispatch:
     pid: 50333
     at: "2026-10-17T23:19:05.081Z"
 assignee: claude
+completedAt: "2026-10-17T23:35:10.078Z"
 ---
 
 ## Description

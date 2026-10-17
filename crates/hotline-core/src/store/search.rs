@@ -794,28 +794,6 @@ impl Indexer {
         Ok(())
     }
 
-    /// Forgets a teammate entirely — the rows and the stamp that would stop
-    /// them being rebuilt.
-    pub fn forget(&mut self, persona_id: &str) -> rusqlite::Result<()> {
-        let transaction = self.database.transaction()?;
-        forget_threads(&transaction, persona_id)?;
-        for table in [
-            "messages",
-            "message_ids",
-            "chapters",
-            "chapters_fts",
-            "index_state",
-        ] {
-            transaction.execute(
-                &format!("DELETE FROM {table} WHERE persona_id = ?"),
-                [persona_id],
-            )?;
-        }
-        transaction.commit()?;
-        self.open_chapters.remove(persona_id);
-        Ok(())
-    }
-
     /// Brings the index in line with the files at startup.
     ///
     /// A transcript whose size or modification time differs from what was last
@@ -1331,37 +1309,6 @@ mod tests {
     }
 
     #[test]
-    fn a_teammate_the_index_forgets_leaves_no_row_and_no_stamp() {
-        let (_root, log, mut indexer) = indexer("forget");
-        // A chapter id apiece: the id is the primary key, so two teammates
-        // sharing one would be one row and this test would prove nothing.
-        for (persona_id, chapter_id) in [("ada", "c1"), ("bob", "c2")] {
-            let events = [
-                chapter_event(chapter_id, 100, false),
-                message_event("m1", 110, "user", "the harbour crane is stuck"),
-            ];
-            tape(&log, persona_id, &events);
-            for event in &events {
-                indexer.index_event(persona_id, event).unwrap();
-            }
-        }
-
-        indexer.forget("ada").unwrap();
-
-        assert_eq!(messages(&indexer.database).len(), 1);
-        assert_eq!(messages(&indexer.database)[0][0], text("bob"));
-        assert_eq!(chapter_rows(&indexer.database).len(), 1);
-        assert_eq!(chapter_text(&indexer.database).len(), 1);
-        assert_eq!(
-            rows_of(
-                &indexer.database,
-                "SELECT persona_id FROM index_state ORDER BY persona_id"
-            ),
-            [vec![text("bob")]]
-        );
-    }
-
-    #[test]
     fn a_stamp_that_matches_the_file_stops_a_sync_and_a_changed_file_restarts_it() {
         let (_root, log, mut indexer) = indexer("sync");
         tape(
@@ -1707,8 +1654,5 @@ mod tests {
         assert_eq!(sorted_ids(&found), ["a1", "u1"]);
         assert!(hits(&found).iter().all(|hit| hit["thread"] == "side:s1"));
         assert!(hits(&search(&root, "ada", "winch", None).unwrap()).is_empty());
-
-        indexer.forget("ada").unwrap();
-        assert!(hits(&search_teammate(&root, "ada", "winch", None).unwrap()).is_empty());
     }
 }

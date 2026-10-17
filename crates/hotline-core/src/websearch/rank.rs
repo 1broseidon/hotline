@@ -11,7 +11,6 @@ use super::canonical::{brand_label, canonical_url, host_of, registrable};
 use super::clean::{clean_snippet, is_junk};
 use super::query::{Haystack, Language, Query, missed, missed_line, text_language};
 use super::when::result_date;
-use crate::contract::WebSearchProvider;
 use std::collections::HashMap;
 
 /// RRF's constant. 60 is the published default (Cormack, Clarke and Büttcher,
@@ -128,7 +127,6 @@ const INDEX_PATHS: [&str; 6] = [
 
 /// One provider's answer to be fused.
 pub struct Source {
-    pub provider: WebSearchProvider,
     pub keyed: bool,
     pub hits: Vec<Hit>,
 }

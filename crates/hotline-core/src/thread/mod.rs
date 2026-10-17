@@ -20,10 +20,9 @@ mod policy;
 mod store;
 
 pub use link::{Link, Opener};
-pub use policy::{
-    Answer, Computer, Idle, Lease, Policy, QUIET_MS, Restart, Resume, SIDE_IDLE_MS, Seed, Surface,
-    Tools,
-};
+pub use policy::{Answer, Computer, Idle, Lease, Policy, Restart, Resume, Tools};
+#[cfg(test)]
+pub(crate) use policy::{QUIET_MS, SIDE_IDLE_MS};
 pub use store::ThreadStore;
 
 use crate::log::StreamId;

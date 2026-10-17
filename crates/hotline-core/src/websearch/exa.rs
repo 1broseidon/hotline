@@ -15,10 +15,6 @@ pub struct Exa {
 }
 
 impl Exa {
-    pub fn new(client: reqwest::Client, key: Option<String>) -> Self {
-        Self::at(client, ENDPOINT, key)
-    }
-
     pub fn at(client: reqwest::Client, endpoint: impl Into<String>, key: Option<String>) -> Self {
         Self {
             client,

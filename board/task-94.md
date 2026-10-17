@@ -11,13 +11,23 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:02.975Z"
 dependsOn:
   - task-98
-updatedAt: "2026-10-17T07:47:18.071Z"
+updatedAt: "2026-10-17T07:47:18.324Z"
 relatedFiles:
   - crates/hotline-cli/src/remote.rs
   - crates/hotline-core/src/remote/mod.rs
   - crates/hotline-core/src/remote/server.rs
   - crates/hotline-cli/tests/pair.rs
   - docs/wire.md
+contract:
+  status: ready
+  validation:
+    commands:
+      - cargo test -p hotline-cli --test pair
+      - cargo test -p hotline-core
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - grep -qi 'relay' docs/wire.md && grep -qi 'capabilities' docs/wire.md
+  metrics:
+    readyAt: "2026-10-17T07:47:18.324Z"
 ---
 
 ## Description

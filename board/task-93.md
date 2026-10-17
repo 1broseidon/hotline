@@ -1,8 +1,8 @@
 ---
 id: task-93
 title: "Desktop: Add a relay, the Relay picker, and the offer to drop owner to relay"
-column: backlog
-position: 47
+column: todo
+position: 7
 priority: high
 tags:
   - relay
@@ -12,7 +12,7 @@ createdAt: "2026-10-17T05:37:02.457Z"
 dependsOn:
   - task-91
   - task-92
-updatedAt: "2026-10-17T05:37:05.011Z"
+updatedAt: "2026-10-17T05:43:00.587Z"
 ---
 
 ## Description

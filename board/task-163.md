@@ -13,7 +13,7 @@ relatedFiles:
   - docs/threads.md
   - docs/sessions.md
   - docs/adr/0005-front-is-a-full-agent.md
-updatedAt: "2026-10-17T23:10:43.273Z"
+updatedAt: "2026-10-17T23:19:05.081Z"
 contract:
   status: ready
   validation:
@@ -28,7 +28,12 @@ dispatch:
   by: lead
   at: "2026-10-17T23:10:43.127Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T23:19:05.081Z"
 assignee: claude
 ---
 

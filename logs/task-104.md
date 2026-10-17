@@ -1,8 +1,6 @@
 ---
 id: task-104
 title: "Audit: dead code and dependencies (Rust and window)"
-column: review
-position: 2
 priority: high
 tags:
   - audit
@@ -31,7 +29,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:43:13.785Z"
     duration: 454
-updatedAt: "2026-10-17T19:43:38.450Z"
+updatedAt: "2026-10-17T19:43:41.906Z"
 relatedFiles:
   - docs/audits/0.40/dead-code-and-deps.md
   - Cargo.toml
@@ -57,6 +55,7 @@ dispatch:
     ended: "2026-10-17T19:43:27.714Z"
     outcome: review
 assignee: codex
+completedAt: "2026-10-17T19:43:41.906Z"
 ---
 
 ## Description

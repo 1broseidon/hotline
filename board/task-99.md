@@ -44,3 +44,6 @@ The harness, in one run on a temporary HOTLINE_DATA_DIR:
 6. Stop, restart with `--capabilities agents,relay`: the desktop's relay grant still stands in without re-pairing; an owner's hello now says `serves: ["agents","relay"]`.
 
 Kill only PIDs captured at spawn. The Pi itself is out of reach here: note in the log that the aarch64 Linux footprint is for George to confirm on hardware.
+
+## Log
+- 2026-10-17T09:03:23.942Z: [claude] [lead] From task-93/98: a relay's `serves` in the desktop's relays.json is what pairing/the move said and is never refreshed from the ready frame. In step 6 (switch to agents,relay) check what the desktop then believes; if it is stale in a way that matters for standing in, fix it in the core and say so; if it only affects display, note it for the UI rather than building it here. Wire.serves() now exists in the UI from the hello frame.

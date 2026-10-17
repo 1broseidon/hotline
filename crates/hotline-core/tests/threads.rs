@@ -132,9 +132,16 @@ async fn a_work_thread_is_one_conversation_to_old_and_threads2_clients() {
         "an old client is never sent a link"
     );
 
-    // The first turn ends, then another is asked for, with both reading.
+    // The first turn ends, then another is asked for, with both reading. The
+    // model answers at once, so on a fast machine the turn has ended before
+    // the side is subscribed to, and arrives in its snapshot instead.
     now.next_where(PATIENCE, |frame| {
-        frame["sub"] == now_side && frame["event"]["kind"] == "turn"
+        let ended = |event: &Value| event["kind"] == "turn";
+        frame["sub"] == now_side
+            && (ended(&frame["event"])
+                || frame["snapshot"]
+                    .as_array()
+                    .is_some_and(|events| events.iter().any(ended)))
     })
     .await;
     let said = now

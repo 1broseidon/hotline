@@ -971,6 +971,14 @@ before one of these sends it absent, and a phone reads that as "not on this
 desk", never as "nothing there"; asked anyway, such a desk refuses the
 command as forbidden or the subscription as one it cannot read.
 
+`endpoints` lists every address the desk answers on, this computer's own
+first. When one of them is public — the person's tunnel or proxy, or a served
+desk's only address — `publicEndpoint` names it, for any seat, so a phone can
+tell it from a VPN or LAN address; it is absent when there is none. The owner
+phone's hello also carries `deskKind` (`"desktop"` or `"server"`) and
+`version`, the Hotline version; a companion's does not. All three are absent
+from an older desk.
+
 ### Pushes
 
 A phone that registered a token with `mobile.push_register` hears each
@@ -1091,7 +1099,7 @@ Remote controls require an owner or local desk seat, used by the window and CLI:
 | --- | --- | --- |
 | `remote.status` | `{}` | `RemoteStatus` |
 | `remote.configure` | `{enabled, host}` | `RemoteStatus`; a served address cannot change |
-| `remote.devices` | `{}` | `RemoteDevice[]` with roles and public keys, never secrets |
+| `remote.devices` | `{}` | `RemoteDevice[]` with roles and public keys, never secrets; asked by a phone, its own grant has `current: true` |
 | `remote.revoke` | `{deviceId}` | `RemoteStatus` after immediate revocation |
 | `remote.public_url` | `{url?}` | `RemoteStatus`; keeps an https origin for a tunnel or proxy, or clears it with none or blank; a served desk refuses |
 | `remote.pairing` | `{role?}` | `SealedPairing` with id, QR, URI and expiry; owner by default |

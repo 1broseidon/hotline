@@ -1,8 +1,6 @@
 ---
 id: task-96
 title: "Epic-10 end to end: a phone off-network pairs from the QR via the Public address and sees itself, the desk's kind and version, and the public endpoint marked"
-column: review
-position: 10
 priority: high
 relatedFiles:
   - crates/hotline-core/src/remote/tests.rs
@@ -46,7 +44,8 @@ dispatch:
     ended: "2026-10-17T07:30:30.021Z"
     outcome: review
 assignee: claude
-updatedAt: "2026-10-17T07:30:30.021Z"
+updatedAt: "2026-10-17T07:34:00.934Z"
+completedAt: "2026-10-17T07:34:00.934Z"
 ---
 
 ## Description
@@ -64,3 +63,4 @@ Fix whatever seam the two children left between them (for example two different 
 
 ## Log
 - 2026-10-17T07:30:22.717Z: [claude] Done on branch dispatch/task-96 (a5adba5f). New test remote::tests::a_phone_away_from_home_pairs_through_the_public_address_and_sees_itself_and_the_desk: a real TCP tunnel on 127.0.0.1 is the Public address; the phone parses the QR, skips u= (this computer's own addresses count as not routing — inside one process they would route, so that part is simulated), pairs and connects through x=, and its hello has deskKind/version/publicEndpoint == x. remote.devices marks only its own grant current. The tunnel goes where the hint says: localhost:port on all IPs. On one address, localhost is refused and address:port works. No seam to fix: the QR's x and the hello's publicEndpoint both come from public_endpoint_of(); x is left out only when it equals u (a served desk). The test copies RemoteSection's hint rule (tunnel_hint); ui/tests/remote-section.test.tsx proves the window renders it. Docs: design.md (Public address paragraph), wire.md (u is the desk URL; x == publicEndpoint), security.md (QR x fallback + test). make check green (2009 passed). STILL UNWIRED: the Rust client (desks.rs) doesn't refresh PairedDesk.public from hello publicEndpoint, so desks paired before have public: None. Phone side (hotline-mobile task-25) not done.
+- 2026-10-17T07:33:59.653Z: Landed on release/0.40.0

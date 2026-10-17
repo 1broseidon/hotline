@@ -18,9 +18,9 @@ relatedFiles:
   - crates/hotline-core/tests/common/mod.rs
   - crates/hotline-core/tests/
   - crates/hotline-cli/tests/
-  - crates/hotline-core/src/
 parentId: epic-13
 createdAt: "2026-10-17T22:45:36.667Z"
+updatedAt: "2026-10-17T22:47:23.230Z"
 ---
 
 ## Description

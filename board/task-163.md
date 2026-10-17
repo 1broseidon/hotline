@@ -13,7 +13,7 @@ relatedFiles:
   - docs/threads.md
   - docs/sessions.md
   - docs/adr/0005-front-is-a-full-agent.md
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-17T23:10:43.273Z"
 contract:
   status: ready
   validation:
@@ -22,6 +22,14 @@ contract:
       - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T23:10:43.127Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

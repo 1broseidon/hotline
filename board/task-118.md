@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:45.054Z"
 relatedFiles:
   - ui/bun.lock
   - ui/package.json
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-17T23:10:41.936Z"
 contract:
   status: ready
   validation:
@@ -22,6 +22,14 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T23:10:41.785Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

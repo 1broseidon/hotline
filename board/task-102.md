@@ -1,7 +1,7 @@
 ---
 id: task-102
 title: "Installer: `install --server --relay` sets up a relay-only server with the hotline-relay unit"
-column: in-progress
+column: review
 position: 1
 description: |-
   Left by task-95 (a3b9927e, on release/0.40.0): the server tarball now ships packaging/hotline-relay.service (`--capabilities relay`, installed as hotline.service so pair/status/update find the room), but the curl installer (site/public/install) has no relay mode, so "Run a relay" on a Pi is a manual install.
@@ -22,7 +22,7 @@ relatedFiles:
   - docs-site/src/content/docs/server/install.md
 parentId: epic-11
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - python3 -m unittest discover -s site/tests -p 'test_install.py' -v
@@ -31,6 +31,8 @@ contract:
     readyAt: "2026-10-17T09:23:10.406Z"
     pickedUpAt: "2026-10-17T09:23:14.797Z"
     reworkCount: 0
+    deliveredAt: "2026-10-17T09:23:42.018Z"
+    duration: 27
 createdAt: "2026-10-17T09:19:46.947Z"
 dispatch:
   agent: claude
@@ -45,7 +47,7 @@ dispatch:
     pid: 50333
     at: "2026-10-17T09:22:50.259Z"
 assignee: claude
-updatedAt: "2026-10-17T09:23:14.797Z"
+updatedAt: "2026-10-17T09:23:42.018Z"
 ---
 
 ## Description

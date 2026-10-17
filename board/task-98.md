@@ -33,11 +33,13 @@ contract:
   metrics:
     readyAt: "2026-10-17T07:46:27.374Z"
 createdAt: "2026-10-17T07:46:27.380Z"
-updatedAt: "2026-10-17T07:52:29.261Z"
+updatedAt: "2026-10-17T08:06:21.349Z"
 ---
 
 ## Description
 The core and shell half of task-93, split out so the UI child is UI only. Build exactly what docs/adr/0006-relay-only-servers.md decides (§ old-reader story, last paragraph; § a pair claim declares its purpose; § migration); where this text and the ADR differ, the ADR wins. The server side (relay windows, claim purpose, `{"refused":…}`, `serves`) exists from task-91/92.
+
+Left by task-91 (8319da55): `remote/client.rs` `pair` already sends `purpose:"relay"` for a relay payload and maps `{"refused":…}` to errors, but still returns a PairedDesk; `hotline-app/src/desks.rs` (the pair-from-link path, ~line 297) refuses a `DeviceRole::Relay` payload with "can't do yet". Replace that refusal with storing the relay as below (delete the guard, don't keep it), and make `client::pair`'s relay outcome a relay record rather than a desk.
 
 Today a desktop reaches a server only as a remote desk (`hotline-app/src/desks.rs`, `remote/client.rs` PairedDesk, owner grant), and the Relay picker lists `useDesks()` of kind remote. A relay grant cannot open `/v2`, so:
 - Pairing as relay: from a link/QR with `role:"relay"`, the desktop's claim sends `purpose:"relay"`, and stores the server as a relay (key, URL, name, `serves` from the pair answer) somewhere other than `desks.json` (an older window would list it as a desk and dial `/v2`): no bridge, no wire, not in the desk list. Say in the code where it lives and why.

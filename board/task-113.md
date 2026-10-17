@@ -9,7 +9,11 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:42.496Z"
-updatedAt: "2026-10-17T22:45:48.069Z"
+updatedAt: "2026-10-17T22:46:28.713Z"
+relatedFiles:
+  - docs/security.md
+  - crates/hotline-core/src/session/tests.rs
+  - crates/hotline-core/src/voice/mod.rs
 ---
 
 ## Description

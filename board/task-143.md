@@ -9,6 +9,12 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:40:58.025Z"
+relatedFiles:
+  - crates/hotline-app/src/lib.rs
+  - crates/hotline-cli/src/serve.rs
+  - crates/hotline-core/src/door.rs
+  - crates/hotline-core/src/desk.rs
+updatedAt: "2026-10-17T22:46:57.924Z"
 ---
 
 ## Description

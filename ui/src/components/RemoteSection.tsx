@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DeviceRole, PairedRelay, RemoteStatus, SealedPairing } from "../generated/contract";
-import { useDesks, wireFor, type Desk } from "../desks";
+import { allDesks, useDesks, wireFor, type Desk } from "../desks";
 import { declineRelay, forgetRelay, moveDeskToRelay, pairDeskByLink, writeClipboard } from "../native";
 import { Fold } from "../ui/Fold";
 import { Picker } from "../ui/Menu";
@@ -68,8 +68,27 @@ function useRelayOffer(desk: Desk | undefined): boolean {
 }
 
 /**
+ * What the shell kept from pairing `deskId`: a relay's invitation (`hotline
+ * pair --relay --link`, or any on a relay-only server) is kept as a
+ * relay, not a desk (ADR 0006). A new relay becomes this desk's relay when it
+ * has none, so pairing one is enough to use it; a relay already chosen is left
+ * for the Relay picker to change. `relay` is undefined when it paired a desk.
+ * Relays are this computer's, so its own desk is asked whichever is active.
+ */
+export async function keepPairedRelay(deskId: string): Promise<{ relays: PairedRelay[]; relay: PairedRelay | undefined; status: RemoteStatus | null }> {
+	const local = allDesks().find((desk) => desk.kind === "local");
+	if (local === undefined) throw new Error("This window has no desk of its own to keep a relay.");
+	const core = wireFor(local.id);
+	const relays = await core.command("remote.relays", {});
+	const relay = relays.find((one) => one.deskId === deskId);
+	if (relay === undefined) return { relays, relay, status: null };
+	const status = await core.command("remote.status", {});
+	return { relays, relay, status: status.relay ? status : await core.command("remote.relay", { deskId }) };
+}
+
+/**
  * The servers this desktop is paired with only as a relay, and pairing
- * another from the link `hotline pair --link --role relay` prints there.
+ * another from the link `hotline pair --relay --link` prints there.
  */
 function RelayServers({ relays, busy, onAdd, onForget }: { relays: PairedRelay[]; busy: boolean; onAdd(link: string): Promise<boolean>; onForget(deskId: string): void }) {
 	const [open, setOpen] = useState(false);
@@ -81,7 +100,7 @@ function RelayServers({ relays, busy, onAdd, onForget }: { relays: PairedRelay[]
 				<span className="min-w-0 flex-1 truncate text-sm">{relay.name}</span>
 				<button type="button" className="control btn-quiet btn-sm text-danger" disabled={busy} onClick={() => onForget(relay.deskId)}>Forget</button>
 			</li>)}</ul>}
-			<p className="hint">On the server, run <code>hotline pair --link --role relay</code> and paste the link here. It works once, for two minutes.</p>
+			<p className="hint">On the server, run <code>hotline pair --relay --link</code> and paste the link here. It works once, for two minutes.</p>
 			<form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void onAdd(link.trim()).then((added) => { if (added) setLink(""); }); }}>
 				<input className="field min-w-0 flex-1 font-mono text-sm" spellCheck={false} placeholder="hotline://pair?p=…" aria-label="Relay link" value={link} disabled={busy} onChange={(e) => setLink(e.target.value)} />
 				<button type="submit" className="control btn btn-primary shrink-0" disabled={busy || !ready}>Pair</button>
@@ -199,12 +218,11 @@ export function RemoteSection() {
 	const addRelay = async (link: string) => {
 		let added = false;
 		await run(async () => {
-			const deskId = await pairDeskByLink(link);
-			const paired = await wire.command("remote.relays", {});
-			setRelays(paired);
+			const kept = await keepPairedRelay(await pairDeskByLink(link));
+			setRelays(kept.relays);
 			// A desk's link pairs a desk, which the shell keeps as one.
-			if (!paired.some((one) => one.deskId === deskId)) throw new Error("That link paired a desk, not a relay. It is under Desks.");
-			setStatus(await wire.command("remote.relay", { deskId }));
+			if (!kept.status) throw new Error("That link paired a desk, not a relay. It is under Desks.");
+			setStatus(kept.status);
 			added = true;
 		});
 		return added;

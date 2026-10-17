@@ -4,10 +4,9 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { DesksSection } from "../src/components/DesksSection";
 import { RemoteSection } from "../src/components/RemoteSection";
-import { replaceDesks, type Desk } from "../src/desks";
-import { wire } from "../src/wire";
+import { replaceDesks, wireFor, type Desk } from "../src/desks";
 
-// The desktop's own core answers at `wire.command`; the shell answers at
+// The desktop's own core answers at its own wire's `command`; the shell answers at
 // Tauri's invoke; a paired server's bridge is a socket the test speaks for.
 const local: Desk = { id: "local", name: "This computer", kind: "local", origin: "http://127.0.0.1:2", token: "t" };
 const status = { enabled: true, host: "all", endpoint: "https://192.0.2.1:8788", endpoints: ["https://192.0.2.1:8788"], addresses: ["192.0.2.1"], devices: [], error: null, publicUrl: null };
@@ -35,6 +34,7 @@ let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
 let restores: (() => void)[];
+const spied = new WeakSet<object>();
 
 function remoteDesk(id: string, extra: Partial<Desk> = {}): Desk {
 	return { id, name: id === "grizzly" ? "Grizzly" : id, kind: "remote", origin: `http://127.0.0.1:${id.length + 10}`, token: "t", state: "open", ...extra };
@@ -59,15 +59,6 @@ beforeEach(async () => {
 	shell = [];
 	relays = [];
 	chosen = null;
-	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
-		calls.push({ cmd, params });
-		if (cmd === "remote.relays") return relays;
-		if (cmd === "remote.relay") chosen = typeof params.deskId === "string" ? params.deskId : null;
-		if (cmd === "remote.status" || cmd === "remote.relay") return statusNow();
-		if (cmd === "desks.links") return [];
-		throw new Error(`Unexpected command ${cmd}`);
-	}) as typeof wire.command);
-	restores.push(() => command.mockRestore());
 	(dom as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
 		invoke: async (cmd: string, args: Record<string, unknown>) => {
 			shell.push({ cmd, params: args });
@@ -98,7 +89,24 @@ afterEach(async () => {
 });
 
 async function settle(action: () => unknown = () => {}) { await act(async () => { await action(); }); }
-async function mount(node = <RemoteSection />) { await settle(() => root!.render(node)); }
+function core(cmd: string, params: Record<string, unknown>) {
+	calls.push({ cmd, params });
+	if (cmd === "remote.relays") return relays;
+	if (cmd === "remote.relay") chosen = typeof params.deskId === "string" ? params.deskId : null;
+	if (cmd === "remote.status" || cmd === "remote.relay") return statusNow();
+	if (cmd === "desks.links") return [];
+	throw new Error(`Unexpected command ${cmd}`);
+}
+/** The desktop's own core answers on its own connection, which `wire` reaches while it is the active desk. */
+async function mount(node = <RemoteSection />) {
+	const own = wireFor(local.id);
+	if (!spied.has(own)) {
+		spied.add(own);
+		const command = spyOn(own, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => core(cmd, params)) as typeof own.command);
+		restores.push(() => command.mockRestore());
+	}
+	await settle(() => root!.render(node));
+}
 function text() { return container.textContent ?? ""; }
 function button(label: string) {
 	const found = [...container.querySelectorAll("button")].find((node) => node.textContent === label);
@@ -151,7 +159,7 @@ describe("the Relay picker", () => {
 		await mount();
 		expect(container.querySelector('[aria-label="Relay"]')).toBeNull();
 		await settle(() => [...container.querySelectorAll("button")].find((node) => node.textContent?.startsWith("Relay servers"))!.click());
-		expect(text()).toContain("hotline pair --link --role relay");
+		expect(text()).toContain("hotline pair --relay --link");
 		const input = container.querySelector('[aria-label="Relay link"]') as HTMLInputElement;
 		await settle(() => {
 			Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(input, "hotline://pair?p=relay");

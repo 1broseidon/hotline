@@ -1,14 +1,12 @@
 ---
 id: task-56
 title: Pairing QR carries the Public address as a fallback endpoint; tunnel hint names the real listen address
-column: review
-position: 1
 priority: medium
 tags:
   - remote
   - pairing
 createdAt: "2026-10-14T19:29:48.828Z"
-updatedAt: "2026-10-17T06:45:12.207Z"
+updatedAt: "2026-10-17T07:21:34.514Z"
 parentId: epic-10
 relatedFiles:
   - crates/hotline-core/src/remote/v2.rs
@@ -55,6 +53,7 @@ dispatch:
     ended: "2026-10-17T06:45:12.207Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T07:21:34.514Z"
 ---
 
 ## Description
@@ -83,3 +82,4 @@ Tests:
 - 2026-10-17T06:36:50.675Z: Landing sent back (1 of 1): with release/0.40.0 brought in, `make check` failed: failures: ⏎ remote::tests::sealed_network::cancelled_expired_and_wrong_secret_pairings_never_grant ⏎ test result: FAILED. 1853 passed; 1 failed; 9 ignored; 0 measured; 0 filtered out; finished in 35.76s ⏎ error: test failed, to rerun pass `-p hotline-core --lib` ⏎ make: *** [check] Error 101. Fix it on this branch, commit, and run the checks again.
 - 2026-10-17T06:45:04.623Z: [claude] Landing fix on dispatch/task-56 (a1cd577d): sealed_network::cancelled_expired_and_wrong_secret_pairings_never_grant is untouched by this branch and passed alone, in 3 full lib runs and 48 parallel runs under a concurrent full suite; I could not reproduce it. Every refusal in it closes promptly, so the only way it can panic is the sealed helpers' 3s timeout().unwrap() (exchange/read_sealed/closed) under the reviewer's load. Widened that one budget to 15s (const ANSWER); a hang still fails. make check green (1854 passed). Root cause is inferred, not observed: if it recurs, capture the panic line. Still UNWIRED from before: hotline-mobile must parse x= and try it after u=, before a=; the Rust client does not refresh `public` from hello publicEndpoint; desks paired earlier have public: None.
 - 2026-10-17T06:48:05.889Z: [claude] Lead: landing failed again, this time on tools::workspace::tests::a_revoked_handle_refuses_its_folders_too. task-56 doesn't touch that file, so this is a flake that was already there. Likely cause: TestDirectory (workspace.rs:1678, and its copy in shell.rs:452) names its root only from pid + SystemTime nanos. On macOS the clock is coarse, so two tests running in parallel can get the same directory: Granted::new's fs::create_dir fails, or one test's Drop deletes the other's files. Do this: add a process-wide AtomicU64 counter to both TestDirectory names (or use a fresh tempdir per test), and say so in a one-line commit. Run `cargo test -p hotline-core --lib` unfiltered at least 3 times, then `make check`. Don't touch anything else.
+- 2026-10-17T07:21:34.137Z: Landed on release/0.40.0

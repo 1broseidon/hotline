@@ -1,8 +1,6 @@
 ---
 id: task-98
 title: "Core + app: a desktop pairs with a server as relay, keeps it as a relay not a desk, and can move its own owner grant to relay"
-column: review
-position: 7
 priority: high
 tags:
   - relay
@@ -37,7 +35,7 @@ contract:
     deliveredAt: "2026-10-17T08:50:03.157Z"
     duration: 1182
 createdAt: "2026-10-17T07:46:27.380Z"
-updatedAt: "2026-10-17T08:50:11.344Z"
+updatedAt: "2026-10-17T08:52:23.809Z"
 dispatch:
   agent: claude
   model: opus
@@ -53,6 +51,7 @@ dispatch:
     ended: "2026-10-17T08:50:11.344Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T08:52:23.809Z"
 ---
 
 ## Description
@@ -70,3 +69,4 @@ Tests through the real handler: a desktop pairs as relay and stands in, a phone 
 
 ## Log
 - 2026-10-17T08:50:02.832Z: [claude] Done on dispatch/task-98 (4d182ce0); make check green. CORE: client::pair (free fn, the shell's) returns Paired::{Desk,Relay}; Client::pair is desk-only and Client::pair_relay is relay-only, each refusing the wrong role before spending the invitation. PairedRelay {deskId,name,url,deskKey,public?,serves} (ts-exported). ROLE_REFUSED is now OpenError::NotPermitted, never Revoked. The desktop stands in on desks.json + relays.json (relay.rs stand_ins), so remote.relay accepts either; links still use desks.json only. Wire: `remote.relays {}` → PairedRelay[] (desktop's own core reads relays.json); `remote.become_relay {}`: owner seat with a phone only (companion FORBIDDEN, local desk refused). Remote::become_relay moves the caller's own grant (id from handshake, params ignored) grants→relayGrants keeping id/key/name/pairedAt, drops push, cancels the device token and arms a fresh one; refused unless the server runs a relay. Client::become_relay(desk) reads the hello's serves, sends it, and if the cut sessions eat the answer, confirms by /v2 answering NotPermitted. SHELL (desks.rs): relays.json beside desks.json, shell is the only writer of both; the relay-guard is deleted, a relay link/ssh payload is kept as a relay (no bridge, not listed); re-pairing moves a server between lists; Host::open drops a desk also in relays.json (a move interrupted between saves; relays saved first). Tauri: desk_move_to_relay(deskId)→PairedRelay, desk_decline_relay(deskId) (PairedDesk.relayDeclined, shown on the desk list entry), relay_forget(deskId); native.ts wraps them as moveDeskToRelay/declineRelay/forgetRelay; desk_pair_link still answers the id string for either kind. FOR TASK-93: offer the move only when the desk's hello serves includes "relay" and its teammates are unused and !relayDeclined; the Relay picker should list useDesks() remote + wire remote.relays. LEFT: a relay's `serves` is what pairing/the move said; the ready frame's serves is not written back (the core doesn't write relays.json). relay_forget does not clear the core's saved remote.relay choice; status then says the computer no longer pairs with it. The mutating commands are Tauri commands in native.ts, not wire commands, because they change the shell's records. Docs: wire.md rows, security.md matrix row + enforcement, the ADR now says relays.json.
+- 2026-10-17T08:52:22.512Z: Landed on release/0.40.0

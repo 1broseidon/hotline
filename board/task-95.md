@@ -11,7 +11,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:03.487Z"
 dependsOn:
   - task-99
-updatedAt: "2026-10-17T07:47:18.583Z"
+updatedAt: "2026-10-17T07:47:18.837Z"
 relatedFiles:
   - docs-site/src/content/docs/server/relay.md
   - docs-site/src/content/docs/server/index.md
@@ -21,6 +21,16 @@ relatedFiles:
   - docs/serve.md
   - docs/security.md
   - CHANGELOG.md
+contract:
+  status: ready
+  validation:
+    commands:
+      - test -f docs-site/src/content/docs/server/relay.md
+      - grep -q -- '--capabilities relay' packaging/*.service
+      - cd docs-site && bun install --frozen-lockfile && bun run build
+      - grep -qi 'relay' CHANGELOG.md
+  metrics:
+    readyAt: "2026-10-17T07:47:18.837Z"
 ---
 
 ## Description

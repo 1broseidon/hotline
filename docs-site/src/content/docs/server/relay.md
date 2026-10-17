@@ -10,7 +10,7 @@ the phone trusts only the desktop's key, so the relay can't read or change
 anything that crosses it, only drop it.
 
 Any [Hotline server](/docs/server/) relays. If all you want is the relay,
-serve it as one: `hotline serve --capabilities relay` runs no room, no
+serve it as one: a relay-only server (`--capabilities relay`) runs no room, no
 teammates, no models and no provider keys, so it fits on a Raspberry Pi,
 and a desktop paired with it may only stand in there. A stolen desktop key
 can't run anything on it, or read anything.
@@ -81,7 +81,7 @@ folder; nothing of a room is created there.
 On the relay:
 
 ```sh
-hotline pair --link
+sudo -u hotline HOTLINE_DATA_DIR=/var/lib/hotline/room hotline pair --link
 ```
 
 On a relay, every invitation is a relay invitation, for a desktop that
@@ -105,8 +105,7 @@ relay, run `hotline pair --relay --link` instead.
 ## Choose it
 
 On the desktop, turn on **Remote access** in **Settings → Remote** and choose
-the relay under **Relay** (relays paired only as relays are marked **Relay
-only**). The row then says **Phones also reach this desk through *name*.**
+the relay under **Relay** (relays paired only as relays are marked **Relay**). The row then says **Phones also reach this desk through *name*.**
 
 Phones paired after that get the relay in their QR code. Phones paired
 before pick it up the next time they connect to the desktop directly. A

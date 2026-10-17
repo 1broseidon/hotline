@@ -1237,9 +1237,15 @@ desk window would show — `idle`, `working`, `waiting` (on the person) or
 costs nothing beyond a tape's tail and never wakes or starts anyone. A
 working colleague's `activity` names the tool still running, and
 `workingOn` says what for: the open chapter's title once a resume has given
-it one, its goal until then, and when it last spoke. None of it is
+it one, its goal until then, and when it last spoke. Beside that is who
+the colleague is and what it can do, so a teammate can find the one that
+has what it needs: its goal, the agent and model it runs, and its
+capabilities as switches, words and names (`mcp/server.rs` `profile`).
+Reach and direct collaboration read `whole machine` and `directly` only for
+a Hotline Agent, because that is where they mean anything. None of it is
 conversation: never a message's text, never what anyone said, never a
-working path or tool inventory, and never the caller. A teammate can check
+working path, a server's address or login, or a tool inventory, and never
+the caller. A teammate can check
 this before `message_teammate` to know whether a colleague is mid-turn. The
 caller may be mid-turn on its own tape while the exchange runs: nothing
 touches the caller's session until the answer is delivered.

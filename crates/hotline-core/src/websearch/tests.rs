@@ -10,6 +10,28 @@ use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+impl Request {
+    /// A plain query at a depth, with no language or window.
+    fn plain(query: &str, depth: usize) -> Self {
+        Self {
+            query: query.to_string(),
+            depth,
+            language: None,
+            window: None,
+            today: chrono::Utc::now().date_naive(),
+        }
+    }
+}
+
+impl Search {
+    /// Tighter bounds, so a test of the timeouts does not take seconds.
+    fn with_bounds(mut self, timeout: Duration, budget: Duration) -> Self {
+        self.timeout = timeout;
+        self.budget = budget;
+        self
+    }
+}
+
 /// What one mock request looked like.
 pub(crate) struct Seen {
     pub(crate) path: String,

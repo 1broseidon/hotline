@@ -36,10 +36,11 @@ Docker or Podman is needed only for teammates with a computer.
 
 The desk finds a harness's CLI (`claude`, `codex`, `gemini` and the rest) on
 its own `PATH`, as its own user, and a harness signs in with files in that
-user's home (`~/.claude.json`, `~/.codex/auth.json`). The unit runs the desk
-as `hotline`, with `HOME=/var/lib/hotline`, so a CLI you installed and signed
-in to as yourself is invisible to it: the teammate list shows the row as not
-available.
+user's home (`~/.claude.json`, `~/.codex/auth.json`). The installer picks
+that account (below); `systemctl show -p User --value hotline` names it. A
+desk on the `hotline` service account, with `HOME=/var/lib/hotline`, cannot
+see a CLI you installed and signed in to as yourself: the teammate list shows
+the row as not available.
 
 The row says why. When the CLI is installed for another user on this machine:
 
@@ -439,6 +440,25 @@ echo '{}' | hotline wire providers.list
 It is an escape hatch for what the phone cannot do yet, not the way to run
 the desk.
 
+`hotline help` prints every command and its flags.
+
+## Update
+
+```sh
+hotline update --check                   # the installed and available versions
+sudo hotline update                      # the latest server release
+sudo hotline update --version X.Y.Z      # a chosen one, a downgrade included
+```
+
+`hotline update` (`crates/hotline-cli/src/update.rs`) is only for the
+script-installed binary at `/usr/local/bin/hotline`. It downloads the server
+archive for this architecture, checks its SHA-256 against the release's
+checksums, and swaps the binary with an atomic rename; no unit or room is
+written. A running unit is restarted and checked, and a failed start restores
+the previous binary. Rollback restores the executable, not what a newer
+release may have changed in the room, so back the room up first. Without root
+it prints the `sudo` command to run; `--check` never needs root.
+
 ## The secret store
 
 `--store` is required. `file` keeps secrets as owner-only files under
@@ -448,7 +468,7 @@ refuses a desk started on the other one, rather than opening on an empty
 store beside keys it cannot reach. Moving a room between stores means
 entering its keys and pairing its phones again.
 
-The files are protected by the `hotline` account and the disk, nothing
+The files are protected by the account the desk runs as and the disk, nothing
 more: encrypt the volume, and its snapshots and backups
 (`docs/security.md`, "A served desk's secrets are files").
 
@@ -492,8 +512,13 @@ is dropped. None of this is exactly-once. A desk killed outright
 ## Desktop client library
 
 `hotline_core::remote::client::pair(&payload, device_name)` uses the OS secret
-store and returns `PairedDesk { desk_id, name, url, desk_key, relay }`. Tests and shells
-with an explicitly chosen store use `Client::new(store).pair(...)`. Keep the
+store and returns `Result<Paired, String>`: `Paired::Desk(PairedDesk)` for a
+desk's invitation, `Paired::Relay(PairedRelay)` for a relay's. A `PairedDesk`
+is `{ desk_id, name, url, desk_key, relay, public, relay_declined }`; a
+`PairedRelay` has no `relay` and no `relay_declined`. Tests and shells with an
+explicitly chosen store use `Client::new(store).pair(...)`, which returns a
+`PairedDesk` and refuses a relay's invitation, or `.pair_relay(...)` for the
+reverse. Keep the
 registry entry; it contains no private key or invitation secret.
 
 `remote::bridge::Bridge::start(&desk).await` returns a bridge whose public

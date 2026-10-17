@@ -12,7 +12,7 @@ export const DOCK_MAX = 560;
 export const DOCK_STEP = 16;
 export const DOCK_KEY = "hotline.dock.size";
 /** The narrowest the conversation is left when the pane stands beside it. */
-export const CONVERSATION_MIN = 396;
+const CONVERSATION_MIN = 396;
 
 export const clampDock = (width: number): number => Math.round(Math.min(DOCK_MAX, Math.max(DOCK_MIN, width)));
 

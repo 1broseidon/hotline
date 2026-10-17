@@ -11,9 +11,11 @@ systemctl status hotline
 journalctl -u hotline
 ```
 
-`hotline status` asks the running desk for its version, uptime, store,
-teammates and connected models. When the service is down it says so and exits
-with status 3.
+`hotline status` asks the running desk for its version, uptime, room folder,
+store, what it runs, teammates and connected models. A
+[relay-only server](/docs/server/relay/) has no teammates or models, and
+reports the address it answers on and how many devices are paired instead.
+When the service is down it says so and exits with status 3.
 
 ## Stop and restart
 
@@ -48,11 +50,20 @@ Everything is under the room, `/var/lib/hotline/room`:
 | `store.json` | Which secret store the room uses |
 | `desk.lock` | The room's lock. Never delete it while the desk runs |
 | `door.json` | How the terminal commands reach the running desk; removed on a clean stop |
+| `serve.json` | What the server runs; absent means agents and relay |
+| `pending.json` | What a restart kept for the next start; absent otherwise |
 
 Back up the whole directory with the desk stopped, and encrypt the backup:
 it holds your keys.
 
 ## Update
 
-Replace `/usr/local/bin/hotline` with the new release's binary and
-`systemctl restart hotline`. Paired phones stay paired.
+```sh
+sudo hotline update
+```
+
+It installs the latest server release, restarts the desk and checks that it
+comes back, and puts the old binary back if it doesn't. `hotline update --check`
+only reports the installed and available versions. Paired phones stay paired.
+See [Update a server](/docs/server/install/#update-a-server) for choosing a
+release and what a rollback restores.

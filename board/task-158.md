@@ -9,6 +9,14 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:05.837Z"
+relatedFiles:
+  - ui/src/storage.ts
+  - ui/src/App.tsx
+  - ui/src/components/Teammate.tsx
+  - ui/tests/dom.ts
+  - ui/tests/
+  - ui/tsconfig.json
+updatedAt: "2026-10-17T22:47:19.481Z"
 ---
 
 ## Description

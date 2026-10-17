@@ -13,7 +13,15 @@ relatedFiles:
   - docs/threads.md
   - docs/sessions.md
   - docs/adr/0005-front-is-a-full-agent.md
-updatedAt: "2026-10-17T22:47:20.842Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - grep -q 'Accepted (0.39)' docs/adr/0005-front-is-a-full-agent.md
+      - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
 ---
 
 ## Description

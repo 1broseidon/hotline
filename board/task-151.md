@@ -14,7 +14,19 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/wire/
   - crates/hotline-core/src/remote/bridge.rs
-updatedAt: "2026-10-17T22:47:00.126Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - "! git grep -n 'allow(clippy::result_large_err' -- crates"
+      - test $(git grep -n 'expect(clippy::result_large_err' -- crates | wc -l) -ge 13
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-150
 ---
 
 ## Description

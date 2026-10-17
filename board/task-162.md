@@ -13,7 +13,15 @@ relatedFiles:
   - docs-site/src/content/docs/server/
   - docs-site/src/content/docs/phone/pair.md
   - docs/serve.md
-updatedAt: "2026-10-17T22:47:20.561Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - grep -q 'hotline update' docs/serve.md
+      - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
 ---
 
 ## Description

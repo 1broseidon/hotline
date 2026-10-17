@@ -15,7 +15,19 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp/live.rs
   - crates/hotline-core/src/driver/acp/translate.rs
   - crates/hotline-core/src/driver/acp/session.rs
-updatedAt: "2026-10-17T22:46:56.306Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - test $(wc -l < crates/hotline-core/src/driver/acp.rs) -le 1500
+      - git diff --exit-code $(git merge-base HEAD release/0.40.0) -- ui/src/generated/contract.ts
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-135
 ---
 
 ## Description

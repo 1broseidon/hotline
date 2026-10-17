@@ -16,7 +16,19 @@ relatedFiles:
   - crates/hotline-core/src/computer.rs
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/driver/rig/turn.rs
-updatedAt: "2026-10-17T22:46:57.381Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - for f in session/peers.rs tools/workspace.rs session/sides.rs computer.rs driver/rig.rs driver/rig/turn.rs; do test $(wc -l < crates/hotline-core/src/$f) -le 1500 || exit 1; done
+      - git diff --exit-code $(git merge-base HEAD release/0.40.0) -- ui/src/generated/contract.ts
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-128
 ---
 
 ## Description

@@ -15,7 +15,19 @@ relatedFiles:
   - docs/design.md
   - docs/development.md
   - AGENTS.md
-updatedAt: "2026-10-17T22:47:21.105Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - grep -q HOTLINE_EXTRA_DESKS docs/development.md
+      - grep -q HOTLINE_DEV_SIGN_IDENTITY docs/development.md
+      - make precheck
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-121
+  - task-126
 ---
 
 ## Description

@@ -14,7 +14,19 @@ relatedFiles:
   - ui/package.json
   - ui/bun.lock
   - Makefile
-updatedAt: "2026-10-17T22:47:22.169Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - test -f ui/biome.json
+      - grep -q biome Makefile ui/package.json
+      - make ui-check
+      - make precheck
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-159
 ---
 
 ## Description

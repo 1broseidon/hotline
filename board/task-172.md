@@ -19,6 +19,18 @@ relatedFiles:
   - ui/src/components/settings/
 parentId: epic-13
 createdAt: "2026-10-17T22:45:35.818Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - test -d ui/src/components/settings
+      - make ui-check
+      - make precheck
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+dependsOn:
+  - task-122
 ---
 
 ## Description

@@ -12,7 +12,17 @@ createdAt: "2026-10-17T22:41:04.277Z"
 relatedFiles:
   - crates/hotline-core/src/websearch.rs
   - crates/hotline-core/src/websearch/
-updatedAt: "2026-10-17T22:47:18.665Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-126
 ---
 
 ## Description

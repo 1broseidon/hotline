@@ -15,7 +15,19 @@ relatedFiles:
   - crates/hotline-core/src/voice/input.rs
   - crates/hotline-core/src/voice/turn.rs
   - crates/hotline-core/src/voice/synthesis.rs
-updatedAt: "2026-10-17T22:46:56.577Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - test $(wc -l < crates/hotline-core/src/voice.rs) -le 1500
+      - git diff --exit-code $(git merge-base HEAD release/0.40.0) -- ui/src/generated/contract.ts
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-128
 ---
 
 ## Description

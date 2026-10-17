@@ -14,7 +14,22 @@ relatedFiles:
   - crates/hotline-core/Cargo.toml
   - crates/hotline-app/Cargo.toml
   - crates/hotline-cli/Cargo.toml
-updatedAt: "2026-10-17T22:47:21.905Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - grep -q '^\[workspace.lints' Cargo.toml
+      - grep -q 'rust-version' Cargo.toml
+      - for c in core app cli; do grep -q '^\[lints\]' crates/hotline-$c/Cargo.toml || exit 1; done
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-160
+  - task-156
+  - task-175
 ---
 
 ## Description

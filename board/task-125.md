@@ -14,7 +14,18 @@ relatedFiles:
   - crates/hotline-core/Cargo.toml
   - crates/hotline-app/Cargo.toml
   - crates/hotline-cli/Cargo.toml
-updatedAt: "2026-10-17T22:46:31.960Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - cargo metadata --no-deps --format-version 1 | python3 -c "import json,sys; sys.exit(0 if all(p['license'] for p in json.load(sys.stdin)['packages']) else 1)"
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-123
 ---
 
 ## Description

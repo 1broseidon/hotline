@@ -19,6 +19,18 @@ relatedFiles:
   - ui/src/transcriptFolds.ts
 parentId: epic-13
 createdAt: "2026-10-17T22:45:36.110Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - test -f ui/src/transcriptFolds.ts
+      - make ui-check
+      - make precheck
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+dependsOn:
+  - task-122
 ---
 
 ## Description

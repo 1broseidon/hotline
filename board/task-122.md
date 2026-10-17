@@ -17,7 +17,16 @@ relatedFiles:
   - ui/src/components/Rail.tsx
   - ui/src/components/Skills.tsx
   - ui/src/wire.ts
-updatedAt: "2026-10-17T22:46:31.146Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - "! git grep -nE '\\b(BookIcon|currentCall|voiceOf)\\b' -- ui/src"
+      - make ui-check
+      - make precheck
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
 ---
 
 ## Description

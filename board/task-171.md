@@ -13,7 +13,18 @@ relatedFiles:
   - deny.toml
   - Makefile
   - THIRD-PARTY-NOTICES.md
-updatedAt: "2026-10-17T22:47:22.972Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - grep -q '^\[licenses\]' deny.toml
+      - make check
+      - make precheck
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-170
 ---
 
 ## Description

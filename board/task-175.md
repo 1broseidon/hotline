@@ -20,7 +20,19 @@ relatedFiles:
   - crates/hotline-cli/tests/
 parentId: epic-13
 createdAt: "2026-10-17T22:45:36.667Z"
-updatedAt: "2026-10-17T22:47:23.230Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - git grep -q 'fn until' -- crates/hotline-core/tests/common
+      - make precheck
+      - make check
+      - make verify
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-154
 ---
 
 ## Description

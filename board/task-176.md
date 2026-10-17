@@ -27,6 +27,23 @@ relatedFiles:
   - deny.toml
 parentId: epic-13
 createdAt: "2026-10-17T22:45:36.945Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make precheck-full
+      - make check
+      - make verify
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+dependsOn:
+  - task-161
+  - task-162
+  - task-163
+  - task-166
+  - task-167
+  - task-171
 ---
 
 ## Description

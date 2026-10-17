@@ -15,7 +15,18 @@ relatedFiles:
   - Cargo.lock
   - crates/hotline-core/src/remote/tests/viewer_token.rs
   - crates/hotline-core/src/voice/speech/xai/tests.rs
-updatedAt: "2026-10-17T22:47:00.402Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - grep -q 'test-util' crates/hotline-core/Cargo.toml
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-146
 ---
 
 ## Description

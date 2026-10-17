@@ -11,7 +11,17 @@ parentId: epic-13
 createdAt: "2026-10-17T22:41:07.403Z"
 relatedFiles:
   - docs/wire.md
-updatedAt: "2026-10-17T22:47:20.293Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-138
+  - task-139
 ---
 
 ## Description

@@ -9,11 +9,28 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:03.758Z"
-updatedAt: "2026-10-17T22:47:18.398Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
 relatedFiles:
   - crates/hotline-core/tests/common/mod.rs
   - crates/hotline-core/tests/
   - crates/hotline-cli/tests/
+contract:
+  status: ready
+  validation:
+    commands:
+      - test -d crates/hotline-cli/tests/common
+      - make precheck
+      - make check
+      - make verify
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-132
+  - task-133
+  - task-141
+  - task-147
+  - task-152
+  - task-153
 ---
 
 ## Description

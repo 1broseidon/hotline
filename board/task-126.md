@@ -26,7 +26,21 @@ relatedFiles:
   - crates/hotline-core/src/voice/speech/mod.rs
   - crates/hotline-core/src/websearch/mod.rs
   - crates/hotline-core/src/wire/mod.rs
-updatedAt: "2026-10-17T22:46:32.232Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - "! git ls-files crates | grep -E '/src/(.*/)?mod\\.rs$'"
+      - git diff --exit-code $(git merge-base HEAD release/0.40.0) -- ui/src/generated/contract.ts
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-113
+  - task-121
+  - task-125
 ---
 
 ## Description

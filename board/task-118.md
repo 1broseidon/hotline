@@ -12,7 +12,16 @@ createdAt: "2026-10-17T22:40:45.054Z"
 relatedFiles:
   - ui/bun.lock
   - ui/package.json
-updatedAt: "2026-10-17T22:46:30.066Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - "! grep -qE 'source-map-js@1\\.([01]\\.[0-9]+|2\\.[01])\"' ui/bun.lock"
+      - make ui-check
+      - make precheck
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
 ---
 
 ## Description

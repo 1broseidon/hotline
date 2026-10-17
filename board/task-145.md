@@ -15,7 +15,18 @@ relatedFiles:
   - crates/hotline-core/src/remote/relay.rs
   - crates/hotline-core/src/remote/bridge.rs
   - crates/hotline-app/src/transfer.rs
-updatedAt: "2026-10-17T22:46:58.467Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make precheck
+      - make check
+      - make verify
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-128
 ---
 
 ## Description

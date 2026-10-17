@@ -14,7 +14,18 @@ relatedFiles:
   - crates/hotline-cli/src/serve.rs
   - crates/hotline-core/src/door.rs
   - crates/hotline-core/src/desk.rs
-updatedAt: "2026-10-17T22:46:57.924Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make precheck
+      - make check
+      - make verify
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-126
 ---
 
 ## Description

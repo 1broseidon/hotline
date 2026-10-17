@@ -13,7 +13,22 @@ relatedFiles:
   - deny.toml
   - Makefile
   - .github/workflows/ci.yml
-updatedAt: "2026-10-17T22:47:22.710Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - test -f deny.toml
+      - grep -q 'deny' Makefile
+      - grep -q 'machete' Makefile
+      - grep -q 'bun audit' Makefile
+      - make check
+      - make precheck
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-169
+  - task-124
 ---
 
 ## Description

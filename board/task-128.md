@@ -16,7 +16,19 @@ relatedFiles:
   - crates/hotline-core/src/linked.rs
   - crates/hotline-core/src/imagegen.rs
   - crates/hotline-core/src/spending.rs
-updatedAt: "2026-10-17T22:46:32.774Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - "! grep -n 'crate::' crates/hotline-core/src/contract.rs | grep -v 'crate::contract'"
+      - git diff --exit-code $(git merge-base HEAD release/0.40.0) -- ui/src/generated/contract.ts
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-127
 ---
 
 ## Description

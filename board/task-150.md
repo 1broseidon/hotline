@@ -17,7 +17,19 @@ relatedFiles:
   - crates/hotline-core/src/session/exchanges.rs
   - crates/hotline-core/src/remote.rs
   - crates/hotline-core/src/driver/rig/turn.rs
-updatedAt: "2026-10-17T22:46:59.846Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - "! git grep -n 'too_many_arguments' -- crates"
+      - make precheck
+      - make check
+      - make verify
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-149
 ---
 
 ## Description

@@ -18,6 +18,17 @@ relatedFiles:
   - ui/src/components/Teammate.tsx
 parentId: epic-13
 createdAt: "2026-10-17T22:45:36.391Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make ui-check
+      - make precheck
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+dependsOn:
+  - task-122
 ---
 
 ## Description

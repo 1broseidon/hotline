@@ -12,7 +12,30 @@ createdAt: "2026-10-17T22:41:09.515Z"
 relatedFiles:
   - docs/development.md
   - docs/design.md
-updatedAt: "2026-10-17T22:47:21.368Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - "! grep -n 'defined once in contract.rs' docs/development.md docs/design.md"
+      - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-164
+  - task-129
+  - task-131
+  - task-132
+  - task-133
+  - task-136
+  - task-138
+  - task-139
+  - task-140
+  - task-141
+  - task-142
+  - task-172
+  - task-173
+  - task-174
 ---
 
 ## Description

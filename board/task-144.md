@@ -11,7 +11,17 @@ parentId: epic-13
 createdAt: "2026-10-17T22:40:58.554Z"
 relatedFiles:
   - crates/hotline-core/src/providers/discovery.rs
-updatedAt: "2026-10-17T22:46:58.194Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-126
 ---
 
 ## Description

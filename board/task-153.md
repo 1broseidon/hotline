@@ -16,7 +16,17 @@ relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/voice.rs
   - crates/hotline-core/src/tools/shell/macos.rs
-updatedAt: "2026-10-17T22:47:18.127Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-141
 ---
 
 ## Description

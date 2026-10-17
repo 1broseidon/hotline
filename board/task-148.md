@@ -15,7 +15,33 @@ relatedFiles:
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
   - crates/hotline-cli/tests/
-updatedAt: "2026-10-17T22:46:59.308Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-129
+  - task-131
+  - task-132
+  - task-133
+  - task-136
+  - task-138
+  - task-139
+  - task-140
+  - task-141
+  - task-143
+  - task-144
+  - task-145
+  - task-147
+  - task-152
+  - task-153
+  - task-155
+  - task-175
 ---
 
 ## Description

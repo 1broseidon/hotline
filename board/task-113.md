@@ -9,11 +9,22 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:42.496Z"
-updatedAt: "2026-10-17T22:46:28.713Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
 relatedFiles:
   - docs/security.md
   - crates/hotline-core/src/session/tests.rs
   - crates/hotline-core/src/voice/mod.rs
+contract:
+  status: ready
+  validation:
+    commands:
+      - "! grep -nE 'chatgpt_images_status_requires_owner_selection_without_checking_entitlement|a_computer_from_before_secrets_is_named_only_when_something_was_granted|only_the_reply_to_a_voice_handoff_gets_a_summarised_push|teammate_discovery_never_derives_public_fields_from_private_instructions' docs/security.md"
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-112
 ---
 
 ## Description

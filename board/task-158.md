@@ -16,7 +16,21 @@ relatedFiles:
   - ui/tests/dom.ts
   - ui/tests/
   - ui/tsconfig.json
-updatedAt: "2026-10-17T22:47:19.481Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - grep -q noImplicitReturns ui/tsconfig.json
+      - grep -q noPropertyAccessFromIndexSignature ui/tsconfig.json
+      - test -f ui/tests/dom.ts
+      - test -f ui/src/storage.ts
+      - make ui-check
+      - make precheck
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-157
 ---
 
 ## Description

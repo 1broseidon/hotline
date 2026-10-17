@@ -17,7 +17,19 @@ relatedFiles:
   - ui/src/components/Secrets.tsx
   - ui/src/components/ErrorCard.tsx
   - ui/src/wire.ts
-updatedAt: "2026-10-17T22:47:18.936Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make ui-check
+      - make precheck
+      - make check
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-126
+  - task-157
 ---
 
 ## Description

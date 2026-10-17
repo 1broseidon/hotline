@@ -12,7 +12,17 @@ createdAt: "2026-10-17T22:41:10.035Z"
 relatedFiles:
   - docs/standards.md
   - AGENTS.md
-updatedAt: "2026-10-17T22:47:21.633Z"
+updatedAt: "2026-10-17T22:48:38.570Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - test -s docs/standards.md
+      - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
+  metrics:
+    readyAt: "2026-10-17T22:48:38.572Z"
+dependsOn:
+  - task-165
 ---
 
 ## Description

@@ -11,7 +11,7 @@ relatedFiles:
   - docs/threads.md
   - docs/sessions.md
   - docs/adr/0005-front-is-a-full-agent.md
-updatedAt: "2026-10-17T23:35:10.078Z"
+updatedAt: "2026-10-17T23:35:12.311Z"
 contract:
   status: delivered
   validation:
@@ -36,6 +36,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T23:19:05.081Z"
+    ended: "2026-10-17T23:35:12.311Z"
+    outcome: done
 assignee: claude
 completedAt: "2026-10-17T23:35:10.078Z"
 ---

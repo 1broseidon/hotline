@@ -54,6 +54,7 @@ file, and if a rule fights the task in front of you, say so before breaking it.
 make dev        # the Tauri shell, Vite with hot reload, on .hotline-dev
 make check      # cargo fmt --check, clippy -D warnings, cargo test, the UI's typecheck
 make verify     # the headless harnesses, driving the real core over the wire
+make precheck   # what GitHub's runners would fail: Windows, each UI test alone, the workflows
 ```
 
 ## Verifying
@@ -62,7 +63,10 @@ The house idiom is a headless harness in `crates/hotline-core/tests/` that
 starts the real core and drives it over the wire (`make verify`). Find the one covering your area and extend it;
 new behaviour ships with one. Unit tests live beside the code. `make check`
 before calling work done; the smallest proof that the change works, not
-everything.
+everything. `make precheck` before pushing any branch, and as the check a
+hand-off lands on; `make precheck-full` (Linux in a container, a runner's
+bare PATH, a shuffled test order) before a release pull request. Every
+0.39.0 CI failure passed `make check` on a Mac; precheck is what sees them.
 
 ## Releases and taste
 

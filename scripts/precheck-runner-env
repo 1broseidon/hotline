@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Runs one test binary in an environment like a GitHub runner's: the system
+# PATH and nothing this Mac's shell added to it (mise, uv, Homebrew's python
+# ahead of /usr/bin). `scripts/precheck bare-path` makes cargo use this as its
+# test runner, so only the tests see the bare environment and cargo itself
+# compiles nothing new for it.
+#
+# Cargo's own variables stay: a test finds its helper binaries through
+# CARGO_BIN_EXE_*, and the rustc toolchain stays reachable for tests that
+# build something.
+set -euo pipefail
+
+kept=()
+for name in $(compgen -e); do
+  case "$name" in
+    CARGO* | RUST* | HOME | USER | LOGNAME | TMPDIR | LANG | SHELL) kept+=("$name=${!name}") ;;
+  esac
+done
+
+exec env -i "${kept[@]}" PATH="$PRECHECK_TOOLCHAIN_BIN:/usr/bin:/bin:/usr/sbin:/sbin" "$@"

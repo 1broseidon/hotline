@@ -2,7 +2,17 @@
 # nothing done in it can reach real data.
 dev: export HOTLINE_DATA_DIR := $(CURDIR)/.hotline-dev
 
-.PHONY: check ui-check dev build verify icons tray-icons speech-engine
+.PHONY: check ui-check dev build verify icons tray-icons speech-engine precheck precheck-full
+
+# What GitHub's runners would fail, caught on this Mac before a push: Windows
+# by cross-compiling, each window test file alone, the workflows linted.
+# The full run adds Linux in a container, a runner's bare PATH and a shuffled
+# test order. docs/development.md says what each leg catches.
+precheck:
+	scripts/precheck
+
+precheck-full:
+	scripts/precheck --full
 
 check: ui-check speech-engine
 	python3 -m unittest discover -s scripts -p 'test_*.py'

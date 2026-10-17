@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# The checks GitHub's runners would fail, run on this Mac before a push.
+#
+#   scripts/precheck                 the fast legs (make precheck)
+#   scripts/precheck --full          those, then Linux, a bare PATH and a shuffle
+#   scripts/precheck windows ui      only the legs named
+#
+# Every 0.39.0 CI failure passed `make check` here: dead code only Windows
+# compiles, a window test that leaned on another file's `window`, a tool the
+# runner's PATH found differently. Each leg below exists to catch one kind of
+# that, and docs/development.md says which and how long it takes.
+#
+# A leg's output goes to target/precheck/<leg>.log; the terminal gets one line
+# per leg, and for a failure the log's tail and the command that reruns it.
+# Every leg runs even after one fails, so one pass shows everything. A tool a
+# leg needs and this Mac lacks is installed with brew, cargo or rustup, and
+# said so first. Running it twice changes nothing the first run did not.
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT" || exit 1
+
+FAST_LEGS=(fmt lockfile actionlint contract clippy windows ui)
+FULL_LEGS=(linux bare-path shuffle)
+LOGS="$ROOT/target/precheck"
+HOST="$(rustc -vV | sed -n 's/^host: //p')"
+WINDOWS=x86_64-pc-windows-msvc
+
+say() { printf '%s\n' "$*" >&3; }
+
+need_brew() {
+  local tool="$1" formula="${2:-$1}"
+  if ! command -v "$tool" >/dev/null 2>&1 && ! brew list --formula "$formula" >/dev/null 2>&1; then
+    say "precheck: installing $formula with brew"
+    brew install "$formula"
+  fi
+}
+
+need_cargo_tool() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    say "precheck: installing $1 with cargo install"
+    cargo install --locked "$1"
+  fi
+}
+
+need_rust_target() {
+  if ! rustup target list --installed | grep -qx "$1"; then
+    say "precheck: adding the $1 target with rustup"
+    rustup target add "$1"
+  fi
+}
+
+# --- The fast legs --------------------------------------------------------
+
+leg_fmt() {
+  cargo fmt --all --check
+}
+
+# CI builds with --locked, which fails when Cargo.lock is not what the
+# manifests resolve to; bun's --frozen-lockfile is the same for the window.
+leg_lockfile() {
+  cargo metadata --locked --format-version 1 >/dev/null &&
+    (cd ui && bun install --frozen-lockfile)
+}
+
+leg_actionlint() {
+  need_brew actionlint && need_brew shellcheck && actionlint
+}
+
+# ts-rs writes contract.ts from the export tests, merging into what is there,
+# so a stale file only shows when it is written from nothing. This writes it
+# from nothing with every export test and compares; the file you have is put
+# back either way.
+leg_contract() {
+  local file=ui/src/generated/contract.ts kept
+  kept="$(mktemp)"
+  cp "$file" "$kept"
+  rm "$file"
+  cargo test -p hotline-core --lib --locked export_bindings
+  local tests=$?
+  local same=1
+  if [ "$tests" -eq 0 ]; then
+    if diff -u "$kept" "$file"; then same=0; else
+      echo "precheck: $file is not what the Rust types generate; run cargo test -p hotline-core, unfiltered, and commit the result"
+    fi
+  fi
+  cp "$kept" "$file"
+  rm "$kept"
+  [ "$tests" -eq 0 ] && [ "$same" -eq 0 ]
+}
+
+leg_clippy() {
+  cargo clippy --workspace --all-targets --locked -- -D warnings
+}
+
+# Windows-only code, and code only Unix uses that Windows then sees as dead,
+# compiled for x86_64-pc-windows-msvc with clang-cl and the MSVC headers
+# cargo-xwin downloads (once, into ~/Library/Caches/cargo-xwin). The C in
+# ring, aws-lc-sys and libopus builds too, so the whole workspace checks.
+leg_windows() {
+  need_brew clang-cl llvm && need_brew lld-link lld && need_brew ninja &&
+    need_cargo_tool cargo-xwin && need_rust_target "$WINDOWS" &&
+    python3 scripts/fetch-speech-engine --target "$WINDOWS" &&
+    PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH" \
+      cargo xwin clippy --target "$WINDOWS" --workspace --all-targets --locked -- -D warnings
+}
+
+# Bun runs every test file in one process, so a global one file leaves behind
+# (a `window`, a mock) is there for the files after it, in whatever order
+# this machine lists them. Each file alone shows what it needs and does not
+# set up itself; the full run follows, as CI does it.
+leg_ui() {
+  need_brew bun oven-sh/bun/bun || return 1
+  cd ui || return 1
+  bun install --frozen-lockfile && bun run typecheck || return 1
+  local failed=()
+  for file in tests/*.test.*; do
+    echo "== bun test ./$file"
+    bun test "./$file" || failed+=("$file")
+  done
+  if [ "${#failed[@]}" -gt 0 ]; then
+    echo "precheck: these fail run on their own:"
+    printf '  cd ui && bun test ./%s\n' "${failed[@]}"
+  fi
+  echo "== bun run test"
+  bun run test && [ "${#failed[@]}" -eq 0 ]
+}
+
+# --- The full legs ---------------------------------------------------------
+
+# Linux code, compiled and tested in Ubuntu 24.04 under Apple's `container`.
+# The checkout is mounted read-only; the build writes only to volumes, which
+# keep it warm between runs: the target directory, cargo's registry, and the
+# three gitignored folders tauri-build writes into the app crate itself.
+# The image is tagged by the Containerfile and this Mac's stable Rust, so
+# changing either builds a new one. It is arm64, this Mac's own: the runner is
+# x86_64, and code that differs by architecture rather than by OS is the one
+# thing this does not see.
+leg_linux() {
+  command -v container >/dev/null || { echo "precheck: Apple's container CLI is not installed (github.com/apple/container)"; return 1; }
+  if ! container system status >/dev/null 2>&1; then
+    say "precheck: starting the container system service"
+    container system start || return 1
+  fi
+  local rust image
+  rust="$(rustc +stable --version | cut -d' ' -f2)"
+  image="hotline-precheck-linux:rust-$rust-$(shasum -a 256 scripts/precheck-linux.Containerfile | cut -c1-12)"
+  if ! container image inspect "$image" >/dev/null 2>&1; then
+    say "precheck: building the Linux image $image"
+    container build --build-arg "RUST_VERSION=$rust" -t "$image" \
+      -f scripts/precheck-linux.Containerfile scripts || return 1
+  fi
+  local app=/src/crates/hotline-app
+  local mounts=(
+    "hotline-precheck-target:/target"
+    "hotline-precheck-registry:/home/runner/.cargo/registry"
+    "hotline-precheck-app-gen:$app/gen"
+    "hotline-precheck-app-permissions:$app/permissions/autogenerated"
+    "hotline-precheck-app-schemas:$app/permissions/schemas"
+  )
+  local volumes=() owned=()
+  for mount in "${mounts[@]}"; do
+    container volume inspect "${mount%%:*}" >/dev/null 2>&1 ||
+      container volume create -s 128G "${mount%%:*}" >/dev/null || return 1
+    volumes+=(-v "$mount")
+    owned+=("${mount#*:}")
+  done
+  # A mount point has to exist in the read-only checkout before it can be
+  # mounted over; a checkout that never built the app has none of these.
+  mkdir -p crates/hotline-app/gen crates/hotline-app/permissions/autogenerated crates/hotline-app/permissions/schemas
+  python3 scripts/fetch-speech-engine --target aarch64-unknown-linux-gnu || return 1
+  # The volumes mount as root; the tests run as the runner user, as on GitHub.
+  # TS_RS_EXPORT_DIR moves the generated contract off the read-only checkout.
+  # Half this Mac's memory: the VM has no swap, and with less, a dozen test
+  # binaries linking the speech engine at once get the linker killed.
+  # An init reaps what the tests kill; without one a killed child stays a
+  # zombie, and the tests that check it is gone see it alive. The container
+  # masks parts of /proc, which stops bubblewrap mounting its own; a runner
+  # masks nothing, so neither does this.
+  container run --rm --cpus "$(($(sysctl -n hw.ncpu) - 2))" \
+    --memory "$(($(sysctl -n hw.memsize) / 2 / 1024 / 1024 / 1024))G" \
+    --init --masked-path NONE --read-only-path NONE \
+    --user root --workdir /src \
+    --mount "type=bind,source=$ROOT,target=/src,readonly" \
+    "${volumes[@]}" \
+    -e CARGO_TARGET_DIR=/target -e TS_RS_EXPORT_DIR=/target/generated \
+    "$image" bash -c '
+      chown runner:runner "$@" &&
+      runuser -u runner -- bash -c "
+        set -ex
+        cargo clippy --workspace --all-targets --locked -- -D warnings
+        cargo test --workspace --locked --no-fail-fast"' chown "${owned[@]}"
+}
+
+# The integration tests with the PATH a runner has, so a test that finds a
+# tool only because this Mac's shell put it first (task-89's python3) fails
+# here. Compiling happens first with the normal PATH, so cmake and the rest
+# are found; scripts/precheck-runner-env strips the PATH for the tests only.
+leg_bare_path() {
+  local runner
+  runner="CARGO_TARGET_$(echo "$HOST" | tr 'a-z-' 'A-Z_')_RUNNER"
+  cargo test --workspace --locked --test '*' --no-run &&
+    env "$runner=$ROOT/scripts/precheck-runner-env" \
+      PRECHECK_TOOLCHAIN_BIN="$(rustc --print sysroot)/bin" \
+      cargo test --workspace --locked --test '*'
+}
+
+# Every test, in an order libtest picks at random, so a test that passes only
+# after another (a shared temp path, a global) fails. --shuffle is unstable;
+# RUSTC_BOOTSTRAP lets stable's libtest take it, and setting it in the test
+# runner rather than for cargo keeps it out of the build's fingerprint, so
+# nothing recompiles. Each binary prints its seed; `--shuffle-seed <seed>`
+# replays that order.
+leg_shuffle() {
+  local runner
+  runner="CARGO_TARGET_$(echo "$HOST" | tr 'a-z-' 'A-Z_')_RUNNER"
+  env "$runner=env RUSTC_BOOTSTRAP=1" \
+    cargo test --workspace --locked --tests -- -Z unstable-options --shuffle
+}
+
+# --- Running them ----------------------------------------------------------
+
+run_leg() {
+  local leg="$1" log="$LOGS/$1.log" started status
+  started=$(date +%s)
+  printf '%-11s ' "$leg" >&3
+  (cd "$ROOT" && "leg_${leg//-/_}") >"$log" 2>&1
+  status=$?
+  local seconds=$(($(date +%s) - started))
+  if [ "$status" -eq 0 ]; then
+    say "pass  ${seconds}s"
+  else
+    say "FAIL  ${seconds}s"
+    tail -n 30 "$log" | sed 's/^/    /' >&3
+    say "    log:   $log"
+    say "    rerun: scripts/precheck $leg"
+    FAILED+=("$leg")
+  fi
+}
+
+main() {
+  exec 3>&1
+  local legs=()
+  for arg in "$@"; do
+    case "$arg" in
+      --full) legs+=("${FAST_LEGS[@]}" "${FULL_LEGS[@]}") ;;
+      -h | --help) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; return 0 ;;
+      *)
+        if ! declare -F "leg_${arg//-/_}" >/dev/null; then
+          echo "precheck: no leg named $arg; the legs are: ${FAST_LEGS[*]} ${FULL_LEGS[*]}" >&2
+          return 2
+        fi
+        legs+=("$arg") ;;
+    esac
+  done
+  [ "${#legs[@]}" -eq 0 ] && legs=("${FAST_LEGS[@]}")
+
+  mkdir -p "$LOGS"
+  python3 scripts/fetch-speech-engine || return 1
+  FAILED=()
+  local started=$(date +%s)
+  for leg in "${legs[@]}"; do run_leg "$leg"; done
+  local seconds=$(($(date +%s) - started))
+  if [ "${#FAILED[@]}" -eq 0 ]; then
+    say "precheck: all ${#legs[@]} legs pass in ${seconds}s"
+  else
+    say "precheck: ${#FAILED[@]} of ${#legs[@]} legs failed in ${seconds}s: ${FAILED[*]}"
+    return 1
+  fi
+}
+
+main "$@"

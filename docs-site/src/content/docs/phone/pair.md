@@ -16,7 +16,7 @@ top of the team list and choose **Add a desktop**.
    link on your phone.
 
 The phone needs to reach the computer: the same Wi-Fi, your VPN, or a
-server selected under **Relay**. The QR and link expire after two minutes
+server selected under **Relay** (see [Use it away from home](/docs/phone/away/)). The QR and link expire after two minutes
 and work for one phone. Press **Link a phone** again if they expire.
 **Paired phones** lists every phone, and **Revoke access** unlinks one.
 

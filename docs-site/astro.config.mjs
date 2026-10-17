@@ -62,6 +62,7 @@ export default defineConfig({
 					items: [
 						{ label: 'Hotline on your phone', slug: 'phone' },
 						{ label: 'Link a desk', slug: 'phone/pair' },
+						{ label: 'Use it away from home', slug: 'phone/away' },
 						{ label: 'Talk to your teammates', slug: 'phone/chat' },
 						{ label: 'Notifications', slug: 'phone/notifications' },
 						{ label: "A teammate's computer", slug: 'phone/computer' },

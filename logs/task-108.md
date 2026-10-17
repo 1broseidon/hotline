@@ -1,8 +1,6 @@
 ---
 id: task-108
 title: "Audit: tests (slow, flaky, duplicated) and docs drift"
-column: review
-position: 6
 priority: high
 tags:
   - audit
@@ -32,7 +30,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:53:46.910Z"
     duration: 691
-updatedAt: "2026-10-17T19:54:03.114Z"
+updatedAt: "2026-10-17T19:54:05.994Z"
 relatedFiles:
   - docs/audits/0.40/tests-and-docs.md
   - crates/hotline-core/tests
@@ -55,6 +53,7 @@ dispatch:
     ended: "2026-10-17T19:53:54.282Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T19:54:05.994Z"
 ---
 
 ## Description

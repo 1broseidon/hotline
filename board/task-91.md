@@ -10,6 +10,9 @@ tags:
   - core
 parentId: epic-11
 createdAt: "2026-10-17T05:37:01.415Z"
+dependsOn:
+  - task-90
+updatedAt: "2026-10-17T05:37:03.997Z"
 ---
 
 ## Description

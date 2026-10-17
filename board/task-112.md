@@ -10,7 +10,7 @@ tags:
   - mcp
 createdAt: "2026-10-17T22:24:05.896Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T23:11:31.704Z"
+updatedAt: "2026-10-17T23:11:44.152Z"
 parentId: epic-13
 relatedFiles:
   - crates/hotline-core/src/mcp/server.rs
@@ -44,6 +44,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T22:48:59.764Z"
+    ended: "2026-10-17T23:11:44.152Z"
+    outcome: review
 assignee: claude
 ---
 

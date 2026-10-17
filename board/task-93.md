@@ -1,7 +1,7 @@
 ---
 id: task-93
 title: "Desktop: Add a relay, the Relay picker, and the offer to drop owner to relay"
-column: todo
+column: in-progress
 position: 7
 priority: high
 tags:
@@ -11,7 +11,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:02.457Z"
 dependsOn:
   - task-98
-updatedAt: "2026-10-17T08:52:56.338Z"
+updatedAt: "2026-10-17T08:53:26.289Z"
 relatedFiles:
   - ui/src/components/RemoteSection.tsx
   - ui/src/desks.ts
@@ -19,13 +19,15 @@ relatedFiles:
   - ui/tests/relay-picker.test.tsx
   - ui/tests/add-desk.test.ts
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - cd ui && bun install --frozen-lockfile && bun run typecheck && bun run test
       - ls ui/tests | grep -qi relay
   metrics:
     readyAt: "2026-10-17T07:47:17.813Z"
+    pickedUpAt: "2026-10-17T08:53:26.289Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

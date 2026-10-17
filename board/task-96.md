@@ -1,7 +1,7 @@
 ---
 id: task-96
 title: "Epic-10 end to end: a phone off-network pairs from the QR via the Public address and sees itself, the desk's kind and version, and the public endpoint marked"
-column: in-progress
+column: review
 position: 10
 priority: high
 relatedFiles:
@@ -14,7 +14,7 @@ dependsOn:
   - task-12
   - task-56
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/src/remote/tests.rs
@@ -28,6 +28,8 @@ contract:
     readyAt: "2026-10-17T05:44:24.740Z"
     pickedUpAt: "2026-10-17T07:21:53.483Z"
     reworkCount: 0
+    deliveredAt: "2026-10-17T07:30:17.967Z"
+    duration: 504
 createdAt: "2026-10-17T05:44:24.746Z"
 dispatch:
   agent: claude
@@ -42,7 +44,7 @@ dispatch:
     pid: 50333
     at: "2026-10-17T07:21:35.862Z"
 assignee: claude
-updatedAt: "2026-10-17T07:21:53.483Z"
+updatedAt: "2026-10-17T07:30:17.967Z"
 ---
 
 ## Description

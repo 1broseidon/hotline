@@ -9,6 +9,15 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:04.793Z"
+relatedFiles:
+  - crates/hotline-app/src/updater.rs
+  - ui/src/components/UpdatesSection.tsx
+  - ui/src/components/ConnectProvider.tsx
+  - ui/src/components/Skills.tsx
+  - ui/src/components/Secrets.tsx
+  - ui/src/components/ErrorCard.tsx
+  - ui/src/wire.ts
+updatedAt: "2026-10-17T22:47:18.936Z"
 ---
 
 ## Description

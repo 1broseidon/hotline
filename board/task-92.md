@@ -1,8 +1,8 @@
 ---
 id: task-92
 title: "Core + CLI: serve --capabilities, a relay-only boot with no agent machinery, and mode switching"
-column: backlog
-position: 46
+column: todo
+position: 6
 priority: high
 tags:
   - relay
@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.930Z"
 dependsOn:
   - task-90
-updatedAt: "2026-10-17T05:37:04.496Z"
+updatedAt: "2026-10-17T05:43:00.062Z"
 ---
 
 ## Description

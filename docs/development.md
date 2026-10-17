@@ -86,6 +86,7 @@ before anything is served.
 make dev        # the Tauri shell, Vite with hot reload, on .hotline-dev
 make check      # cargo fmt --check, clippy -D warnings, cargo test, the window's typecheck
 make verify     # the headless harnesses, driving the real core over the wire
+make precheck   # what CI's runners would fail, caught here; see Before pushing
 make build      # a release bundle under target/release/bundle (unsigned)
 make icons      # every platform's app icon, and the tray marks, from assets/
 ```
@@ -115,6 +116,90 @@ tests under `crates/hotline-core/tests/`, not the unit tests that live beside
 the code. `make check` already runs those unit tests as part of
 `cargo test --workspace`. Two of those tests talk to a real agent and are
 skipped unless you set the env they name — see [The harness](#the-harness).
+
+## Before pushing
+
+```bash
+make precheck        # before any pull request or release branch is pushed
+make precheck-full   # before a release pull request
+scripts/precheck windows ui   # only the legs named
+```
+
+`make check` is green on this Mac and says nothing about what only breaks
+on a runner, which was every CI failure in 0.39.0: test helpers only
+Unix uses, dead code on Windows; a window test that leaned on a `window`
+another file left defined; a tool the runner's PATH found differently.
+`scripts/precheck` runs one leg for each, prints a line per leg with
+its time, and for a failure the tail of `target/precheck/<leg>.log` and
+the command that reruns it. Every leg runs even after one fails. A tool a
+leg needs and this Mac lacks is installed with brew, `cargo install` or
+rustup, and announced first.
+
+| Leg | What it runs | What it catches |
+| --- | --- | --- |
+| `fmt` | `cargo fmt --all --check` | unformatted Rust |
+| `lockfile` | `cargo metadata --locked`, `bun install --frozen-lockfile` | a `Cargo.lock` or `bun.lock` that CI's `--locked` refuses |
+| `actionlint` | `actionlint` (with shellcheck) | a workflow that reads what is not there, a `run:` script shellcheck faults |
+| `contract` | every ts-rs export test, writing `contract.ts` from nothing | a committed contract that is stale, or that a filtered run truncated; the file you have is put back |
+| `clippy` | `cargo clippy --workspace --all-targets --locked -- -D warnings` | the host's lints |
+| `windows` | the same clippy for `x86_64-pc-windows-msvc`, through `cargo xwin` | Windows-only code, and code only Unix uses that is dead on Windows |
+| `ui` | `bun run typecheck`, then `bun test ./<file>` for each file alone, then `bun run test` | a test file that passes only after another has set up a global for it |
+| `linux` (full) | clippy and `cargo test --workspace --locked` in Ubuntu 24.04 | Linux-only code and its tests |
+| `bare-path` (full) | the integration tests with PATH `/usr/bin:/bin:/usr/sbin:/sbin` and the toolchain | a test that needs a tool this shell put first (mise, uv, Homebrew's python) |
+| `shuffle` (full) | every test in a random order, `--shuffle` | a test that passes only after another: a shared temp path, a global |
+
+How the less obvious legs work:
+
+- `windows` cross-compiles with `clang-cl` and `lld-link` (Homebrew's
+  `llvm` and `lld`, which are keg-only, so the script puts them on PATH
+  for that leg) and the MSVC CRT and SDK headers `cargo-xwin` downloads
+  once into `~/Library/Caches/cargo-xwin`, accepting Microsoft's licence
+  for them. `ninja` builds libopus. The C in ring, aws-lc-sys and libopus
+  compiles, so the whole workspace checks and nothing is skipped. It
+  links nothing: tests are compiled, not run.
+- `ui`: bun runs every file in one process, in the order this machine
+  lists them, so a global one file leaves behind is there for the files
+  after it. A file that fails alone is named with its command.
+- `linux` runs under Apple's `container` CLI. The image,
+  `scripts/precheck-linux.Containerfile`, is the check job's packages on
+  ubuntu-24.04 and this Mac's stable Rust, tagged by both, so changing
+  either builds a new one. The checkout is mounted read-only; the build
+  writes only to volumes (`hotline-precheck-*`): the target directory,
+  cargo's registry, and the three gitignored folders tauri-build writes
+  into the app crate. The tests run as an unprivileged user, as on the
+  runner, under an init that reaps what they kill (a zombie looks alive
+  to the tests that check a process group died), with every test binary
+  run even after one fails. The container's masked `/proc` paths are
+  cleared so bubblewrap can mount its own: the workspace shell's sandbox
+  tests run here, where ci.yml's Linux job, without the AppArmor grant
+  workspace-isolation.yml adds, skips them.
+  The container is arm64, this Mac's own architecture, where the runner
+  is x86_64: code that differs by architecture rather than by operating
+  system is the one thing this leg does not see. `container volume rm`
+  of the five volumes starts it cold.
+- `bare-path` compiles with the normal PATH, then cargo runs each test
+  binary through `scripts/precheck-runner-env`, which keeps cargo's
+  variables, `HOME`, `USER`, `TMPDIR` and `LANG` and nothing else. This
+  Mac has the Command Line Tools, so `/usr/bin/python3` works here; a
+  runner with only Xcode, task-89's case, is not reproduced.
+- `shuffle` sets `RUSTC_BOOTSTRAP=1` in the test runner, so stable's
+  libtest takes `-Z unstable-options --shuffle` without the variable
+  reaching cargo, which would rebuild every crate. Each binary prints its
+  seed in `target/precheck/shuffle.log`; `-- -Z unstable-options
+  --shuffle-seed <seed>` replays it. Doc tests are not shuffled.
+
+Times on a Mac Studio with 18 cores, measured 2026-10-17. Warm means a
+build of the same tree has run before; cold, an empty target directory
+(and for `linux`, a new image), with crates already
+downloaded and cargo-xwin's MSVC files already cached:
+
+| | warm | cold |
+| --- | --- | --- |
+| `make precheck` | 15 s | 4 min |
+| `linux` | 70 s | 5 min, the image included |
+| `bare-path` | 35–45 s | a `cargo test` build first |
+| `shuffle` | 75 s | a `cargo test` build first |
+| `make precheck-full` | 3.5 min | about 12 min |
 
 ## Application updates
 

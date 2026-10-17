@@ -49,9 +49,7 @@ jobs:
       # hash, never fetched by the build itself (scripts/fetch-speech-engine).
       - name: Fetch the pinned speech engine
         shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
+        run: python3 scripts/fetch-speech-engine || python scripts/fetch-speech-engine
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -118,9 +116,7 @@ jobs:
       # hash, never fetched by the build itself (scripts/fetch-speech-engine).
       - name: Fetch the pinned speech engine
         shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
+        run: python3 scripts/fetch-speech-engine || python scripts/fetch-speech-engine
 
       - uses: dtolnay/rust-toolchain@stable
         with:

@@ -174,9 +174,11 @@ jobs:
           if [ -n "$API_KEY" ] && [ -n "$API_ISSUER" ] && [ -n "$API_KEY_P8" ]; then
             keypath="$RUNNER_TEMP/AuthKey_$API_KEY.p8"
             printf '%s\n' "$API_KEY_P8" > "$keypath"
-            echo "APPLE_API_KEY=$API_KEY" >> "$GITHUB_ENV"
-            echo "APPLE_API_ISSUER=$API_ISSUER" >> "$GITHUB_ENV"
-            echo "APPLE_API_KEY_PATH=$keypath" >> "$GITHUB_ENV"
+            {
+              echo "APPLE_API_KEY=$API_KEY"
+              echo "APPLE_API_ISSUER=$API_ISSUER"
+              echo "APPLE_API_KEY_PATH=$keypath"
+            } >> "$GITHUB_ENV"
           fi
 
       - name: Updater signing is configured
@@ -244,9 +246,7 @@ jobs:
       # hash, never fetched by the build itself (scripts/fetch-speech-engine).
       - name: Fetch the pinned speech engine
         shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
+        run: python3 scripts/fetch-speech-engine || python scripts/fetch-speech-engine
       - uses: Swatinem/rust-cache@v2
         with:
           key: server-${{ matrix.suffix }}

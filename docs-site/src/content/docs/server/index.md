@@ -23,6 +23,9 @@ goes in order:
    what lives where.
 6. [Troubleshooting](/docs/server/troubleshooting/): what the messages mean.
 
+Only want your phone to reach your desktop from anywhere, with no agents on
+the server? [Run a relay](/docs/server/relay/): a Raspberry Pi is enough.
+
 ## What you need
 
 - A Linux machine, x86_64 or arm64, with systemd.

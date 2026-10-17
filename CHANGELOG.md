@@ -8,6 +8,17 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A server can run only a relay (ADR 0006). `hotline serve --capabilities
+  relay` carries phones to the desktops that stand in on it and runs no
+  room, teammates or models, so a Raspberry Pi will do; a desktop paired
+  with it as a relay can stand in there and nothing else. The server build
+  ships `hotline-relay.service` for it, and the docs site's "Run a relay"
+  walks through installing it, pairing a desktop, choosing it under
+  Settings › Remote › Relay, and later running agents there with every
+  pairing kept.
+
 ## [0.39.0] - 2026-10-16
 
 ### Added

@@ -10,7 +10,7 @@ tags:
 parentId: epic-12
 createdAt: "2026-10-17T19:28:03.692Z"
 contract:
-  status: delivered
+  status: done
   deliverables:
     - type: docs
       path: docs/audits/0.40/dead-code-and-deps.md
@@ -31,7 +31,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:43:13.785Z"
     duration: 454
-updatedAt: "2026-10-17T19:43:13.785Z"
+updatedAt: "2026-10-17T19:43:14.137Z"
 relatedFiles:
   - docs/audits/0.40/dead-code-and-deps.md
   - Cargo.toml

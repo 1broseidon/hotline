@@ -8,7 +8,7 @@ tags:
   - remote
   - pairing
 createdAt: "2026-10-14T19:29:48.828Z"
-updatedAt: "2026-10-17T05:44:15.028Z"
+updatedAt: "2026-10-17T05:44:34.477Z"
 parentId: epic-10
 relatedFiles:
   - crates/hotline-core/src/remote/v2.rs
@@ -36,6 +36,14 @@ contract:
     - Use task-12's public-endpoint marking rather than a second source of truth
   metrics:
     readyAt: "2026-10-17T05:44:15.028Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T05:44:34.344Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

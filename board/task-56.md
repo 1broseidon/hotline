@@ -8,7 +8,7 @@ tags:
   - remote
   - pairing
 createdAt: "2026-10-14T19:29:48.828Z"
-updatedAt: "2026-10-17T06:45:05.094Z"
+updatedAt: "2026-10-17T06:45:12.207Z"
 parentId: epic-10
 relatedFiles:
   - crates/hotline-core/src/remote/v2.rs
@@ -52,6 +52,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T06:36:54.632Z"
+    ended: "2026-10-17T06:45:12.207Z"
+    outcome: review
 assignee: claude
 ---
 

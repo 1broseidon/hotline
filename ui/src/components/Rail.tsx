@@ -505,7 +505,7 @@ function oneLine(source: string): string {
  */
 export type RailSize = { width: number; open: boolean; compact: boolean };
 
-export const RAIL_WIDTH = 240;
+const RAIL_WIDTH = 240;
 export const RAIL_MIN = 180;
 const RAIL_MAX = 420;
 /** Faces only: a 28px face in the row's padding, in the rail's gutter. */

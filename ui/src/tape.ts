@@ -22,7 +22,7 @@ export type Streaming = {
 };
 
 /** A computer download under way: layers landed of layers counted, 0 of 0 until the runtime says. */
-export type Pulling = { done: number; total: number };
+type Pulling = { done: number; total: number };
 
 /**
  * One thread's conversation, folded by event id.
@@ -32,7 +32,7 @@ export type Pulling = { done: number; total: number };
  * every reader agrees on what the thread says, and it is also what makes a
  * reconnect's second snapshot harmless.
  */
-export type ThreadState = {
+type ThreadState = {
 	events: TranscriptEvent[];
 	streaming: Streaming[];
 	loaded: boolean;

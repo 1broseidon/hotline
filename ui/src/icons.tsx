@@ -194,12 +194,6 @@ export const ClockIcon = ({ className }: IconProps) => (
 	</svg>
 );
 
-export const BookIcon = ({ className }: IconProps) => (
-	<svg className={className} {...box}>
-		<path d="M3 3.25h4.25A1.5 1.5 0 0 1 8.75 4.75V13a1.5 1.5 0 0 0-1.5-1.5H3zM13 3.25H8.75A1.5 1.5 0 0 0 7.25 4.75V13a1.5 1.5 0 0 1 1.5-1.5H13z" />
-	</svg>
-);
-
 export const ReplyIcon = ({ className }: IconProps) => (
 	<svg className={className} {...box}>
 		<path d="M6.5 4L3 7.5 6.5 11M3.25 7.5h5.5A4.25 4.25 0 0 1 13 11.75V12.5" />

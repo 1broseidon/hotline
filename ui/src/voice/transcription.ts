@@ -177,7 +177,7 @@ export function hearsOnThisMac(): Promise<boolean> {
  * while the room between sentences (up to about -62) still reads as a
  * pause: from those measurements, anything from 13 to 23 works.
  */
-export const PROCESSED_GAIN_DB = 18;
+const PROCESSED_GAIN_DB = 18;
 
 /** A level from this Mac's engine as a raw microphone would read it, in dBFS. */
 export function rawEquivalentDb(db: number): number {

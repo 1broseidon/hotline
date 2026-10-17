@@ -14,7 +14,7 @@ const HOME = /(?:\/home|\/Users)\/[^/\s"']+(?=\/|\s|$)/g;
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
 
 /** A home directory as `~`, the way a shell prompt shows it. */
-export function tidyPath(path: string): string {
+function tidyPath(path: string): string {
 	return path.replace(HOME, "~");
 }
 

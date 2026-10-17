@@ -9,6 +9,11 @@ tags:
   - dead-code
 parentId: epic-13
 createdAt: "2026-10-17T22:40:46.077Z"
+relatedFiles:
+  - crates/hotline-core/src/paths.rs
+  - crates/hotline-core/src/process_windows.rs
+  - crates/hotline-app/src/desks.rs
+updatedAt: "2026-10-17T22:46:30.605Z"
 ---
 
 ## Description

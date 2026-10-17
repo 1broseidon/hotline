@@ -29,14 +29,19 @@ contract:
   metrics:
     readyAt: "2026-10-17T07:46:38.560Z"
 createdAt: "2026-10-17T07:46:38.565Z"
-updatedAt: "2026-10-17T09:03:26.797Z"
+updatedAt: "2026-10-17T09:03:28.625Z"
 dispatch:
   agent: claude
   model: opus
   by: lead
   at: "2026-10-17T09:03:26.679Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T09:03:28.625Z"
 assignee: claude
 ---
 

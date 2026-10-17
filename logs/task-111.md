@@ -10,7 +10,7 @@ createdAt: "2026-10-17T20:18:20.491Z"
 dependsOn:
   - task-110
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T21:08:45.088Z"
+updatedAt: "2026-10-17T21:08:46.738Z"
 dispatch:
   agent: claude
   model: opus
@@ -23,6 +23,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T21:06:16.036Z"
+    ended: "2026-10-17T21:08:46.738Z"
+    outcome: done
 assignee: claude
 completedAt: "2026-10-17T21:08:45.088Z"
 ---

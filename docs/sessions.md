@@ -1475,10 +1475,10 @@ search index and the settle read it. It replaces the `side:<id>` and
 `exchange-paused:` stay as they are: the first is the pair's `peer` marker, which
 carries its own exchange count, and the second is a card, not a link.
 
-**Compatibility.** A link is the stored model, not what a client is sent. The
-phone and the window on a current build draw `side` and `subagent` events and
-nothing else of a thread, so the wire turns a link back into the marker its kind
-has always had (`Link::wire`, applied to a tape's snapshot, its pages and its
+**Compatibility.** A link is the stored model, but not every client reads it.
+The phone draws `side` and `subagent` events and nothing else of a thread, so
+for a socket that has not declared `threads2` the wire turns a link back into
+the marker its kind has always had (`Link::wire`, applied to a tape's snapshot, its pages and its
 live events, and to a side thread's or a run's own stream). A phone sees the
 same shape under the same field names; only the id of a thread's line is
 `link:...` for a thread started after this change. The markers already on disk
@@ -1486,10 +1486,10 @@ are read as the links they stand for (`Link::read`), render as they were, and ar
 searched and resumed as before. When such a thread next changes, its line is
 rewritten as a link *under the id it already has*, so it is replaced in place and
 never joined by a second line. A call's link is sent as a `call` marker, which
-is new: a client that does not know the kind skips it, as the phone does. A
-socket that declared `threads2` (`client.hello`) is sent the link itself for
-every kind (`Link::threads2`), the markers on disk read as links included, and
-the contract has `link` for it. See [wire.md](wire.md#threads).
+is new: a client that does not know the kind skips it, as the phone does. The
+window declares `threads2` (`client.hello`), and a socket that does is sent the
+link itself for every kind (`Link::threads2`), the markers on disk read as links
+included, and the contract has `link` for it. See [wire.md](wire.md#threads).
 
 **Deliveries.** A delivery carries where it came from as a field,
 `from: {thread, kind, request}` (`DeliveryFrom`), written beside its `cause`. A

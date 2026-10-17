@@ -9,6 +9,9 @@ tags:
   - docs
 parentId: epic-13
 createdAt: "2026-10-17T22:41:07.403Z"
+relatedFiles:
+  - docs/wire.md
+updatedAt: "2026-10-17T22:47:20.293Z"
 ---
 
 ## Description

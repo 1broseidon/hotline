@@ -1,7 +1,7 @@
 ---
 id: task-95
 title: "Docs and packaging: Run a relay on a Raspberry Pi"
-column: in-progress
+column: review
 position: 9
 priority: high
 tags:
@@ -11,7 +11,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:03.487Z"
 dependsOn:
   - task-99
-updatedAt: "2026-10-17T09:15:56.696Z"
+updatedAt: "2026-10-17T09:19:11.094Z"
 relatedFiles:
   - docs-site/src/content/docs/server/relay.md
   - docs-site/src/content/docs/server/index.md
@@ -22,7 +22,7 @@ relatedFiles:
   - docs/security.md
   - CHANGELOG.md
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - test -f docs-site/src/content/docs/server/relay.md
@@ -33,6 +33,8 @@ contract:
     readyAt: "2026-10-17T07:47:18.837Z"
     pickedUpAt: "2026-10-17T09:15:56.696Z"
     reworkCount: 0
+    deliveredAt: "2026-10-17T09:19:11.094Z"
+    duration: 194
 dispatch:
   agent: claude
   model: opus

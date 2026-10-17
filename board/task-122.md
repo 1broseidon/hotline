@@ -17,7 +17,7 @@ relatedFiles:
   - ui/src/components/Rail.tsx
   - ui/src/components/Skills.tsx
   - ui/src/wire.ts
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-17T23:03:22.725Z"
 contract:
   status: ready
   validation:
@@ -27,6 +27,14 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T23:03:22.558Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

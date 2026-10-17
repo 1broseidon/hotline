@@ -1,8 +1,8 @@
 ---
 id: task-12
 title: "Desk: remote.devices marks the caller; hello carries desk kind, version and which endpoint is public"
-column: review
-position: 2
+column: in-progress
+position: 0
 priority: medium
 tags:
   - bro-160
@@ -18,7 +18,7 @@ description: |-
   - The optional summary read from the original task is out of scope; file it separately if wanted.
 
   All fields are optional, and an older phone ignores them. Tests over the wire in `crates/hotline-core/src/remote/tests.rs` (the TestPhone harness), one each: the paired phone sees `current` on its own grant only; the owner hello has deskKind and version; a companion's hello marks the public endpoint when one is set and has none when unset. Regenerate `ui/src/generated/contract.ts` with an unfiltered `cargo test -p hotline-core`, then `make check`.
-updatedAt: "2026-10-17T05:55:23.684Z"
+updatedAt: "2026-10-17T06:22:01.799Z"
 subtasks:
   - id: task-12-1
     title: Mark the requesting device in remote.devices
@@ -85,3 +85,5 @@ assignee: claude
 ## Log
 - 2026-10-14T01:44:31.126Z: [claude] Consolidated task-29 (Remote reachability/Relay row) and task-30 (desk.status/health) into this task as subtasks task-12-4 and task-12-5.
 - 2026-10-17T05:55:17.352Z: [claude] Done (a)(b)(c) on branch dispatch/task-12. For later tasks: phone `remote.devices` answers via Phone::devices with `current: true` on the caller's grant only (RemoteDevice.current is Option<bool>, never persisted). The v2 hello (wire/mod.rs seated_phone_v2) adds `publicEndpoint` for every seat (saved public_url, or a served desk's public_url; absent when unset or Remote off) and, owner only, `deskKind` ("desktop"|"server", from Remote.served) and `version` (CARGO_PKG_VERSION). endpoints order unchanged (local first). Documented in docs/wire.md; contract.ts regenerated. Three new tests in remote/tests.rs pass. One existing test, all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls, fails on this machine (an IPv6 ULA fdc2:: interface times out), which has nothing to do with this change. task-12-3/4/5 left unticked as scoped.
+- 2026-10-17T06:22:01.420Z: Landed on release/0.40.0
+- 2026-10-17T06:22:01.799Z: Merged; 5 of 5 subtasks left, so it stays open

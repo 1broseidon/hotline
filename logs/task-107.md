@@ -1,8 +1,6 @@
 ---
 id: task-107
 title: "Audit: the window — dead exports, big components, lint setup"
-column: review
-position: 5
 priority: high
 tags:
   - audit
@@ -31,7 +29,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:41:28.367Z"
     duration: 114
-updatedAt: "2026-10-17T19:41:40.934Z"
+updatedAt: "2026-10-17T19:41:42.493Z"
 relatedFiles:
   - docs/audits/0.40/window.md
   - ui/src
@@ -54,6 +52,7 @@ dispatch:
     ended: "2026-10-17T19:41:33.667Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T19:41:42.493Z"
 ---
 
 ## Description

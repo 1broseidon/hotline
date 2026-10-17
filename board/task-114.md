@@ -51,3 +51,6 @@ Phase 2 group A (Security), plan row 2 in docs/audits/0.40/README.md on release/
 - Size: XS
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-17T22:59:05.949Z: [claude] rustls 0.23.45 -> 0.23.46 via `cargo update -p rustls --precise 0.23.46`; Cargo.lock only (rustls's getrandom moved 0.4.3 -> 0.3.4 with it). cargo-deny no longer reports RUSTSEC-2026-0346..0349; it still fails on the ZIP advisories (tasks 3-5) and unmaintained crates (unic-*, zbus/zvariant, proc-macro-error), which are not this task's. make precheck and make check pass. Committed on dispatch/task-114. Next lockfile tasks (3, 4, 5) should land after this one and may need a lockfile merge.

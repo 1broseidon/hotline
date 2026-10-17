@@ -9,6 +9,13 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:02.722Z"
+relatedFiles:
+  - Cargo.toml
+  - crates/hotline-core/Cargo.toml
+  - Cargo.lock
+  - crates/hotline-core/src/remote/tests/viewer_token.rs
+  - crates/hotline-core/src/voice/speech/xai/tests.rs
+updatedAt: "2026-10-17T22:47:00.402Z"
 ---
 
 ## Description

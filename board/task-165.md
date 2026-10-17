@@ -9,6 +9,10 @@ tags:
   - docs
 parentId: epic-13
 createdAt: "2026-10-17T22:41:09.515Z"
+relatedFiles:
+  - docs/development.md
+  - docs/design.md
+updatedAt: "2026-10-17T22:47:21.368Z"
 ---
 
 ## Description

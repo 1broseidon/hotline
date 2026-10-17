@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.930Z"
 dependsOn:
   - task-91
-updatedAt: "2026-10-17T07:46:58.259Z"
+updatedAt: "2026-10-17T07:52:29.006Z"
 relatedFiles:
   - crates/hotline-cli/src/serve.rs
   - crates/hotline-cli/src/main.rs
@@ -39,21 +39,14 @@ contract:
 ---
 
 ## Description
-Core + CLI: serve capabilities, and a relay-only boot. Follows ADR 0006 (task-90); builds on the relay role (task-91). Waits on task-91 because both change remote/mod.rs, remote/server.rs and hotline-cli/src/main.rs, and a relay-only server needs the relay role to exist.
+Core + CLI: serve capabilities, and a relay-only boot. Build exactly what docs/adr/0006-relay-only-servers.md decides (§ what a server runs, § what a relay-only boot omits, § discovery, § switching modes); where this text and the ADR differ, the ADR wins. Builds on the relay role (task-91).
 
-- `hotline serve --capabilities relay|agents|agents,relay`, default `agents,relay`. It's persisted in the data dir, so a restart keeps the mode; a later flag switches it, keeping pairings.
-- Relay-only boot:
-  - no `Desk` room, scheduler, ACP drivers, computer runtime, models.json sync or provider credential store reads;
-  - Remote opens on a lightweight host. `Remote::open_served_with_store` takes a `Arc<dyn RoomHandle>` (wire/mod.rs:81) and serve.rs passes the full `Desk`; give Remote the narrowest thing it needs on a relay-only boot (pairing, device grants, relay registry, status) rather than a stub Desk. Use the existing `RoomHandle` seam if it fits; add a new trait only if it does not, and say why.
-  - The door still answers `hotline status` (mode, relay hosts, visits).
-  - A relay-only server makes only relay grants, whatever role `hotline pair` asks for (moved here from task-91).
-- Switching relay → agents,relay: the room is created on first agent boot; pairings and the relay registry carry over. agents → relay-only: refuse while teammates exist unless `--force`, which keeps their data untouched on disk.
-- The hello carries `capabilities` beside `deskKind` (wire/mod.rs ~:1168).
+- `hotline serve --capabilities relay|agents|agents,relay`, default `agents,relay`, recorded in `serve.json` in the data dir (`{"capabilities":[...]}`); a flag that differs from the record replaces it and says so on stderr. `Purpose::of` answers a route only when its capability runs (else 404 before any Noise).
+- Relay-only boot takes the room lock and claims the secret store, opens Remote (listener, admission, pairing, relay hub) and a loopback door, and opens nothing else: no room stream, vault, index, scheduler, sessions, drivers, MCP, skills, computer, voice, models, importer, provider keys; creates nothing under the room's directories. `Remote::open_served_with_store` takes `Arc<dyn RoomHandle>` (wire/mod.rs:81) and serve.rs passes the full `Desk`; give Remote the narrowest thing a relay-only boot needs rather than a stub Desk. Use the existing seam if it fits; add a trait only if it does not, and say why.
+- The door answers `status` (with capabilities), `pair`, `devices`, `revoke`; `links`, `unlink`, `wire` refuse with a sentence saying the server runs only a relay. On a relay-only server `hotline pair` opens a relay window (its only kind); `--companion` is refused there.
+- `serves` (not `capabilities`, which the hello already uses) goes in the pair answer, the relay's `ready` frame, and the v2 hello beside `deskKind` for an owner only.
+- Switching: per the ADR, `remote.json` untouched, every grant keeps its role; relay → agents,relay opens the room fresh; agents,relay → relay leaves the room on disk unopened (no --force needed: nothing is lost); dropping relay makes `/v2/relay` 404.
 
-Tests (extend `crates/hotline-cli/tests/serve.rs`, the harness that runs the real binary):
-- a relay-only boot opens no room files and starts no scheduler or agents, and relays a visit;
-- a mode switch keeps grants; agents → relay refused with teammates, allowed with --force;
-- a relay-only server pairs only relay grants;
-- hello capabilities in each mode.
+Tests (extend `crates/hotline-cli/tests/serve.rs`, which runs the real binary): a relay-only boot creates no room files and starts no scheduler or agents, and relays a visit; a mode switch keeps grants and their roles; a relay-only server pairs only relay grants; `serves` in the pair answer, ready and hello in each mode; refused door commands.
 
-Measure the RSS and idle CPU of relay-only on this machine (aarch64 macOS) and note the numbers and the platform in docs/serve.md; the Pi figure is for George to confirm on hardware.
+Measure the RSS and idle CPU of relay-only on this machine (aarch64 macOS) and note the numbers and the platform in docs/serve.md along with capabilities; the Pi figure is for George to confirm on hardware.

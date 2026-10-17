@@ -11,7 +11,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:03.487Z"
 dependsOn:
   - task-99
-updatedAt: "2026-10-17T09:19:15.219Z"
+updatedAt: "2026-10-17T09:19:23.967Z"
 relatedFiles:
   - docs-site/src/content/docs/server/relay.md
   - docs-site/src/content/docs/server/index.md
@@ -63,3 +63,4 @@ Docs and packaging: a relay on a Raspberry Pi. Last: it describes what task-99 p
 - 2026-10-17T09:07:50.245Z: [claude] [lead] From task-100: the real CLI flag is `hotline pair --relay --link` (task-93's UI hint said `--role relay`, now fixed); check every command you document against `hotline pair --help`. Also describe pasting a relay link into "Add a server": it says "Added X as a relay" and chooses it only when no relay is chosen yet, else points to Settings › Remote › Relay. List task-94, task-100 tests alongside 91/92/98/99 when checking security.md's test index.
 - 2026-10-17T09:15:28.825Z: [claude] [lead] From task-99 (1be2eca9, crates/hotline-cli/tests/relay.rs): on a relay-only server /v2, /v2/computer and /v2/link have no route (404 before Noise); role_not_permitted applies only once the server also runs agents. Document it that way, and add the relay.rs harness to security.md's test index. No aarch64/Pi footprint was measured: state the platform the docs/serve.md figure comes from and say the Pi figure is unconfirmed; do not invent one.
 - 2026-10-17T09:19:10.628Z: [claude] Done on dispatch/task-95 (a3b9927e). New docs-site server/relay.md "Run a relay" (in sidebar; linked from server/index and phone/away); packaging/hotline-relay.service (--capabilities relay, system PATH, installed AS hotline.service so pair/status/update find the room), now shipped in the server tarball (desktop-release.yml cp line). docs/serve.md: two units, the three grant roles, `hotline pair --relay --link`. security.md: relay rows gain task-94's pair.rs test and task-93/100 UI tests; 695 says role_not_permitted only where agents run (relay-only = no route); relay section's Tests line names all four rows + relay.rs. CHANGELOG Unreleased/Added line. Footprint stated as the M5 Max/macOS figure, Pi unmeasured. UNWIRED: the curl installer has no --relay mode (manual install only), and no Pi footprint was measured; docs-site build and site/tests/test_install.py pass.
+- 2026-10-17T09:19:23.967Z: Landed on release/0.40.0

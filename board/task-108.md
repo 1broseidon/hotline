@@ -32,7 +32,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:53:46.910Z"
     duration: 691
-updatedAt: "2026-10-17T19:53:46.910Z"
+updatedAt: "2026-10-17T19:53:54.282Z"
 relatedFiles:
   - docs/audits/0.40/tests-and-docs.md
   - crates/hotline-core/tests
@@ -52,6 +52,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T19:41:56.593Z"
+    ended: "2026-10-17T19:53:54.282Z"
+    outcome: review
 assignee: claude
 ---
 

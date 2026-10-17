@@ -1148,19 +1148,30 @@ where
         + Send
         + 'static,
 {
+    let mut hello = json!({
+        "type": "hello",
+        "protocolVersion": 2,
+        "desktopId": desktop_id,
+        // Every address the desk answers on, a relay's included, so a
+        // phone paired before the relay was chosen learns of it here.
+        "endpoints": phone.endpoints(),
+        "mode": "team",
+        "capabilities": Seat::for_phone(&phone).capabilities_for(room.as_ref()),
+    });
+    // Which of those endpoints is public, so a phone can tell it from the
+    // VPN or LAN ones without the owner-only `remote.status`.
+    if let Some(public) = phone.public_endpoint() {
+        hello["publicEndpoint"] = json!(public);
+    }
+    // What kind of desk this is and how new: the owner's to know.
+    if phone.role() == crate::remote::DeviceRole::Owner {
+        hello["deskKind"] = json!(phone.desk_kind());
+        hello["version"] = json!(env!("CARGO_PKG_VERSION"));
+    }
     tokio::select! {
         biased;
         _ = phone.cancel.cancelled() => return Ok(()),
-        result = socket.send(Message::text(json!({
-            "type": "hello",
-            "protocolVersion": 2,
-            "desktopId": desktop_id,
-            // Every address the desk answers on, a relay's included, so a
-            // phone paired before the relay was chosen learns of it here.
-            "endpoints": phone.endpoints(),
-            "mode": "team",
-            "capabilities": Seat::for_phone(&phone).capabilities_for(room.as_ref()),
-        }).to_string())) => result?,
+        result = socket.send(Message::text(hello.to_string())) => result?,
     }
     seated_inner(socket, Seat::for_phone(&phone), log, room, Some(phone)).await
 }
@@ -1643,6 +1654,7 @@ async fn command(
                     );
                     Ok(json!({ "capabilities": seat.capabilities_for(room.as_ref()) }))
                 }
+                (Command::RemoteDevices {}, Some(phone)) => Ok(json!(phone.devices())),
                 (Command::MobilePushRegister { token, platform }, Some(phone)) => {
                     phone.register_push(token.clone(), platform.clone())
                 }

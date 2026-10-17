@@ -1019,7 +1019,13 @@ export type Reach = "workspace" | "machine";
 
 export type Receipt = "sent" | "read";
 
-export type RemoteDevice = { id: string, name: string, pairedAt: number, role: DeviceRole, publicKey?: string, };
+export type RemoteDevice = { id: string, name: string, pairedAt: number, role: DeviceRole, publicKey?: string, 
+/**
+ * Set only on the grant a phone's own `remote.devices` came in on, so it
+ * can name itself and warn before revoking itself. Never saved true:
+ * the flag is put on a copy as the list is answered.
+ */
+current?: boolean, };
 
 /**
  * What the desk shows about the relay it stands in on.

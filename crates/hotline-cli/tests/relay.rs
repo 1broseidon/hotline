@@ -377,7 +377,6 @@ async fn a_relay_only_server_relays_for_a_desktop_that_can_do_nothing_else_there
         .await
         .unwrap();
     assert!(said(&pairing.wait_with_output().unwrap()).contains("as relay"));
-    assert_eq!(pi.serves, ["relay"]);
     let relay_key = keeping.identity.lock().unwrap().clone().unwrap();
     std::fs::write(
         laptop_root.join("relays.json"),

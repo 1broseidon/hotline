@@ -864,14 +864,13 @@ mod tests {
             url: desk().url,
             desk_key: "k".into(),
             public: None,
-            serves: vec!["relay".into()],
         })
         .unwrap();
         assert_eq!(host.listed().as_array().unwrap().len(), 1);
         let desks: Vec<PairedDesk> = read_list(&dir.path().join(REGISTRY));
         assert!(desks.is_empty());
         let relays: Vec<PairedRelay> = read_list(&dir.path().join(RELAYS));
-        assert_eq!(relays[0].serves, ["relay"]);
+        assert_eq!(relays[0].desk_id, "d1");
 
         // A move that stopped between its two saves reopens as the relay.
         save_list(&dir.path().join(REGISTRY), &[desk()]).unwrap();

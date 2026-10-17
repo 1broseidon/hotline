@@ -278,7 +278,9 @@ export function RemoteSection() {
 							{ id: "", name: "None" },
 							...(relay && !desks.some((desk) => desk.id === relay.deskId) && !relayOnly.some((one) => one.deskId === relay.deskId) ? [{ id: relay.deskId, name: relay.name }] : []),
 							...desks.map((desk) => ({ id: desk.id, name: desk.name })),
-							...relayOnly.map((one) => ({ id: one.deskId, name: one.name, detail: "Relay only" })),
+							// Labelled by this desktop's grant there, which pairing fixed;
+							// what the server runs can change after it and is not kept.
+							...relayOnly.map((one) => ({ id: one.deskId, name: one.name, detail: "Relay" })),
 						]}
 						placeholder="None"
 						label="Relay"

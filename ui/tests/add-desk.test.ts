@@ -24,7 +24,7 @@ describe("an SSH target", () => {
 // Each desk's core is a socket the real Wire dials; the shell answers at Tauri's invoke.
 const local: Desk = { id: "local", name: "This computer", kind: "local", origin: "http://127.0.0.1:2", token: "t" };
 const grizzly: Desk = { id: "grizzly", name: "Grizzly", kind: "remote", origin: "http://127.0.0.1:3", token: "t", state: "open" };
-const muskox = { deskId: "muskox", name: "Muskox", url: "https://muskox.example", deskKey: "k", serves: ["relay"] };
+const muskox = { deskId: "muskox", name: "Muskox", url: "https://muskox.example", deskKey: "k" };
 const status = { enabled: true, host: "all", endpoint: null, endpoints: [], addresses: [], devices: [], error: null, publicUrl: null };
 
 type Call = { cmd: string; params: Record<string, unknown> };

@@ -10,7 +10,7 @@ import { replaceDesks, wireFor, type Desk } from "../src/desks";
 // Tauri's invoke; a paired server's bridge is a socket the test speaks for.
 const local: Desk = { id: "local", name: "This computer", kind: "local", origin: "http://127.0.0.1:2", token: "t" };
 const status = { enabled: true, host: "all", endpoint: "https://192.0.2.1:8788", endpoints: ["https://192.0.2.1:8788"], addresses: ["192.0.2.1"], devices: [], error: null, publicUrl: null };
-const muskox = { deskId: "muskox", name: "Muskox", url: "https://muskox.example", deskKey: "k", serves: ["relay"] };
+const muskox = { deskId: "muskox", name: "Muskox", url: "https://muskox.example", deskKey: "k" };
 
 class FakeSocket {
 	static all: FakeSocket[] = [];
@@ -67,7 +67,7 @@ beforeEach(async () => {
 			// The shell says so by sending the list again.
 			if (cmd === "desk_decline_relay") { replaceDesks([local, remoteDesk(String(args.deskId), { relayDeclined: true })]); return null; }
 			if (cmd === "desk_move_to_relay") {
-				const moved = { ...muskox, deskId: String(args.deskId), name: "Grizzly", serves: ["agents", "relay"] };
+				const moved = { ...muskox, deskId: String(args.deskId), name: "Grizzly" };
 				relays = [...relays, moved];
 				replaceDesks([local]);
 				return moved;
@@ -135,12 +135,12 @@ async function serverSays(serves: string[] | undefined, roster: unknown[]) {
 }
 
 describe("the Relay picker", () => {
-	test("lists paired desks and relay-only servers together, and labels the relay-only ones", async () => {
+	test("lists paired desks and relay servers together, and labels the relays by how this desktop holds them", async () => {
 		replaceDesks([local, remoteDesk("grizzly")]);
 		relays = [muskox];
 		await mount();
 		const items = await openMenu("Relay");
-		expect(items.map((item) => item.textContent)).toEqual(["None", "Grizzly", "MuskoxRelay only"]);
+		expect(items.map((item) => item.textContent)).toEqual(["None", "Grizzly", "MuskoxRelay"]);
 		await settle(() => items[2]!.click());
 		expect(calls.at(-1)).toEqual({ cmd: "remote.relay", params: { deskId: "muskox" } });
 		expect(text()).toContain("Phones also reach this desk through Muskox.");
@@ -198,7 +198,8 @@ describe("the offer to keep a server only as a relay", () => {
 		expect(shell).toEqual([{ cmd: "desk_move_to_relay", params: { deskId: "grizzly" } }]);
 		expect(offer()).toBeNull();
 		const items = await openMenu("Relay");
-		expect(items.map((item) => item.textContent)).toEqual(["None", "GrizzlyRelay only"]);
+		// Grizzly still runs agents, so it is labelled by this desktop's grant, not as a relay only.
+		expect(items.map((item) => item.textContent)).toEqual(["None", "GrizzlyRelay"]);
 	});
 
 	test("declining is remembered and the offer does not come back", async () => {

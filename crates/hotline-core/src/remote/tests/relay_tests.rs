@@ -767,7 +767,6 @@ async fn a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door() {
     );
     assert!(relay.pairing_result(&invitation.id).unwrap().is_none());
     let server = pair_relay(&h, &relay).await;
-    assert_eq!(server.serves, ["agents", "relay"]);
     let devices = relay.devices();
     assert_eq!(devices.len(), 1);
     assert_eq!(devices[0].role, DeviceRole::Relay);
@@ -1187,7 +1186,6 @@ async fn an_owner_moves_its_own_grant_to_relay_in_place_and_keeps_standing_in() 
     let moved = owner.become_relay(&server).await.unwrap();
     assert_eq!(moved.desk_id, server.desk_id);
     assert_eq!(moved.desk_key, server.desk_key);
-    assert_eq!(moved.serves, ["agents", "relay"]);
     let after = named("Relayed laptop");
     assert_eq!(after.role, DeviceRole::Relay);
     assert_eq!(after.id, laptop.id);

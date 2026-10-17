@@ -328,10 +328,9 @@ fn a_relay_only_server_refuses_a_phones_claim_and_keeps_its_window() {
     let desktop = hotline_core::remote::client::Client::new(std::sync::Arc::new(
         hotline_core::credentials::FileStore::open(desktop_root.path()).unwrap(),
     ));
-    let relay = runtime
+    runtime
         .block_on(desktop.pair_relay(&invitation, "Laptop"))
         .unwrap();
-    assert_eq!(relay.serves, ["relay"]);
     eventually(|| pair.0.try_wait().unwrap().is_some());
     let devices = wire(root.path(), "remote.devices");
     let roles: Vec<&str> = devices

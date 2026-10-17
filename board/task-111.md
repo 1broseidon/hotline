@@ -1,7 +1,7 @@
 ---
 id: task-111
 title: "Git hooks in .githooks (like ketch): pre-commit fmt/typecheck/contract guard, pre-push make precheck"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -12,7 +12,7 @@ createdAt: "2026-10-17T20:18:20.491Z"
 dependsOn:
   - task-110
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T21:06:28.323Z"
+updatedAt: "2026-10-17T21:08:39.392Z"
 dispatch:
   agent: claude
   model: opus

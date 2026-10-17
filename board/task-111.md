@@ -12,14 +12,19 @@ createdAt: "2026-10-17T20:18:20.491Z"
 dependsOn:
   - task-110
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T20:18:23.006Z"
+updatedAt: "2026-10-17T21:06:16.036Z"
 dispatch:
   agent: claude
   model: opus
   by: cli
   at: "2026-10-17T20:18:22.773Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T21:06:16.036Z"
 assignee: claude
 ---
 

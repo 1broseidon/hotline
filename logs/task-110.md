@@ -1,8 +1,6 @@
 ---
 id: task-110
 title: "make precheck: catch Windows, Linux, order-dependent and runner-PATH CI failures locally before pushing"
-column: review
-position: 0
 priority: high
 tags:
   - ci
@@ -10,7 +8,7 @@ tags:
   - quality
 createdAt: "2026-10-17T20:09:09.114Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T21:06:11.957Z"
+updatedAt: "2026-10-17T21:06:17.041Z"
 dispatch:
   agent: claude
   model: opus
@@ -23,7 +21,10 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T20:09:12.194Z"
+    ended: "2026-10-17T21:06:17.041Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-17T21:06:15.228Z"
 ---
 
 ## Description

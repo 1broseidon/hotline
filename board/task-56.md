@@ -1,14 +1,14 @@
 ---
 id: task-56
 title: Pairing QR carries the Public address as a fallback endpoint; tunnel hint names the real listen address
-column: in-progress
+column: review
 position: 1
 priority: medium
 tags:
   - remote
   - pairing
 createdAt: "2026-10-14T19:29:48.828Z"
-updatedAt: "2026-10-17T06:23:23.098Z"
+updatedAt: "2026-10-17T06:34:37.005Z"
 parentId: epic-10
 relatedFiles:
   - crates/hotline-core/src/remote/v2.rs
@@ -20,7 +20,7 @@ relatedFiles:
 dependsOn:
   - task-12
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/src/remote/tests.rs
@@ -38,6 +38,8 @@ contract:
     readyAt: "2026-10-17T05:44:15.028Z"
     pickedUpAt: "2026-10-17T06:23:23.098Z"
     reworkCount: 0
+    deliveredAt: "2026-10-17T06:34:37.005Z"
+    duration: 674
 dispatch:
   agent: claude
   model: opus

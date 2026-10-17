@@ -9,6 +9,12 @@ tags:
   - dead-code
 parentId: epic-13
 createdAt: "2026-10-17T22:40:48.659Z"
+relatedFiles:
+  - Cargo.toml
+  - crates/hotline-core/Cargo.toml
+  - crates/hotline-app/Cargo.toml
+  - crates/hotline-cli/Cargo.toml
+updatedAt: "2026-10-17T22:46:31.960Z"
 ---
 
 ## Description

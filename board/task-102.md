@@ -22,17 +22,13 @@ relatedFiles:
   - docs-site/src/content/docs/server/install.md
 parentId: epic-11
 contract:
-  status: delivered
+  status: ready
   validation:
     commands:
-      - python3 -m pytest site/tests/test_install.py
+      - python3 -m unittest discover -s site/tests -p 'test_install.py' -v
       - cd docs-site && bun install --frozen-lockfile && bun run build
   metrics:
-    readyAt: "2026-10-17T09:19:46.942Z"
-    pickedUpAt: "2026-10-17T09:20:08.848Z"
-    reworkCount: 0
-    deliveredAt: "2026-10-17T09:22:21.554Z"
-    duration: 133
+    readyAt: "2026-10-17T09:23:10.406Z"
 createdAt: "2026-10-17T09:19:46.947Z"
 dispatch:
   agent: claude
@@ -47,7 +43,7 @@ dispatch:
     pid: 50333
     at: "2026-10-17T09:22:50.259Z"
 assignee: claude
-updatedAt: "2026-10-17T09:22:50.259Z"
+updatedAt: "2026-10-17T09:23:10.406Z"
 ---
 
 ## Description

@@ -9,6 +9,9 @@ tags:
   - phone
 parentId: epic-11
 createdAt: "2026-10-17T05:37:02.975Z"
+dependsOn:
+  - task-92
+updatedAt: "2026-10-17T05:37:05.523Z"
 ---
 
 ## Description

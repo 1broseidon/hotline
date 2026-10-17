@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/paths.rs
   - crates/hotline-core/src/process_windows.rs
   - crates/hotline-app/src/desks.rs
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-17T22:49:00.266Z"
 contract:
   status: ready
   validation:
@@ -23,6 +23,14 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+dispatch:
+  agent: claude
+  model: sonnet
+  by: lead
+  at: "2026-10-17T22:49:00.138Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

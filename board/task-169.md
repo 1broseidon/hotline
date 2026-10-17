@@ -9,6 +9,12 @@ tags:
   - gates
 parentId: epic-13
 createdAt: "2026-10-17T22:41:11.612Z"
+relatedFiles:
+  - ui/knip.json
+  - ui/package.json
+  - ui/bun.lock
+  - Makefile
+updatedAt: "2026-10-17T22:47:22.443Z"
 ---
 
 ## Description

@@ -10,6 +10,8 @@ tags:
   - "0.40"
   - phase2
 createdAt: "2026-10-17T22:40:41.476Z"
+landsOn: release/0.40.0
+updatedAt: "2026-10-17T22:40:41.970Z"
 ---
 
 ## Description

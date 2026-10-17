@@ -9,6 +9,12 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:43.518Z"
+relatedFiles:
+  - crates/hotline-core/Cargo.toml
+  - Cargo.lock
+  - crates/hotline-core/src/driver/acp/install.rs
+  - docs/security.md
+updatedAt: "2026-10-17T22:46:29.253Z"
 ---
 
 ## Description

@@ -13,7 +13,7 @@ relatedFiles:
   - docs-site/src/content/docs/server/
   - docs-site/src/content/docs/phone/pair.md
   - docs/serve.md
-updatedAt: "2026-10-17T23:10:42.605Z"
+updatedAt: "2026-10-17T23:11:47.306Z"
 contract:
   status: ready
   validation:
@@ -28,7 +28,12 @@ dispatch:
   by: lead
   at: "2026-10-17T23:10:42.436Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T23:11:47.306Z"
 assignee: claude
 ---
 

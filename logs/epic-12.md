@@ -2,8 +2,6 @@
 id: epic-12
 title: "0.40 quality checkpoint: audit maintainability, structure, dead code, errors, lints, window, tests and docs — then fix what George approves"
 type: epic
-column: todo
-position: 0
 priority: high
 tags:
   - quality
@@ -11,8 +9,9 @@ tags:
   - "0.40"
 createdAt: "2026-10-17T19:28:02.163Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T20:01:52.152Z"
+updatedAt: "2026-10-17T20:01:55.225Z"
 assignee: claude
+completedAt: "2026-10-17T20:01:55.225Z"
 ---
 
 ## Description
@@ -46,3 +45,13 @@ Out of scope: hotline-mobile (a later pass); epic-9 (moved off 0.40).
 
 ## Log
 - 2026-10-17T19:29:43.627Z: [claude] Plan (lead, 2026-10-17): Phase 1 is six independent read-only audits (task-103..108). Each commits only docs/audits/0.40/<area>.md, so none collide and none wait on another. Each contract checks four things: the report exists with ≥60 lines; it has sections '## Findings', '## Leave alone' and '## Phase 2 tasks'; it cites file:line evidence; and the diff against release/0.40.0 touches no other file (this also keeps a cargo-rewritten generated/contract.ts out). task-109 runs last, after all six. It merges their Phase 2 lists into one ordered, deduped plan with contradictions and standards notes, in docs/audits/0.40/README.md, and George approves from that. Assignments, 3 at a time: first the compile-heavy Rust audits, 103 structure (claude opus), 105 errors (codex gpt-6.1-sol) and 106 lints (claude sonnet); then 104 dead code (codex gpt-6.1-sol), 107 window (claude sonnet) and 108 tests and docs (claude opus); then 109 (claude opus). Phase 2 is not filed until George reviews the README.
+
+## Child Tasks
+Summary: 7/7 children completed.
+- task-103: Audit: Rust structure and module layout, with a target tree and file splits (completed)
+- task-104: Audit: dead code and dependencies (Rust and window) (completed)
+- task-105: Audit: error handling and reachable panics (completed)
+- task-106: Audit: lint policy and a workspace [lints] table (completed)
+- task-107: Audit: the window — dead exports, big components, lint setup (completed)
+- task-108: Audit: tests (slow, flaky, duplicated) and docs drift (completed)
+- task-109: Audit synthesis: one ordered Phase 2 plan from the six 0.40 reports (completed)

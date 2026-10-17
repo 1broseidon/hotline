@@ -1,8 +1,6 @@
 ---
 id: task-120
 title: "P2-8 (B): Rust dead code"
-column: review
-position: 9
 priority: high
 tags:
   - phase2
@@ -13,7 +11,7 @@ relatedFiles:
   - crates/hotline-core/src/paths.rs
   - crates/hotline-core/src/process_windows.rs
   - crates/hotline-app/src/desks.rs
-updatedAt: "2026-10-17T23:01:14.733Z"
+updatedAt: "2026-10-17T23:01:16.314Z"
 contract:
   status: delivered
   validation:
@@ -42,6 +40,7 @@ dispatch:
     ended: "2026-10-17T22:59:09.850Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T23:01:16.314Z"
 ---
 
 ## Description

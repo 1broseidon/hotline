@@ -12,7 +12,7 @@ parentId: epic-11
 createdAt: "2026-10-17T05:37:01.415Z"
 dependsOn:
   - task-90
-updatedAt: "2026-10-17T07:52:28.751Z"
+updatedAt: "2026-10-17T07:52:30.696Z"
 relatedFiles:
   - crates/hotline-core/src/remote/mod.rs
   - crates/hotline-core/src/remote/server.rs
@@ -37,6 +37,14 @@ contract:
       - grep -qi 'relay' docs/security.md
   metrics:
     readyAt: "2026-10-17T07:46:57.749Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T07:52:30.576Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

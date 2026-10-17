@@ -1,8 +1,6 @@
 ---
 id: task-106
 title: "Audit: lint policy and a workspace [lints] table"
-column: review
-position: 4
 priority: high
 tags:
   - audit
@@ -32,7 +30,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:33:57.148Z"
     duration: 221
-updatedAt: "2026-10-17T19:34:35.532Z"
+updatedAt: "2026-10-17T19:34:37.894Z"
 relatedFiles:
   - docs/audits/0.40/lints.md
   - Cargo.toml
@@ -55,6 +53,7 @@ dispatch:
     ended: "2026-10-17T19:34:07.377Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-17T19:34:37.894Z"
 ---
 
 ## Description

@@ -9,6 +9,9 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:43.005Z"
+relatedFiles:
+  - Cargo.lock
+updatedAt: "2026-10-17T22:46:28.984Z"
 ---
 
 ## Description

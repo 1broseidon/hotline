@@ -28,7 +28,7 @@ contract:
     - If a cargo run rewrites ui/src/generated/contract.ts, restore it before committing
   metrics:
     readyAt: "2026-10-17T19:29:18.238Z"
-updatedAt: "2026-10-17T19:29:26.771Z"
+updatedAt: "2026-10-17T19:41:54.711Z"
 relatedFiles:
   - docs/audits/0.40/tests-and-docs.md
   - crates/hotline-core/tests
@@ -36,6 +36,14 @@ relatedFiles:
   - docs-site/src
   - README.md
   - AGENTS.md
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T19:41:54.589Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

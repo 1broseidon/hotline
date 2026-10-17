@@ -1,7 +1,7 @@
 ---
 id: task-162
 title: "P2-D-2 (E): Server docs"
-column: todo
+column: in-progress
 position: 51
 priority: high
 tags:
@@ -13,15 +13,17 @@ relatedFiles:
   - docs-site/src/content/docs/server/
   - docs-site/src/content/docs/phone/pair.md
   - docs/serve.md
-updatedAt: "2026-10-17T23:11:47.306Z"
+updatedAt: "2026-10-17T23:12:35.345Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - grep -q 'hotline update' docs/serve.md
       - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-17T23:12:35.345Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

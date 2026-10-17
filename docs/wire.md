@@ -975,9 +975,11 @@ command as forbidden or the subscription as one it cannot read.
 first. When one of them is public — the person's tunnel or proxy, or a served
 desk's only address — `publicEndpoint` names it, for any seat, so a phone can
 tell it from a VPN or LAN address; it is absent when there is none. The owner
-phone's hello also carries `deskKind` (`"desktop"` or `"server"`) and
-`version`, the Hotline version; a companion's does not. All three are absent
-from an older desk.
+phone's hello also carries `deskKind` (`"desktop"` or `"server"`),
+`version`, the Hotline version, and `serves`, what the desk runs
+(`["agents"]` on a desktop, `["agents","relay"]` or `["agents"]` on a server;
+ADR 0006); a companion's does not. All are absent from an older desk. A
+relay-only server has no hello: it has no wire.
 
 ### Pushes
 

@@ -304,7 +304,9 @@ async fn a_relay_callback_proves_the_hosting_device_before_switching_to_sealed_r
     let owner = client::Client::new(h.store.clone());
     let desk_id = h.remote.status_desktop_id();
     let mut control = owner.host_relay(&server, &desk_id).await.unwrap();
-    assert_eq!(control_notice(&mut control).await["type"], "ready");
+    let ready = control_notice(&mut control).await;
+    assert_eq!(ready["type"], "ready");
+    assert_eq!(ready["serves"], json!(["agents", "relay"]));
     let (mut visitor, capability) = visit(&relay, &public_url, &desk_id, &mut control).await;
 
     for role in [DeviceRole::Owner, DeviceRole::Companion] {

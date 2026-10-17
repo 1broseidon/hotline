@@ -17,8 +17,9 @@ A computer is a Linux desktop in a container on the server that the teammate
 drives, and that you can watch and take over from your phone. See
 [The computer](/docs/setup/computer/) for what it is.
 
-The server needs Docker or Podman, usable by the `hotline` account: add the
-account to the `docker` group, or run Podman rootless as it.
+The server needs Docker or Podman, usable by the account the desk runs as
+(`systemctl show -p User --value hotline`): add that account to the `docker`
+group, or run Podman rootless as it.
 
 Turning a computer on is a grant, so it happens on the server, not the phone.
 Find the teammate's id, then turn its computer on:

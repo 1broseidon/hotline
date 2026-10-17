@@ -298,8 +298,9 @@ Whole machine authority. `list_teammates` returns each other teammate's
 `personaId` and `name`, plus what the roster already knows about it: `state`
 (`idle`, `working`, `waiting` or `stopped`), the running tool's title as
 `activity`, and `workingOn` (`title` — the open chapter's or the goal's,
-whichever there is — and `lastTurnAt`). Never a message's text, a working
-path, or a tool inventory.
+whichever there is — and `lastTurnAt`); and who it is and what it can do:
+`goal`; `agent`, the backend by the name a person knows it (Hotline Agent, Claude Code, Codex…); `model` and `effort` when set; and `capabilities`: `computer` (`none`, `attached`, or `in use` by its session now), `webSearch`, `imageGeneration`, `backgroundWork`, `messageTeammates` (`directly` or `after approval`), `reach` (`workspace` or `whole machine`) and `mcpServers`, the granted servers' names. Never a message's text, a working path, a
+server's address or login, or a tool inventory.
 
 `teammates.exchange_resume {a,b}` and `teammates.exchange_stop {a,b}`
 answer a pair's `exchange_paused` card from either seat. Keep going resets
@@ -1230,7 +1231,7 @@ answered under the link seat, for the desk the handshake proved:
 | cmd | params | result |
 | --- | --- | --- |
 | `ping` | `{}` | none; sent every 25 s, and a channel that has heard nothing for three is closed |
-| `federation.roster` | `{teammates: LinkedTeammate[]}` | none; the sender's teammates, sent when they change (looked at every 2 s). Each row is `{personaId, name, state, activity, workingOn: {title, lastTurnAt}}` and nothing more; rows are cut to plausible ids, known states and bounded text |
+| `federation.roster` | `{teammates: LinkedTeammate[]}` | none; the sender's teammates, sent when they change (looked at every 2 s). Each row is `{personaId, name, state, activity, workingOn: {title, lastTurnAt}, goal, agent, model, effort, capabilities}`, the `list_teammates` row, and nothing more; rows are cut to plausible ids, known states and capability words, and bounded text, and a row from a desk older than the profile reads as the narrowest one |
 | `federation.deliver` | `{delivery}` | `{accepted: true}` for a request, none for a result. `delivery` is `{kind:"request", requestId, fromPersonaId, to, message, intent}` — `fromPersonaId` must be on the roster the sending desk published (it sends its roster before any message), `to` is the recipient's id on the receiving desk, at most 48 requests from one desk wait at once, `intent` `ask` or `handoff`, the same `requestId` again is the same request — or `{kind:"result", requestId, reply, failed}` for a request the receiver sent |
 | `federation.unlink` | `{}` | none; the sender ended the link |
 

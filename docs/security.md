@@ -40,7 +40,7 @@ it.
 | --- | --- | --- | --- |
 | Reach | `reach` | `workspace` | Hotline Agent's workspace tools and shell. `workspace`: the working directory is a wall; the shell runs confined (bubblewrap on Linux, Seatbelt on macOS, not offered on Windows) with selected host toolchains read-only, a private `HOME` and scratch, no host environment, and the host network. `machine`: the same tools with no wall. |
 | MCP gateway | `mcpPolicy` | `none` | Each selected server's own capabilities, wherever it reaches. Hotline connects it as the client; it is not inside the shell sandbox. `all` includes servers added later. An imported or invalid policy grants nothing. |
-| Collaboration | `allowedSenders` on the recipient, and the caller's reach | empty | Asking another teammate to use its workspace and tools. A `machine` Hotline Agent caller has this implicitly. A `workspace` caller needs the operator's first-contact decision per direction: a session grant bound to both live leases, or a standing grant recorded by the sender's stable id. Discovery gives a workspace caller ids and names only. A teammate on a linked desk is never implicit, whatever its reach there: it is granted by its qualified id or decided on the recipient's desk ([Linked desks](#linked-desks-bro-177-adr-0003)). |
+| Collaboration | `allowedSenders` on the recipient, and the caller's reach | empty | Asking another teammate to use its workspace and tools. A `machine` Hotline Agent caller has this implicitly. A `workspace` caller needs the operator's first-contact decision per direction: a session grant bound to both live leases, or a standing grant recorded by the sender's stable id. Discovery gives any caller a colleague's public profile, never its paths, policies or servers' addresses ([What a colleague sees](#what-a-colleague-sees)). A teammate on a linked desk is never implicit, whatever its reach there: it is granted by its qualified id or decided on the recipient's desk ([Linked desks](#linked-desks-bro-177-adr-0003)). |
 | Background work | `backgroundWork` | `false`, including on older records | Creating its own schedules and loops. Jobs the person creates over the desk wire carry `operatorCreated` and run without it; an agent tool cannot set that flag. |
 | Computer | `computer.enabled` | off | A containerized desktop, `--cap-drop=ALL`, `no-new-privileges`, with the workspace and the teammate's declared mounts bound in. It is a per-teammate capability, not a gateway server, and does not widen reach. Its threads share it through an exclusive lease, below. |
 | Secrets | `computer.secrets` | none | Named values from the operator's store (see below), in the environment of every job that computer runs. The computer redacts each value from what its tools answer and nothing returns one. A record from before the field, or a name nobody ticked, grants nothing. |
@@ -680,7 +680,7 @@ extend; when a change adds a boundary, it adds a row.
 | The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`, `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
 | A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id; its frames are at most 1 MiB and read no faster than its budget; a frame racing the link's end never writes its record back | `wire/tests.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link_tests.rs` `only_the_linked_desks_own_key_opens_its_link`, `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`; `linked.rs` `a_record_written_back_as_its_link_ends_stays_ended` | — |
 | A linked sender is never implicitly trusted: the recipient's `allowedSenders` by qualified id or the person's card on the recipient's desk decide it, the sender's desk cannot answer the card, a denial runs nothing, and ending the link fails waiting work with a sentence and withdraws the card; only roster-row fields cross | `session/links/tests.rs` `an_ask_crosses_the_link_waits_for_the_recipients_person_and_its_answer_comes_back`, `a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_recipients_work_thread`, `a_denied_linked_sender_hears_so_and_nothing_ran`, `ending_the_link_withdraws_the_card_a_linked_sender_was_waiting_on`, `an_ended_link_fails_what_waited_on_it_and_its_teammates_are_gone`, `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
-| Discovery never derives public fields from private instructions | `mcp/server.rs` `teammate_discovery_never_derives_public_fields_from_private_instructions` | — |
+| A colleague sees a teammate's roster state, goal, agent, model and effort, and capabilities as switches, words and granted MCP servers' names; never its workspace path, `mcpPolicy`, a server's address, login header or environment, an ungranted server, `node` or `backendId`; no computer reads `none`; a linked desk's row is cut to the same fields and words | `mcp/server.rs` `a_colleague_sees_a_teammates_goal_agent_model_and_capabilities_and_no_more`, `a_teammate_without_a_computer_or_grants_shows_none_of_them`, `list_teammates_never_carries_a_colleagues_message_text`; `linked.rs` `a_published_roster_is_cut_down_to_what_a_roster_row_holds`; `session/links/tests.rs` `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
 | Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued line is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_scheduled_line_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
 | ACP callbacks stay in the workspace for legacy `machine` personas; a symlinked root alias is accepted; `AGENTS.md` refuses external and dangling symlinks; runtime mode is separate from effort and other configs stay hidden | `driver/acp.rs` `acp_callbacks_stay_in_workspace_for_legacy_machine_personas`, `callback_workspace_accepts_the_selected_symlinked_root_alias`, `agents_md_refuses_external_and_dangling_symlinks`, `disposition_separates_runtime_mode_from_effort_and_hides_other_configs` | — |
 | Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only `search_thread` and `list_chapters`, starts no runs of its own and never reopens the teammate's session or computer; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests.rs` `runs::a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `runs::a_run_is_on_its_teammates_live_model_with_no_computer_and_no_session_to_reopen`, `runs::a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `runs::a_cancelled_run_stops_its_agent_and_its_line_says_so`, `runs::a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
@@ -785,6 +785,35 @@ made it so.
   that cannot be undone; the caller receives an uncertain failure and must
   inspect those effects before retrying. Pre-fix requests have no saved gate
   association and cannot have one safely reconstructed.
+
+## What a colleague sees
+
+`list_teammates` tells a teammate who its colleagues are and what each can
+do, so it can ask the right one. This is disclosure, not reach: nothing in
+it lets a colleague use another's tools.
+
+- **Default and old records:** every teammate's row carries its goal, its
+  agent by name, its model and effort when set, and its capabilities —
+  computer (`none`, `attached`, `in use`), web search, image generation,
+  background work, `messageTeammates` (`directly` or `after approval`),
+  reach (`workspace` or `whole machine`) and the names of its granted MCP
+  servers. A linked desk from before the profile sends none of it, and its
+  rows read as the narrowest words.
+- **Grant source:** none to give: the person's own choices for a teammate
+  are what the row reports, read from its record, the room's settings and
+  its live session at each call.
+- **Enforcement points:** the row is the type `linked::LinkedTeammate`,
+  built only by `mcp::server::roster_row` and `profile`, which take names,
+  switches and words and never a path, a server's transport or a policy's
+  ids; `linked::plausible` cuts what a linked desk publishes to the same
+  fields, known words and bounded plain text.
+- **Tests:** the [regression matrix](#the-regression-matrix) row for a
+  colleague's view.
+- **Residual risk:** a secret the person types into a goal, or names an MCP
+  server after, reaches every colleague, and through a link every teammate
+  on the linked desk; so does the model id. A compromised linked desk can
+  claim any capability for its teammates; it gains nothing by it, because
+  the words decide no grant here.
 
 ## Linked desks (BRO-177, ADR 0003)
 

@@ -336,6 +336,24 @@ pub fn known(root: &Path, backend_id: &str) -> Option<Backend> {
         .find(|backend| backend.id == backend_id)
 }
 
+/// The name a person knows this backend by, without asking the machine
+/// whether it is installed: a colleague reading the roster wants to know what
+/// a teammate runs, not whether this desk could start it. `None` for an id
+/// neither this build nor the cached catalogue knows.
+pub fn name_of(root: &Path, backend_id: &str) -> Option<String> {
+    if let Some(native) = NATIVE.iter().find(|native| native.id == backend_id) {
+        return Some(native.name.to_string());
+    }
+    if let Some(adapted) = ADAPTED.iter().find(|adapted| adapted.id == backend_id) {
+        return Some(adapted.name.to_string());
+    }
+    let agent = read_catalogue(root)?
+        .agents
+        .into_iter()
+        .find(|agent| agent.id == backend_id)?;
+    Some(agent.name.unwrap_or(agent.id))
+}
+
 /// The command that starts this backend, or the sentence saying why nothing
 /// can.
 pub fn launch(root: &Path, backend_id: &str) -> Result<Launch, String> {

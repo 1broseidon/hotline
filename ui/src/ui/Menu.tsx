@@ -32,7 +32,7 @@ export type MenuEntry =
 	| { kind: "heading"; text: string }
 	| { kind: "rule" };
 
-export function Menu({
+function Menu({
 	anchor,
 	entries,
 	align = "start",

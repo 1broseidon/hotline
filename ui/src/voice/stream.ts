@@ -4,7 +4,7 @@ import { WAV_RATE, toBase64 } from "./wav";
 const CHUNK_SAMPLES = WAV_RATE / 5;
 export const MAX_PCM_SAMPLES = WAV_RATE * 20;
 /** Four seconds of unsent audio. A stalled connection must not grow a promise queue forever. */
-export const MAX_PENDING_BYTES = WAV_RATE * 2 * 4;
+const MAX_PENDING_BYTES = WAV_RATE * 2 * 4;
 
 export type AudioChunk = { index: number; data: string; final: boolean };
 

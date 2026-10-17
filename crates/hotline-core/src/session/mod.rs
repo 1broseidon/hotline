@@ -1268,6 +1268,14 @@ impl Room {
         .to_string()
     }
 
+    /// Whether this teammate's session is running with its computer now, as
+    /// its colleagues are told.
+    pub(crate) fn computer_in_use(&self, persona_id: &str) -> bool {
+        lock(&self.sessions)
+            .get(persona_id)
+            .is_some_and(|session| session.computer)
+    }
+
     /// What `computer_status` answers: where this teammate's computer is,
     /// waiting up to `wait` for a download in progress to finish.
     pub(crate) async fn computer_setup_status(&self, persona_id: &str, wait: Duration) -> Value {

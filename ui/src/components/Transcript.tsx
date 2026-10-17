@@ -1307,7 +1307,7 @@ function Ticks({ read }: { read: boolean }) {
 }
 
 /** The six the phone's long-press offers, in its order, so both ends react alike. */
-export const REACTIONS = ["👍", "❤️", "😂", "🔥", "👀", "🙏"] as const;
+const REACTIONS = ["👍", "❤️", "😂", "🔥", "👀", "🙏"] as const;
 
 type BubbleActionsProps = { copy(): void; reply?(): void; react?(emoji: string): void };
 
@@ -2031,7 +2031,7 @@ function stampText(at: number): string {
 }
 
 /** When a run fired: the time, with the date before it when it was not today. */
-export function runTime(at: number): string {
+function runTime(at: number): string {
 	const when = new Date(at);
 	return daysBetween(when, new Date()) === 0 ? clock.format(when) : `${shortDate.format(when)}, ${clock.format(when)}`;
 }

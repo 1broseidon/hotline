@@ -6,8 +6,8 @@ description: What the messages mean, and what to do.
 ## "No teammate can run yet: connect a model provider"
 
 `hotline status` says this on a fresh room. [Connect a model](/docs/server/models/),
-or give your teammates a harness that is already signed in for the `hotline`
-account.
+or give your teammates a harness that is already signed in for the account
+the desk runs as.
 
 ## "Pairing expired. Run `hotline pair` to try again."
 
@@ -44,9 +44,12 @@ rebuilt the server on purpose, pair again. If you didn't, don't.
 
 ## A teammate's harness can't sign in or can't be found
 
-The desk runs harnesses as the `hotline` account with the unit's `PATH`.
-Check that Node (for `npx`) is on that `PATH`, and sign the harness in as
-the `hotline` account. See [Connect a model](/docs/server/models/).
+The desk runs harnesses as its own account, with the unit's
+`PATH`. `systemctl show -p User --value hotline` names that account: you,
+or the `hotline` service account
+([Quick install](/docs/server/install/#quick-install)). Check that Node (for
+`npx`) is on that `PATH`, and sign the harness in as that account. See
+[Connect a model](/docs/server/models/).
 
 ## Another desk has the room
 

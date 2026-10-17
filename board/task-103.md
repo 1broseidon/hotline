@@ -1,7 +1,7 @@
 ---
 id: task-103
 title: "Audit: Rust structure and module layout, with a target tree and file splits"
-column: todo
+column: in-progress
 position: 1
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
 parentId: epic-12
 createdAt: "2026-10-17T19:28:03.176Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: docs
       path: docs/audits/0.40/structure.md
@@ -27,7 +27,9 @@ contract:
     - If a cargo run rewrites ui/src/generated/contract.ts, restore it before committing
   metrics:
     readyAt: "2026-10-17T19:29:18.238Z"
-updatedAt: "2026-10-17T19:29:49.832Z"
+    pickedUpAt: "2026-10-17T19:30:17.898Z"
+    reworkCount: 0
+updatedAt: "2026-10-17T19:30:17.898Z"
 relatedFiles:
   - docs/audits/0.40/structure.md
   - crates/hotline-core/src

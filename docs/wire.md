@@ -1098,6 +1098,40 @@ fixed-key vectors implement this protocol; Swift uses the same vectors.
   `crates/hotline-core/tests/fixtures/noise_v2.json`: desk/device static keys,
   both ephemerals, and expected handshake and first transport bytes.
 
+### A relay, as the phone reads it
+
+A phone never pairs with a server that runs only a relay (`hotline serve
+--capabilities relay`, ADR 0006); it only dials a desk through one. The
+server already says so wherever a phone looks, and hotline-mobile shows it:
+
+- **The QR.** A relay invitation carries `r=relay`, and on a relay-only
+  server `hotline pair` makes no other. A phone that reads `r=relay` claims
+  nothing; before dialing it says *"This is a relay. Pair your desk with it,
+  then link the desk."* and stops there. A desktop link says the same as
+  `"role":"relay"` in its JSON.
+- **The claim.** A phone that does not read `r` claims as it always has,
+  with no `purpose`. The server answers message 2 with `{"refused":"relay"}`:
+  no grant is made and the window stays open for the desktop it was for. The
+  phone shows the same sentence as for the QR and keeps no desk.
+  `{"refused":"device"}` is the opposite case and never reaches a phone,
+  which never sends `purpose`. Both are proved through `hotline pair` in
+  `crates/hotline-cli/tests/pair.rs`.
+- **`serves`.** The pair answer and the owner's hello name what the desk
+  runs (`agents`, `relay`). A phone acts on `agents` and only reads
+  `relay`; a desk without `serves` is an older one and runs agents.
+- **`role_not_permitted`.** A key whose grant on this server is a relay
+  grant, as after `remote.become_relay`, is answered
+  `{"error":"role_not_permitted"}` at `/v2`. It is not a revocation: the
+  phone does not forget the desk's other pairings or report the key revoked.
+- **`remote.devices`.** A server that runs agents and a relay lists its
+  relay grants beside the phones, as `"role":"relay"`. The phone decodes a
+  role it does not know, and this one, as a row it can show and revoke but
+  not act on; an unknown role never fails the list.
+
+A desk reached through a relay sends exactly what it sends on its own
+address: the same hello, `publicEndpoint` and `serves`, so the phone shows
+it as reachable anywhere as before.
+
 Computer-viewer transport uses `<public-url>/v2/computer/{personaId}/ws`.
 Noise message 1 carries UTF-8 JSON
 `{"purpose":"computer","personaId":"<id>"}`; the desk requires an exact match

@@ -1,7 +1,7 @@
 ---
 id: task-114
 title: "P2-2 (A): Patch rustls"
-column: todo
+column: in-progress
 position: 3
 priority: high
 tags:
@@ -11,9 +11,9 @@ parentId: epic-13
 createdAt: "2026-10-17T22:40:43.005Z"
 relatedFiles:
   - Cargo.lock
-updatedAt: "2026-10-17T22:49:03.304Z"
+updatedAt: "2026-10-17T22:49:32.108Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - "! grep -A1 '^name = \"rustls\"$' Cargo.lock | grep -q 'version = \"0.23.45\"'"
@@ -21,6 +21,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-17T22:49:32.108Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: sonnet

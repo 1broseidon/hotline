@@ -9,7 +9,7 @@ tags:
   - adr
 parentId: epic-11
 createdAt: "2026-10-17T05:37:00.895Z"
-updatedAt: "2026-10-17T07:46:15.314Z"
+updatedAt: "2026-10-17T07:47:30.101Z"
 relatedFiles:
   - docs/adr/0006-relay-only-servers.md
   - docs/adr/0002-a-served-desk-relays-sealed-records.md
@@ -34,6 +34,14 @@ contract:
     - "docs/ holds only what is: write the ADR as the decision record, not as shipped behaviour in serve.md or security.md."
   metrics:
     readyAt: "2026-10-17T07:46:15.314Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-17T07:47:29.978Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

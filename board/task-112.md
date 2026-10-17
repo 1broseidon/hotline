@@ -1,7 +1,7 @@
 ---
 id: task-112
 title: Colleagues see each other's goal, agent, model and capabilities (computer, web search, images, background work, MCP server names)
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
   - mcp
 createdAt: "2026-10-17T22:24:05.896Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T22:49:12.409Z"
+updatedAt: "2026-10-17T23:11:31.704Z"
 parentId: epic-13
 relatedFiles:
   - crates/hotline-core/src/mcp/server.rs
@@ -20,7 +20,7 @@ relatedFiles:
   - docs/security.md
   - ui/src/generated/contract.ts
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - make precheck
@@ -29,6 +29,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-17T22:49:12.409Z"
     reworkCount: 0
+    deliveredAt: "2026-10-17T23:11:31.704Z"
+    duration: 1339
 dispatch:
   agent: claude
   model: opus

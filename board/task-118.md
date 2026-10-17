@@ -1,7 +1,7 @@
 ---
 id: task-118
 title: "P2-6 (A): Patch source-map-js"
-column: todo
+column: in-progress
 position: 7
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:40:45.054Z"
 relatedFiles:
   - ui/bun.lock
   - ui/package.json
-updatedAt: "2026-10-17T23:11:03.081Z"
+updatedAt: "2026-10-17T23:11:29.470Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - "! grep -qE 'source-map-js@1\\.([01]\\.[0-9]+|2\\.[01])\"' ui/bun.lock"
@@ -22,6 +22,8 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-17T23:11:29.470Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

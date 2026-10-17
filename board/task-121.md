@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:46.601Z"
 relatedFiles:
   - crates/hotline-core/src/lib.rs
   - crates/hotline-core/src/
-updatedAt: "2026-10-17T23:03:22.018Z"
+updatedAt: "2026-10-17T23:03:24.259Z"
 contract:
   status: ready
   validation:
@@ -30,7 +30,12 @@ dispatch:
   by: lead
   at: "2026-10-17T23:03:21.849Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-17T23:03:24.259Z"
 assignee: claude
 ---
 

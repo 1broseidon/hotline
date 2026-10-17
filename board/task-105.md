@@ -10,7 +10,7 @@ tags:
 parentId: epic-12
 createdAt: "2026-10-17T19:28:04.212Z"
 contract:
-  status: delivered
+  status: done
   deliverables:
     - type: docs
       path: docs/audits/0.40/errors.md
@@ -31,7 +31,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-17T19:38:04.193Z"
     duration: 462
-updatedAt: "2026-10-17T19:38:04.193Z"
+updatedAt: "2026-10-17T19:38:04.714Z"
 relatedFiles:
   - docs/audits/0.40/errors.md
   - crates/hotline-core/src

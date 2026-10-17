@@ -11,7 +11,7 @@ parentId: epic-13
 createdAt: "2026-10-17T22:40:43.005Z"
 relatedFiles:
   - Cargo.lock
-updatedAt: "2026-10-17T22:59:10.268Z"
+updatedAt: "2026-10-17T23:05:30.409Z"
 contract:
   status: delivered
   validation:
@@ -56,3 +56,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-17T22:59:05.949Z: [claude] rustls 0.23.45 -> 0.23.46 via `cargo update -p rustls --precise 0.23.46`; Cargo.lock only (rustls's getrandom moved 0.4.3 -> 0.3.4 with it). cargo-deny no longer reports RUSTSEC-2026-0346..0349; it still fails on the ZIP advisories (tasks 3-5) and unmaintained crates (unic-*, zbus/zvariant, proc-macro-error), which are not this task's. make precheck and make check pass. Committed on dispatch/task-114. Next lockfile tasks (3, 4, 5) should land after this one and may need a lockfile merge.
+- 2026-10-17T23:05:30.409Z: Landed on release/0.40.0

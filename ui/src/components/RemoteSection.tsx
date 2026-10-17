@@ -21,7 +21,9 @@ function PublicAddress({ status, busy, onSave }: { status: RemoteStatus; busy: b
 	const saved = status.publicUrl ?? "";
 	const [text, setText] = useState(saved);
 	const [open, setOpen] = useState(false);
-	const port = status.endpoint ? new URL(status.endpoint).port : null;
+	// A tunnel runs on this computer, so it reaches a listener on all host IPs
+	// through localhost, and one bound to a single address only through it.
+	const target = status.endpoint && (status.host === "all" ? `https://localhost:${new URL(status.endpoint).port}` : status.endpoint);
 	const changed = text.trim() !== saved;
 	return (
 		<Fold title="Public address" value={saved || "None"} action={saved ? "Change" : "Add"} open={open} onToggle={() => setOpen((was) => !was)}>
@@ -31,7 +33,7 @@ function PublicAddress({ status, busy, onSave }: { status: RemoteStatus; busy: b
 				{saved && <button type="button" className="control btn-quiet shrink-0 text-danger" disabled={busy} onClick={() => void onSave(null).then(() => setOpen(false))}>Remove</button>}
 			</form>
 			<p className="hint">
-				{port ? <>Optional, for a tunnel. Point it at <code>https://localhost:{port}</code> (self-signed).</> : "Optional, for a tunnel. Turn Remote access on first."}
+				{target ? <>Optional, for a tunnel. Point it at <code>{target}</code> (self-signed).</> : "Optional, for a tunnel. Turn Remote access on first."}
 			</p>
 		</Fold>
 	);

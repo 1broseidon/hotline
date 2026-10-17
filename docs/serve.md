@@ -293,9 +293,12 @@ Both wait for a claim, cancellation or expiry, so an SSH caller must keep the
 process alive after reading the first line. Completion and errors use stderr.
 The link is `hotline://pair?p=<base64url(JSON)>`, without base64 padding. Its
 payload fields are `version` (2), `url` (HTTPS), `deskKey` (base64url X25519),
-`secret`, `role`, `expiresAt` (Unix milliseconds), and `name`. The existing
-phone QR query keeps `v`, `u`, `k`, `s` and adds `r`, `e`, `n` for the same
-role, expiry and name. All forms name the same single-use invitation.
+`secret`, `role`, `expiresAt` (Unix milliseconds), `name`, and, when set,
+`public` (the desktop's Public address) and `relay`. The existing phone QR
+query keeps `v`, `u`, `k`, `s` and adds `r`, `e`, `n` for the same role,
+expiry and name, and `x` and `a` for the public and relay addresses. A client
+tries `url`, then `public`, then `relay`. A served desk's own address is its
+public one, so it never repeats it. All forms name the same single-use invitation.
 
 
 ## Link the server's teammates with a desktop's

@@ -30,6 +30,11 @@ pub struct PairingPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub relay: Option<String>,
+    /// The person's public address for the desk, tried after `url` and
+    /// before the relay when the device is not on the desk's own network.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub public: Option<String>,
 }
 impl PairingPayload {
     pub fn link(&self) -> Result<String, String> {
@@ -116,6 +121,10 @@ impl Remote {
         let mut s = self.state.lock().unwrap();
         let endpoint = s.endpoints.first().ok_or("Enable remote access first.")?;
         let relay = s.relay.url.clone();
+        // A served desk's only address is already its public one.
+        let public_address = self
+            .public_endpoint_of(&s)
+            .filter(|address| address != endpoint);
         let mut secret = [0u8; 32];
         getrandom::fill(&mut secret).map_err(message)?;
         let secret = URL_SAFE_NO_PAD.encode(secret);
@@ -128,6 +137,7 @@ impl Remote {
             expires_at: now() + 120_000,
             name: desktop_name(),
             relay: relay.clone(),
+            public: public_address.clone(),
         };
         let mut query = url::form_urlencoded::Serializer::new(String::new());
         query
@@ -145,6 +155,9 @@ impl Remote {
             )
             .append_pair("e", &payload.expires_at.to_string())
             .append_pair("n", &payload.name);
+        if let Some(address) = &public_address {
+            query.append_pair("x", address);
+        }
         if let Some(relay) = &relay {
             query.append_pair("a", relay);
         }

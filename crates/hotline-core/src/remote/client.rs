@@ -27,6 +27,9 @@ pub struct PairedDesk {
     /// The desk's address on its relay, tried when its own does not answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay: Option<String>,
+    /// The person's public address for the desk, tried after its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -101,11 +104,12 @@ impl Client {
         };
         let claim = json!({"secret":payload.secret,"name":device_name.trim()});
         let claim = claim.to_string();
-        let opened = handshake(&payload.url, "v2/pair", &identity, &claim).await;
-        let (_, reply) = match (opened, &payload.relay) {
-            (Err(_), Some(relay)) => handshake(relay, "v2/pair", &identity, &claim).await?,
-            (opened, _) => opened?,
-        };
+        let addresses = [
+            Some(payload.url.as_str()),
+            payload.public.as_deref(),
+            payload.relay.as_deref(),
+        ];
+        let (_, reply) = handshake_first(addresses, "v2/pair", &identity, &claim).await?;
         let reply: Value = serde_json::from_slice(&reply)
             .map_err(|_| "The desk sent an invalid pairing reply.")?;
         let desk_id = reply["deskId"]
@@ -121,6 +125,7 @@ impl Client {
             url: payload.url.clone(),
             desk_key: payload.desk_key.clone(),
             relay: payload.relay.clone(),
+            public: payload.public.clone(),
         })
     }
 
@@ -204,19 +209,20 @@ impl Client {
     }
 }
 
-/// A sealed socket to `desk` under `identity`, through its relay when its
-/// own address does not answer.
+/// A sealed socket to `desk` under `identity`, through its public address
+/// and then its relay when its own address does not answer.
 async fn sealed_as(
     desk: &PairedDesk,
     identity: &Identity,
     path: &str,
     payload: &str,
 ) -> Result<Connection, OpenError> {
-    let opened = handshake(&desk.url, path, identity, payload).await;
-    let (channel, response) = match (opened, &desk.relay) {
-        (Err(_), Some(relay)) => handshake(relay, path, identity, payload).await?,
-        (opened, _) => opened?,
-    };
+    let addresses = [
+        Some(desk.url.as_str()),
+        desk.public.as_deref(),
+        desk.relay.as_deref(),
+    ];
+    let (channel, response) = handshake_first(addresses, path, identity, payload).await?;
     // handshake() returns this payload only after Noise verifies the
     // pinned responder. Network/TLS/unauthenticated failures cannot revoke.
     if response == sealed::DEVICE_REJECTED {
@@ -471,6 +477,24 @@ pub(super) async fn dial(base: &str, path: &str) -> Result<Socket, String> {
             .await
             .map_err(|_| "The desk refused the connection.")?;
     Ok(socket)
+}
+
+/// The first of `addresses` that completes a handshake, in order; the last
+/// failure when none does.
+async fn handshake_first(
+    addresses: [Option<&str>; 3],
+    path: &str,
+    identity: &Identity,
+    payload: &str,
+) -> Result<(Connection, Vec<u8>), String> {
+    let mut failure = String::new();
+    for base in addresses.into_iter().flatten() {
+        match handshake(base, path, identity, payload).await {
+            Ok(opened) => return Ok(opened),
+            Err(error) => failure = error,
+        }
+    }
+    Err(failure)
 }
 
 async fn handshake(

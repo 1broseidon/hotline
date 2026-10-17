@@ -1064,6 +1064,74 @@ async fn a_public_address_is_advertised_after_this_computers_own_and_never_repla
 }
 
 #[tokio::test]
+async fn the_pairing_qr_offers_the_public_address_after_the_local_one_and_before_the_relay() {
+    let h = Harness::new().await;
+    let params = |role| {
+        let pairing = h.remote.pairing_v2(role).unwrap();
+        let params: HashMap<String, String> = url::Url::parse(&pairing.url)
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect();
+        (params, pairing.payload)
+    };
+    let local = h.remote.status().endpoint.unwrap();
+    // Without a public address the QR is the local one alone.
+    let (plain, payload) = params(DeviceRole::Owner);
+    assert_eq!(plain["u"], local);
+    assert!(!plain.contains_key("x") && !plain.contains_key("a"));
+    assert_eq!(payload.public, None);
+    // A public address rides along as `x`; `u` stays this computer's own.
+    h.remote
+        .set_public_url(Some("https://desk.example.com"))
+        .unwrap();
+    let (public, payload) = params(DeviceRole::Companion);
+    assert_eq!(public["u"], local);
+    assert_eq!(public["x"], "https://desk.example.com");
+    assert_eq!(public["r"], "companion");
+    assert_eq!(payload.public.as_deref(), Some("https://desk.example.com"));
+    // With a relay as well, each keeps its own parameter.
+    let relay = "https://relay.example/room/relay/desk-1".to_string();
+    h.remote.state.lock().unwrap().relay.url = Some(relay.clone());
+    let (both, payload) = params(DeviceRole::Owner);
+    assert_eq!(both["u"], local);
+    assert_eq!(both["x"], "https://desk.example.com");
+    assert_eq!(both["a"], relay);
+    assert_eq!(payload.relay, Some(relay));
+    // A public address that is the pairing address is not repeated.
+    h.remote.set_public_url(Some(&local)).unwrap();
+    let (same, payload) = params(DeviceRole::Owner);
+    assert!(!same.contains_key("x"));
+    assert_eq!(payload.public, None);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
+async fn rust_client_pairs_and_connects_through_the_public_address_when_its_own_does_not_answer() {
+    let h = Harness::new().await;
+    let client = client::Client::new(Arc::new(MemoryStore::default()));
+    let mut payload = h.remote.pairing_v2(DeviceRole::Owner).unwrap().payload;
+    // The device is away from the desk's network: its own address refuses,
+    // and the public one (a tunnel to the same listener) answers.
+    payload.public = Some(payload.url.clone());
+    payload.url = "https://127.0.0.1:1".into();
+    let desk = client.pair(&payload, "Away laptop").await.unwrap();
+    assert_eq!(desk.desk_id, h.remote.status_desktop_id());
+    assert_eq!(desk.public, payload.public);
+    let mut session = client.connect(&desk);
+    let hello = tokio::time::timeout(Duration::from_secs(15), session.incoming.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&hello).unwrap()["type"],
+        "hello"
+    );
+    drop(session);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}
+
+#[tokio::test]
 async fn a_saved_loopback_selection_migrates_to_all_host_ips() {
     let h = Harness::new().await;
     h.remote.configure(false, network::ALL).await.unwrap();

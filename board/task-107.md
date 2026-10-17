@@ -64,3 +64,6 @@ Audit: the window (ui/).
 - Test layout in ui/tests.
 - generated/contract.ts: how it's produced, and the truncation hazard noted in the repo.
 - Report: docs/audits/0.40/window.md.
+
+## Log
+- 2026-10-17T19:41:29.701Z: [claude] Wrote docs/audits/0.40/window.md on branch dispatch/task-107 (only file changed). For later tasks: typescript-eslint rejects TS 7, so the report recommends Biome for lint; 52 useExhaustiveDependencies hits (12 in App.tsx) need triage before the rule can be on; 30 dead values + 15 dead non-generated types to delete; contract.ts is gitignored; the report lists 14 Phase 2 tasks. No package.json or config changes made.

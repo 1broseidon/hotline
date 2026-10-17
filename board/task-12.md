@@ -18,7 +18,7 @@ description: |-
   - The optional summary read from the original task is out of scope; file it separately if wanted.
 
   All fields are optional, and an older phone ignores them. Tests over the wire in `crates/hotline-core/src/remote/tests.rs` (the TestPhone harness), one each: the paired phone sees `current` on its own grant only; the owner hello has deskKind and version; a companion's hello marks the public endpoint when one is set and has none when unset. Regenerate `ui/src/generated/contract.ts` with an unfiltered `cargo test -p hotline-core`, then `make check`.
-updatedAt: "2026-10-17T06:22:24.169Z"
+updatedAt: "2026-10-17T06:22:24.671Z"
 subtasks:
   - id: task-12-1
     title: Mark the requesting device in remote.devices
@@ -26,9 +26,6 @@ subtasks:
   - id: task-12-2
     title: Expose desk kind/version and paired role in the owner hello
     completed: true
-  - id: task-12-3
-    title: Report Hotline Agent unavailable when no provider is connected
-    completed: false
   - id: task-12-4
     title: Show desk reachability away from home in Settings › Remote, with the Relay row shown before a server is paired (from task-29)
     completed: false

@@ -9,6 +9,11 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:45.566Z"
+relatedFiles:
+  - ui/package.json
+  - ui/bun.lock
+  - ui/src/components/Mermaid.tsx
+updatedAt: "2026-10-17T22:46:30.339Z"
 ---
 
 ## Description

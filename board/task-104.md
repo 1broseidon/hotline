@@ -1,7 +1,7 @@
 ---
 id: task-104
 title: "Audit: dead code and dependencies (Rust and window)"
-column: in-progress
+column: review
 position: 2
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
 parentId: epic-12
 createdAt: "2026-10-17T19:28:03.692Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: docs
       path: docs/audits/0.40/dead-code-and-deps.md
@@ -29,7 +29,9 @@ contract:
     readyAt: "2026-10-17T19:29:18.238Z"
     pickedUpAt: "2026-10-17T19:35:39.904Z"
     reworkCount: 0
-updatedAt: "2026-10-17T19:35:39.904Z"
+    deliveredAt: "2026-10-17T19:43:13.785Z"
+    duration: 454
+updatedAt: "2026-10-17T19:43:13.785Z"
 relatedFiles:
   - docs/audits/0.40/dead-code-and-deps.md
   - Cargo.toml

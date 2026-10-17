@@ -435,7 +435,11 @@ async fn a_relay_only_server_relays_for_a_desktop_that_can_do_nothing_else_there
             .unwrap_err(),
         "This invitation is for using the server as a relay."
     );
-    let devices = said(&hotline(&root, &["devices"]).output().unwrap());
+    // The list is stdout alone: onnxruntime, linked for the speech engine,
+    // warns on stderr on a CPU it does not know, such as Linux on Apple
+    // silicon.
+    let devices = hotline(&root, &["devices"]).output().unwrap();
+    let devices = String::from_utf8_lossy(&devices.stdout);
     assert_eq!(devices.trim().lines().count(), 1, "{devices}");
     assert!(devices.contains("relay  Laptop"), "{devices}");
     stop(pairing);
@@ -447,10 +451,8 @@ async fn a_relay_only_server_relays_for_a_desktop_that_can_do_nothing_else_there
     let server = serve(&root, addr, "agents,relay");
     let status = said(&hotline(&root, &["status"]).output().unwrap());
     assert!(status.contains("runs    agents, relay"), "{status}");
-    assert_eq!(
-        said(&hotline(&root, &["devices"]).output().unwrap()),
-        devices
-    );
+    let devices_again = hotline(&root, &["devices"]).output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&devices_again.stdout), devices);
     let deadline = Instant::now() + Duration::from_secs(60);
     let said_hello = loop {
         if let Some(said) = hello(&phone, &away, Duration::from_secs(5)).await {

@@ -272,7 +272,7 @@ jobs:
           [ "$(printf '%s\n' "$floor" GLIBC_2.35 | sort -V | tail -1)" = GLIBC_2.35 ] || { echo "::error::hotline needs $floor, above the 2.35 floor"; exit 1; }
           name="hotline-server_${version}_${SUFFIX}"
           mkdir -p "pack/$name" out
-          cp target/release/hotline packaging/hotline.service docs/serve.md LICENSE-APACHE LICENSE-MIT "pack/$name/"
+          cp target/release/hotline packaging/hotline.service packaging/hotline-relay.service docs/serve.md LICENSE-APACHE LICENSE-MIT "pack/$name/"
           tar -C pack -czf "out/$name.tar.gz" "$name"
       - uses: actions/upload-artifact@v7
         with:

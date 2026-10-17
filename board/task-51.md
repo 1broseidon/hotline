@@ -12,7 +12,8 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp.rs
   - ui/src/components/Dock.tsx
 createdAt: "2026-10-12T04:20:55.329Z"
-updatedAt: "2026-10-14T20:05:29.639Z"
+updatedAt: "2026-10-17T05:12:07.048Z"
+parentId: epic-9
 ---
 
 ## Description

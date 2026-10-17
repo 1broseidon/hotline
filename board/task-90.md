@@ -9,7 +9,7 @@ tags:
   - adr
 parentId: epic-11
 createdAt: "2026-10-17T05:37:00.895Z"
-updatedAt: "2026-10-17T07:51:17.899Z"
+updatedAt: "2026-10-17T07:51:23.093Z"
 relatedFiles:
   - docs/adr/0006-relay-only-servers.md
   - docs/adr/0002-a-served-desk-relays-sealed-records.md
@@ -50,6 +50,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T07:47:31.109Z"
+    ended: "2026-10-17T07:51:23.092Z"
+    outcome: review
 assignee: claude
 ---
 

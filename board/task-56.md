@@ -8,8 +8,17 @@ tags:
   - remote
   - pairing
 createdAt: "2026-10-14T19:29:48.828Z"
-updatedAt: "2026-10-17T05:24:54.353Z"
+updatedAt: "2026-10-17T05:44:14.482Z"
 parentId: epic-10
+relatedFiles:
+  - crates/hotline-core/src/remote/v2.rs
+  - crates/hotline-core/src/remote/mod.rs
+  - crates/hotline-core/src/remote/tests.rs
+  - ui/src/components/RemoteSection.tsx
+  - crates/hotline-core/src/contract.rs
+  - ui/src/generated/contract.ts
+dependsOn:
+  - task-12
 ---
 
 ## Description

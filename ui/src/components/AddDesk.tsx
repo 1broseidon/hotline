@@ -3,6 +3,7 @@ import { chordKeys } from "../chords";
 import { CloseIcon } from "../icons";
 import { setActiveDesk } from "../desks";
 import { pairDeskByLink, pairDeskOverSsh } from "../native";
+import { keepPairedRelay } from "./RemoteSection";
 import { Band } from "../ui/Band";
 import { onTablistKey } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
@@ -19,7 +20,9 @@ type Way = "link" | "ssh";
  *   person's own `ssh`, so nothing is copied and the trust is the SSH access
  *   they already have.
  *
- * Either way the invitation lasts two minutes and pairs one device.
+ * Either way the invitation lasts two minutes and pairs one device. A relay's
+ * invitation pairs a relay, not a desk (ADR 0006): the pane says so and stays,
+ * since there is no desk to switch to.
  */
 export function AddDesk({ onClose }: { onClose(): void }) {
 	const [way, setWay] = useState<Way>("link");
@@ -27,16 +30,29 @@ export function AddDesk({ onClose }: { onClose(): void }) {
 	const [target, setTarget] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [refusal, setRefusal] = useState<string | null>(null);
+	const [addedRelay, setAddedRelay] = useState<string | null>(null);
 
 	const ready = way === "link" ? link.trim().startsWith("hotline://pair") : sshTarget(target.trim());
 
 	const pair = async () => {
 		setBusy(true);
 		setRefusal(null);
+		setAddedRelay(null);
 		try {
 			const deskId = way === "link" ? await pairDeskByLink(link.trim()) : await pairDeskOverSsh(target.trim());
-			setActiveDesk(deskId);
-			onClose();
+			const kept = await keepPairedRelay(deskId);
+			if (kept.relay === undefined) {
+				setActiveDesk(deskId);
+				onClose();
+				return;
+			}
+			setLink("");
+			setTarget("");
+			setAddedRelay(
+				kept.status?.relay?.deskId === deskId
+					? `Added ${kept.relay.name} as a relay. Phones also reach this desk through it.`
+					: `Added ${kept.relay.name} as a relay. Choose it under Settings › Remote › Relay.`,
+			);
 		} catch (error) {
 			setRefusal(error instanceof Error ? error.message : String(error));
 		} finally {
@@ -114,6 +130,7 @@ export function AddDesk({ onClose }: { onClose(): void }) {
 							{busy ? "Pairing…" : "Pair"}
 						</button>
 					</div>
+					{addedRelay !== null && <p role="status" className="text-sm text-accent-ink">{addedRelay}</p>}
 					{refusal !== null && <Refusal message={refusal} />}
 				</div>
 			</Scroll>

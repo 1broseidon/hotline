@@ -56,6 +56,26 @@ pub enum DeviceRole {
     #[default]
     Owner,
     Companion,
+    /// May stand in on this server's relay and carry visits, and nothing
+    /// else: no seat on the wire, the computer or the link (ADR 0006).
+    Relay,
+}
+impl DeviceRole {
+    /// The seat this role is given on the wire, if any. A relay grant has
+    /// none, so the wire cannot be asked to seat one.
+    pub(crate) fn seated(self) -> Option<WireRole> {
+        match self {
+            Self::Owner => Some(WireRole::Owner),
+            Self::Companion => Some(WireRole::Companion),
+            Self::Relay => None,
+        }
+    }
+}
+/// The roles the wire seats: a `DeviceRole` with the relay taken out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WireRole {
+    Owner,
+    Companion,
 }
 
 #[derive(Clone, Serialize, Deserialize, TS)]
@@ -147,6 +167,11 @@ struct Saved {
     port: u16,
     enabled: bool,
     grants: Vec<Grant>,
+    /// Relay grants, kept out of `grants` because a reader from before the
+    /// relay role fails the whole file on a role it does not know. Such a
+    /// reader ignores this list, so it never authenticates a relay key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    relay_grants: Vec<Grant>,
     /// The paired desk whose relay this one stands in on, when it does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     relay: Option<String>,
@@ -154,6 +179,12 @@ struct Saved {
     /// tunnel, a reverse proxy, a forwarded port. Optional and only advertised.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     public_url: Option<String>,
+}
+impl Saved {
+    /// Every grant, relay grants included. A key is in one list at most.
+    fn all_grants(&self) -> impl Iterator<Item = &Grant> {
+        self.grants.iter().chain(&self.relay_grants)
+    }
 }
 #[derive(Serialize, Deserialize)]
 struct Identity {
@@ -222,9 +253,6 @@ pub(crate) struct Phone {
 impl Phone {
     pub(crate) fn endpoints(&self) -> Vec<String> {
         self.remote.status().endpoints
-    }
-    pub(crate) fn role(&self) -> DeviceRole {
-        self.role
     }
     /// Which address among the endpoints is outside the networks this
     /// computer is on, so any seat can tell it from a VPN or LAN one.
@@ -388,6 +416,16 @@ impl Remote {
     pub fn addresses() -> Vec<String> {
         network::addresses()
     }
+    /// What this desk runs, as a device pairing with it is told: a served
+    /// desk also carries a relay; a desktop never does.
+    fn serves(&self) -> &'static [&'static str] {
+        if self.served.is_some() {
+            &["agents", "relay"]
+        } else {
+            &["agents"]
+        }
+    }
+
     pub(crate) fn status_desktop_id(&self) -> String {
         self.state.lock().unwrap().saved.desktop_id.clone()
     }
@@ -413,7 +451,7 @@ impl Remote {
                 .cloned()
                 .collect(),
             addresses: Self::addresses(),
-            devices: s.saved.grants.iter().map(|g| g.device.clone()).collect(),
+            devices: s.saved.all_grants().map(|g| g.device.clone()).collect(),
             error: s.error.clone(),
             relay: self.relay_status(&s),
             public_url: s.saved.public_url.clone(),
@@ -582,10 +620,14 @@ impl Remote {
                 .map(|host| network::endpoint(host, port))
                 .collect();
             s.cancel = cancel.clone();
-            for grant in s.saved.grants.clone() {
-                if grant.device.public_key.is_some() {
-                    s.devices.insert(grant.device.id, cancel.child_token());
-                }
+            let keyed: Vec<_> = s
+                .saved
+                .all_grants()
+                .filter(|grant| grant.device.public_key.is_some())
+                .map(|grant| grant.device.id.clone())
+                .collect();
+            for id in keyed {
+                s.devices.insert(id, cancel.child_token());
             }
         }
         let this = self.clone();
@@ -599,6 +641,7 @@ impl Remote {
         let mut s = self.state.lock().unwrap();
         let mut saved = s.saved.clone();
         saved.grants.retain(|g| g.device.id != id);
+        saved.relay_grants.retain(|g| g.device.id != id);
         // Close the live authority even if persistence fails. A failed revoke
         // must never leave a socket executing under the grant being removed.
         if let Some(cancel) = s.devices.remove(id) {

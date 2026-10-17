@@ -81,6 +81,17 @@ struct Keys {
 pub(super) struct Claim {
     secret: String,
     name: String,
+    /// `"relay"` from a desktop pairing only to use this server's relay.
+    /// A relay window admits only that, and no other window admits it.
+    #[serde(default)]
+    purpose: Option<String>,
+}
+/// What a claim with the right secret comes to.
+pub(super) enum Claimed {
+    Granted(DeviceRole),
+    /// The claim's purpose does not match the window's role: no grant, and
+    /// the window stays open. The word is what this invitation is for.
+    Refused(&'static str),
 }
 
 impl Remote {
@@ -92,7 +103,7 @@ impl Remote {
             let keys: Keys = serde_json::from_slice(&bytes).map_err(message)?;
             return Ok((keys.private, keys.public));
         }
-        if s.saved.grants.iter().any(|g| g.device.public_key.is_some()) {
+        if s.saved.all_grants().any(|g| g.device.public_key.is_some()) {
             return Err(
                 "The sealed identity is missing; restore its secret store before enabling Remote."
                     .into(),
@@ -110,13 +121,17 @@ impl Remote {
             .lock()
             .unwrap()
             .saved
-            .grants
-            .iter()
+            .all_grants()
             .map(|g| g.device.clone())
             .collect()
     }
 
     pub fn pairing_v2(&self, role: DeviceRole) -> Result<SealedPairing, String> {
+        // A desktop's own Remote never hosts a relay, so a relay grant there
+        // could do nothing.
+        if role == DeviceRole::Relay && self.served.is_none() {
+            return Err("Only a served desk carries a relay.".into());
+        }
         let (_, public) = self.noise_keys()?;
         let mut s = self.state.lock().unwrap();
         let endpoint = s.endpoints.first().ok_or("Enable remote access first.")?;
@@ -147,10 +162,10 @@ impl Remote {
             .append_pair("s", &secret)
             .append_pair(
                 "r",
-                if role == DeviceRole::Owner {
-                    "owner"
-                } else {
-                    "companion"
+                match role {
+                    DeviceRole::Owner => "owner",
+                    DeviceRole::Companion => "companion",
+                    DeviceRole::Relay => "relay",
                 },
             )
             .append_pair("e", &payload.expires_at.to_string())
@@ -217,7 +232,7 @@ impl Remote {
                 .is_some_and(|w| w.expires_at > now() && w.result.is_none())
     }
 
-    pub(super) fn claim_v2(&self, public: &[u8], payload: &[u8]) -> Result<DeviceRole, String> {
+    pub(super) fn claim_v2(&self, public: &[u8], payload: &[u8]) -> Result<Claimed, String> {
         let claim: Claim = serde_json::from_slice(payload).map_err(|_| "Invalid pairing claim.")?;
         if public.len() != 32 || claim.name.trim().is_empty() || claim.name.len() > 80 {
             return Err("Invalid pairing claim.".into());
@@ -232,27 +247,38 @@ impl Remote {
         {
             return Err("Pairing is closed.".into());
         }
+        let role = window.role;
+        // The throttle above has already counted this claim.
+        let relay_claim = claim.purpose.as_deref() == Some("relay");
+        if claim.purpose.is_some() && !relay_claim {
+            return Err("Invalid pairing claim.".into());
+        }
+        match (role, relay_claim) {
+            (DeviceRole::Relay, false) => return Ok(Claimed::Refused("relay")),
+            (DeviceRole::Owner | DeviceRole::Companion, true) => {
+                return Ok(Claimed::Refused("device"));
+            }
+            _ => {}
+        }
         let public_key = URL_SAFE_NO_PAD.encode(public);
-        // Re-pairing the same key explicitly replaces its grant and revokes
-        // its old sockets. A name alone never identifies or replaces a device.
+        // Re-pairing the same key explicitly replaces its grant, in either
+        // list, and revokes its old sockets. A name alone never identifies or
+        // replaces a device.
         let old_id = s
             .saved
-            .grants
-            .iter()
+            .all_grants()
             .find(|g| g.device.public_key.as_deref() == Some(&public_key))
             .map(|g| g.device.id.clone());
         // Inert bearer records remain revocable but must not block their
         // phones from migrating to a sealed grant.
         let keyed_devices = s
             .saved
-            .grants
-            .iter()
+            .all_grants()
             .filter(|grant| grant.device.public_key.is_some())
             .count();
         if old_id.is_none() && keyed_devices >= 16 {
             return Err("Device limit reached.".into());
         }
-        let role = window.role;
         let device = RemoteDevice {
             id: Uuid::new_v4().to_string(),
             name: claim.name.trim().into(),
@@ -265,10 +291,18 @@ impl Remote {
         saved
             .grants
             .retain(|g| Some(&g.device.id) != old_id.as_ref());
-        saved.grants.push(Grant {
+        saved
+            .relay_grants
+            .retain(|g| Some(&g.device.id) != old_id.as_ref());
+        let grant = Grant {
             device: device.clone(),
             push: None,
-        });
+        };
+        if role == DeviceRole::Relay {
+            saved.relay_grants.push(grant);
+        } else {
+            saved.grants.push(grant);
+        }
         self.save(&saved)?;
         s.saved = saved;
         if let Some(id) = old_id
@@ -283,7 +317,7 @@ impl Remote {
         let window = s.sealed_pairing.as_mut().unwrap();
         window.result = Some(device);
         window.secret.clear();
-        Ok(role)
+        Ok(Claimed::Granted(role))
     }
 
     pub(super) fn authenticate_v2(self: &Arc<Self>, public: &[u8]) -> Option<Phone> {
@@ -294,8 +328,7 @@ impl Remote {
         let public = URL_SAFE_NO_PAD.encode(public);
         let grant = s
             .saved
-            .grants
-            .iter()
+            .all_grants()
             .find(|g| g.device.public_key.as_deref() == Some(&public))?;
         let cancel = s.devices.get(&grant.device.id)?.child_token();
         if cancel.is_cancelled() {

@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import type { RemoteStatus, SealedPairing } from "../generated/contract";
+import type { DeviceRole, RemoteStatus, SealedPairing } from "../generated/contract";
 import { useDesks } from "../desks";
 import { writeClipboard } from "../native";
 import { Fold } from "../ui/Fold";
 import { Picker } from "../ui/Menu";
 import { Refusal } from "../ui/Refusal";
 import { wire } from "../wire";
+
+/** A relay device may only stand in on this desk's relay (ADR 0006). */
+const ROLE_LABELS: Record<DeviceRole, string> = { owner: "Owner", companion: "Companion", relay: "Relay only" };
 
 function cancelPairing(id: string) {
 	return wire.command("remote.pairing", { id, cancel: true }).catch(() => {});
@@ -213,7 +216,7 @@ export function RemoteSection() {
 		{status && status.devices.length > 0 && <section aria-label="Paired phones">
 			<h3 className="group-title">Paired phones</h3>
 			<div className="grouped">{status.devices.map((device) => <div key={device.id} className="group-row">
-				<div className="group-row-text"><span className="group-row-title">{device.name}</span><span className="group-row-detail">{device.role === "companion" ? "Companion" : "Owner"} · {device.publicKey ? `Paired ${new Date(Number(device.pairedAt)).toLocaleDateString()}` : "Needs re-pair · Scan a new QR"}</span></div>
+				<div className="group-row-text"><span className="group-row-title">{device.name}</span><span className="group-row-detail">{ROLE_LABELS[device.role]} · {device.publicKey ? `Paired ${new Date(Number(device.pairedAt)).toLocaleDateString()}` : "Needs re-pair · Scan a new QR"}</span></div>
 				<button type="button" className="control btn-quiet text-danger" disabled={busy} onClick={() => void run(async () => { setStatus(await wire.command("remote.revoke", { deviceId: device.id })); setPairing(null); })}>Revoke</button>
 			</div>)}</div>
 		</section>}

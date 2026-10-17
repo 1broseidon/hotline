@@ -84,7 +84,8 @@ pub fn unlink(room: &Room, id: &str) -> ExitCode {
     }))
 }
 
-pub fn pair(room: &Room, companion: bool, json: bool, link: bool) -> ExitCode {
+/// `role` is the grant the invitation makes: owner, companion or relay.
+pub fn pair(room: &Room, role: &str, json: bool, link: bool) -> ExitCode {
     outcome(door::runtime().block_on(async {
         let desk = door::running(room)?;
         let url = format!("ws://127.0.0.1:{}/ws?token={}", desk.port, desk.token);
@@ -98,7 +99,6 @@ pub fn pair(room: &Room, companion: bool, json: bool, link: bool) -> ExitCode {
         // One socket owns the invitation until this command exits. Disconnect
         // also closes the window, including when SSH or this process dies.
         let mut serial = 0;
-        let role = if companion { "companion" } else { "owner" };
         let invitation = ask(&mut socket, &mut serial, json!({"role":role})).await?;
         let id = field(&invitation, "id")?.to_owned();
         if json {
@@ -126,9 +126,16 @@ fn print_invitation(invitation: &Value, role: &str) -> Result<(), String> {
     let url = field(invitation, "url")?;
     let code =
         qrcode::QrCode::new(url.as_bytes()).map_err(|_| "The pairing QR could not be drawn")?;
-    println!(
-        "Scan this QR in Hotline on your phone to pair as {role}. It expires in two minutes.\n"
-    );
+    // A relay grant is for a desktop that stands in here, never a phone.
+    if role == "relay" {
+        println!(
+            "This invitation lets a desktop use this server as its relay, and nothing else. It expires in two minutes.\n"
+        );
+    } else {
+        println!(
+            "Scan this QR in Hotline on your phone to pair as {role}. It expires in two minutes.\n"
+        );
+    }
     println!(
         "{}",
         code.render::<qrcode::render::unicode::Dense1x2>()
@@ -137,7 +144,13 @@ fn print_invitation(invitation: &Value, role: &str) -> Result<(), String> {
     );
     // The link is not printed beside it: scrollback is still sensitive, but
     // a casual copy never carries the secret. `--link` asks for it by name.
-    println!("Pairing a desktop instead? Run `hotline pair --link` and paste the link.");
+    if role == "relay" {
+        println!(
+            "To pair the desktop, run `hotline pair --relay --link` and paste the link into it."
+        );
+    } else {
+        println!("Pairing a desktop instead? Run `hotline pair --link` and paste the link.");
+    }
     Ok(())
 }
 

@@ -242,7 +242,7 @@ async fn a_phone_pairs_and_talks_to_a_desk_through_its_relay() {
 }
 
 #[tokio::test]
-async fn only_an_owners_device_stands_in_and_only_for_a_desk_it_names() {
+async fn a_companion_never_stands_in_and_nobody_stands_in_for_an_unknown_desk() {
     let (_relay_root, relay, public_url) = served().await;
     let h = Harness::new().await;
     let server = pair_desk(&h, &relay, DeviceRole::Companion).await;
@@ -672,4 +672,280 @@ async fn a_relay_visitors_rate_budget_returns_http_429_after_ten_arrivals() {
     assert_eq!(relay.relay.counts(), (1, 10));
     relay.configure(false, &relay.status().host).await.unwrap();
     drop(visitors);
+}
+
+/// Message 1 from `private` to the served desk's `path`, and the sealed
+/// message 2 it answers with.
+async fn sealed_answer(
+    relay: &Remote,
+    public_url: &str,
+    path: &str,
+    private: &[u8; 32],
+    payload: &[u8],
+) -> Vec<u8> {
+    let (_, key) = relay.noise_keys().unwrap();
+    let mut noise = sealed_network::initiator(private, &key);
+    let mut buffer = [0; 4096];
+    let size = noise.write_message(payload, &mut buffer).unwrap();
+    let mut socket = relay_socket(relay, public_url, path).await;
+    socket
+        .send(Message::Binary(buffer[..size].to_vec().into()))
+        .await
+        .unwrap();
+    let answer = tokio::time::timeout(Duration::from_secs(15), socket.next())
+        .await
+        .expect("the desk never answered");
+    let Some(Ok(Message::Binary(bytes))) = answer else {
+        panic!("no sealed answer at {path}");
+    };
+    let size = noise.read_message(&bytes, &mut buffer).unwrap();
+    buffer[..size].to_vec()
+}
+
+async fn claim(
+    relay: &Remote,
+    public_url: &str,
+    invitation: &PairingPayload,
+    private: &[u8; 32],
+    purpose: Option<&str>,
+) -> Value {
+    let mut claim = json!({"secret": invitation.secret, "name": "Pi test desktop"});
+    if let Some(purpose) = purpose {
+        claim["purpose"] = json!(purpose);
+    }
+    let answer = sealed_answer(
+        relay,
+        public_url,
+        "/v2/pair",
+        private,
+        claim.to_string().as_bytes(),
+    )
+    .await;
+    serde_json::from_slice(&answer).unwrap()
+}
+
+#[tokio::test]
+async fn a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door() {
+    let (_relay_root, relay, public_url) = served().await;
+    let h = Harness::new().await;
+    let server = pair_desk(&h, &relay, DeviceRole::Relay).await;
+    let devices = relay.devices();
+    assert_eq!(devices.len(), 1);
+    assert_eq!(devices[0].role, DeviceRole::Relay);
+    h.remote
+        .relay_through(Some(server.desk_id.clone()))
+        .unwrap();
+    let url = standing(&h).await;
+
+    // A phone pairs with the desk and talks to it through the relay grant's
+    // stand-in: the visit is accepted under the relay role.
+    let phone = client::Client::new(Arc::new(MemoryStore::default()));
+    h.remote.state.lock().unwrap().endpoints = vec!["https://127.0.0.1:9".into()];
+    let invitation = h.remote.pairing_v2(DeviceRole::Owner).unwrap().payload;
+    assert_eq!(invitation.relay.as_deref(), Some(url.as_str()));
+    let desk = phone.pair(&invitation, "Relayed phone").await.unwrap();
+    let mut session = phone.connect(&desk);
+    assert_eq!(hello(&mut session).await["type"], "hello");
+
+    // Another relay grant, holding its own key, is told at each desk door
+    // that its role does not open it: not that it is unknown.
+    let (private, _) = sealed::keypair().unwrap();
+    let invitation = relay.pairing_v2(DeviceRole::Relay).unwrap().payload;
+    assert_eq!(
+        claim(&relay, &public_url, &invitation, &private, Some("relay")).await["role"],
+        "relay"
+    );
+    let doors = [
+        ("/v2", String::new()),
+        (
+            "/v2/computer/scout/ws",
+            json!({"purpose":"computer","personaId":"scout"}).to_string(),
+        ),
+        (
+            "/v2/link",
+            json!({"purpose":"link","deskId":Uuid::new_v4()}).to_string(),
+        ),
+    ];
+    for (path, payload) in &doors {
+        assert_eq!(
+            sealed_answer(&relay, &public_url, path, &private, payload.as_bytes()).await,
+            sealed::ROLE_REFUSED,
+            "{path}"
+        );
+    }
+    // A key the relay never paired is still unknown there.
+    let (stranger, _) = sealed::keypair().unwrap();
+    assert_eq!(
+        sealed_answer(&relay, &public_url, "/v2", &stranger, &[]).await,
+        sealed::DEVICE_REJECTED
+    );
+
+    // Revoking the standing grant ends its stand-in, as an owner's would.
+    let standing_id = relay
+        .devices()
+        .into_iter()
+        .find(|device| device.name == "Relayed laptop")
+        .unwrap()
+        .id;
+    relay.revoke(&standing_id).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while relay.relay.counts().0 != 0 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("a revoked relay grant kept standing in");
+    let saved: Value =
+        serde_json::from_slice(&fs::read(_relay_root.path().join("remote.json")).unwrap()).unwrap();
+    assert_eq!(saved["grants"], json!([]));
+    assert_eq!(saved["relayGrants"].as_array().unwrap().len(), 1);
+    h.remote.configure(false, network::ALL).await.unwrap();
+    relay.configure(false, &relay.status().host).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_claim_whose_purpose_does_not_match_the_window_makes_no_grant() {
+    let (relay_root, relay, public_url) = served().await;
+
+    // A relay invitation says so in the QR and the link.
+    let pairing = relay.pairing_v2(DeviceRole::Relay).unwrap();
+    assert!(pairing.url.contains("r=relay"));
+    let invitation = PairingPayload::from_link(&pairing.link).unwrap();
+    assert_eq!(invitation.role, DeviceRole::Relay);
+
+    // A phone's claim, with no purpose, is refused and leaves the window open.
+    let attempts = relay.state.lock().unwrap().attempts;
+    let (phone, _) = sealed::keypair().unwrap();
+    assert_eq!(
+        claim(&relay, &public_url, &invitation, &phone, None).await,
+        json!({"refused":"relay"})
+    );
+    assert!(relay.devices().is_empty());
+    assert_eq!(relay.state.lock().unwrap().attempts, attempts + 1);
+    assert!(relay.pairing_result(&pairing.id).unwrap().is_none());
+
+    // The desktop's relay claim then takes it.
+    let (desktop, _) = sealed::keypair().unwrap();
+    let answer = claim(&relay, &public_url, &invitation, &desktop, Some("relay")).await;
+    assert_eq!(answer["role"], "relay");
+    assert_eq!(answer["deskId"], relay.status_desktop_id());
+    assert_eq!(answer["serves"], json!(["agents", "relay"]));
+    assert!(answer["deskName"].is_string());
+    let devices = relay.devices();
+    assert_eq!(devices.len(), 1);
+    assert_eq!(devices[0].role, DeviceRole::Relay);
+
+    // An owner invitation refuses a relay claim, and still pairs a phone.
+    let invitation = relay.pairing_v2(DeviceRole::Owner).unwrap().payload;
+    let (other, _) = sealed::keypair().unwrap();
+    assert_eq!(
+        claim(&relay, &public_url, &invitation, &other, Some("relay")).await,
+        json!({"refused":"device"})
+    );
+    assert_eq!(relay.devices().len(), 1);
+    assert_eq!(
+        claim(&relay, &public_url, &invitation, &phone, None).await["role"],
+        "owner"
+    );
+
+    // Relay grants are kept where a reader that does not know the role
+    // does not look.
+    let saved: Value =
+        serde_json::from_slice(&fs::read(relay_root.path().join("remote.json")).unwrap()).unwrap();
+    assert_eq!(saved["grants"].as_array().unwrap().len(), 1);
+    assert_eq!(saved["grants"][0]["device"]["role"], "owner");
+    assert_eq!(saved["relayGrants"].as_array().unwrap().len(), 1);
+    assert_eq!(saved["relayGrants"][0]["device"]["role"], "relay");
+
+    // Re-pairing the relay key as an owner moves it: one list at most.
+    let invitation = relay.pairing_v2(DeviceRole::Owner).unwrap().payload;
+    claim(&relay, &public_url, &invitation, &desktop, None).await;
+    let saved: Value =
+        serde_json::from_slice(&fs::read(relay_root.path().join("remote.json")).unwrap()).unwrap();
+    assert_eq!(saved["grants"].as_array().unwrap().len(), 2);
+    assert!(saved.get("relayGrants").is_none());
+    relay.configure(false, &relay.status().host).await.unwrap();
+}
+
+#[tokio::test]
+async fn only_a_served_desk_invites_a_relay() {
+    let h = Harness::new().await;
+    assert_eq!(
+        h.remote.pairing_v2(DeviceRole::Relay).err().as_deref(),
+        Some("Only a served desk carries a relay.")
+    );
+}
+
+/// `Saved` and its grant as a reader from before the relay role has them:
+/// two roles, and no `relayGrants`.
+mod before_the_relay_role {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    #[serde(rename_all = "lowercase")]
+    pub enum DeviceRole {
+        Owner,
+        Companion,
+    }
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct RemoteDevice {
+        pub id: String,
+        pub name: String,
+        pub paired_at: i64,
+        pub role: DeviceRole,
+        pub public_key: Option<String>,
+    }
+    #[derive(Serialize, Deserialize)]
+    pub struct Grant {
+        pub device: RemoteDevice,
+    }
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct Saved {
+        pub desktop_id: String,
+        pub host: String,
+        pub port: u16,
+        pub enabled: bool,
+        pub grants: Vec<Grant>,
+    }
+}
+
+#[tokio::test]
+async fn a_reader_from_before_the_relay_role_loads_relay_grants_and_trusts_none() {
+    let (root, relay, public_url) = served().await;
+    let (owner, _) = sealed::keypair().unwrap();
+    let invitation = relay.pairing_v2(DeviceRole::Owner).unwrap().payload;
+    claim(&relay, &public_url, &invitation, &owner, None).await;
+    let (desktop, desktop_public) = sealed::keypair().unwrap();
+    let invitation = relay.pairing_v2(DeviceRole::Relay).unwrap().payload;
+    claim(&relay, &public_url, &invitation, &desktop, Some("relay")).await;
+    relay.configure(false, &relay.status().host).await.unwrap();
+
+    // The old reader opens the file whole: the owner's pairing survives, and
+    // the relay key is in no list it reads, so it authenticates as nothing.
+    let bytes = fs::read(root.path().join("remote.json")).unwrap();
+    let old: before_the_relay_role::Saved = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(old.grants.len(), 1);
+    assert_eq!(
+        old.grants[0].device.role,
+        before_the_relay_role::DeviceRole::Owner
+    );
+    let desktop_key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(desktop_public);
+    assert!(
+        old.grants
+            .iter()
+            .all(|grant| grant.device.public_key.as_deref() != Some(&desktop_key))
+    );
+
+    // An old reader that saves drops the relay grants: they fail closed.
+    fs::write(
+        root.path().join("remote.json"),
+        serde_json::to_vec(&old).unwrap(),
+    )
+    .unwrap();
+    let saved: Saved =
+        serde_json::from_slice(&fs::read(root.path().join("remote.json")).unwrap()).unwrap();
+    assert!(saved.relay_grants.is_empty());
+    assert_eq!(saved.grants.len(), 1);
 }

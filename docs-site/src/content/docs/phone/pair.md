@@ -18,7 +18,7 @@ top of the team list and choose **Add a desktop**.
 The phone needs to reach the computer: the same Wi-Fi, your VPN, or a
 server selected under **Relay** (see [Use it away from home](/docs/phone/away/)). The QR and link expire after two minutes
 and work for one phone. Press **Link a phone** again if they expire.
-**Paired phones** lists every phone, and **Revoke access** unlinks one.
+**Paired phones** lists every phone, and **Revoke** unlinks one.
 
 Phones paired with the six-digit code before 0.33 scan the new QR once.
 Their old entries say **Needs re-pair** and can still be revoked. A phone

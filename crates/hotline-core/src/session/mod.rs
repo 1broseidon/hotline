@@ -60,9 +60,8 @@ mod turns;
 mod web_search;
 pub use stopping::Stopped;
 
-pub use peers::{DeliverResult, Sent, TEAMMATE_MESSAGE_MAX};
+pub use peers::TEAMMATE_MESSAGE_MAX;
 pub use schedule::{parse_duration, parse_when};
-pub use sides::MAX_LIVE as MAX_LIVE_SIDES;
 
 use crate::computer::Computer;
 use crate::contract::{
@@ -1267,6 +1266,14 @@ impl Room {
             })
         }
         .to_string()
+    }
+
+    /// Whether this teammate's session is running with its computer now, as
+    /// its colleagues are told.
+    pub(crate) fn computer_in_use(&self, persona_id: &str) -> bool {
+        lock(&self.sessions)
+            .get(persona_id)
+            .is_some_and(|session| session.computer)
     }
 
     /// What `computer_status` answers: where this teammate's computer is,

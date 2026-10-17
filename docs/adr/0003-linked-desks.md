@@ -76,7 +76,8 @@ Grizzly's teammates are known on the laptop as `grizzlyId/personaId`. They
 are never personas in the laptop's roster. What the laptop holds of them is
 the roster each side publishes — exactly the rows `list_teammates` gives a
 local colleague (id, name, state, activity, what it is working on, when it
-last spoke), typed so that no other field can travel — and their ids and
+last spoke, its goal, agent, model and capabilities by switch, word and
+server name), typed so that no other field can travel — and their ids and
 names kept on the link's record, so that a message can be addressed and
 queued while grizzly is away.
 

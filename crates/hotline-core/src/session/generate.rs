@@ -35,6 +35,15 @@ struct Arguments {
     name: Option<String>,
 }
 
+/// Whether these settings have image generation off.
+pub(crate) fn images_off_in(settings: &serde_json::Map<String, Value>) -> bool {
+    settings
+        .get("images")
+        .cloned()
+        .and_then(|images| serde_json::from_value::<ImageSettings>(images).ok())
+        .is_some_and(|images| images.is_off())
+}
+
 impl Room {
     pub(crate) fn spending_summary(&self) -> Result<crate::spending::SpendingSummary, String> {
         self.spending.summary()
@@ -43,11 +52,7 @@ impl Room {
     /// Whether the owner has turned image generation off in Settings. A
     /// setting that cannot be read is not off: it fails where it is used.
     pub(crate) fn images_off(&self) -> bool {
-        crate::room::try_settings(self.log())
-            .ok()
-            .and_then(|settings| settings.get("images").cloned())
-            .and_then(|images| serde_json::from_value::<ImageSettings>(images).ok())
-            .is_some_and(|images| images.is_off())
+        crate::room::try_settings(self.log()).is_ok_and(|settings| images_off_in(&settings))
     }
 
     pub(crate) async fn generate_image(

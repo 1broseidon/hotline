@@ -1,7 +1,7 @@
 ---
 id: task-105
 title: "Audit: error handling and reachable panics"
-column: todo
+column: in-progress
 position: 3
 priority: high
 tags:
@@ -10,7 +10,7 @@ tags:
 parentId: epic-12
 createdAt: "2026-10-17T19:28:04.212Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: docs
       path: docs/audits/0.40/errors.md
@@ -27,7 +27,9 @@ contract:
     - If a cargo run rewrites ui/src/generated/contract.ts, restore it before committing
   metrics:
     readyAt: "2026-10-17T19:29:18.238Z"
-updatedAt: "2026-10-17T19:29:52.955Z"
+    pickedUpAt: "2026-10-17T19:30:22.528Z"
+    reworkCount: 0
+updatedAt: "2026-10-17T19:30:22.528Z"
 relatedFiles:
   - docs/audits/0.40/errors.md
   - crates/hotline-core/src

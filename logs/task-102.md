@@ -1,8 +1,6 @@
 ---
 id: task-102
 title: "Installer: `install --server --relay` sets up a relay-only server with the hotline-relay unit"
-column: review
-position: 1
 description: |-
   Left by task-95 (a3b9927e, on release/0.40.0): the server tarball now ships packaging/hotline-relay.service (`--capabilities relay`, installed as hotline.service so pair/status/update find the room), but the curl installer (site/public/install) has no relay mode, so "Run a relay" on a Pi is a manual install.
 
@@ -49,7 +47,8 @@ dispatch:
     ended: "2026-10-17T09:23:46.451Z"
     outcome: review
 assignee: claude
-updatedAt: "2026-10-17T09:23:46.451Z"
+updatedAt: "2026-10-17T09:23:57.085Z"
+completedAt: "2026-10-17T09:23:57.085Z"
 ---
 
 ## Description
@@ -64,3 +63,4 @@ Tests: extend site/tests/test_install.py for the relay unit chosen, the default 
 - 2026-10-17T09:22:48.737Z: Landing sent back (1 of 1): with release/0.40.0 brought in, `python3 -m pytest site/tests/test_install.py` failed: /Users/george/.local/share/mise/installs/python/3.14.8/bin/python3: No module named pytest. Fix it on this branch, commit, and run the checks again.
 - 2026-10-17T09:23:13.326Z: [claude] [lead] The landing failure was my contract, not your code: pytest isn't installed here, and site/tests run with unittest. Validation is now `python3 -m unittest discover -s site/tests -p 'test_install.py' -v`. Run that; if it passes, change nothing else and hand back.
 - 2026-10-17T09:23:41.596Z: [claude] Landing failure was the check's runner, not the branch: nothing in the repo uses pytest and this python has no pytest; the installer tests are stdlib unittest (the file's own Run line and the contract's validation). With release/0.40.0 merged (HEAD 6fd3d051), `python3 -m unittest discover -s site/tests -p 'test_install.py'` passes 44/44, and under real pytest (`uvx --with pytest pytest site/tests/test_install.py`) 44 passed. No code change; landing should run the contract's unittest command. Work is on dispatch/task-102.
+- 2026-10-17T09:23:55.799Z: Landed on release/0.40.0

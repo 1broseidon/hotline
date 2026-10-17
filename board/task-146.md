@@ -9,6 +9,10 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:40:59.590Z"
+relatedFiles:
+  - crates/hotline-core/src/remote/tests.rs
+  - crates/hotline-core/src/remote/tests/
+updatedAt: "2026-10-17T22:46:58.736Z"
 ---
 
 ## Description

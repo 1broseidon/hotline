@@ -3,16 +3,6 @@ id: task-96
 title: "Epic-10 end to end: a phone off-network pairs from the QR via the Public address and sees itself, the desk's kind and version, and the public endpoint marked"
 column: todo
 position: 10
-description: |-
-  Wires and proves the desk side of epic-10 against its "done when", after task-12 and task-56 have landed.
-
-  One over-the-wire test in `crates/hotline-core/src/remote/tests.rs` (TestPhone harness), standing in for a phone away from home:
-  1. Desk with Remote on and a Public address set. Make a pairing QR; parse its link the way a phone does.
-  2. The local `u=` endpoint is unreachable to this client; it pairs through the QR's public fallback endpoint (task-56).
-  3. Its hello carries `deskKind`, `version` and marks the public endpoint, and the marked endpoint equals the one in the QR (task-12 and task-56 agree on one source).
-  4. `remote.devices` marks this phone's grant `current` and no other's.
-  5. With Listen on set to one specific address, the tunnel hint (RemoteSection) names that address and port; on all interfaces it names localhost.
-  Fix whatever seam the two children left between them (for example two different notions of "the public endpoint"). Update `docs/design.md` and `docs/` where they describe the pairing link and hello fields, so the docs say what is. The phone-side labels are hotline-mobile's board (task-25 there); note on epic-10 the exact wire field names the phone must read.
 priority: high
 relatedFiles:
   - crates/hotline-core/src/remote/tests.rs
@@ -45,16 +35,18 @@ dispatch:
   until: done
   tries: 0
 assignee: claude
-updatedAt: "2026-10-17T05:44:34.984Z"
+updatedAt: "2026-10-17T06:23:40.770Z"
 ---
 
 ## Description
 Wires and proves the desk side of epic-10 against its "done when", after task-12 and task-56 have landed.
 
+task-12 landed as 2850899b. Its wire fields: hello `publicEndpoint` (string, any seat, absent when no Public address; from `public_endpoint()` in `remote/mod.rs`), owner-only hello `deskKind` ("desktop" | "server", `desk_kind()`) and `version` (CARGO_PKG_VERSION), and `remote.devices` grants carry `current: true` on the caller's own grant only (absent otherwise). The QR fallback from task-56 should read the same `public_endpoint()`; if it doesn't, make it.
+
 One over-the-wire test in `crates/hotline-core/src/remote/tests.rs` (TestPhone harness), standing in for a phone away from home:
 1. Desk with Remote on and a Public address set. Make a pairing QR; parse its link the way a phone does.
 2. The local `u=` endpoint is unreachable to this client; it pairs through the QR's public fallback endpoint (task-56).
-3. Its hello carries `deskKind`, `version` and marks the public endpoint, and the marked endpoint equals the one in the QR (task-12 and task-56 agree on one source).
+3. Its hello carries `deskKind`, `version` and `publicEndpoint`, and `publicEndpoint` equals the fallback in the QR (task-12 and task-56 agree on one source).
 4. `remote.devices` marks this phone's grant `current` and no other's.
 5. With Listen on set to one specific address, the tunnel hint (RemoteSection) names that address and port; on all interfaces it names localhost.
-Fix whatever seam the two children left between them (for example two different notions of "the public endpoint"). Update `docs/design.md` and `docs/` where they describe the pairing link and hello fields, so the docs say what is. The phone-side labels are hotline-mobile's board (task-25 there); note on epic-10 the exact wire field names the phone must read.
+Fix whatever seam the two children left between them (for example two different notions of "the public endpoint"). Update `docs/design.md` and `docs/` where they describe the pairing link and hello fields, so the docs say what is. The phone-side labels are hotline-mobile's board (task-25 there); note on epic-10 the exact wire field names the phone must read, including the QR's fallback parameter name.

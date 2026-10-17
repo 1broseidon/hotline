@@ -1,7 +1,7 @@
 ---
 id: task-99
 title: "Epic-11 end to end: on a relay-only server a desktop pairs as relay, a phone reaches it through, the desktop cannot prompt, read or configure the server, and a switch to agents,relay keeps the pairing"
-column: todo
+column: in-progress
 position: 8
 priority: high
 tags:
@@ -19,7 +19,7 @@ dependsOn:
   - task-93
   - task-94
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - cargo test -p hotline-cli --test relay
@@ -28,8 +28,10 @@ contract:
       - cargo fmt --all --check
   metrics:
     readyAt: "2026-10-17T07:46:38.560Z"
+    pickedUpAt: "2026-10-17T09:03:54.514Z"
+    reworkCount: 0
 createdAt: "2026-10-17T07:46:38.565Z"
-updatedAt: "2026-10-17T09:03:28.625Z"
+updatedAt: "2026-10-17T09:03:54.514Z"
 dispatch:
   agent: claude
   model: opus

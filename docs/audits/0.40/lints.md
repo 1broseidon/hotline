@@ -192,15 +192,16 @@ done before the table lands; the table keeps `too_many_arguments` at its default
 (warn, deny in CI) so each allow is converted to a refactor or an
 `#[expect(..., reason)]`.
 
-**`result_large_err` (14 of 28 attributes).** Sites: `wire/mod.rs:1021`,
+**`result_large_err` (13 sites).** Sites: `wire/mod.rs:1021`,
 `driver/rig/turn.rs:43,141,194,689`, `driver/rig.rs:718`, `remote/bridge.rs:236`
 and the tests in `remote/tests.rs:1553`, `voice/speech/xai/tests.rs:213,426`,
-`voice/realtime/socket/tests.rs:29,342,484`. The non-test `driver` ones return
-the in-house `Failure` (`driver/failure.rs:37`), which is large enough to trip
-the 128-byte limit; boxing its heavy field once removes five allows. The
+`voice/realtime/socket/tests.rs:29,342,484`. The non-test `driver` ones probably
+return the in-house `Failure` (`driver/failure.rs:37`); its size was not
+measured here. If it is over clippy's 128-byte limit, boxing its heavy field
+removes five allows. The
 `wire/mod.rs:1021` and `remote/bridge.rs:236` ones are forced by tungstenite's
 `ErrorResponse` callback type (the latter already says so in a comment), and
-the test ones return tungstenite errors through helpers. Verdict: fix `Failure`;
+the test ones return tungstenite errors through helpers. Verdict: measure `Failure` and box it if it is the cause;
 leave the rest as `#[expect(clippy::result_large_err, reason = "...")]`.
 
 **`dead_code` (6).** `tests/common/mod.rs:26,32,37,50` and
@@ -225,8 +226,8 @@ should lose the unread field outright (AGENTS.md "delete, don't disable").
 - **Docs-heavy pedantic lints** (`missing_errors_doc`, `missing_panics_doc`,
   `too_long_first_doc_paragraph`, `doc_markdown`, `must_use_candidate`,
   `missing_const_for_fn`, `redundant_pub_crate`, `significant_drop_tightening`,
-  `option_if_let_else`, `similar_names`). About 1,300 hits between them, no
-  bug among the samples read, and several argue with the house style in
+  `option_if_let_else`, `similar_names`). About 1,300 hits between them, samples read were
+  noise rather than defects, and several argue with the house style in
   AGENTS.md (long explanatory comments, `pub(crate)` as documentation).
 - **Panic/unwrap/index/print lints as blanket.** Test code and build scripts
   make up most hits; the daemon's request path is the interesting part and is
@@ -260,7 +261,7 @@ keyword_idents = "warn"
 
 [workspace.lints.clippy]
 # Group baseline: clippy's defaults stay on, pedantic is opt-in per lint,
-# not wholesale, because ~2,800 of its hits are lints the repo's style
+# not wholesale, because most of its hits are lints the repo's style
 # rejects (see "Leave alone").
 dbg_macro = "deny"
 todo = "deny"
@@ -326,8 +327,8 @@ result_large_err = "warn"        # default; slice 6 retires them
    `enqueue_exchange`, `remote::prompt`, `recover`. Each shrinks its allow to
    nothing. Test with the existing headless harnesses (`make verify`) for wire,
    voice and remote.
-6. **`Failure` size.** Box the large field of `driver/failure.rs`'s `Failure` so
-   the five `driver` `result_large_err` allows go; the tungstenite and test ones
+6. **`Failure` size.** Measure `driver/failure.rs`'s `Failure`; if it is the
+   cause, box its large field so the five `driver` `result_large_err` allows go; the tungstenite and test ones
    become `#[expect]`.
 7. **Audit lenses, no table entry.** Read the 23 `significant_drop_in_scrutinee`
    and 114 `large_futures` hits (and the 6 non-test `exit`/`mem_forget`

@@ -63,6 +63,7 @@ export function GeneralSection({
 			.catch(() => setBackends([]));
 	}, []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: modelsRevision is the room saying the list changed.
 	useEffect(() => {
 		let current = true;
 		void wire

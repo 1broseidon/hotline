@@ -7,7 +7,7 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:42.496Z"
-updatedAt: "2026-10-18T00:30:07.715Z"
+updatedAt: "2026-10-18T00:30:17.672Z"
 relatedFiles:
   - docs/security.md
   - crates/hotline-core/src/session/tests.rs
@@ -39,6 +39,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-18T00:14:36.590Z"
+    ended: "2026-10-18T00:30:17.672Z"
+    outcome: done
 assignee: claude
 completedAt: "2026-10-18T00:30:07.715Z"
 ---

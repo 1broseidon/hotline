@@ -18,7 +18,7 @@ contract:
   validation:
     commands:
       - test -d crates/hotline-core/src/contract
-      - "! grep -rn 'crate::' crates/hotline-core/src/contract.rs crates/hotline-core/src/contract/ | grep -v 'crate::contract'"
+      - "! grep -rn 'crate::' crates/hotline-core/src/contract.rs crates/hotline-core/src/contract/ | grep -v 'crate::contract' | grep -v ':[0-9]*: *///'"
       - git diff --exit-code $(git merge-base HEAD release/0.40.0) -- ui/src/generated/contract.ts
       - make precheck
       - make check

@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
-updatedAt: "2026-10-18T08:39:54.251Z"
+updatedAt: "2026-10-18T08:43:30.473Z"
 contract:
   status: in_progress
   validation:
@@ -55,6 +55,13 @@ Phase 2 group D (Fixes in the moved files), plan row 40 in docs/audits/0.40/READ
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+Related Files:
+  - crates/hotline-core/src/
+  - crates/hotline-app/src/
+  - crates/hotline-cli/src/
+
+Settle note (Pork Chop, 2026-10-18 03:45): the run stopped as 'done' with crates/hotline-core/src/log.rs half-edited and uncommitted (a nonminimal_bool rewrite to is_none_or, not cargo-fmt'd) and no done note. Finish the row: the remaining [2] lints and the reasoned expect/unreachable work. Commit each through the hooks, run make precheck, then write the done note with what was covered and what was left on purpose.
 
 ## Log
 - 2026-10-18T08:39:54.251Z: Not landed: 1 file is not committed in the worktree: send it back, or commit in your editor

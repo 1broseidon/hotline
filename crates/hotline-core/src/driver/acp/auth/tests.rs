@@ -1,5 +1,7 @@
-use super::tests::{agent_pipes, client_transport, persona, room, scratch, scratch_cwd};
-use super::*;
+use crate::driver::acp::tests::{
+    agent_pipes, client_transport, persona, room, scratch, scratch_cwd,
+};
+use crate::driver::acp::*;
 use acp::{
     AuthenticateRequest, AuthenticateResponse, InitializeResponse, NewSessionResponse,
     PromptResponse, StopReason,
@@ -315,7 +317,7 @@ done
             "error",
         ] {
             let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
-            command.args(["--exact", "driver::acp::auth_tests::auth_cancel_then_retry_owns_replacement_initialization", "--nocapture"])
+            command.args(["--exact", "driver::acp::auth::tests::auth_cancel_then_retry_owns_replacement_initialization", "--nocapture"])
                 .env(CASE, case).env("PATH", &root).kill_on_drop(true);
             let output = tokio::time::timeout(std::time::Duration::from_secs(20), command.output())
                 .await

@@ -122,6 +122,11 @@ fn wake(root: &Path) -> bool {
 }
 
 impl Instance {
+    /// The room's lock, which this process holds until it ends.
+    pub(crate) fn room(&self) -> &RoomLock {
+        &self.lock
+    }
+
     /// Holds the room for the rest of the process and answers every later
     /// launch: `show` is asked to bring the window forward, and `shown` goes
     /// back only when it says it did — so a desk that is leaving, whose

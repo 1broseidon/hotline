@@ -646,6 +646,7 @@ crates/hotline-core/src/
   skills/                the catalog: built-in, gateway and workspace skills, copied into a workspace
   tools/                 workspace tools on cap-std, shell command
   desk.rs                the room, vault and log behind the wire
+  boot.rs                one boot, the app's and `hotline serve`'s, that returns its errors
   import.rs              copies an existing Hotline data directory
   import/                the previous edition's roster and records, read-only
   wire/                  the door: seats, commands, subscriptions
@@ -660,10 +661,11 @@ crates/hotline-core/tests/  headless end-to-end proofs (integration tests drivin
 
 ## Phases
 
-Each phase ends with the app usable for what it covers, `make check`
-green, and a harness proving the phase's behaviour over the wire. Nothing
-needs to be live between phases; `../hotline` on `main` stays the daily driver
-until Phase 1 replaces it.
+This is the order the tree was built in, kept as history. Each phase ended
+with the app usable for what it covered, `make check` green, and a harness
+proving the phase's behaviour over the wire. Nothing needed to be live
+between phases; `../hotline` on `main` stayed the daily driver until Phase 1
+replaced it.
 
 - **Phase 0 — the core, headless.** The log with folds and subscriptions;
   the room stream with teammates and settings; the vault; the index; the

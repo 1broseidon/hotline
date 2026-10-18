@@ -150,5 +150,4 @@ impl ImageGen for ChatGpt {
 }
 
 #[cfg(test)]
-#[path = "chatgpt_tests.rs"]
 mod tests;

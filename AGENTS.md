@@ -52,7 +52,7 @@ file, and if a rule fights the task in front of you, say so before breaking it.
 
 ```bash
 make dev        # the Tauri shell, Vite with hot reload, on .hotline-dev
-make check      # the UI's typecheck and tests, the Python tests, cargo fmt, clippy -D warnings, cargo test
+make check      # the UI's typecheck, lint and tests, the Python tests, cargo fmt, clippy -D warnings, cargo test
 make verify     # the headless harnesses, driving the real core over the wire
 make precheck   # what GitHub's runners would fail: Windows, each UI test alone, the workflows
 make hooks      # pre-commit (fmt, typecheck, contract, keys), pre-push (precheck)

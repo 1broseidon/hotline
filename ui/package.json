@@ -6,6 +6,7 @@
 		"dev": "vite",
 		"build": "tsc --noEmit && vite build",
 		"typecheck": "tsc --noEmit && tsc --noEmit -p tests",
+		"lint": "biome lint",
 		"test": "bun test tests"
 	},
 	"dependencies": {
@@ -26,6 +27,7 @@
 		"remark-gfm": "^4.0.1"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
 		"@tailwindcss/vite": "^4.3.3",
 		"@types/bun": "1.4.2",
 		"@types/react": "^19.2.18",

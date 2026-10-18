@@ -25,7 +25,7 @@ export function AgentSignIn({ personaId, action, onRetry }: {
 			<p>Signed in. The teammate is ready for another message.</p>
 			{onRetry && !reviewed && <>
 				<p className="mt-1 text-ink-3">The failed turn may have already done some work. Review before sending it again.</p>
-				<button className="control btn mt-2" onClick={() => { onRetry(); setReviewed(true); }}>Review failed message</button>
+				<button type="button" className="control btn mt-2" onClick={() => { onRetry(); setReviewed(true); }}>Review failed message</button>
 			</>}
 		</div>
 	);
@@ -38,7 +38,7 @@ export function AgentSignIn({ personaId, action, onRetry }: {
 						{action.methods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
 					</select>
 				</label>}
-				<button className="control btn" onClick={() => setAttempt(methodId)} disabled={!methodId}>Sign in</button>
+				<button type="button" className="control btn" onClick={() => setAttempt(methodId)} disabled={!methodId}>Sign in</button>
 				<p className="mt-1 text-xs text-ink-3">Opens {action.harnessName}’s own sign-in on this computer.</p>
 			</> : <SignInAttempt personaId={personaId} methodId={attempt}
 				onDone={() => { setAttempt(null); setSucceeded(true); }} onClose={() => setAttempt(null)} />}
@@ -137,6 +137,6 @@ function SignInAttempt({ personaId, methodId, onDone, onClose }: {
 		{error && <p role="alert" className="mb-2 text-sm text-danger">{error}</p>}
 		{/* biome-ignore lint/a11y/noStaticElementInteractions: the terminal inside takes the keys; this only keeps the window's shortcuts from firing as they pass. */}
 		<div ref={host} data-private-terminal onKeyDown={(event) => event.stopPropagation()} className="max-w-full overflow-x-auto" />
-		<button className="control btn mt-2" onClick={() => callbacks.current.onClose()}>{running ? "Cancel sign-in" : "Close"}</button>
+		<button type="button" className="control btn mt-2" onClick={() => callbacks.current.onClose()}>{running ? "Cancel sign-in" : "Close"}</button>
 	</section>;
 }

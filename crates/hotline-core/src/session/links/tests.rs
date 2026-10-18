@@ -538,7 +538,7 @@ async fn a_linked_desk_is_sent_roster_rows_and_nothing_else() {
             .keys()
             .map(String::as_str)
             .collect();
-        fields.sort();
+        fields.sort_unstable();
         assert_eq!(
             fields,
             [
@@ -560,7 +560,7 @@ async fn a_linked_desk_is_sent_roster_rows_and_nothing_else() {
             .keys()
             .map(String::as_str)
             .collect();
-        working_on.sort();
+        working_on.sort_unstable();
         assert_eq!(working_on, ["lastTurnAt", "title"]);
     }
     let sent = published.to_string();

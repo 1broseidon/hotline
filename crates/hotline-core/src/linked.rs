@@ -747,7 +747,7 @@ mod tests {
             .keys()
             .map(String::as_str)
             .collect();
-        fields.sort();
+        fields.sort_unstable();
         assert_eq!(
             fields,
             [

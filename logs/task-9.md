@@ -1,8 +1,6 @@
 ---
 id: task-9
 title: Add controlled privileged-service API for Linux, macOS, and Windows
-column: backlog
-position: 8
 priority: low
 tags:
   - hotline-computer
@@ -64,7 +62,8 @@ description: |-
   Migrated from Linear BRO-133: https://linear.app/1broseidon/issue/BRO-133/add-controlled-privileged-service-api-for-linux-macos-and-windows (2026-10-11).
 
   Closed 2026-10-18 (backlog triage): Won't do (2026-10-11 review, unchanged).
-updatedAt: "2026-10-18T23:41:03.740Z"
+updatedAt: "2026-10-18T23:41:04.272Z"
+completedAt: "2026-10-18T23:41:04.272Z"
 ---
 
 ## Log

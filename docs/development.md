@@ -85,7 +85,7 @@ before anything is served.
 
 ```bash
 make dev        # the Tauri shell, Vite with hot reload, on .hotline-dev
-make check      # cargo fmt --check, clippy -D warnings, cargo test, the window's typecheck
+make check      # the window's typecheck and tests, the Python tests, cargo fmt, clippy -D warnings, cargo test
 make verify     # the headless harnesses, driving the real core over the wire
 make precheck   # what CI's runners would fail, caught here; see Before pushing
 make build      # a release bundle under target/release/bundle (unsigned)
@@ -107,16 +107,26 @@ instance. The shell generates a one-launch token, binds the door on
 `127.0.0.1` with an ephemeral port, and sets `window.__hotlineDesk` to
 `{platform, origin, token, version, dataDir}` before the page loads.
 
-`make check` is, in order: `bun install --frozen-lockfile` and `bun run
-typecheck` in `ui/`; the Python release-manifest tests; `cargo fmt --all --check`; `cargo clippy --workspace
+`make check` is, in order: `bun install --frozen-lockfile`, `bun run
+typecheck` and `bun run test` in `ui/`; the speech engine fetched and
+checked against its pinned hash; the Python tests under `scripts/` and
+`site/tests/`; `cargo fmt --all --check`; `cargo clippy --workspace
 --all-targets -- -D warnings`; `cargo test --workspace`. A window that
 does not compile is a broken build however green the Rust is.
 
 `make verify` is `cargo test --workspace --test '*'`: the integration
 tests under `crates/hotline-core/tests/`, not the unit tests that live beside
 the code. `make check` already runs those unit tests as part of
-`cargo test --workspace`. Two of those tests talk to a real agent and are
-skipped unless you set the env they name — see [The harness](#the-harness).
+`cargo test --workspace`. The tests that talk to a real agent are skipped
+unless you set the env they name — see [The harness](#the-harness).
+
+Two more variables are for development only. `HOTLINE_EXTRA_DESKS` adds
+desks to the window's list by endpoint: a JSON list of `{ "id", "name",
+"origin", "token" }`, for example a second `hotline serve` on this machine.
+A malformed entry is skipped and said. `HOTLINE_DEV_SIGN_IDENTITY` picks
+the certificate `make dev` signs the debug binary with on macOS
+(`scripts/cargo-dev-sign`); without it the first "Apple Development"
+identity in the keychain is used, and with none the binary stays unsigned.
 
 ## Before pushing
 
@@ -617,14 +627,14 @@ wrong-state callbacks, registration gaps, concurrent refresh, URL binding,
 sign-out and the protected vault boundary. No real provider account is used by
 the test suite.
 
-`desk.rs` has four tests. The first creates a teammate, watches the
-roster view, lists models, adds a credential, and deletes the teammate —
-no provider key required. The second lists a peer thread, subscribes to
-it, and marks a message read. The third starts a Hotline Agent turn with a
-real key, has it read a file, and checks the tape. It is skipped unless
-`HOTLINE_HARNESS_ANTHROPIC_KEY` is set. The fourth is the same proof for the
-other kind of agent: set `HOTLINE_HARNESS_ACP` to a backend id this machine
-can run (`cursor`, say) and it drives a real harness as a child.
+Most of `desk.rs` needs no provider key: it creates a teammate, watches
+the roster view, lists models, adds a credential, lists and marks a peer
+thread, and so on. The tests that need a real agent are skipped without
+their env. One starts a Hotline Agent turn with a real key, has it read a
+file, and checks the tape; it runs when `HOTLINE_HARNESS_ANTHROPIC_KEY` is
+set. The others are the same proof for the other kind of agent: set
+`HOTLINE_HARNESS_ACP` to a backend id this machine can run (`cursor`, say)
+and they drive a real harness as a child, including a line sent mid-turn.
 
 ```bash
 HOTLINE_HARNESS_ANTHROPIC_KEY=… make verify

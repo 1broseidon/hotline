@@ -1,13 +1,10 @@
 //! Hotline's core, as a library. Everything shell-agnostic lives here; the
-//! Tauri shell is a thin adapter over it. The design and its phases are in
-//! `docs/design.md`.
+//! Tauri shell is a thin adapter over it. The design is in `docs/design.md`.
 //!
-//! What is here today is the material of Phase 0 and both halves of MCP from
-//! Phase 2: the contract's types, the log, the room, the search index, the
-//! workspace tools, Hotline Agent on Rig, Hotline as an MCP client for the servers
-//! a teammate's policy grants, and Hotline as the MCP server of a teammate's own
-//! tools — over its conversation, and over the teammates it shares the room
-//! with. The wire is built on top of these.
+//! The contract's types, the log and the room, the sessions and both of their
+//! drivers, the workspace tools, Hotline as an MCP client and as an MCP server,
+//! the remote desks and relays, and the wire that carries all of it to a
+//! window, a phone or another desk.
 
 pub mod boot;
 mod capabilities;

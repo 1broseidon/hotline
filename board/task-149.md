@@ -63,3 +63,19 @@ Settle note (Pork Chop, 2026-10-18 03:45): the run stopped as 'done' with crates
 
 ## Log
 - 2026-10-18T08:39:54.251Z: Not landed: 1 file is not committed in the worktree: send it back, or commit in your editor
+- 2026-10-18T09:31:17.634Z: [claude] Done on dispatch/task-149 (86773caa..aae47758, one commit per lint or invariant, all through the hooks). make check passes. make precheck passes 8/8 (Windows too). The unfiltered core tests pass and contract.ts is unchanged.
+
+COVERED. [2]: undocumented_unsafe_blocks (every block has a SAFETY: comment, Windows-only ones included; the toast delegate's mem::forget is now Retained::into_raw), case_sensitive_file_extension_comparisons (file names go through Path::extension in any case; non-file suffixes are rewritten or carry an #[expect] with a reason), match_wildcard_for_single_variants. redundant_clone and unchecked_time_subtraction landed in the earlier commits on this branch. Pedantic picks: nonminimal_bool, iter_on_single_items, tuple_array_conversions, manual_assert, match_wild_err_arm, if_then_some_else_none, manual_assert_eq, match_bool, unnecessary_literal_bound (output_mime is &'static str), unnecessary_debug_formatting, ref_option (#[expect] on serde's serialize_with), trivially_copy_pass_by_ref, used_underscore_binding, single_option_map. Also unused_self at two Google sites. suspicious_operation_groupings, missing_fields_in_debug, midpoint, borrow_as_ptr, stable sort and the rest came from the earlier commits. Invariants: all 26 non-lock shipping unwraps are reasoned expects; updater.rs binds its target once and needs none. No bare unreachable!() is left in crates/: each names its narrowing, and rig/images.rs became a match. The vague expects "text", "guarded" and the session lease message are reworded.
+
+LEFT ON PURPOSE, for row 52 not to set to warn:
+- filetype_is_file: all 5 hits refuse symlinks and devices on purpose; the lint's !is_dir() would weaken them.
+- needless_raw_strings: 3 regexes stay raw like their neighbours.
+- useless_let_if_seq: log.rs rename_backend and wire/phone.rs are accumulating flags.
+- struct_field_names: Note.note, Calls.calls, etc.; one is a serialized exchange field.
+- collection_is_never_read: 2 test false positives, a Vec held for RAII and bytes read by hash().
+- future_not_send: the hits are main, test helpers and a generic; tokio::spawn already enforces Send.
+- float_cmp: spending.rs:188 compares exactly on purpose to detect an amount too small to add.
+- unused_self: skills.rs offers and realtime/live.rs's three error constructors, which mirror the socket's self-reading ones.
+- unneeded_field_pattern: oauth.rs names the ignored field so a new one breaks the match.
+
+The lints were checked on macOS only; Linux- and Windows-only code was only compiled by precheck. Nothing left unwired.

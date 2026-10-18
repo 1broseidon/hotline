@@ -95,11 +95,12 @@ fn message_preview(event: &Value) -> Option<Value> {
     };
     let text = event.get("text").and_then(Value::as_str).unwrap_or("");
     // A file sent without a caption is previewed by its name.
-    let text = match text.trim().is_empty() {
-        true => crate::sent::file_names(event)
+    let text = if text.trim().is_empty() {
+        crate::sent::file_names(event)
             .collect::<Vec<_>>()
-            .join(", "),
-        false => text.to_string(),
+            .join(", ")
+    } else {
+        text.to_string()
     };
     let at = event.get("ts").cloned().unwrap_or(Value::Null);
     Some(json!({ "from": from, "text": text, "at": at }))

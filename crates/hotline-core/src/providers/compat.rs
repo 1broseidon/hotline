@@ -177,9 +177,10 @@ impl Frames {
         };
         let mut fixed = BTreeSet::new();
         repair_event(&mut event, &mut self.next, &mut fixed);
-        let repaired = match fixed.is_empty() {
-            true => None,
-            false => Some(serde_json::to_vec(&event).ok()?),
+        let repaired = if fixed.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_vec(&event).ok()?)
         };
         let kind = event
             .get("type")

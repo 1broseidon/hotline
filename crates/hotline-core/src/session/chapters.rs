@@ -241,9 +241,10 @@ pub(super) fn serialize_chapter(events: &[Value]) -> String {
             "agent" => lines.push(format!("TEAMMATE: {}", said(event))),
             "tool" => {
                 let output = tool_output(event);
-                let arrow = match output.is_empty() {
-                    true => String::new(),
-                    false => format!(" → {}", flat(&output, TOOL_CHARS)),
+                let arrow = if output.is_empty() {
+                    String::new()
+                } else {
+                    format!(" → {}", flat(&output, TOOL_CHARS))
                 };
                 lines.push(format!(
                     "[tool {}] {}{arrow}",

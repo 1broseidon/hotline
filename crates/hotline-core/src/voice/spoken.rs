@@ -505,9 +505,10 @@ pub(crate) fn versions(text: &str) -> Versions {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-    let lazy = match written.trim().is_empty() {
-        true => None,
-        false => lazy(spoken.trim(), written.trim()),
+    let lazy = if written.trim().is_empty() {
+        None
+    } else {
+        lazy(spoken.trim(), written.trim())
     };
     let shown = match paragraphs(&[&written, &outside]) {
         shown if shown.is_empty() => said.clone(),

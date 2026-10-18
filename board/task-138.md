@@ -60,3 +60,6 @@ Phase 2 group C (Move-only renames and splits), plan row 29 in docs/audits/0.40/
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T04:38:48.946Z: [claude] Split wire.rs (2,518 → 69 lines) per structure F5 into wire/{room_handle,seat,door,socket,subscribe,phone}.rs, with roster_entry/activity_on/waiting_on appended to wire/roster.rs; commit ed08b065 on dispatch/task-138. Move-only: the bodies match, and the only changes are pub(super) where a sibling or a test reaches an item, the sibling imports, roster's mod tests moved back to the file's end, and the federation doc link. Deviations: TAPE_PAGE/TAPE_PAGE_MAX/THROUGH_CONTEXT moved to subscribe.rs beside thread_page (their only user); Outbox/Outgoing/Refused/the code constants landed in socket.rs; the test-only snapshot_for_seat moved into wire/tests.rs fixtures; wire/tests.rs now imports the moved items explicitly (tests/*.rs unchanged). docs/security.md and docs/wire.md point Seat::permits at wire/seat.rs. For row 41: subscribe and stream_events are now in wire/subscribe.rs. For row 42: the result_large_err allow is on door.rs `serve` (was wire/mod.rs:1021). Nothing left unwired. make check and make precheck pass (all 7 legs); contract.ts unchanged.

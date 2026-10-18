@@ -52,11 +52,13 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
     let call = calls
         .start_call(
             &id,
-            Some(persona.clone()),
-            true,
-            VoiceInputMode::Audio,
-            VoiceCallMode::Front,
-            Some(48_000),
+            CallRequest {
+                target: Some(persona.clone()),
+                stream_audio: true,
+                input_mode: VoiceInputMode::Audio,
+                mode: VoiceCallMode::Front,
+                mic_rate: Some(48_000),
+            },
             desk.clone(),
         )
         .unwrap();
@@ -70,11 +72,13 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
         calls
             .start_call(
                 &id,
-                Some(persona),
-                true,
-                VoiceInputMode::Audio,
-                VoiceCallMode::Pipeline,
-                None,
+                CallRequest {
+                    target: Some(persona),
+                    stream_audio: true,
+                    input_mode: VoiceInputMode::Audio,
+                    mode: VoiceCallMode::Pipeline,
+                    mic_rate: None,
+                },
                 desk.clone(),
             )
             .unwrap_err()

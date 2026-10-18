@@ -25,6 +25,7 @@ use crate::contract::{
 use crate::{log::Log, session::Room, vault::Vault};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
+pub use call::CallRequest;
 use dispatcher::{Dispatcher, ProviderDispatcher};
 use duplex::Front;
 use ledger::Kind;

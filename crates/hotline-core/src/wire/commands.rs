@@ -95,15 +95,20 @@ pub(crate) async fn run(
             input_mode,
             mode,
             input_rate,
-        } => Ok(json!(voice(room)?.start_call(
-            &call_id,
-            persona_id,
-            stream_audio.unwrap_or_default(),
-            input_mode.unwrap_or_default(),
-            mode.unwrap_or_default(),
-            input_rate,
-            room.clone()
-        )?)),
+        } => {
+            let request = crate::voice::CallRequest {
+                target: persona_id,
+                stream_audio: stream_audio.unwrap_or_default(),
+                input_mode: input_mode.unwrap_or_default(),
+                mode: mode.unwrap_or_default(),
+                mic_rate: input_rate,
+            };
+            Ok(json!(voice(room)?.start_call(
+                &call_id,
+                request,
+                room.clone()
+            )?))
+        }
         Command::VoiceFrontAudio { call_id, seq, data } => {
             voice(room)?.front_audio(&call_id, seq, &data)?;
             Ok(Value::Null)

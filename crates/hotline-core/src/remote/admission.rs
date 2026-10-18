@@ -1,5 +1,10 @@
 //! Anonymous sockets rotate through a bounded pool; only a proven device may
 //! hold a session slot. A proxy's TCP address is not a device identity.
+//!
+//! Every write to the pool is one push, one retain, or one field set before a
+//! token is cancelled, so a poisoned pool still holds whole entries and is
+//! recovered rather than allowed to unwind `Permit::drop` before `released`.
+use super::lock;
 use std::{
     collections::VecDeque,
     net::IpAddr,
@@ -56,7 +61,7 @@ impl Admission {
         };
         loop {
             let (released, ready) = {
-                let mut connections = self.connections.lock().unwrap();
+                let mut connections = lock(&self.connections);
                 let pending = || connections.iter().filter(|c| c.device.is_none());
                 let victim = if pending().filter(|c| c.ip == Some(ip)).count() >= PENDING_PER_IP {
                     pending().find(|c| c.ip == Some(ip))
@@ -107,7 +112,7 @@ impl Admission {
     /// takes the same seats as a directly accepted connection, without
     /// spending pending capacity against the relay's address.
     pub fn seat(self: &Arc<Self>, device: &str) -> Option<Arc<Permit>> {
-        let mut connections = self.connections.lock().unwrap();
+        let mut connections = lock(&self.connections);
         if !has_seat(&connections, device) {
             return None;
         }
@@ -133,7 +138,7 @@ impl Admission {
 
     #[cfg(test)]
     pub fn counts(&self) -> (usize, usize) {
-        let connections = self.connections.lock().unwrap();
+        let connections = lock(&self.connections);
         let pending = connections.iter().filter(|c| c.device.is_none()).count();
         (pending, connections.len() - pending)
     }
@@ -152,7 +157,7 @@ impl Permit {
     /// A control registration leaves admission for its own pool. Its
     /// mutations must still share eviction's lock and the original deadline.
     pub fn while_pending<T>(&self, action: impl FnOnce() -> T) -> Option<T> {
-        let _connections = self.admission.connections.lock().unwrap();
+        let _connections = lock(&self.admission.connections);
         if self.evicted.is_cancelled() || Instant::now() >= self.deadline {
             return None;
         }
@@ -162,7 +167,7 @@ impl Permit {
     /// Called only after a granted device's Noise handshake. Promotion
     /// and eviction share a lock, so an evicted handshake cannot take a seat.
     pub fn authenticate(&self, device: &str) -> bool {
-        let mut connections = self.admission.connections.lock().unwrap();
+        let mut connections = lock(&self.admission.connections);
         if self.evicted.is_cancelled() || Instant::now() >= self.deadline {
             return false;
         }
@@ -192,11 +197,7 @@ impl Permit {
 
 impl Drop for Permit {
     fn drop(&mut self) {
-        self.admission
-            .connections
-            .lock()
-            .unwrap()
-            .retain(|c| c.id != self.id);
+        lock(&self.admission.connections).retain(|c| c.id != self.id);
         self.released.cancel();
     }
 }
@@ -204,6 +205,31 @@ impl Drop for Permit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::remote::poison;
+
+    #[tokio::test]
+    async fn a_poisoned_pool_still_releases_seats_and_denies_past_its_bounds() {
+        let admission = Arc::new(Admission::default());
+        let ip = "127.0.0.1".parse().unwrap();
+        let first = admission.accept(ip, Instant::now()).await;
+        let released = first.released.clone();
+        poison(&admission.connections);
+        drop(first);
+        assert!(released.is_cancelled());
+        assert_eq!(admission.counts(), (0, 0));
+        let mut held = Vec::new();
+        for _ in 0..AUTHENTICATED_PER_DEVICE {
+            let permit = admission.accept(ip, Instant::now()).await;
+            assert!(permit.authenticate("device"));
+            held.push(permit);
+        }
+        assert!(admission.seat("device").is_none());
+        let denied = admission.accept(ip, Instant::now()).await;
+        assert!(!denied.authenticate("device"));
+        drop(denied);
+        drop(held);
+        assert_eq!(admission.counts(), (0, 0));
+    }
 
     #[tokio::test]
     async fn eviction_waits_for_every_owner_and_cannot_promote_its_victim() {

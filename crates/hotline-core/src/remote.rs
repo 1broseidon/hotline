@@ -28,7 +28,7 @@ use std::{
     fs, io,
     net::IpAddr,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
@@ -46,6 +46,22 @@ fn hash(value: &str) -> String {
 }
 fn message(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+/// A panic on one connection must not take every later one down with it, nor
+/// unwind a destructor before it signals release. Recovering the guard is
+/// sound only where the writers under it leave the value whole at every point
+/// that can panic; each lock taken through here has been read for that.
+fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
+    held.lock().unwrap_or_else(PoisonError::into_inner)
+}
+/// Leaves `held` poisoned, as a panic while it was held would.
+#[cfg(test)]
+fn poison<T>(held: &Mutex<T>) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _held = held.lock();
+        panic!("poisoned on purpose");
+    }));
+    assert!(held.is_poisoned());
 }
 impl DeviceRole {
     /// The seat this role is given on the wire, if any. A relay grant has
@@ -197,6 +213,9 @@ pub struct RemoteStatus {
     /// Remote is on, and advertised to phones after this computer's own.
     pub public_url: Option<String>,
 }
+/// Every write here cancels a token before it forgets one, and records a
+/// grant in memory only after it is saved, so a write a panic interrupts
+/// leaves authority closed rather than open. A poisoned `state` is recovered.
 struct Live {
     saved: Saved,
     endpoints: Vec<String>,
@@ -310,7 +329,7 @@ impl Phone {
         if !expo || !matches!(platform.as_str(), "ios" | "android") {
             return Err("register a push token Expo issued, for ios or android.".into());
         }
-        let mut s = self.remote.state.lock().unwrap();
+        let mut s = lock(&self.remote.state);
         if self.cancel.is_cancelled() {
             return Err("This phone has been disconnected.".into());
         }
@@ -436,10 +455,10 @@ impl Remote {
     }
 
     pub(crate) fn status_desktop_id(&self) -> String {
-        self.state.lock().unwrap().saved.desktop_id.clone()
+        lock(&self.state).saved.desktop_id.clone()
     }
     pub fn status(&self) -> RemoteStatus {
-        let s = self.state.lock().unwrap();
+        let s = lock(&self.state);
         RemoteStatus {
             enabled: !s.endpoints.is_empty(),
             host: s.saved.host.clone(),
@@ -469,7 +488,7 @@ impl Remote {
     /// A served desk's only address is its public one; a desktop's is the
     /// person's own, advertised while Remote is on.
     fn public_endpoint(&self) -> Option<String> {
-        self.public_endpoint_of(&self.state.lock().unwrap())
+        self.public_endpoint_of(&lock(&self.state))
     }
     fn public_endpoint_of(&self, s: &Live) -> Option<String> {
         if s.endpoints.is_empty() {
@@ -487,7 +506,7 @@ impl Remote {
             return Err("A served desk's public URL is set when it starts.".into());
         }
         let url = public_origin(url.unwrap_or_default())?;
-        let mut s = self.state.lock().unwrap();
+        let mut s = lock(&self.state);
         let mut saved = s.saved.clone();
         saved.public_url = url;
         self.save(&saved)?;
@@ -504,12 +523,12 @@ impl Remote {
             return;
         }
         let (enabled, host) = {
-            let s = self.state.lock().unwrap();
+            let s = lock(&self.state);
             (s.saved.enabled, s.saved.host.clone())
         };
         if enabled && let Err(e) = self.configure(true, &host).await {
             eprintln!("[remote] did not start: {e}");
-            self.state.lock().unwrap().error = Some(e);
+            lock(&self.state).error = Some(e);
         }
     }
     pub async fn configure(
@@ -540,7 +559,7 @@ impl Remote {
             vec![host.to_owned()]
         };
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             let endpoints: Vec<_> = hosts
                 .iter()
                 .map(|host| network::endpoint(host, s.saved.port))
@@ -569,7 +588,7 @@ impl Remote {
             self.stand();
             return Ok(self.status());
         }
-        let saved_port = self.state.lock().unwrap().saved.port;
+        let saved_port = lock(&self.state).saved.port;
         let listener = network::bind(host, saved_port, &addresses)
             .await
             .map_err(message)?;
@@ -617,7 +636,7 @@ impl Remote {
         let tls = server::tls(&identity)?;
         let cancel = CancellationToken::new();
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             let mut saved = s.saved.clone();
             saved.host = host.into();
             saved.enabled = true;
@@ -647,7 +666,7 @@ impl Remote {
         Ok(self.status())
     }
     pub fn revoke(&self, id: &str) -> Result<RemoteStatus, String> {
-        let mut s = self.state.lock().unwrap();
+        let mut s = lock(&self.state);
         let mut saved = s.saved.clone();
         saved.grants.retain(|g| g.device.id != id);
         saved.relay_grants.retain(|g| g.device.id != id);
@@ -678,7 +697,7 @@ impl Remote {
         if !self.relays() {
             return Err("This server does not run a relay.".into());
         }
-        let mut s = self.state.lock().unwrap();
+        let mut s = lock(&self.state);
         let mut saved = s.saved.clone();
         let at = saved
             .grants

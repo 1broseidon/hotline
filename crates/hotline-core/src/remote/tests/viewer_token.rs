@@ -73,7 +73,7 @@ async fn viewer_tokens_are_persona_bound_single_use_and_never_owner_credentials(
     ))
     .await
     .unwrap();
-    let hello = tokio::time::timeout(Duration::from_secs(5), wire.next())
+    let hello = tokio::time::timeout(ANSWER, wire.next())
         .await
         .unwrap()
         .unwrap()
@@ -123,7 +123,7 @@ async fn viewer_tokens_are_persona_bound_single_use_and_never_owner_credentials(
     assert_eq!(winners.len(), 1);
     let mut socket = winners.pop().unwrap();
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(5), socket.next())
+        tokio::time::timeout(ANSWER, socket.next())
             .await
             .unwrap()
             .unwrap()

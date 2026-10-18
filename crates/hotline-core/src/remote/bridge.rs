@@ -1,5 +1,9 @@
 //! Each bridge is a loopback capability, never the remote device's private key.
+//!
+//! Each lock here guards one value replaced in one step, or a token map whose
+//! check and removal cannot panic between them, so a poisoned one is recovered.
 use super::client::{Client, Discovery, PairedDesk, State};
+use super::lock;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -72,7 +76,7 @@ struct Discoveries {
 }
 impl Discoveries {
     fn publish(&self, discovery: &Discovery) {
-        let mut latest = self.latest.lock().unwrap();
+        let mut latest = lock(&self.latest);
         if discovery.sequence <= *latest {
             return;
         }
@@ -99,7 +103,7 @@ impl Bridge {
     /// Present it as the `hotline-viewer.<token>` WebSocket subprotocol. A
     /// reconnect needs a fresh token, even if the remote computer was unavailable.
     pub fn viewer_token(&self, persona_id: &str) -> String {
-        self.viewer_tokens.lock().unwrap().mint(persona_id)
+        lock(&self.viewer_tokens).mint(persona_id)
     }
 
     pub async fn start(desk: &PairedDesk) -> Result<Self, String> {
@@ -214,7 +218,7 @@ fn authorize(
             return Err(());
         }
         let protocol = protocol.parse().map_err(|_| ())?;
-        viewers.lock().unwrap().redeem(token, id)?;
+        lock(viewers).redeem(token, id)?;
         return Ok(Authorization {
             persona,
             protocol: Some(protocol),
@@ -249,7 +253,7 @@ async fn serve(
         move |request: &Request, mut response: Response| -> Result<Response, ErrorResponse> {
             match authorize(request, &token, &viewers) {
                 Ok(authorization) => {
-                    *selected.lock().unwrap() = authorization.persona;
+                    *lock(&selected) = authorization.persona;
                     if let Some(protocol) = authorization.protocol {
                         response
                             .headers_mut()
@@ -274,7 +278,7 @@ async fn serve(
     else {
         return;
     };
-    let persona = target.lock().unwrap().clone();
+    let persona = lock(&target).clone();
     if let Some(persona) = persona {
         viewer(local, client, desk, &persona).await;
         return;
@@ -349,6 +353,17 @@ async fn viewer(
 #[cfg(test)]
 mod discovery_tests {
     use super::*;
+    use crate::remote::poison;
+
+    #[test]
+    fn a_poisoned_token_map_still_spends_each_viewer_token_once() {
+        let tokens = Mutex::new(ViewerTokens::default());
+        let token = lock(&tokens).mint("ada");
+        poison(&tokens);
+        assert!(lock(&tokens).redeem(&token, "bob").is_err());
+        assert!(lock(&tokens).redeem(&token, "ada").is_ok());
+        assert!(lock(&tokens).redeem(&token, "ada").is_err());
+    }
 
     #[test]
     fn a_delayed_session_cannot_overwrite_a_newer_authenticated_discovery() {

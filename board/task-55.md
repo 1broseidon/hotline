@@ -1,13 +1,13 @@
 ---
 id: task-55
 title: Desk drops a phone's dead socket sooner
-column: backlog
-position: 38
+column: todo
+position: 3
 priority: low
 tags:
   - remote
 createdAt: "2026-10-14T19:29:48.338Z"
-updatedAt: "2026-10-18T23:40:47.187Z"
+updatedAt: "2026-10-18T23:40:47.707Z"
 parentId: epic-14
 ---
 

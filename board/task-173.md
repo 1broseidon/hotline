@@ -30,23 +30,16 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T00:31:04.589Z"
     reworkCount: 0
-updatedAt: "2026-10-18T00:36:37.437Z"
+updatedAt: "2026-10-18T00:45:43.183Z"
 dependsOn:
   - task-122
 dispatch:
   agent: claude
   model: opus
   by: cli
-  at: "2026-10-18T00:15:34.492Z"
+  at: "2026-10-18T00:45:43.011Z"
   until: done
   tries: 1
-  claim:
-    host: Georges-Mac-Studio
-    runner: desktop
-    pid: 50333
-    at: "2026-10-18T00:30:07.217Z"
-    ended: "2026-10-18T00:34:58.191Z"
-    outcome: review
 assignee: claude
 ---
 
@@ -59,3 +52,4 @@ End with `make precheck` and `make ui-check` (the hooks are on; never --no-verif
 
 ## Log
 - 2026-10-18T00:36:37.437Z: Not landed: 1 file is not committed in the worktree: send it back, or commit in your editor
+- 2026-10-18T00:45:42.844Z: Landing sent back (1 of 1): with release/0.40.0 brought in, `make precheck` failed: warning: build failed, waiting for other jobs to finish... ⏎ log: /Users/george/.brainfile-worktrees/hotline-e23ecf/task-173/target/precheck/contract.log ⏎ rerun: scripts/precheck contract ⏎ clippy pass 70s ⏎ windows pass 92s ⏎ ui pass 12s ⏎ precheck: 1 of 7 legs failed in 182s: contract ⏎ make: *** [precheck] Error 1. Fix it on this branch, commit, and run the checks again.

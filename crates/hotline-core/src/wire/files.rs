@@ -220,7 +220,7 @@ pub(super) fn download(path: &str, offset: u64) -> Result<Value, String> {
     }
     let next = offset + bytes.len() as u64;
     Ok(
-        json!({"name":path.file_name().unwrap_or_default().to_string_lossy(),"mimeType":mime_guess::from_path(&path).first_or_octet_stream().to_string(),"size":metadata.len(),"offset":offset,"data":STANDARD.encode(bytes),"next":if next < metadata.len() {Some(next)} else {None}}),
+        json!({"name":path.file_name().unwrap_or_default().to_string_lossy(),"mimeType":mime_guess::from_path(&path).first_or_octet_stream().to_string(),"size":metadata.len(),"offset":offset,"data":STANDARD.encode(bytes),"next":(next < metadata.len()).then_some(next)}),
     )
 }
 

@@ -130,8 +130,7 @@ impl Vault {
         let key = self.custom_key(id, &draft.base_url, draft.secret.as_deref())?;
         let id = previous
             .as_ref()
-            .map(|c| c.id.clone())
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            .map_or_else(|| uuid::Uuid::new_v4().to_string(), |c| c.id.clone());
         self.check_layout()?;
         let dir = self.login_dir(&id);
         make_private_directory(&dir)?;
@@ -493,7 +492,7 @@ impl Vault {
                 model.manual = manual.contains(&model.id);
                 if let Some(listed) = discovered.get(&model.id) {
                     if let Some(name) = &listed.name {
-                        model.name = name.clone();
+                        model.name.clone_from(name);
                     }
                     model.context_limit = listed.context_limit.or(model.context_limit);
                     model.output_limit = listed.output_limit.or(model.output_limit);
@@ -1000,10 +999,10 @@ fn mcp_path_component(id: &str) -> String {
     if readable.is_empty() {
         readable.push_str("server");
     }
-    let mut hash = 0xcbf29ce484222325u64;
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for byte in id.as_bytes() {
         hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
     }
     format!("{readable}-{hash:016x}")
 }
@@ -1267,7 +1266,7 @@ mod tests {
         );
         assert!(!vault.login_dir(&first.id).exists());
         vault.cache_discovery(&second.id, &[]).unwrap();
-        assert!(vault.account_models()["ollama-cloud"].is_empty());
+        assert_eq!(vault.account_models()["ollama-cloud"], [] as [String; 0]);
         vault.revoke(&second.id).unwrap();
         assert!(vault.account_models().is_empty());
         assert!(
@@ -1346,7 +1345,7 @@ mod tests {
                     .is_err()
             );
             symlink(&outside, dir.join("manual-models.json")).unwrap();
-            assert!(vault.read_manual_models(&credential.id).is_empty());
+            assert_eq!(vault.read_manual_models(&credential.id), [] as [String; 0]);
             assert!(
                 vault
                     .set_manual_models(&credential.id, &["manual".into()])
@@ -1578,7 +1577,7 @@ mod tests {
         );
 
         vault.delete(&credential.id).unwrap();
-        assert!(vault.list().is_empty());
+        assert_eq!(vault.list(), [] as [Credential; 0]);
         assert!(!secrets(&vault).contains("sk-ant-001"));
         // Both halves are gone, and asking again says so.
         assert!(vault.revoke(&credential.id).is_err());
@@ -1781,7 +1780,7 @@ mod tests {
         let (id, dir) = vault.begin_login("openai-codex").unwrap();
         vault.abandon_login(&id).unwrap();
         assert!(!dir.exists());
-        assert!(vault.list().is_empty());
+        assert_eq!(vault.list(), [] as [Credential; 0]);
         assert!(vault.provider_auth().is_empty());
     }
 
@@ -1793,7 +1792,7 @@ mod tests {
         assert!(dir.is_dir());
         vault.delete(&id).unwrap();
         assert!(!dir.exists());
-        assert!(vault.list().is_empty());
+        assert_eq!(vault.list(), [] as [Credential; 0]);
         assert!(vault.provider_auth().is_empty());
     }
 

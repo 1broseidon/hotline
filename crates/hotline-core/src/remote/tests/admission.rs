@@ -115,7 +115,7 @@ async fn counts(h: &Harness, expected: (usize, usize)) {
 }
 
 async fn remote_counts(remote: &Remote, expected: (usize, usize)) {
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(PROMPTLY, async {
         while remote.admission.counts() != expected {
             tokio::task::yield_now().await;
         }
@@ -126,13 +126,13 @@ async fn remote_counts(remote: &Remote, expected: (usize, usize)) {
 
 async fn relay_server() -> (tempfile::TempDir, Arc<Remote>, String) {
     let root = tempfile::tempdir().unwrap();
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let listen = reserved.local_addr().unwrap();
-    drop(reserved);
+    let listener = loopback();
+    let listen = listener.local_addr().unwrap();
     let store = Arc::new(MemoryStore::default());
     let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
     let public_url = format!("https://{listen}/room");
-    let remote = Remote::open_served_with_store(
+    let remote = Remote::open_served_on(
+        listener,
         root.path(),
         Some(Agents {
             log: desk.log.clone(),
@@ -149,7 +149,7 @@ async fn relay_server() -> (tempfile::TempDir, Arc<Remote>, String) {
     )
     .unwrap();
     remote.restore().await;
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(ANSWER, async {
         while !remote.status().enabled {
             tokio::task::yield_now().await;
         }
@@ -174,7 +174,7 @@ async fn relay_desktop(h: &Harness, relay: &Remote) -> client::PairedDesk {
 }
 
 async fn relay_url(h: &Harness) -> String {
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(PROMPTLY, async {
         loop {
             if let Some(url) = h.remote.status().relay.and_then(|relay| relay.url) {
                 return url;
@@ -190,7 +190,7 @@ async fn relay_frame<S>(socket: &mut channel::Channel<S>) -> Value
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let Some(Ok(Message::Text(text))) = tokio::time::timeout(Duration::from_secs(3), socket.next())
+    let Some(Ok(Message::Text(text))) = tokio::time::timeout(ANSWER, socket.next())
         .await
         .expect("authenticated relay frame")
     else {
@@ -212,7 +212,7 @@ async fn relay_closed<S>(socket: &mut channel::Channel<S>)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let closed = tokio::time::timeout(Duration::from_secs(3), socket.next())
+    let closed = tokio::time::timeout(ANSWER, socket.next())
         .await
         .expect("session over budget closes");
     assert!(!matches!(closed, Some(Ok(Message::Text(_)))));
@@ -310,10 +310,9 @@ async fn paired_devices_reconnect_through_a_proxy_while_anonymous_sockets_rotate
             stalled.push(proxy.socket("/v2").await);
         }
         counts(&h, (4, 1)).await;
-        let (mut reconnected, _) =
-            tokio::time::timeout(Duration::from_secs(3), proxy.sealed(&private, &public))
-                .await
-                .expect("anonymous sockets must yield reconnect capacity");
+        let (mut reconnected, _) = tokio::time::timeout(PROMPTLY, proxy.sealed(&private, &public))
+            .await
+            .expect("anonymous sockets must yield reconnect capacity");
         counts(&h, (3, 2)).await;
         assert!(
             http_get(&mut anonymous[0]).await.is_err(),
@@ -458,13 +457,10 @@ async fn relay_control_visitors_and_sealed_callbacks_progress_through_saturated_
     remote_counts(&relay, (0, 0)).await;
 
     let idle = idle_relay_tls(&relay, &public_url).await;
-    let mut control = tokio::time::timeout(
-        Duration::from_secs(3),
-        owner.host_relay(&desk, "saturated-desk"),
-    )
-    .await
-    .expect("pending TLS sockets must yield control capacity")
-    .unwrap();
+    let mut control = tokio::time::timeout(PROMPTLY, owner.host_relay(&desk, "saturated-desk"))
+        .await
+        .expect("pending TLS sockets must yield control capacity")
+        .unwrap();
     assert_eq!(relay_frame(&mut control).await["type"], "ready");
     remote_counts(&relay, (3, 0)).await;
     drop(idle);
@@ -481,7 +477,7 @@ async fn relay_control_visitors_and_sealed_callbacks_progress_through_saturated_
     request
         .headers_mut()
         .insert("cf-connecting-ip", "203.0.113.10".parse().unwrap());
-    let (mut visitor, _) = tokio::time::timeout(Duration::from_secs(3), async {
+    let (mut visitor, _) = tokio::time::timeout(PROMPTLY, async {
         tokio_tungstenite::client_async(request, relay_tls(&relay, &public_url).await).await
     })
     .await
@@ -495,7 +491,7 @@ async fn relay_control_visitors_and_sealed_callbacks_progress_through_saturated_
 
     let idle = idle_relay_tls(&relay, &public_url).await;
     let mut callback = tokio::time::timeout(
-        Duration::from_secs(3),
+        PROMPTLY,
         owner.accept_relay(&desk, notice["id"].as_str().unwrap()),
     )
     .await
@@ -506,7 +502,7 @@ async fn relay_control_visitors_and_sealed_callbacks_progress_through_saturated_
         .send(Message::Binary(vec![1, 2, 3].into()))
         .await
         .unwrap();
-    let forwarded = tokio::time::timeout(Duration::from_secs(1), callback.next())
+    let forwarded = tokio::time::timeout(ANSWER, callback.next())
         .await
         .unwrap()
         .unwrap()
@@ -516,7 +512,7 @@ async fn relay_control_visitors_and_sealed_callbacks_progress_through_saturated_
         .send(Message::Binary(vec![4, 5, 6].into()))
         .await
         .unwrap();
-    let forwarded = tokio::time::timeout(Duration::from_secs(1), visitor.next())
+    let forwarded = tokio::time::timeout(ANSWER, visitor.next())
         .await
         .unwrap()
         .unwrap()
@@ -617,36 +613,30 @@ async fn relay_control_hosts_use_their_own_pool_when_direct_seats_are_full() {
     let (owner, desk) = &owners[0];
     let mut controls = Vec::new();
     for host in 0..64 {
-        let mut control = tokio::time::timeout(
-            Duration::from_secs(3),
-            owner.host_relay(desk, &format!("host-{host}")),
-        )
-        .await
-        .expect("relay controls have capacity separate from direct seats")
-        .unwrap();
+        let mut control =
+            tokio::time::timeout(ANSWER, owner.host_relay(desk, &format!("host-{host}")))
+                .await
+                .expect("relay controls have capacity separate from direct seats")
+                .unwrap();
         assert_eq!(relay_frame(&mut control).await["type"], "ready");
         controls.push(control);
     }
     assert_eq!(relay.relay.counts(), (64, 0));
     remote_counts(&relay, (0, 16)).await;
     // A full socket pool still lets a desk replace its older generation.
-    let mut replacement =
-        tokio::time::timeout(Duration::from_secs(3), owner.host_relay(desk, "host-0"))
-            .await
-            .expect("an existing desk can replace its full-pool control socket")
-            .unwrap();
+    let mut replacement = tokio::time::timeout(ANSWER, owner.host_relay(desk, "host-0"))
+        .await
+        .expect("an existing desk can replace its full-pool control socket")
+        .unwrap();
     assert_eq!(relay_frame(&mut replacement).await["type"], "ready");
     relay_closed(&mut controls[0]).await;
     controls[0] = replacement;
     assert_eq!(relay.relay.counts(), (64, 0));
     remote_counts(&relay, (0, 16)).await;
-    let mut overflow = tokio::time::timeout(
-        Duration::from_secs(3),
-        owner.host_relay(desk, "host-overflow"),
-    )
-    .await
-    .expect("a full control pool refuses promptly after authentication")
-    .unwrap();
+    let mut overflow = tokio::time::timeout(ANSWER, owner.host_relay(desk, "host-overflow"))
+        .await
+        .expect("a full control pool refuses promptly after authentication")
+        .unwrap();
     relay_closed(&mut overflow).await;
     assert_eq!(relay.relay.counts(), (64, 0));
     remote_counts(&relay, (0, 16)).await;
@@ -656,7 +646,7 @@ async fn relay_control_hosts_use_their_own_pool_when_direct_seats_are_full() {
     relay_closed(&mut denied).await;
     remote_counts(&relay, (0, 16)).await;
     drop(controls);
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(ANSWER, async {
         while relay.relay.counts() != (0, 0) {
             tokio::task::yield_now().await;
         }

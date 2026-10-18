@@ -1,11 +1,6 @@
 use super::*;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
-// How long a sealed answer or close may take. A debug build doing TLS
-// and Noise while the whole suite runs can miss a few seconds; a hang
-// still fails, only later.
-const ANSWER: Duration = Duration::from_secs(15);
-
 pub(super) fn initiator(private: &[u8; 32], public: &[u8; 32]) -> snow::HandshakeState {
     snow::Builder::new("Noise_IK_25519_ChaChaPoly_SHA256".parse().unwrap())
         .prologue(b"hotline/2")
@@ -150,7 +145,7 @@ async fn explicit_pairing_is_atomic_and_only_owners_have_desk_authority() {
         assert!(claim(&h, &pairing, private).await.is_none());
         let (mut socket, mut state, payload) =
             exchange(&h, "/v2", private, &public, &[]).await.unwrap();
-        assert!(payload.is_empty());
+        assert_eq!(payload, [] as [u8; 0]);
         assert_eq!(
             read_sealed(&mut socket, &mut state).await["protocolVersion"],
             2
@@ -229,11 +224,11 @@ async fn revocation_and_disable_drop_blocked_commands_and_release_subscriptions(
                 json!({"id":3,"cmd":"computer.stop","params":{"personaId":persona}}),
             )
             .await;
-            tokio::time::timeout(Duration::from_secs(3), pending.entered.cancelled())
+            tokio::time::timeout(ANSWER, pending.entered.cancelled())
                 .await
                 .unwrap();
             // No timer or release in the handler: only dropping its future can end it.
-            tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::time::timeout(ANSWER, async {
                 if disable {
                     h.remote.configure(false, network::ALL).await.unwrap();
                 } else {
@@ -312,9 +307,7 @@ async fn noise_handshakes_are_binary_bounded_and_expire_without_a_banner() {
         closed(&mut socket).await;
     }
     let mut socket = h.socket_at("/v2", "").await.unwrap();
-    let result = tokio::time::timeout(Duration::from_secs(7), socket.next())
-        .await
-        .unwrap();
+    let result = tokio::time::timeout(ANSWER, socket.next()).await.unwrap();
     assert!(!matches!(
         result,
         Some(Ok(Message::Text(_) | Message::Binary(_)))
@@ -351,7 +344,7 @@ async fn sealed_wire_rejects_plaintext_tampering_and_replay() {
             "oversize" => {
                 let _ = socket.send(Message::Binary(vec![0u8; 65536].into())).await;
             }
-            _ => unreachable!(),
+            _ => unreachable!("the loop runs only the four attacks above"),
         }
         closed(&mut socket).await;
     }
@@ -369,13 +362,7 @@ async fn tls_rotation_preserves_noise_identity_and_grants_across_restart() {
     h.remote.configure(false, network::ALL).await.unwrap();
     // Corrupt TLS, not Noise. A new certificate is not a new desk identity.
     h.remote.identity.write(b"broken TLS").unwrap();
-    let reopened = Remote::open_with_store(
-        h.root.path(),
-        h.desk.log.clone(),
-        h.desk.clone(),
-        h.store.clone(),
-    )
-    .unwrap();
+    let reopened = h.reopen(h.store.clone());
     reopened.configure(true, network::ALL).await.unwrap();
     assert_ne!(reopened.identity.read().unwrap().unwrap(), before);
     assert_eq!(reopened.noise_keys().unwrap(), keys);
@@ -418,7 +405,7 @@ async fn sealed_computer_door_refuses_a_stopped_computer() {
     )
     .await
     .unwrap();
-    assert!(answer.is_empty());
+    assert_eq!(answer, [] as [u8; 0]);
     // Device authentication completes before the desk resolves the
     // viewer. A stopped computer sends no application frame.
     closed(&mut socket).await;

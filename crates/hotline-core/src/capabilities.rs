@@ -12,6 +12,7 @@ use crate::imagegen;
 use crate::log::Log;
 use crate::vault::Vault;
 use crate::voice::dispatcher::{ProviderDispatcher, is_chat};
+use crate::voice::ledger::Spent;
 use crate::voice::metering::Budget;
 use crate::voice::settings::{Choice, VoiceSettings};
 use crate::voice::speech;
@@ -187,7 +188,7 @@ fn spending(
     });
     let spent = voice.spent().unwrap_or_else(|error| {
         unavailable.get_or_insert_with(|| error.to_string());
-        Default::default()
+        Spent::default()
     });
     let line = |kind, day_usd, month_usd| SpendingLine {
         kind,

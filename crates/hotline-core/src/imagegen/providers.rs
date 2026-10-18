@@ -330,7 +330,7 @@ fn options_from(connections: &[Connection]) -> Vec<CapabilityProvider> {
                 vec![chatgpt::MODEL.into()]
             } else {
                 match row(&connection.provider_id) {
-                    Some(row) => row.models.iter().map(|id| id.to_string()).collect(),
+                    Some(row) => row.models.iter().map(ToString::to_string).collect(),
                     None => connection
                         .models
                         .iter()
@@ -447,7 +447,7 @@ mod tests {
             name: "My gateway".into(),
             base_url: "http://127.0.0.1:1/v1".into(),
             auth: ConnectionAuth::Key(None),
-            models: models.iter().map(|m| m.to_string()).collect(),
+            models: models.iter().map(ToString::to_string).collect(),
         }
     }
 
@@ -659,7 +659,10 @@ mod tests {
         assert_eq!(offered[1].provider_name, "My gateway");
         assert_eq!(offered[1].models.len(), 1);
         assert_eq!(offered[1].models[0].id, "my-image-1");
-        assert!(options_from(&[custom(&["llama-3"])]).is_empty());
+        assert_eq!(
+            options_from(&[custom(&["llama-3"])]),
+            [] as [CapabilityProvider; 0]
+        );
     }
 
     #[test]

@@ -93,6 +93,7 @@ use jobs::Processes;
 use quiet::QuietWindow;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
@@ -131,7 +132,7 @@ const BUSY_RECHECK_MS: i64 = 10 * 60_000;
 
 /// How long a `request_human` card waits for the person. Tests pass a
 /// shorter deadline; the tool uses this.
-pub const HUMAN_DEADLINE: Duration = Duration::from_secs(10 * 60);
+pub const HUMAN_DEADLINE: Duration = Duration::from_mins(10);
 
 /// How long a `request_human` card that delivers stays up unanswered before
 /// it is expired and the teammate told.
@@ -675,6 +676,14 @@ pub struct Room {
 }
 
 impl Room {
+    /// The room on the agents this desk can really run, with no vault: what
+    /// tests build. The desk itself builds its room with
+    /// [`Room::new_with_mcp`].
+    ///
+    /// The constructors telescope rather than take an options struct because
+    /// each one names the single seam its callers replace, and every one has
+    /// callers; an options struct would lengthen each of them by the seams
+    /// it leaves alone.
     pub fn new(log: Log, keys: Arc<dyn ProviderKeys>) -> Arc<Self> {
         let agents = Arc::new(DeskAgents {
             keys: keys.clone(),
@@ -773,8 +782,8 @@ impl Room {
             answering_later: Mutex::new(()),
             links: Arc::default(),
             exchange_lock: Mutex::new(()),
-            exchange_workers: Mutex::new(Default::default()),
-            exchange_leases: Mutex::new(Default::default()),
+            exchange_workers: Mutex::new(HashSet::default()),
+            exchange_leases: Mutex::new(HashMap::default()),
             computer_leases: crate::computer::gate::Leases::new(),
             push,
             computers,
@@ -993,7 +1002,7 @@ impl Room {
         }
         info.agent_name = Some(reported.agent_name);
         info.agent_version = reported.agent_version;
-        info.session_id = reported.session_id.clone();
+        info.session_id.clone_from(&reported.session_id);
         info.context_restored = reported.context_restored;
         info.models = reported.models;
         info.current_model_id = Some(reported.current_model_id);
@@ -1018,7 +1027,7 @@ impl Room {
             pending_scheduled: Mutex::new(None),
             unread: Mutex::new(Vec::new()),
             voice_origin: Mutex::new(None),
-            dispatched_deliveries: Mutex::new(Default::default()),
+            dispatched_deliveries: Mutex::new(HashSet::default()),
             quiet: Mutex::new(None),
             glance: Mutex::new(None),
             pending_checkpoint: Mutex::new(
@@ -1248,7 +1257,7 @@ impl Room {
     /// with the computer or without it, and a download that is still going is
     /// the DM's to watch.
     pub(crate) fn computer_in_a_thread(&self, persona_id: &str) -> String {
-        let enabled = self.persona(persona_id).ok().is_some_and(|persona| {
+        let enabled = self.persona(persona_id).is_ok_and(|persona| {
             persona
                 .computer
                 .as_ref()
@@ -1279,7 +1288,7 @@ impl Room {
     /// What `computer_status` answers: where this teammate's computer is,
     /// waiting up to `wait` for a download in progress to finish.
     pub(crate) async fn computer_setup_status(&self, persona_id: &str, wait: Duration) -> Value {
-        let enabled = self.persona(persona_id).ok().is_some_and(|persona| {
+        let enabled = self.persona(persona_id).is_ok_and(|persona| {
             persona
                 .computer
                 .as_ref()
@@ -2634,7 +2643,9 @@ impl Room {
     /// Hands the driver a line: on the turn in flight if there is one, on a
     /// new turn if there is not.
     fn dispatch(self: &Arc<Self>, session: Arc<Session>, wire: Wired) {
-        let working = self.lease().expect("dispatch caller holds a work lease");
+        let working = self
+            .lease()
+            .expect("a dispatch caller holds a read lease, so restart cannot hold the write lease");
         // Joining the queue and claiming an idle driver are one decision under
         // one lock, so a line can never be filed behind a turn that has
         // already stopped coming back for it.
@@ -2817,17 +2828,17 @@ impl Room {
                 info.error = None;
             }
             if info.session_id != reported.session_id {
-                *lock(&session.pending_checkpoint) = reported.session_id.clone();
-                info.session_id = reported.session_id.clone();
+                lock(&session.pending_checkpoint).clone_from(&reported.session_id);
+                info.session_id.clone_from(&reported.session_id);
                 info.context_restored = reported.context_restored;
             }
-            info.models = reported.models.clone();
+            info.models.clone_from(&reported.models);
             info.current_model_id = Some(reported.current_model_id.clone());
-            info.model_label = reported.model_label.clone();
-            info.modes = reported.modes.clone();
-            info.current_mode_id = reported.current_mode_id.clone();
-            info.mode_label = reported.mode_label.clone();
-            info.configs = reported.configs.clone();
+            info.model_label.clone_from(&reported.model_label);
+            info.modes.clone_from(&reported.modes);
+            info.current_mode_id.clone_from(&reported.current_mode_id);
+            info.mode_label.clone_from(&reported.mode_label);
+            info.configs.clone_from(&reported.configs);
             info.clone()
         };
         let _ = self.info_changes.send(info.clone());
@@ -3008,7 +3019,7 @@ impl Room {
         );
         let answer = tokio::select! {
             answered = receiver => answered.unwrap_or_else(|_| HumanAnswered::expired()),
-            _ = tokio::time::sleep(deadline) => {
+            () = tokio::time::sleep(deadline) => {
                 self.expire_human(&action_id);
                 HumanAnswered::expired()
             }
@@ -3769,9 +3780,10 @@ impl Room {
         let browser = browsers.iter().find(|browser| browser.id == browser_id);
         let import = crate::contract::CookieImport {
             browser_id: browser_id.to_owned(),
-            browser_name: browser
-                .map(|browser| browser.name.clone())
-                .unwrap_or_else(|| source_name.unwrap_or(browser_id).to_owned()),
+            browser_name: browser.map_or_else(
+                || source_name.unwrap_or(browser_id).to_owned(),
+                |browser| browser.name.clone(),
+            ),
             profile_id: profile_id.to_owned(),
             profile_name: browser
                 .and_then(|browser| {
@@ -3780,8 +3792,7 @@ impl Room {
                         .iter()
                         .find(|profile| profile.id == profile_id)
                 })
-                .map(|profile| profile.name.clone())
-                .unwrap_or_else(|| profile_id.to_owned()),
+                .map_or_else(|| profile_id.to_owned(), |profile| profile.name.clone()),
             imported_at: now_ms(),
             sites: imported.clone(),
         };
@@ -4316,8 +4327,7 @@ impl Room {
         };
         let name = self
             .persona(&session.persona_id)
-            .map(|persona| persona.name)
-            .unwrap_or_else(|_| "Hotline".to_string());
+            .map_or_else(|_| "Hotline".to_string(), |persona| persona.name);
         if let Some(voice) = lock(&self.voice).upgrade()
             && voice.delivery(
                 &session.persona_id,
@@ -5455,10 +5465,11 @@ fn folders_sentence(persona: &Persona, reach: Option<Reach>) -> String {
             .map(|(folder, path)| format!("{} at {path}", folder.path))
             .collect();
         if !mounted.is_empty() {
-            sentence.push_str(&format!(
+            let _ = write!(
+                sentence,
                 " Your computer has them too, the same way: {}.",
                 mounted.join(", ")
-            ));
+            );
         }
     }
     sentence

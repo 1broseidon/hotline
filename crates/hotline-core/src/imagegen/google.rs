@@ -28,7 +28,7 @@ impl Google {
         })
     }
 
-    fn body(&self, request: &ImageRequest) -> Value {
+    fn body(request: &ImageRequest) -> Value {
         let mut parts = vec![json!({"text": request.prompt})];
         parts.extend(request.references.iter().map(|reference| {
             json!({"inline_data": {"mime_type": reference.mime, "data": base64(&reference.bytes)}})
@@ -76,7 +76,7 @@ impl ImageGen for Google {
                     self.base_url, self.model.id
                 ))
                 .header("x-goog-api-key", &self.key)
-                .json(&self.body(request)),
+                .json(&Self::body(request)),
         )
         .await?;
         let answer: Value = serde_json::from_slice(&answer).map_err(|_| malformed(PROVIDER_ID))?;

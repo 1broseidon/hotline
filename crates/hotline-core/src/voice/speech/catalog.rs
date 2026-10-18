@@ -23,7 +23,7 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long a provider that could not be asked is left alone. The pickers ask
 /// every time settings opens, and an offline provider would otherwise cost the
 /// whole fetch timeout each time.
-const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
+const RETRY_AFTER: Duration = Duration::from_mins(10);
 /// A model list is a few hundred kilobytes at most.
 const LIST_LIMIT: usize = 8 << 20;
 
@@ -178,17 +178,14 @@ pub async fn discover(root: Option<&Path>, endpoint: &Endpoint) -> Option<Found>
     if recently_failed(endpoint) {
         return cached;
     }
-    match fetch(endpoint).await {
-        Some(found) => {
-            if let Some(root) = root {
-                write(root, &endpoint.provider_id, &found);
-            }
-            Some(found)
+    if let Some(found) = fetch(endpoint).await {
+        if let Some(root) = root {
+            write(root, &endpoint.provider_id, &found);
         }
-        None => {
-            remember_failure(endpoint);
-            cached
-        }
+        Some(found)
+    } else {
+        remember_failure(endpoint);
+        cached
     }
 }
 
@@ -343,7 +340,7 @@ fn parse_openai_shape(provider_id: &str, body: &Value) -> (Vec<Heard>, Vec<Spoke
         } else if speaks {
             let voices = curated_voices(provider_id, &id)
                 .iter()
-                .map(|voice| voice.to_string())
+                .map(ToString::to_string)
                 .collect();
             speak.push(Spoken {
                 id,
@@ -421,7 +418,7 @@ fn parse_google(body: &Value) -> (Vec<Heard>, Vec<Spoken>) {
         if id.contains("-tts") {
             let voices = curated_voices("google", &id)
                 .iter()
-                .map(|voice| voice.to_string())
+                .map(ToString::to_string)
                 .collect();
             speak.push(Spoken { id, label, voices });
         } else if id.starts_with("gemini-")
@@ -523,7 +520,7 @@ mod tests {
         ]);
         let (listen, speak) = parse_openai_shape("mistral", &body);
         assert_eq!(heard(&listen), ["voxtral-mini-latest"]);
-        assert!(speak.is_empty());
+        assert_eq!(speak, [] as [Spoken; 0]);
     }
 
     #[test]

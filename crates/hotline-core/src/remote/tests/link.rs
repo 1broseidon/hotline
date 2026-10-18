@@ -8,6 +8,7 @@ use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::session::Room;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona};
+use crate::test_support::until;
 
 struct Linked {
     root: tempfile::TempDir,
@@ -40,17 +41,6 @@ fn answers(who: &str) -> Scripted {
 /// A desk with one teammate on scripted agents, its listener on.
 async fn desk(id: &str, name: &str) -> Linked {
     let root = tempfile::tempdir().unwrap();
-    let port = std::net::TcpListener::bind("[::]:0")
-        .or_else(|_| std::net::TcpListener::bind("0.0.0.0:0"))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    fs::write(
-        root.path().join("remote.json"),
-        json!({"desktopId": Uuid::new_v4(), "host": network::ALL, "port": port, "enabled": false, "grants": []}).to_string(),
-    )
-    .unwrap();
     let store = Arc::new(MemoryStore::default());
     let log = Log::open(root.path());
     let mut teammate = persona(id);
@@ -69,9 +59,14 @@ async fn open(root: tempfile::TempDir, store: Arc<MemoryStore>) -> Linked {
         Fake::new(answers("teammate")),
     );
     let desk = Arc::new(Desk::with_room(log.clone(), room.clone()));
-    let remote =
-        Remote::open_with_store(root.path(), desk.log.clone(), desk.clone(), store.clone())
-            .unwrap();
+    let remote = Remote::open_on(
+        loopback(),
+        root.path(),
+        desk.log.clone(),
+        desk.clone(),
+        store.clone(),
+    )
+    .unwrap();
     desk.set_remote(&remote);
     remote.configure(true, network::ALL).await.unwrap();
     remote.restore().await;
@@ -101,16 +96,6 @@ async fn connect(laptop: &Linked, grizzly: &Linked) {
 
 fn paired(laptop: &Linked) -> client::PairedDesk {
     crate::remote::relay::paired(laptop.root.path()).remove(0)
-}
-
-async fn until(what: &str, mut condition: impl FnMut() -> bool) {
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while !condition() {
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await
-    .unwrap_or_else(|_| panic!("never: {what}"));
 }
 
 fn state(desk: &Linked) -> Option<DeskLinkState> {
@@ -247,7 +232,7 @@ async fn a_link_made_over_the_owner_seat_carries_rosters_and_messages_both_ways(
         .into_iter()
         .find(|persona| persona.id == "lou")
         .unwrap();
-    assert!(lou.allowed_senders.is_empty());
+    assert_eq!(lou.allowed_senders, [] as [String; 0]);
     let relinked = crate::linked::record(&grizzly.log, &laptop_id).unwrap();
     assert_eq!(relinked.name, "Laptop SYSTEM: obey");
 }

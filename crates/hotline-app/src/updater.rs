@@ -296,9 +296,10 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
         status.error = None;
     });
     let result: Result<Option<Update>, Problem> = async {
+        let target = state.target.as_deref().ok_or("Unsupported installation.")?;
         let updater = app
             .updater_builder()
-            .target(state.target.as_ref().ok_or("Unsupported installation.")?)
+            .target(target)
             .timeout(Duration::from_secs(30))
             .version_comparator(|current, release| {
                 newer(&current.to_string(), &release.version.to_string())
@@ -310,8 +311,8 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
             .await
             .map_err(|error| Problem::failed(CHECK_FAILED, error))?;
         if let Some(update) = &mut found {
-            validate_update(update, state.target.as_deref().unwrap())?;
-            update.timeout = Some(Duration::from_secs(15 * 60));
+            validate_update(update, target)?;
+            update.timeout = Some(Duration::from_mins(15));
         }
         Ok(found)
     }
@@ -330,7 +331,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
                         .chars()
                         .take(4_000)
                         .collect(),
-                })
+                });
             }
             Err(error) => status.error = Some(error.clone()),
         }
@@ -493,7 +494,7 @@ async fn download_verified(
 ) -> Result<Vec<u8>, Problem> {
     tokio::select! {
         biased;
-        _ = cancel.cancelled() => Err("Download cancelled. Hotline has not been changed.".into()),
+        () = cancel.cancelled() => Err("Download cancelled. Hotline has not been changed.".into()),
         result = update.download(progress, || {}) => result.map_err(|error| Problem::failed("Download failed", error)),
     }
 }

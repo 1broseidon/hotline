@@ -199,9 +199,9 @@ impl Host {
         relay: Option<String>,
     ) -> Result<(), String> {
         let bridges = self.lock_bridges();
-        if !bridges
+        if bridges
             .get(desk_id)
-            .is_some_and(|live| live.generation == generation)
+            .is_none_or(|live| live.generation != generation)
         {
             return Ok(());
         }
@@ -497,8 +497,8 @@ fn remote_entry(desk: &PairedDesk, live: Option<&Live>) -> Value {
         "id": desk.desk_id,
         "name": desk.name,
         "kind": "remote",
-        "origin": bridge.map(|bridge| bridge.origin.as_str()).unwrap_or(""),
-        "token": bridge.map(|bridge| bridge.token.as_str()).unwrap_or(""),
+        "origin": bridge.map_or("", |bridge| bridge.origin.as_str()),
+        "token": bridge.map_or("", |bridge| bridge.token.as_str()),
         "state": live.map_or(State::Connecting, |live| live.state),
         "relayDeclined": desk.relay_declined,
     });
@@ -882,7 +882,7 @@ mod tests {
     fn retries_back_off_to_thirty_seconds() {
         assert_eq!(retry_after(0), Duration::from_millis(250));
         assert_eq!(retry_after(1), Duration::from_millis(500));
-        assert_eq!(retry_after(6), Duration::from_millis(16_000));
+        assert_eq!(retry_after(6), Duration::from_secs(16));
         assert_eq!(retry_after(7), Duration::from_secs(30));
         assert_eq!(retry_after(40), Duration::from_secs(30));
     }
@@ -942,14 +942,14 @@ mod tests {
         assert_eq!(desks.len(), 1);
         assert_eq!(desks[0]["kind"], "remote");
         assert_eq!(desks[0]["id"], "lab");
-        assert!(extra(Some("not json")).is_empty());
-        assert!(extra(None).is_empty());
+        assert_eq!(extra(Some("not json")), [] as [Value; 0]);
+        assert_eq!(extra(None), [] as [Value; 0]);
         // An extra desk cannot pose as the local one.
-        assert!(
+        assert_eq!(
             extra(Some(
                 r#"[{"id":"local","name":"x","origin":"o","token":"t"}]"#
-            ))
-            .is_empty()
+            )),
+            [] as [Value; 0]
         );
     }
 }

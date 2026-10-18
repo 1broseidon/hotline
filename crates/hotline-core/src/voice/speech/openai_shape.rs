@@ -182,7 +182,7 @@ impl Speech for OpenAiShape {
         }
     }
 
-    fn output_mime(&self) -> &str {
+    fn output_mime(&self) -> &'static str {
         match &self.job {
             Job::Speak { format, .. } => format.mime(),
             Job::Listen { .. } => "audio/wav",
@@ -343,7 +343,7 @@ mod tests {
             split_for_speech("Handing that to Mack.", 200),
             ["Handing that to Mack."]
         );
-        assert!(split_for_speech("   ", 200).is_empty());
+        assert_eq!(split_for_speech("   ", 200), [] as [String; 0]);
     }
 
     #[test]

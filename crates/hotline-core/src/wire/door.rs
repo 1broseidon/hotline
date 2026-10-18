@@ -113,17 +113,19 @@ pub(super) fn accept_again(error: &io::Error) -> Option<AcceptAgain> {
         // accept(2): a network error already pending on the new socket is
         // reported by accept and is the peer's problem, not the listener's.
         match error.raw_os_error() {
-            Some(libc::ECONNABORTED)
-            | Some(libc::EINTR)
-            | Some(libc::ECONNRESET)
-            | Some(libc::EPROTO)
-            | Some(libc::ENETDOWN)
-            | Some(libc::ENETUNREACH)
-            | Some(libc::EHOSTDOWN)
-            | Some(libc::EHOSTUNREACH)
-            | Some(libc::ENOPROTOOPT)
-            | Some(libc::EOPNOTSUPP) => return Some(AcceptAgain::Now),
-            Some(libc::EMFILE) | Some(libc::ENFILE) => return Some(AcceptAgain::AfterPause),
+            Some(
+                libc::ECONNABORTED
+                | libc::EINTR
+                | libc::ECONNRESET
+                | libc::EPROTO
+                | libc::ENETDOWN
+                | libc::ENETUNREACH
+                | libc::EHOSTDOWN
+                | libc::EHOSTUNREACH
+                | libc::ENOPROTOOPT
+                | libc::EOPNOTSUPP,
+            ) => return Some(AcceptAgain::Now),
+            Some(libc::EMFILE | libc::ENFILE) => return Some(AcceptAgain::AfterPause),
             _ => {}
         }
     }
@@ -136,7 +138,7 @@ pub(super) fn accept_again(error: &io::Error) -> Option<AcceptAgain> {
 // The handshake callback's error is tungstenite's `ErrorResponse`, a whole
 // HTTP response by value; the trait fixes the type, so the lint has nothing to
 // offer here.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 async fn serve(stream: TcpStream, desk_token: &str, behind: Behind) -> Result<(), Error> {
     let socket = accept_hdr_async(stream, |request: &Request, response: Response| {
         let uri = request.uri();

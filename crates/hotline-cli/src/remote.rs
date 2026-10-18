@@ -182,13 +182,13 @@ async fn wait_for_phone(
         tokio::select! {
             _ = term.recv() => return Err("Pairing cancelled.".into()),
             _ = interrupt.recv() => return Err("Pairing cancelled.".into()),
-            _ = &mut deadline => return Err("Pairing expired. Run `hotline pair` to try again.".into()),
-            _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+            () = &mut deadline => return Err("Pairing expired. Run `hotline pair` to try again.".into()),
+            () = tokio::time::sleep(Duration::from_millis(500)) => {}
         }
         let device = tokio::select! {
             _ = term.recv() => return Err("Pairing cancelled.".into()),
             _ = interrupt.recv() => return Err("Pairing cancelled.".into()),
-            _ = &mut deadline => return Err("Pairing expired.".into()),
+            () = &mut deadline => return Err("Pairing expired.".into()),
             result = ask(socket, serial, json!({"id":id})) => result?,
         };
         if !device.is_null() {

@@ -15,6 +15,16 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+/// What a call is started with: whom it is to, how it hears and speaks, and
+/// whether it asks for a front, with the rate the microphone sends that front.
+pub struct CallRequest {
+    pub target: Option<String>,
+    pub stream_audio: bool,
+    pub input_mode: VoiceInputMode,
+    pub mode: VoiceCallMode,
+    pub mic_rate: Option<u32>,
+}
+
 impl Calls {
     pub fn start(
         self: &Arc<Self>,
@@ -42,31 +52,32 @@ impl Calls {
         input_mode: VoiceInputMode,
         room: Arc<dyn RoomHandle>,
     ) -> Result<VoiceCall, String> {
-        self.start_call(
-            id,
+        let request = CallRequest {
             target,
             stream_audio,
             input_mode,
-            VoiceCallMode::Pipeline,
-            None,
-            room,
-        )
+            mode: VoiceCallMode::Pipeline,
+            mic_rate: None,
+        };
+        self.start_call(id, request, room)
     }
 
     /// Starts a call, or answers for one already started. A front is a
     /// request: the answer says whether the call got one, and a call that
     /// did not runs on the pipeline.
-    #[allow(clippy::too_many_arguments)]
     pub fn start_call(
         self: &Arc<Self>,
         id: &str,
-        target: Option<String>,
-        stream_audio: bool,
-        input_mode: VoiceInputMode,
-        mode: VoiceCallMode,
-        mic_rate: Option<u32>,
+        request: CallRequest,
         room: Arc<dyn RoomHandle>,
     ) -> Result<VoiceCall, String> {
+        let CallRequest {
+            target,
+            stream_audio,
+            input_mode,
+            mode,
+            mic_rate,
+        } = request;
         if self.settings().calls_off {
             return Err(CALLS_OFF.into());
         }
@@ -159,7 +170,7 @@ impl Calls {
             self.thinking_again(id, cancel.clone());
             let this = self.clone();
             let id = id.to_string();
-            let context = Context::new(self.log.clone(), room, cancel.clone());
+            let context = Context::new(self.log.clone(), room, cancel);
             // What the person says on this call carries the app they called from.
             let client = crate::wire::commands::prompt_client();
             tokio::spawn(async move {
@@ -168,7 +179,7 @@ impl Calls {
                     Some(client) => {
                         crate::wire::commands::PROMPT_CLIENT
                             .scope(client, run)
-                            .await
+                            .await;
                     }
                     None => run.await,
                 }
@@ -219,7 +230,7 @@ impl Calls {
             every.tick().await;
             loop {
                 tokio::select! {
-                    _ = cancel.cancelled() => return,
+                    () = cancel.cancelled() => return,
                     _ = every.tick() => {}
                 }
                 let Some(this) = this.upgrade() else { return };
@@ -246,8 +257,8 @@ impl Calls {
         if let Some(call_cancel) = call_cancel {
             tokio::spawn(async move {
                 tokio::select! {
-                    _ = cancel.cancelled() => if let Some(this) = this.upgrade() { let _ = this.end(&id); },
-                    _ = call_cancel.cancelled() => {},
+                    () = cancel.cancelled() => if let Some(this) = this.upgrade() { let _ = this.end(&id); },
+                    () = call_cancel.cancelled() => {},
                 }
             });
         }

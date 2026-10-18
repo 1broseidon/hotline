@@ -12,6 +12,7 @@ use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::paths::thread_key;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
+use crate::test_support::until;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -134,16 +135,6 @@ impl Channel {
         self.laptop.links.closed(GRIZZLY, Some(laptop), None);
         self.grizzly.links.closed(LAPTOP, Some(grizzly), None);
     }
-}
-
-async fn until(what: &str, mut condition: impl FnMut() -> bool) {
-    for _ in 0..1000 {
-        if condition() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("never: {what}");
 }
 
 async fn message(room: &Arc<Room>, from: &str, to: &str, intent: &str) -> Result<String, String> {
@@ -316,7 +307,10 @@ async fn a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_
     assert_eq!(answer["cause"]["status"], "done");
     // A grant given to a teammate of a linked desk ends with the link.
     grizzly.unlinked(LAPTOP).await.unwrap();
-    assert!(grizzly.persona("lou").unwrap().allowed_senders.is_empty());
+    assert_eq!(
+        grizzly.persona("lou").unwrap().allowed_senders,
+        [] as [String; 0]
+    );
     assert!(
         grizzly
             .log
@@ -399,7 +393,7 @@ async fn an_ended_link_fails_what_waited_on_it_and_its_teammates_are_gone() {
         notice["text"],
         "Message to Lou on grizzly (Check the CI runners.): Lou is on grizzly, which isn't linked any more."
     );
-    assert!(list(&laptop, "clementine").await.is_empty());
+    assert_eq!(list(&laptop, "clementine").await, [] as [Value; 0]);
     let refused = message(&laptop, "clementine", "Lou", "ask")
         .await
         .unwrap_err();
@@ -438,7 +432,10 @@ async fn ending_the_link_withdraws_the_card_a_linked_sender_was_waiting_on() {
             .await
             .is_err()
     );
-    assert!(grizzly.persona("lou").unwrap().allowed_senders.is_empty());
+    assert_eq!(
+        grizzly.persona("lou").unwrap().allowed_senders,
+        [] as [String; 0]
+    );
     let stopped = request(&grizzly, &id).unwrap();
     assert_eq!(stopped["failed"], true);
     assert_eq!(
@@ -541,7 +538,7 @@ async fn a_linked_desk_is_sent_roster_rows_and_nothing_else() {
             .keys()
             .map(String::as_str)
             .collect();
-        fields.sort();
+        fields.sort_unstable();
         assert_eq!(
             fields,
             [
@@ -563,7 +560,7 @@ async fn a_linked_desk_is_sent_roster_rows_and_nothing_else() {
             .keys()
             .map(String::as_str)
             .collect();
-        working_on.sort();
+        working_on.sort_unstable();
         assert_eq!(working_on, ["lastTurnAt", "title"]);
     }
     let sent = published.to_string();

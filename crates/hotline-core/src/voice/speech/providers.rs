@@ -368,7 +368,7 @@ fn options_from(
                     _ => vec![CapabilityModel {
                         id: default.to_string(),
                         label: None,
-                        voices: Some(voices.iter().map(|voice| voice.to_string()).collect()),
+                        voices: Some(voices.iter().map(ToString::to_string).collect()),
                         efforts: None,
                     }],
                 };
@@ -854,7 +854,7 @@ mod tests {
             name: "Cloudflare".to_string(),
             base_url: "https://gateway.example/v1/openai".to_string(),
             key: None,
-            models: models.iter().map(|model| model.to_string()).collect(),
+            models: models.iter().map(ToString::to_string).collect(),
             login: None,
             root: None,
         }
@@ -1122,9 +1122,8 @@ mod tests {
             tts: Some(pick("groq", None, None)),
             ..VoiceSettings::default()
         };
-        let error = match resolve_from(&[], &[connected("openai")], &settings) {
-            Ok(_) => panic!("resolved to something else"),
-            Err(error) => error,
+        let Err(error) = resolve_from(&[], &[connected("openai")], &settings) else {
+            panic!("resolved to something else")
         };
         assert_eq!(
             error,
@@ -1134,10 +1133,9 @@ mod tests {
             tts: Some(pick("mistral", None, None)),
             ..VoiceSettings::default()
         };
-        let error = match resolve_from(&[], &[connected("openai"), connected("mistral")], &settings)
-        {
-            Ok(_) => panic!("mistral cannot speak"),
-            Err(error) => error,
+        let Err(error) = resolve_from(&[], &[connected("openai"), connected("mistral")], &settings)
+        else {
+            panic!("mistral cannot speak")
         };
         assert!(error.contains("Mistral to speak, and it cannot"), "{error}");
     }
@@ -1154,23 +1152,21 @@ mod tests {
 
     #[test]
     fn nothing_connected_says_so_in_a_sentence() {
-        let error = match resolve_from(&[], &[], &VoiceSettings::default()) {
-            Ok(_) => panic!("resolved with nothing connected"),
-            Err(error) => error,
+        let Err(error) = resolve_from(&[], &[], &VoiceSettings::default()) else {
+            panic!("resolved with nothing connected")
         };
         assert!(error.starts_with("None of your connected providers can hear or speak yet."));
-        let error = match resolve_from(&[], &[connected("mistral")], &VoiceSettings::default()) {
-            Ok(_) => panic!("resolved with no voice"),
-            Err(error) => error,
+        let Err(error) = resolve_from(&[], &[connected("mistral")], &VoiceSettings::default())
+        else {
+            panic!("resolved with no voice")
         };
         assert!(error.starts_with("Your connected providers can hear but not speak."));
-        let error = match resolve_from(
+        let Err(error) = resolve_from(
             &[],
             &[custom(&["some-chat-model"])],
             &VoiceSettings::default(),
-        ) {
-            Ok(_) => panic!("resolved with a chat-only custom connection"),
-            Err(error) => error,
+        ) else {
+            panic!("resolved with a chat-only custom connection")
         };
         assert!(error.starts_with("None of your connected providers can hear or speak yet."));
     }
@@ -1253,7 +1249,7 @@ mod tests {
         for row in ROWS {
             match row.speak {
                 Some((_, voice, ..)) => assert_eq!(row.voices.first(), Some(&voice)),
-                None => assert!(row.voices.is_empty()),
+                None => assert_eq!(row.voices, [] as [&str; 0]),
             }
         }
     }
@@ -1403,16 +1399,14 @@ mod tests {
         };
         let installed_other = [local::listed("parakeet-tdt-110m-en", "Parakeet English")];
         for models in [&[][..], &installed_other[..]] {
-            let error = match resolve_from(models, &[connected("openai")], &settings) {
-                Ok(_) => panic!("heard with something the owner did not pick"),
-                Err(error) => error,
+            let Err(error) = resolve_from(models, &[connected("openai")], &settings) else {
+                panic!("heard with something the owner did not pick")
             };
             assert!(error.contains("not installed"), "{error}");
         }
         // Hearing on the desk with nothing to speak says what to connect.
-        let error = match resolve_from(&installed_other, &[], &VoiceSettings::default()) {
-            Ok(_) => panic!("spoke with nothing connected"),
-            Err(error) => error,
+        let Err(error) = resolve_from(&installed_other, &[], &VoiceSettings::default()) else {
+            panic!("spoke with nothing connected")
         };
         assert!(
             error.starts_with("Your connected providers can hear but not speak."),
@@ -1453,7 +1447,7 @@ mod tests {
                 .map(|(id, voices)| catalog::Spoken {
                     id: id.to_string(),
                     label: Some(format!("Label of {id}")),
-                    voices: voices.iter().map(|voice| voice.to_string()).collect(),
+                    voices: voices.iter().map(ToString::to_string).collect(),
                 })
                 .collect(),
         }
@@ -1506,7 +1500,7 @@ mod tests {
         let options = options_from(&[], &[connected("groq")], &discovered);
         assert_eq!(options.stt.len(), 1);
         assert_eq!(options.stt[0].provider_id, "groq");
-        assert!(options.tts[0].provider_id == "groq");
+        assert_eq!(options.tts[0].provider_id, "groq");
     }
 
     #[test]

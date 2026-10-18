@@ -810,8 +810,7 @@ impl RoomHandle for Quiet {
         let name = crate::models::catalog()
             .providers
             .get(provider_id)
-            .map(|entry| entry.name.as_str())
-            .unwrap_or(provider_id);
+            .map_or(provider_id, |entry| entry.name.as_str());
         Err(format!("There is no sign-in for {name}."))
     }
 

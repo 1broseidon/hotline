@@ -138,7 +138,7 @@ async fn session_new_carries_hotlines_own_server_and_the_granted_ones() {
     // Listing tools on the endpoint is the one thing Hotline can watch a
     // child do, so it is the one thing that turns declared into verified.
     let listing = rmcp::model::ClientInfo::new(
-        Default::default(),
+        rmcp::model::ClientCapabilities::default(),
         rmcp::model::Implementation::new("test", "1"),
     )
     .serve(
@@ -218,7 +218,7 @@ fn agent_that_lists_hotlines_tools_during_session_new(
                             .expect("a bearer token")
                             .to_string();
                         let client = rmcp::model::ClientInfo::new(
-                            Default::default(),
+                            rmcp::model::ClientCapabilities::default(),
                             rmcp::model::Implementation::new("eager", "1"),
                         )
                         .serve(
@@ -330,7 +330,7 @@ fn acp_callbacks_stay_in_workspace_for_legacy_machine_personas() {
     let mut ada = persona(&root.to_string_lossy(), Vec::new());
     ada.reach = Some(Reach::Machine);
     let workspace = ChildAgent::callback_workspace(&ada, None).unwrap();
-    let allowed = ReadTextFileRequest::new(SessionId::new("s"), inside_file.clone()).limit(1);
+    let allowed = ReadTextFileRequest::new(SessionId::new("s"), inside_file).limit(1);
     assert_eq!(read_text_file(&workspace, &allowed).unwrap(), "inside");
 
     let outside_request = ReadTextFileRequest::new(SessionId::new("s"), outside_file.clone());

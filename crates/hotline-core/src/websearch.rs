@@ -33,6 +33,7 @@ use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use query::{Language, Query};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use when::Window;
@@ -237,7 +238,7 @@ impl std::fmt::Display for Failure {
 const RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(60);
 const SLOW_COOLDOWN: Duration = Duration::from_secs(20);
 /// No provider is left alone longer than this, whatever it asks.
-const LONGEST_COOLDOWN: Duration = Duration::from_secs(15 * 60);
+const LONGEST_COOLDOWN: Duration = Duration::from_mins(15);
 
 /// `text` cut to at most `max` characters, ending in an ellipsis when it was cut.
 pub(crate) fn bounded(text: &str, max: usize) -> String {
@@ -284,14 +285,15 @@ impl Request {
     pub(crate) fn objective(&self) -> String {
         let mut text = self.query.clone();
         if let Some(language) = self.language {
-            text.push_str(&format!(" Prefer pages written in {}.", language.name));
+            let _ = write!(text, " Prefer pages written in {}.", language.name);
         }
         if let Some(window) = self.window {
             // Neither API has a date field, so the sentence is the only way.
-            text.push_str(&format!(
+            let _ = write!(
+                text,
                 " Today is {}. Only pages published on or after {}, and stories rather than index, tag or section pages.",
                 self.today, window.from
-            ));
+            );
         }
         text
     }
@@ -435,7 +437,7 @@ pub struct Answered {
 }
 
 /// How long a fused answer is kept for the same question.
-const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
+const CACHE_TTL: Duration = Duration::from_mins(5);
 /// How many answers are kept.
 const CACHE_ENTRIES: usize = 100;
 
@@ -456,15 +458,18 @@ impl Default for State {
 impl State {
     pub fn with_ttl(ttl: Duration) -> Self {
         Self {
-            cooling: Default::default(),
-            cache: Default::default(),
+            cooling: std::sync::Mutex::default(),
+            cache: std::sync::Mutex::default(),
             ttl,
         }
     }
 
     /// Why a provider is resting, if it is.
     fn resting(&self, provider: WebSearchProvider) -> Option<&'static str> {
-        let mut cooling = self.cooling.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cooling = self
+            .cooling
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match cooling.get(&provider) {
             Some((until, why)) if *until > Instant::now() => Some(*why),
             Some(_) => {
@@ -478,12 +483,15 @@ impl State {
     fn rest(&self, provider: WebSearchProvider, wait: Duration, why: &'static str) {
         self.cooling
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(provider, (Instant::now() + wait, why));
     }
 
     fn recall(&self, key: &str) -> Option<Answered> {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match cache.get(key) {
             Some((at, answered)) if at.elapsed() < self.ttl => Some(answered.clone()),
             Some(_) => {
@@ -495,7 +503,10 @@ impl State {
     }
 
     fn remember(&self, key: String, answered: &Answered) {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let ttl = self.ttl;
         cache.retain(|_, (at, _)| at.elapsed() < ttl);
         while cache.len() >= CACHE_ENTRIES {
@@ -708,17 +719,17 @@ pub fn render(answered: &Answered) -> String {
         out.push_str("No results.\n\n");
     }
     for (index, hit) in answered.hits.iter().enumerate() {
-        out.push_str(&format!("{}. {}\n   {}\n", index + 1, hit.title, hit.url));
+        let _ = write!(out, "{}. {}\n   {}\n", index + 1, hit.title, hit.url);
         let snippet = bounded(&one_line(&hit.snippet), SNIPPET_CHARS);
         if snippet.is_empty() {
             out.push_str("   (no preview)\n");
         } else {
-            out.push_str(&format!("   {snippet}\n"));
+            let _ = writeln!(out, "   {snippet}");
         }
         out.push('\n');
     }
     let names: Vec<&str> = answered.answered.iter().map(|p| display_name(*p)).collect();
-    out.push_str(&format!("Searched with {}", names.join(", ")));
+    let _ = write!(out, "Searched with {}", names.join(", "));
     if !answered.failed.is_empty() {
         let left: Vec<String> = answered
             .failed
@@ -727,7 +738,7 @@ pub fn render(answered: &Answered) -> String {
                 format!("{} {}", display_name(*provider), failure.kind.word())
             })
             .collect();
-        out.push_str(&format!(" ({})", left.join(", ")));
+        let _ = write!(out, " ({})", left.join(", "));
     }
     out.push('.');
     out

@@ -309,7 +309,7 @@ async fn exa_with_nothing_matched_is_an_empty_success() {
         .search(&Request::plain("zzz", 5))
         .await
         .unwrap();
-    assert!(hits.is_empty());
+    assert_eq!(hits, [] as [Hit; 0]);
 }
 
 #[tokio::test]
@@ -683,7 +683,7 @@ fn a_rate_limit_rests_a_provider_a_minute_or_what_it_asked_and_a_timeout_a_littl
     assert_eq!(asked.cooldown(), Some(Duration::from_secs(90)));
     // Firecrawl says it in the body, and no one is left alone for a day.
     let body = Failure::status("firecrawl", 429, r#"{"retry_after_seconds":76207}"#, false);
-    assert_eq!(body.cooldown(), Some(Duration::from_secs(15 * 60)));
+    assert_eq!(body.cooldown(), Some(Duration::from_mins(15)));
     assert_eq!(
         Failure::status("exa", 503, "", false).cooldown(),
         Some(Duration::from_secs(20))
@@ -908,7 +908,7 @@ async fn every_provider_is_asked_and_their_lists_are_fused() {
     ]);
     let answered = search.run(&Query::parse("subject"), 5).await.unwrap();
     let mut who = asked.lock().unwrap().clone();
-    who.sort();
+    who.sort_unstable();
     assert_eq!(who, vec!["exa", "keenable", "parallel"]);
     let titles: Vec<&str> = answered.hits.iter().map(|h| h.title.as_str()).collect();
     assert_eq!(titles[0], "beta", "found by two providers: {titles:?}");
@@ -920,24 +920,44 @@ async fn every_provider_is_asked_and_their_lists_are_fused() {
     );
 }
 
+/// A provider that answers only once every provider sharing its barrier has
+/// been asked, so it answers at all only if they are in flight together.
+struct Together {
+    title: &'static str,
+    barrier: Arc<tokio::sync::Barrier>,
+}
+
+#[async_trait]
+impl Searcher for Together {
+    async fn search(&self, _request: &Request) -> Result<Vec<Hit>, Failure> {
+        self.barrier.wait().await;
+        Ok(vec![hit(self.title)])
+    }
+}
+
 #[tokio::test]
 async fn providers_run_at_once_not_one_after_another() {
-    let asked = Asked::default();
-    let slow = Duration::from_millis(150);
-    let search = ask(vec![
-        scripted(P::Parallel, Ok(vec![hit("a")]), slow, &asked),
-        scripted(P::Exa, Ok(vec![hit("b")]), slow, &asked),
-        scripted(P::Keenable, Ok(vec![hit("c")]), slow, &asked),
-        scripted(P::Firecrawl, Ok(vec![hit("d")]), slow, &asked),
-    ]);
-    let started = Instant::now();
+    let providers = [
+        (P::Parallel, "a"),
+        (P::Exa, "b"),
+        (P::Keenable, "c"),
+        (P::Firecrawl, "d"),
+    ];
+    let barrier = Arc::new(tokio::sync::Barrier::new(providers.len()));
+    let search = ask(providers
+        .into_iter()
+        .map(|(provider, title)| Attempt {
+            provider,
+            searcher: Box::new(Together {
+                title,
+                barrier: barrier.clone(),
+            }),
+            key: None,
+        })
+        .collect())
+    .with_bounds(Duration::from_secs(30), Duration::from_secs(30));
     let answered = search.run(&Query::parse("subject"), 5).await.unwrap();
-    assert!(
-        started.elapsed() < Duration::from_millis(400),
-        "{:?}",
-        started.elapsed()
-    );
-    assert_eq!(answered.hits.len(), 4);
+    assert_eq!(answered.hits.len(), 4, "{:?}", answered.failed);
 }
 
 #[tokio::test]
@@ -976,15 +996,17 @@ async fn the_total_budget_cuts_the_wait_and_uses_what_arrived() {
         scripted(
             P::Exa,
             Ok(vec![hit("late")]),
-            Duration::from_secs(5),
+            Duration::from_secs(120),
             &asked,
         ),
     ])
-    .with_bounds(Duration::from_secs(5), Duration::from_millis(120));
+    .with_bounds(Duration::from_secs(120), Duration::from_millis(120));
     let started = Instant::now();
     let answered = search.run(&Query::parse("subject"), 5).await.unwrap();
+    // The late provider would take two minutes; a budget kept returns in
+    // a fraction of one, however loaded the machine.
     assert!(
-        started.elapsed() < Duration::from_millis(600),
+        started.elapsed() < Duration::from_secs(60),
         "{:?}",
         started.elapsed()
     );
@@ -1225,9 +1247,15 @@ fn a_teammates_some_narrows_the_chain_and_none_empties_it() {
         vec![P::Parallel, P::Firecrawl]
     );
     let none = policy(PolicyMode::None, &[P::Exa]);
-    assert!(effective_chain(&set(&[]), Some(&none)).is_empty());
+    assert_eq!(
+        effective_chain(&set(&[]), Some(&none)),
+        [] as [WebSearchProvider; 0]
+    );
     let nothing_named = policy(PolicyMode::Some, &[]);
-    assert!(effective_chain(&set(&[]), Some(&nothing_named)).is_empty());
+    assert_eq!(
+        effective_chain(&set(&[]), Some(&nothing_named)),
+        [] as [WebSearchProvider; 0]
+    );
 }
 
 #[test]

@@ -218,7 +218,10 @@ impl Hub {
         }
         let generation = host.generation.clone();
         let notify = host.notify.clone();
-        let budget = hosts.budgets.get_mut(desk).unwrap();
+        let budget = hosts
+            .budgets
+            .get_mut(desk)
+            .expect("a registered desk's budget is made with it and kept while it is active");
         budget.refill(tokio::time::Instant::now());
         if budget.tokens < 1.0 {
             return Visit::RateLimited;
@@ -401,7 +404,7 @@ where
         let n = noise.write_message(&[], &mut payload).ok()?;
         let sent = tokio::select! {
             biased;
-            _ = waiting.ticket.generation.cancel.cancelled() => return None,
+            () = waiting.ticket.generation.cancel.cancelled() => return None,
             sent = socket.send(Message::Binary(payload[..n].to_vec().into())) => sent,
         };
         sent.ok()?;
@@ -409,8 +412,8 @@ where
     };
     let waiting = tokio::select! {
         biased;
-        _ = cancel.cancelled() => return,
-        _ = seat.expired(deadline) => return,
+        () = cancel.cancelled() => return,
+        () = seat.expired(deadline) => return,
         waiting = claimed => waiting,
     };
     drop(seat);
@@ -425,8 +428,8 @@ where
     let generation = ticket.generation.cancel.clone();
     tokio::select! {
         biased;
-        _ = cancel.cancelled() => {},
-        _ = join(visitor, socket, generation) => {},
+        () = cancel.cancelled() => {},
+        () = join(visitor, socket, generation) => {},
     }
 }
 
@@ -458,7 +461,7 @@ where
             }
         }
     };
-    tokio::select! { _ = cancel.cancelled() => {}, _ = forward => {} }
+    tokio::select! { () = cancel.cancelled() => {}, () = forward => {} }
     let _ = tokio::join!(
         tokio::time::timeout(IO_WITHIN, a_out.close()),
         tokio::time::timeout(IO_WITHIN, b_out.close()),
@@ -502,8 +505,8 @@ pub(super) async fn host<S>(
         ControlSlot::Full => return,
         ControlSlot::Replacing => tokio::select! {
             biased;
-            _ = phone.cancel.cancelled() => return,
-            _ = seat.expired(tokio::time::Instant::now() + IO_WITHIN) => return,
+            () = phone.cancel.cancelled() => return,
+            () = seat.expired(tokio::time::Instant::now() + IO_WITHIN) => return,
             host = remote.relay.controls.clone().acquire_owned() => match host {
                 Ok(host) => host,
                 Err(_) => return,
@@ -543,7 +546,7 @@ pub(super) async fn host<S>(
         loop {
             tokio::select! {
                 biased;
-                _ = generation.cancelled() => break,
+                () = generation.cancelled() => break,
                 notice = notices.recv() => match notice {
                     Some(text) => if !matches!(tokio::time::timeout(IO_WITHIN, control.send(Message::Text(text.into()))).await, Ok(Ok(()))) { break },
                     None => break,
@@ -646,8 +649,10 @@ impl Remote {
         let name = stand_ins(&self.root)
             .into_iter()
             .find(|desk| &desk.desk_id == id)
-            .map(|desk| desk.name)
-            .unwrap_or_else(|| "A desk this computer no longer pairs with".into());
+            .map_or_else(
+                || "A desk this computer no longer pairs with".into(),
+                |desk| desk.name,
+            );
         Some(RemoteRelay {
             desk_id: id.clone(),
             name,
@@ -685,7 +690,7 @@ impl Remote {
                 let mut ready = false;
                 let stood = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
+                    () = cancel.cancelled() => return,
                     stood = remote.stand_once(&desk, &visits, &cancel, &mut ready) => stood,
                 };
                 if ready {
@@ -716,9 +721,9 @@ impl Remote {
                         wait
                     }
                 };
-                let jitter = 0.8 + (Uuid::new_v4().as_bytes()[0] as f64 / 255.0) * 0.4;
+                let jitter = 0.8 + (f64::from(Uuid::new_v4().as_bytes()[0]) / 255.0) * 0.4;
                 let wait = wait.mul_f64(jitter);
-                tokio::select! { _ = cancel.cancelled() => return, _ = tokio::time::sleep(wait) => {} }
+                tokio::select! { () = cancel.cancelled() => return, () = tokio::time::sleep(wait) => {} }
             }
         });
     }
@@ -802,7 +807,7 @@ impl Remote {
                     tokio::spawn(async move {
                         let dialed = tokio::select! {
                             biased;
-                            _ = cancel.cancelled() => return,
+                            () = cancel.cancelled() => return,
                             dialed = tokio::time::timeout(ACCEPT_WITHIN, client.accept_relay(&desk, &id)) => dialed,
                         };
                         if let Ok(Ok(socket)) = dialed {

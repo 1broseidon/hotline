@@ -363,7 +363,7 @@ pub(super) fn validate_audio(mime: &str, bytes: &[u8], duration: u32) -> Result<
             return Err("Send an AAC clip in an MP4 container.".into());
         }
         let actual = mp4_duration(bytes, 0)?.ok_or("The MP4 clip has no duration.")?;
-        if actual == 0 || actual > 20_000 || (actual as i64 - duration as i64).abs() > 250 {
+        if actual == 0 || actual > 20_000 || (i64::from(actual) - i64::from(duration)).abs() > 250 {
             return Err("Send at most 20 seconds of audio with its actual duration.".into());
         }
         return Ok(actual);
@@ -410,7 +410,7 @@ pub(super) fn validate_audio(mime: &str, bytes: &[u8], duration: u32) -> Result<
         || size == 0
         || size > 640_000
         || size % 2 != 0
-        || (size as i64 * 1000 / 32_000 - duration as i64).abs() > 250
+        || (size as i64 * 1000 / 32_000 - i64::from(duration)).abs() > 250
     {
         return Err(
             "Send 16 kHz mono PCM16 WAV, at most 20 seconds, with its actual duration.".into(),
@@ -461,17 +461,17 @@ pub(super) fn mp4_duration(bytes: &[u8], depth: u8) -> Result<Option<u32>, Strin
                     1 => (20, 24, 8),
                     _ => return Err(malformed()),
                 };
-                let scale = u32::from_be_bytes(
+                let scale = u64::from(u32::from_be_bytes(
                     body.get(scale_at..scale_at + 4)
                         .ok_or_else(malformed)?
                         .try_into()
                         .expect("four bytes"),
-                ) as u64;
+                ));
                 let raw = body
                     .get(duration_at..duration_at + width)
                     .ok_or_else(malformed)?;
                 let count = if width == 4 {
-                    u32::from_be_bytes(raw.try_into().expect("four bytes")) as u64
+                    u64::from(u32::from_be_bytes(raw.try_into().expect("four bytes")))
                 } else {
                     u64::from_be_bytes(raw.try_into().expect("eight bytes"))
                 };

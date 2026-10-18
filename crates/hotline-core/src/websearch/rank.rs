@@ -231,32 +231,29 @@ pub fn rank(query: &Query, sources: Vec<Source>, limit: usize) -> Ranked {
             }
             seen.push(key.clone());
             let gain = weight / (RRF_K + rank as f64);
-            match docs.get_mut(&key) {
-                Some(doc) => {
-                    doc.score += gain;
-                    doc.providers += 1;
-                    if rank < doc.best_rank {
-                        doc.best_rank = rank;
-                        let earlier = std::mem::replace(&mut doc.item, item);
-                        doc.others.push(earlier);
-                    } else {
-                        doc.others.push(item);
-                    }
+            if let Some(doc) = docs.get_mut(&key) {
+                doc.score += gain;
+                doc.providers += 1;
+                if rank < doc.best_rank {
+                    doc.best_rank = rank;
+                    let earlier = std::mem::replace(&mut doc.item, item);
+                    doc.others.push(earlier);
+                } else {
+                    doc.others.push(item);
                 }
-                None => {
-                    order.push(key.clone());
-                    docs.insert(
-                        key.clone(),
-                        Doc {
-                            key,
-                            score: gain,
-                            best_rank: rank,
-                            providers: 1,
-                            item,
-                            others: Vec::new(),
-                        },
-                    );
-                }
+            } else {
+                order.push(key.clone());
+                docs.insert(
+                    key.clone(),
+                    Doc {
+                        key,
+                        score: gain,
+                        best_rank: rank,
+                        providers: 1,
+                        item,
+                        others: Vec::new(),
+                    },
+                );
             }
         }
     }

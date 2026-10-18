@@ -48,32 +48,54 @@ Rust that needs Tauri lives.
 
 ```
 crates/hotline-core/src/
-  contract/              the wire's types (serde + ts-rs), a file per concern
-  paths.rs               the data directory's layout
-  log/                   streams: append, fold, segments, subscribe
-  store/                 FTS5 index, chapter list, roster previews
-  room.rs                the roster fold, settings, and schedules
-  vault.rs               secrets beside the room stream
-  session/               Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
-  driver/                Hotline Agent on Rig, and the ACP child with its registry
-  models.rs              the providers Hotline Agent reaches, and the model catalogue they serve
-  mcp/                   the client of granted servers, and Hotline's own teammate tools
-  computer/              runtime detection and one container per teammate
-  tools/                 workspace tools on cap-std, shell command
-  desk.rs                the room, vault and log behind the wire
-  boot.rs                one boot, the app's and `hotline serve`'s, that returns its errors
-  import.rs              copies an existing Hotline data directory
-  import/                the previous edition's roster and records, read-only
-  wire/                  the door: seats, commands, subscriptions
-  bin/hotline-import.rs     the importer as a binary
-  bin/hotline-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
+  contract/                  the wire's types (serde + ts-rs), a file per concern; a leaf
+  paths.rs                   the data directory's layout
+  log/                       streams: append, fold, segments, subscribe; tapes and threads
+  store/                     beside the tape: FTS5 search, chapter list, roster previews
+  room.rs                    the roster fold, settings, and schedules
+  room_lock.rs               one writer per room
+  thread/                    the one name for a conversation, its store and its policy
+  vault/                     credential metadata beside the room stream
+  credentials/               the OS credential store that holds the secret values
+  session/                   Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
+  driver/                    Hotline Agent on Rig, and the ACP child with its registry and OAuth proxy
+  models.rs                  the providers Hotline Agent reaches, and the model catalogue they serve
+  providers/                 connection work Rig does not own; requests stay on Rig's clients
+  capabilities.rs            which connected provider the owner can pick for each job
+  pricing.rs                 what a model costs per token
+  spending.rs                the spending ledger and the budget it enforces
+  mcp/                       the client of granted servers, and Hotline's own teammate tools
+  skills.rs                  the catalog: built-in, gateway and workspace skills, copied into a workspace
+  tools/                     workspace tools on cap-std, shell command
+  computer/                  runtime detection and one container per teammate
+  voice/                     the owner's call: speech in and out, the front, realtime, metering
+  websearch/                 web search for every teammate, keyless by default, ranked and cleaned
+  imagegen/                  making images over whichever connected provider the owner has
+  images.rs                  what an attached or generated image is made into before anyone sees it
+  thumbs.rs                  smaller copies of pictures for a phone
+  sent/                      files teammates send the person, and their readback
+  link_preview.rs            a link's card, read from the page's head
+  fence.rs                   the one fence around anything quoted out of a conversation
+  desk.rs                    the room, vault and log behind the wire
+  boot.rs                    one boot, the app's and `hotline serve`'s, that returns its errors
+  wire/                      the door: seats, commands, subscriptions, the phone and relay doors
+  remote/                    Remote: the sealed listener, pairing, the relay, a linked desk's channel
+  linked.rs                  linked desks: their records, qualified ids, the roster that crosses
+  push.rs                    notifications to paired phones
+  import.rs                  copies an existing Hotline data directory
+  import/                    the previous edition's roster and records, read-only
+  log_file.rs                where the app's own lines go when nobody reads its output
+  process_windows.rs         a Windows child's kill-on-close job
+  bin/hotline-import.rs      the importer as a binary
+  bin/hotline-mcp-echo.rs    a one-tool stdio server the MCP harnesses spawn
   bin/hotline-models-sync.rs rewrites models.json from models.dev
 crates/hotline-core/models.json  the model catalogue: a filtered snapshot of models.dev
-crates/hotline-core/tests/  headless proofs driving the real core over the wire
-crates/hotline-app/     the Tauri 2 shell: plugins, the menu, the door
-ui/                      the React window, built against the generated contract; ui/src/ui is the design system
-assets/                  the mark and the app tile it sits on; `make icons` renders the icon set from them
-docs/                    what is
+crates/hotline-core/tests/   headless proofs driving the real core over the wire
+crates/hotline-app/          the Tauri 2 shell: plugins, the menu, the door
+crates/hotline-cli/          `hotline`: the desk with no window (`hotline serve`), and its operator commands
+ui/                          the React window, built against the generated contract; ui/src/ui is the design system
+assets/                      the mark and the app tile it sits on; `make icons` renders the icon set from them
+docs/                        what is
 ```
 
 The core is a library. The shell binds its door on a loopback port, injects
@@ -158,6 +180,7 @@ rustup, and announced first.
 | `fmt` | `cargo fmt --all --check` | unformatted Rust |
 | `lockfile` | `cargo metadata --locked`, `bun install --frozen-lockfile` | a `Cargo.lock` or `bun.lock` that CI's `--locked` refuses |
 | `actionlint` | `actionlint` (with shellcheck) | a workflow that reads what is not there, a `run:` script shellcheck faults |
+| `citations` | `scripts/security-citations` | a test `docs/security.md` cites that is renamed or moved without its row |
 | `contract` | every ts-rs export test, writing `contract.ts` from nothing | a committed contract that is stale, or that a filtered run truncated; the file you have is put back |
 | `clippy` | `cargo clippy --workspace --all-targets --locked -- -D warnings` | the host's lints |
 | `windows` | the same clippy for `x86_64-pc-windows-msvc`, through `cargo xwin` | Windows-only code, and code only Unix uses that is dead on Windows |
@@ -189,8 +212,9 @@ How the less obvious legs work:
   to the tests that check a process group died), with every test binary
   run even after one fails. The container's masked `/proc` paths are
   cleared so bubblewrap can mount its own: the workspace shell's sandbox
-  tests run here, where ci.yml's Linux job, without the AppArmor grant
-  workspace-isolation.yml adds, skips them.
+  tests, ignored on Linux unless asked for, run here with `--ignored`, as
+  in workspace-isolation.yml; ci.yml's Linux job, without the AppArmor
+  grant, reports them ignored.
   The container is arm64, this Mac's own architecture, where the runner
   is x86_64: code that differs by architecture rather than by operating
   system is the one thing this leg does not see. `container volume rm`
@@ -530,8 +554,12 @@ scratch or the store.
 
 ## The generated contract
 
-Types are defined once in `crates/hotline-core/src/contract/` (serde +
-ts-rs), a file per concern, each re-exported from `contract`. `cargo test -p hotline-core` runs the export tests and writes
+Each wire type is defined once in Rust, with serde and ts-rs. Most live in
+`crates/hotline-core/src/contract/`, a file per concern, each re-exported
+from `contract`, which imports nothing else from the crate. The types that
+belong to Remote, linked desks and the importer are defined beside them
+(`remote.rs`, `remote/{client,relay,v2}.rs`, `linked.rs`, `import.rs`) and
+export to the same file. `cargo test -p hotline-core` runs the export tests and writes
 `ui/src/generated/contract.ts`. `.cargo/config.toml` points ts-rs at that
 directory and tells it a 64-bit integer is a JavaScript `number`, because
 every number on this wire arrives as `JSON.parse` produces it.
@@ -636,21 +664,28 @@ the test suite.
 
 Most of `desk.rs` needs no provider key: it creates a teammate, watches
 the roster view, lists models, adds a credential, lists and marks a peer
-thread, and so on. The tests that need a real agent are skipped without
-their env. One starts a Hotline Agent turn with a real key, has it read a
-file, and checks the tape; it runs when `HOTLINE_HARNESS_ANTHROPIC_KEY` is
-set. The others are the same proof for the other kind of agent: set
-`HOTLINE_HARNESS_ACP` to a backend id this machine can run (`cursor`, say)
-and they drive a real harness as a child, including a line sent mid-turn.
+thread, and so on. The tests that need a real agent are ignored, and run
+with `--ignored`, failing by name when their env is missing. One starts a
+Hotline Agent turn with a real key in `HOTLINE_HARNESS_ANTHROPIC_KEY`, has it
+read a file, and checks the tape. The others are the same proof for the
+other kind of agent: set `HOTLINE_HARNESS_ACP` to a backend id this machine
+can run (`cursor`, say) and they drive a real harness as a child, including
+a line sent mid-turn.
 
 ```bash
-HOTLINE_HARNESS_ANTHROPIC_KEY=… make verify
-HOTLINE_HARNESS_ACP=cursor make verify
+HOTLINE_HARNESS_ANTHROPIC_KEY=… cargo test -p hotline-core --test desk -- --ignored a_turn_with_a_real_key
+HOTLINE_HARNESS_ACP=cursor cargo test -p hotline-core --test desk -- --ignored real_acp_harness
 ```
 
 A harness that wants state in a stream asks the core over the wire, or
 writes the file before the core starts. The core is the only process that
 appends to a stream.
+
+A test waits on the thing it is waiting for, never on a sleep it hopes is
+long enough: `common::until(what, cond)` in a harness, and
+`test_support::until(what, cond)` in a unit test, each giving up after one
+generous minute with `what` in the failure. A loaded runner only makes them
+slower, so a test asserts what happened and in what order, never how fast.
 
 ## hotline-import
 

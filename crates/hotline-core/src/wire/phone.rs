@@ -91,16 +91,21 @@ pub(super) fn phone_event(mut event: Value) -> Value {
         truncated = true;
     }
     if let Some(data_url) = event.get("dataUrl").and_then(Value::as_str) {
-        match phone_frame(data_url) {
-            Some(small) => event["dataUrl"] = json!(small),
-            None => {
-                event.as_object_mut().unwrap().remove("dataUrl");
-                truncated = true;
-            }
+        if let Some(small) = phone_frame(data_url) {
+            event["dataUrl"] = json!(small);
+        } else {
+            event
+                .as_object_mut()
+                .expect("an event with a dataUrl is an object")
+                .remove("dataUrl");
+            truncated = true;
         }
     }
     if event.get("output").is_some() {
-        event.as_object_mut().unwrap().remove("output");
+        event
+            .as_object_mut()
+            .expect("an event with an output is an object")
+            .remove("output");
         truncated = true;
     }
     if truncated {

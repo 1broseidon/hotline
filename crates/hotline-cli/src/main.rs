@@ -236,7 +236,7 @@ fn serve_options(args: &mut Vec<String>) -> Result<hotline_core::remote::ServeOp
 mod tests {
     use super::*;
     fn options(flags: &[&str]) -> Result<hotline_core::remote::ServeOptions, String> {
-        serve_options(&mut flags.iter().map(|s| s.to_string()).collect())
+        serve_options(&mut flags.iter().map(ToString::to_string).collect())
     }
     #[test]
     fn served_network_is_explicit_and_never_wildcard_or_ephemeral() {

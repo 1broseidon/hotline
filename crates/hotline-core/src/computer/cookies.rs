@@ -528,8 +528,9 @@ fn unexpired(cookies: Vec<Value>, now: i64) -> Vec<Value> {
 fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| i64::try_from(since.as_secs()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
+        .map_or(0, |since| {
+            i64::try_from(since.as_secs()).unwrap_or(i64::MAX)
+        })
 }
 
 /// The sites in a profile and how many cookies each has — names and counts,
@@ -1021,7 +1022,7 @@ mod tests {
             json!({"domain": "sub.example.com", "name": "b", "value": "2"}),
             json!({"domain": ".other.test", "name": "c", "value": "3"}),
         ];
-        let wanted: std::collections::HashSet<&str> = ["example.com"].into_iter().collect();
+        let wanted: std::collections::HashSet<&str> = std::iter::once("example.com").collect();
         let kept: Vec<Value> = cookies
             .into_iter()
             .filter(|cookie| {
@@ -1082,7 +1083,7 @@ mod tests {
         }
         let listed = listed.unwrap();
         assert!(listed.blocked);
-        assert!(listed.profiles.is_empty());
+        assert_eq!(listed.profiles, [] as [BrowserProfile; 0]);
         assert_eq!(serde_json::to_value(&listed).unwrap()["blocked"], true);
     }
 

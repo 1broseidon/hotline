@@ -108,7 +108,7 @@ async fn models_catalog_lists_a_wired_provider_and_refuses_an_unwired_one() {
     let listed = answered(&mut socket, 2).await;
     assert_eq!(listed["ok"], true, "{listed}");
     let models = listed["result"].as_array().expect("a catalogue is a list");
-    assert!(!models.is_empty());
+    assert_ne!(models.as_slice(), [] as [Value; 0]);
     assert!(
         models.iter().all(|model| model["enabled"] == true),
         "{listed}"

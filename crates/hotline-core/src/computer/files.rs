@@ -5,7 +5,7 @@
 use super::{HOME_MOUNT, Ready};
 use base64::{Engine, prelude::BASE64_STANDARD};
 use rmcp::ServiceExt;
-use rmcp::model::{CallToolRequestParams, ClientInfo, Implementation};
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
 use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
 };
@@ -137,7 +137,7 @@ async fn capture(ready: &Ready, arguments: Value) -> Result<String, String> {
             .auth_header(ready.token.clone()),
     );
     let service = ClientInfo::new(
-        Default::default(),
+        ClientCapabilities::default(),
         Implementation::new("hotline", env!("CARGO_PKG_VERSION")),
     )
     .serve(transport)

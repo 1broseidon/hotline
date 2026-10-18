@@ -163,6 +163,7 @@ fn terminal_blocking(
         .ok_or("The sign-in terminal could not be started.")?;
     // SAFETY: pair.master owns this descriptor until the loop and cleanup end.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    // SAFETY: the same descriptor, still owned by pair.master.
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         return Err("The sign-in terminal could not be started.".into());
     }
@@ -288,10 +289,10 @@ mod tests {
         let attempt = Attempt::new(CancellationToken::new());
         attempt.output("é".repeat(OUTPUT_LIMIT).as_bytes());
         assert_eq!(attempt.poll().output.len(), OUTPUT_LIMIT);
-        assert!(attempt.poll().output.is_empty());
+        assert_eq!(attempt.poll().output, "");
         attempt.output(b"fixture-secret");
         attempt.owner.cancel();
-        assert!(attempt.poll().output.is_empty());
+        assert_eq!(attempt.poll().output, "");
         assert!(attempt.input("anything").is_err());
     }
     #[cfg(unix)]
@@ -347,7 +348,7 @@ mod tests {
                     "success" => attempt.input("yes\n").unwrap(),
                     "cancel" => attempt.cancel.cancel(),
                     "disconnect" => attempt.owner.cancel(),
-                    _ => unreachable!(),
+                    _ => unreachable!("the test's outcomes are success, cancel and disconnect"),
                 }
             }
             let result = tokio::time::timeout(Duration::from_secs(5), running)
@@ -381,6 +382,7 @@ mod tests {
             fn drop(&mut self) {
                 self.attempt.cancel.cancel();
                 if let Some(pid) = self.descendant {
+                    // SAFETY: kill takes no memory; the pid is the one the fixture captured.
                     unsafe {
                         libc::kill(pid, libc::SIGKILL);
                     }
@@ -428,6 +430,7 @@ mod tests {
                         if let [leader, descendant] = pids.as_slice() {
                             fixture.descendant = Some(*descendant);
                             // Wait until the child has actually changed groups.
+                            // SAFETY: getpgid only reads the pid it is given.
                             if unsafe { libc::getpgid(*descendant) } == *descendant {
                                 break (*leader, *descendant);
                             }
@@ -438,7 +441,9 @@ mod tests {
                 .await
                 .expect("fixture reported its captured child PIDs");
                 assert_ne!(leader, descendant);
+                // SAFETY: getpgid and getsid only read the pid they are given.
                 assert_eq!(unsafe { libc::getpgid(leader) }, leader);
+                // SAFETY: as above.
                 assert_eq!(unsafe { libc::getsid(descendant) }, leader);
                 if fill_input {
                     let input = "x".repeat(INPUT_LIMIT);
@@ -468,15 +473,17 @@ mod tests {
                     .unwrap();
                 assert_eq!(result, Err("Sign-in cancelled.".into()));
                 assert!(lock(&attempt.input).is_none());
-                assert!(lock(&attempt.status).output.is_empty());
-                assert!(attempt.poll().output.is_empty());
+                assert_eq!(lock(&attempt.status).output, "");
+                assert_eq!(attempt.poll().output, "");
                 assert!(attempt.input("after cancel").is_err());
                 assert_eq!(
+                    // SAFETY: signal 0 only checks that the captured pid exists.
                     unsafe { libc::kill(leader, 0) },
                     -1,
                     "direct child was reaped"
                 );
                 assert_eq!(
+                    // SAFETY: signal 0 only checks that the captured pid exists.
                     unsafe { libc::kill(descendant, 0) },
                     0,
                     "escaped slave holder was still alive when cancellation settled"

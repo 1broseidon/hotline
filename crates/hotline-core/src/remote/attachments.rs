@@ -78,7 +78,9 @@ pub(super) fn upload(
         if chunk.offset != 0 {
             return Err("Start an attachment at offset zero.".into());
         }
-        let parent = dir.parent().unwrap();
+        let parent = dir
+            .parent()
+            .expect("an attachment's directory is joined under its device's");
         fs::create_dir_all(parent).map_err(message)?;
         let mut reserved = 0_u64;
         let mut count = 0;

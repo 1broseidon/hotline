@@ -9,7 +9,7 @@
 #![cfg(unix)]
 mod common;
 
-use common::stalled::{self, Client};
+use common::{Client, stalled};
 use hotline_core::desk::Desk;
 use hotline_core::driver::acp::StartBounds;
 use hotline_core::wire::Door;
@@ -47,7 +47,6 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
         .call(
             "credential.custom_save",
             json!({"draft": {"name":"butler", "baseUrl":base, "api":"chat_completions", "models":["vendor/butler"]}}),
-            QUICK,
         )
         .await;
     assert_eq!(saved["ok"], true, "{saved}");
@@ -56,7 +55,6 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
         .call(
             "persona.create",
             json!({"draft": {"name":"Jeeves", "goal":"Answer", "cwd":cwd}}),
-            QUICK,
         )
         .await;
     let jeeves = made["result"]["id"].as_str().unwrap().to_owned();
@@ -64,7 +62,6 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
         .call(
             "persona.create",
             json!({"draft": {"name":"Pork Chop", "goal":"Code", "cwd":cwd, "backendId":stalled::BACKEND}}),
-            QUICK,
         )
         .await;
     assert_eq!(made["ok"], true, "{made}");
@@ -83,16 +80,17 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
     // Jeeves, on the same socket, starts, is spoken to and answers while it
     // hangs, and what was said to him is on his tape.
     let started = client
-        .call("session.start", json!({"personaId":jeeves}), QUICK)
+        .send("session.start", json!({"personaId":jeeves}))
         .await;
+    let started = client.reply(started, QUICK).await;
     assert_eq!(started["ok"], true, "{started}");
     let sent = client
-        .call(
+        .send(
             "session.prompt",
             json!({"personaId":jeeves, "text":"Is anyone there?"}),
-            QUICK,
         )
         .await;
+    let sent = client.reply(sent, QUICK).await;
     assert_eq!(sent["ok"], true, "{sent}");
     client
         .next_where(QUICK, |frame| {
@@ -139,22 +137,22 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
     );
 
     // The whole process group is gone, the grandchild with it.
-    assert!(stalled::group_gone(group).await, "the launcher was killed");
-    assert!(
-        stalled::process_gone(grandchild).await,
-        "and what it started"
-    );
+    common::until("the launcher is killed", || !stalled::group_alive(group)).await;
+    common::until("and what it started", || {
+        !stalled::process_alive(grandchild)
+    })
+    .await;
 
     // A message to Pork Chop now is written before anything waits on the
     // agent, and the start it retries fails as the turn.
     std::fs::remove_file(&pids).unwrap();
     let sent = client
-        .call(
+        .send(
             "session.prompt",
             json!({"personaId":pork_chop, "text":"Are you up yet?"}),
-            QUICK,
         )
         .await;
+    let sent = client.reply(sent, QUICK).await;
     assert_eq!(sent["ok"], true, "{sent}");
     client
         .next_where(QUICK, |frame| {
@@ -170,10 +168,10 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
         })
         .await;
     assert_eq!(failed["event"]["stopReason"], "failed", "{failed}");
-    assert!(
-        stalled::group_gone(retried).await,
-        "the retry's launcher was killed"
-    );
+    common::until("the retry's launcher is killed", || {
+        !stalled::group_alive(retried)
+    })
+    .await;
 
     drop(client);
     door_task.abort();

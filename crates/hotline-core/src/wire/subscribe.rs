@@ -1,6 +1,6 @@
 //! Subscriptions: a stream's snapshot, its events and its live deltas.
 
-use super::phone::{link_as_sent, phone_event, snapshot_shaped};
+use super::phone::{PHONE_WINDOW, link_as_sent, phone_event, snapshot_shaped};
 use super::seat::Seat;
 use super::socket::{FORBIDDEN, Outbox, Refused, UNKNOWN_TEAMMATE, UNREADABLE, reply};
 use super::{RoomHandle, roster, schedules, send};
@@ -20,18 +20,16 @@ use tokio::task::JoinHandle;
 /// otherwise be free to queue its snapshot first, and a client is promised
 /// `ok`, then one snapshot, then events. Inside that task the broadcast is
 /// subscribed to before the fold is loaded, so nothing lands in between.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn subscribe(
-    target: &Value,
-    window: Option<usize>,
+    id: i64,
+    frame: &Value,
     seat: Seat,
     log: &Log,
     room: &Arc<dyn RoomHandle>,
     sender: &Outbox,
     subscriptions: &mut HashMap<i64, JoinHandle<()>>,
-    id: i64,
 ) -> Result<(), Refused> {
-    let target: Target = serde_json::from_value(target.clone())
+    let target: Target = serde_json::from_value(frame["sub"].clone())
         .map_err(|error| format!("That is not something to subscribe to: {error}."))?;
     if !seat.permits_sub(&target) {
         return Err(Refused::because(
@@ -144,20 +142,19 @@ pub(super) fn subscribe(
     };
 
     reply(sender, id, Ok(Value::Null));
-    let events = log.subscribe(&stream);
-    let deltas = match &stream {
-        StreamId::Tape(_) | StreamId::Side(_) | StreamId::Run(_) => Some(room.subscribe_deltas()),
-        _ => None,
-    };
+    // A phone shows the last lines of a thread, as many as it asked for.
+    let window = frame
+        .get("window")
+        .and_then(Value::as_u64)
+        .map(|window| (window as usize).clamp(1, PHONE_WINDOW));
     let forward = stream_events(
         id,
         stream,
-        log.clone(),
-        events,
-        deltas,
-        sender.clone(),
-        seat,
         window,
+        seat,
+        log.clone(),
+        room.clone(),
+        sender.clone(),
     );
     subscriptions.insert(id, tokio::spawn(forward));
     Ok(())
@@ -209,17 +206,20 @@ pub(super) fn thread_page(
     json!({ "events": page, "more": start > 0 })
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn stream_events(
     id: i64,
     stream: StreamId,
-    log: Log,
-    mut events: broadcast::Receiver<Value>,
-    mut deltas: Option<broadcast::Receiver<StreamDelta>>,
-    sender: Outbox,
-    seat: Seat,
     window: Option<usize>,
+    seat: Seat,
+    log: Log,
+    room: Arc<dyn RoomHandle>,
+    sender: Outbox,
 ) {
+    let mut events = log.subscribe(&stream);
+    let mut deltas = match &stream {
+        StreamId::Tape(_) | StreamId::Side(_) | StreamId::Run(_) => Some(room.subscribe_deltas()),
+        _ => None,
+    };
     let scope = delta_scope(&stream);
     let phone = || seat == Seat::Phone || sender.lean();
     let snapshot = |sender: &Outbox| {

@@ -20,7 +20,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
 
-FAST_LEGS=(fmt lockfile actionlint contract clippy windows ui)
+FAST_LEGS=(fmt lockfile actionlint citations contract clippy windows ui)
 FULL_LEGS=(linux bare-path shuffle)
 LOGS="$ROOT/target/precheck"
 HOST="$(rustc -vV | sed -n 's/^host: //p')"
@@ -65,6 +65,12 @@ leg_lockfile() {
 
 leg_actionlint() {
   need_brew actionlint && need_brew shellcheck && actionlint
+}
+
+# docs/security.md proves each boundary by naming its tests; a test that is
+# renamed or moved without its row leaves a claim nothing proves.
+leg_citations() {
+  python3 scripts/security-citations
 }
 
 # ts-rs writes contract.ts from the export tests, merging into what is there,
@@ -176,7 +182,8 @@ leg_linux() {
   # An init reaps what the tests kill; without one a killed child stays a
   # zombie, and the tests that check it is gone see it alive. The container
   # masks parts of /proc, which stops bubblewrap mounting its own; a runner
-  # masks nothing, so neither does this.
+  # masks nothing, so neither does this. The sandbox tests are ignored on
+  # Linux unless asked for, and this container has bubblewrap, so it asks.
   container run --rm --cpus "$(($(sysctl -n hw.ncpu) - 2))" \
     --memory "$(($(sysctl -n hw.memsize) / 2 / 1024 / 1024 / 1024))G" \
     --init --masked-path NONE --read-only-path NONE \
@@ -189,7 +196,8 @@ leg_linux() {
       runuser -u runner -- bash -c "
         set -ex
         cargo clippy --workspace --all-targets --locked -- -D warnings
-        cargo test --workspace --locked --no-fail-fast"' chown "${owned[@]}"
+        cargo test --workspace --locked --no-fail-fast
+        cargo test -p hotline-core --locked --no-fail-fast -- --ignored tools::shell workspace_reach_keeps_another_projects_env_out_of_the_tools"' chown "${owned[@]}"
 }
 
 # The integration tests with the PATH a runner has, so a test that finds a

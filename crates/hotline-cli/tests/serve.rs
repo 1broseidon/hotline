@@ -5,104 +5,25 @@
 //! again in another mode, every pairing keeps its role. A room it cannot
 //! read is refused with an unsuccessful exit, and left as it was.
 #![cfg(unix)]
+mod common;
 
-use hotline_core::credentials::{FileStore, SecretStore};
-use hotline_core::desk::Desk;
+use common::{desktop, free_address, hotline, listen_args, said, serve, standing, stop, top, wire};
+use hotline_core::credentials::FileStore;
+use hotline_core::remote::PairingPayload;
 use hotline_core::remote::client::{Client, PairedDesk, PairedRelay};
-use hotline_core::remote::{PairingPayload, Remote};
 use serde_json::{Value, json};
-use std::io::{BufRead, BufReader, Write};
-use std::net::SocketAddr;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-const HOTLINE: &str = env!("CARGO_BIN_EXE_hotline");
-
-fn hotline(root: &Path, args: &[&str]) -> Command {
-    let mut command = Command::new(HOTLINE);
-    command
-        .args(args)
-        .arg("--data")
-        .arg(root)
-        .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DBUS_SESSION_BUS_ADDRESS")
-        .env_remove("HOTLINE_DATA_DIR");
-    if args.first() == Some(&"serve") && !args.contains(&"--listen") {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        command.args([
-            "--listen",
-            &addr.to_string(),
-            "--public-url",
-            &format!("https://{addr}"),
-        ]);
-    }
-    command
-}
-
-fn serve(root: &Path) -> Child {
-    serve_with(root, &[])
-}
-
-/// Serves with more flags: `--capabilities`, or a `--listen` to keep.
-fn serve_with(root: &Path, extra: &[&str]) -> Child {
-    let mut args = vec!["serve", "--store", "file"];
-    args.extend(extra);
-    let child = hotline(root, &args)
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let door = root.join("door.json");
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while !door.exists() {
-        assert!(Instant::now() < deadline, "the desk never wrote door.json");
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    child
-}
-
-fn wire(root: &Path, cmd: &str, params: &str) -> Output {
-    let mut child = hotline(root, &["wire", cmd])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(params.as_bytes())
-        .unwrap();
-    child.wait_with_output().unwrap()
-}
-
-fn stop(mut child: Child) -> Output {
-    // SAFETY: a signal to our own child.
-    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
-    let deadline = Instant::now() + Duration::from_secs(40);
-    loop {
-        if child.try_wait().unwrap().is_some() {
-            return child.wait_with_output().unwrap();
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the desk did not stop on SIGTERM"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
-}
+use std::time::Duration;
 
 #[test]
 fn a_served_desk_keeps_its_room_its_keys_and_stops_cleanly() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("room");
 
-    let desk = serve(&root);
+    let desk = serve(&root, &[]);
     let status = hotline(&root, &["status"]).output().unwrap();
     assert!(status.status.success(), "{status:?}");
     let said = String::from_utf8_lossy(&status.stdout);
@@ -143,7 +64,7 @@ fn a_served_desk_keeps_its_room_its_keys_and_stops_cleanly() {
             entry.display()
         );
     }
-    let desk = serve(&root);
+    let desk = serve(&root, &[]);
     let listed = wire(&root, "credential.list", "{}");
     assert!(String::from_utf8_lossy(&listed.stdout).contains("harness"));
     let status = hotline(&root, &["status"]).output().unwrap();
@@ -199,24 +120,6 @@ fn walk(root: &Path) -> Vec<std::path::PathBuf> {
     found
 }
 
-/// A fixed address for a server served more than once, so a device paired
-/// on one boot dials the same place on the next.
-fn listen_args(addr: &SocketAddr) -> [String; 4] {
-    [
-        "--listen".into(),
-        addr.to_string(),
-        "--public-url".into(),
-        format!("https://{addr}"),
-    ]
-}
-
-fn free_address() -> SocketAddr {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-}
-
 /// `hotline pair --json` with `flags`, still waiting for its claim, and the
 /// invitation it printed.
 fn invite(root: &Path, flags: &[&str]) -> (Child, PairingPayload) {
@@ -233,7 +136,10 @@ fn invite(root: &Path, flags: &[&str]) -> (Child, PairingPayload) {
         .unwrap();
     match serde_json::from_str(&line) {
         Ok(payload) => (child, payload),
-        Err(_) => panic!("no invitation: {line} {:?}", child.wait_with_output()),
+        Err(error) => panic!(
+            "no invitation ({error}): {line} {:?}",
+            child.wait_with_output()
+        ),
     }
 }
 
@@ -276,65 +182,11 @@ async fn hello(client: &Client, desk: &PairedDesk) -> Value {
     serde_json::from_str(&hello).unwrap()
 }
 
-fn said(output: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    )
-}
-
-/// A person's desktop, in this process: a room, and Remote on.
-async fn desktop(root: &Path) -> (Arc<Desk>, Arc<Remote>, Arc<dyn SecretStore>) {
-    std::fs::create_dir_all(root).unwrap();
-    // A port of its own, not the install default another test may hold.
-    let port = free_address().port();
-    std::fs::write(
-        root.join("remote.json"),
-        json!({"desktopId": uuid(), "host": "all", "port": port, "enabled": false, "grants": []})
-            .to_string(),
-    )
-    .unwrap();
-    let store: Arc<dyn SecretStore> = Arc::new(FileStore::open(root).unwrap());
-    let desk = Arc::new(Desk::open_with_store(root, store.clone()).unwrap());
-    let remote =
-        Remote::open_with_store(root, desk.log.clone(), desk.clone(), store.clone()).unwrap();
-    desk.set_remote(&remote);
-    remote.configure(true, "all").await.unwrap();
-    (desk, remote, store)
-}
-
-fn uuid() -> String {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).unwrap();
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        &hex[..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..]
-    )
-}
-
-/// The entries at the top of a data directory, sorted.
-fn top(root: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(root)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-        .collect();
-    names.sort();
-    names
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_relay_only_server_opens_no_room_and_carries_a_desktops_visitors() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("pi");
-    let server = serve_with(&root, &["--capabilities", "relay"]);
+    let server = serve(&root, &["--capabilities", "relay"]);
 
     // Remote's own files, the store, the lock and the door: no room.
     for name in top(&root) {
@@ -377,18 +229,7 @@ async fn a_relay_only_server_opens_no_room_and_carries_a_desktops_visitors() {
     let pi = claim_relay(&laptop_store, &invitation, "Laptop").await;
     assert!(paired_as(pairing).contains("as relay"));
     laptop.relay_through(Some(pi.desk_id.clone())).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    let url = loop {
-        if let Some(url) = laptop.status().relay.and_then(|relay| relay.url) {
-            break url;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "never stood in: {:?}",
-            laptop.status().relay.and_then(|relay| relay.error)
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    };
+    let url = standing(&laptop).await;
     assert!(url.contains("/relay/"), "{url}");
 
     // A phone that cannot reach the laptop's own address visits it through
@@ -431,7 +272,7 @@ async fn serving_in_another_mode_keeps_every_pairing_and_its_role() {
     let listen: Vec<&str> = listen.iter().map(String::as_str).collect();
 
     // Agents and a relay, as every server before the choice.
-    let server = serve_with(&root, &listen);
+    let server = serve(&root, &listen);
     assert!(!root.join("serve.json").exists());
     let (pairing, invitation) = invite(&root, &[]);
     let (phone, desk) = claim(&dir.path().join("phone"), &invitation, "Phone").await;
@@ -454,7 +295,7 @@ async fn serving_in_another_mode_keeps_every_pairing_and_its_role() {
     // Relay only: the room stays on disk, unopened; every grant is kept.
     let mut flags = listen.clone();
     flags.extend(["--capabilities", "relay"]);
-    let server = serve_with(&root, &flags);
+    let server = serve(&root, &flags);
     assert_eq!(
         said(&hotline(&root, &["devices"]).output().unwrap()),
         devices
@@ -467,15 +308,7 @@ async fn serving_in_another_mode_keeps_every_pairing_and_its_role() {
     laptop
         .relay_through(Some(server_desk.desk_id.clone()))
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while laptop.status().relay.and_then(|relay| relay.url).is_none() {
-        assert!(
-            Instant::now() < deadline,
-            "never stood in: {:?}",
-            laptop.status().relay.and_then(|relay| relay.error)
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    standing(&laptop).await;
     laptop.relay_through(None).unwrap();
     let stopped = stop(server);
     assert!(
@@ -487,7 +320,7 @@ async fn serving_in_another_mode_keeps_every_pairing_and_its_role() {
     // Agents only: the owner is back on the wire, told the relay is gone.
     let mut flags = listen.clone();
     flags.extend(["--capabilities", "agents"]);
-    let server = serve_with(&root, &flags);
+    let server = serve(&root, &flags);
     assert_eq!(
         said(&hotline(&root, &["devices"]).output().unwrap()),
         devices

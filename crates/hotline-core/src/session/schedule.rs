@@ -244,8 +244,7 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
                 .filter(|job| should_consider(&room.log, job))
                 .map(|job| job.next_at.saturating_sub(now))
                 .min()
-                .map(|ms| Duration::from_millis(ms as u64))
-                .unwrap_or(LOOK_AGAIN)
+                .map_or(LOOK_AGAIN, |ms| Duration::from_millis(ms as u64))
                 .min(LOOK_AGAIN);
             drop(room);
             tokio::select! {
@@ -520,6 +519,7 @@ impl Room {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::SkillPolicy;
     use crate::contract::{McpPolicy, Persona, PolicyMode};
     use std::collections::HashMap;
 
@@ -559,7 +559,7 @@ mod tests {
                 mode: PolicyMode::None,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work,
             allowed_senders: Vec::new(),
             web_search_policy: None,
@@ -666,7 +666,7 @@ mod tests {
         room.schedule_cancel(&job.id).unwrap();
         retry(&room, &job, "simulated start failure");
 
-        assert!(room.schedule_list().is_empty());
+        assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
     }
 
     #[tokio::test]

@@ -14,6 +14,15 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+/// A line being said on a call: the call, the id its clips are sent under,
+/// and the two things that stop it, being spoken over and the call ending.
+struct Line<'a> {
+    call: &'a str,
+    id: &'a str,
+    interrupted: &'a CancellationToken,
+    ended: &'a CancellationToken,
+}
+
 impl Calls {
     pub(super) async fn synthesize(&self, speech: &CallSpeech, text: &str) -> Result<Clip, String> {
         self.pay(
@@ -81,24 +90,20 @@ impl Calls {
         self.speaking(id, interrupted);
         let speech = self.speech_for(id)?;
         let streaming = self.change(id, |call| Ok(call.stream_audio))?;
+        let said = Line {
+            call: id,
+            id: &line,
+            interrupted,
+            ended,
+        };
         let mut index = 0;
         for (at, sentence) in sentences.iter().enumerate() {
             if interrupted.is_cancelled() || ended.is_cancelled() {
                 return Ok(());
             }
             let last = at + 1 == sentences.len();
-            self.speak_sentence(
-                id,
-                &line,
-                &speech,
-                streaming,
-                sentence,
-                &mut index,
-                last,
-                interrupted,
-                ended,
-            )
-            .await?;
+            self.speak_sentence(&said, &speech, streaming, sentence, &mut index, last)
+                .await?;
         }
         Ok(())
     }
@@ -155,18 +160,14 @@ impl Calls {
                 }
             }
             let (services, streaming) = speech.as_ref().expect("resolved above");
+            let said = Line {
+                call: id,
+                id: &line,
+                interrupted,
+                ended,
+            };
             if let Err(error) = self
-                .speak_sentence(
-                    id,
-                    &line,
-                    services,
-                    *streaming,
-                    sentence,
-                    &mut index,
-                    false,
-                    interrupted,
-                    ended,
-                )
+                .speak_sentence(&said, services, *streaming, sentence, &mut index, false)
                 .await
             {
                 failure = Some(error);
@@ -200,52 +201,58 @@ impl Calls {
     }
 
     /// One sentence of `line`, sent as its next clip or clips from `index`.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn speak_sentence(
+    async fn speak_sentence(
         &self,
-        id: &str,
-        line: &str,
+        line: &Line<'_>,
         speech: &CallSpeech,
         streaming: bool,
         sentence: &str,
         index: &mut u32,
         last: bool,
-        interrupted: &CancellationToken,
-        ended: &CancellationToken,
     ) -> Result<(), String> {
         let sentence = &spoken::speech_text(sentence);
         if streaming {
             return tokio::select! {
-                _ = interrupted.cancelled() => Ok(()),
-                _ = ended.cancelled() => Ok(()),
-                result = self.synthesize_stream(id, line, speech, sentence, index, last, interrupted) => result,
+                () = line.interrupted.cancelled() => Ok(()),
+                () = line.ended.cancelled() => Ok(()),
+                result = self.synthesize_stream(line, speech, sentence, index, last) => result,
             };
         }
         let clip = tokio::select! {
-            _ = interrupted.cancelled() => return Ok(()),
-            _ = ended.cancelled() => return Ok(()),
+            () = line.interrupted.cancelled() => return Ok(()),
+            () = line.ended.cancelled() => return Ok(()),
             clip = self.synthesize(speech, sentence) => clip?,
         };
         // A hold/interrupt can arrive at the same time as the provider.
-        if interrupted.is_cancelled() || ended.is_cancelled() {
+        if line.interrupted.is_cancelled() || line.ended.is_cancelled() {
             return Ok(());
         }
-        self.clip(id, line, *index, last, &clip, Some(interrupted));
+        self.clip(
+            line.call,
+            line.id,
+            *index,
+            last,
+            &clip,
+            Some(line.interrupted),
+        );
         *index += 1;
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn synthesize_stream(
+    async fn synthesize_stream(
         &self,
-        id: &str,
-        line: &str,
+        line: &Line<'_>,
         services: &CallSpeech,
         text: &str,
         index: &mut u32,
         final_sentence: bool,
-        interrupted: &CancellationToken,
     ) -> Result<(), String> {
+        let Line {
+            call: id,
+            id: line,
+            interrupted,
+            ended: _,
+        } = *line;
         if interrupted.is_cancelled() {
             return Ok(());
         }

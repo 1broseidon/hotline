@@ -687,7 +687,7 @@ mod tests {
         assert_eq!(links.rows(lou("1:Ready:10"), make)[0].name, "lou #1");
         assert_eq!(links.rows(lou("1:Thinking:12"), make)[0].name, "lou #2");
         // A teammate that has left is forgotten, and made afresh if it returns.
-        assert!(links.rows(Vec::new(), make).is_empty());
+        assert_eq!(links.rows(Vec::new(), make), [] as [LinkedTeammate; 0]);
         assert_eq!(links.rows(lou("1:Thinking:12"), make)[0].name, "lou #3");
     }
 
@@ -747,7 +747,7 @@ mod tests {
             .keys()
             .map(String::as_str)
             .collect();
-        fields.sort();
+        fields.sort_unstable();
         assert_eq!(
             fields,
             [

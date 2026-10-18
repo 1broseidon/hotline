@@ -44,16 +44,9 @@ async fn an_unreadable_identity_is_replaced_but_a_locked_store_is_reported() {
     });
     atomic_write(&path, &serde_json::to_vec(&saved).unwrap()).unwrap();
 
-    let locked = Remote::open_with_store(
-        h.root.path(),
-        h.desk.log.clone(),
-        h.desk.clone(),
-        Arc::new(LockedStore),
-    )
-    .unwrap();
-    let refused = match locked.configure(true, network::ALL).await {
-        Ok(_) => panic!("a locked store must not be replaced"),
-        Err(refused) => refused,
+    let locked = h.reopen(Arc::new(LockedStore));
+    let Err(refused) = locked.configure(true, network::ALL).await else {
+        panic!("a locked store must not be replaced")
     };
     assert!(refused.contains("store locked"), "{refused}");
     assert!(!locked.status().enabled);
@@ -62,13 +55,7 @@ async fn an_unreadable_identity_is_replaced_but_a_locked_store_is_reported() {
 
     let earlier = br#"{"toadCredential":1,"generation":"6f1f9e16-6a0b-4a0e-9f3e-3f4b2f4a7a31","chunks":1,"digest":"7d8e4051a3d929fc56a545c5125a8589a4b4bfedd354466455403038d450144f"}"#;
     fs::write(&identity, earlier).unwrap();
-    let restored = Remote::open_with_store(
-        h.root.path(),
-        h.desk.log.clone(),
-        h.desk.clone(),
-        h.store.clone(),
-    )
-    .unwrap();
+    let restored = h.reopen(h.store.clone());
     assert_eq!(restored.status().devices.len(), 1);
     let status = restored.configure(true, network::ALL).await.unwrap();
     assert!(status.enabled);

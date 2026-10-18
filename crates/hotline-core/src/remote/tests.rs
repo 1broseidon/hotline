@@ -18,6 +18,17 @@ use tokio_tungstenite::{
     tungstenite::{Message, client::IntoClientRequest},
 };
 
+// How long something that must arrive may take: a sealed answer, a close, a
+// state the desk settles into. A debug build doing TLS and Noise while the
+// whole suite runs can miss a few seconds; a hang still fails, only later.
+const ANSWER: Duration = Duration::from_secs(15);
+
+// How long something may take that a timer in the code would also bring
+// about: the 5 s pre-authentication lifetime, the relay's 10 s accept and
+// I/O deadlines. Shorter than both, so a pass means the code acted on the
+// event the test is about, and not that the timer fired.
+const PROMPTLY: Duration = Duration::from_secs(3);
+
 type Socket = WebSocketStream<TlsStream<TcpStream>>;
 struct TestPhone {
     id: String,
@@ -36,50 +47,67 @@ struct Harness {
     http: reqwest::Client,
     tls: TlsConnector,
 }
+/// A socket for a desk under test: loopback, so it is reached with no
+/// network, and bound here, so no other test can take its port first.
+fn loopback() -> std::net::TcpListener {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap()
+}
 impl Harness {
     async fn new() -> Self {
-        Self::around(|desk| desk).await
+        Self::around(|desk| desk, Some(loopback())).await
+    }
+    /// A desk on this computer's own interfaces, for the tests about them.
+    async fn on_interfaces() -> Self {
+        Self::around(|desk| desk, None).await
     }
     /// A desk that reports a computer it does not have, for the door to open.
     async fn with_computer() -> (Self, Arc<Computered>) {
         let mut handle = None;
-        let harness = Self::around(|desk| {
-            let room = Arc::new(Computered {
-                desk,
-                viewer: std::sync::Mutex::new(None),
-                pending_stop: std::sync::Mutex::new(None),
-                infos: broadcast::channel(16).0,
-                deltas: broadcast::channel(16).0,
-            });
-            handle = Some(room.clone());
-            room
-        })
+        let harness = Self::around(
+            |desk| {
+                let room = Arc::new(Computered {
+                    desk,
+                    viewer: std::sync::Mutex::new(None),
+                    pending_stop: std::sync::Mutex::new(None),
+                    infos: broadcast::channel(16).0,
+                    deltas: broadcast::channel(16).0,
+                });
+                handle = Some(room.clone());
+                room
+            },
+            Some(loopback()),
+        )
         .await;
         (harness, handle.unwrap())
     }
-    async fn around(room_of: impl FnOnce(Arc<Desk>) -> Arc<dyn RoomHandle>) -> Self {
+    /// A desk on `listener`, or on every interface when there is none.
+    async fn around(
+        room_of: impl FnOnce(Arc<Desk>) -> Arc<dyn RoomHandle>,
+        listener: Option<std::net::TcpListener>,
+    ) -> Self {
         let root = tempfile::tempdir().unwrap();
-        // Harnesses run side by side; none may claim the install default port
-        // another one's re-enable expects to get back.
-        let port = std::net::TcpListener::bind("[::]:0")
-            .or_else(|_| std::net::TcpListener::bind("0.0.0.0:0"))
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        fs::write(
-            root.path().join("remote.json"),
-            json!({"desktopId": Uuid::new_v4(), "host": network::ALL, "port": port, "enabled": false, "grants": []}).to_string(),
-        )
-        .unwrap();
         let store = Arc::new(MemoryStore::default());
         let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
-        let remote = Remote::open_with_store(
-            root.path(),
-            desk.log.clone(),
-            room_of(desk.clone()),
-            store.clone(),
-        )
+        let room = room_of(desk.clone());
+        let remote = if let Some(listener) = listener {
+            Remote::open_on(listener, root.path(), desk.log.clone(), room, store.clone())
+        } else {
+            // On every interface the desk binds a port itself, and one it
+            // is given here is never the install default: harnesses run
+            // side by side, and each re-enable expects its own back.
+            let port = std::net::TcpListener::bind("[::]:0")
+                .or_else(|_| std::net::TcpListener::bind("0.0.0.0:0"))
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            fs::write(
+                root.path().join("remote.json"),
+                json!({"desktopId": Uuid::new_v4(), "host": network::ALL, "port": port, "enabled": false, "grants": []}).to_string(),
+            )
+            .unwrap();
+            Remote::open_with_store(root.path(), desk.log.clone(), room, store.clone())
+        }
         .unwrap();
         assert!(!remote.status().enabled);
         remote.configure(true, network::ALL).await.unwrap();
@@ -114,6 +142,17 @@ impl Harness {
     }
     fn endpoint(&self) -> String {
         self.remote.status().endpoint.unwrap()
+    }
+    /// This desk's Remote as it opens again after a restart, with `store`.
+    fn reopen(&self, store: Arc<dyn SecretStore>) -> Arc<Remote> {
+        Remote::open_on(
+            loopback(),
+            self.root.path(),
+            self.desk.log.clone(),
+            self.desk.clone(),
+            store,
+        )
+        .unwrap()
     }
     async fn pair(&self) -> TestPhone {
         self.pair_role(DeviceRole::Owner).await
@@ -390,7 +429,7 @@ impl RoomHandle for Computered {
         self.desk.credential_refresh_models(provider_id).await
     }
     fn forget(&self, persona_id: &str) {
-        self.desk.forget(persona_id)
+        self.desk.forget(persona_id);
     }
     async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport> {
         self.desk.computer_runtimes().await
@@ -439,7 +478,7 @@ impl RoomHandle for Computered {
 /// A computer's viewer socket with nothing behind it: one frame the moment a
 /// viewer connects, then every text message handed straight back, and a note
 /// of the query it was asked with.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 async fn fake_computer() -> (u16, Arc<std::sync::Mutex<Option<String>>>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

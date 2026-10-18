@@ -7,8 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 use tauri::{
-    App, WebviewWindow, WebviewWindowBuilder,
-    ipc::CallbackFn,
+    App, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    http::HeaderMap,
+    ipc::{CallbackFn, InvokeBody},
     test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder},
     utils::acl::{APP_ACL_KEY, manifest::Manifest},
     webview::InvokeRequest,
@@ -132,7 +133,7 @@ fn handlers_app_manifest_and_main_permission_set_stay_in_sync() {
     for command in &commands {
         let permission = &app.permissions[&format!("allow-{}", command.replace('_', "-"))];
         assert_eq!(permission.commands.allow, vec![command.clone()]);
-        assert!(permission.commands.deny.is_empty());
+        assert_eq!(permission.commands.deny, [] as [String; 0]);
     }
 }
 
@@ -205,7 +206,7 @@ fn acl_app() -> App<MockRuntime> {
 }
 
 fn window(app: &App<MockRuntime>, label: &str) -> WebviewWindow<MockRuntime> {
-    WebviewWindowBuilder::new(app, label, Default::default())
+    WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .build()
         .expect("mock webview window")
 }
@@ -230,8 +231,8 @@ fn invoke(
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: origin.parse().unwrap(),
-            body: Default::default(),
-            headers: Default::default(),
+            body: InvokeBody::default(),
+            headers: HeaderMap::default(),
             invoke_key: INVOKE_KEY.into(),
         },
     )

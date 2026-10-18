@@ -37,6 +37,8 @@ pub(crate) mod session;
 pub(crate) mod skills;
 pub(crate) mod spending;
 pub(crate) mod store;
+#[cfg(test)]
+mod test_support;
 pub(crate) mod thread;
 mod thumbs;
 pub mod tools;

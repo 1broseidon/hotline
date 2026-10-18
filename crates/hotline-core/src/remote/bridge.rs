@@ -10,9 +10,11 @@ use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::net::{TcpListener, TcpStream};
+// Tokio's clock, so a test can pause it and let a token expire at once.
+use tokio::time::Instant;
 use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{
@@ -87,7 +89,7 @@ impl Discoveries {
             if *known == discovery.relay {
                 false
             } else {
-                *known = discovery.relay.clone();
+                known.clone_from(&discovery.relay);
                 true
             }
         });
@@ -133,7 +135,7 @@ impl Bridge {
             loop {
                 tokio::select! {
                     biased;
-                    _ = stopped.cancelled() => break,
+                    () = stopped.cancelled() => break,
                     _ = tasks.join_next(), if !tasks.is_empty() => {},
                     accepted = listener.accept() => {
                         let Ok((socket, peer)) = accepted else { break; };
@@ -141,7 +143,7 @@ impl Bridge {
                         let client = client.clone(); let mut desk = desk.clone(); let key = key.clone(); let state = state.clone(); let viewers = viewers.clone(); let discoveries = discoveries.clone();
                         // New command and viewer sessions use what an earlier
                         // authenticated hello taught this bridge.
-                        desk.relay = discoveries.relay.borrow().clone();
+                        desk.relay.clone_from(&discoveries.relay.borrow());
                         tasks.spawn(async move { serve(socket, client, desk, key, viewers, state, discoveries).await; });
                     }
                 }
@@ -237,7 +239,7 @@ fn authorize(
     })
 }
 
-#[allow(clippy::result_large_err)] // tungstenite fixes the callback error type.
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 async fn serve(
     stream: TcpStream,
     client: Client,
@@ -264,7 +266,7 @@ async fn serve(
                 Err(()) => Err(http::Response::builder()
                     .status(403)
                     .body(Some("Forbidden".into()))
-                    .unwrap()),
+                    .expect("a fixed status and no headers make a valid response")),
             }
         };
     let config = WebSocketConfig::default()

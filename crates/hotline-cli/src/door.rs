@@ -183,9 +183,10 @@ pub fn status(room: &Room) -> ExitCode {
             return ExitCode::from(3);
         }
     };
-    let since = chrono::DateTime::parse_from_rfc3339(&door.started_at)
-        .map(|at| describe(chrono::Utc::now().signed_duration_since(at)))
-        .unwrap_or_else(|_| "unknown".into());
+    let since = chrono::DateTime::parse_from_rfc3339(&door.started_at).map_or_else(
+        |_| "unknown".into(),
+        |at| describe(chrono::Utc::now().signed_duration_since(at)),
+    );
     println!(
         "Hotline {} · running · pid {} · up {since}",
         door.version, door.pid

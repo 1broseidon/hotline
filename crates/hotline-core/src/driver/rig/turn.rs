@@ -1,6 +1,7 @@
 //! A controllable loop over ordinary Rig requests. Neither steering nor tool
 //! execution depends on which provider the model handle uses.
 
+use super::history::OpenMessage;
 use super::*;
 use crate::session::jobs::{self, JobArgs, JobKind, JobSnapshot, JobState, Jobs, WaitArgs};
 use rig::completion::{CompletionModel, CompletionRequest};
@@ -40,7 +41,7 @@ impl ChatMeter {
     }
 
     /// Reserves a round of about `input` tokens in and at most `output` out.
-    #[allow(clippy::result_large_err)]
+    #[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
     fn reserve(
         &self,
         input: u64,
@@ -138,7 +139,7 @@ impl Steering {
     }
 }
 
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
 pub(super) async fn run(
     model: &impl CompletionModel,
     mut template: CompletionRequest,
@@ -178,7 +179,7 @@ pub(super) async fn run(
                         text: error,
                     },
                 )
-                .await
+                .await;
             }
         }
     }
@@ -191,7 +192,7 @@ pub(super) async fn run(
     }
 }
 
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
 async fn run_inner(
     model: &impl CompletionModel,
     template: CompletionRequest,
@@ -200,40 +201,46 @@ async fn run_inner(
     sender: &mpsc::Sender<Update>,
     jobs: &mut Jobs,
 ) -> Result<(&'static str, rig::completion::Usage, bool), Failure> {
-    let mut history = turn.history.lock().await.clone();
-    let mut usage = rig::completion::Usage::default();
-    let mut usage_complete = true;
-    let mut open = None;
-    let mut stopped = false;
-    let mut job_results = Vec::new();
-    // Whether this activity has already run a tool: a reply that is only a
-    // reaction, or only a tool call, ends with a completion that says nothing.
-    let mut answered_calls = false;
-    // Whether the last round's tools failed. Silence after success is the
-    // model done; silence after failure is the model giving up unsaid.
-    let mut last_round_failed = false;
-    let mut retries = 0;
-    let mut repaired = false;
-    let mut context_tokens = 0;
+    let mut activity = Activity {
+        turn,
+        sender,
+        jobs,
+        history: turn.history.lock().await.clone(),
+        job_results: Vec::new(),
+        usage: rig::completion::Usage::default(),
+        usage_complete: true,
+        open: None,
+        stopped: false,
+        answered_calls: false,
+        last_round_failed: false,
+        retries: 0,
+        repaired: false,
+        context_tokens: 0,
+        strict: strict::strict_tools(&turn.keys, &turn.model),
+    };
     let mut rotated = false;
-    let strict = strict::strict_tools(&turn.keys, &turn.model);
 
-    'attempt: for _ in 0..MAX_TURNS {
-        for job in jobs.ready()? {
-            job_results.push(publish_job(turn, sender, job).await);
+    for _ in 0..MAX_TURNS {
+        for job in activity.jobs.ready()? {
+            activity
+                .job_results
+                .push(publish_job(turn, sender, job).await);
         }
-        history.append(&mut job_results);
+        activity.history.append(&mut activity.job_results);
         let (revision, pending) = turn.steering.take();
         for input in pending {
-            history.push(input.prepare(&turn.stop).await);
+            activity.history.push(input.prepare(&turn.stop).await);
         }
-        *turn.history.lock().await = history.clone();
+        *turn.history.lock().await = activity.history.clone();
         if let Some(capability) = &turn.capability {
             capability.check()?;
         }
-        images::limit_history(&mut history, &turn.model);
+        images::limit_history(&mut activity.history, &turn.model);
         if let Some(threshold) = recovery::context_threshold(turn.context_limit, turn.output_limit)
-            && context_tokens.max(recovery::estimated_tokens(&history, &template)) >= threshold
+            && activity
+                .context_tokens
+                .max(recovery::estimated_tokens(&activity.history, &template))
+                >= threshold
         {
             if rotated {
                 return Err(Failure::classify(
@@ -243,10 +250,10 @@ async fn run_inner(
                 ));
             }
             rotated = true;
-            history = recovery::fresh(&history, &turn.output_dir);
-            *turn.history.lock().await = history.clone();
-            context_tokens = 0;
-            if recovery::estimated_tokens(&history, &template) >= threshold {
+            activity.history = recovery::fresh(&activity.history, &turn.output_dir);
+            *turn.history.lock().await = activity.history.clone();
+            activity.context_tokens = 0;
+            if recovery::estimated_tokens(&activity.history, &template) >= threshold {
                 return Err(Failure::classify(
                     "context window is too small for the continuation and tools",
                     None,
@@ -257,29 +264,158 @@ async fn run_inner(
             send(sender, Update::Chapter { boundary }).await;
             tokio::select! {
                 biased;
-                () = turn.stop.raised() => { stopped = true; break; }
-                note = ready => if let Ok(Some(note)) = note { history.insert(0, Message::user(note)); },
+                () = turn.stop.raised() => { activity.stopped = true; break; }
+                note = ready => if let Ok(Some(note)) = note { activity.history.insert(0, Message::user(note)); },
             }
-            *turn.history.lock().await = history.clone();
+            *turn.history.lock().await = activity.history.clone();
         }
+        let (id, content) = match activity.stream_response(model, &template, revision).await? {
+            Streamed::Response { id, content } => (id, content),
+            Streamed::Again => continue,
+            Streamed::Stopped => break,
+        };
+        rotated = false;
+        let calls: Vec<ToolCall> = content
+            .iter()
+            .filter_map(|item| match item {
+                AssistantContent::ToolCall(call) => Some(call.clone()),
+                _ => None,
+            })
+            .collect();
+        // An empty completion after a tool round is the model done; a message
+        // with nothing in it is not something a provider will take back.
+        if !content.is_empty() {
+            activity.history.push(Message::Assistant { id, content });
+        }
+        activity.answered_calls |= !calls.is_empty();
+        activity.dispatch_calls(tools, &calls, revision).await?;
+        // Job notifications are ordinary execution data, after every call in
+        // the completed response has its one reply. They never reopen a call.
+        for job in activity.jobs.ready()? {
+            activity
+                .job_results
+                .push(publish_job(turn, sender, job).await);
+        }
+        let new_results = !activity.job_results.is_empty();
+        activity.history.append(&mut activity.job_results);
+        *turn.history.lock().await = activity.history.clone();
+        if activity.stopped {
+            break;
+        }
+        if calls.is_empty() && !new_results {
+            // The model has replied without waiting on its commands: each
+            // one still running goes on as a process the session holds, and
+            // the turn does not wait on it. Its card says where it went.
+            for job in activity.jobs.release() {
+                send(
+                    sender,
+                    Update::ToolResult {
+                        call_id: job.job_id,
+                        ok: true,
+                        output: LEFT_RUNNING.into(),
+                        images: Vec::new(),
+                    },
+                )
+                .await;
+            }
+            if activity.jobs.active() {
+                // A textual response is not activity completion while
+                // subagents (or, in an activity that hands nothing on,
+                // commands) run. Park without spending model requests; input
+                // can wake us. What it just said is what the person reads
+                // meanwhile.
+                send(sender, Update::Parked).await;
+                tokio::select! {
+                    biased;
+                    () = turn.stop.raised() => { activity.stopped = true; break; }
+                    () = turn.steering.changed(revision) => {}
+                    job = activity.jobs.next() => activity.job_results.push(publish_job(turn, sender, job?).await),
+                }
+            } else if turn.steering.finish_if_empty() {
+                return Ok(("end_turn", activity.usage, activity.usage_complete));
+            }
+        }
+    }
+    flush(sender, &mut activity.open).await;
+    activity.history.append(&mut activity.job_results);
+    *turn.history.lock().await = activity.history;
+    if activity.stopped {
+        Ok(("aborted", activity.usage, activity.usage_complete))
+    } else {
+        Err("This activity reached its model-request limit.".into())
+    }
+}
+
+/// What one turn carries from round to round. A round streams a response
+/// (`stream_response`), then runs the tool calls in it (`dispatch_calls`);
+/// both read and write the same conversation, so it lives here rather than
+/// in a dozen arguments.
+struct Activity<'a> {
+    turn: &'a Turn,
+    sender: &'a mpsc::Sender<Update>,
+    jobs: &'a mut Jobs,
+    history: Vec<Message>,
+    /// Job results published since history last took them.
+    job_results: Vec<Message>,
+    usage: rig::completion::Usage,
+    usage_complete: bool,
+    open: Option<OpenMessage>,
+    stopped: bool,
+    /// Whether this activity has already run a tool: a reply that is only a
+    /// reaction, or only a tool call, ends with a completion that says nothing.
+    answered_calls: bool,
+    /// Whether the last round's tools failed. Silence after success is the
+    /// model done; silence after failure is the model giving up unsaid.
+    last_round_failed: bool,
+    retries: u32,
+    repaired: bool,
+    context_tokens: u64,
+    strict: bool,
+}
+
+/// How a round's streaming phase ended.
+enum Streamed {
+    /// The model's whole response, accepted: its tool calls may now run.
+    Response {
+        id: Option<String>,
+        content: Vec<AssistantContent>,
+    },
+    /// Start the round again: new input arrived, or a failure is retried.
+    Again,
+    /// The operator stopped the activity.
+    Stopped,
+}
+
+impl Activity<'_> {
+    /// The streaming phase: one request, its words and reasoning streamed to
+    /// the person as they come, its usage settled, and the response checked
+    /// before any of its calls is accepted. Every retry of a round happens
+    /// here, so a retry never replays a tool.
+    #[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
+    async fn stream_response(
+        &mut self,
+        model: &impl CompletionModel,
+        template: &CompletionRequest,
+        revision: u64,
+    ) -> Result<Streamed, Failure> {
         let mut request = template.clone();
-        request.chat_history = history.clone();
-        if let Some(context) = jobs.context() {
+        request.chat_history = self.history.clone();
+        if let Some(context) = self.jobs.context() {
             request.chat_history.push(Message::user(context));
         }
         // Before a paid request goes out, the Chat budget must have room for
         // it; the reservation is kept unless this round's usage settles it.
-        let reservation = match &turn.meter {
+        let reservation = match &self.turn.meter {
             Some(meter) => Some(
                 meter
                     .reserve(
                         recovery::estimated_tokens(&request.chat_history, &request),
                         request
                             .max_tokens
-                            .or(turn.output_limit)
+                            .or(self.turn.output_limit)
                             .unwrap_or(UNCAPPED_OUTPUT),
                     )
-                    .map_err(|failure| failure.after_tools(answered_calls))?,
+                    .map_err(|failure| failure.after_tools(self.answered_calls))?,
             ),
             None => None,
         };
@@ -288,10 +424,17 @@ async fn run_inner(
         let response = loop {
             tokio::select! {
                 biased;
-                () = turn.stop.raised() => { stopped = true; usage_complete = false; break 'attempt; }
-                () = turn.steering.changed(revision) => { usage_complete = false; continue 'attempt; }
-                job = jobs.next(), if jobs.active() => {
-                    job_results.push(publish_job(turn, sender, job?).await);
+                () = self.turn.stop.raised() => {
+                    self.stopped = true;
+                    self.usage_complete = false;
+                    return Ok(Streamed::Stopped);
+                }
+                () = self.turn.steering.changed(revision) => {
+                    self.usage_complete = false;
+                    return Ok(Streamed::Again);
+                }
+                job = self.jobs.next(), if self.jobs.active() => {
+                    self.job_results.push(publish_job(self.turn, self.sender, job?).await);
                 }
                 response = &mut response => break response,
             }
@@ -299,27 +442,9 @@ async fn run_inner(
         let mut stream = match response {
             Ok(stream) => stream,
             Err(error) => {
-                usage_complete = false;
-                let failure = Failure::provider(error, "request").after_tools(answered_calls);
-                if recover(
-                    &failure,
-                    &mut retries,
-                    &mut repaired,
-                    &mut history,
-                    turn,
-                    sender,
-                    jobs,
-                    &mut job_results,
-                    revision,
-                )
-                .await?
-                {
-                    if matches!(failure.kind, Kind::Context | Kind::Replay) {
-                        context_tokens = 0;
-                    }
-                    continue;
-                }
-                return Err(failure);
+                self.usage_complete = false;
+                let failure = Failure::provider(error, "request").after_tools(self.answered_calls);
+                return self.retry(failure, revision).await;
             }
         };
         let mut interrupted = false;
@@ -331,19 +456,19 @@ async fn run_inner(
         loop {
             let item = tokio::select! {
                 biased;
-                () = turn.stop.raised() => {
+                () = self.turn.stop.raised() => {
                     stream.cancel();
-                    stopped = true;
+                    self.stopped = true;
                     interrupted = true;
                     break;
                 }
-                () = turn.steering.changed(revision) => {
+                () = self.turn.steering.changed(revision) => {
                     stream.cancel();
                     interrupted = true;
                     break;
                 }
-                job = jobs.next(), if jobs.active() => {
-                    job_results.push(publish_job(turn, sender, job?).await);
+                job = self.jobs.next(), if self.jobs.active() => {
+                    self.job_results.push(publish_job(self.turn, self.sender, job?).await);
                     continue;
                 }
                 item = stream.next() => item,
@@ -352,101 +477,76 @@ async fn run_inner(
             let item = match item {
                 Ok(item) => item,
                 Err(error) => {
-                    usage_complete = false;
-                    flush(sender, &mut open).await;
-                    let failure = Failure::provider(error, "stream").after_tools(answered_calls);
+                    self.usage_complete = false;
+                    flush(self.sender, &mut self.open).await;
+                    let failure =
+                        Failure::provider(error, "stream").after_tools(self.answered_calls);
                     stream.cancel();
-                    keep_spoken(&mut history, &mut spoken, turn).await;
-                    if recover(
-                        &failure,
-                        &mut retries,
-                        &mut repaired,
-                        &mut history,
-                        turn,
-                        sender,
-                        jobs,
-                        &mut job_results,
-                        revision,
-                    )
-                    .await?
-                    {
-                        if matches!(failure.kind, Kind::Context | Kind::Replay) {
-                            context_tokens = 0;
-                        }
-                        continue 'attempt;
-                    }
-                    return Err(failure);
+                    keep_spoken(&mut self.history, &mut spoken, self.turn).await;
+                    return self.retry(failure, revision).await;
                 }
             };
             match item {
                 StreamedAssistantContent::Text(chunk) => {
                     spoken.push_str(&chunk.text);
-                    chunk_into(sender, &mut open, MessageKind::Agent, &chunk.text).await;
+                    chunk_into(self.sender, &mut self.open, MessageKind::Agent, &chunk.text).await;
                 }
                 StreamedAssistantContent::ReasoningDelta { id, reasoning, .. } => {
                     reasoning_deltas.insert(id);
-                    chunk_into(sender, &mut open, MessageKind::Thought, &reasoning).await;
+                    chunk_into(
+                        self.sender,
+                        &mut self.open,
+                        MessageKind::Thought,
+                        &reasoning,
+                    )
+                    .await;
                 }
                 StreamedAssistantContent::Reasoning { id, reasoning }
                     if !reasoning_deltas.contains(&id) =>
                 {
                     for part in reasoning.content {
                         if let rig::message::ReasoningContent::Text { text, .. } = part {
-                            chunk_into(sender, &mut open, MessageKind::Thought, &text).await;
+                            chunk_into(self.sender, &mut self.open, MessageKind::Thought, &text)
+                                .await;
                         }
                     }
                 }
                 _ => {}
             }
         }
-        let reported = every_input_token(stream.usage(), &turn.model);
-        if let (Some(meter), Some(reservation)) = (&turn.meter, reservation)
+        let reported = every_input_token(stream.usage(), &self.turn.model);
+        if let (Some(meter), Some(reservation)) = (&self.turn.meter, reservation)
             && stream.response.is_some()
             && reported.has_values()
         {
             meter.settle(reservation, &reported);
         }
-        usage_complete &= stream.response.is_some() && reported.has_values();
-        context_tokens = reported.input_tokens.saturating_add(reported.output_tokens);
-        usage += reported;
-        flush(sender, &mut open).await;
-        if stopped || interrupted || turn.steering.superseded(revision) {
-            keep_spoken(&mut history, &mut spoken, turn).await;
+        self.usage_complete &= stream.response.is_some() && reported.has_values();
+        self.context_tokens = reported.input_tokens.saturating_add(reported.output_tokens);
+        self.usage += reported;
+        flush(self.sender, &mut self.open).await;
+        if self.stopped || interrupted || self.turn.steering.superseded(revision) {
+            keep_spoken(&mut self.history, &mut spoken, self.turn).await;
         }
-        if stopped {
-            break;
+        if self.stopped {
+            return Ok(Streamed::Stopped);
         }
-        if interrupted || turn.steering.superseded(revision) {
-            continue;
+        if interrupted || self.turn.steering.superseded(revision) {
+            return Ok(Streamed::Again);
         }
-        if stream.response.is_none() || (stream.choice.is_empty() && !answered_calls) {
+        if stream.response.is_none() || (stream.choice.is_empty() && !self.answered_calls) {
             let failure = Failure::classify(
                 "The model stream ended without a complete response.",
                 Some(502),
                 "stream",
             )
-            .after_tools(answered_calls);
-            keep_spoken(&mut history, &mut spoken, turn).await;
-            if recover(
-                &failure,
-                &mut retries,
-                &mut repaired,
-                &mut history,
-                turn,
-                sender,
-                jobs,
-                &mut job_results,
-                revision,
-            )
-            .await?
-            {
-                continue;
-            }
-            return Err(failure);
+            .after_tools(self.answered_calls);
+            keep_spoken(&mut self.history, &mut spoken, self.turn).await;
+            return self.retry(failure, revision).await;
         }
-        if stream.choice.is_empty() && last_round_failed {
+        if stream.choice.is_empty() && self.last_round_failed {
             send(
-                sender,
+                self.sender,
                 Update::Notice {
                     level: NoticeLevel::Info,
                     text: "Stopped after a failed step and said nothing.".into(),
@@ -464,44 +564,104 @@ async fn run_inner(
                     | rig::completion::FinishReason::ContentFilter
             )
         ) {
-            keep_spoken(&mut history, &mut spoken, turn).await;
+            keep_spoken(&mut self.history, &mut spoken, self.turn).await;
             return Err(
                 "The model response was truncated or filtered; its tool calls were not executed."
                     .into(),
             );
         }
-        retries = 0;
-        rotated = false;
-        let calls: Vec<ToolCall> = stream
-            .choice
-            .iter()
-            .filter_map(|item| match item {
-                AssistantContent::ToolCall(call) => Some(call.clone()),
-                _ => None,
-            })
-            .collect();
-        // An empty completion after a tool round is the model done; a message
-        // with nothing in it is not something a provider will take back.
-        if !stream.choice.is_empty() {
-            history.push(Message::Assistant {
-                id: stream.identity().message_id,
-                content: stream.choice,
-            });
-        }
-        answered_calls |= !calls.is_empty();
-        let mut round_failed = false;
+        self.retries = 0;
+        Ok(Streamed::Response {
+            id: stream.identity().message_id,
+            content: stream.choice,
+        })
+    }
 
-        for call in &calls {
+    /// Whether a failed round may start again. Retrying happens before
+    /// accepting another response, so no tool dispatch is replayed.
+    #[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
+    async fn recover(&mut self, failure: &Failure, revision: u64) -> Result<bool, Failure> {
+        if self.turn.stop.raised.load(Ordering::SeqCst) {
+            return Ok(true);
+        }
+        if let Some(capability) = &self.turn.capability {
+            capability.check()?;
+        }
+        if matches!(failure.kind, Kind::Replay | Kind::Context) && !self.repaired {
+            self.history.append(&mut self.job_results);
+            self.history = recovery::fresh(&self.history, &self.turn.output_dir);
+            *self.turn.history.lock().await = self.history.clone();
+            self.repaired = true;
+            if failure.kind == Kind::Context {
+                let (boundary, ready) = super::super::ChapterBoundary::new();
+                send(self.sender, Update::Chapter { boundary }).await;
+                tokio::select! {
+                    biased;
+                    () = self.turn.stop.raised() => return Ok(true),
+                    note = ready => if let Ok(Some(note)) = note { self.history.insert(0, Message::user(note)); },
+                }
+                *self.turn.history.lock().await = self.history.clone();
+            }
+            let reason = if failure.kind == Kind::Context {
+                "The provider's context limit was reached."
+            } else {
+                "The provider refused its saved response state."
+            };
+            eprintln!("[hotline agent] {reason} Continuing fresh from committed execution facts.");
+            return Ok(true);
+        }
+        let Some(delay) = failure.retry_delay(self.retries) else {
+            return Ok(false);
+        };
+        self.retries += 1;
+        let deadline = tokio::time::sleep(delay);
+        tokio::pin!(deadline);
+        loop {
+            tokio::select! {
+                biased;
+                () = self.turn.stop.raised() => return Ok(true),
+                () = self.turn.steering.changed(revision) => return Ok(true),
+                job = self.jobs.next(), if self.jobs.active() => self.job_results.push(publish_job(self.turn, self.sender, job?).await),
+                () = &mut deadline => return Ok(true),
+            }
+        }
+    }
+
+    /// A failed round, started again when [`Self::recover`] says it may be, or the
+    /// failure that ends the activity.
+    #[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
+    async fn retry(&mut self, failure: Failure, revision: u64) -> Result<Streamed, Failure> {
+        if self.recover(&failure, revision).await? {
+            if matches!(failure.kind, Kind::Context | Kind::Replay) {
+                self.context_tokens = 0;
+            }
+            return Ok(Streamed::Again);
+        }
+        Err(failure)
+    }
+
+    /// The tool-dispatch phase: every call in an accepted response gets its
+    /// one result, in order, whether it ran or was skipped. Nothing here
+    /// retries.
+    #[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
+    async fn dispatch_calls(
+        &mut self,
+        tools: &ToolSet,
+        calls: &[ToolCall],
+        revision: u64,
+    ) -> Result<(), Failure> {
+        let mut round_failed = false;
+        for call in calls {
             let call_id = uuid::Uuid::new_v4().to_string();
             // What the tool reads; history keeps the call as the model made it.
-            let arguments = if strict {
+            let arguments = if self.strict {
                 strict::without_nulls(&call.function.arguments)
             } else {
                 call.function.arguments.clone()
             };
             let (shown, shown_arguments) = granted::shown(&call.function.name, &arguments);
             send(
-                sender,
+                self.sender,
                 Update::ToolCall {
                     call_id: call_id.clone(),
                     title: describe_tool(&shown, &shown_arguments),
@@ -509,75 +669,16 @@ async fn run_inner(
                 },
             )
             .await;
-            let mut context = ToolContext::new();
-            let result = if stopped || turn.stop.raised.load(Ordering::SeqCst) {
-                stopped = true;
-                ToolResult::skipped("Not executed: the operator stopped this activity.")
-            } else if turn.steering.superseded(revision) {
-                ToolResult::skipped(
-                    "Not executed: a newer operator message superseded this request.",
-                )
-            } else if turn
-                .capability
-                .as_ref()
-                .is_some_and(|capability| !capability.is_current())
-            {
-                turn.stop.raise();
-                stopped = true;
-                ToolResult::skipped("Not executed: this activity's tool access was revoked.")
-            } else {
-                match call.function.name.as_str() {
-                    "shell" if jobs.shell_enabled() => {
-                        job_result(jobs.launch(call_id.clone(), arguments.clone()))
-                    }
-                    jobs::SUBAGENT if jobs.delegates() => {
-                        job_result(jobs.delegate(call_id.clone(), arguments.clone()))
-                    }
-                    "inspect_job" if jobs.enabled() => job_result(
-                        serde_json::from_value::<JobArgs>(arguments.clone())
-                            .map_err(text)
-                            .and_then(|args| jobs.snapshot(&args.job_id))
-                            .map(|job| model_job(&turn.output_dir, &job)),
-                    ),
-                    "cancel_job" if jobs.enabled() => job_result(
-                        serde_json::from_value::<JobArgs>(arguments.clone())
-                            .map_err(text)
-                            .and_then(|args| jobs.cancel(args)),
-                    ),
-                    "wait_jobs" if jobs.enabled() => {
-                        let result =
-                            wait_jobs(jobs, &arguments, turn, revision, sender, &mut job_results)
-                                .await?;
-                        stopped |= turn.stop.raised.load(Ordering::SeqCst);
-                        result
-                    }
-                    _ => {
-                        let execution =
-                            tools.execute(&call.function.name, arguments.to_string(), &mut context);
-                        tokio::pin!(execution);
-                        loop {
-                            tokio::select! {
-                                biased;
-                                () = turn.stop.raised() => {
-                                    stopped = true;
-                                    break ToolResult::skipped("Interrupted by the operator. The operation may have partial effects.");
-                                }
-                                job = jobs.next(), if jobs.active() => {
-                                    job_results.push(publish_job(turn, sender, job?).await);
-                                }
-                                result = &mut execution => break result,
-                            }
-                        }
-                    }
-                }
-            };
+            let result = self
+                .execute(tools, call, &call_id, arguments, revision)
+                .await?;
             round_failed |= !result.is_success();
             let (shown, images) = result_of(result.output().as_content());
             // The model gets its one launch receipt now. The transcript's
             // shell card stays running until the owned job produces a result.
-            if !jobs.owns(&call_id) {
+            if !self.jobs.owns(&call_id) {
                 send(
-                    sender,
+                    self.sender,
                     Update::ToolResult {
                         call_id: call_id.clone(),
                         ok: result.is_success(),
@@ -588,7 +689,7 @@ async fn run_inner(
                 .await;
             }
             let output = model_output(
-                turn,
+                self.turn,
                 &call_id,
                 &call.function.name,
                 result.output(),
@@ -596,7 +697,7 @@ async fn run_inner(
                 &images,
             )
             .await;
-            history.push(Message::User {
+            self.history.push(Message::User {
                 content: vec![UserContent::ToolResult(rig::message::ToolResult {
                     call: call.id.clone(),
                     provider: call.provider.clone(),
@@ -606,60 +707,96 @@ async fn run_inner(
             });
         }
         if !calls.is_empty() {
-            last_round_failed = round_failed;
+            self.last_round_failed = round_failed;
         }
-        // Job notifications are ordinary execution data, after every call in
-        // the completed response has its one reply. They never reopen a call.
-        for job in jobs.ready()? {
-            job_results.push(publish_job(turn, sender, job).await);
-        }
-        let new_results = !job_results.is_empty();
-        history.append(&mut job_results);
-        *turn.history.lock().await = history.clone();
-        if stopped {
-            break;
-        }
-        if calls.is_empty() && !new_results {
-            // The model has replied without waiting on its commands: each
-            // one still running goes on as a process the session holds, and
-            // the turn does not wait on it. Its card says where it went.
-            for job in jobs.release() {
-                send(
-                    sender,
-                    Update::ToolResult {
-                        call_id: job.job_id,
-                        ok: true,
-                        output: LEFT_RUNNING.into(),
-                        images: Vec::new(),
-                    },
-                )
-                .await;
-            }
-            if jobs.active() {
-                // A textual response is not activity completion while
-                // subagents (or, in an activity that hands nothing on,
-                // commands) run. Park without spending model requests; input
-                // can wake us. What it just said is what the person reads
-                // meanwhile.
-                send(sender, Update::Parked).await;
-                tokio::select! {
-                    biased;
-                    () = turn.stop.raised() => { stopped = true; break; }
-                    () = turn.steering.changed(revision) => {}
-                    job = jobs.next() => job_results.push(publish_job(turn, sender, job?).await),
-                }
-            } else if turn.steering.finish_if_empty() {
-                return Ok(("end_turn", usage, usage_complete));
-            }
-        }
+        Ok(())
     }
-    flush(sender, &mut open).await;
-    history.append(&mut job_results);
-    *turn.history.lock().await = history;
-    if stopped {
-        Ok(("aborted", usage, usage_complete))
-    } else {
-        Err("This activity reached its model-request limit.".into())
+
+    /// One call run, or skipped with the reason: the activity was stopped,
+    /// a newer message superseded it, or its tool access was revoked.
+    #[expect(clippy::result_large_err, reason = "Failure is the whole diagnosis")]
+    async fn execute(
+        &mut self,
+        tools: &ToolSet,
+        call: &ToolCall,
+        call_id: &str,
+        arguments: Value,
+        revision: u64,
+    ) -> Result<ToolResult, Failure> {
+        let turn = self.turn;
+        if self.stopped || turn.stop.raised.load(Ordering::SeqCst) {
+            self.stopped = true;
+            return Ok(ToolResult::skipped(
+                "Not executed: the operator stopped this activity.",
+            ));
+        }
+        if turn.steering.superseded(revision) {
+            return Ok(ToolResult::skipped(
+                "Not executed: a newer operator message superseded this request.",
+            ));
+        }
+        if turn
+            .capability
+            .as_ref()
+            .is_some_and(|capability| !capability.is_current())
+        {
+            turn.stop.raise();
+            self.stopped = true;
+            return Ok(ToolResult::skipped(
+                "Not executed: this activity's tool access was revoked.",
+            ));
+        }
+        let jobs = &mut *self.jobs;
+        let result = match call.function.name.as_str() {
+            "shell" if jobs.shell_enabled() => job_result(jobs.launch(call_id.into(), arguments)),
+            jobs::SUBAGENT if jobs.delegates() => {
+                job_result(jobs.delegate(call_id.into(), arguments))
+            }
+            "inspect_job" if jobs.enabled() => job_result(
+                serde_json::from_value::<JobArgs>(arguments)
+                    .map_err(text)
+                    .and_then(|args| jobs.snapshot(&args.job_id))
+                    .map(|job| model_job(&turn.output_dir, &job)),
+            ),
+            "cancel_job" if jobs.enabled() => job_result(
+                serde_json::from_value::<JobArgs>(arguments)
+                    .map_err(text)
+                    .and_then(|args| jobs.cancel(args)),
+            ),
+            "wait_jobs" if jobs.enabled() => {
+                let result = wait_jobs(
+                    jobs,
+                    &arguments,
+                    turn,
+                    revision,
+                    self.sender,
+                    &mut self.job_results,
+                )
+                .await?;
+                self.stopped |= turn.stop.raised.load(Ordering::SeqCst);
+                result
+            }
+            _ => {
+                let mut context = ToolContext::new();
+                let execution =
+                    tools.execute(&call.function.name, arguments.to_string(), &mut context);
+                tokio::pin!(execution);
+                loop {
+                    tokio::select! {
+                        biased;
+                        () = turn.stop.raised() => {
+                            self.stopped = true;
+                            break ToolResult::skipped("Interrupted by the operator. The operation may have partial effects.");
+                        }
+                        job = jobs.next(), if jobs.active() => {
+                            self.job_results.push(publish_job(turn, self.sender, job?).await);
+                        }
+                        result = &mut execution => break result,
+                    }
+                }
+            }
+        };
+        Ok(result)
     }
 }
 
@@ -683,65 +820,6 @@ async fn keep_spoken(history: &mut Vec<Message>, spoken: &mut String, turn: &Tur
     history.push(Message::assistant(text));
     history.push(Message::user(KEPT));
     *turn.history.lock().await = history.clone();
-}
-
-// Retrying happens before accepting another response, so no tool dispatch is replayed.
-#[allow(clippy::too_many_arguments, clippy::result_large_err)]
-async fn recover(
-    failure: &Failure,
-    retries: &mut u32,
-    repaired: &mut bool,
-    history: &mut Vec<Message>,
-    turn: &Turn,
-    sender: &mpsc::Sender<Update>,
-    jobs: &mut Jobs,
-    results: &mut Vec<Message>,
-    revision: u64,
-) -> Result<bool, Failure> {
-    if turn.stop.raised.load(Ordering::SeqCst) {
-        return Ok(true);
-    }
-    if let Some(capability) = &turn.capability {
-        capability.check()?;
-    }
-    if matches!(failure.kind, Kind::Replay | Kind::Context) && !*repaired {
-        history.append(results);
-        *history = recovery::fresh(history, &turn.output_dir);
-        *turn.history.lock().await = history.clone();
-        *repaired = true;
-        if failure.kind == Kind::Context {
-            let (boundary, ready) = super::super::ChapterBoundary::new();
-            send(sender, Update::Chapter { boundary }).await;
-            tokio::select! {
-                biased;
-                () = turn.stop.raised() => return Ok(true),
-                note = ready => if let Ok(Some(note)) = note { history.insert(0, Message::user(note)); },
-            }
-            *turn.history.lock().await = history.clone();
-        }
-        let reason = if failure.kind == Kind::Context {
-            "The provider's context limit was reached."
-        } else {
-            "The provider refused its saved response state."
-        };
-        eprintln!("[hotline agent] {reason} Continuing fresh from committed execution facts.");
-        return Ok(true);
-    }
-    let Some(delay) = failure.retry_delay(*retries) else {
-        return Ok(false);
-    };
-    *retries += 1;
-    let deadline = tokio::time::sleep(delay);
-    tokio::pin!(deadline);
-    loop {
-        tokio::select! {
-            biased;
-            () = turn.stop.raised() => return Ok(true),
-            () = turn.steering.changed(revision) => return Ok(true),
-            job = jobs.next(), if jobs.active() => results.push(publish_job(turn, sender, job?).await),
-            () = &mut deadline => return Ok(true),
-        }
-    }
 }
 
 fn job_result(result: Result<Value, String>) -> ToolResult {
@@ -920,1404 +998,4 @@ pub(super) fn every_input_token(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use rig::completion::{CompletionError, CompletionResponse};
-    use rig::streaming::{
-        RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamingCompletionResponse,
-    };
-    use std::collections::VecDeque;
-    use std::time::Duration;
-
-    type Chunks = mpsc::Receiver<Result<RawStreamingChoice, CompletionError>>;
-
-    struct ScriptModel {
-        requests: mpsc::UnboundedSender<CompletionRequest>,
-        streams: Mutex<VecDeque<Option<Chunks>>>,
-    }
-
-    impl CompletionModel for ScriptModel {
-        async fn completion(
-            &self,
-            _request: CompletionRequest,
-        ) -> Result<CompletionResponse, CompletionError> {
-            unreachable!("the shared loop uses streaming")
-        }
-
-        async fn stream(
-            &self,
-            request: CompletionRequest,
-        ) -> Result<StreamingCompletionResponse, CompletionError> {
-            self.requests.send(request).unwrap();
-            let next = lock(&self.streams)
-                .pop_front()
-                .expect("unexpected model request");
-            let Some(chunks) = next else {
-                return std::future::pending().await;
-            };
-            Ok(StreamingCompletionResponse::stream(
-                "scripted",
-                Box::pin(futures_util::stream::unfold(
-                    chunks,
-                    |mut chunks| async move { chunks.recv().await.map(|item| (item, chunks)) },
-                )),
-            ))
-        }
-    }
-
-    fn fixture() -> (Turn, CompletionRequest) {
-        let turn = Turn {
-            keys: HashMap::new(),
-            model: "test/model".into(),
-            output_limit: None,
-            context_limit: None,
-            effort: None,
-            preamble: "Follow the operator".into(),
-            cwd: PathBuf::new(),
-            folders: Vec::new(),
-            reach: Reach::Machine,
-            history: Arc::new(AsyncMutex::new(vec![Message::user("first request")])),
-            stop: Arc::new(Stop::default()),
-            steering: Arc::new(Steering::default()),
-            output_dir: std::env::temp_dir(),
-            mcp_tools: Vec::new(),
-            capability: None,
-            delegate: None,
-            meter: None,
-            processes: crate::session::jobs::Processes::new(std::env::temp_dir()),
-        };
-        let request = CompletionRequest {
-            model: None,
-            preamble: Some(turn.preamble.clone()),
-            chat_history: Vec::new(),
-            documents: Vec::new(),
-            tools: Vec::new(),
-            temperature: None,
-            max_tokens: None,
-            tool_choice: None,
-            additional_params: None,
-            output_schema: None,
-            record_telemetry_content: false,
-        };
-        (turn, request)
-    }
-
-    async fn receive<T>(receiver: &mut mpsc::UnboundedReceiver<T>) -> T {
-        tokio::time::timeout(Duration::from_secs(3), receiver.recv())
-            .await
-            .unwrap()
-            .unwrap()
-    }
-
-    async fn answer(sender: mpsc::Sender<Result<RawStreamingChoice, CompletionError>>) {
-        sender
-            .send(Ok(RawStreamingChoice::Message("the new direction".into())))
-            .await
-            .unwrap();
-        sender
-            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted",
-                rig::completion::Usage::default(),
-            ))))
-            .await
-            .unwrap();
-    }
-
-    /// A budget on a scratch desk, with `spending` as the room's setting.
-    fn chat_budget(
-        spending: serde_json::Value,
-    ) -> (tempfile::TempDir, Arc<crate::voice::metering::Budget>) {
-        let root = tempfile::tempdir().unwrap();
-        let log = crate::log::Log::open(root.path());
-        log.append(
-            &crate::log::StreamId::Room,
-            &crate::room::room_event("setting", json!({"id": "spending", "value": spending})),
-        )
-        .unwrap();
-        let budget = Arc::new(crate::voice::metering::Budget::open(log));
-        (root, budget)
-    }
-
-    fn metered(budget: &Arc<crate::voice::metering::Budget>) -> ChatMeter {
-        ChatMeter {
-            budget: budget.clone(),
-            price: crate::contract::ModelCost {
-                input: 1.0,
-                output: 4.0,
-                cache_read: Some(0.1),
-                cache_write: None,
-            },
-        }
-    }
-
-    #[tokio::test]
-    async fn a_paid_round_is_charged_exactly_what_its_usage_cost() {
-        let (_root, budget) = chat_budget(json!({"chat": {"dayUsd": 5}}));
-        let (mut turn, request) = fixture();
-        turn.meter = Some(metered(&budget));
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (chunks, stream) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(stream)])),
-        };
-        let (updates, _receiver) = mpsc::channel(64);
-        let reserved = budget.clone();
-        let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
-        });
-        receive(&mut requests).await;
-        // In flight, the round holds its estimate: the whole output ceiling.
-        let estimate = reserved.spent().unwrap().day.teammates;
-        assert!(
-            estimate > (UNCAPPED_OUTPUT as f64 * 4.0) / 1e6,
-            "{estimate}"
-        );
-        chunks
-            .send(Ok(RawStreamingChoice::Message("done".into())))
-            .await
-            .unwrap();
-        // 1,000 tokens in, 400 of them read from the cache; 200 out.
-        let usage = rig::completion::Usage {
-            input_tokens: 1_000,
-            output_tokens: 200,
-            total_tokens: 1_200,
-            cached_input_tokens: 400,
-            ..rig::completion::Usage::new()
-        };
-        chunks
-            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted", usage,
-            ))))
-            .await
-            .unwrap();
-        drop(chunks);
-        task.await.unwrap().unwrap();
-        let charged = budget.spent().unwrap().day.teammates;
-        let expected = (600.0 * 1.0 + 400.0 * 0.1 + 200.0 * 4.0) / 1e6;
-        assert!(
-            (charged - expected).abs() < 1e-15,
-            "{charged} is not {expected}"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_spent_chat_budget_refuses_the_turn_before_any_request() {
-        let (_root, budget) = chat_budget(json!({"chat": {"dayUsd": 1}}));
-        budget.charge(crate::voice::ledger::Kind::Dispatcher, 1.0);
-        let (mut turn, request) = fixture();
-        turn.meter = Some(metered(&budget));
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::new()),
-        };
-        let (updates, _receiver) = mpsc::channel(64);
-        let failure = run(&model, request, &ToolSet::default(), &turn, &updates, None)
-            .await
-            .unwrap_err();
-        assert_eq!(failure.kind, Kind::Budget);
-        assert_eq!(failure.title, "Chat budget spent");
-        assert_eq!(
-            failure.details,
-            "The Chat budget for today is spent. Raise it in Settings › Budgets."
-        );
-        assert!(failure.retry_delay(0).is_none());
-        assert!(failure.notice().contains(r#""kind":"budget""#));
-        assert!(requests.try_recv().is_err(), "nothing was sent");
-        assert_eq!(budget.spent().unwrap().day.teammates, 0.0);
-    }
-
-    #[test]
-    fn subscriptions_local_servers_and_desks_without_budgets_are_not_metered() {
-        let (_root, budget) = chat_budget(json!({"chat": {"dayUsd": 0}}));
-        let metadata = HashMap::new();
-        let login = HashMap::from([(
-            "github-copilot".to_string(),
-            ProviderAuth::Login {
-                token_dir: PathBuf::from("/nowhere"),
-            },
-        )]);
-        assert!(
-            ChatMeter::for_model(
-                Some(budget.clone()),
-                &login,
-                "github-copilot/claude-opus-5.5",
-                &metadata
-            )
-            .is_none()
-        );
-        let local = HashMap::from([(
-            "ollama".to_string(),
-            ProviderAuth::Local {
-                base_url: "http://127.0.0.1:11434".into(),
-            },
-        )]);
-        assert!(
-            ChatMeter::for_model(Some(budget.clone()), &local, "ollama/llama3", &metadata)
-                .is_none()
-        );
-        let key = HashMap::from([("anthropic".to_string(), ProviderAuth::ApiKey("sk".into()))]);
-        assert!(
-            ChatMeter::for_model(None, &key, "anthropic/claude-haiku-5-5", &metadata).is_none()
-        );
-        let meter =
-            ChatMeter::for_model(Some(budget), &key, "anthropic/claude-haiku-5-5", &metadata)
-                .unwrap();
-        assert_eq!((meter.price.input, meter.price.output), (0.1, 0.5));
-    }
-
-    #[tokio::test]
-    async fn a_turn_on_a_sign_in_runs_whatever_the_chat_budget_says() {
-        let (_root, budget) = chat_budget(json!({"chat": {"dayUsd": 0}}));
-        let (mut turn, request) = fixture();
-        turn.keys = HashMap::from([(
-            "github-copilot".to_string(),
-            ProviderAuth::Login {
-                token_dir: PathBuf::from("/nowhere"),
-            },
-        )]);
-        turn.model = "github-copilot/claude-opus-5.5".into();
-        turn.meter = ChatMeter::for_model(
-            Some(budget.clone()),
-            &turn.keys,
-            &turn.model,
-            &HashMap::new(),
-        );
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (chunks, stream) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(stream)])),
-        };
-        let (updates, _receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
-        });
-        receive(&mut requests).await;
-        answer(chunks).await;
-        task.await.unwrap().unwrap();
-        assert_eq!(budget.spent().unwrap().day.teammates, 0.0);
-    }
-
-    #[tokio::test]
-    async fn input_interrupts_a_request_before_the_first_stream_exists() {
-        let (turn, request) = fixture();
-        let steering = turn.steering.clone();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (chunks, stream) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([None, Some(stream)])),
-        };
-        let (updates, mut receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
-        });
-        receive(&mut requests).await;
-        assert!(steering.admit(Message::user("actually, do the other thing")));
-        assert!(steering.admit(Message::user("keep the scope small")));
-        let next = receive(&mut requests).await;
-        assert_eq!(
-            next.chat_history,
-            vec![
-                Message::user("first request"),
-                Message::user("actually, do the other thing"),
-                Message::user("keep the scope small")
-            ]
-        );
-        answer(chunks).await;
-        task.await.unwrap().unwrap();
-        assert!(!steering.admit(Message::user("after completion")));
-        let mut ends = 0;
-        while let Some(update) = receiver.recv().await {
-            if let Update::Turn { stop_reason, usage } = update {
-                assert_eq!(stop_reason, "end_turn");
-                assert!(usage.is_none(), "cancelled request usage is unknown");
-                ends += 1;
-            }
-        }
-        assert_eq!(ends, 1, "steering is not another logical turn");
-    }
-
-    #[tokio::test]
-    async fn partial_calls_are_dropped_and_never_replayed_or_executed() {
-        let (turn, request) = fixture();
-        let steering = turn.steering.clone();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (old, old_stream) = mpsc::channel(8);
-        let (new, new_stream) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(old_stream), Some(new_stream)])),
-        };
-        let (updates, mut receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
-        });
-        receive(&mut requests).await;
-        old.send(Ok(RawStreamingChoice::ToolCallDelta {
-            id: "partial".into(),
-            content: rig::streaming::ToolCallDeltaContent::Name("shell".into()),
-        }))
-        .await
-        .unwrap();
-        old.send(Ok(RawStreamingChoice::Message("unfinished".into())))
-            .await
-            .unwrap();
-        tokio::time::timeout(Duration::from_secs(3), receiver.recv())
-            .await
-            .unwrap();
-        assert!(steering.admit(Message::user("change direction")));
-        let next = receive(&mut requests).await;
-        assert!(old.is_closed(), "the old provider stream is dropped");
-        assert_eq!(
-            next.chat_history,
-            vec![
-                Message::user("first request"),
-                Message::assistant("unfinished"),
-                Message::user(KEPT),
-                Message::user("change direction")
-            ]
-        );
-        answer(new).await;
-        task.await.unwrap().unwrap();
-        while let Some(update) = receiver.recv().await {
-            assert!(!matches!(update, Update::ToolCall { .. }));
-        }
-    }
-
-    #[tokio::test]
-    async fn on_a_strict_route_an_unused_argument_is_null_and_the_tool_never_sees_it() {
-        let (mut turn, mut request) = fixture();
-        let login = tempfile::tempdir().unwrap();
-        turn.keys = HashMap::from([(
-            "github-copilot".to_string(),
-            ProviderAuth::Login {
-                token_dir: login.path().to_path_buf(),
-            },
-        )]);
-        turn.model = "github-copilot/gpt-5.3-codex".into();
-        let (called, mut calls) = mpsc::unbounded_channel();
-        let mut tools = ToolSet::default();
-        tools.add_dynamic_tool(DynamicTool::new(
-            "fill",
-            "Fill a field with text or a secret",
-            json!({
-                "type": "object",
-                "properties": {
-                    "selector": {"type": "string"},
-                    "text": {"type": "string"},
-                    "secret": {"type": "string"}
-                },
-                "required": ["selector"]
-            }),
-            move |_context, arguments| {
-                called.send(arguments).unwrap();
-                Box::pin(async { Ok(ToolOutput::text("filled")) })
-            },
-        ));
-        request.tools = tools.get_tool_definitions();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (first, first_stream) = mpsc::channel(8);
-        let (last, last_stream) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(first_stream), Some(last_stream)])),
-        };
-        let (updates, _receiver) = mpsc::channel(64);
-        let task =
-            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
-        let sent = receive(&mut requests).await;
-        let schema = &sent.tools[0].parameters["properties"];
-        assert_eq!(schema["selector"]["type"], "string");
-        assert_eq!(schema["text"]["type"], json!(["string", "null"]));
-        assert_eq!(schema["secret"]["type"], json!(["string", "null"]));
-        first
-            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-                "fill",
-                "fill".into(),
-                json!({"selector": "#password", "text": null, "secret": "github"}),
-            ))))
-            .await
-            .unwrap();
-        first
-            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted",
-                rig::completion::Usage::default(),
-            ))))
-            .await
-            .unwrap();
-        drop(first);
-        assert_eq!(
-            receive(&mut calls).await,
-            json!({"selector": "#password", "secret": "github"})
-        );
-        receive(&mut requests).await;
-        answer(last).await;
-        task.await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
-    async fn steering_keeps_a_running_tools_result_and_skips_its_unstarted_siblings() {
-        let (turn, request) = fixture();
-        let steering = turn.steering.clone();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (old, old_stream) = mpsc::channel(8);
-        let (new, new_stream) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(old_stream), Some(new_stream)])),
-        };
-        let (started, mut starts) = mpsc::unbounded_channel();
-        let release = Arc::new(Notify::new());
-        let gate = release.clone();
-        let mut tools = ToolSet::default();
-        tools.add_dynamic_tool(DynamicTool::new(
-            "slow",
-            "A synchronous tool with an observable effect",
-            serde_json::json!({"type": "object"}),
-            move |_context, _arguments| {
-                let started = started.clone();
-                let gate = gate.clone();
-                Box::pin(async move {
-                    started.send(()).unwrap();
-                    gate.notified().await;
-                    Ok(ToolOutput::text("the first effect completed"))
-                })
-            },
-        ));
-        let (updates, _receiver) = mpsc::channel(64);
-        let task =
-            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
-        receive(&mut requests).await;
-        for id in ["first", "second"] {
-            old.send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-                id,
-                "slow".into(),
-                serde_json::json!({}),
-            ))))
-            .await
-            .unwrap();
-        }
-        old.send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-            "scripted",
-            rig::completion::Usage::default(),
-        ))))
-        .await
-        .unwrap();
-        drop(old);
-        receive(&mut starts).await;
-        assert!(steering.admit(Message::user("change direction")));
-        assert!(requests.try_recv().is_err());
-        release.notify_one();
-        let next = receive(&mut requests).await;
-        assert!(starts.try_recv().is_err(), "the second call never started");
-        let history = &next.chat_history;
-        assert_eq!(history.len(), 5);
-        assert_eq!(history[4], Message::user("change direction"));
-        let Message::Assistant { content, .. } = &history[1] else {
-            panic!("the completed tool calls are retained");
-        };
-        for (call, message) in content.iter().zip(&history[2..4]) {
-            let AssistantContent::ToolCall(call) = call else {
-                panic!("expected a tool call");
-            };
-            let Message::User { content } = message else {
-                panic!("expected its result");
-            };
-            let UserContent::ToolResult(result) = &content[0] else {
-                panic!("expected its result");
-            };
-            assert_eq!(call.id, result.call);
-            assert_eq!(call.provider, result.provider);
-        }
-        assert!(
-            serde_json::to_string(&history[2])
-                .unwrap()
-                .contains("the first effect completed")
-        );
-        assert!(
-            serde_json::to_string(&history[3])
-                .unwrap()
-                .contains("Not executed")
-        );
-        answer(new).await;
-        task.await.unwrap().unwrap();
-    }
-
-    /// A tool that does what it is asked, for turns whose shape is what is
-    /// under test rather than the tool.
-    struct Nod;
-
-    impl rig::tool::Tool for Nod {
-        const NAME: &'static str = "react";
-        type Error = crate::tools::ToolError;
-        type Args = serde_json::Value;
-        type Output = String;
-
-        fn description(&self) -> String {
-            "nods".into()
-        }
-
-        fn parameters(&self) -> serde_json::Value {
-            serde_json::json!({ "type": "object" })
-        }
-
-        fn map_error(&self, error: Self::Error) -> rig::tool::ToolExecutionError {
-            error.into_execution_error()
-        }
-
-        async fn call(
-            &self,
-            _context: &mut ToolContext,
-            _args: Self::Args,
-        ) -> Result<Self::Output, Self::Error> {
-            Ok("Reacted.".into())
-        }
-    }
-
-    /// One tool round, then a completion with nothing in it. `tools` decides
-    /// whether the round succeeded; the updates say how the turn read it.
-    async fn tool_then_silence(tools: ToolSet) -> Vec<Update> {
-        let (turn, request) = fixture();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (first, stream_one) = mpsc::channel(8);
-        let (second, stream_two) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(stream_one), Some(stream_two)])),
-        };
-        let (updates, mut receiver) = mpsc::channel(64);
-        let task =
-            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
-        receive(&mut requests).await;
-        first
-            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-                "react-1",
-                "react".into(),
-                serde_json::json!({ "emoji": "👍" }),
-            ))))
-            .await
-            .unwrap();
-        first
-            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted",
-                rig::completion::Usage::default(),
-            ))))
-            .await
-            .unwrap();
-        drop(first);
-        receive(&mut requests).await;
-        second
-            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted",
-                rig::completion::Usage::default(),
-            ))))
-            .await
-            .unwrap();
-        drop(second);
-        task.await.unwrap().unwrap();
-        let mut seen = Vec::new();
-        while let Some(update) = receiver.recv().await {
-            seen.push(update);
-        }
-        seen
-    }
-
-    fn ended_with(updates: &[Update]) -> Option<&str> {
-        updates.iter().find_map(|update| match update {
-            Update::Turn { stop_reason, .. } => Some(stop_reason.as_str()),
-            _ => None,
-        })
-    }
-
-    fn notices(updates: &[Update]) -> Vec<&str> {
-        updates
-            .iter()
-            .filter_map(|update| match update {
-                Update::Notice { text, .. } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// A reply that is only a reaction: the model calls the tool, hears the
-    /// result, and has nothing to add. That is a finished turn, not a stream
-    /// that died, and nothing is said about it.
-    #[tokio::test]
-    async fn a_turn_that_ends_after_a_tool_with_nothing_to_say_is_complete() {
-        let mut tools = ToolSet::default();
-        tools.add_tool(Nod);
-        let updates = tool_then_silence(tools).await;
-        assert!(updates.iter().any(|u| matches!(u, Update::ToolCall { .. })));
-        assert_eq!(notices(&updates), Vec::<&str>::new());
-        assert_eq!(ended_with(&updates), Some("end_turn"));
-    }
-
-    /// The tool failed and the model gave up without a word: the turn still
-    /// ends, and one quiet line says so, pointing at the step.
-    #[tokio::test]
-    async fn silence_after_a_failed_step_is_said_out_loud() {
-        let updates = tool_then_silence(ToolSet::default()).await;
-        assert!(
-            updates
-                .iter()
-                .any(|u| matches!(u, Update::ToolResult { ok: false, .. }))
-        );
-        assert_eq!(
-            notices(&updates),
-            ["Stopped after a failed step and said nothing."]
-        );
-        assert_eq!(ended_with(&updates), Some("end_turn"));
-    }
-
-    #[tokio::test]
-    async fn a_truncated_response_never_dispatches_its_tools() {
-        let (turn, request) = fixture();
-        let history = turn.history.clone();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (chunks, stream) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(stream)])),
-        };
-        let (updates, mut receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
-        });
-        receive(&mut requests).await;
-        chunks
-            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-                "truncated",
-                "shell".into(),
-                serde_json::json!({}),
-            ))))
-            .await
-            .unwrap();
-        let mut terminal = StreamFinal::new("scripted", rig::completion::Usage::default());
-        terminal.finish_reason = Some(rig::completion::FinishReason::Length);
-        chunks
-            .send(Ok(RawStreamingChoice::FinalResponse(terminal)))
-            .await
-            .unwrap();
-        drop(chunks);
-        assert!(
-            task.await
-                .unwrap()
-                .unwrap_err()
-                .details
-                .contains("truncated")
-        );
-        assert_eq!(*history.lock().await, [Message::user("first request")]);
-        while let Some(update) = receiver.recv().await {
-            assert!(!matches!(update, Update::ToolCall { .. }));
-        }
-    }
-
-    /// A megabyte of build log reaches the model once, as a few KB with both
-    /// streams' ends and where the rest is, and not again in wait_jobs.
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is() {
-        let root = tempfile::tempdir().unwrap();
-        let outputs = root.path().join("outputs");
-        let shell = RunCommand::new(
-            Workspace::open(root.path().into(), Reach::Machine, outputs.clone()).unwrap(),
-        );
-        let (mut turn, request) = fixture();
-        turn.output_dir = outputs;
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (first, first_stream) = mpsc::channel(8);
-        let (second, second_stream) = mpsc::channel(8);
-        let (third, third_stream) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([
-                Some(first_stream),
-                Some(second_stream),
-                Some(third_stream),
-            ])),
-        };
-        let (updates, mut receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move {
-            run(
-                &model,
-                request,
-                &ToolSet::default(),
-                &turn,
-                &updates,
-                Some(shell),
-            )
-            .await
-        });
-        tokio::spawn(async move { while receiver.recv().await.is_some() {} });
-        let call = |id: &str, name: &str, arguments: Value| {
-            Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-                id,
-                name.into(),
-                arguments,
-            )))
-        };
-        let done = || {
-            Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted",
-                rig::completion::Usage::default(),
-            )))
-        };
-        // Compiling on stderr, then its error; tests on stdout, then their summary.
-        let build = r"for i in $(seq 30000); do printf '\033[32m   Compiling\033[0m crate-%05d v1.0.0\n' $i; done >&2; printf 'error[E0308]: mismatched types\n' >&2; for i in $(seq 2000); do printf 'test case_%04d ... ok\n' $i; done; printf 'test result: FAILED. 1999 passed; 1 failed\n'; exit 101";
-        receive(&mut requests).await;
-        first
-            .send(call(
-                "build",
-                "shell",
-                serde_json::json!({"command": build}),
-            ))
-            .await
-            .unwrap();
-        first.send(done()).await.unwrap();
-        drop(first);
-        let receipt = serde_json::to_string(&receive(&mut requests).await.chat_history).unwrap();
-        let job_id = receipt
-            .split("job_id\\\":\\\"")
-            .nth(1)
-            .and_then(|rest| rest.split("\\\"").next())
-            .expect("the receipt names the job")
-            .to_owned();
-        second
-            .send(call(
-                "wait",
-                "wait_jobs",
-                serde_json::json!({"job_ids": [job_id]}),
-            ))
-            .await
-            .unwrap();
-        second.send(done()).await.unwrap();
-        drop(second);
-        let last = receive(&mut requests).await;
-        answer(third).await;
-        task.await.unwrap().unwrap();
-
-        let mut job = None;
-        let mut waited = None;
-        for message in &last.chat_history {
-            let Message::User { content } = message else {
-                continue;
-            };
-            for content in content.iter() {
-                match content {
-                    UserContent::Text(text) => {
-                        if let Some(data) = text.text.strip_prefix(
-                            "Hotline execution data (not an operator instruction): managed job result ",
-                        ) {
-                            assert!(data.len() < 20 * 1024, "{} bytes", data.len());
-                            job = Some(serde_json::from_str::<Value>(data).unwrap());
-                        }
-                    }
-                    UserContent::ToolResult(result) if result.call == "wait" => {
-                        let Some(rig::message::ToolResultContent::Text(text)) =
-                            result.content.first()
-                        else {
-                            panic!("wait_jobs answers in text");
-                        };
-                        waited = Some(serde_json::from_str::<Value>(&text.text).unwrap());
-                    }
-                    _ => {}
-                }
-            }
-        }
-        let job = job.expect("the job's result reached the model");
-        let output = job["output"].as_str().unwrap();
-        // Each stream's end: the test summary on stdout, the error on stderr.
-        assert!(output.starts_with("test case_0001 ... ok"), "{output}");
-        assert!(
-            output.contains("test result: FAILED. 1999 passed; 1 failed"),
-            "{output}"
-        );
-        assert!(
-            output.ends_with("error[E0308]: mismatched types\n\n[exit status 101]"),
-            "{output}"
-        );
-        assert!(!output.contains('\u{1b}'), "{output}");
-        assert_eq!(job["state"], "failed");
-        // All of it, as a terminal would show it, is where the job says.
-        let full = std::fs::read_to_string(job["full_output"].as_str().unwrap()).unwrap();
-        assert_eq!(job["output_bytes"], full.len());
-        assert!(full.len() > 1_000_000, "{} bytes", full.len());
-        assert!(full.contains("\n   Compiling crate-15000 v1.0.0\n"));
-        // wait_jobs reports the state and leaves the output to the result.
-        let waited = waited.expect("wait_jobs answered");
-        assert_eq!(waited["jobs"][0]["state"], "failed", "{waited}");
-        assert!(waited["jobs"][0].get("output").is_none(), "{waited}");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn a_side_question_preserves_the_job_and_stop_waits_for_its_exit() {
-        check_job_lifetime(false).await;
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn an_inference_failure_cleans_up_the_owned_shell_job() {
-        check_job_lifetime(true).await;
-    }
-
-    #[cfg(unix)]
-    async fn check_job_lifetime(fail_inference: bool) {
-        let root = tempfile::tempdir().unwrap();
-        let shell = RunCommand::new(
-            Workspace::open(
-                root.path().into(),
-                Reach::Machine,
-                root.path().join("outputs"),
-            )
-            .unwrap(),
-        );
-        let (mut turn, request) = fixture();
-        turn.output_dir = root.path().join("outputs");
-        let steering = turn.steering.clone();
-        let stop = turn.stop.clone();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (first, first_stream) = mpsc::channel(8);
-        let (second, second_stream) = mpsc::channel(8);
-        let (third, third_stream) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([
-                Some(first_stream),
-                Some(second_stream),
-                Some(third_stream),
-            ])),
-        };
-        let (updates, mut receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move {
-            run(
-                &model,
-                request,
-                &ToolSet::default(),
-                &turn,
-                &updates,
-                Some(shell),
-            )
-            .await
-        });
-        let request = receive(&mut requests).await;
-        assert!(request.tools.iter().any(|tool| tool.name == "cancel_job"));
-        first.send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-            "owned_shell", "shell".into(), serde_json::json!({"command":"echo started; while true; do echo x >> heartbeat; sleep 0.05; done & wait"})
-        )))).await.unwrap();
-        first
-            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted",
-                rig::completion::Usage::default(),
-            ))))
-            .await
-            .unwrap();
-        drop(first);
-        receive(&mut requests).await;
-        let heartbeat = root.path().join("heartbeat");
-        tokio::time::timeout(Duration::from_secs(3), async {
-            while !std::fs::metadata(&heartbeat).is_ok_and(|file| file.len() > 0) {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-        let mut observed = Vec::new();
-        if fail_inference {
-            second
-                .send(Err(CompletionError::ProviderResponse(
-                    rig::ProviderResponseError::new(
-                        http::StatusCode::TOO_MANY_REQUESTS,
-                        r#"{"error":{"code":"insufficient_quota"}}"#,
-                    ),
-                )))
-                .await
-                .unwrap();
-            drop(second);
-        } else {
-            answer(second).await;
-            loop {
-                let update = tokio::time::timeout(Duration::from_secs(3), receiver.recv())
-                    .await
-                    .unwrap()
-                    .unwrap();
-                let answered = matches!(
-                    update,
-                    Update::Message {
-                        kind: MessageKind::Agent,
-                        ..
-                    }
-                );
-                observed.push(update);
-                if answered {
-                    break;
-                }
-            }
-            assert!(
-                !task.is_finished(),
-                "a text answer cannot end an activity with a running job"
-            );
-            assert!(steering.admit(Message::user(
-                "what is the status? Keep the command running"
-            )));
-            let request = receive(&mut requests).await;
-            assert!(
-                serde_json::to_string(&request.chat_history)
-                    .unwrap()
-                    .contains("active managed jobs")
-            );
-            answer(third).await;
-            // The job writes every 50 ms; a loaded runner can stall it for
-            // longer than that, so wait for growth rather than sample it.
-            let before = std::fs::metadata(&heartbeat).unwrap().len();
-            tokio::time::timeout(Duration::from_secs(3), async {
-                while std::fs::metadata(&heartbeat).unwrap().len() <= before {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                }
-            })
-            .await
-            .expect("a side question must not cancel the job");
-            assert!(!task.is_finished());
-            assert!(
-                requests.try_recv().is_err(),
-                "waiting for a job must not spin through model requests"
-            );
-            stop.raise();
-        }
-        let result = tokio::time::timeout(Duration::from_secs(6), task)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(result.is_err(), fail_inference);
-        while let Some(update) = receiver.recv().await {
-            observed.push(update);
-        }
-        let ended = observed
-            .iter()
-            .position(|update| matches!(update, Update::Turn { .. }));
-        let cancelled = observed.iter().position(|update| matches!(update, Update::ToolResult { output, .. } if output.contains("Job Cancelled") && output.contains("started"))).expect("owned shell cancellation must be observed");
-        if !fail_inference {
-            assert!(
-                cancelled < ended.unwrap(),
-                "cancellation settles before the activity ends"
-            );
-            assert_eq!(
-                observed
-                    .iter()
-                    .filter(|update| matches!(update, Update::Turn { .. }))
-                    .count(),
-                1
-            );
-        }
-        let before = std::fs::read(&heartbeat).unwrap();
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        assert_eq!(std::fs::read(&heartbeat).unwrap(), before);
-    }
-
-    #[test]
-    fn closing_admission_retains_existing_input_and_refuses_new_input() {
-        let steering = Steering::default();
-        assert!(steering.admit(Message::user("already admitted")));
-        steering.close_admission();
-        assert!(!steering.admit(Message::user("must queue after shutdown")));
-        assert_eq!(
-            steering.close(),
-            [Input::Prepared(Message::user("already admitted"))]
-        );
-    }
-
-    #[test]
-    fn completion_and_admission_have_one_order() {
-        let steering = Steering::default();
-        assert!(steering.admit(Message::user("before completion")));
-        assert!(!steering.finish_if_empty());
-        assert_eq!(
-            steering.take().1,
-            [Input::Prepared(Message::user("before completion"))]
-        );
-        assert!(steering.finish_if_empty());
-        assert!(!steering.admit(Message::user("must stay in the session queue")));
-    }
-    #[tokio::test]
-    async fn a_transient_failure_after_tools_retries_only_the_inference() {
-        let (turn, request) = fixture();
-        let history = turn.history.clone();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (first, a) = mpsc::channel(8);
-        let (second, b) = mpsc::channel(8);
-        let (third, c) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(a), Some(b), Some(c)])),
-        };
-        let mut tools = ToolSet::default();
-        tools.add_tool(Nod);
-        let (updates, mut receiver) = mpsc::channel(64);
-        let task =
-            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
-        receive(&mut requests).await;
-        first
-            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-                "done-once",
-                "react".into(),
-                serde_json::json!({"emoji":"👍"}),
-            ))))
-            .await
-            .unwrap();
-        first
-            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted",
-                Default::default(),
-            ))))
-            .await
-            .unwrap();
-        drop(first);
-        let before = receive(&mut requests).await;
-        second
-            .send(Ok(RawStreamingChoice::Message("partial response".into())))
-            .await
-            .unwrap();
-        second
-            .send(Err(CompletionError::ProviderResponse(
-                rig::ProviderResponseError::new(http::StatusCode::SERVICE_UNAVAILABLE, "busy"),
-            )))
-            .await
-            .unwrap();
-        drop(second);
-        let retry = receive(&mut requests).await;
-        let mut expected = before.chat_history.clone();
-        expected.push(Message::assistant("partial response"));
-        expected.push(Message::user(KEPT));
-        assert_eq!(retry.chat_history, expected);
-        answer(third).await;
-        task.await.unwrap().unwrap();
-        let mut calls = 0;
-        while let Some(update) = receiver.recv().await {
-            if matches!(update, Update::ToolCall { .. }) {
-                calls += 1;
-            }
-        }
-        assert_eq!(calls, 1);
-        assert_eq!(history.lock().await.iter().filter(|m| matches!(m, Message::User { content } if content.iter().any(|c| matches!(c, UserContent::ToolResult(_))))).count(), 1);
-    }
-
-    /// The standup that posted three times: a tool round, then the report
-    /// streams to the person and the stream ends without its terminal record.
-    /// The retry must know the report was delivered, or it writes it again.
-    #[tokio::test]
-    async fn a_report_shown_before_the_stream_dropped_is_remembered_on_retry() {
-        let (turn, request) = fixture();
-        let history = turn.history.clone();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (first, a) = mpsc::channel(8);
-        let (second, b) = mpsc::channel(8);
-        let (third, c) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(a), Some(b), Some(c)])),
-        };
-        let mut tools = ToolSet::default();
-        tools.add_tool(Nod);
-        let (updates, mut receiver) = mpsc::channel(64);
-        let task =
-            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
-        receive(&mut requests).await;
-        first
-            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-                "schedule-1",
-                "react".into(),
-                serde_json::json!({"emoji":"👍"}),
-            ))))
-            .await
-            .unwrap();
-        first
-            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted",
-                Default::default(),
-            ))))
-            .await
-            .unwrap();
-        drop(first);
-        receive(&mut requests).await;
-        second
-            .send(Ok(RawStreamingChoice::Message("Today — Mon 5 Oct".into())))
-            .await
-            .unwrap();
-        drop(second);
-        let retry = receive(&mut requests).await;
-        let tail = &retry.chat_history[retry.chat_history.len() - 2..];
-        assert_eq!(
-            tail,
-            [Message::assistant("Today — Mon 5 Oct"), Message::user(KEPT)]
-        );
-        answer(third).await;
-        task.await.unwrap().unwrap();
-        assert!(
-            history
-                .lock()
-                .await
-                .contains(&Message::assistant("Today — Mon 5 Oct"))
-        );
-        let mut said = 0;
-        while let Some(update) = receiver.recv().await {
-            if matches!(&update, Update::Message { kind: MessageKind::Agent, text, .. } if text == "Today — Mon 5 Oct")
-            {
-                said += 1;
-            }
-        }
-        assert_eq!(said, 1);
-    }
-
-    #[tokio::test]
-    async fn stop_during_backoff_is_terminal() {
-        let (turn, request) = fixture();
-        let stop = turn.stop.clone();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (first, stream) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(stream)])),
-        };
-        let (updates, _receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
-        });
-        receive(&mut requests).await;
-        first
-            .send(Err(CompletionError::ProviderResponse(
-                rig::ProviderResponseError::new(http::StatusCode::TOO_MANY_REQUESTS, "rate limit"),
-            )))
-            .await
-            .unwrap();
-        drop(first);
-        // Backing off says nothing, so give the turn a moment to be in it.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        stop.raise();
-        tokio::time::timeout(Duration::from_secs(1), task)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert!(requests.try_recv().is_err());
-    }
-
-    #[tokio::test]
-    async fn a_failed_repair_stays_repaired_for_the_next_operator_message() {
-        let (turn, request) = fixture();
-        let history = turn.history.clone();
-        history.lock().await.push(Message::Assistant {
-            id: None,
-            content: vec![AssistantContent::Reasoning(rig::message::Reasoning {
-                id: Some("bad:reasoning:item".into()),
-                content: vec![rig::message::ReasoningContent::Encrypted(
-                    "opaque-state".into(),
-                )],
-            })],
-        });
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (first, a) = mpsc::channel(8);
-        let (second, b) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(a), Some(b)])),
-        };
-        let (updates, mut receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
-        });
-        receive(&mut requests).await;
-        first
-            .send(Err(CompletionError::ProviderResponse(
-                rig::ProviderResponseError::new(
-                    http::StatusCode::BAD_REQUEST,
-                    "Invalid encrypted reasoning item",
-                ),
-            )))
-            .await
-            .unwrap();
-        drop(first);
-        let repaired = receive(&mut requests).await;
-        let text = serde_json::to_string(&repaired.chat_history).unwrap();
-        assert!(!text.contains("opaque-state"));
-        assert!(!text.contains("bad:reasoning:item"));
-        assert_eq!(text.matches("first request").count(), 1);
-        second
-            .send(Err(CompletionError::ProviderResponse(
-                rig::ProviderResponseError::new(
-                    http::StatusCode::BAD_REQUEST,
-                    "invalid effort setting",
-                ),
-            )))
-            .await
-            .unwrap();
-        drop(second);
-        assert_eq!(task.await.unwrap().unwrap_err().kind, Kind::Configuration);
-        assert_eq!(*history.lock().await, repaired.chat_history);
-        let mut notices = 0;
-        while let Some(update) = receiver.recv().await {
-            if matches!(update, Update::Notice { .. }) {
-                notices += 1;
-            }
-        }
-        assert_eq!(notices, 0, "the recovery is not narrated to the person");
-    }
-
-    #[tokio::test]
-    async fn steering_during_backoff_is_consumed_once_without_waiting_for_the_delay() {
-        let (turn, request) = fixture();
-        let steering = turn.steering.clone();
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (first, a) = mpsc::channel(8);
-        let (second, b) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(a), Some(b)])),
-        };
-        let (updates, _receiver) = mpsc::channel(64);
-        let task = tokio::spawn(async move {
-            run(&model, request, &ToolSet::default(), &turn, &updates, None).await
-        });
-        receive(&mut requests).await;
-        first
-            .send(Err(CompletionError::ProviderResponse(
-                rig::ProviderResponseError::new(
-                    http::StatusCode::TOO_MANY_REQUESTS,
-                    r#"{"retry_after_seconds":30}"#,
-                ),
-            )))
-            .await
-            .unwrap();
-        drop(first);
-        // Backing off says nothing, so give the turn a moment to be in it.
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(steering.admit(Message::user("new direction")));
-        let request = receive(&mut requests).await;
-        let text = serde_json::to_string(&request.chat_history).unwrap();
-        assert_eq!(text.matches("new direction").count(), 1);
-        assert_eq!(text.matches("first request").count(), 1);
-        answer(second).await;
-        task.await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
-    async fn context_rotation_waits_for_the_session_handoff_before_requesting_again() {
-        let recorded = hand_off_a_full_context(
-            "test/model",
-            rig::completion::Usage {
-                input_tokens: 17_000,
-                output_tokens: 100,
-                total_tokens: 17_100,
-                ..Default::default()
-            },
-        )
-        .await;
-        assert_eq!(recorded.input_tokens, Some(17_010));
-        assert_eq!(
-            (recorded.cache_read_tokens, recorded.cache_write_tokens),
-            (None, None)
-        );
-    }
-
-    /// Claude counts what it read from its prompt cache, and what it wrote
-    /// there, beside its input. A context that came mostly from the cache is
-    /// just as full, and the turn's record says how much of it was cached.
-    #[tokio::test]
-    async fn a_context_claude_read_from_its_cache_is_just_as_full() {
-        let recorded = hand_off_a_full_context(
-            "anthropic/claude-test",
-            rig::completion::Usage {
-                input_tokens: 40,
-                cached_input_tokens: 16_000,
-                cache_creation_input_tokens: 960,
-                output_tokens: 100,
-                total_tokens: 17_100,
-                ..Default::default()
-            },
-        )
-        .await;
-        assert_eq!(recorded.input_tokens, Some(17_010));
-        assert_eq!(
-            (recorded.cache_read_tokens, recorded.cache_write_tokens),
-            (Some(16_000), Some(960))
-        );
-    }
-
-    /// A turn whose first round reports `usage` against a 20k context: the
-    /// chapter hands off before the next request goes out, and the turn's
-    /// record is returned.
-    async fn hand_off_a_full_context(model_id: &str, usage: rig::completion::Usage) -> TokenUsage {
-        let (mut turn, request) = fixture();
-        turn.model = model_id.into();
-        turn.context_limit = Some(20_000);
-        let (seen, mut requests) = mpsc::unbounded_channel();
-        let (first, a) = mpsc::channel(8);
-        let (second, b) = mpsc::channel(8);
-        let model = ScriptModel {
-            requests: seen,
-            streams: Mutex::new(VecDeque::from([Some(a), Some(b)])),
-        };
-        let (updates, mut receiver) = mpsc::channel(64);
-        let mut tools = ToolSet::default();
-        tools.add_tool(Nod);
-        let task =
-            tokio::spawn(async move { run(&model, request, &tools, &turn, &updates, None).await });
-        receive(&mut requests).await;
-        first
-            .send(Ok(RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-                "done-once",
-                "react".into(),
-                serde_json::json!({"emoji":"👍"}),
-            ))))
-            .await
-            .unwrap();
-        first
-            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted", usage,
-            ))))
-            .await
-            .unwrap();
-        drop(first);
-        let boundary = tokio::time::timeout(Duration::from_secs(3), async {
-            loop {
-                if let Update::Chapter { boundary } = receiver.recv().await.unwrap() {
-                    return boundary;
-                }
-            }
-        })
-        .await
-        .expect("a full context hands off before the next request");
-        assert!(requests.try_recv().is_err());
-        boundary.finish(Some("Chapter handoff: reaction completed.".into()));
-        let next = receive(&mut requests).await;
-        let rendered = serde_json::to_string(&next.chat_history).unwrap();
-        assert!(rendered.contains("reaction completed"));
-        assert!(rendered.contains("done-once"));
-        assert!(rendered.contains("Fresh continuation"));
-        second
-            .send(Ok(RawStreamingChoice::Message("the new direction".into())))
-            .await
-            .unwrap();
-        second
-            .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
-                "scripted",
-                rig::completion::Usage {
-                    input_tokens: 10,
-                    output_tokens: 5,
-                    total_tokens: 15,
-                    ..Default::default()
-                },
-            ))))
-            .await
-            .unwrap();
-        drop(second);
-        task.await.unwrap().unwrap();
-        loop {
-            if let Update::Turn { usage, .. } = receiver.recv().await.unwrap() {
-                return usage.expect("every round reported its usage");
-            }
-        }
-    }
-}
+mod tests;

@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::Map;
 
 #[tokio::test]
 async fn human_answer_is_a_command_the_wire_can_read() {
@@ -106,9 +107,7 @@ fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
     assert!(Seat::Phone.permits(&Command::ComputerStop {
         persona_id: persona_id.clone()
     }));
-    assert!(!Seat::Phone.permits(&Command::ComputerRemove {
-        persona_id: persona_id.clone()
-    }));
+    assert!(!Seat::Phone.permits(&Command::ComputerRemove { persona_id }));
     assert!(!Seat::Phone.permits(&Command::ComputerRuntimes {}));
 }
 
@@ -508,7 +507,7 @@ fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
     }));
     assert!(!Seat::Phone.permits(&Command::PersonaUpdate {
         id: persona_id,
-        patch: Default::default(),
+        patch: Value::default(),
     }));
 }
 
@@ -543,7 +542,7 @@ fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
     // The whole room's list is every teammate's; a phone asks for one.
     let list = Command::ScheduleList {};
     let settings = Command::SettingsUpdate {
-        patch: Default::default(),
+        patch: Map::default(),
     };
     for command in [&create, &cancel, &quiet, &list, &settings] {
         assert!(Seat::Desk.permits(command), "{command:?}");
@@ -710,7 +709,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
     tokio::time::timeout(std::time::Duration::from_secs(5), owner.cancelled())
         .await
         .unwrap();
-    assert!(log.load(&StreamId::Tape("ada".into())).is_empty());
+    assert_eq!(log.load(&StreamId::Tape("ada".into())), [] as [Value; 0]);
 }
 
 #[tokio::test]

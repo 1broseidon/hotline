@@ -446,6 +446,10 @@ impl Vault {
                 continue;
             }
             let file_name = entry.file_name();
+            #[expect(
+                clippy::case_sensitive_file_extension_comparisons,
+                reason = "`.about` is the vault's own lowercase suffix, not an extension a person chose"
+            )]
             let Some(name) = file_name
                 .to_str()
                 .and_then(|file_name| file_name.strip_suffix(".json"))
@@ -693,7 +697,7 @@ mod tests {
                     sites: vec![
                         "https://GitHub.com/".to_owned(),
                         " http://localhost:8123 ".to_owned(),
-                        "".to_owned(),
+                        String::new(),
                     ],
                     username: " george ".to_owned(),
                     password: "correct horse battery".to_owned(),
@@ -746,7 +750,7 @@ mod tests {
         let (values, missing) = vault
             .shared_secret_values(&["GITHUB".to_string(), "GITHUB_PASSKEY".to_string()])
             .unwrap();
-        assert!(missing.is_empty());
+        assert_eq!(missing, [] as [String; 0]);
         assert_eq!(
             values["GITHUB"],
             StoredSecret::Login {
@@ -863,7 +867,7 @@ mod tests {
             ..
         } = passkey("github.com")
         else {
-            unreachable!()
+            unreachable!("passkey() builds a passkey")
         };
         let keyless = StoredSecret::Passkey {
             rp_id,
@@ -940,7 +944,7 @@ mod tests {
         let vault = vault(root.path());
         assert!(vault.set_shared_secret("PATH", "/usr/bin:/bin").is_err());
         assert!(vault.delete_shared_secret("../x").is_err());
-        assert!(names(&vault).is_empty());
+        assert_eq!(names(&vault), [] as [String; 0]);
     }
 
     #[test]
@@ -993,7 +997,7 @@ mod tests {
         );
 
         vault.delete_shared_secret("NPM_TOKEN").unwrap();
-        assert!(names(&vault).is_empty());
+        assert_eq!(names(&vault), [] as [String; 0]);
         assert!(!root.path().join("vault/shared/NPM_TOKEN.json").exists());
         let (values, missing) = vault
             .shared_secret_values(&["NPM_TOKEN".to_string()])

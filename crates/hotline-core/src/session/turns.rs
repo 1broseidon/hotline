@@ -295,7 +295,7 @@ impl Room {
                 Begin::Go(mut held) => {
                     let driven = occupant.turn(&self, &mut held).await;
                     self.let_go_of_computer(occupant.persona_id(), occupant.holder());
-                    if let Then::Stop = occupant.end(&self, held, driven) {
+                    if matches!(occupant.end(&self, held, driven), Then::Stop) {
                         break;
                     }
                 }

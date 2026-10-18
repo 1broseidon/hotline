@@ -174,7 +174,7 @@ async fn openrouter_login_at(
         .append_pair("code_challenge", challenge.as_str())
         .append_pair("code_challenge_method", "S256");
     emit(String::new(), url.to_string());
-    let code = tokio::time::timeout(Duration::from_secs(5 * 60), rx)
+    let code = tokio::time::timeout(Duration::from_mins(5), rx)
         .await
         .map_err(|_| "OpenRouter sign-in timed out. Try again.".to_string())?
         .map_err(|_| "The sign-in callback closed.".to_string())??;
@@ -318,7 +318,7 @@ mod tests {
             openrouter_login_at(
                 &record(&target),
                 |code, url| {
-                    assert!(code.is_empty());
+                    assert_eq!(code, "");
                     prompt_tx.send(url).unwrap();
                 },
                 "https://openrouter.ai/auth",

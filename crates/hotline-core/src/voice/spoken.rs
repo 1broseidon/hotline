@@ -505,9 +505,10 @@ pub(crate) fn versions(text: &str) -> Versions {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-    let lazy = match written.trim().is_empty() {
-        true => None,
-        false => lazy(spoken.trim(), written.trim()),
+    let lazy = if written.trim().is_empty() {
+        None
+    } else {
+        lazy(spoken.trim(), written.trim())
     };
     let shown = match paragraphs(&[&written, &outside]) {
         shown if shown.is_empty() => said.clone(),
@@ -824,15 +825,14 @@ mod tests {
     fn spoken_sentences_are_said_as_they_arrive() {
         let mut spoken = Spoken::default();
         assert_eq!(spoken.push("<spoken>It passed. "), ["It passed."]);
-        assert!(spoken.push("Two flaky").is_empty());
+        assert_eq!(spoken.push("Two flaky"), [] as [String; 0]);
         assert_eq!(
             spoken.push(" ones retried. </spo"),
             ["Two flaky ones retried."]
         );
-        assert!(
-            spoken
-                .push("ken>\n<written>Everything else. And more.</written>")
-                .is_empty()
+        assert_eq!(
+            spoken.push("ken>\n<written>Everything else. And more.</written>"),
+            [] as [String; 0]
         );
         assert_eq!(spoken.finish(), Ending::Spoken(Vec::new()));
     }
@@ -905,7 +905,7 @@ mod tests {
     #[test]
     fn a_line_before_the_tags_is_said_before_the_spoken_version_and_kept_with_it() {
         let mut spoken = Spoken::default();
-        assert!(spoken.push("Let me check. ").is_empty());
+        assert_eq!(spoken.push("Let me check. "), [] as [String; 0]);
         assert_eq!(
             spoken.push("<spoken>It's green.</spoken><written>Green: 42 of 42.</written>"),
             ["Let me check.", "It's green."]
@@ -939,7 +939,7 @@ mod tests {
             ])
         );
         let mut spoken = Spoken::default();
-        assert!(spoken.push("<written>Four.</written>").is_empty());
+        assert_eq!(spoken.push("<written>Four.</written>"), [] as [String; 0]);
         assert_eq!(spoken.finish(), Ending::Untagged(vec!["Four.".into()]));
     }
 

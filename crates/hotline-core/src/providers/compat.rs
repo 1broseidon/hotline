@@ -177,9 +177,10 @@ impl Frames {
         };
         let mut fixed = BTreeSet::new();
         repair_event(&mut event, &mut self.next, &mut fixed);
-        let repaired = match fixed.is_empty() {
-            true => None,
-            false => Some(serde_json::to_vec(&event).ok()?),
+        let repaired = if fixed.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_vec(&event).ok()?)
         };
         let kind = event
             .get("type")
@@ -236,18 +237,18 @@ pub(crate) fn repair_event(
     if !event.get("type").is_some_and(Value::is_string) {
         return;
     }
-    match event.get("sequence_number").and_then(Value::as_u64) {
-        Some(number) => *next = number + 1,
-        None => {
-            event.insert("sequence_number".into(), (*next).into());
-            *next += 1;
-            fixed.insert("sequence_number");
-        }
+    if let Some(number) = event.get("sequence_number").and_then(Value::as_u64) {
+        *next = number + 1;
+    } else {
+        event.insert("sequence_number".into(), (*next).into());
+        *next += 1;
+        fixed.insert("sequence_number");
     }
     let done = event
         .get("type")
         .and_then(Value::as_str)
-        .is_some_and(|kind| kind.ends_with(".done"));
+        .and_then(|kind| kind.rsplit_once('.'))
+        .is_some_and(|(_, stage)| stage == "done");
     let fallback = event
         .get("item_id")
         .and_then(Value::as_str)
@@ -410,7 +411,7 @@ mod tests {
 
     fn repaired(event: Value) -> Value {
         let Value::Object(mut event) = event else {
-            unreachable!()
+            unreachable!("every test event is an object literal")
         };
         repair_event(&mut event, &mut 0, &mut BTreeSet::new());
         Value::Object(event)
@@ -429,7 +430,7 @@ mod tests {
         let mut instructions = response();
         instructions["instructions"] = json!([{"type":"message","role":"developer","content":[]}]);
         let mut float_time = response();
-        float_time["created_at"] = json!(1791871040.5);
+        float_time["created_at"] = json!(1_791_871_040.5);
         let mut empty_error = response();
         empty_error["error"] = json!({});
         let mut empty_details = response();
@@ -470,7 +471,7 @@ mod tests {
             json!({"type":"response.output_text.delta"}),
         ] {
             let Value::Object(mut event) = event else {
-                unreachable!()
+                unreachable!("every event above is an object literal")
             };
             repair_event(&mut event, &mut next, &mut fixed);
             seen.push(event["sequence_number"].clone());

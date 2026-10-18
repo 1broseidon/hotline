@@ -26,6 +26,7 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 struct Descriptor(*mut std::ffi::c_void);
 impl Drop for Descriptor {
     fn drop(&mut self) {
+        // SAFETY: the descriptor was allocated by Win32 for us and is freed once, here.
         unsafe {
             LocalFree(self.0);
         }
@@ -52,7 +53,7 @@ pub(crate) fn private_file(path: &Path) -> io::Result<()> {
 
 fn protect(path: &Path, directory: bool) -> io::Result<()> {
     let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-    // Every pointer below refers to a live allocation; descriptors are freed
+    // SAFETY: every pointer below refers to a live allocation; descriptors are freed
     // after the last Win32 call and the File owns the opened handle.
     unsafe {
         let mut token = null_mut();
@@ -208,6 +209,7 @@ mod tests {
         std::fs::write(&file, b"{}").unwrap();
         private_file(&file).unwrap();
         let handle = File::open(&file).unwrap();
+        // SAFETY: the handle is the open File above, and every out-pointer is a local.
         unsafe {
             let mut descriptor = null_mut();
             assert_eq!(

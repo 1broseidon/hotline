@@ -61,12 +61,13 @@ pub async fn boot(
         Backend::Native => Arc::new(NativeStore),
     };
     let agents = served.as_ref().is_none_or(|served| served.agents);
-    let desk = match agents {
-        true => Some(Arc::new(
+    let desk = if agents {
+        Some(Arc::new(
             Desk::open_with_store(root, store.clone())
                 .map_err(|error| format!("the desk did not open: {error}"))?,
-        )),
-        false => None,
+        ))
+    } else {
+        None
     };
     let room = desk.as_ref().map(|desk| Agents {
         log: desk.log.clone(),
@@ -125,9 +126,8 @@ mod tests {
         let held = RoomLock::take(root).unwrap();
         let broken = br#"{"enabled": tr"#;
         std::fs::write(root.join("remote.json"), broken).unwrap();
-        let error = match boot(root, &held, Backend::File, None).await {
-            Ok(_) => panic!("the boot went on over unreadable settings"),
-            Err(error) => error,
+        let Err(error) = boot(root, &held, Backend::File, None).await else {
+            panic!("the boot went on over unreadable settings")
         };
         assert!(
             error.starts_with("remote access settings did not open"),

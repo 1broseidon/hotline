@@ -45,7 +45,7 @@ use rmcp::model::{
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::{
-    StreamableHttpService, session::local::LocalSessionManager,
+    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
 use serde_json::{Value, json};
 use std::net::Ipv4Addr;
@@ -1034,7 +1034,7 @@ pub(crate) fn profile(
         .and_then(|config| config.current_id.clone())
         .or_else(|| persona.effort_id.clone());
     // Whole-machine reach is Hotline Agent's alone: a harness's callbacks
-    // stay in its workspace whatever its record says (`driver/acp.rs`), and
+    // stay in its workspace whatever its record says (`driver/acp/session.rs`), and
     // only such a teammate on this desk collaborates without the person's
     // first-contact approval (`session/peers.rs`).
     let whole_machine =
@@ -1065,7 +1065,6 @@ pub(crate) fn profile(
         agent,
         model: session
             .current_model_id
-            .clone()
             .or_else(|| persona.model_id.clone()),
         effort,
         capabilities: Capabilities {
@@ -1285,7 +1284,7 @@ pub async fn serve(tools: TeammateTools) -> std::io::Result<Served> {
         StreamableHttpService::new(
             move || Ok(tools.clone()),
             Arc::new(LocalSessionManager::default()),
-            Default::default(),
+            StreamableHttpServerConfig::default(),
         );
     let expected = token.clone();
     let router = axum::Router::new()
@@ -1328,12 +1327,13 @@ pub async fn serve(tools: TeammateTools) -> std::io::Result<Served> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::SkillPolicy;
     use crate::contract::{McpPolicy, Persona, PolicyMode, Reach, WebSearchPolicy};
     use crate::log::{Log, StreamId};
     use crate::session::ProviderKeys;
     use rig::tool::{ToolContext, ToolSet};
     use rmcp::ServiceExt;
-    use rmcp::model::{CallToolRequestParams, ClientInfo, Implementation};
+    use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
     use rmcp::transport::streamable_http_client::{
         StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
     };
@@ -1439,7 +1439,7 @@ mod tests {
                 mode: PolicyMode::None,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work: true,
             allowed_senders: Vec::new(),
             web_search_policy: None,
@@ -1550,7 +1550,7 @@ mod tests {
             .keys()
             .map(String::as_str)
             .collect();
-        fields.sort();
+        fields.sort_unstable();
         assert_eq!(
             fields,
             [
@@ -1927,7 +1927,7 @@ mod tests {
             refused,
             "`nope` is not a duration like 20m or 2h, or an ISO timestamp."
         );
-        assert!(room.schedule_list().is_empty());
+        assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2039,7 +2039,7 @@ mod tests {
             serde_json::from_str::<Value>(&answered).unwrap(),
             json!({ "cancelled": true })
         );
-        assert!(room.schedule_list().is_empty());
+        assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
     }
 
     /// The tool does not re-state the room's bounds. A loop under `MIN_LOOP`
@@ -2087,7 +2087,7 @@ mod tests {
 
     fn client() -> ClientInfo {
         ClientInfo::new(
-            Default::default(),
+            ClientCapabilities::default(),
             Implementation::new("test", env!("CARGO_PKG_VERSION")),
         )
     }

@@ -81,17 +81,15 @@ async fn live_grok_subscription_voice_entitlement_probe() {
             return;
         }
     }
-    match timeout(
+    if let Ok(Ok(_)) = timeout(
         Duration::from_secs(30),
         crate::providers::xai::bearer(&tokens, None),
     )
     .await
     {
-        Ok(Ok(_)) => {}
-        _ => {
-            println!("grok_voice_probe credential_available=false");
-            return;
-        }
+    } else {
+        println!("grok_voice_probe credential_available=false");
+        return;
     }
     println!("grok_voice_probe credential_available=true");
     let endpoint = Endpoint {
@@ -155,7 +153,7 @@ async fn live_grok_subscription_voice_entitlement_probe() {
             !text.is_empty()
         ),
         Err(SpeechError::Refused { status, .. } | SpeechError::Entitlement { status, .. }) => {
-            println!("grok_voice_probe stt_success=false status={status}")
+            println!("grok_voice_probe stt_success=false status={status}");
         }
         Err(_) => println!("grok_voice_probe stt_success=false transport_or_format=true"),
     }
@@ -210,7 +208,7 @@ async fn answering(
 
 // Tungstenite requires its HTTP response as this callback's error type;
 // boxing it would no longer implement the library's Callback contract.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 async fn websocket<F, Fut>(handle: F) -> (String, Requests, Server)
 where
     F: FnOnce(WebSocketStream<TcpStream>) -> Fut + Send + 'static,
@@ -423,7 +421,7 @@ async fn subscription_tts_refreshes_only_once_and_batch_stt_never_replays_upload
 }
 
 // Tungstenite's handshake callback requires the unboxed protocol response.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 #[tokio::test]
 async fn subscription_live_auth_retries_before_any_caller_audio_and_uses_fresh_login() {
     let dir = tempfile::tempdir().unwrap();
@@ -817,18 +815,30 @@ async fn cancelling_live_transcription_closes_the_socket_without_a_detached_work
 
 #[tokio::test]
 async fn a_provider_that_never_becomes_ready_hits_the_connection_deadline() {
+    let (waiting_tx, waiting_rx) = oneshot::channel();
     let (url, _, _server) = websocket(move |mut socket| async move {
+        // A pong comes from inside the wait for readiness, so the connection
+        // is up and only the deadline is left to run.
+        socket.send(Message::Ping(vec![].into())).await.unwrap();
+        assert!(matches!(socket.next().await, Some(Ok(Message::Pong(_)))));
+        waiting_tx.send(()).unwrap();
         let _ = socket.next().await;
     })
     .await;
     let (_tx, rx) = mpsc::channel(1);
-    assert_eq!(
-        timeout(
-            CONNECT_TIMEOUT + Duration::from_secs(2),
-            listener(&url).transcribe_live(rx, INPUT_RATE)
-        )
+    let task = tokio::spawn(async move { listener(&url).transcribe_live(rx, INPUT_RATE).await });
+    timeout(Duration::from_secs(15), waiting_rx)
         .await
-        .unwrap(),
+        .unwrap()
+        .unwrap();
+    // Paused only now: under a paused clock the handshake's loopback reads
+    // would let time jump past the deadlines before the socket was up.
+    tokio::time::pause();
+    assert_eq!(
+        timeout(CONNECT_TIMEOUT + Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap(),
         Err(SpeechError::Unreachable {
             provider_id: PROVIDER_ID.into()
         })
@@ -880,7 +890,7 @@ async fn streamed_tts_publishes_200ms_without_waiting_for_more_audio_or_body_com
     // A network fragment may end halfway through a PCM16 sample.
     for part in [
         &pcm[..3],
-        &pcm[3..FIRST_CLIP_PCM_BYTES + 1],
+        &pcm[3..=FIRST_CLIP_PCM_BYTES],
         &pcm[FIRST_CLIP_PCM_BYTES + 1..],
     ] {
         body_tx.send(Bytes::copy_from_slice(part)).await.unwrap();

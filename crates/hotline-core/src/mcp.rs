@@ -38,7 +38,7 @@ use crate::contract::{McpPolicy, PolicyMode};
 use crate::driver::CapabilityLease;
 use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use rmcp::ServiceExt;
-use rmcp::model::{ClientInfo, Implementation};
+use rmcp::model::{ClientCapabilities, ClientInfo, Implementation};
 use rmcp::service::RunningService;
 use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
@@ -542,7 +542,7 @@ where
 
 fn hotline_client() -> ClientInfo {
     ClientInfo::new(
-        Default::default(),
+        ClientCapabilities::default(),
         Implementation::new("Hotline", env!("CARGO_PKG_VERSION")),
     )
 }
@@ -616,8 +616,7 @@ fn normalize_server(value: &Value) -> Option<Value> {
         .get("id")
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        .map_or_else(|| uuid::Uuid::new_v4().to_string(), str::to_string);
     let name = candidate
         .get("name")
         .and_then(Value::as_str)
@@ -759,99 +758,96 @@ fn parse_server(value: &Value) -> Option<McpServer> {
     let object = value.as_object()?;
     let id = object.get("id")?.as_str()?.to_string();
     let name = object.get("name")?.as_str()?.to_string();
-    let transport = match object.get("type").and_then(Value::as_str) {
-        Some("http") => {
-            let url = object.get("url")?.as_str()?.to_string();
-            let auth = match object
-                .get("auth")
-                .and_then(Value::as_object)
-                .and_then(|auth| auth.get("mode"))
-                .and_then(Value::as_str)
-            {
-                Some("bearer") => HttpAuth::Secret { header: None },
-                Some("header") => {
-                    let name = object
-                        .get("auth")
-                        .and_then(Value::as_object)
-                        .and_then(|auth| auth.get("name"))
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|name| !name.is_empty())
-                        .map(str::to_string);
-                    match name {
-                        Some(name) => HttpAuth::Secret { header: Some(name) },
-                        None => HttpAuth::None,
+    let transport = if object.get("type").and_then(Value::as_str) == Some("http") {
+        let url = object.get("url")?.as_str()?.to_string();
+        let auth = match object
+            .get("auth")
+            .and_then(Value::as_object)
+            .and_then(|auth| auth.get("mode"))
+            .and_then(Value::as_str)
+        {
+            Some("bearer") => HttpAuth::Secret { header: None },
+            Some("header") => {
+                let name = object
+                    .get("auth")
+                    .and_then(Value::as_object)
+                    .and_then(|auth| auth.get("name"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string);
+                match name {
+                    Some(name) => HttpAuth::Secret { header: Some(name) },
+                    None => HttpAuth::None,
+                }
+            }
+            Some("oauth") => {
+                let auth = object
+                    .get("auth")
+                    .and_then(Value::as_object)
+                    .expect("oauth auth was an object");
+                let scopes: Vec<String> = auth
+                    .get("scopes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect();
+                let resource = auth
+                    .get("resource")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let client = auth.get("client").and_then(Value::as_object);
+                let client_id = client
+                    .and_then(|client| client.get("clientId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let token_endpoint_auth_method = client
+                    .and_then(|client| client.get("tokenEndpointAuthMethod"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if scopes.is_empty()
+                    && resource.is_none()
+                    && client_id.is_none()
+                    && token_endpoint_auth_method.is_none()
+                {
+                    HttpAuth::Oauth
+                } else {
+                    HttpAuth::OauthConfigured {
+                        scopes,
+                        resource,
+                        client_id,
+                        token_endpoint_auth_method,
                     }
                 }
-                Some("oauth") => {
-                    let auth = object
-                        .get("auth")
-                        .and_then(Value::as_object)
-                        .expect("oauth auth was an object");
-                    let scopes: Vec<String> = auth
-                        .get("scopes")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect();
-                    let resource = auth
-                        .get("resource")
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    let client = auth.get("client").and_then(Value::as_object);
-                    let client_id = client
-                        .and_then(|client| client.get("clientId"))
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    let token_endpoint_auth_method = client
-                        .and_then(|client| client.get("tokenEndpointAuthMethod"))
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    if scopes.is_empty()
-                        && resource.is_none()
-                        && client_id.is_none()
-                        && token_endpoint_auth_method.is_none()
-                    {
-                        HttpAuth::Oauth
-                    } else {
-                        HttpAuth::OauthConfigured {
-                            scopes,
-                            resource,
-                            client_id,
-                            token_endpoint_auth_method,
-                        }
-                    }
-                }
-                _ => HttpAuth::None,
-            };
-            McpTransport::Http { url, auth }
-        }
-        _ => {
-            let command = object.get("command")?.as_str()?.to_string();
-            let args = object
-                .get("args")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect();
-            let (env, refuse) = stdio_env(object.get("env"));
-            return Some(McpServer {
-                id,
-                name,
-                transport: McpTransport::Stdio { command, args, env },
-                refuse,
-            });
-        }
+            }
+            _ => HttpAuth::None,
+        };
+        McpTransport::Http { url, auth }
+    } else {
+        let command = object.get("command")?.as_str()?.to_string();
+        let args = object
+            .get("args")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+        let (env, refuse) = stdio_env(object.get("env"));
+        return Some(McpServer {
+            id,
+            name,
+            transport: McpTransport::Stdio { command, args, env },
+            refuse,
+        });
     };
     let refuse = match &transport {
         McpTransport::Http { url, .. } => {
             validate_http_url(url).err().map(|error| error.to_string())
         }
-        _ => None,
+        McpTransport::Stdio { .. } => None,
     };
     Some(McpServer {
         id,
@@ -909,6 +905,7 @@ fn unique_keep_first(items: impl IntoIterator<Item = String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::SkillPolicy;
     use crate::driver::CapabilityEpoch;
     use rmcp::handler::server::ServerHandler;
     use rmcp::model::{
@@ -1181,8 +1178,8 @@ mod tests {
                 server_ids: vec!["echo".into()],
             },
         );
-        assert!(granted.servers.is_empty());
-        assert!(granted.missing.is_empty());
+        assert_eq!(granted.servers, [] as [McpServer; 0]);
+        assert_eq!(granted.missing, [] as [String; 0]);
     }
 
     #[test]
@@ -1243,7 +1240,7 @@ mod tests {
             .await
             .expect("the call reached the server");
         assert_eq!(shouted.text, "HARBOUR");
-        assert!(shouted.images.is_empty());
+        assert_eq!(shouted.images, [] as [CallImage; 0]);
 
         client.cancel().await.ok();
         let _ = server.await;
@@ -1286,7 +1283,7 @@ mod tests {
 
         let shout = echo_row(persona_id, "echo__shout");
         assert_eq!(shout.state, ToolState::Absent);
-        assert!(!shout.reason.is_empty());
+        assert_ne!(shout.reason, "");
         assert_eq!(
             echo_row(persona_id, "echo__whisper").state,
             ToolState::Absent
@@ -1577,7 +1574,7 @@ mod tests {
         let connected = connect("gone", &[missing]).await;
         assert!(connected.tools.is_empty());
         assert_eq!(connected.failed.len(), 1);
-        assert!(!connected.failed[0].reason.trim().is_empty());
+        assert_ne!(connected.failed[0].reason.trim(), "");
     }
 
     #[tokio::test]
@@ -1658,7 +1655,7 @@ mod tests {
                 mode: crate::contract::PolicyMode::All,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,
@@ -1730,7 +1727,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("computer__{name} is on the ledger: {rows:?}"));
             assert_eq!(row.source, ToolSourceKind::Mcp);
             assert_eq!(row.state, ToolState::Verified);
-            assert!(!row.reason.is_empty());
+            assert_ne!(row.reason, "");
         }
 
         client.cancel().await.ok();

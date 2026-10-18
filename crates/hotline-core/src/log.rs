@@ -169,10 +169,10 @@ impl Log {
                         "The room stream contains an unreadable event.",
                     )
                 })?;
-                if !event
+                if event
                     .get("id")
                     .and_then(Value::as_str)
-                    .is_some_and(|id| !id.is_empty())
+                    .is_none_or(|id| id.is_empty())
                     || event.get("kind").and_then(Value::as_str).is_none()
                 {
                     return Err(io::Error::new(
@@ -320,9 +320,8 @@ impl Log {
             let lines: Vec<String> = before
                 .lines()
                 .map(|line| {
-                    let mut event = match serde_json::from_str::<Value>(line) {
-                        Ok(event) => event,
-                        Err(_) => return line.to_string(),
+                    let Ok(mut event) = serde_json::from_str::<Value>(line) else {
+                        return line.to_string();
                     };
                     if rename_backend(&mut event) {
                         changed = true;
@@ -860,6 +859,10 @@ mod tests {
         let log = scratch("clone");
         let mut listener = log.subscribe(&StreamId::Room);
         let event = json!({"kind": "setting", "id": "defaultBackendId", "value": "hotline"});
+        #[expect(
+            clippy::redundant_clone,
+            reason = "the test is that a clone appends to the log it was cloned from"
+        )]
         log.clone().append(&StreamId::Room, &event).unwrap();
         assert_eq!(listener.try_recv().unwrap(), event);
     }

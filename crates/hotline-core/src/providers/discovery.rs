@@ -429,25 +429,25 @@ mod tests {
             (
                 Client::OpenRouter,
                 "/models",
-                json!({"data":[{"id":"new-coder", "name":"New coder", "created":1, "context_length":100000, "top_provider":{"max_completion_tokens":12000}}]}),
+                json!({"data":[{"id":"new-coder", "name":"New coder", "created":1, "context_length":100_000, "top_provider":{"max_completion_tokens":12000}}]}),
                 Some("New coder"),
-                Some(100000),
+                Some(100_000),
                 Some(12000),
             ),
             (
                 Client::Gemini,
                 "/v1beta/models",
-                json!({"models":[{"name":"models/new-coder", "displayName":"New coder", "inputTokenLimit":100000, "outputTokenLimit":12000}]}),
+                json!({"models":[{"name":"models/new-coder", "displayName":"New coder", "inputTokenLimit":100_000, "outputTokenLimit":12000}]}),
                 Some("New coder"),
-                Some(100000),
+                Some(100_000),
                 Some(12000),
             ),
             (
                 Client::Groq,
                 "/models",
-                json!({"data":[{"id":"new-coder", "context_window":100000, "max_completion_tokens":12000}]}),
+                json!({"data":[{"id":"new-coder", "context_window":100_000, "max_completion_tokens":12000}]}),
                 None,
-                Some(100000),
+                Some(100_000),
                 Some(12000),
             ),
             (
@@ -461,9 +461,9 @@ mod tests {
             (
                 Client::Mistral,
                 "/v1/models",
-                json!({"data":[{"id":"new-coder", "max_context_length":100000}]}),
+                json!({"data":[{"id":"new-coder", "max_context_length":100_000}]}),
                 None,
-                Some(100000),
+                Some(100_000),
                 None,
             ),
         ] {

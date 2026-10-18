@@ -359,7 +359,7 @@ fn start() -> Result<(), String> {
     });
     // Paired desks' bridges are local listeners, so they are up before the
     // window is and the first list it reads is already complete.
-    let desks = desks::Host::open(&root, format!("http://127.0.0.1:{port}"), token.clone());
+    let desks = desks::Host::open(&root, format!("http://127.0.0.1:{port}"), token);
     tauri::async_runtime::block_on(desks.start_all());
     let listed = desks.listed();
     let script = format!("window.__hotlineDesk = {injected};\nwindow.__hotlineDesks = {listed};");
@@ -558,7 +558,7 @@ fn start() -> Result<(), String> {
             // dropping the desk, so no agent's driver gets to kill its child.
             // A launcher that ignores its closed stdin would be left running
             // under pid 1, so every agent's process group is killed here.
-            if let tauri::RunEvent::Exit = event {
+            if matches!(event, tauri::RunEvent::Exit) {
                 hotline_core::driver::acp::end_every_agent();
             }
             #[cfg(target_os = "macos")]

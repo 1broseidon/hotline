@@ -488,7 +488,7 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
 
     // Revoked, the phone's socket closes and cannot be opened again.
     h.remote.revoke(&grant.id).unwrap();
-    let closed = tokio::time::timeout(Duration::from_secs(3), phone.socket.next())
+    let closed = tokio::time::timeout(ANSWER, phone.socket.next())
         .await
         .unwrap();
     assert!(
@@ -508,7 +508,10 @@ async fn a_phone_registers_where_to_notify_it_and_the_room_can_read_it() {
     let h = Harness::new().await;
     let grant = h.pair().await;
     let phone = h.remote.authenticate_v2(&grant.public).unwrap();
-    assert!(crate::remote::push_targets(h.root.path()).tokens.is_empty());
+    assert_eq!(
+        crate::remote::push_targets(h.root.path()).tokens,
+        [] as [String; 0]
+    );
     assert!(
         phone
             .register_push("not a token".into(), "ios".into())
@@ -542,14 +545,20 @@ async fn a_phone_registers_where_to_notify_it_and_the_room_can_read_it() {
     );
     // Turning Remote off keeps the phone paired but stops notifying it.
     h.remote.configure(false, network::ALL).await.unwrap();
-    assert!(crate::remote::push_targets(h.root.path()).tokens.is_empty());
+    assert_eq!(
+        crate::remote::push_targets(h.root.path()).tokens,
+        [] as [String; 0]
+    );
     h.remote.configure(true, network::ALL).await.unwrap();
     assert_eq!(
         crate::remote::push_targets(h.root.path()).tokens,
         ["ExponentPushToken[def]"]
     );
     h.remote.revoke(&phone.id).unwrap();
-    assert!(crate::remote::push_targets(h.root.path()).tokens.is_empty());
+    assert_eq!(
+        crate::remote::push_targets(h.root.path()).tokens,
+        [] as [String; 0]
+    );
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 

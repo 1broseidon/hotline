@@ -52,20 +52,17 @@ impl Relay {
                         if request.kind == "files"
                             && (id.is_string() || id.is_i64() || id.is_u64()) =>
                     {
-                        match tokio::time::timeout(
-                            Duration::from_secs(25),
-                            state.handle(request.op),
-                        )
-                        .await
+                        if let Ok(result) =
+                            tokio::time::timeout(Duration::from_secs(25), state.handle(request.op))
+                                .await
                         {
-                            Ok(result) => result,
-                            Err(_) => {
-                                // A cancelled write may have advanced its file. Do not
-                                // let a retry reuse an offset we can no longer confirm.
-                                state.uploads.clear();
-                                state.downloads.clear();
-                                Err("The computer's file request timed out. Restart unfinished transfers and check the destination before retrying an upload.".into())
-                            }
+                            result
+                        } else {
+                            // A cancelled write may have advanced its file. Do not
+                            // let a retry reuse an offset we can no longer confirm.
+                            state.uploads.clear();
+                            state.downloads.clear();
+                            Err("The computer's file request timed out. Restart unfinished transfers and check the destination before retrying an upload.".into())
                         }
                     }
                     _ => Err("Invalid computer file request.".into()),

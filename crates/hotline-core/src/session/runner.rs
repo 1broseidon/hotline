@@ -777,8 +777,8 @@ mod tests {
 
     fn said(replies: &[&str], last_words: &[&str]) -> Driven {
         Driven {
-            replies: replies.iter().map(|line| line.to_string()).collect(),
-            last_words: last_words.iter().map(|line| line.to_string()).collect(),
+            replies: replies.iter().map(ToString::to_string).collect(),
+            last_words: last_words.iter().map(ToString::to_string).collect(),
             ..Driven::default()
         }
     }

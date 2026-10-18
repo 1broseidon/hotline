@@ -12,7 +12,7 @@
 
 use super::Ready;
 use rmcp::ServiceExt;
-use rmcp::model::{CallToolRequestParams, ClientInfo, Implementation};
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
 use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
 };
@@ -175,7 +175,7 @@ async fn load(ready: &Ready, name: &str) -> Result<(), String> {
             .auth_header(ready.token.clone()),
     );
     let service = ClientInfo::new(
-        Default::default(),
+        ClientCapabilities::default(),
         Implementation::new("hotline", env!("CARGO_PKG_VERSION")),
     )
     .serve(transport)

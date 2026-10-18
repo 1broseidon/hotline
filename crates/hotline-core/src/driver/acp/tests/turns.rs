@@ -151,7 +151,10 @@ async fn failed_acp_sessions_get_a_fresh_briefing_without_reissuing_the_old_prom
         assert!(!driver.live.briefed.load(Ordering::SeqCst));
         assert!(lock(&driver.live.pending).is_empty());
         let fresh_persona = driver.abandon_failed_session().await.unwrap();
-        assert!(fresh_persona.session_checkpoints.is_empty());
+        assert_eq!(
+            fresh_persona.session_checkpoints,
+            [] as [SessionCheckpoint; 0]
+        );
         assert!(lock(&driver.live.connection_task).is_none());
         let fresh_heard = Heard::default();
         let fresh_agent = tokio::spawn(recovery_agent(fresh_heard.clone(), ""));
@@ -203,6 +206,7 @@ async fn abandoning_an_acp_session_waits_for_the_owned_child_to_exit() {
     *lock(&driver.child) = Some(child);
     driver.abandon_failed_session().await.unwrap();
     assert_eq!(
+        // SAFETY: signal 0 only asks whether the captured pid exists.
         unsafe { libc::kill(pid as libc::pid_t, 0) },
         -1,
         "child must be reaped before another prompt can be sent"
@@ -579,7 +583,7 @@ fn holding_agent(
                                 serde_json::json!({
                                     "sessionUpdate": "usage_update",
                                     "used": 1000,
-                                    "size": 200000,
+                                    "size": 200_000,
                                     "cost": { "amount": 0.01, "currency": "USD" },
                                 })
                             };
@@ -827,11 +831,12 @@ async fn dropping_the_driver_takes_the_childs_whole_process_group() {
     let child = command.spawn().unwrap();
     let group = child.id().expect("the child has a pid") as libc::pid_t;
     *lock(&driver.child) = Some(child);
-    // Safety: `kill` with signal 0 asks whether the group exists.
+    // SAFETY: `kill` with signal 0 asks whether the group exists.
     assert_eq!(unsafe { libc::killpg(group, 0) }, 0, "the group is running");
 
     drop(driver);
     for _ in 0..200 {
+        // SAFETY: as above, signal 0 only asks.
         if unsafe { libc::killpg(group, 0) } != 0 {
             return;
         }

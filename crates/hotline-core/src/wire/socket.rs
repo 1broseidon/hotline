@@ -1,6 +1,6 @@
 //! One seated socket: its outbox, its lanes and the commands it answers.
 
-use super::phone::{PHONE_WINDOW, effort_config, phone_budget};
+use super::phone::{effort_config, phone_budget};
 use super::seat::{PLAIN_REASONS, PRIVATE_REASON, Seat};
 use super::subscribe::subscribe;
 use super::{RoomHandle, commands, files, threads};
@@ -134,7 +134,7 @@ where
     }
     tokio::select! {
         biased;
-        _ = phone.cancel.cancelled() => return Ok(()),
+        () = phone.cancel.cancelled() => return Ok(()),
         result = socket.send(Message::text(hello.to_string())) => result?,
     }
     seated_inner(socket, Seat::for_phone(role), log, room, Some(phone)).await
@@ -214,7 +214,7 @@ where
         };
         let incoming = tokio::select! {
             biased;
-            _ = cancel.cancelled() => break Ok(()),
+            () = cancel.cancelled() => break Ok(()),
             frame = incoming.next() => frame,
             () = silent => break Ok(()),
         };
@@ -262,8 +262,8 @@ where
                     // durable unknown receipt. Desk mutations still run to completion.
                     tokio::select! {
                         biased;
-                        _ = cancel.cancelled() => break Ok(()),
-                        _ = answer => {}
+                        () = cancel.cancelled() => break Ok(()),
+                        () = answer => {}
                     }
                 } else {
                     answer.await;
@@ -347,8 +347,8 @@ fn open_lane(
             if seat.is_remote() {
                 tokio::select! {
                     biased;
-                    _ = sender.cancel.cancelled() => break,
-                    _ = answered => {}
+                    () = sender.cancel.cancelled() => break,
+                    () = answered => {}
                 }
             } else {
                 answered.await;
@@ -393,15 +393,10 @@ pub(super) async fn answer(
         command(id, frame, seat, log, room, sender, phone).await;
         return;
     }
-    if let Some(target) = frame.get("sub") {
+    if frame.get("sub").is_some() {
         // A subscription that opened answered itself, on its way past the
         // acknowledgement; only a refusal is left to say here.
-        let window = frame
-            .get("window")
-            .and_then(Value::as_u64)
-            .map(|window| (window as usize).clamp(1, PHONE_WINDOW));
-        if let Err(refused) = subscribe(target, window, seat, log, room, sender, subscriptions, id)
-        {
+        if let Err(refused) = subscribe(id, frame, seat, log, room, sender, subscriptions) {
             decline(sender, id, refused);
         }
         return;
@@ -575,7 +570,9 @@ async fn command(
                             Command::AgentAuthCancel { .. } => room
                                 .agent_auth_cancel(persona_id, attempt_id)
                                 .map(|()| Value::Null),
-                            _ => unreachable!(),
+                            _ => unreachable!(
+                                "the arm above matched only the three sign-in commands"
+                            ),
                         }
                     }
                 }

@@ -159,18 +159,17 @@ impl Client {
             // Keep concurrent first claims in this client process on one key.
             static FIRST_KEY: std::sync::Mutex<()> = std::sync::Mutex::new(());
             let _guard = super::lock(&FIRST_KEY);
-            match self.store.get(&slot).map_err(storage)? {
-                Some(bytes) => read_identity(&bytes, &desk)?,
-                None => {
-                    let (private, _) = sealed::keypair()?;
-                    let identity = Identity { private, desk };
-                    // Persist before consuming the single-use invitation. A dropped
-                    // reply can then be recovered by pairing the same device again.
-                    self.store
-                        .set(&slot, &serde_json::to_vec(&identity).map_err(storage)?)
-                        .map_err(storage)?;
-                    identity
-                }
+            if let Some(bytes) = self.store.get(&slot).map_err(storage)? {
+                read_identity(&bytes, &desk)?
+            } else {
+                let (private, _) = sealed::keypair()?;
+                let identity = Identity { private, desk };
+                // Persist before consuming the single-use invitation. A dropped
+                // reply can then be recovered by pairing the same device again.
+                self.store
+                    .set(&slot, &serde_json::to_vec(&identity).map_err(storage)?)
+                    .map_err(storage)?;
+                identity
             }
         };
         let mut claim = json!({"secret":payload.secret,"name":device_name.trim()});
@@ -648,7 +647,7 @@ pub(super) async fn dial(base: &str, path: &str) -> Result<Socket, String> {
         .await
         .map_err(|_| "Could not open TLS to the desk.")?;
     let mut target = url.clone();
-    target.set_scheme("wss").map_err(|_| "Invalid desk URL.")?;
+    target.set_scheme("wss").map_err(|()| "Invalid desk URL.")?;
     let config = WebSocketConfig::default()
         .max_message_size(Some(65535))
         .max_frame_size(Some(65535));
@@ -803,8 +802,8 @@ impl Client {
         let stopped = cancel.clone();
         tokio::spawn(async move {
             tokio::select! {
-                _ = stopped.cancelled() => {},
-                _ = client.reconnect(desk, outgoing, incoming, state, relay, discovery) => {},
+                () = stopped.cancelled() => {},
+                () = client.reconnect(desk, outgoing, incoming, state, relay, discovery) => {},
             }
         });
         Session {
@@ -849,12 +848,12 @@ impl Client {
                         static SEQUENCE: std::sync::atomic::AtomicU64 =
                             std::sync::atomic::AtomicU64::new(1);
                         let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        desk.relay = discovered.clone();
+                        desk.relay.clone_from(&discovered);
                         relay.send_if_modified(|known| {
                             if *known == discovered {
                                 false
                             } else {
-                                *known = discovered.clone();
+                                known.clone_from(&discovered);
                                 true
                             }
                         });
@@ -913,7 +912,7 @@ impl Client {
             tokio::pin!(sleep);
             loop {
                 tokio::select! {
-                    _ = &mut sleep => break,
+                    () = &mut sleep => break,
                     frame = outgoing.recv() => {
                         let Some(frame) = frame else { return; };
                         if let Ok(value) = serde_json::from_str::<Value>(&frame) {

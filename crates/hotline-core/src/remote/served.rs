@@ -57,18 +57,49 @@ impl Remote {
         root: &Path,
         agents: Option<Agents>,
         store: Arc<dyn SecretStore>,
+        options: ServeOptions,
+    ) -> io::Result<Arc<Self>> {
+        Self::open_served(root, agents, store, options, None)
+    }
+    /// A served desk on `listener`, which the caller bound at
+    /// `options.listen`: a test's socket, so no other test can take its port.
+    pub fn open_served_on(
+        listener: std::net::TcpListener,
+        root: &Path,
+        agents: Option<Agents>,
+        store: Arc<dyn SecretStore>,
+        options: ServeOptions,
+    ) -> io::Result<Arc<Self>> {
+        let bound = network::Bound::new(listener)?;
+        if bound.address != options.listen {
+            return Err(io::Error::other(
+                "The listener is not bound at the listen address.",
+            ));
+        }
+        Self::open_served(root, agents, store, options, Some(bound))
+    }
+    fn open_served(
+        root: &Path,
+        agents: Option<Agents>,
+        store: Arc<dyn SecretStore>,
         mut options: ServeOptions,
+        bound: Option<network::Bound>,
     ) -> io::Result<Arc<Self>> {
         options.validate().map_err(io::Error::other)?;
         if agents.is_none() && !options.relay {
             return Err(io::Error::other("A server runs agents, a relay, or both."));
         }
         options.public_url = options.public_url.trim_end_matches('/').into();
-        Self::open_options(root, agents, store, Some(options))
+        Self::open_options(root, agents, store, Some(options), bound)
     }
 
     pub(super) async fn restore_served(self: &Arc<Self>) {
-        let host = self.served.as_ref().unwrap().listen.to_string();
+        let host = self
+            .served
+            .as_ref()
+            .expect("restore calls this only on a served remote")
+            .listen
+            .to_string();
         if let Err(error) = self.configure_served(true, &host).await {
             lock(&self.state).error = Some(error);
         }
@@ -130,7 +161,11 @@ impl Remote {
         enabled: bool,
         host: &str,
     ) -> Result<RemoteStatus, String> {
-        let options = self.served.as_ref().unwrap().clone();
+        let options = self
+            .served
+            .as_ref()
+            .expect("configure and restore_served call this only on a served remote")
+            .clone();
         if host != options.listen.to_string() {
             return Err("The served listen address is fixed by its startup options.".into());
         }
@@ -170,8 +205,8 @@ impl Remote {
             loop {
                 let result = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
-                    result = tokio::net::TcpListener::bind(options.listen) => result,
+                    () = cancel.cancelled() => return,
+                    result = remote.listen_served(options.listen) => result,
                 };
                 match result {
                     Ok(listener) => {
@@ -198,13 +233,20 @@ impl Remote {
                     }
                     Err(error) => {
                         lock(&remote.state).error =
-                            Some(format!("Waiting for {}: {error}", options.listen))
+                            Some(format!("Waiting for {}: {error}", options.listen));
                     }
                 }
-                tokio::select! { _ = cancel.cancelled() => return, _ = tokio::time::sleep(Duration::from_secs(1)) => {} }
+                tokio::select! { () = cancel.cancelled() => return, () = tokio::time::sleep(Duration::from_secs(1)) => {} }
             }
         }));
         Ok(self.status())
+    }
+
+    async fn listen_served(&self, listen: SocketAddr) -> io::Result<tokio::net::TcpListener> {
+        match &self.bound {
+            Some(bound) => bound.listen().await,
+            None => tokio::net::TcpListener::bind(listen).await,
+        }
     }
 
     pub(super) fn route_path<'a>(&self, path: &'a str) -> Option<&'a str> {

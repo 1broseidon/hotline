@@ -5,100 +5,33 @@
 //! stands in, and is refused at every door of the desk with
 //! `role_not_permitted`, never as a revoked key.
 #![cfg(unix)]
+mod common;
 
+use common::{
+    PATIENCE, desktop, free_address, hotline, listen_args, said, serve, standing, stop, top, wire,
+};
 use futures_util::{SinkExt, StreamExt};
 use hotline_core::contract::DeviceRole;
 use hotline_core::credentials::{FileStore, SecretStore};
-use hotline_core::desk::Desk;
+use hotline_core::remote::PairingPayload;
 use hotline_core::remote::client::{Client, PairedDesk, PairedRelay};
-use hotline_core::remote::{PairingPayload, Remote};
 use serde_json::{Value, json};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::net::SocketAddr;
 use std::path::Path;
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio_rustls::rustls;
 use tokio_tungstenite::tungstenite::Message;
 
-const HOTLINE: &str = env!("CARGO_BIN_EXE_hotline");
-
-fn hotline(root: &Path, args: &[&str]) -> Command {
-    let mut command = Command::new(HOTLINE);
-    command
-        .args(args)
-        .arg("--data")
-        .arg(root)
-        .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DBUS_SESSION_BUS_ADDRESS")
-        .env_remove("HOTLINE_DATA_DIR");
-    command
-}
-
 /// The server, on a fixed address so the desktop and the phone dial the
 /// same place after a restart.
-fn serve(root: &Path, addr: SocketAddr, capabilities: &str) -> Child {
-    let child = hotline(
-        root,
-        &[
-            "serve",
-            "--store",
-            "file",
-            "--capabilities",
-            capabilities,
-            "--listen",
-            &addr.to_string(),
-            "--public-url",
-            &format!("https://{addr}"),
-        ],
-    )
-    .stdout(Stdio::null())
-    .stderr(Stdio::piped())
-    .spawn()
-    .unwrap();
-    let door = root.join("door.json");
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while !door.exists() {
-        assert!(
-            Instant::now() < deadline,
-            "the server never wrote door.json"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    child
-}
-
-/// Stops the server by the pid captured when it was spawned, and only that.
-fn stop(mut child: Child) -> Output {
-    // SAFETY: a signal to our own child.
-    unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
-    let deadline = Instant::now() + Duration::from_secs(40);
-    while child.try_wait().unwrap().is_none() {
-        assert!(Instant::now() < deadline, "the server ignored SIGTERM");
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    child.wait_with_output().unwrap()
-}
-
-fn said(output: &Output) -> String {
-    format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    )
-}
-
-fn wire(root: &Path, cmd: &str) -> Output {
-    let mut child = hotline(root, &["wire", cmd])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(b"{}").unwrap();
-    child.wait_with_output().unwrap()
+fn serve_at(root: &Path, addr: SocketAddr, capabilities: &str) -> Child {
+    let listen = listen_args(&addr);
+    let mut flags = vec!["--capabilities", capabilities];
+    flags.extend(listen.iter().map(String::as_str));
+    serve(root, &flags)
 }
 
 /// `hotline pair` with `flags`, still waiting for its claim, and the first
@@ -116,22 +49,6 @@ fn invite(root: &Path, flags: &[&str]) -> (Child, String) {
         .read_line(&mut line)
         .unwrap();
     (child, line.trim().to_owned())
-}
-
-fn free_address() -> SocketAddr {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-}
-
-fn top(root: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(root)
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
-        .collect();
-    names.sort();
-    names
 }
 
 /// The processes the server started: none, if it runs no agents.
@@ -159,25 +76,6 @@ fn uuid() -> String {
     )
 }
 
-/// A person's desktop, in this process: a room, and Remote on.
-async fn desktop(root: &Path) -> (Arc<Desk>, Arc<Remote>) {
-    std::fs::create_dir_all(root).unwrap();
-    let port = free_address().port();
-    std::fs::write(
-        root.join("remote.json"),
-        json!({"desktopId": uuid(), "host": "all", "port": port, "enabled": false, "grants": []})
-            .to_string(),
-    )
-    .unwrap();
-    let store: Arc<dyn SecretStore> = Arc::new(FileStore::open(root).unwrap());
-    let desk = Arc::new(Desk::open_with_store(root, store.clone()).unwrap());
-    let remote =
-        Remote::open_with_store(root, desk.log.clone(), desk.clone(), store.clone()).unwrap();
-    desk.set_remote(&remote);
-    remote.configure(true, "all").await.unwrap();
-    (desk, remote)
-}
-
 /// The desktop's own secret store, which also keeps the device key it
 /// makes when it pairs, so this test can knock with that key on doors the
 /// desktop itself never dials.
@@ -197,22 +95,6 @@ impl SecretStore for Keeping {
     }
     fn delete(&self, key: &str) -> std::io::Result<()> {
         self.store.delete(key)
-    }
-}
-
-/// Waits until the desktop stands in on its chosen relay, and says where.
-async fn standing(remote: &Remote) -> String {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if let Some(url) = remote.status().relay.and_then(|relay| relay.url) {
-            return url;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "never stood in: {:?}",
-            remote.status().relay.and_then(|relay| relay.error)
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
@@ -345,7 +227,7 @@ async fn a_relay_only_server_relays_for_a_desktop_that_can_do_nothing_else_there
 
     // 1. Served as a relay only: Remote's files, the store, the lock and the
     // door, and no room; no child process; `status` says what it runs.
-    let server = serve(&root, addr, "relay");
+    let server = serve_at(&root, addr, "relay");
     for name in top(&root) {
         assert!(
             name.starts_with("remote")
@@ -368,7 +250,7 @@ async fn a_relay_only_server_relays_for_a_desktop_that_can_do_nothing_else_there
     let invitation = PairingPayload::from_link(&link).unwrap();
     assert_eq!(invitation.role, DeviceRole::Relay);
     let laptop_root = dir.path().join("laptop");
-    let (_laptop_desk, laptop) = desktop(&laptop_root).await;
+    let (_laptop_desk, laptop, _) = desktop(&laptop_root).await;
     let keeping = Arc::new(Keeping {
         store: FileStore::open(&laptop_root).unwrap(),
         identity: Mutex::new(None),
@@ -414,7 +296,7 @@ async fn a_relay_only_server_relays_for_a_desktop_that_can_do_nothing_else_there
     for refused in [
         hotline(&root, &["links"]).output().unwrap(),
         hotline(&root, &["unlink", "0123"]).output().unwrap(),
-        wire(&root, "welcome"),
+        wire(&root, "welcome", "{}"),
     ] {
         assert_eq!(refused.status.code(), Some(1), "{refused:?}");
         assert!(said(&refused).contains("runs only a relay"), "{refused:?}");
@@ -449,12 +331,12 @@ async fn a_relay_only_server_relays_for_a_desktop_that_can_do_nothing_else_there
     // the phone, still away, reaches the desktop through it as before.
     let stopped = stop(server);
     assert!(stopped.status.success(), "{stopped:?}");
-    let server = serve(&root, addr, "agents,relay");
+    let server = serve_at(&root, addr, "agents,relay");
     let status = said(&hotline(&root, &["status"]).output().unwrap());
     assert!(status.contains("runs    agents, relay"), "{status}");
     let devices_again = hotline(&root, &["devices"]).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&devices_again.stdout), devices);
-    let deadline = Instant::now() + Duration::from_secs(60);
+    let deadline = Instant::now() + PATIENCE;
     let said_hello = loop {
         if let Some(said) = hello(&phone, &away, Duration::from_secs(5)).await {
             break said;

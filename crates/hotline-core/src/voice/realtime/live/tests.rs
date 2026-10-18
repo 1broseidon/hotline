@@ -57,7 +57,7 @@ fn a_hand_off_is_the_send_the_bridge_answers_in_the_persons_words() {
     );
     // A delegation to the server's own backend is not the desk's to answer.
     let server = json!({"type": "delegation.created", "item": {"id": "x", "target": "responses", "content": []}});
-    assert!(heard.event(&server).unwrap().is_empty());
+    assert_eq!(heard.event(&server).unwrap(), [] as [RealtimeEvent; 0]);
 }
 
 #[test]
@@ -92,7 +92,7 @@ fn the_model_speaks_in_turns_and_its_silence_between_them_is_dropped() {
             .unwrap(),
         [RealtimeEvent::ResponseDone]
     );
-    assert!(heard.event(&quiet).unwrap().is_empty());
+    assert_eq!(heard.event(&quiet).unwrap(), [] as [RealtimeEvent; 0]);
 }
 
 #[test]

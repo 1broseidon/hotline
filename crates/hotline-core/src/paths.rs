@@ -26,13 +26,11 @@ pub fn data_root() -> PathBuf {
             .join("Hotline")
     } else if cfg!(target_os = "windows") {
         env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("AppData").join("Roaming"))
+            .map_or_else(|| home.join("AppData").join("Roaming"), PathBuf::from)
             .join("Hotline")
     } else {
         env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".local").join("share"))
+            .map_or_else(|| home.join(".local").join("share"), PathBuf::from)
             .join("hotline")
     }
 }

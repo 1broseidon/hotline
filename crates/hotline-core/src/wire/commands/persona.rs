@@ -1,6 +1,7 @@
 //! A teammate on the room stream: made, changed, pinned and removed.
 
 use super::{append, now};
+use crate::contract::SkillPolicy;
 use crate::contract::{
     FolderGrant, McpPolicy, Persona, PersonaComputer, PersonaDraft, PolicyMode, Reach, SessionInfo,
 };
@@ -61,7 +62,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
     let folders = checked_folders(draft.folders, &cwd, log.root())?;
     let persona = Persona {
         node: None,
-        id: id.clone(),
+        id,
         name: given(Some(draft.name)).unwrap_or_else(|| "Untitled".to_string()),
         goal: given(draft.goal).unwrap_or_default(),
         avatar: None,
@@ -82,7 +83,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
             mode: PolicyMode::None,
             server_ids: Vec::new(),
         },
-        skill_policy: Default::default(),
+        skill_policy: SkillPolicy::default(),
         background_work: draft.background_work.unwrap_or(false),
         allowed_senders: Vec::new(),
         web_search_policy: None,
@@ -97,22 +98,34 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
     Ok(json!(persona))
 }
 
+/// All a phone may say about a teammate it creates. The type has no room for
+/// reach, cwd, computer or background work, so those cannot arrive here.
+pub(super) struct MobileDraft {
+    pub(super) name: String,
+    pub(super) goal: Option<String>,
+    pub(super) backend_id: Option<String>,
+    pub(super) model_id: Option<String>,
+    pub(super) effort_id: Option<String>,
+}
+
 /// `mobile.persona_create`: the phone's own narrow create. `requestId`
 /// becomes the id, so a lost acknowledgement's retry finds the teammate
 /// already made rather than making a second one. Everything the phone
 /// cannot express — reach, cwd, computer, background work — is left at
 /// [`build_persona`]'s safest default by never being named in the draft.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn mobile_persona_create(
     log: &Log,
     room: &Arc<dyn RoomHandle>,
     request_id: &str,
-    name: String,
-    goal: Option<String>,
-    backend_id: Option<String>,
-    model_id: Option<String>,
-    effort_id: Option<String>,
+    asked: MobileDraft,
 ) -> Result<Value, String> {
+    let MobileDraft {
+        name,
+        goal,
+        backend_id,
+        model_id,
+        effort_id,
+    } = asked;
     let id = Uuid::parse_str(request_id)
         .map_err(|_| "requestId must be a uuid.".to_string())?
         .to_string();

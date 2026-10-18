@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:41:10.035Z"
 relatedFiles:
   - docs/standards.md
   - AGENTS.md
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:26.787Z"
 contract:
   status: ready
   validation:
@@ -23,6 +23,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-165
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:26.653Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

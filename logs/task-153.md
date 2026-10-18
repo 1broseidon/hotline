@@ -1,8 +1,6 @@
 ---
 id: task-153
 title: "P2-44 (D): Honest tests"
-column: in-progress
-position: 42
 priority: high
 tags:
   - phase2
@@ -16,7 +14,7 @@ relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/voice.rs
   - crates/hotline-core/src/tools/shell/macos.rs
-updatedAt: "2026-10-18T05:37:24.300Z"
+updatedAt: "2026-10-18T05:59:19.972Z"
 contract:
   status: in_progress
   validation:
@@ -41,7 +39,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T05:37:10.369Z"
+    ended: "2026-10-18T05:59:19.972Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T05:59:19.535Z"
 ---
 
 ## Description
@@ -55,3 +56,6 @@ Phase 2 group D (Fixes in the moved files), plan row 44 in docs/audits/0.40/READ
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T05:59:19.115Z: Landed on release/0.40.0

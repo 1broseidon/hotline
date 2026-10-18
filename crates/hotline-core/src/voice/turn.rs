@@ -561,15 +561,12 @@ impl Calls {
         if written.trim().is_empty() || spoken::said_as_written(&written) {
             return opening;
         }
-        match self.rewrite(id, event, &written, speech).await {
-            Some(rewritten) => {
-                self.count(id, event, spoken::Path::Rewritten);
-                sentences(&rewritten)
-            }
-            None => {
-                self.count(id, event, spoken::Path::Untagged);
-                opening
-            }
+        if let Some(rewritten) = self.rewrite(id, event, &written, speech).await {
+            self.count(id, event, spoken::Path::Rewritten);
+            sentences(&rewritten)
+        } else {
+            self.count(id, event, spoken::Path::Untagged);
+            opening
         }
     }
 

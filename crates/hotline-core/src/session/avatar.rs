@@ -198,23 +198,19 @@ impl Room {
     ) -> Result<Option<String>, String> {
         let root = self.log.root();
         let mut persona = self.persona(persona_id)?;
-        let hash = match png {
-            Some(png) => {
-                let hash = hex::encode(Sha256::digest(&png));
-                store(root, persona_id, &hash, &png)
-                    .map_err(|_| "The picture could not be saved.".to_string())?;
-                persona.avatar = Some(Avatar {
-                    hash: hash.clone(),
-                    by,
-                    updated_at: chrono::Utc::now()
-                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                });
-                Some(hash)
-            }
-            None => {
-                persona.avatar = None;
-                None
-            }
+        let hash = if let Some(png) = png {
+            let hash = hex::encode(Sha256::digest(&png));
+            store(root, persona_id, &hash, &png)
+                .map_err(|_| "The picture could not be saved.".to_string())?;
+            persona.avatar = Some(Avatar {
+                hash: hash.clone(),
+                by,
+                updated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            });
+            Some(hash)
+        } else {
+            persona.avatar = None;
+            None
         };
         persona.updated_at = super::now_ms();
         crate::room::append_persona(&self.log, &persona)?;

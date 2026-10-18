@@ -314,15 +314,14 @@ fn setting_value_to_import(key: &str, value: Value, report: &mut Report) -> Opti
     if key == "defaultBackendId" {
         // The old tree's default names a backend by its old id, like a
         // teammate's record does; both go through the same table.
-        return match value.as_str().and_then(counterpart) {
-            Some(mapped) => Some(Value::from(mapped)),
-            None => {
-                report.skipped.push(Skipped {
-                    item: "setting defaultBackendId".into(),
-                    reason: "not a backend this Hotline has".into(),
-                });
-                None
-            }
+        return if let Some(mapped) = value.as_str().and_then(counterpart) {
+            Some(Value::from(mapped))
+        } else {
+            report.skipped.push(Skipped {
+                item: "setting defaultBackendId".into(),
+                reason: "not a backend this Hotline has".into(),
+            });
+            None
         };
     }
     if key != "mcpServers" {

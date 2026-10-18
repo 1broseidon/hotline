@@ -81,17 +81,15 @@ async fn live_grok_subscription_voice_entitlement_probe() {
             return;
         }
     }
-    match timeout(
+    if let Ok(Ok(_)) = timeout(
         Duration::from_secs(30),
         crate::providers::xai::bearer(&tokens, None),
     )
     .await
     {
-        Ok(Ok(_)) => {}
-        _ => {
-            println!("grok_voice_probe credential_available=false");
-            return;
-        }
+    } else {
+        println!("grok_voice_probe credential_available=false");
+        return;
     }
     println!("grok_voice_probe credential_available=true");
     let endpoint = Endpoint {

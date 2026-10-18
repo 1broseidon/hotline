@@ -36,14 +36,14 @@ impl ChildAgent {
         #[cfg(windows)]
         let job = crate::process_windows::Job::attach(child.id())
             .map_err(|error| format!("Could not contain the agent process tree: {error}"))?;
-        let (stdin, stdout, stderr) =
-            match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
-                (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
-                _ => {
-                    end_group(&child);
-                    return Err(format!("{} gave no pipes to speak over.", launch.command));
-                }
-            };
+        let (stdin, stdout, stderr) = if let (Some(stdin), Some(stdout), Some(stderr)) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        {
+            (stdin, stdout, stderr)
+        } else {
+            end_group(&child);
+            return Err(format!("{} gave no pipes to speak over.", launch.command));
+        };
         pump_stderr(self.live.clone(), stderr);
         *lock(&self.child) = Some(child);
         #[cfg(windows)]

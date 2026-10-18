@@ -236,13 +236,12 @@ pub(crate) fn repair_event(
     if !event.get("type").is_some_and(Value::is_string) {
         return;
     }
-    match event.get("sequence_number").and_then(Value::as_u64) {
-        Some(number) => *next = number + 1,
-        None => {
-            event.insert("sequence_number".into(), (*next).into());
-            *next += 1;
-            fixed.insert("sequence_number");
-        }
+    if let Some(number) = event.get("sequence_number").and_then(Value::as_u64) {
+        *next = number + 1
+    } else {
+        event.insert("sequence_number".into(), (*next).into());
+        *next += 1;
+        fixed.insert("sequence_number");
     }
     let done = event
         .get("type")

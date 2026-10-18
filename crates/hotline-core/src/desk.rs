@@ -743,12 +743,9 @@ impl RoomHandle for Desk {
         });
         tokio::select! {
             biased;
-            prompt = prompt_rx => match prompt {
-                Ok(prompt) => Ok(prompt),
-                Err(_) => {
-                    let _ = (&mut task).await;
-                    Err(self.login_error(&id))
-                }
+            prompt = prompt_rx => if let Ok(prompt) = prompt { Ok(prompt) } else {
+                let _ = (&mut task).await;
+                Err(self.login_error(&id))
             },
             _ = &mut task => Err(self.login_error(&id)),
             () = tokio::time::sleep(Duration::from_secs(30)) => {

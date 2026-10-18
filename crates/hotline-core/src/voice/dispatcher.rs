@@ -489,33 +489,28 @@ impl ProviderDispatcher {
             &vault.account_models(),
             &metadata,
         );
-        let (provider, named, effort) = match &voice.dispatcher {
-            Some(pick) => {
-                if !keys.contains_key(&pick.provider_id) {
-                    return Err(format!(
-                        "Voice is set to use {} for its dispatcher, which is not connected. Connect it in Settings, or clear that choice.",
-                        pick.provider_id
-                    ));
-                }
-                (
-                    pick.provider_id.clone(),
-                    pick.model_id.clone(),
-                    pick.effort.clone(),
-                )
+        let (provider, named, effort) = if let Some(pick) = &voice.dispatcher {
+            if !keys.contains_key(&pick.provider_id) {
+                return Err(format!(
+                    "Voice is set to use {} for its dispatcher, which is not connected. Connect it in Settings, or clear that choice.",
+                    pick.provider_id
+                ));
             }
-            None => {
-                let preferred = crate::models::preferred_model(settings)
-                    .or_else(|| choices.first().map(|choice| choice.id.clone()))
-                    .ok_or(
-                        "Choose a default room model and connect its provider before calling.",
-                    )?;
-                let provider = preferred
-                    .split_once('/')
-                    .ok_or("The room's default model needs a provider.")?
-                    .0
-                    .to_string();
-                (provider, None, None)
-            }
+            (
+                pick.provider_id.clone(),
+                pick.model_id.clone(),
+                pick.effort.clone(),
+            )
+        } else {
+            let preferred = crate::models::preferred_model(settings)
+                .or_else(|| choices.first().map(|choice| choice.id.clone()))
+                .ok_or("Choose a default room model and connect its provider before calling.")?;
+            let provider = preferred
+                .split_once('/')
+                .ok_or("The room's default model needs a provider.")?
+                .0
+                .to_string();
+            (provider, None, None)
         };
         // Provider catalogues do not publish latency. Prefer the newest model in
         // their middle tier; preserve catalogue order within a tier.
@@ -682,19 +677,16 @@ impl AgentHook for Meter {
         }
         let request = serde_json::to_vec(&(event.prompt, event.history))
             .map_or(usize::MAX, |bytes| bytes.len());
-        match self
+        if let Ok(reservation) = self
             .ledger
             .reserve(Kind::Dispatcher, self.estimate(request))
         {
-            Ok(reservation) => {
-                // A reservation left here by a call that never answered stays charged.
-                *super::lock(&self.reservation) = Some(reservation);
-                CompletionCallAction::Continue
-            }
-            Err(_) => {
-                self.denied.store(true, Ordering::SeqCst);
-                CompletionCallAction::stop(BUDGET_ERROR)
-            }
+            // A reservation left here by a call that never answered stays charged.
+            *super::lock(&self.reservation) = Some(reservation);
+            CompletionCallAction::Continue
+        } else {
+            self.denied.store(true, Ordering::SeqCst);
+            CompletionCallAction::stop(BUDGET_ERROR)
         }
     }
 

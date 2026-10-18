@@ -159,18 +159,17 @@ impl Client {
             // Keep concurrent first claims in this client process on one key.
             static FIRST_KEY: std::sync::Mutex<()> = std::sync::Mutex::new(());
             let _guard = super::lock(&FIRST_KEY);
-            match self.store.get(&slot).map_err(storage)? {
-                Some(bytes) => read_identity(&bytes, &desk)?,
-                None => {
-                    let (private, _) = sealed::keypair()?;
-                    let identity = Identity { private, desk };
-                    // Persist before consuming the single-use invitation. A dropped
-                    // reply can then be recovered by pairing the same device again.
-                    self.store
-                        .set(&slot, &serde_json::to_vec(&identity).map_err(storage)?)
-                        .map_err(storage)?;
-                    identity
-                }
+            if let Some(bytes) = self.store.get(&slot).map_err(storage)? {
+                read_identity(&bytes, &desk)?
+            } else {
+                let (private, _) = sealed::keypair()?;
+                let identity = Identity { private, desk };
+                // Persist before consuming the single-use invitation. A dropped
+                // reply can then be recovered by pairing the same device again.
+                self.store
+                    .set(&slot, &serde_json::to_vec(&identity).map_err(storage)?)
+                    .map_err(storage)?;
+                identity
             }
         };
         let mut claim = json!({"secret":payload.secret,"name":device_name.trim()});

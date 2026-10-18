@@ -61,12 +61,11 @@ pub(super) fn run(
     Box::pin(async move {
         loop {
             let accepted = tokio::select! { biased; () = cancel.cancelled() => break, accepted = listener.accept() => accepted };
-            let (socket, peer) = match accepted {
-                Ok(v) => v,
-                Err(_) => {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    continue;
-                }
+            let (socket, peer) = if let Ok(v) = accepted {
+                v
+            } else {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
             };
             let accepted = tokio::time::Instant::now();
             let slot = tokio::select! {

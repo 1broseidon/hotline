@@ -11,8 +11,10 @@ pub(crate) fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
     if bytes.len() as u64 > MAX_BYTES {
         return Err(too_large(&name, Some(bytes.len() as u64)));
     }
-    let (bytes, mime, extension, dimensions) = match image::guess_format(&bytes) {
-        Ok(format @ (ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP)) => {
+    let (bytes, mime, extension, dimensions) =
+        if let Ok(format @ (ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP)) =
+            image::guess_format(&bytes)
+        {
             let mut reader = image::ImageReader::with_format(Cursor::new(&bytes), format);
             let mut limits = image::Limits::default();
             limits.max_image_width = Some(16000);
@@ -48,12 +50,10 @@ pub(crate) fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
                 _ => unreachable!(),
             };
             (bytes, format.to_mime_type(), extension, dimensions)
-        }
-        _ => {
+        } else {
             let (bytes, dimensions) = svg(bytes)?;
             (bytes, "image/svg+xml", "svg", dimensions)
-        }
-    };
+        };
     if bytes.len() as u64 > MAX_BYTES {
         return Err(too_large(&name, Some(bytes.len() as u64)));
     }

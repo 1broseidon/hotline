@@ -178,17 +178,14 @@ pub async fn discover(root: Option<&Path>, endpoint: &Endpoint) -> Option<Found>
     if recently_failed(endpoint) {
         return cached;
     }
-    match fetch(endpoint).await {
-        Some(found) => {
-            if let Some(root) = root {
-                write(root, &endpoint.provider_id, &found);
-            }
-            Some(found)
+    if let Some(found) = fetch(endpoint).await {
+        if let Some(root) = root {
+            write(root, &endpoint.provider_id, &found);
         }
-        None => {
-            remember_failure(endpoint);
-            cached
-        }
+        Some(found)
+    } else {
+        remember_failure(endpoint);
+        cached
     }
 }
 

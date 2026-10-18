@@ -264,17 +264,14 @@ impl Calls {
                 .then(|| (call.input_mode, call.target.clone())))
         });
         if let Ok(Some((input_mode, target))) = pipeline {
-            match self.resolve_speech(input_mode, target.as_deref()) {
-                Ok(services) => {
-                    let _ = self.change(id, |call| {
-                        call.speech_services = services;
-                        Ok(())
-                    });
-                }
-                Err(_) => {
-                    let _ = self.finish(id, VoiceEndReason::Error);
-                    return;
-                }
+            if let Ok(services) = self.resolve_speech(input_mode, target.as_deref()) {
+                let _ = self.change(id, |call| {
+                    call.speech_services = services;
+                    Ok(())
+                });
+            } else {
+                let _ = self.finish(id, VoiceEndReason::Error);
+                return;
             }
         }
         let _ = self.change(id, |call| {

@@ -758,93 +758,90 @@ fn parse_server(value: &Value) -> Option<McpServer> {
     let object = value.as_object()?;
     let id = object.get("id")?.as_str()?.to_string();
     let name = object.get("name")?.as_str()?.to_string();
-    let transport = match object.get("type").and_then(Value::as_str) {
-        Some("http") => {
-            let url = object.get("url")?.as_str()?.to_string();
-            let auth = match object
-                .get("auth")
-                .and_then(Value::as_object)
-                .and_then(|auth| auth.get("mode"))
-                .and_then(Value::as_str)
-            {
-                Some("bearer") => HttpAuth::Secret { header: None },
-                Some("header") => {
-                    let name = object
-                        .get("auth")
-                        .and_then(Value::as_object)
-                        .and_then(|auth| auth.get("name"))
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|name| !name.is_empty())
-                        .map(str::to_string);
-                    match name {
-                        Some(name) => HttpAuth::Secret { header: Some(name) },
-                        None => HttpAuth::None,
+    let transport = if let Some("http") = object.get("type").and_then(Value::as_str) {
+        let url = object.get("url")?.as_str()?.to_string();
+        let auth = match object
+            .get("auth")
+            .and_then(Value::as_object)
+            .and_then(|auth| auth.get("mode"))
+            .and_then(Value::as_str)
+        {
+            Some("bearer") => HttpAuth::Secret { header: None },
+            Some("header") => {
+                let name = object
+                    .get("auth")
+                    .and_then(Value::as_object)
+                    .and_then(|auth| auth.get("name"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string);
+                match name {
+                    Some(name) => HttpAuth::Secret { header: Some(name) },
+                    None => HttpAuth::None,
+                }
+            }
+            Some("oauth") => {
+                let auth = object
+                    .get("auth")
+                    .and_then(Value::as_object)
+                    .expect("oauth auth was an object");
+                let scopes: Vec<String> = auth
+                    .get("scopes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect();
+                let resource = auth
+                    .get("resource")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let client = auth.get("client").and_then(Value::as_object);
+                let client_id = client
+                    .and_then(|client| client.get("clientId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let token_endpoint_auth_method = client
+                    .and_then(|client| client.get("tokenEndpointAuthMethod"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                if scopes.is_empty()
+                    && resource.is_none()
+                    && client_id.is_none()
+                    && token_endpoint_auth_method.is_none()
+                {
+                    HttpAuth::Oauth
+                } else {
+                    HttpAuth::OauthConfigured {
+                        scopes,
+                        resource,
+                        client_id,
+                        token_endpoint_auth_method,
                     }
                 }
-                Some("oauth") => {
-                    let auth = object
-                        .get("auth")
-                        .and_then(Value::as_object)
-                        .expect("oauth auth was an object");
-                    let scopes: Vec<String> = auth
-                        .get("scopes")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect();
-                    let resource = auth
-                        .get("resource")
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    let client = auth.get("client").and_then(Value::as_object);
-                    let client_id = client
-                        .and_then(|client| client.get("clientId"))
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    let token_endpoint_auth_method = client
-                        .and_then(|client| client.get("tokenEndpointAuthMethod"))
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    if scopes.is_empty()
-                        && resource.is_none()
-                        && client_id.is_none()
-                        && token_endpoint_auth_method.is_none()
-                    {
-                        HttpAuth::Oauth
-                    } else {
-                        HttpAuth::OauthConfigured {
-                            scopes,
-                            resource,
-                            client_id,
-                            token_endpoint_auth_method,
-                        }
-                    }
-                }
-                _ => HttpAuth::None,
-            };
-            McpTransport::Http { url, auth }
-        }
-        _ => {
-            let command = object.get("command")?.as_str()?.to_string();
-            let args = object
-                .get("args")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect();
-            let (env, refuse) = stdio_env(object.get("env"));
-            return Some(McpServer {
-                id,
-                name,
-                transport: McpTransport::Stdio { command, args, env },
-                refuse,
-            });
-        }
+            }
+            _ => HttpAuth::None,
+        };
+        McpTransport::Http { url, auth }
+    } else {
+        let command = object.get("command")?.as_str()?.to_string();
+        let args = object
+            .get("args")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect();
+        let (env, refuse) = stdio_env(object.get("env"));
+        return Some(McpServer {
+            id,
+            name,
+            transport: McpTransport::Stdio { command, args, env },
+            refuse,
+        });
     };
     let refuse = match &transport {
         McpTransport::Http { url, .. } => {

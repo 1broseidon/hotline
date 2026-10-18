@@ -1,7 +1,7 @@
 ---
 id: task-141
 title: "P2-32 (C): The remaining big test files:"
-column: todo
+column: in-progress
 position: 30
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/tests.rs
   - crates/hotline-core/tests/voice.rs
   - crates/hotline-core/tests/desk.rs
-updatedAt: "2026-10-18T04:55:09.935Z"
+updatedAt: "2026-10-18T04:55:22.353Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - for f in crates/hotline-core/src/voice/tests.rs crates/hotline-core/tests/voice.rs crates/hotline-core/tests/desk.rs; do test ! -f $f || test $(wc -l < $f) -le 2000 || exit 1; done
@@ -24,6 +24,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T04:55:22.353Z"
+    reworkCount: 0
 dependsOn:
   - task-137
 dispatch:

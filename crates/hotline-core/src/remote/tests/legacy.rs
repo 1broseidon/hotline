@@ -21,13 +21,7 @@ async fn desktop_legacy_routes_are_absent_and_old_grants_only_remain_for_revocat
         "push":{"token":"ExponentPushToken[old]", "platform":"ios"}
     }));
     atomic_write(&path, &serde_json::to_vec(&saved).unwrap()).unwrap();
-    h.remote = Remote::open_with_store(
-        h.root.path(),
-        h.desk.log.clone(),
-        h.desk.clone(),
-        h.store.clone(),
-    )
-    .unwrap();
+    h.remote = h.reopen(h.store.clone());
     h.remote.configure(true, network::ALL).await.unwrap();
 
     let listed = h.remote.devices();

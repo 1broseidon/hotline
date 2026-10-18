@@ -162,17 +162,19 @@ fn uuid() -> String {
 /// A person's desktop, in this process: a room, and Remote on.
 async fn desktop(root: &Path) -> (Arc<Desk>, Arc<Remote>) {
     std::fs::create_dir_all(root).unwrap();
-    let port = free_address().port();
-    std::fs::write(
-        root.join("remote.json"),
-        json!({"desktopId": uuid(), "host": "all", "port": port, "enabled": false, "grants": []})
-            .to_string(),
-    )
-    .unwrap();
     let store: Arc<dyn SecretStore> = Arc::new(FileStore::open(root).unwrap());
     let desk = Arc::new(Desk::open_with_store(root, store.clone()).unwrap());
-    let remote =
-        Remote::open_with_store(root, desk.log.clone(), desk.clone(), store.clone()).unwrap();
+    // On loopback, on a socket bound here: no network needed, and no other
+    // test can take its port first.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote = Remote::open_on(
+        listener,
+        root,
+        desk.log.clone(),
+        desk.clone(),
+        store.clone(),
+    )
+    .unwrap();
     desk.set_remote(&remote);
     remote.configure(true, "all").await.unwrap();
     (desk, remote)

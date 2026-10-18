@@ -238,6 +238,7 @@ pub struct Remote {
     identity: CredentialFile,
     noise_identity: CredentialFile,
     served: Option<ServeOptions>,
+    bound: Option<network::Bound>,
     admission: Arc<admission::Admission>,
     relay: Arc<relay::Hub>,
     relayed: Arc<tokio::sync::Semaphore>,
@@ -361,13 +362,27 @@ impl Remote {
         room: Arc<dyn RoomHandle>,
         store: Arc<dyn SecretStore>,
     ) -> io::Result<Arc<Self>> {
-        Self::open_options(root, Some(Agents { log, room }), store, None)
+        Self::open_options(root, Some(Agents { log, room }), store, None, None)
+    }
+    /// A desktop's Remote that serves on `listener`, which the caller bound,
+    /// and advertises only its address: a test's loopback socket, so the
+    /// desk is reached without a network and no other test can take its port.
+    pub fn open_on(
+        listener: std::net::TcpListener,
+        root: &Path,
+        log: Log,
+        room: Arc<dyn RoomHandle>,
+        store: Arc<dyn SecretStore>,
+    ) -> io::Result<Arc<Self>> {
+        let bound = network::Bound::new(listener)?;
+        Self::open_options(root, Some(Agents { log, room }), store, None, Some(bound))
     }
     fn open_options(
         root: &Path,
         agents: Option<Agents>,
         store: Arc<dyn SecretStore>,
         served: Option<ServeOptions>,
+        bound: Option<network::Bound>,
     ) -> io::Result<Arc<Self>> {
         fs::create_dir_all(root)?;
         let mut saved: Saved = match fs::read(root.join("remote.json")) {
@@ -402,6 +417,7 @@ impl Remote {
             identity,
             noise_identity,
             served,
+            bound,
             admission: Arc::new(admission::Admission::default()),
             relay: Arc::default(),
             relayed: Arc::new(tokio::sync::Semaphore::new(relay::RELAYED_MAX)),
@@ -430,8 +446,13 @@ impl Remote {
         )
         .map_err(message)
     }
-    pub fn addresses() -> Vec<String> {
-        network::addresses()
+    /// Where this computer can be reached: its own interfaces, or only the
+    /// address of the socket it was opened on.
+    fn addresses(&self) -> Vec<String> {
+        match &self.bound {
+            Some(bound) => vec![bound.address.ip().to_string()],
+            None => network::addresses(),
+        }
     }
     /// The room behind the wire, or why there is none.
     fn agents(&self) -> Result<&Agents, String> {
@@ -478,7 +499,7 @@ impl Remote {
                 .chain(&s.relay.url)
                 .cloned()
                 .collect(),
-            addresses: Self::addresses(),
+            addresses: self.addresses(),
             devices: s.saved.all_grants().map(|g| g.device.clone()).collect(),
             error: s.error.clone(),
             relay: self.relay_status(&s),
@@ -540,7 +561,7 @@ impl Remote {
             return self.configure_served(enabled, host).await;
         }
         let _held = self.lifecycle.lock().await;
-        let addresses = Self::addresses();
+        let addresses = self.addresses();
         if host != network::ALL && !host.parse::<IpAddr>().is_ok_and(network::reachable) {
             return Err(
                 "Choose all host IPs or a network address. Loopback is not available for Remote."
@@ -589,9 +610,11 @@ impl Remote {
             return Ok(self.status());
         }
         let saved_port = lock(&self.state).saved.port;
-        let listener = network::bind(host, saved_port, &addresses)
-            .await
-            .map_err(message)?;
+        let listener = match &self.bound {
+            Some(bound) => bound.listen().await,
+            None => network::bind(host, saved_port, &addresses).await,
+        }
+        .map_err(message)?;
         let port = listener.local_addr().map_err(message)?.port();
         // The identity is a certificate this desk signed itself, so one it
         // cannot read any more — corrupt, gone from the OS store, or written

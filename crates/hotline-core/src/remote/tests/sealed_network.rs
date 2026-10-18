@@ -362,13 +362,7 @@ async fn tls_rotation_preserves_noise_identity_and_grants_across_restart() {
     h.remote.configure(false, network::ALL).await.unwrap();
     // Corrupt TLS, not Noise. A new certificate is not a new desk identity.
     h.remote.identity.write(b"broken TLS").unwrap();
-    let reopened = Remote::open_with_store(
-        h.root.path(),
-        h.desk.log.clone(),
-        h.desk.clone(),
-        h.store.clone(),
-    )
-    .unwrap();
+    let reopened = h.reopen(h.store.clone());
     reopened.configure(true, network::ALL).await.unwrap();
     assert_ne!(reopened.identity.read().unwrap().unwrap(), before);
     assert_eq!(reopened.noise_keys().unwrap(), keys);

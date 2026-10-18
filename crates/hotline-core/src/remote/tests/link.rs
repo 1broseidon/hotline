@@ -40,17 +40,6 @@ fn answers(who: &str) -> Scripted {
 /// A desk with one teammate on scripted agents, its listener on.
 async fn desk(id: &str, name: &str) -> Linked {
     let root = tempfile::tempdir().unwrap();
-    let port = std::net::TcpListener::bind("[::]:0")
-        .or_else(|_| std::net::TcpListener::bind("0.0.0.0:0"))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    fs::write(
-        root.path().join("remote.json"),
-        json!({"desktopId": Uuid::new_v4(), "host": network::ALL, "port": port, "enabled": false, "grants": []}).to_string(),
-    )
-    .unwrap();
     let store = Arc::new(MemoryStore::default());
     let log = Log::open(root.path());
     let mut teammate = persona(id);
@@ -69,9 +58,14 @@ async fn open(root: tempfile::TempDir, store: Arc<MemoryStore>) -> Linked {
         Fake::new(answers("teammate")),
     );
     let desk = Arc::new(Desk::with_room(log.clone(), room.clone()));
-    let remote =
-        Remote::open_with_store(root.path(), desk.log.clone(), desk.clone(), store.clone())
-            .unwrap();
+    let remote = Remote::open_on(
+        loopback(),
+        root.path(),
+        desk.log.clone(),
+        desk.clone(),
+        store.clone(),
+    )
+    .unwrap();
     desk.set_remote(&remote);
     remote.configure(true, network::ALL).await.unwrap();
     remote.restore().await;

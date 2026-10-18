@@ -7,7 +7,9 @@ version = "0.39.0"
 edition = "2024"
 
 [workspace.dependencies]
-rig = "0.42.0"
+# Without `derive`: nothing here uses Rig's derive macros, and they bring a
+# proc-macro crate into every build.
+rig = { version = "0.42.0", default-features = false, features = ["agent", "reqwest", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 # `preserve_order`: an event read from a tape and written back keeps the key
 # order it was written with, so a compaction never rewrites a line into

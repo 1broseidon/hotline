@@ -263,7 +263,8 @@ automatic cleanup); they are additional storage, including for phone uploads.
 
 Types are defined once in Rust with serde and the TypeScript is generated
 (ts-rs), so the window and the core cannot drift. `hotline_core::contract`
-already holds the room's types from the migration and moves over as is.
+holds most of them; [development.md](development.md#the-generated-contract)
+names the few defined beside the module that owns them.
 
 ### 3. One session kind, two drivers
 
@@ -632,32 +633,8 @@ with the teammate's reach and grants, no more.
 
 ## Module map
 
-```
-crates/hotline-core/src/
-  contract/              the wire's types (serde + ts-rs), a file per concern
-  paths.rs               the data directory's layout
-  log/                   streams: append, fold, segments, subscribe
-  store/                 FTS5 over tapes and chapters; chapter list; previews
-  room.rs                the roster fold, settings, and schedules
-  vault.rs               secrets beside the room stream
-  session/               Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
-  driver/                InProcess (Rig) and the ACP child, with its agent registry
-  mcp/                   the client of granted servers, and Hotline's own teammate tools
-  skills/                the catalog: built-in, gateway and workspace skills, copied into a workspace
-  tools/                 workspace tools on cap-std, shell command
-  desk.rs                the room, vault and log behind the wire
-  boot.rs                one boot, the app's and `hotline serve`'s, that returns its errors
-  import.rs              copies an existing Hotline data directory
-  import/                the previous edition's roster and records, read-only
-  wire/                  the door: seats, commands, subscriptions
-  linked.rs              linked desks: their records, qualified ids, the roster that crosses
-  remote/                Remote: the sealed listener, pairing, the relay, a linked desk's channel
-  bin/hotline-import.rs     the importer as a binary
-  bin/hotline-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
-crates/hotline-app/     the Tauri shell: plugins, the menu, the door
-ui/                      the window (React, built against the generated contract; ui/src/ui is the design system)
-crates/hotline-core/tests/  headless end-to-end proofs (integration tests driving the wire)
-```
+The tree, and what each module holds, is mapped once in
+[development.md](development.md#layout).
 
 ## Phases
 

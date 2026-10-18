@@ -20,7 +20,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 1
 
-FAST_LEGS=(fmt lockfile actionlint contract clippy windows ui)
+FAST_LEGS=(fmt lockfile actionlint citations contract clippy windows ui)
 FULL_LEGS=(linux bare-path shuffle)
 LOGS="$ROOT/target/precheck"
 HOST="$(rustc -vV | sed -n 's/^host: //p')"
@@ -65,6 +65,12 @@ leg_lockfile() {
 
 leg_actionlint() {
   need_brew actionlint && need_brew shellcheck && actionlint
+}
+
+# docs/security.md proves each boundary by naming its tests; a test that is
+# renamed or moved without its row leaves a claim nothing proves.
+leg_citations() {
+  python3 scripts/security-citations
 }
 
 # ts-rs writes contract.ts from the export tests, merging into what is there,

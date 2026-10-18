@@ -2,7 +2,7 @@
 # nothing done in it can reach real data.
 dev: export HOTLINE_DATA_DIR := $(CURDIR)/.hotline-dev
 
-.PHONY: check ui-check licenses dev build verify icons tray-icons speech-engine precheck precheck-full hooks hooks-nudge
+.PHONY: check ui-check deps dev build verify icons tray-icons speech-engine precheck precheck-full hooks hooks-nudge
 
 # What GitHub's runners would fail, caught on this Mac before a push: Windows
 # by cross-compiling, each window test file alone, the workflows linted.
@@ -23,7 +23,7 @@ hooks:
 hooks-nudge:
 	@[ "$$(git config --get core.hooksPath)" = .githooks ] || echo "git hooks are off: make hooks turns them on (docs/development.md#git-hooks)"
 
-check: hooks-nudge ui-check licenses speech-engine
+check: hooks-nudge ui-check deps speech-engine
 	python3 -m unittest discover -s scripts -p 'test_*.py'
 	python3 -m unittest discover -s site/tests -p 'test_*.py'
 	cargo fmt --all --check
@@ -58,20 +58,29 @@ ui-check:
 		echo "ui/src/generated/contract.ts is partial: run cargo test -p hotline-core, unfiltered, to write it whole"; exit 1; fi
 	cd ui && bun run typecheck && bun run lint && bun run knip && bun run test
 
-# The license gate: a crate or a window package under a license nobody
-# reviewed fails. deny.toml lists the crates' licenses and
-# scripts/window_licenses.py the window's; THIRD-PARTY-NOTICES.md says what
-# each obliges, and what neither tool reads (fonts, bundled builds, the
-# speech engine). cargo-deny is pinned, so a new release of it cannot fail
-# a tree that passed: a different version stops with the line that
-# installs this one.
+# The dependency gates. machete fails on a Cargo dependency nothing uses.
+# cargo-deny fails on an advisory against Cargo.lock that deny.toml does not
+# list with its review condition, and on a crate under a license nobody
+# reviewed; scripts/window_licenses.py does the same for the window's
+# packages, and THIRD-PARTY-NOTICES.md says what each license obliges and
+# what neither tool reads (fonts, bundled builds, the speech engine). bun
+# audit fails on any advisory, of any severity, against the window's
+# lockfile. Both cargo tools are pinned, here and in CI, so a new release of
+# either cannot fail a tree that passed: a different version stops with the
+# line that installs this one. The advisory databases are fetched on every
+# run, which is the point of the gate.
+MACHETE_VERSION := 0.9.2
 DENY_VERSION := 0.20.2
-licenses:
+deps:
+	@cargo machete --version 2>/dev/null | grep -qx '$(MACHETE_VERSION)' || { \
+		echo "make check needs cargo-machete $(MACHETE_VERSION): cargo install --locked cargo-machete@$(MACHETE_VERSION)"; exit 1; }
 	@cargo deny --version 2>/dev/null | grep -qx 'cargo-deny $(DENY_VERSION)' || { \
 		echo "make check needs cargo-deny $(DENY_VERSION): cargo install --locked cargo-deny@$(DENY_VERSION)"; exit 1; }
-	cargo deny --locked check licenses
+	cargo machete --with-metadata
+	cargo deny --locked check advisories licenses
 	cd ui && bun install --frozen-lockfile
 	python3 scripts/window_licenses.py
+	cd ui && bun audit
 
 # The Tauri CLI is a cargo subcommand (`cargo install tauri-cli --version ^2`).
 # It runs from the shell crate, where tauri.conf.json is, and starts Vite for

@@ -76,3 +76,10 @@ objc2-user-notifications = { version = "0.3", features = [
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+
+# `cargo machete --with-metadata` (make check) reads a crate's targets but
+# never its build script, so a build dependency used only there looks unused.
+# tauri-build is that: `build.rs` calls it to write the shell's command
+# manifest. serde_json is also a build dependency, but `src/` names it too.
+[package.metadata.cargo-machete]
+ignored = ["tauri-build"]

@@ -1,12 +1,49 @@
-# cargo-deny's policy for Cargo.lock. `make check` runs its license check;
-# every target's dependencies are checked, not only the host's.
+# cargo-deny's policy for Cargo.lock. `make check` and CI run its
+# advisories and licenses checks; bans are not gated yet.
 #
-# A crate under a license outside this list fails, and so does one whose
+# Every target's dependencies are checked, not only the host's, because the
+# Linux GTK and D-Bus crates below never build on a Mac.
+#
+# A vulnerability, an unsound crate or a yanked version fails the check. So
+# does an unmaintained crate anywhere in the graph, unless it is listed below
+# by ID with what it comes through and when to look again. No vulnerability
+# is ignored. ZIP's extraction advisories (RUSTSEC-2026-0367, 0368, 0369) are
+# avoided by two choices, each explained where it is made, and this check
+# fails if either is undone: the updater is built without its `zip` feature
+# (crates/hotline-app/Cargo.toml), and sherpa-onnx-sys is patched to an
+# upstream commit that takes ZIP 9 (the root Cargo.toml).
+#
+# A crate under a license outside the [licenses] list fails, and so does one whose
 # license cargo-deny cannot read with confidence. Each entry was read for
 # what it obliges, and THIRD-PARTY-NOTICES.md says what that is and which
 # crates bring it. A crate offering a choice passes when any one of its
 # licenses is here: r-efi's LGPL-2.1-or-later is an alternative to MIT and
 # Apache-2.0, never the one taken.
+
+[advisories]
+unmaintained = "all"
+yanked = "deny"
+ignore = [
+    # Build time only: a proc macro under gtk-rs 0.18's glib-macros, which
+    # Tauri's Linux tray and dialogs use. Look again when Tauri moves off GTK 3.
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 1.0.4 via glib-macros 0.18 (Tauri on Linux); review when Tauri leaves gtk-rs 0.18" },
+
+    # Build time and run time: urlpattern 0.3 under tauri-utils, which both
+    # tauri-build and tauri link. Look again when urlpattern drops rust-unic.
+    { id = "RUSTSEC-2025-0075", reason = "unic-char-range 0.9 via urlpattern 0.3 (tauri-utils); review when urlpattern or tauri-utils drops it" },
+    { id = "RUSTSEC-2025-0080", reason = "unic-common 0.9 via urlpattern 0.3 (tauri-utils); review when urlpattern or tauri-utils drops it" },
+    { id = "RUSTSEC-2025-0081", reason = "unic-char-property 0.9 via urlpattern 0.3 (tauri-utils); review when urlpattern or tauri-utils drops it" },
+    { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version 0.9 via urlpattern 0.3 (tauri-utils); review when urlpattern or tauri-utils drops it" },
+    { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident 0.9 via urlpattern 0.3 (tauri-utils); review when urlpattern or tauri-utils drops it" },
+
+    # Run time on Linux: zbus 5.19 for D-Bus, under notify-rust (the
+    # notification plugin) and the opener plugin. zbus folded these crates
+    # into itself (z-galaxy/zbus#2043). Look again when a zbus release
+    # without them reaches those two plugins.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant 5.15 via zbus 5.19 (notification and opener plugins on Linux); review when they take a zbus without it" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names 4.3 via zbus 5.19 (notification and opener plugins on Linux); review when they take a zbus without it" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5.15 via zbus 5.19 (notification and opener plugins on Linux); review when they take a zbus without it" },
+]
 
 [licenses]
 allow = [

@@ -15,7 +15,24 @@ relatedFiles:
   - crates/hotline-core/src/desk.rs
   - crates/hotline-core/src/wire/room_handle.rs
   - crates/hotline-core/src/driver/failure.rs
-updatedAt: "2026-10-18T23:53:17.440Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/src/driver/acp/registry.rs
+      description: a failed fetch keeps the last good list; a stale cache refreshes in the background without blocking session start; model-not-supported reads as a too-old harness with what to do
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo test -p hotline-core
+      - cargo test -p hotline-core --test acp_startup
+      - git diff --exit-code ui/src/generated/contract.ts
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
+dependsOn:
+  - task-188
 ---
 
 ## Description

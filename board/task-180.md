@@ -11,7 +11,7 @@ tags:
   - bug
 createdAt: "2026-10-18T21:59:36.514Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T23:53:17.105Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/session.rs
@@ -22,6 +22,25 @@ relatedFiles:
   - crates/hotline-core/skills/hotline-room/SKILL.md
   - crates/hotline-core/src/session/tests/cards.rs
   - ui/src/generated/contract.ts
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/tests
+      description: "over the wire: a withdrawn card is gone for desk and phone seats; a card past its lifetime expires and tells the teammate once; a longer wait is honoured up to the cap"
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo test -p hotline-core
+      - cargo test -p hotline-core --test desk
+      - git diff --exit-code ui/src/generated/contract.ts
+      - make ui-check
+  constraints:
+    - A teammate may withdraw only its own card
+    - A tool change follows docs/security.md
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
 ---
 
 ## Description

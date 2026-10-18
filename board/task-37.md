@@ -27,10 +27,21 @@ description: |-
   Corrected the earlier review: call.ts:744 handles native error events and ended(error), and dictation.ts:259 does too. Those reporting paths already exist. What remains is reproducing the signature/TCC case where the mic moves without any transcript or error, showing an actionable refusal/unavailable state, and offering/using an installed desk model without silent paid fallback. Do not treat ordinary silence as a permission failure. An active call's input mode is fixed (voice/mod.rs:659); any fallback from device text to desk audio must explicitly replace/restart the call rather than change its mode in place. Verify native refused/unavailable, emitted runtime errors, silent recognition failure and installed-model recovery for both call and dictation.
 
   0.40 triage (2026-10-18): Remaining: the refused and failed messages exist (ui/src/voice/call.ts, dictation.ts). Detect a microphone that runs, with the level meter moving, but never yields text (the signature or permission mismatch case), say so in a few words, and offer an installed desk model.
-updatedAt: "2026-10-18T23:53:19.682Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
 priority: high
 parentId: epic-14
 relatedFiles:
   - ui/src/voice/call.ts
   - ui/src/voice/dictation.ts
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: ui/src/voice
+      description: a running mic with a moving level and no transcript is reported in a few words and offers an installed desk model; ordinary silence is not
+  validation:
+    commands:
+      - make ui-check
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
 ---

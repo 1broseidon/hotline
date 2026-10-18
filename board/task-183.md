@@ -13,7 +13,21 @@ relatedFiles:
   - crates/hotline-core/src/remote/link.rs
   - crates/hotline-core/src/remote/v2.rs
   - crates/hotline-core/src/remote/tests/link.rs
-updatedAt: "2026-10-18T23:53:17.995Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/src/remote/tests/link.rs
+      description: a failed room.unlinked clears dialing; an old desk gets the friendly message; noise_keys accepts a linked desk's key
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo test -p hotline-core
+      - git diff --exit-code ui/src/generated/contract.ts
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
 ---
 
 ## Description

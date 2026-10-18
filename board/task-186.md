@@ -11,7 +11,20 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:56.313Z"
 relatedFiles:
   - crates/hotline-app/src/desks.rs
-updatedAt: "2026-10-18T23:53:18.848Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-app/src/desks.rs
+      description: a desk that hangs does not delay the others; per-desk errors stay separate
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo test -p hotline-app
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
 ---
 
 ## Description

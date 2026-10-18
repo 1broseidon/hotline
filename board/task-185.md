@@ -13,7 +13,20 @@ relatedFiles:
   - crates/hotline-core/src/computer/container.rs
   - ui/src/components/settings
   - ui/src/generated/contract.ts
-updatedAt: "2026-10-18T23:53:18.564Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo test -p hotline-core
+      - git diff --exit-code ui/src/generated/contract.ts
+      - make ui-check
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
+dependsOn:
+  - task-180
 ---
 
 ## Description

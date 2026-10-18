@@ -12,7 +12,21 @@ createdAt: "2026-10-18T23:40:56.843Z"
 relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/tests.rs
-updatedAt: "2026-10-18T23:53:19.124Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/src/wire/tests.rs
+      description: a slow read does not hold up the next command; mutating commands stay in order
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo test -p hotline-core
+      - git diff --exit-code ui/src/generated/contract.ts
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
 ---
 
 ## Description

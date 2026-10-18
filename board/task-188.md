@@ -13,7 +13,24 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig/build.rs
   - crates/hotline-core/src/driver/failure.rs
   - ui/src/components/settings
-updatedAt: "2026-10-18T23:53:19.400Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core
+      description: "a desk with no provider connected says Hotline Agent unavailable: connect a provider, before the first turn, not as a failed turn"
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo test -p hotline-core
+      - git diff --exit-code ui/src/generated/contract.ts
+      - make ui-check
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
+dependsOn:
+  - task-8
 ---
 
 ## Description

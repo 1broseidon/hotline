@@ -23,6 +23,31 @@ relatedFiles:
   - docs/security.md
 parentId: epic-14
 createdAt: "2026-10-18T23:53:30.443Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make check
+      - make verify
+      - make precheck
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
+dependsOn:
+  - task-8
+  - task-37
+  - task-49
+  - task-55
+  - task-89
+  - task-180
+  - task-181
+  - task-182
+  - task-183
+  - task-184
+  - task-185
+  - task-186
+  - task-187
+  - task-188
 ---
 
 ## Description

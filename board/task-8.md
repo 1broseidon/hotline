@@ -34,9 +34,26 @@ description: |-
   Migrated from Linear BRO-126: https://linear.app/1broseidon/issue/BRO-126/a-provider-refusing-turns-shouldnt-read-as-sign-in-again-when-the-sign (2026-10-11).
 
   0.40 triage (2026-10-18): In scope as is: the wording plus a one-off discovery probe. driver/failure.rs:273-275 still says 'Provider sign-in required… Check its credentials' for every Kind::Auth. Probe providers/chatgpt.rs list_models_at once per failure, cache the verdict briefly, and say 'ChatGPT is refusing requests' (or the provider's name) when the sign-in still lists models.
-updatedAt: "2026-10-18T23:53:20.237Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/driver/failure.rs
   - crates/hotline-core/src/providers/chatgpt.rs
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/src/driver/failure.rs
+      description: a stub that lists models but refuses /responses with 401 reads as the provider refusing, not sign in again; a revoked token still reads Provider sign-in required
+  validation:
+    commands:
+      - cargo fmt --all --check
+      - cargo clippy --workspace --all-targets -- -D warnings
+      - cargo test -p hotline-core
+      - git diff --exit-code ui/src/generated/contract.ts
+  constraints:
+    - Probe once per failure, not per retry, and cache the verdict briefly
+    - Do not mark the credential as needing attention when the sign-in still lists models
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
 ---

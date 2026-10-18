@@ -13,7 +13,18 @@ relatedFiles:
   - ui/src/index.css
 parentId: epic-14
 createdAt: "2026-10-12T04:20:52.535Z"
-updatedAt: "2026-10-18T23:40:50.464Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: ui/src/components
+      description: Mermaid draws only near the viewport; computer frame blobs cached by event id and revoked; scroll anchor holds when older lines arrive
+  validation:
+    commands:
+      - make ui-check
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
 ---
 
 ## Description

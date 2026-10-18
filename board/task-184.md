@@ -11,7 +11,14 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:55.296Z"
 relatedFiles:
   - ui/src/components/teammate/Threads.tsx
-updatedAt: "2026-10-18T23:53:18.280Z"
+updatedAt: "2026-10-18T23:53:55.552Z"
+contract:
+  status: ready
+  validation:
+    commands:
+      - make ui-check
+  metrics:
+    readyAt: "2026-10-18T23:53:55.554Z"
 ---
 
 ## Description

@@ -27,12 +27,13 @@ import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
 import { shownTeam, teamOrder } from "./pins";
-import { activeDeskId, allDesks, deskFilter, deskKey, useActiveDesk, useDesks, wireFor } from "./desks";
+import { activeDeskId, allDesks, deskFilter, useActiveDesk, useDesks, wireFor } from "./desks";
 import { cachedRoster, keepRoster, syncWatches, useBackgroundRosters, useBackgroundUnread } from "./deskWatch";
 import { AddDesk } from "./components/AddDesk";
 import { ServerFiles } from "./components/ServerFiles";
 import { useSaved } from "./useSaved";
 import { openOnDesk, useNavigation } from "./useNavigation";
+import { useSeen } from "./useSeen";
 
 
 /* Settings is opened now and then, not at launch: it loads on first open,
@@ -69,7 +70,6 @@ export function App() {
 	useEffect(() => {
 		if (rosterLoaded) keepRoster(activeDeskId() ?? "", roster);
 	}, [roster, rosterLoaded]);
-	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
 	const {
 		selectedId,
@@ -199,18 +199,7 @@ export function App() {
 
 	const selected = roster.find((one) => one.persona.id === selectedId) ?? null;
 
-	/* Opening a teammate, or sitting on one while a new line lands, is what
-	 * "shown" means. The rail then has a ts to compare against. */
-	useEffect(() => {
-		if (selectedId === null || selected?.latest == null) return;
-		const latest = selected.latest;
-		setSeen((known) => {
-			if (known[selectedId] === latest) return known;
-			const next = { ...known, [selectedId]: latest };
-			saveSeen(next);
-			return next;
-		});
-	}, [selectedId, selected?.latest]);
+	const seen = useSeen(selectedId, selected?.latest);
 
 	useEffect(() => {
 		noticeRoster(roster, { id: activeDeskId() ?? "" });
@@ -797,38 +786,6 @@ function takeChord(): boolean {
 
 /** The width of the window's main column below which a work card docks. */
 const WORK_DOCK_BELOW = 960;
-
-function perDesk(key: string): string {
-	return deskKey(key);
-}
-
-/** Where this window last stood in each tape. Private mode or a full disk
- * just means every teammate looks unread until you open them again. */
-const SEEN_KEY = "hotline.rail.seen";
-
-function loadSeen(): Record<string, number> {
-	try {
-		const raw = localStorage.getItem(perDesk(SEEN_KEY));
-		if (!raw) return {};
-		const parsed: unknown = JSON.parse(raw);
-		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
-		const seen: Record<string, number> = {};
-		for (const [id, ts] of Object.entries(parsed)) {
-			if (typeof ts === "number" && Number.isFinite(ts)) seen[id] = ts;
-		}
-		return seen;
-	} catch {
-		return {};
-	}
-}
-
-function saveSeen(seen: Record<string, number>): void {
-	try {
-		localStorage.setItem(perDesk(SEEN_KEY), JSON.stringify(seen));
-	} catch {
-		// Quota, private mode — the next load treats everything as unread.
-	}
-}
 
 /**
  * A band over the active desk when it is a remote one that is not there:

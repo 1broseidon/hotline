@@ -11,7 +11,7 @@ parentId: epic-13
 createdAt: "2026-10-17T22:40:58.554Z"
 relatedFiles:
   - crates/hotline-core/src/providers/discovery.rs
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:04.402Z"
 contract:
   status: ready
   validation:
@@ -22,6 +22,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-126
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:04.262Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

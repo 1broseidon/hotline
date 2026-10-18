@@ -707,3 +707,26 @@ async fn a_companion_hello_marks_the_public_endpoint_only_when_one_is_set() {
     assert!(endpoints.contains(&json!("https://desk.example.com")));
     h.remote.configure(false, network::ALL).await.unwrap();
 }
+
+/// A panic that poisons Remote's state must not take the listener's
+/// authority checks down with it, nor leave a revoked phone a way in: the
+/// state is recovered, a paired phone still connects, and a revoke still
+/// closes its socket and refuses the next one.
+#[tokio::test]
+async fn a_poisoned_remote_still_admits_its_phones_and_still_revokes_them() {
+    let h = Harness::new().await;
+    let kept = h.pair().await;
+    let revoked = h.pair().await;
+    let mut socket = h.socket(&revoked.private).await.unwrap();
+    assert_eq!(read(&mut socket).await["protocolVersion"], 2);
+    crate::remote::poison(&h.remote.state);
+
+    let mut other = h.socket(&kept.private).await.unwrap();
+    assert_eq!(read(&mut other).await["protocolVersion"], 2);
+    h.remote.revoke(&revoked.id).unwrap();
+    sealed_network::closed(&mut socket.socket).await;
+    assert!(h.socket(&revoked.private).await.is_none());
+    assert_eq!(h.remote.devices().len(), 1);
+
+    h.remote.configure(false, network::ALL).await.unwrap();
+}

@@ -53,8 +53,8 @@ pub(super) async fn prompt(
         ThreadKind::Dm => {
             room.prompt(&thread.key, text, reply_to, attachments)
                 .await?;
-            if let Ok(persona) = super::commands::living(log, &thread.key) {
-                super::commands::remember_model(log, room, &persona).await?;
+            if let Ok(persona) = super::commands::persona::living(log, &thread.key) {
+                super::commands::models::remember_model(log, room, &persona).await?;
             }
             Ok(Value::Null)
         }
@@ -207,10 +207,10 @@ pub(super) fn page(
     through: Option<&str>,
 ) -> Result<Value, String> {
     if thread.kind == ThreadKind::Dm {
-        super::commands::living(log, &thread.key)?;
+        super::commands::persona::living(log, &thread.key)?;
     }
     let stream = thread.stream().ok_or("That thread has no lines.")?;
-    Ok(super::thread_page(
+    Ok(super::subscribe::thread_page(
         log,
         &stream,
         before,
@@ -239,7 +239,8 @@ pub(super) fn list(
     let mut summaries: Vec<ThreadSummary> = threads
         .iter()
         .filter(|thread| {
-            !companion || (thread.kind() != ThreadKind::Pair && super::phone_may_read(&thread.id))
+            !companion
+                || (thread.kind() != ThreadKind::Pair && super::seat::phone_may_read(&thread.id))
         })
         .map(|thread| summarize(log, room, thread, &roster))
         .collect();

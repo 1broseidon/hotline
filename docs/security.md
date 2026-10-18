@@ -550,7 +550,7 @@ question the change must answer in its PR description.
    let a request borrow the authority of the process it happens to run in.
 3. **Choose the default and the migration.** The default grants nothing
    beyond the workspace. Decide explicitly what an existing record without
-   the field means, and write it down beside the field in `contract.rs`;
+   the field means, and write it down beside the field in `contract`;
    "missing means off" is the house answer, and old implicit access is not
    translated into an explicit grant.
 4. **Enforce outside the model, at every entry.** The check is a
@@ -904,7 +904,7 @@ it lets a colleague use another's tools.
   cannot name them at all. There is no legacy record: this is a new command,
   not a new field.
 - **Grant source:** the phone seat's allowlist in `Seat::permits`
-  (`wire.rs`) now names `Command::MobilePersonaCreate` and
+  (`wire/seat.rs`) now names `Command::MobilePersonaCreate` and
   `Command::BackendsList`. `mobile.persona_create` is confined in core —
   `wire/commands.rs`'s `mobile_persona_create` builds a `PersonaDraft` that
   never sets `reach`, `cwd` or `computer` — rather than by the phone's form
@@ -940,7 +940,7 @@ it lets a colleague use another's tools.
 - **Default and old records:** nothing new is stored. `session.retry`
   queues the line already on the tape as a retry and writes no new message.
 - **Grant source:** the local desk and owners, as every command; the phone
-  seat's allowlist in `Seat::permits` (`wire.rs`) names
+  seat's allowlist in `Seat::permits` (`wire/seat.rs`) names
   `Command::SessionRetry`, so a companion may retry too, and the hello lists
   `turnRetry`. It can only resend a line the tape already holds, which any
   paired phone could have sent.
@@ -963,7 +963,7 @@ it lets a colleague use another's tools.
   writes the same persona record `persona.update` does, with only `name` and
   `goal` changed; `persona.delete` writes the same tombstone.
 - **Grant source:** the phone seat's allowlist in `Seat::permits`
-  (`wire.rs`) now names `Command::MobilePersonaUpdate` and
+  (`wire/seat.rs`) now names `Command::MobilePersonaUpdate` and
   `Command::PersonaDelete`, and the hello lists `personaEdit`.
   `mobile.persona_update` is confined by its shape: the command has fields
   for a name and a goal and nowhere to carry anything else, and
@@ -1073,7 +1073,7 @@ it lets a colleague use another's tools.
   writes, through the same persona record. `session.set_mode` now also keeps
   the chosen `modeId`, so a harness teammate comes back in it after a restart
   instead of on the harness default.
-- **Grant source:** `Seat::permits` (`wire.rs`) lets `Seat::Owner`, and
+- **Grant source:** `Seat::permits` (`wire/seat.rs`) lets `Seat::Owner`, and
   not `Seat::Phone`, send `Command::MobilePersonaAccess` .
   The command has fields for a reach, a mode and background work and nowhere
   to carry a path, a server, a skill or a computer; `persona.update` and
@@ -1515,7 +1515,7 @@ separate measurement; fake-provider test timings are not a production guarantee.
   that kind. A socket reads the newer shapes (`link`, `thread_delta`) only after
   it says so with `client.hello`; one that never does is sent what it always was.
 - **Grant source:** `phone_thread_command` and `phone_may_read`
-  (`wire.rs`), beside `Seat::permits` and `permits_sub`. The desk and an
+  (`wire/seat.rs`), beside `Seat::permits` and `permits_sub`. The desk and an
   owner run everything. A companion:
 
   | verb | companion may | because |

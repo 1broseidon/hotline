@@ -49,6 +49,7 @@ export function DeskRoot() {
 	const desk = useActiveDesk();
 	const desks = useDesks();
 	// Every desk not on screen is watched for toasts and unread (deskWatch.ts).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: syncWatches reads desks.ts itself; these are what change it.
 	useEffect(syncWatches, [desk?.id, desks]);
 	// Keyed by the endpoint too: a desk paired again has a new bridge, and its
 	// old connection (and everything subscribed on it) is gone.
@@ -128,6 +129,7 @@ export function App() {
 		return () => observer.disconnect();
 	}, []);
 	// The pane's own width is the other half of the sum.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the measure reads the width through dockWidthRef; this re-runs it.
 	useLayoutEffect(() => measured.current(), [dockWidth]);
 	/* The rail: how wide you dragged it, whether it is down to faces, and whether you closed it. */
 	const [railSize, setRailSize] = useRailSize();
@@ -141,6 +143,7 @@ export function App() {
 	 * has no room for a sentence, so the conversation says it; a new
 	 * teammate is a new conversation, so it goes when the selection does. */
 	const [said, setSaid] = useState<string | null>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a change of teammate is what clears it.
 	useEffect(() => {
 		setSaid(null);
 	}, [selectedId]);
@@ -182,6 +185,7 @@ export function App() {
 	/* The room's models are asked for once a socket is up, again after a
 	 * reconnect, and whenever the room says they changed: a key added on
 	 * another seat, a provider's list refreshed, or a filter saved here. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: modelsRevision is the room saying the list changed.
 	useEffect(() => {
 		if (connection !== "open") return;
 		let current = true;
@@ -229,6 +233,7 @@ export function App() {
 
 	/* A different teammate is a different conversation: the search was asking
 	 * about the one that just left, and the inspector was editing them. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a change of teammate is what closes it.
 	useEffect(() => {
 		setFocusSchedules(false);
 	}, [selectedId]);
@@ -237,7 +242,7 @@ export function App() {
 		if (selectedId !== null && roster.length > 0 && !roster.some((one) => one.persona.id === selectedId)) {
 			setSelectedId(null);
 		}
-	}, [roster, selectedId]);
+	}, [roster, selectedId, setSelectedId]);
 
 	// A clicked toast is a teammate asking to be looked at; the shell has
 	// already raised the window.
@@ -259,14 +264,14 @@ export function App() {
 			setFocusSchedules(schedules);
 			setInspector((open) => schedules || !open);
 		},
-		[selectedId],
+		[selectedId, setPane, setDock, setInspector],
 	);
 	/* The right-hand pane takes the inspector's place: one of them at a time. */
 	const openDock = useCallback((next: DockState) => {
 		setInspector(false);
 		setDock(next);
-	}, []);
-	const closeDock = useCallback(() => setDock(null), []);
+	}, [setInspector, setDock]);
+	const closeDock = useCallback(() => setDock(null), [setDock]);
 	const openThread = useCallback((open: ThreadRef) => openDock({ open }), [openDock]);
 	const openThreadList = useCallback(() => openDock({ open: null }), [openDock]);
 
@@ -310,7 +315,7 @@ export function App() {
 				// The inspector's own Remove reports a refusal if this fails.
 			}
 		},
-		[selectedId],
+		[selectedId, setSelectedId, setSpaces],
 	);
 
 	/* Right-clicking chrome should not offer Reload. Fields and a live

@@ -51,3 +51,6 @@ Phase 2 group D (Fixes in the moved files), plan row 46 in docs/audits/0.40/READ
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T02:55:41.378Z: [claude] Done on dispatch/task-155 in one commit (0e907ef7). websearch::Failure now carries a `kind: Kind` (RateLimited, OutOfCredits, TimedOut, Status(u16), Resting, Other), set by the constructors the adapters already call (Failure::status, transport, new, and a new Failure::of); the adapters needed no edits. Failure::cooldown() matches on the kind (cooldown_for, which matched strings, is deleted), and the footer word is Kind::word (why() is deleted). Answered.failed is now Vec<(provider, Failure)>, so render reads the kind; the message is still scrubbed and rendered only at the edge, word for word. Behaviour change: a provider's body text that says "rate limited" or "timed out" (JSON-RPC errors, isError text, a 4xx detail) no longer rests the provider; only HTTP 429/402, timeouts and 5xx do. New test the_cooldown_follows_the_kind_whatever_the_words_say; the scripted test providers now return a typed Failure. make check and make precheck (7/7) pass. Row 39's lint autofix collides on websearch.rs. Nothing left unwired.

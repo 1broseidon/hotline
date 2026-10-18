@@ -1,7 +1,7 @@
 ---
 id: task-139
 title: "P2-30 (C): `wire/commands.rs`:"
-column: todo
+column: in-progress
 position: 28
 priority: high
 tags:
@@ -14,9 +14,9 @@ relatedFiles:
   - crates/hotline-core/src/wire/commands/persona.rs
   - crates/hotline-core/src/wire/commands/settings.rs
   - crates/hotline-core/src/wire/commands/models.rs
-updatedAt: "2026-10-18T04:18:06.341Z"
+updatedAt: "2026-10-18T04:18:18.581Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - test $(wc -l < crates/hotline-core/src/wire/commands.rs) -le 1500
@@ -25,6 +25,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T04:18:18.581Z"
+    reworkCount: 0
 dependsOn:
   - task-128
 dispatch:

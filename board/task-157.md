@@ -19,7 +19,7 @@ relatedFiles:
   - ui/src/stepText.ts
   - ui/src/voice/call.ts
   - ui/src/voice/dictation.ts
-updatedAt: "2026-10-18T01:22:52.795Z"
+updatedAt: "2026-10-18T01:23:03.279Z"
 contract:
   status: in_progress
   validation:
@@ -64,3 +64,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T01:22:32.843Z: The claim on task-157 (desktop on Georges-Mac-Studio, pid 50333) was not given back as review: task-157 is claimed by cli (pid 59932) on Georges-Mac-Studio
+- 2026-10-18T01:23:03.279Z: Not landed: Claude Code is still working on task-157

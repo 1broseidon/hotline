@@ -1,8 +1,8 @@
 ---
 id: task-117
 title: "P2-5 (A): sherpa build ZIP path"
-column: in-progress
-position: 6
+column: review
+position: 1
 priority: high
 tags:
   - phase2
@@ -14,7 +14,7 @@ relatedFiles:
   - scripts/fetch-speech-engine
   - scripts/speech-engine.sha256
   - Cargo.lock
-updatedAt: "2026-10-18T01:27:07.576Z"
+updatedAt: "2026-10-18T01:27:41.000Z"
 contract:
   status: in_progress
   validation:

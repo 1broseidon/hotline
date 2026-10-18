@@ -171,6 +171,7 @@ fn host_memory() -> Option<u64> {
     // initialized before calling GlobalMemoryStatusEx with a valid pointer.
     let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
     status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    // SAFETY: the pointer is to the local above, its size now set.
     (unsafe { GlobalMemoryStatusEx(&mut status) } != 0).then_some(status.ullTotalPhys)
 }
 

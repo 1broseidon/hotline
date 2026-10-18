@@ -9,9 +9,8 @@ pub(super) async fn served() -> (tempfile::TempDir, Arc<Remote>, String) {
 /// A served desk running agents (a room is opened), a relay, or both.
 async fn served_running(agents: bool, relay: bool) -> (tempfile::TempDir, Arc<Remote>, String) {
     let root = tempfile::tempdir().unwrap();
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let listen = reserved.local_addr().unwrap();
-    drop(reserved);
+    let listener = loopback();
+    let listen = listener.local_addr().unwrap();
     let store = Arc::new(MemoryStore::default());
     let agents = agents.then(|| {
         let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
@@ -28,7 +27,7 @@ async fn served_running(agents: bool, relay: bool) -> (tempfile::TempDir, Arc<Re
         relay,
     };
     let remote =
-        Remote::open_served_with_store(root.path(), agents, store, options.clone()).unwrap();
+        Remote::open_served_on(listener, root.path(), agents, store, options.clone()).unwrap();
     remote.restore().await;
     tokio::time::timeout(ANSWER, async {
         while !remote.status().enabled {

@@ -1,8 +1,6 @@
 ---
 id: task-145
 title: "P2-36 (D): Lock recovery"
-column: in-progress
-position: 34
 priority: high
 tags:
   - phase2
@@ -15,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/remote/relay.rs
   - crates/hotline-core/src/remote/bridge.rs
   - crates/hotline-app/src/transfer.rs
-updatedAt: "2026-10-18T04:39:03.255Z"
+updatedAt: "2026-10-18T05:06:39.548Z"
 contract:
   status: in_progress
   validation:
@@ -41,7 +39,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T04:38:57.284Z"
+    ended: "2026-10-18T05:06:39.548Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T05:06:38.425Z"
 ---
 
 ## Description
@@ -55,3 +56,6 @@ Phase 2 group D (Fixes in the moved files), plan row 36 in docs/audits/0.40/READ
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T05:06:37.408Z: Landed on release/0.40.0

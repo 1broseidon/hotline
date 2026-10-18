@@ -7,7 +7,7 @@
 #![cfg(unix)]
 mod common;
 
-use common::{desktop, free_address, hotline, listen_args, said, serve, stop, top, wire};
+use common::{desktop, free_address, hotline, listen_args, said, serve, standing, stop, top, wire};
 use hotline_core::credentials::FileStore;
 use hotline_core::remote::PairingPayload;
 use hotline_core::remote::client::{Client, PairedDesk, PairedRelay};
@@ -16,7 +16,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, Stdio};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[test]
 fn a_served_desk_keeps_its_room_its_keys_and_stops_cleanly() {
@@ -226,18 +226,7 @@ async fn a_relay_only_server_opens_no_room_and_carries_a_desktops_visitors() {
     let pi = claim_relay(&laptop_store, &invitation, "Laptop").await;
     assert!(paired_as(pairing).contains("as relay"));
     laptop.relay_through(Some(pi.desk_id.clone())).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    let url = loop {
-        if let Some(url) = laptop.status().relay.and_then(|relay| relay.url) {
-            break url;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "never stood in: {:?}",
-            laptop.status().relay.and_then(|relay| relay.error)
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    };
+    let url = standing(&laptop).await;
     assert!(url.contains("/relay/"), "{url}");
 
     // A phone that cannot reach the laptop's own address visits it through
@@ -316,15 +305,7 @@ async fn serving_in_another_mode_keeps_every_pairing_and_its_role() {
     laptop
         .relay_through(Some(server_desk.desk_id.clone()))
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(20);
-    while laptop.status().relay.and_then(|relay| relay.url).is_none() {
-        assert!(
-            Instant::now() < deadline,
-            "never stood in: {:?}",
-            laptop.status().relay.and_then(|relay| relay.error)
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    standing(&laptop).await;
     laptop.relay_through(None).unwrap();
     let stopped = stop(server);
     assert!(

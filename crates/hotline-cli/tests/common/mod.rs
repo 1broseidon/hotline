@@ -134,6 +134,23 @@ pub fn top(root: &Path) -> Vec<String> {
     names
 }
 
+/// Waits until the desktop stands in on its chosen relay, and says where.
+/// The desktop runs on this test's runtime, so this waits without blocking it.
+pub async fn standing(remote: &Remote) -> String {
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        if let Some(url) = remote.status().relay.and_then(|relay| relay.url) {
+            return url;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "never stood in: {:?}",
+            remote.status().relay.and_then(|relay| relay.error)
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// A person's desktop, in this process: a room, and Remote on.
 pub async fn desktop(root: &Path) -> (Arc<Desk>, Arc<Remote>, Arc<dyn SecretStore>) {
     std::fs::create_dir_all(root).unwrap();

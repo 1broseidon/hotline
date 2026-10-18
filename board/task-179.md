@@ -1,15 +1,15 @@
 ---
 id: task-179
 title: A dropdown's own tooltip covers the first item of its open menu
-column: in-progress
-position: 1
+column: review
+position: 0
 priority: medium
 tags:
   - ui
   - qa
 createdAt: "2026-10-18T21:49:01.853Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T21:49:38.356Z"
+updatedAt: "2026-10-18T21:50:16.490Z"
 dispatch:
   agent: claude
   model: opus

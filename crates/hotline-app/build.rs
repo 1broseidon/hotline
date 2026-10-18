@@ -90,12 +90,11 @@ fn build_speech() {
         let output = command
             .output()
             .unwrap_or_else(|error| panic!("{command:?} did not run: {error}"));
-        if !output.status.success() {
-            panic!(
-                "{command:?} failed:\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        assert!(
+            output.status.success(),
+            "{command:?} failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         output.stdout
     };
     let sdk = run(Command::new("xcrun").args(["--sdk", "macosx", "--show-sdk-path"]));

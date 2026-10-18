@@ -58,7 +58,8 @@ dev: hooks-nudge speech-engine
 build: speech-engine
 	cd crates/hotline-app && cargo tauri build
 
-# The headless harnesses drive the real core over the wire; Phase 0 adds the first.
+# The headless harnesses under crates/hotline-core/tests drive the real core
+# over the wire.
 verify: speech-engine
 	cargo test --workspace --test '*'
 

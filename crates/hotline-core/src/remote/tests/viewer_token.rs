@@ -102,12 +102,13 @@ async fn viewer_tokens_are_persona_bound_single_use_and_never_owner_credentials(
     );
 
     // Wrong routes do not consume it, but two eligible upgrades cannot both win.
-    let (left, right) = tokio::join!(
+    let results: [_; 2] = tokio::join!(
         tokio_tungstenite::connect_async(request(&bridge, "/computer/ada/ws", Some(&token))),
         tokio_tungstenite::connect_async(request(&bridge, "/computer/ada/ws", Some(&token))),
-    );
+    )
+    .into();
     let mut winners = Vec::new();
-    for result in [left, right] {
+    for result in results {
         match result {
             Ok((socket, response)) => {
                 assert_eq!(

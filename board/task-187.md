@@ -12,7 +12,7 @@ createdAt: "2026-10-18T23:40:56.843Z"
 relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/tests.rs
-updatedAt: "2026-10-18T23:53:55.552Z"
+updatedAt: "2026-10-18T23:54:15.630Z"
 contract:
   status: ready
   deliverables:
@@ -27,6 +27,14 @@ contract:
       - git diff --exit-code ui/src/generated/contract.ts
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-18T23:54:15.490Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

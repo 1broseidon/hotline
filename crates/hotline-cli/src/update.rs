@@ -91,11 +91,11 @@ fn curl(url: &str) -> Command {
 fn output(command: &mut Command) -> Result<Vec<u8>> {
     let result = command
         .output()
-        .map_err(|error| format!("could not run {:?}: {error}", command.get_program()))?;
+        .map_err(|error| format!("could not run {}: {error}", command.get_program().display()))?;
     if !result.status.success() {
         return Err(format!(
-            "{:?} failed ({}): {}",
-            command.get_program(),
+            "{} failed ({}): {}",
+            command.get_program().display(),
             result.status,
             String::from_utf8_lossy(&result.stderr).trim()
         ));

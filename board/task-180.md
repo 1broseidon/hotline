@@ -11,7 +11,8 @@ tags:
   - bug
 createdAt: "2026-10-18T21:59:36.514Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T21:59:37.051Z"
+updatedAt: "2026-10-18T23:40:52.707Z"
+parentId: epic-14
 ---
 
 ## Description
@@ -27,3 +28,5 @@ Change:
 Phone: check that hotline-mobile drops 'needs you' when a card is superseded as withdrawn or expired. It should, because it reads the desk's card state; file a phone task only if it doesn't.
 
 Tests: over the wire, a withdrawn card is gone for the desk and phone seats, a card past its lifetime expires and tells the teammate once, and a longer wait is honoured up to the cap.
+
+0.40 triage (2026-10-18): Part of the 0.40 easy wins.

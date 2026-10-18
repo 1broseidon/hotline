@@ -1,8 +1,6 @@
 ---
 id: task-115
 title: "P2-3 (A): Patch ACP ZIP extraction (F1)"
-column: review
-position: 4
 priority: high
 tags:
   - phase2
@@ -14,7 +12,7 @@ relatedFiles:
   - Cargo.lock
   - crates/hotline-core/src/driver/acp/install.rs
   - docs/security.md
-updatedAt: "2026-10-18T01:06:23.463Z"
+updatedAt: "2026-10-18T01:08:53.733Z"
 contract:
   status: delivered
   validation:
@@ -42,7 +40,10 @@ dispatch:
     runner: cli
     pid: 59932
     at: "2026-10-18T01:05:44.206Z"
+    ended: "2026-10-18T01:08:53.733Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T01:08:53.300Z"
 ---
 
 ## Description
@@ -63,3 +64,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 - 2026-10-18T01:06:18.873Z: The claim on task-115 (desktop on Georges-Mac-Studio, pid 50333) was not given back as review: task-115 is claimed by cli (pid 59932) on Georges-Mac-Studio
 - 2026-10-18T01:06:23.463Z: Not landed: Claude Code is still working on task-115
 - 2026-10-18T01:06:23.789Z: [claude] Re-dispatched with no reviewer feedback in the log: the work stands as delivered on dispatch/task-115 (21ca5528), the tree is clean and nothing has changed. Still open from before: nobody has checked whether any registry agent's archive contains internal links.
+- 2026-10-18T01:08:52.873Z: Landed on release/0.40.0

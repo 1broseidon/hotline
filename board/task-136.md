@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp/live.rs
   - crates/hotline-core/src/driver/acp/translate.rs
   - crates/hotline-core/src/driver/acp/session.rs
-updatedAt: "2026-10-18T00:14:55.396Z"
+updatedAt: "2026-10-18T04:36:06.317Z"
 contract:
   status: ready
   validation:
@@ -34,7 +34,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:14:55.256Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T04:36:06.317Z"
 assignee: claude
 ---
 

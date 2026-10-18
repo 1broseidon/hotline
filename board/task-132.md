@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:40:52.292Z"
 relatedFiles:
   - crates/hotline-core/src/session/tests.rs
   - crates/hotline-core/src/session/tests/
-updatedAt: "2026-10-18T05:44:04.959Z"
+updatedAt: "2026-10-18T05:44:05.435Z"
 contract:
-  status: delivered
+  status: in_progress
   validation:
     commands:
       - test $(wc -l < crates/hotline-core/src/session/tests.rs) -le 2000
@@ -23,8 +23,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-    pickedUpAt: "2026-10-18T05:27:58.989Z"
-    reworkCount: 1
+    pickedUpAt: "2026-10-18T05:44:05.435Z"
+    reworkCount: 2
     deliveredAt: "2026-10-18T05:32:01.030Z"
     duration: 242
 dependsOn:

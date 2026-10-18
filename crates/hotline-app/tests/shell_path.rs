@@ -1,14 +1,11 @@
 //! Run startup in a fresh process: mutating PATH in a threaded test runner
 //! would race other tests and would not model a Finder launch.
-#[cfg(target_os = "macos")]
-#[path = "../src/shell_path.rs"]
-mod shell_path;
-
 #[cfg(not(target_os = "macos"))]
 fn main() {}
 
 #[cfg(target_os = "macos")]
 fn main() {
+    use hotline_app_lib::shell_path;
     use hotline_core::driver::acp::registry::cached_backends;
     use std::os::unix::fs::PermissionsExt;
     use std::process::Command;

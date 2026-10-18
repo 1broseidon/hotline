@@ -31,7 +31,7 @@ let current: Theme = stored();
 
 function apply() {
 	const light = current === "light" || (current === "system" && SYSTEM_LIGHT.matches);
-	document.documentElement.dataset.theme = light ? "light" : "dark";
+	document.documentElement.dataset["theme"] = light ? "light" : "dark";
 }
 
 /** The window's own chrome follows the choice too, or the system's on System. */

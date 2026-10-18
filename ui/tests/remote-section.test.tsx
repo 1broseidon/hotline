@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { Window } from "happy-dom";
+import type { Window } from "happy-dom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { RemoteSection } from "../src/components/RemoteSection";
 import { replaceDesks } from "../src/desks";
 import { wire } from "../src/wire";
+import { installDom } from "./dom";
 
 // No desk, sockets, native shell, or real clock: drive the mounted UI at its wire boundary.
 const epoch = 1_800_000_000_000;
@@ -33,16 +34,12 @@ let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
 let restores: (() => void)[];
+let teardown: () => Promise<void>;
 let clipboard: string[];
 
 beforeEach(() => {
 	restores = [];
-	dom = new Window();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); });
-	}
+	({ dom, teardown } = installDom());
 	clipboard = [];
 	const copy = spyOn(dom.navigator.clipboard, "writeText").mockImplementation(async (text) => { clipboard.push(text); });
 	restores.push(() => copy.mockRestore());
@@ -63,7 +60,7 @@ beforeEach(() => {
 		if (cmd === "remote.status") return enabled;
 		if (cmd === "remote.configure") return { ...enabled, ...params };
 		if (cmd === "remote.revoke") return enabled;
-		if (cmd === "remote.pairing") return params.id ? null : sealed();
+		if (cmd === "remote.pairing") return params["id"] ? null : sealed();
 		throw new Error(`Unexpected command ${cmd}`);
 	};
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
@@ -81,7 +78,7 @@ beforeEach(() => {
 afterEach(async () => {
 	await unmount();
 	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 async function mount() { await act(async () => { root!.render(<RemoteSection />); }); }
 async function unmount() { await act(async () => { root?.unmount(); root = null; }); }
@@ -107,8 +104,8 @@ async function pick(label: string, item: string) {
 	await settle(() => found.click());
 }
 function pairingCalls() { return calls.filter(({ cmd }) => cmd === "remote.pairing"); }
-function polls() { return pairingCalls().filter(({ params }) => params.id && !params.cancel); }
-function cancellations() { return pairingCalls().filter(({ params }) => params.cancel); }
+function polls() { return pairingCalls().filter(({ params }) => params["id"] && !params["cancel"]); }
+function cancellations() { return pairingCalls().filter(({ params }) => params["cancel"]); }
 
 describe("Remote settings over the wire", () => {
 	test("status, enable, listen address, device roles and revoke use wire commands", async () => {
@@ -133,7 +130,7 @@ describe("Remote settings over the wire", () => {
 	test("the tunnel hint names the address Remote listens on", async () => {
 		let host = "all";
 		respond = ({ cmd, params }) => {
-			if (cmd === "remote.configure") host = String(params.host);
+			if (cmd === "remote.configure") host = String(params["host"]);
 			const endpoint = host === "all" ? enabled.endpoint : `https://${host.includes(":") ? `[${host}]` : host}:8788`;
 			return { ...enabled, host, endpoint, endpoints: host === "all" ? enabled.endpoints : [endpoint] };
 		};
@@ -156,7 +153,7 @@ describe("Remote settings over the wire", () => {
 		await settle(() => replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "http://127.0.0.1:2", token: "t" }, server]));
 		const relayUrl = "https://grizzly.example/relay/this-desk";
 		respond = ({ cmd, params }) => cmd === "remote.relay"
-			? { ...enabled, relay: { deskId: params.deskId, name: "Grizzly", url: relayUrl, error: null } }
+			? { ...enabled, relay: { deskId: params["deskId"], name: "Grizzly", url: relayUrl, error: null } }
 			: enabled;
 		await mount();
 		await pick("Relay", "Grizzly");
@@ -202,7 +199,7 @@ describe("Remote settings over the wire", () => {
 		expect(polls()).toEqual([{ cmd: "remote.pairing", params: { id: "invitation-test", cancel: false } }]);
 		expect(text()).not.toContain("Phone linked.");
 		const fallback = respond;
-		respond = (call) => call.params.id && !call.params.cancel ? owner : fallback(call);
+		respond = (call) => call.params["id"] && !call.params["cancel"] ? owner : fallback(call);
 		await tick();
 		expect(text()).toContain("Phone linked.");
 		expect(container.querySelector("img") === null).toBe(true);
@@ -230,7 +227,7 @@ describe("Remote settings over the wire", () => {
 		test(`${action} cancels the sealed invitation and ignores its in-flight poll`, async () => {
 			const pending = deferred<unknown>();
 			const fallback = respond;
-			respond = (call) => call.params.id && !call.params.cancel ? pending.promise : fallback(call);
+			respond = (call) => call.params["id"] && !call.params["cancel"] ? pending.promise : fallback(call);
 			await mount();
 			await click("Link a phone");
 			await tick();
@@ -249,7 +246,7 @@ describe("Remote settings over the wire", () => {
 	test("slow polls are serialized rather than piling up every two seconds", async () => {
 		const pending = deferred<unknown>();
 		const fallback = respond;
-		respond = (call) => call.params.id && !call.params.cancel ? pending.promise : fallback(call);
+		respond = (call) => call.params["id"] && !call.params["cancel"] ? pending.promise : fallback(call);
 		await mount();
 		await click("Link a phone");
 		await tick();
@@ -264,7 +261,7 @@ describe("Remote settings over the wire", () => {
 	test("an invitation returned after unmount is cancelled instead of orphaned", async () => {
 		const pending = deferred<unknown>();
 		const fallback = respond;
-		respond = (call) => call.cmd === "remote.pairing" && !call.params.id ? pending.promise : fallback(call);
+		respond = (call) => call.cmd === "remote.pairing" && !call.params["id"] ? pending.promise : fallback(call);
 		await mount();
 		await click("Link a phone");
 		await unmount();
@@ -277,11 +274,11 @@ describe("Remote settings over the wire", () => {
 		const oldPoll = deferred<unknown>();
 		const replacement = deferred<unknown>();
 		const fallback = respond;
-		respond = (call) => call.params.id && !call.params.cancel ? oldPoll.promise : fallback(call);
+		respond = (call) => call.params["id"] && !call.params["cancel"] ? oldPoll.promise : fallback(call);
 		await mount();
 		await click("Link a phone");
 		await tick();
-		respond = (call) => call.cmd === "remote.pairing" && !call.params.id ? replacement.promise : fallback(call);
+		respond = (call) => call.cmd === "remote.pairing" && !call.params["id"] ? replacement.promise : fallback(call);
 		await click("Link a phone");
 		expect(container.querySelector("img") === null).toBe(true);
 		expect(cancellations()).toHaveLength(1);

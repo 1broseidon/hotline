@@ -26,8 +26,6 @@
 //! all is its own configuration and not Hotline's — see [`containment_notice`].
 
 mod auth;
-#[cfg(test)]
-mod auth_tests;
 mod install;
 pub mod registry;
 

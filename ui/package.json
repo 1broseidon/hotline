@@ -5,7 +5,7 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "tsc --noEmit && vite build",
-		"typecheck": "tsc --noEmit",
+		"typecheck": "tsc --noEmit && tsc --noEmit -p tests",
 		"test": "bun test tests"
 	},
 	"dependencies": {
@@ -27,6 +27,7 @@
 	},
 	"devDependencies": {
 		"@tailwindcss/vite": "^4.3.3",
+		"@types/bun": "1.4.2",
 		"@types/react": "^19.2.18",
 		"@types/react-dom": "^19.2.5",
 		"@vitejs/plugin-react": "^6.1.1",

@@ -42,7 +42,7 @@ describe("a Use for picker", () => {
 		const job = { ...images, selected: { providerId: "google", providerName: "google", modelId: "gemini-3-pro-image" } };
 		const gone = choicesFor(job).at(-1);
 		expect(gone).toEqual({ id: pickId("google", "gemini-3-pro-image"), name: "google · gemini-3-pro-image", group: "Not connected" });
-		expect(currentId(job)).toBe(gone?.id);
+		expect(currentId(job)).toBe(gone!.id);
 	});
 
 	test("reads a provider named alone as its first model", () => {
@@ -112,7 +112,7 @@ describe("a connection's tags", () => {
 		stt: job("openai", "groq"),
 		tts: job("openai"),
 		dispatcher: job("openai", "anthropic"),
-		spending: { dayUsd: 2, monthUsd: 20, spentDayUsd: 0, spentMonthUsd: 0 },
+		spending: { budgets: [] },
 	};
 
 	test("name what the provider can be used for", () => {
@@ -167,7 +167,8 @@ describe("the call assistant's thinking", () => {
 	});
 
 	test("has no levels on Automatic or on a model that takes none", () => {
-		expect(effortsOf({ ...dispatcher, selected: undefined })).toEqual([]);
+		const { selected: _, ...automatic } = dispatcher;
+		expect(effortsOf(automatic)).toEqual([]);
 		expect(effortsOf({ ...dispatcher, selected: { providerId: "groq", providerName: "Groq", modelId: "llama-3.3-70b" } })).toEqual([]);
 	});
 

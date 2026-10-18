@@ -771,7 +771,7 @@ async fn a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door() {
     assert_eq!(devices.len(), 1);
     assert_eq!(devices[0].role, DeviceRole::Relay);
     // The desktop lists it as a relay and not as a desk, and chooses it.
-    assert!(relay::paired(h.root.path()).is_empty());
+    assert!(crate::remote::relay::paired(h.root.path()).is_empty());
     assert_eq!(h.remote.relay_servers()[0].desk_id, server.desk_id);
     let status = h
         .remote

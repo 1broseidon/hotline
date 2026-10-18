@@ -11,7 +11,7 @@ parentId: epic-13
 createdAt: "2026-10-17T22:41:07.403Z"
 relatedFiles:
   - docs/wire.md
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:23.389Z"
 contract:
   status: ready
   validation:
@@ -22,6 +22,14 @@ contract:
 dependsOn:
   - task-138
   - task-139
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:23.254Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

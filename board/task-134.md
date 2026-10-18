@@ -53,3 +53,6 @@ Phase 2 group C (Move-only renames and splits), plan row 25 in docs/audits/0.40/
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T04:13:43.638Z: [claude] Split committed (151020ca): remote/tests.rs 3406→491 lines (harness + shared helpers), 10 new topic files beside the existing 6; 77 tests before and after, same fn names, move-only apart from super::→crate::remote:: paths; security.md test index repointed. Running make check / precheck.

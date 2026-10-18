@@ -1,7 +1,7 @@
 ---
 id: task-130
 title: "P2-18–22 (C): `session/mod.rs` in five parts:"
-column: todo
+column: in-progress
 position: 19
 priority: high
 tags:
@@ -19,9 +19,9 @@ relatedFiles:
   - crates/hotline-core/src/session/driver_info.rs
   - crates/hotline-core/src/session/start.rs
   - crates/hotline-core/src/session/chapters.rs
-updatedAt: "2026-10-18T03:50:39.278Z"
+updatedAt: "2026-10-18T03:50:53.522Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - test $(wc -l < crates/hotline-core/src/session.rs) -le 1500
@@ -30,6 +30,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T03:50:53.522Z"
+    reworkCount: 0
 dependsOn:
   - task-128
 dispatch:

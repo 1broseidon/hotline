@@ -11,7 +11,7 @@ parentId: epic-13
 createdAt: "2026-10-17T22:41:07.403Z"
 relatedFiles:
   - docs/wire.md
-updatedAt: "2026-10-18T00:15:23.389Z"
+updatedAt: "2026-10-18T05:06:53.894Z"
 contract:
   status: ready
   validation:
@@ -28,7 +28,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:23.254Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T05:06:53.894Z"
 assignee: claude
 ---
 

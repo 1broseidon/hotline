@@ -1,7 +1,7 @@
 ---
 id: task-155
 title: "P2-46 (D): Search failures get a kind"
-column: in-progress
+column: review
 position: 44
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:41:04.277Z"
 relatedFiles:
   - crates/hotline-core/src/websearch.rs
   - crates/hotline-core/src/websearch/
-updatedAt: "2026-10-18T02:40:26.786Z"
+updatedAt: "2026-10-18T02:55:41.868Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - make precheck
@@ -23,6 +23,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T02:40:26.786Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T02:55:41.868Z"
+    duration: 915
 dependsOn:
   - task-126
 dispatch:

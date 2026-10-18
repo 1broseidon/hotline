@@ -46,32 +46,54 @@ Rust that needs Tauri lives.
 
 ```
 crates/hotline-core/src/
-  contract/              the wire's types (serde + ts-rs), a file per concern
-  paths.rs               the data directory's layout
-  log/                   streams: append, fold, segments, subscribe
-  store/                 FTS5 index, chapter list, roster previews
-  room.rs                the roster fold, settings, and schedules
-  vault.rs               secrets beside the room stream
-  session/               Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
-  driver/                Hotline Agent on Rig, and the ACP child with its registry
-  models.rs              the providers Hotline Agent reaches, and the model catalogue they serve
-  mcp/                   the client of granted servers, and Hotline's own teammate tools
-  computer/              runtime detection and one container per teammate
-  tools/                 workspace tools on cap-std, shell command
-  desk.rs                the room, vault and log behind the wire
-  boot.rs                one boot, the app's and `hotline serve`'s, that returns its errors
-  import.rs              copies an existing Hotline data directory
-  import/                the previous edition's roster and records, read-only
-  wire/                  the door: seats, commands, subscriptions
-  bin/hotline-import.rs     the importer as a binary
-  bin/hotline-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
+  contract/                  the wire's types (serde + ts-rs), a file per concern; a leaf
+  paths.rs                   the data directory's layout
+  log/                       streams: append, fold, segments, subscribe; tapes and threads
+  store/                     beside the tape: FTS5 search, chapter list, roster previews
+  room.rs                    the roster fold, settings, and schedules
+  room_lock.rs               one writer per room
+  thread/                    the one name for a conversation, its store and its policy
+  vault/                     credential metadata beside the room stream
+  credentials/               the OS credential store that holds the secret values
+  session/                   Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
+  driver/                    Hotline Agent on Rig, and the ACP child with its registry and OAuth proxy
+  models.rs                  the providers Hotline Agent reaches, and the model catalogue they serve
+  providers/                 connection work Rig does not own; requests stay on Rig's clients
+  capabilities.rs            which connected provider the owner can pick for each job
+  pricing.rs                 what a model costs per token
+  spending.rs                the spending ledger and the budget it enforces
+  mcp/                       the client of granted servers, and Hotline's own teammate tools
+  skills.rs                  the catalog: built-in, gateway and workspace skills, copied into a workspace
+  tools/                     workspace tools on cap-std, shell command
+  computer/                  runtime detection and one container per teammate
+  voice/                     the owner's call: speech in and out, the front, realtime, metering
+  websearch/                 web search for every teammate, keyless by default, ranked and cleaned
+  imagegen/                  making images over whichever connected provider the owner has
+  images.rs                  what an attached or generated image is made into before anyone sees it
+  thumbs.rs                  smaller copies of pictures for a phone
+  sent/                      files teammates send the person, and their readback
+  link_preview.rs            a link's card, read from the page's head
+  fence.rs                   the one fence around anything quoted out of a conversation
+  desk.rs                    the room, vault and log behind the wire
+  boot.rs                    one boot, the app's and `hotline serve`'s, that returns its errors
+  wire/                      the door: seats, commands, subscriptions, the phone and relay doors
+  remote/                    Remote: the sealed listener, pairing, the relay, a linked desk's channel
+  linked.rs                  linked desks: their records, qualified ids, the roster that crosses
+  push.rs                    notifications to paired phones
+  import.rs                  copies an existing Hotline data directory
+  import/                    the previous edition's roster and records, read-only
+  log_file.rs                where the app's own lines go when nobody reads its output
+  process_windows.rs         a Windows child's kill-on-close job
+  bin/hotline-import.rs      the importer as a binary
+  bin/hotline-mcp-echo.rs    a one-tool stdio server the MCP harnesses spawn
   bin/hotline-models-sync.rs rewrites models.json from models.dev
 crates/hotline-core/models.json  the model catalogue: a filtered snapshot of models.dev
-crates/hotline-core/tests/  headless proofs driving the real core over the wire
-crates/hotline-app/     the Tauri 2 shell: plugins, the menu, the door
-ui/                      the React window, built against the generated contract; ui/src/ui is the design system
-assets/                  the mark and the app tile it sits on; `make icons` renders the icon set from them
-docs/                    what is
+crates/hotline-core/tests/   headless proofs driving the real core over the wire
+crates/hotline-app/          the Tauri 2 shell: plugins, the menu, the door
+crates/hotline-cli/          `hotline`: the desk with no window (`hotline serve`), and its operator commands
+ui/                          the React window, built against the generated contract; ui/src/ui is the design system
+assets/                      the mark and the app tile it sits on; `make icons` renders the icon set from them
+docs/                        what is
 ```
 
 The core is a library. The shell binds its door on a loopback port, injects
@@ -528,8 +550,12 @@ scratch or the store.
 
 ## The generated contract
 
-Types are defined once in `crates/hotline-core/src/contract/` (serde +
-ts-rs), a file per concern, each re-exported from `contract`. `cargo test -p hotline-core` runs the export tests and writes
+Each wire type is defined once in Rust, with serde and ts-rs. Most live in
+`crates/hotline-core/src/contract/`, a file per concern, each re-exported
+from `contract`, which imports nothing else from the crate. The types that
+belong to Remote, linked desks and the importer are defined beside them
+(`remote.rs`, `remote/{client,relay,v2}.rs`, `linked.rs`, `import.rs`) and
+export to the same file. `cargo test -p hotline-core` runs the export tests and writes
 `ui/src/generated/contract.ts`. `.cargo/config.toml` points ts-rs at that
 directory and tells it a 64-bit integer is a JavaScript `number`, because
 every number on this wire arrives as `JSON.parse` produces it.

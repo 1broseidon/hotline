@@ -208,7 +208,7 @@ async fn answering(
 
 // Tungstenite requires its HTTP response as this callback's error type;
 // boxing it would no longer implement the library's Callback contract.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 async fn websocket<F, Fut>(handle: F) -> (String, Requests, Server)
 where
     F: FnOnce(WebSocketStream<TcpStream>) -> Fut + Send + 'static,
@@ -421,7 +421,7 @@ async fn subscription_tts_refreshes_only_once_and_batch_stt_never_replays_upload
 }
 
 // Tungstenite's handshake callback requires the unboxed protocol response.
-#[allow(clippy::result_large_err)]
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 #[tokio::test]
 async fn subscription_live_auth_retries_before_any_caller_audio_and_uses_fresh_login() {
     let dir = tempfile::tempdir().unwrap();

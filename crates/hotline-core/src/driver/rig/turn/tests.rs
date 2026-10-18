@@ -1143,7 +1143,7 @@ async fn a_report_shown_before_the_stream_dropped_is_remembered_on_retry() {
     assert_eq!(said, 1);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn stop_during_backoff_is_terminal() {
     let (turn, request) = fixture();
     let stop = turn.stop.clone();
@@ -1165,7 +1165,9 @@ async fn stop_during_backoff_is_terminal() {
         .await
         .unwrap();
     drop(first);
-    // Backing off says nothing, so give the turn a moment to be in it.
+    // Backing off says nothing. A paused clock moves only once every task
+    // is parked, and the backoff is a second at least, so this returns with
+    // the turn waiting it out.
     tokio::time::sleep(Duration::from_millis(100)).await;
     stop.raise();
     tokio::time::timeout(Duration::from_secs(1), task)
@@ -1237,7 +1239,7 @@ async fn a_failed_repair_stays_repaired_for_the_next_operator_message() {
     assert_eq!(notices, 0, "the recovery is not narrated to the person");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn steering_during_backoff_is_consumed_once_without_waiting_for_the_delay() {
     let (turn, request) = fixture();
     let steering = turn.steering.clone();
@@ -1263,7 +1265,9 @@ async fn steering_during_backoff_is_consumed_once_without_waiting_for_the_delay(
         .await
         .unwrap();
     drop(first);
-    // Backing off says nothing, so give the turn a moment to be in it.
+    // Backing off says nothing. A paused clock moves only once every task
+    // is parked, and the backoff is a second at least, so this returns with
+    // the turn waiting it out.
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(steering.admit(Message::user("new direction")));
     let request = receive(&mut requests).await;

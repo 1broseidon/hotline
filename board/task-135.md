@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp.rs
   - crates/hotline-core/src/driver/acp/tests.rs
   - crates/hotline-core/src/driver/acp/tests/
-updatedAt: "2026-10-18T04:03:35.101Z"
+updatedAt: "2026-10-18T04:05:28.510Z"
 contract:
   status: in_progress
   validation:
@@ -35,12 +35,7 @@ dispatch:
   by: cli
   at: "2026-10-18T00:14:54.128Z"
   until: done
-  tries: 1
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 39764
-    at: "2026-10-18T04:03:10.266Z"
+  tries: 0
 assignee: claude
 ---
 

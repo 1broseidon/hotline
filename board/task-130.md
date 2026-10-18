@@ -19,7 +19,7 @@ relatedFiles:
   - crates/hotline-core/src/session/driver_info.rs
   - crates/hotline-core/src/session/start.rs
   - crates/hotline-core/src/session/chapters.rs
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:14:48.650Z"
 contract:
   status: ready
   validation:
@@ -32,6 +32,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-128
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:14:48.514Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

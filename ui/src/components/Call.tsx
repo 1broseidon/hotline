@@ -192,6 +192,7 @@ export function CallBar({
 function CallTranscript({ lines, name, alone }: { lines: CallLine[]; name: string; alone: boolean }) {
 	const list = useRef<HTMLOListElement>(null);
 	// Its own scroll only: the conversation behind it stays where it is.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new line is what scrolls the list.
 	useEffect(() => {
 		if (list.current !== null) list.current.scrollTop = list.current.scrollHeight;
 	}, [lines.length]);

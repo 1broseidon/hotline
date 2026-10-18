@@ -151,7 +151,7 @@ by the route its protocol gives.
 
 - [voice-calls.md](../voice-calls.md) Direct turns and
   [voice.md](../voice.md) "One brain, two outputs" describe the full agent,
-  and `tests/voice.rs` (`one_call_proves_the_whole_front`) proves it end to
+  and `tests/voice/front_tools.rs` (`one_call_proves_the_whole_front`) proves it end to
   end on a function-tool dialect; the GPT-Live case proves lookups, denial
   and hand-off through its backend tool calls.
 - ADR 0004's latency, barge-in, subscription and fallback decisions stand.

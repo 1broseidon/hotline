@@ -14,7 +14,7 @@ relatedFiles:
   - crates/hotline-core/src/wire/commands/persona.rs
   - crates/hotline-core/src/wire/commands/settings.rs
   - crates/hotline-core/src/wire/commands/models.rs
-updatedAt: "2026-10-18T00:14:58.771Z"
+updatedAt: "2026-10-18T04:18:06.341Z"
 contract:
   status: ready
   validation:
@@ -33,7 +33,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:14:58.637Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T04:18:06.340Z"
 assignee: claude
 ---
 

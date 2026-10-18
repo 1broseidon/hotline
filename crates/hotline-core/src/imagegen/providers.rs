@@ -659,7 +659,10 @@ mod tests {
         assert_eq!(offered[1].provider_name, "My gateway");
         assert_eq!(offered[1].models.len(), 1);
         assert_eq!(offered[1].models[0].id, "my-image-1");
-        assert!(options_from(&[custom(&["llama-3"])]).is_empty());
+        assert_eq!(
+            options_from(&[custom(&["llama-3"])]),
+            [] as [CapabilityProvider; 0]
+        );
     }
 
     #[test]

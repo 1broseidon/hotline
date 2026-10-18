@@ -149,7 +149,7 @@ async fn a_new_picture_replaces_the_old_and_clearing_removes_it() {
         .await
         .unwrap();
     assert_eq!(avatar(&room), None);
-    assert!(kept(&dir).is_empty());
+    assert_eq!(kept(&dir), [] as [String; 0]);
 }
 
 #[tokio::test]
@@ -201,7 +201,7 @@ async fn only_an_image_inside_the_workspace_can_be_a_picture() {
         assert!(error.contains(wanted), "{path}: {error}");
     }
     assert_eq!(avatar(&room), None);
-    assert!(kept(&dir).is_empty());
+    assert_eq!(kept(&dir), [] as [String; 0]);
 }
 
 #[tokio::test]

@@ -169,7 +169,7 @@ async fn a_line_sent_mid_turn_is_steered_into_the_running_turn() {
         requests[0]["_meta"]["steering"]["idleBehavior"],
         "promptRequired"
     );
-    assert!(driver.take_unconsumed().is_empty());
+    assert_eq!(driver.take_unconsumed(), []);
     assert!(
         lock(&driver.live.history)
             .iter()
@@ -312,5 +312,5 @@ async fn stop_does_not_wait_on_a_steered_line_the_agent_never_answers() {
     driver.cancel();
     // `next` gives each update five seconds, well short of STEER_REPLY.
     assert_eq!(turn_end(&mut updates).await, "cancelled");
-    assert!(driver.take_unconsumed().is_empty());
+    assert_eq!(driver.take_unconsumed(), []);
 }

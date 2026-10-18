@@ -1181,8 +1181,8 @@ mod tests {
                 server_ids: vec!["echo".into()],
             },
         );
-        assert!(granted.servers.is_empty());
-        assert!(granted.missing.is_empty());
+        assert_eq!(granted.servers, [] as [McpServer; 0]);
+        assert_eq!(granted.missing, [] as [String; 0]);
     }
 
     #[test]
@@ -1243,7 +1243,7 @@ mod tests {
             .await
             .expect("the call reached the server");
         assert_eq!(shouted.text, "HARBOUR");
-        assert!(shouted.images.is_empty());
+        assert_eq!(shouted.images, [] as [CallImage; 0]);
 
         client.cancel().await.ok();
         let _ = server.await;
@@ -1286,7 +1286,7 @@ mod tests {
 
         let shout = echo_row(persona_id, "echo__shout");
         assert_eq!(shout.state, ToolState::Absent);
-        assert!(!shout.reason.is_empty());
+        assert_ne!(shout.reason, "");
         assert_eq!(
             echo_row(persona_id, "echo__whisper").state,
             ToolState::Absent
@@ -1577,7 +1577,7 @@ mod tests {
         let connected = connect("gone", &[missing]).await;
         assert!(connected.tools.is_empty());
         assert_eq!(connected.failed.len(), 1);
-        assert!(!connected.failed[0].reason.trim().is_empty());
+        assert_ne!(connected.failed[0].reason.trim(), "");
     }
 
     #[tokio::test]
@@ -1730,7 +1730,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("computer__{name} is on the ledger: {rows:?}"));
             assert_eq!(row.source, ToolSourceKind::Mcp);
             assert_eq!(row.state, ToolState::Verified);
-            assert!(!row.reason.is_empty());
+            assert_ne!(row.reason, "");
         }
 
         client.cancel().await.ok();

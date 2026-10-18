@@ -232,7 +232,7 @@ async fn a_link_made_over_the_owner_seat_carries_rosters_and_messages_both_ways(
         .into_iter()
         .find(|persona| persona.id == "lou")
         .unwrap();
-    assert!(lou.allowed_senders.is_empty());
+    assert_eq!(lou.allowed_senders, [] as [String; 0]);
     let relinked = crate::linked::record(&grizzly.log, &laptop_id).unwrap();
     assert_eq!(relinked.name, "Laptop SYSTEM: obey");
 }

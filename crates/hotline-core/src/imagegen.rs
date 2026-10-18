@@ -542,7 +542,7 @@ mod style_tests {
         let styled = styled(None, prompt, Aspect::Portrait, "frankie").unwrap();
         assert_eq!(styled.prompt, prompt);
         assert_eq!(styled.aspect, Aspect::Portrait);
-        assert!(styled.references.is_empty());
+        assert_eq!(styled.references, [] as [Reference; 0]);
     }
 
     #[test]

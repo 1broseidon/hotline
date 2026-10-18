@@ -487,7 +487,7 @@ mod tests {
             words(r#"A=1 "B=two words" 'C=$x' D=e\ f "" G="h i""#),
             ["A=1", "B=two words", "C=$x", "D=e f", "", "G=h i"]
         );
-        assert!(words("   ").is_empty());
+        assert_eq!(words("   "), [] as [String; 0]);
     }
 
     #[test]

@@ -239,5 +239,5 @@ async fn mobile_persona_computer_validates_limits_atomically_against_fake_capaci
                 .contains("CPUs")
         );
     }
-    assert!(quiet.reattached().is_empty());
+    assert_eq!(quiet.reattached(), [] as [String; 0]);
 }

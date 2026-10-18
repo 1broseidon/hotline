@@ -1083,7 +1083,7 @@ mod tests {
         }
         let listed = listed.unwrap();
         assert!(listed.blocked);
-        assert!(listed.profiles.is_empty());
+        assert_eq!(listed.profiles, [] as [BrowserProfile; 0]);
         assert_eq!(serde_json::to_value(&listed).unwrap()["blocked"], true);
     }
 

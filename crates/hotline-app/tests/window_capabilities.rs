@@ -133,7 +133,7 @@ fn handlers_app_manifest_and_main_permission_set_stay_in_sync() {
     for command in &commands {
         let permission = &app.permissions[&format!("allow-{}", command.replace('_', "-"))];
         assert_eq!(permission.commands.allow, vec![command.clone()]);
-        assert!(permission.commands.deny.is_empty());
+        assert_eq!(permission.commands.deny, [] as [String; 0]);
     }
 }
 

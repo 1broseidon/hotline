@@ -627,8 +627,8 @@ mod tests {
             vec!["hotline.dev"]
         );
         assert_eq!(Query::parse("what is docs.rs").domains, vec!["docs.rs"]);
-        assert!(Query::parse("rust 1.75 release").domains.is_empty());
-        assert!(Query::parse("Mount Everest.").domains.is_empty());
+        assert_eq!(Query::parse("rust 1.75 release").domains, [] as [String; 0]);
+        assert_eq!(Query::parse("Mount Everest.").domains, [] as [String; 0]);
     }
 
     #[test]
@@ -692,7 +692,10 @@ mod tests {
         assert_eq!(q.distinctive(), vec!["xqzflarnib", "98421"]);
         let q = Query::parse("latest world news October 6 2026");
         assert!(q.distinctive().is_empty(), "{:?}", q.distinctive());
-        assert!(Query::parse("why is the sky blue").distinctive().is_empty());
+        assert_eq!(
+            Query::parse("why is the sky blue").distinctive(),
+            [] as [&str; 0]
+        );
     }
 
     #[test]

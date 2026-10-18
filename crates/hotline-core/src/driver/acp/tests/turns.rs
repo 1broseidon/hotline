@@ -151,7 +151,10 @@ async fn failed_acp_sessions_get_a_fresh_briefing_without_reissuing_the_old_prom
         assert!(!driver.live.briefed.load(Ordering::SeqCst));
         assert!(lock(&driver.live.pending).is_empty());
         let fresh_persona = driver.abandon_failed_session().await.unwrap();
-        assert!(fresh_persona.session_checkpoints.is_empty());
+        assert_eq!(
+            fresh_persona.session_checkpoints,
+            [] as [SessionCheckpoint; 0]
+        );
         assert!(lock(&driver.live.connection_task).is_none());
         let fresh_heard = Heard::default();
         let fresh_agent = tokio::spawn(recovery_agent(fresh_heard.clone(), ""));

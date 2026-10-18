@@ -109,7 +109,7 @@ async fn a_changed_secret_is_handed_again_to_every_running_computer() {
         sets[2].is_empty(),
         "a deleted secret is gone from the machine"
     );
-    assert!(notices(&room, "ada").is_empty());
+    assert_eq!(notices(&room, "ada"), [] as [String; 0]);
 
     // A stopped computer is not chased: it gets the set at its next start.
     room.stop("ada").unwrap();
@@ -399,7 +399,7 @@ async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
         true,
     )
     .await;
-    assert!(room.computer_cookies_list("ada").is_empty());
+    assert_eq!(room.computer_cookies_list("ada"), [] as [CookieImport; 0]);
     let recorded = vec![CookieImport {
         browser_id: "chrome".to_string(),
         browser_name: "Google Chrome".to_string(),
@@ -457,7 +457,7 @@ async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
         .computer_cookies_forget("ada", "chrome", "Default", None)
         .await
         .unwrap();
-    assert!(left.is_empty());
+    assert_eq!(left, [] as [CookieImport; 0]);
     assert_eq!(
         taken.forgotten()[1],
         (
@@ -465,7 +465,7 @@ async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
             vec!["gitlab.com".to_string()]
         )
     );
-    assert!(room.computer_cookies_list("ada").is_empty());
+    assert_eq!(room.computer_cookies_list("ada"), [] as [CookieImport; 0]);
 
     // A release from before the door: 404, said as the pane's Update.
     let ComputerRoom { room, taken, .. } = computer_room(
@@ -481,7 +481,7 @@ async fn brought_over_cookies_are_listed_and_taken_back_by_site_or_whole() {
         .await
         .unwrap_err();
     assert!(refused.contains("cannot take cookies back"), "{refused}");
-    assert!(taken.forgotten().is_empty());
+    assert_eq!(taken.forgotten(), [] as [(String, Vec<String>); 0]);
     assert_eq!(
         room.computer_cookies_list("ada"),
         recorded,
@@ -525,7 +525,7 @@ async fn a_passkey_made_while_no_pane_is_looking_is_stored_by_the_room() {
     room.secrets_passkey_register("GITHUB_PASSKEY", "ada", "github.com")
         .await
         .unwrap();
-    assert!(vault.shared_secrets().unwrap().is_empty());
+    assert_eq!(vault.shared_secrets().unwrap(), [] as [SharedSecret; 0]);
     // The site asks: the room's own watch raises the card.
     let ask = taken.ask();
     let mut cards = Vec::new();
@@ -624,7 +624,7 @@ async fn a_passkey_request_denied_on_the_tape_ends_the_arming_and_a_lost_one_exp
         .unwrap();
     assert_eq!(denied.state, PasskeyRegistrationState::Idle);
     assert_eq!(taken.armed(), None);
-    assert!(vault.shared_secrets().unwrap().is_empty());
+    assert_eq!(vault.shared_secrets().unwrap(), [] as [SharedSecret; 0]);
     let cards = passkey_cards(&room, "ada");
     assert_eq!(cards.len(), 1, "{cards:?}");
     assert_eq!(cards[0]["status"], "denied");
@@ -903,7 +903,7 @@ async fn a_failed_update_is_told_in_the_pane_not_the_conversation() {
     })
     .await
     .expect("the pane is told");
-    assert!(!failed.is_empty());
+    assert_ne!(failed, "");
     assert!(notices(&room, "ada").is_empty(), "the conversation is not");
 
     std::fs::write(root.join("state.pullgate"), "").unwrap();
@@ -1042,7 +1042,7 @@ async fn a_pulled_image_is_live_progress_and_never_on_the_tape() {
             .all(|event| event["kind"] != "computer_pull"),
         "the pull is not on the tape"
     );
-    assert!(notices(&desk.room, "ada").is_empty());
+    assert_eq!(notices(&desk.room, "ada"), [] as [String; 0]);
 }
 
 /// A download never keeps a teammate from answering. The start goes ahead
@@ -1158,7 +1158,7 @@ async fn a_manual_check_asks_now_and_a_refusal_keeps_what_was_known() {
     .await;
     let refused = offline.room.computer_releases_check().await;
     assert_eq!(refused.newest, None);
-    assert!(refused.releases.is_empty());
+    assert_eq!(refused.releases, [] as [String; 0]);
     assert!(refused.checked_at.is_some());
     assert!(
         refused

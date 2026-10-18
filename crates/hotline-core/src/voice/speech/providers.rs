@@ -1253,7 +1253,7 @@ mod tests {
         for row in ROWS {
             match row.speak {
                 Some((_, voice, ..)) => assert_eq!(row.voices.first(), Some(&voice)),
-                None => assert!(row.voices.is_empty()),
+                None => assert_eq!(row.voices, [] as [&str; 0]),
             }
         }
     }

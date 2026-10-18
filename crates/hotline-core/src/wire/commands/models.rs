@@ -261,7 +261,7 @@ mod welcome_tests {
             vec![backend("hotline", None)],
         );
         assert!(!fresh.can_run);
-        assert!(fresh.providers.is_empty());
+        assert_eq!(fresh.providers, [] as [String; 0]);
         assert!(fresh.harnesses.is_empty(), "Hotline Agent is not a harness");
         assert_eq!(fresh.teammates, 0);
 

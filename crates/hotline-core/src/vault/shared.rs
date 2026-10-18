@@ -746,7 +746,7 @@ mod tests {
         let (values, missing) = vault
             .shared_secret_values(&["GITHUB".to_string(), "GITHUB_PASSKEY".to_string()])
             .unwrap();
-        assert!(missing.is_empty());
+        assert_eq!(missing, [] as [String; 0]);
         assert_eq!(
             values["GITHUB"],
             StoredSecret::Login {
@@ -940,7 +940,7 @@ mod tests {
         let vault = vault(root.path());
         assert!(vault.set_shared_secret("PATH", "/usr/bin:/bin").is_err());
         assert!(vault.delete_shared_secret("../x").is_err());
-        assert!(names(&vault).is_empty());
+        assert_eq!(names(&vault), [] as [String; 0]);
     }
 
     #[test]
@@ -993,7 +993,7 @@ mod tests {
         );
 
         vault.delete_shared_secret("NPM_TOKEN").unwrap();
-        assert!(names(&vault).is_empty());
+        assert_eq!(names(&vault), [] as [String; 0]);
         assert!(!root.path().join("vault/shared/NPM_TOKEN.json").exists());
         let (values, missing) = vault
             .shared_secret_values(&["NPM_TOKEN".to_string()])

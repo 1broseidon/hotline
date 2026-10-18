@@ -353,7 +353,7 @@ mod tests {
             })
         );
         assert_eq!(store.load(&ThreadId::dm("nobody")), None);
-        assert!(store.list("nobody").is_empty());
+        assert_eq!(store.list("nobody"), [] as [crate::thread::Thread; 0]);
     }
 
     #[tokio::test]

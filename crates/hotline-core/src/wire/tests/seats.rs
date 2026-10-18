@@ -711,7 +711,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
     tokio::time::timeout(std::time::Duration::from_secs(5), owner.cancelled())
         .await
         .unwrap();
-    assert!(log.load(&StreamId::Tape("ada".into())).is_empty());
+    assert_eq!(log.load(&StreamId::Tape("ada".into())), [] as [Value; 0]);
 }
 
 #[tokio::test]

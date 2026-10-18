@@ -318,7 +318,7 @@ mod tests {
             openrouter_login_at(
                 &record(&target),
                 |code, url| {
-                    assert!(code.is_empty());
+                    assert_eq!(code, "");
                     prompt_tx.send(url).unwrap();
                 },
                 "https://openrouter.ai/auth",

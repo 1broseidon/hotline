@@ -534,7 +534,7 @@ fn a_revoked_handle_refuses_its_folders_too() {
 fn whole_machine_reach_keeps_no_folder_wall() {
     let granted = Granted::new();
     let workspace = granted.open(Reach::Machine, None);
-    assert!(workspace.folders().is_empty());
+    assert_eq!(workspace.folders(), []);
     write(&workspace, &granted.read_only.join("machine.txt")).unwrap();
     assert!(granted.read_only.join("machine.txt").exists());
 }

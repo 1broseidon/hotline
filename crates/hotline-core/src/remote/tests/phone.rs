@@ -508,7 +508,10 @@ async fn a_phone_registers_where_to_notify_it_and_the_room_can_read_it() {
     let h = Harness::new().await;
     let grant = h.pair().await;
     let phone = h.remote.authenticate_v2(&grant.public).unwrap();
-    assert!(crate::remote::push_targets(h.root.path()).tokens.is_empty());
+    assert_eq!(
+        crate::remote::push_targets(h.root.path()).tokens,
+        [] as [String; 0]
+    );
     assert!(
         phone
             .register_push("not a token".into(), "ios".into())
@@ -542,14 +545,20 @@ async fn a_phone_registers_where_to_notify_it_and_the_room_can_read_it() {
     );
     // Turning Remote off keeps the phone paired but stops notifying it.
     h.remote.configure(false, network::ALL).await.unwrap();
-    assert!(crate::remote::push_targets(h.root.path()).tokens.is_empty());
+    assert_eq!(
+        crate::remote::push_targets(h.root.path()).tokens,
+        [] as [String; 0]
+    );
     h.remote.configure(true, network::ALL).await.unwrap();
     assert_eq!(
         crate::remote::push_targets(h.root.path()).tokens,
         ["ExponentPushToken[def]"]
     );
     h.remote.revoke(&phone.id).unwrap();
-    assert!(crate::remote::push_targets(h.root.path()).tokens.is_empty());
+    assert_eq!(
+        crate::remote::push_targets(h.root.path()).tokens,
+        [] as [String; 0]
+    );
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 

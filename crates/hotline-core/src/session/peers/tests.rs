@@ -75,7 +75,7 @@ async fn workspace_delivery_requires_consent_before_peer_side_effects() {
     assert_eq!(card["options"][0]["name"], "Allow this session");
     assert_eq!(card["options"][1]["name"], "Always allow Ada");
     assert_eq!(card["options"][2]["name"], "Deny");
-    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
     assert!(lock(&room.peers.sessions).is_empty());
 
     room.answer_permission("ada", &request_id, DENY)
@@ -83,7 +83,7 @@ async fn workspace_delivery_requires_consent_before_peer_side_effects() {
         .unwrap();
     let error = delivery.await.unwrap().unwrap_err();
     assert!(error.contains("denied"), "{error}");
-    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
     assert!(lock(&room.peers.sessions).is_empty());
     let settled = room
         .tape("ada")
@@ -147,7 +147,7 @@ async fn collaboration_rechecks_reach_after_discovery() {
         .await
         .unwrap();
     assert!(authorization.await.unwrap().is_err());
-    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
 }
 
 #[tokio::test]
@@ -772,7 +772,7 @@ async fn a_teammate_this_room_does_not_have_is_refused_in_a_sentence() {
     let refused = room.deliver("ada", "Cal", "hello?").await.unwrap_err();
     assert!(refused.contains("Cal"), "{refused}");
     assert!(refused.contains("list_teammates"), "{refused}");
-    assert!(thread_of(&room, "ada~cal").is_empty());
+    assert_eq!(thread_of(&room, "ada~cal"), [] as [Value; 0]);
 
     let itself = room.deliver("ada", "Ada", "hello?").await.unwrap_err();
     assert!(itself.contains("cannot message itself"), "{itself}");
@@ -1057,7 +1057,10 @@ async fn a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later() 
         .find(|event| event["requestId"] == request_id)
         .expect("cancellation leaves an expired collaboration card");
     assert_eq!(settled["decision"], "expired");
-    assert!(room.persona("bob").unwrap().allowed_senders.is_empty());
+    assert_eq!(
+        room.persona("bob").unwrap().allowed_senders,
+        [] as [String; 0]
+    );
 }
 
 #[tokio::test]
@@ -1078,7 +1081,7 @@ async fn an_answered_collaboration_cannot_start_after_a_chapter_generation_chang
 
     let error = delivery.await.unwrap().unwrap_err();
     assert!(error.contains("approval expired"), "{error}");
-    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
     assert!(lock(&room.peers.sessions).is_empty());
     assert!(lock(&room.peers.session_grants).is_empty());
 }
@@ -1422,20 +1425,20 @@ mod receipts {
     #[test]
     fn an_error_before_the_model_ran_does_not_read_the_message() {
         let ran = run(vec![user("u1", ""), notice("the backend died")]);
-        assert!(ran.reads.is_empty());
+        assert_eq!(ran.reads, [] as [String; 0]);
         assert_eq!(ran.window.as_ref().map(id_of), Some("u1".to_string()));
     }
 
     #[test]
     fn a_chapter_marker_written_as_the_session_opens_does_not_read_the_message() {
         let ran = run(vec![user("u1", ""), chapter()]);
-        assert!(ran.reads.is_empty());
+        assert_eq!(ran.reads, [] as [String; 0]);
     }
 
     #[test]
     fn nothing_is_read_before_a_message_arrives() {
         let ran = run(vec![thought(""), tool(), agent("a1", ""), turn()]);
-        assert!(ran.reads.is_empty());
+        assert_eq!(ran.reads, [] as [String; 0]);
     }
 
     #[test]
@@ -1512,15 +1515,27 @@ mod receipts {
     #[test]
     fn a_receipt_naming_nothing_or_something_already_read_writes_nothing() {
         let said = stored(&[stamped(agent("a1", ""), Receipt::Read)]);
-        assert!(read_receipt_updates(&said, &["a1".to_string()]).is_empty());
-        assert!(read_receipt_updates(&said, &["no-such-id".to_string()]).is_empty());
-        assert!(read_receipt_updates(&[], &["anything".to_string()]).is_empty());
+        assert_eq!(
+            read_receipt_updates(&said, &["a1".to_string()]),
+            [] as [TranscriptEvent; 0]
+        );
+        assert_eq!(
+            read_receipt_updates(&said, &["no-such-id".to_string()]),
+            [] as [TranscriptEvent; 0]
+        );
+        assert_eq!(
+            read_receipt_updates(&[], &["anything".to_string()]),
+            [] as [TranscriptEvent; 0]
+        );
     }
 
     #[test]
     fn a_receipt_cannot_move_machinery() {
         let machinery = stored(&[thought("")]);
-        assert!(read_receipt_updates(&machinery, &["th".to_string()]).is_empty());
+        assert_eq!(
+            read_receipt_updates(&machinery, &["th".to_string()]),
+            [] as [TranscriptEvent; 0]
+        );
     }
 }
 

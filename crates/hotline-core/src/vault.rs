@@ -1266,7 +1266,7 @@ mod tests {
         );
         assert!(!vault.login_dir(&first.id).exists());
         vault.cache_discovery(&second.id, &[]).unwrap();
-        assert!(vault.account_models()["ollama-cloud"].is_empty());
+        assert_eq!(vault.account_models()["ollama-cloud"], [] as [String; 0]);
         vault.revoke(&second.id).unwrap();
         assert!(vault.account_models().is_empty());
         assert!(
@@ -1345,7 +1345,7 @@ mod tests {
                     .is_err()
             );
             symlink(&outside, dir.join("manual-models.json")).unwrap();
-            assert!(vault.read_manual_models(&credential.id).is_empty());
+            assert_eq!(vault.read_manual_models(&credential.id), [] as [String; 0]);
             assert!(
                 vault
                     .set_manual_models(&credential.id, &["manual".into()])
@@ -1577,7 +1577,7 @@ mod tests {
         );
 
         vault.delete(&credential.id).unwrap();
-        assert!(vault.list().is_empty());
+        assert_eq!(vault.list(), [] as [Credential; 0]);
         assert!(!secrets(&vault).contains("sk-ant-001"));
         // Both halves are gone, and asking again says so.
         assert!(vault.revoke(&credential.id).is_err());
@@ -1780,7 +1780,7 @@ mod tests {
         let (id, dir) = vault.begin_login("openai-codex").unwrap();
         vault.abandon_login(&id).unwrap();
         assert!(!dir.exists());
-        assert!(vault.list().is_empty());
+        assert_eq!(vault.list(), [] as [Credential; 0]);
         assert!(vault.provider_auth().is_empty());
     }
 
@@ -1792,7 +1792,7 @@ mod tests {
         assert!(dir.is_dir());
         vault.delete(&id).unwrap();
         assert!(!dir.exists());
-        assert!(vault.list().is_empty());
+        assert_eq!(vault.list(), [] as [Credential; 0]);
         assert!(vault.provider_auth().is_empty());
     }
 

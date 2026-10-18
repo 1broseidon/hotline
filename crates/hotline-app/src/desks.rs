@@ -942,14 +942,14 @@ mod tests {
         assert_eq!(desks.len(), 1);
         assert_eq!(desks[0]["kind"], "remote");
         assert_eq!(desks[0]["id"], "lab");
-        assert!(extra(Some("not json")).is_empty());
-        assert!(extra(None).is_empty());
+        assert_eq!(extra(Some("not json")), [] as [Value; 0]);
+        assert_eq!(extra(None), [] as [Value; 0]);
         // An extra desk cannot pose as the local one.
-        assert!(
+        assert_eq!(
             extra(Some(
                 r#"[{"id":"local","name":"x","origin":"o","token":"t"}]"#
-            ))
-            .is_empty()
+            )),
+            [] as [Value; 0]
         );
     }
 }

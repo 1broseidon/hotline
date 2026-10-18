@@ -154,20 +154,17 @@ async fn what_cannot_be_sent_is_refused_and_leaves_nothing_behind() {
         refused(json!({ "source": "workspace", "path": "big.bin" })).await,
         "big.bin is larger than the 25 MB a file can be."
     );
-    assert!(
-        !refused(json!({ "source": "workspace", "path": "/etc/hostname" }))
-            .await
-            .is_empty()
+    assert_ne!(
+        refused(json!({ "source": "workspace", "path": "/etc/hostname" })).await,
+        ""
     );
-    assert!(
-        !refused(json!({ "source": "workspace", "path": "missing.txt" }))
-            .await
-            .is_empty()
+    assert_ne!(
+        refused(json!({ "source": "workspace", "path": "missing.txt" })).await,
+        ""
     );
-    assert!(
-        !refused(json!({ "source": "workspace", "path": "." }))
-            .await
-            .is_empty()
+    assert_ne!(
+        refused(json!({ "source": "workspace", "path": "." })).await,
+        ""
     );
     assert_eq!(
         refused(json!({ "source": "workspace" })).await,
@@ -194,7 +191,7 @@ async fn what_cannot_be_sent_is_refused_and_leaves_nothing_behind() {
         refused(json!({ "source": "computer", "path": "report.txt" })).await,
         "Your computer is not running, so there is nothing on it to send. `computer_status` says where it is."
     );
-    assert!(files_on(&room).is_empty());
+    assert_eq!(files_on(&room), [] as [Value; 0]);
     assert_eq!(kept(&room), 0);
 }
 
@@ -221,7 +218,7 @@ async fn a_quiet_scheduled_run_sends_nothing_and_says_so() {
         refused.starts_with("This is a quiet scheduled run"),
         "{refused}"
     );
-    assert!(files_on(&room).is_empty());
+    assert_eq!(files_on(&room), [] as [Value; 0]);
     assert_eq!(kept(&room), 0);
 }
 

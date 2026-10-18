@@ -65,7 +65,7 @@ async fn all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls() 
     let off = h.remote.configure(false, network::ALL).await.unwrap();
     assert!(!off.enabled);
     assert_eq!(off.host, network::ALL);
-    assert!(off.endpoints.is_empty());
+    assert_eq!(off.endpoints, [] as [String; 0]);
     assert!(h.remote.authenticate_v2(&grant.public).is_none());
     assert_eq!(
         h.remote
@@ -140,7 +140,7 @@ async fn a_public_address_is_advertised_after_this_computers_own_and_never_repla
     }
     // Kept with Remote off, advertised only while it is on, and kept across a restart.
     let off = h.remote.configure(false, network::ALL).await.unwrap();
-    assert!(off.endpoints.is_empty());
+    assert_eq!(off.endpoints, [] as [String; 0]);
     assert_eq!(off.public_url.as_deref(), Some("https://desk.example.com"));
     let restored = Remote::open_with_store(
         h.root.path(),
@@ -312,7 +312,7 @@ async fn sealed_via(h: &Harness, base: &str, private: &[u8; 32]) -> PhoneSocket 
         sealed_network::exchange_via(h, base, "/v2", private, &desk_key, &[])
             .await
             .unwrap();
-    assert!(payload.is_empty());
+    assert_eq!(payload, [] as [u8; 0]);
     PhoneSocket { socket, state }
 }
 

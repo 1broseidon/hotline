@@ -203,7 +203,7 @@ async fn a_side_thread_runs_on_its_own_stream_and_leaves_one_marker_on_the_tape(
     assert!(!sides[0].working);
 
     // Its own context: no seed, no checkpoint, no computer, and the brief.
-    assert!(lock(&agents.seeds).last().unwrap().is_empty());
+    assert_eq!(lock(&agents.seeds).last().unwrap().as_slice(), []);
     let preamble = lock(&agents.preambles).last().cloned().unwrap();
     assert!(preamble.contains("This is a work thread"), "{preamble}");
     assert!(preamble.contains("Another thread of"), "{preamble}");
@@ -352,7 +352,10 @@ async fn archiving_turns_the_marker_into_a_one_line_result_and_ends_the_agent() 
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].status, SideStatus::Archived);
     assert_eq!(listed[0].result.as_deref(), Some("The badge is green now."));
-    assert!(room.side_threads("someone-else").is_empty());
+    assert_eq!(
+        room.side_threads("someone-else"),
+        [] as [SideThreadSummary; 0]
+    );
 }
 
 #[tokio::test]
@@ -371,7 +374,7 @@ async fn the_teammate_can_say_it_is_done_and_its_last_words_land_first() {
         .unwrap();
     assert!(said.contains("Archiving"), "{said}");
     until("ada has no side threads", || room.sides("ada").is_empty()).await;
-    assert!(room.sides("ada").is_empty());
+    assert_eq!(room.sides("ada"), [] as [RunningSide; 0]);
     let stream = side_stream(&room, &id);
     assert!(stream.iter().any(|event| event["text"] == "All done."));
     assert_eq!(tape(&room)[0]["archivedBy"], "agent");
@@ -487,7 +490,7 @@ async fn stopping_the_teammate_archives_its_side_threads_as_stopped() {
         .for_work(summary.side_id.clone())
         .with_capability(lease);
     room.stop("ada").unwrap();
-    assert!(room.sides("ada").is_empty());
+    assert_eq!(room.sides("ada"), [] as [RunningSide; 0]);
     assert_eq!(tape(&room)[0]["archivedBy"], "stopped");
     assert!(
         room.prompt_side(&summary.side_id, "hi", None)
@@ -510,17 +513,17 @@ async fn a_policy_change_and_a_removal_revoke_side_threads_too() {
     let room = room("side-revoke", agents);
     room.start_side("ada", "One").await.unwrap();
     room.invalidate("ada").unwrap();
-    assert!(room.sides("ada").is_empty());
+    assert_eq!(room.sides("ada"), [] as [RunningSide; 0]);
     // Refused while the policy is being rewritten; fine again afterwards.
     assert!(room.start_side("ada", "Two").await.is_err());
     room.capability_epoch("ada").activate();
     room.start_side("ada", "Three").await.unwrap();
     room.invalidate_all().unwrap();
-    assert!(room.sides("ada").is_empty());
+    assert_eq!(room.sides("ada"), [] as [RunningSide; 0]);
     room.capability_epoch("ada").activate();
     room.start_side("ada", "Four").await.unwrap();
     room.forget("ada");
-    assert!(room.sides("ada").is_empty());
+    assert_eq!(room.sides("ada"), [] as [RunningSide; 0]);
 }
 
 #[tokio::test]
@@ -595,7 +598,7 @@ async fn a_line_said_to_a_parked_thread_brings_it_back_from_its_own_stream() {
     let id = summary.side_id;
     settled(&room, &id).await;
     room.sweep_threads(now_ms() + SIDE_IDLE_MS + 60_000);
-    assert!(room.sides("ada").is_empty());
+    assert_eq!(room.sides("ada"), [] as [RunningSide; 0]);
 
     room.prompt_side(&id, "Now repo two", None).await.unwrap();
     assert_eq!(
@@ -611,7 +614,7 @@ async fn a_line_said_to_a_parked_thread_brings_it_back_from_its_own_stream() {
     // what the thread had said as its history.
     let seeds = lock(&agents.seeds).clone();
     assert_eq!(seeds.len(), 2);
-    assert!(seeds[0].is_empty());
+    assert_eq!(seeds[0], [] as [Said; 0]);
     let heard: Vec<String> = crate::session::tests::words(seeds[1].clone())
         .into_iter()
         .map(|line| match line {
@@ -699,7 +702,10 @@ async fn a_child_thread_saves_its_session_after_a_turn_and_reopens_it() {
     let summary = room.start_side("ada", "Triage").await.unwrap();
     let id = summary.side_id;
     settled(&room, &id).await;
-    assert!(agents.views()[0].session_checkpoints.is_empty());
+    assert_eq!(
+        agents.views()[0].session_checkpoints,
+        [] as [SessionCheckpoint; 0]
+    );
     let marker = tape(&room)[0].clone();
     assert_eq!(marker["sessionId"], "s-side");
     assert_eq!(marker["backendId"], "cursor");
@@ -953,7 +959,7 @@ async fn a_thread_opens_before_its_agent_is_up_and_the_first_line_waits_for_it()
     let stream = side_stream(&room, &summary.side_id);
     assert_eq!(kinds(&stream), ["side", "user"]);
     assert_eq!(tape(&room)[0]["status"], "live");
-    assert!(agents.prompts().is_empty());
+    assert_eq!(agents.prompts(), [] as [String; 0]);
 
     // A line said while it starts is written at once and waits its turn.
     room.prompt_side(&summary.side_id, "And the README", None)
@@ -963,14 +969,14 @@ async fn a_thread_opens_before_its_agent_is_up_and_the_first_line_waits_for_it()
         kinds(&side_stream(&room, &summary.side_id)),
         ["side", "user", "user"]
     );
-    assert!(agents.prompts().is_empty());
+    assert_eq!(agents.prompts(), [] as [String; 0]);
 
     gate.add_permits(1);
     heard(&agents, 2).await;
     settled(&room, &summary.side_id).await;
     assert_eq!(agents.prompts(), ["Fix the CI badge", "And the README"]);
     // Neither line was also handed over as history.
-    assert!(lock(&agents.seeds).last().unwrap().is_empty());
+    assert_eq!(lock(&agents.seeds).last().unwrap().as_slice(), []);
 }
 
 #[tokio::test]
@@ -981,7 +987,7 @@ async fn an_agent_that_cannot_start_says_so_in_the_thread_and_the_thread_is_put_
     let summary = room.start_side("ada", "Task").await.unwrap();
     until("ada has no side threads", || room.sides("ada").is_empty()).await;
     assert!(room.sides("ada").is_empty(), "no agent is left behind");
-    assert!(agents.prompts().is_empty());
+    assert_eq!(agents.prompts(), [] as [String; 0]);
 
     let stream = side_stream(&room, &summary.side_id);
     let notice = stream
@@ -1020,7 +1026,7 @@ async fn a_thread_ended_while_its_agent_starts_stays_ended() {
         .unwrap();
     gate.add_permits(1);
     tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(room.sides("ada").is_empty());
+    assert_eq!(room.sides("ada"), [] as [RunningSide; 0]);
     assert!(agents.prompts().is_empty(), "the task is not run");
     assert!(
         !side_stream(&room, &summary.side_id)

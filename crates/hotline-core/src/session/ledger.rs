@@ -271,7 +271,7 @@ mod tests {
         let ledger = teammate_tools("p1").expect("published");
         assert_eq!(ledger.rows.len(), 3);
         for row in &ledger.rows {
-            assert!(!row.reason.is_empty());
+            assert_ne!(row.reason, "");
         }
     }
 

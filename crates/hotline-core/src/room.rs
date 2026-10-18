@@ -525,7 +525,7 @@ mod cookie_import_tests {
     #[test]
     fn the_record_is_the_latest_whole_list_per_teammate() {
         let log = scratch("cookie-imports");
-        assert!(cookie_imports(&log, "ada").is_empty());
+        assert_eq!(cookie_imports(&log, "ada"), [] as [CookieImport; 0]);
         let first = vec![import("chrome", "Default", &[("github.com", 3)], 1)];
         record_cookie_imports(&log, "ada", &first).unwrap();
         record_cookie_imports(
@@ -741,7 +741,7 @@ mod tests {
             settled_pins(Some(&json!(["x", "b", "b", "a"])), &team),
             vec!["b".to_string(), "a".to_string()]
         );
-        assert!(settled_pins(None, &team).is_empty());
+        assert_eq!(settled_pins(None, &team), [] as [String; 0]);
     }
 
     #[test]
@@ -795,7 +795,7 @@ mod tests {
         append(&log, &tombstone("persona", "ada"));
         log.compact(&StreamId::Room).unwrap();
         let events = log.load(&StreamId::Room);
-        assert!(personas(&events).is_empty());
+        assert_eq!(personas(&events), [] as [Persona; 0]);
         assert!(has_had_a_teammate(&events));
     }
 
@@ -1155,7 +1155,7 @@ mod tests {
         let error = teammate_schedules(&log, "ada").unwrap_err();
         assert!(error.contains("could not be read"), "{error}");
         assert!(log.try_load(&StreamId::Room).is_err());
-        assert!(log.load(&StreamId::Room).is_empty());
+        assert_eq!(log.load(&StreamId::Room), [] as [Value; 0]);
     }
 
     #[test]

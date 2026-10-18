@@ -152,7 +152,7 @@ async fn config_notifications_update_model_and_effort_without_replacing_mode() {
     translate(&live, removal).await;
     let session = lock(&live.session);
     assert!(session.model_config.is_none());
-    assert!(session.info.models.is_empty());
+    assert_eq!(session.info.models, [] as [crate::driver::ConfigChoice; 0]);
     assert_eq!(session.info.current_model_id, "");
     assert_eq!(session.info.current_mode_id.as_deref(), Some("ask"));
     assert_eq!(session.info.configs.len(), 1);
@@ -192,7 +192,7 @@ async fn config_notifications_remove_config_mode_without_stale_picker() {
 
     let session = lock(&live.session);
     assert!(session.mode_config.is_none());
-    assert!(session.info.modes.is_empty());
+    assert_eq!(session.info.modes, [] as [crate::driver::ConfigChoice; 0]);
     assert!(session.info.current_mode_id.is_none());
     assert!(session.info.mode_label.is_none());
     assert_eq!(session.info.configs.len(), 1);

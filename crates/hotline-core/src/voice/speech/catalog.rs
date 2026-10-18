@@ -523,7 +523,7 @@ mod tests {
         ]);
         let (listen, speak) = parse_openai_shape("mistral", &body);
         assert_eq!(heard(&listen), ["voxtral-mini-latest"]);
-        assert!(speak.is_empty());
+        assert_eq!(speak, [] as [Spoken; 0]);
     }
 
     #[test]

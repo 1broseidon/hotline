@@ -766,7 +766,10 @@ mod tests {
             "a copied entry is the grant, not the teammate's own"
         );
 
-        assert!(read_folder(&root.join("nowhere"), SkillSource::Gateway, false).is_empty());
+        assert_eq!(
+            read_folder(&root.join("nowhere"), SkillSource::Gateway, false),
+            [] as [SkillEntry; 0]
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

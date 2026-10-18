@@ -171,7 +171,7 @@ mod tests {
             "the list is newest first, down to the floor, published releases only"
         );
         assert_eq!(releases_in(body, "0.5.1"), ["0.5.1"]);
-        assert!(releases_in(body, "0.6.0").is_empty());
+        assert_eq!(releases_in(body, "0.6.0"), [] as [String; 0]);
         assert_eq!(
             newest_in(body, "0.6.0"),
             None,

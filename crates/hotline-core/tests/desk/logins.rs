@@ -110,7 +110,10 @@ async fn grok_signout_removes_tokens_and_zai_plans_have_separate_connections() {
         .await;
     assert_eq!(standard["ok"], true, "{standard}");
     let models = client.call("models.list", json!({})).await;
-    assert!(!models["result"].as_array().unwrap().is_empty());
+    assert_ne!(
+        models["result"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     assert!(
         models["result"]
             .as_array()
@@ -125,7 +128,10 @@ async fn grok_signout_removes_tokens_and_zai_plans_have_separate_connections() {
         .await;
     assert_eq!(removed["ok"], true, "{removed}");
     let models = client.call("models.list", json!({})).await;
-    assert!(!models["result"].as_array().unwrap().is_empty());
+    assert_ne!(
+        models["result"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     assert!(
         models["result"]
             .as_array()
@@ -184,7 +190,7 @@ async fn models_catalog_flags_a_saved_filter_and_refuses_an_unwired_provider() {
         .await;
     assert_eq!(listed["ok"], true, "{listed}");
     let models = listed["result"].as_array().expect("a catalogue is a list");
-    assert!(!models.is_empty());
+    assert_ne!(models.as_slice(), [] as [Value; 0]);
     assert!(
         models.iter().all(|model| model["enabled"] == true),
         "{listed}"

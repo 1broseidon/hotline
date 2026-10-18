@@ -318,7 +318,7 @@ mod tests {
                 assert_eq!(decoded, None);
             }
         }
-        assert!(decoder.pending.is_empty());
+        assert_eq!(decoder.pending, [] as [u8; 0]);
     }
 
     #[test]
@@ -372,7 +372,7 @@ mod tests {
                 .unwrap_err()
                 .contains("byte limit")
         );
-        assert!(decoder.pending.is_empty());
+        assert_eq!(decoder.pending, [] as [u8; 0]);
         assert!(decoder.decode(&mut r, &raw(&mut i, b"\x01ok")).is_err());
     }
 
@@ -464,7 +464,7 @@ mod tests {
             let mut decoder = Decoder::new(usize::MAX);
             assert!(decoder.decode(&mut r, &ciphertext).is_err());
             assert!(decoder.failed);
-            assert!(decoder.pending.is_empty());
+            assert_eq!(decoder.pending, [] as [u8; 0]);
         }
     }
 

@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn an_unknown_teammate_has_an_empty_tape() {
         let (_root, log) = scratch("empty");
-        assert!(log.load(&stream("nobody")).is_empty());
+        assert_eq!(log.load(&stream("nobody")), [] as [Value; 0]);
     }
 
     #[test]
@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(events[1]["ts"], 2000);
         assert_eq!(events[2]["decision"], "allow");
         // Once answered, a second startup finds nothing left to expire.
-        assert!(expire_orphaned_permissions(&events, 3000).is_empty());
+        assert_eq!(expire_orphaned_permissions(&events, 3000), [] as [Value; 0]);
     }
 
     #[test]
@@ -430,7 +430,7 @@ mod tests {
         assert_eq!(events[0]["status"], "expired");
         assert_eq!(events[0]["ts"], 2000);
         assert_eq!(events[1]["status"], "done");
-        assert!(expire_orphaned_permissions(&events, 3000).is_empty());
+        assert_eq!(expire_orphaned_permissions(&events, 3000), [] as [Value; 0]);
     }
 
     /// The bytes below came out of the previous edition's own writer. Produced by

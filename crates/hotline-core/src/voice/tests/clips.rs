@@ -67,7 +67,10 @@ async fn goodbye_is_spoken_without_a_model_and_hidden_tape_is_searchable() {
     })
     .await;
     assert_eq!(fake.answers.load(Ordering::SeqCst), 0);
-    assert!(crate::room::roster(&desk.log).is_empty());
+    assert_eq!(
+        crate::room::roster(&desk.log),
+        [] as [crate::contract::Persona; 0]
+    );
     let room: Arc<dyn RoomHandle> = desk.clone();
     for command in [
         crate::contract::Command::SearchAll {
@@ -451,7 +454,7 @@ fn sentence_boundaries_keep_paths_versions_and_late_warnings() {
     let long = format!("{} Approval is required.", "Keep this word. ".repeat(50));
     assert_eq!(sentences(&long).last().unwrap(), "Approval is required.");
     let mut pending = "Check main.".to_string();
-    assert!(take_sentences(&mut pending, false).is_empty());
+    assert_eq!(take_sentences(&mut pending, false), [] as [String; 0]);
     pending.push_str("rs. Next");
     assert_eq!(take_sentences(&mut pending, false), ["Check main.rs."]);
     assert_eq!(take_sentences(&mut pending, true), ["Next"]);

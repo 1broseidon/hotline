@@ -288,10 +288,10 @@ mod tests {
         let attempt = Attempt::new(CancellationToken::new());
         attempt.output("é".repeat(OUTPUT_LIMIT).as_bytes());
         assert_eq!(attempt.poll().output.len(), OUTPUT_LIMIT);
-        assert!(attempt.poll().output.is_empty());
+        assert_eq!(attempt.poll().output, "");
         attempt.output(b"fixture-secret");
         attempt.owner.cancel();
-        assert!(attempt.poll().output.is_empty());
+        assert_eq!(attempt.poll().output, "");
         assert!(attempt.input("anything").is_err());
     }
     #[cfg(unix)]
@@ -468,8 +468,8 @@ mod tests {
                     .unwrap();
                 assert_eq!(result, Err("Sign-in cancelled.".into()));
                 assert!(lock(&attempt.input).is_none());
-                assert!(lock(&attempt.status).output.is_empty());
-                assert!(attempt.poll().output.is_empty());
+                assert_eq!(lock(&attempt.status).output, "");
+                assert_eq!(attempt.poll().output, "");
                 assert!(attempt.input("after cancel").is_err());
                 assert_eq!(
                     unsafe { libc::kill(leader, 0) },

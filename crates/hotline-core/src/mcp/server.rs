@@ -1928,7 +1928,7 @@ mod tests {
             refused,
             "`nope` is not a duration like 20m or 2h, or an ISO timestamp."
         );
-        assert!(room.schedule_list().is_empty());
+        assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2040,7 +2040,7 @@ mod tests {
             serde_json::from_str::<Value>(&answered).unwrap(),
             json!({ "cancelled": true })
         );
-        assert!(room.schedule_list().is_empty());
+        assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
     }
 
     /// The tool does not re-state the room's bounds. A loop under `MIN_LOOP`

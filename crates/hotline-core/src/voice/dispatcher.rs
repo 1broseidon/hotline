@@ -1551,7 +1551,7 @@ mod tests {
                     .is_err()
             );
             let reserved = reserved.lock().unwrap().clone();
-            assert!(!reserved.is_empty());
+            assert_ne!(reserved, [] as [f64; 0]);
             assert!(reserved[0] > 0.0);
             near(
                 ledger.spent().unwrap().day.total(),

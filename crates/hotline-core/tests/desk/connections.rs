@@ -116,7 +116,10 @@ async fn ollama_local_discovers_custom_models_and_runs_through_rig() {
         .unwrap();
     assert_eq!(request["model"], "custom/coder:latest");
     assert_eq!(request["stream"], true);
-    assert!(!request["tools"].as_array().unwrap().is_empty());
+    assert_ne!(
+        request["tools"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     let answer = client
         .next_where(Duration::from_secs(15), |frame| {
             is_sub(frame, tape, "event") && frame["event"]["kind"] == "agent"

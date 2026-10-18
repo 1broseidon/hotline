@@ -666,7 +666,7 @@ mod tests {
         room.schedule_cancel(&job.id).unwrap();
         retry(&room, &job, "simulated start failure");
 
-        assert!(room.schedule_list().is_empty());
+        assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
     }
 
     #[tokio::test]

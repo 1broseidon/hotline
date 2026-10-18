@@ -112,12 +112,7 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
         });
         until("the pairing window closes", || status("/v2/pair") == 404);
     }
-    assert!(
-        wire(root.path(), "remote.devices")
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert_eq!(wire(root.path(), "remote.devices"), serde_json::json!([]));
     for flag in ["--json", "--link"] {
         let mut pair = OwnedChild(
             hotline(root.path(), &["pair", flag])
@@ -287,12 +282,7 @@ fn a_relay_only_server_refuses_a_phones_claim_and_keeps_its_window() {
         refused,
         "This invitation is for using the server as a relay."
     );
-    assert!(
-        wire(root.path(), "remote.devices")
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert_eq!(wire(root.path(), "remote.devices"), serde_json::json!([]));
     assert!(
         pair.0.try_wait().unwrap().is_none(),
         "a refused claim closed the window"

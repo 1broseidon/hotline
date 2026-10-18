@@ -146,7 +146,7 @@ async fn ensure_running_on_an_absent_container_creates_with_the_hardened_args() 
         .await
         .expect("ensure");
     assert_eq!(ready.url, format!("http://127.0.0.1:{port}/mcp"));
-    assert!(!ready.token.is_empty());
+    assert_ne!(ready.token, "");
 
     let recorded = log_text(&log);
     let create = create_line(&recorded);

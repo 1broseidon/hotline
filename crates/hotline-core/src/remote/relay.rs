@@ -372,7 +372,7 @@ where
         purpose: String,
         capability: String,
     }
-    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let cancel = lock(&remote.state).cancel.clone();
     let deadline = tokio::time::Instant::now() + ACCEPT_WITHIN;
     let claimed = async {
         let (private, _) = remote.noise_keys().ok()?;
@@ -633,7 +633,7 @@ impl Remote {
             return Err("Pair with that desk first.".into());
         }
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             s.saved.relay = desk_id;
             self.save(&s.saved)?;
         }
@@ -660,7 +660,7 @@ impl Remote {
     /// is on. Called after either changes.
     pub(super) fn stand(self: &Arc<Self>) {
         let (desk, cancel) = {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             if let Some(cancel) = s.relay.cancel.take() {
                 cancel.cancel();
             }
@@ -724,7 +724,7 @@ impl Remote {
     }
 
     fn stood_down(&self, cancel: &CancellationToken, error: Option<String>) {
-        let mut s = self.state.lock().unwrap();
+        let mut s = lock(&self.state);
         if cancel.is_cancelled() {
             return;
         }
@@ -772,7 +772,7 @@ impl Remote {
             match notice.r#type.as_str() {
                 "ready" => {
                     let url = notice.url.ok_or("The relay did not say where it is.")?;
-                    let mut s = self.state.lock().unwrap();
+                    let mut s = lock(&self.state);
                     if cancel.is_cancelled() {
                         return Ok(());
                     }

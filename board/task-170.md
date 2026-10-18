@@ -1,7 +1,7 @@
 ---
 id: task-170
 title: "P2-55 (F): The dependency gates"
-column: todo
+column: in-progress
 position: 59
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - deny.toml
   - Makefile
   - .github/workflows/ci.yml
-updatedAt: "2026-10-18T03:45:13.239Z"
+updatedAt: "2026-10-18T03:45:57.426Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - test -f deny.toml
@@ -26,6 +26,8 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T03:45:57.426Z"
+    reworkCount: 0
 dependsOn:
   - task-169
   - task-124

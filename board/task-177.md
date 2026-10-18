@@ -10,7 +10,15 @@ tags:
   - qa
 createdAt: "2026-10-18T21:49:00.734Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T21:49:02.403Z"
+updatedAt: "2026-10-18T21:49:23.009Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T21:49:22.877Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

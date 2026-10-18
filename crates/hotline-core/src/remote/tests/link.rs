@@ -8,6 +8,7 @@ use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::session::Room;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona};
+use crate::test_support::until;
 
 struct Linked {
     root: tempfile::TempDir,
@@ -95,16 +96,6 @@ async fn connect(laptop: &Linked, grizzly: &Linked) {
 
 fn paired(laptop: &Linked) -> client::PairedDesk {
     crate::remote::relay::paired(laptop.root.path()).remove(0)
-}
-
-async fn until(what: &str, mut condition: impl FnMut() -> bool) {
-    tokio::time::timeout(Duration::from_secs(30), async {
-        while !condition() {
-            tokio::time::sleep(Duration::from_millis(25)).await;
-        }
-    })
-    .await
-    .unwrap_or_else(|_| panic!("never: {what}"));
 }
 
 fn state(desk: &Linked) -> Option<DeskLinkState> {

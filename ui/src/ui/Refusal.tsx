@@ -2,6 +2,19 @@ import { useState } from "react";
 import { ChevronDownIcon, ChevronRightIcon, WarningIcon } from "../icons";
 import { openLink } from "../native";
 
+/** A refusal held as state: what to say, and what was said to us. */
+export type Refused = { message: string; detail?: string };
+
+/**
+ * A refusal in a few words of ours, naming the action that failed, with
+ * whatever refused it (the core, a daemon, a provider) kept as the detail.
+ * The words of the other side can be long, raw or private, so they are
+ * never the message.
+ */
+export function refused(message: string, error: unknown): Refused {
+	return { message, detail: error instanceof Error ? error.message : String(error) };
+}
+
 /**
  * A refusal, wherever one lands: one sentence of ours beside the warning
  * glyph, and, when someone else had words — a daemon, a provider, a process

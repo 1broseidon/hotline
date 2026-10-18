@@ -36,7 +36,7 @@ contract:
       - make verify
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:38.023Z"
 dependsOn:
   - task-161
   - task-162
@@ -44,6 +44,14 @@ dependsOn:
   - task-166
   - task-167
   - task-171
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:37.890Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

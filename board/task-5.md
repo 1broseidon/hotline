@@ -17,7 +17,9 @@ description: |-
   Brainfile: toad-next/task-65 · Source file: `.brainfile/board/task-65.md` on the Linux desk (gitignored, local only)
 
   Migrated from Linear BRO-19: https://linear.app/1broseidon/issue/BRO-19/sign-windows-releases-with-a-trusted-publisher-identity-when-demand (2026-10-11).
-updatedAt: "2026-10-12T20:52:36.432Z"
+
+  Closed 2026-10-18 (backlog triage): Won't do until Windows demand shows up.
+updatedAt: "2026-10-18T23:41:00.990Z"
 ---
 
 ## Log

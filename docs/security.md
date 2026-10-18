@@ -550,7 +550,7 @@ question the change must answer in its PR description.
    let a request borrow the authority of the process it happens to run in.
 3. **Choose the default and the migration.** The default grants nothing
    beyond the workspace. Decide explicitly what an existing record without
-   the field means, and write it down beside the field in `contract.rs`;
+   the field means, and write it down beside the field in `contract`;
    "missing means off" is the house answer, and old implicit access is not
    translated into an explicit grant.
 4. **Enforce outside the model, at every entry.** The check is a

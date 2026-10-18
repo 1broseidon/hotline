@@ -46,7 +46,7 @@ Rust that needs Tauri lives.
 
 ```
 crates/hotline-core/src/
-  contract.rs            the wire's types (serde + ts-rs)
+  contract/              the wire's types (serde + ts-rs), a file per concern
   paths.rs               the data directory's layout
   log/                   streams: append, fold, segments, subscribe
   store/                 FTS5 index, chapter list, roster previews

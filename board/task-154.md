@@ -9,7 +9,7 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:03.758Z"
-updatedAt: "2026-10-18T00:15:15.633Z"
+updatedAt: "2026-10-18T06:18:53.191Z"
 relatedFiles:
   - crates/hotline-core/tests/common/mod.rs
   - crates/hotline-core/tests/
@@ -37,7 +37,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:15.500Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T06:18:53.191Z"
 assignee: claude
 ---
 

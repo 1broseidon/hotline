@@ -51,3 +51,6 @@ Phase 2 group B (Delete dead code), plan row 12 in docs/audits/0.40/README.md on
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T00:32:01.902Z: [claude] Deleted the nested "@tauri-apps/plugin-global-shortcut/@tauri-apps/api" 2.12.1 entry from ui/bun.lock (its ^2.8.0 range now resolves to the direct 2.11.1 pin). No package.json, plugin or override change. bun install --frozen-lockfile, a fresh install from scratch, and a plain bun install all leave the lockfile alone ("no changes"), and there is no nested node_modules under the plugin. make ui-check (420 tests, hotkeys included), vite build and make precheck (7/7) pass. Desktop shortcuts were not checked by hand in the running app. Nothing left unwired. Rows 6/7 lockfile collisions: only this one line changes, so it merges cleanly over task-119. Commit b9387a8d on dispatch/task-124.

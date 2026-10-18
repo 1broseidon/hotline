@@ -859,6 +859,7 @@ fn title_of(given: Option<&str>, task: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::test_support::until;
     use crate::{contract::Reach, tools::Workspace};
 

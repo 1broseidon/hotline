@@ -17,7 +17,7 @@ relatedFiles:
   - ui/src/components/Secrets.tsx
   - ui/src/components/ErrorCard.tsx
   - ui/src/wire.ts
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:17.856Z"
 contract:
   status: ready
   validation:
@@ -30,6 +30,14 @@ contract:
 dependsOn:
   - task-126
   - task-157
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:17.719Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

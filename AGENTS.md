@@ -82,6 +82,9 @@ bare PATH, a shuffled test order) before a release pull request. Every
 
 ## Code standards
 
+The specific ones (module and test layout, file budgets, errors and panics,
+lints, dependencies) are in [docs/standards.md](docs/standards.md).
+
 - **Delete, don't disable.** When you replace or supersede code, remove the old
   path in the same change — no commented-out blocks, no unused helpers or
   exports, no flags guarding a branch nothing takes, no "keeping this for

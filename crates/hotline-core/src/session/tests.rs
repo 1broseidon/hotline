@@ -5,6 +5,7 @@
 //! on the tape, in what order, and what the room says about the session while
 //! it happens.
 
+use super::prompt::said;
 use super::*;
 use crate::contract::SkillPolicy;
 use crate::contract::{

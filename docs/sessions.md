@@ -28,7 +28,7 @@ tape those events land on is [log.md](log.md).
 
 ## The funnel
 
-Every word a teammate says passes one funnel, in `session.rs`. A quiet
+Every word a teammate says passes one funnel, in `session/prompt.rs`. A quiet
 run, a schedule's stamp, a reply and an attachment are rules about the room,
 not about whichever agent ran the turn.
 

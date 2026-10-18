@@ -35,7 +35,7 @@ async fn bridge_authenticates_locally_and_forwards_files_under_the_remote_seat()
                 ))
                 .await
                 .unwrap();
-            let frame = tokio::time::timeout(Duration::from_secs(10), socket.next())
+            let frame = tokio::time::timeout(ANSWER, socket.next())
                 .await
                 .unwrap()
                 .unwrap()
@@ -232,7 +232,7 @@ async fn bridge_authenticates_locally_and_forwards_files_under_the_remote_seat()
             true
         );
         drop(bridge);
-        tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::time::timeout(ANSWER, async {
             while std::fs::read_dir(root.path()).unwrap().count() != 1
                 || unfinished_named_path.parent().unwrap().exists()
             {
@@ -287,9 +287,7 @@ async fn bridge_viewer_preserves_binary_frames_and_takeover_without_exporting_th
     );
     h.remote.revoke(&h.remote.devices()[0].id).unwrap();
     assert!(!matches!(
-        tokio::time::timeout(Duration::from_secs(5), socket.next())
-            .await
-            .unwrap(),
+        tokio::time::timeout(ANSWER, socket.next()).await.unwrap(),
         Some(Ok(Message::Text(_) | Message::Binary(_)))
     ));
     h.remote.configure(false, network::ALL).await.unwrap();

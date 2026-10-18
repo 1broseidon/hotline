@@ -1,8 +1,8 @@
 ---
 id: task-177
 title: "Onboarding: after Add teammate, open the new teammate's conversation"
-column: in-progress
-position: 2
+column: review
+position: 0
 priority: medium
 tags:
   - onboarding
@@ -10,7 +10,7 @@ tags:
   - qa
 createdAt: "2026-10-18T21:49:00.734Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T21:49:40.189Z"
+updatedAt: "2026-10-18T21:53:01.661Z"
 dispatch:
   agent: claude
   model: opus

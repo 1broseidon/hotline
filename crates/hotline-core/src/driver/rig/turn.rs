@@ -1,6 +1,7 @@
 //! A controllable loop over ordinary Rig requests. Neither steering nor tool
 //! execution depends on which provider the model handle uses.
 
+use super::history::OpenMessage;
 use super::*;
 use crate::session::jobs::{self, JobArgs, JobKind, JobSnapshot, JobState, Jobs, WaitArgs};
 use rig::completion::{CompletionModel, CompletionRequest};
@@ -200,40 +201,46 @@ async fn run_inner(
     sender: &mpsc::Sender<Update>,
     jobs: &mut Jobs,
 ) -> Result<(&'static str, rig::completion::Usage, bool), Failure> {
-    let mut history = turn.history.lock().await.clone();
-    let mut usage = rig::completion::Usage::default();
-    let mut usage_complete = true;
-    let mut open = None;
-    let mut stopped = false;
-    let mut job_results = Vec::new();
-    // Whether this activity has already run a tool: a reply that is only a
-    // reaction, or only a tool call, ends with a completion that says nothing.
-    let mut answered_calls = false;
-    // Whether the last round's tools failed. Silence after success is the
-    // model done; silence after failure is the model giving up unsaid.
-    let mut last_round_failed = false;
-    let mut retries = 0;
-    let mut repaired = false;
-    let mut context_tokens = 0;
+    let mut activity = Activity {
+        turn,
+        sender,
+        jobs,
+        history: turn.history.lock().await.clone(),
+        job_results: Vec::new(),
+        usage: rig::completion::Usage::default(),
+        usage_complete: true,
+        open: None,
+        stopped: false,
+        answered_calls: false,
+        last_round_failed: false,
+        retries: 0,
+        repaired: false,
+        context_tokens: 0,
+        strict: strict::strict_tools(&turn.keys, &turn.model),
+    };
     let mut rotated = false;
-    let strict = strict::strict_tools(&turn.keys, &turn.model);
 
-    'attempt: for _ in 0..MAX_TURNS {
-        for job in jobs.ready()? {
-            job_results.push(publish_job(turn, sender, job).await);
+    for _ in 0..MAX_TURNS {
+        for job in activity.jobs.ready()? {
+            activity
+                .job_results
+                .push(publish_job(turn, sender, job).await);
         }
-        history.append(&mut job_results);
+        activity.history.append(&mut activity.job_results);
         let (revision, pending) = turn.steering.take();
         for input in pending {
-            history.push(input.prepare(&turn.stop).await);
+            activity.history.push(input.prepare(&turn.stop).await);
         }
-        *turn.history.lock().await = history.clone();
+        *turn.history.lock().await = activity.history.clone();
         if let Some(capability) = &turn.capability {
             capability.check()?;
         }
-        images::limit_history(&mut history, &turn.model);
+        images::limit_history(&mut activity.history, &turn.model);
         if let Some(threshold) = recovery::context_threshold(turn.context_limit, turn.output_limit)
-            && context_tokens.max(recovery::estimated_tokens(&history, &template)) >= threshold
+            && activity
+                .context_tokens
+                .max(recovery::estimated_tokens(&activity.history, &template))
+                >= threshold
         {
             if rotated {
                 return Err(Failure::classify(
@@ -243,10 +250,10 @@ async fn run_inner(
                 ));
             }
             rotated = true;
-            history = recovery::fresh(&history, &turn.output_dir);
-            *turn.history.lock().await = history.clone();
-            context_tokens = 0;
-            if recovery::estimated_tokens(&history, &template) >= threshold {
+            activity.history = recovery::fresh(&activity.history, &turn.output_dir);
+            *turn.history.lock().await = activity.history.clone();
+            activity.context_tokens = 0;
+            if recovery::estimated_tokens(&activity.history, &template) >= threshold {
                 return Err(Failure::classify(
                     "context window is too small for the continuation and tools",
                     None,
@@ -257,29 +264,158 @@ async fn run_inner(
             send(sender, Update::Chapter { boundary }).await;
             tokio::select! {
                 biased;
-                () = turn.stop.raised() => { stopped = true; break; }
-                note = ready => if let Ok(Some(note)) = note { history.insert(0, Message::user(note)); },
+                () = turn.stop.raised() => { activity.stopped = true; break; }
+                note = ready => if let Ok(Some(note)) = note { activity.history.insert(0, Message::user(note)); },
             }
-            *turn.history.lock().await = history.clone();
+            *turn.history.lock().await = activity.history.clone();
         }
+        let (id, content) = match activity.stream_response(model, &template, revision).await? {
+            Streamed::Response { id, content } => (id, content),
+            Streamed::Again => continue,
+            Streamed::Stopped => break,
+        };
+        rotated = false;
+        let calls: Vec<ToolCall> = content
+            .iter()
+            .filter_map(|item| match item {
+                AssistantContent::ToolCall(call) => Some(call.clone()),
+                _ => None,
+            })
+            .collect();
+        // An empty completion after a tool round is the model done; a message
+        // with nothing in it is not something a provider will take back.
+        if !content.is_empty() {
+            activity.history.push(Message::Assistant { id, content });
+        }
+        activity.answered_calls |= !calls.is_empty();
+        activity.dispatch_calls(tools, &calls, revision).await?;
+        // Job notifications are ordinary execution data, after every call in
+        // the completed response has its one reply. They never reopen a call.
+        for job in activity.jobs.ready()? {
+            activity
+                .job_results
+                .push(publish_job(turn, sender, job).await);
+        }
+        let new_results = !activity.job_results.is_empty();
+        activity.history.append(&mut activity.job_results);
+        *turn.history.lock().await = activity.history.clone();
+        if activity.stopped {
+            break;
+        }
+        if calls.is_empty() && !new_results {
+            // The model has replied without waiting on its commands: each
+            // one still running goes on as a process the session holds, and
+            // the turn does not wait on it. Its card says where it went.
+            for job in activity.jobs.release() {
+                send(
+                    sender,
+                    Update::ToolResult {
+                        call_id: job.job_id,
+                        ok: true,
+                        output: LEFT_RUNNING.into(),
+                        images: Vec::new(),
+                    },
+                )
+                .await;
+            }
+            if activity.jobs.active() {
+                // A textual response is not activity completion while
+                // subagents (or, in an activity that hands nothing on,
+                // commands) run. Park without spending model requests; input
+                // can wake us. What it just said is what the person reads
+                // meanwhile.
+                send(sender, Update::Parked).await;
+                tokio::select! {
+                    biased;
+                    () = turn.stop.raised() => { activity.stopped = true; break; }
+                    () = turn.steering.changed(revision) => {}
+                    job = activity.jobs.next() => activity.job_results.push(publish_job(turn, sender, job?).await),
+                }
+            } else if turn.steering.finish_if_empty() {
+                return Ok(("end_turn", activity.usage, activity.usage_complete));
+            }
+        }
+    }
+    flush(sender, &mut activity.open).await;
+    activity.history.append(&mut activity.job_results);
+    *turn.history.lock().await = activity.history;
+    if activity.stopped {
+        Ok(("aborted", activity.usage, activity.usage_complete))
+    } else {
+        Err("This activity reached its model-request limit.".into())
+    }
+}
+
+/// What one turn carries from round to round. A round streams a response
+/// (`stream_response`), then runs the tool calls in it (`dispatch_calls`);
+/// both read and write the same conversation, so it lives here rather than
+/// in a dozen arguments.
+struct Activity<'a> {
+    turn: &'a Turn,
+    sender: &'a mpsc::Sender<Update>,
+    jobs: &'a mut Jobs,
+    history: Vec<Message>,
+    /// Job results published since history last took them.
+    job_results: Vec<Message>,
+    usage: rig::completion::Usage,
+    usage_complete: bool,
+    open: Option<OpenMessage>,
+    stopped: bool,
+    /// Whether this activity has already run a tool: a reply that is only a
+    /// reaction, or only a tool call, ends with a completion that says nothing.
+    answered_calls: bool,
+    /// Whether the last round's tools failed. Silence after success is the
+    /// model done; silence after failure is the model giving up unsaid.
+    last_round_failed: bool,
+    retries: u32,
+    repaired: bool,
+    context_tokens: u64,
+    strict: bool,
+}
+
+/// How a round's streaming phase ended.
+enum Streamed {
+    /// The model's whole response, accepted: its tool calls may now run.
+    Response {
+        id: Option<String>,
+        content: Vec<AssistantContent>,
+    },
+    /// Start the round again: new input arrived, or a failure is retried.
+    Again,
+    /// The operator stopped the activity.
+    Stopped,
+}
+
+impl Activity<'_> {
+    /// The streaming phase: one request, its words and reasoning streamed to
+    /// the person as they come, its usage settled, and the response checked
+    /// before any of its calls is accepted. Every retry of a round happens
+    /// here, so a retry never replays a tool.
+    #[allow(clippy::result_large_err)]
+    async fn stream_response(
+        &mut self,
+        model: &impl CompletionModel,
+        template: &CompletionRequest,
+        revision: u64,
+    ) -> Result<Streamed, Failure> {
         let mut request = template.clone();
-        request.chat_history = history.clone();
-        if let Some(context) = jobs.context() {
+        request.chat_history = self.history.clone();
+        if let Some(context) = self.jobs.context() {
             request.chat_history.push(Message::user(context));
         }
         // Before a paid request goes out, the Chat budget must have room for
         // it; the reservation is kept unless this round's usage settles it.
-        let reservation = match &turn.meter {
+        let reservation = match &self.turn.meter {
             Some(meter) => Some(
                 meter
                     .reserve(
                         recovery::estimated_tokens(&request.chat_history, &request),
                         request
                             .max_tokens
-                            .or(turn.output_limit)
+                            .or(self.turn.output_limit)
                             .unwrap_or(UNCAPPED_OUTPUT),
                     )
-                    .map_err(|failure| failure.after_tools(answered_calls))?,
+                    .map_err(|failure| failure.after_tools(self.answered_calls))?,
             ),
             None => None,
         };
@@ -288,10 +424,17 @@ async fn run_inner(
         let response = loop {
             tokio::select! {
                 biased;
-                () = turn.stop.raised() => { stopped = true; usage_complete = false; break 'attempt; }
-                () = turn.steering.changed(revision) => { usage_complete = false; continue 'attempt; }
-                job = jobs.next(), if jobs.active() => {
-                    job_results.push(publish_job(turn, sender, job?).await);
+                () = self.turn.stop.raised() => {
+                    self.stopped = true;
+                    self.usage_complete = false;
+                    return Ok(Streamed::Stopped);
+                }
+                () = self.turn.steering.changed(revision) => {
+                    self.usage_complete = false;
+                    return Ok(Streamed::Again);
+                }
+                job = self.jobs.next(), if self.jobs.active() => {
+                    self.job_results.push(publish_job(self.turn, self.sender, job?).await);
                 }
                 response = &mut response => break response,
             }
@@ -299,27 +442,9 @@ async fn run_inner(
         let mut stream = match response {
             Ok(stream) => stream,
             Err(error) => {
-                usage_complete = false;
-                let failure = Failure::provider(error, "request").after_tools(answered_calls);
-                if recover(
-                    &failure,
-                    &mut retries,
-                    &mut repaired,
-                    &mut history,
-                    turn,
-                    sender,
-                    jobs,
-                    &mut job_results,
-                    revision,
-                )
-                .await?
-                {
-                    if matches!(failure.kind, Kind::Context | Kind::Replay) {
-                        context_tokens = 0;
-                    }
-                    continue;
-                }
-                return Err(failure);
+                self.usage_complete = false;
+                let failure = Failure::provider(error, "request").after_tools(self.answered_calls);
+                return self.retry(failure, revision).await;
             }
         };
         let mut interrupted = false;
@@ -331,19 +456,19 @@ async fn run_inner(
         loop {
             let item = tokio::select! {
                 biased;
-                () = turn.stop.raised() => {
+                () = self.turn.stop.raised() => {
                     stream.cancel();
-                    stopped = true;
+                    self.stopped = true;
                     interrupted = true;
                     break;
                 }
-                () = turn.steering.changed(revision) => {
+                () = self.turn.steering.changed(revision) => {
                     stream.cancel();
                     interrupted = true;
                     break;
                 }
-                job = jobs.next(), if jobs.active() => {
-                    job_results.push(publish_job(turn, sender, job?).await);
+                job = self.jobs.next(), if self.jobs.active() => {
+                    self.job_results.push(publish_job(self.turn, self.sender, job?).await);
                     continue;
                 }
                 item = stream.next() => item,
@@ -352,101 +477,76 @@ async fn run_inner(
             let item = match item {
                 Ok(item) => item,
                 Err(error) => {
-                    usage_complete = false;
-                    flush(sender, &mut open).await;
-                    let failure = Failure::provider(error, "stream").after_tools(answered_calls);
+                    self.usage_complete = false;
+                    flush(self.sender, &mut self.open).await;
+                    let failure =
+                        Failure::provider(error, "stream").after_tools(self.answered_calls);
                     stream.cancel();
-                    keep_spoken(&mut history, &mut spoken, turn).await;
-                    if recover(
-                        &failure,
-                        &mut retries,
-                        &mut repaired,
-                        &mut history,
-                        turn,
-                        sender,
-                        jobs,
-                        &mut job_results,
-                        revision,
-                    )
-                    .await?
-                    {
-                        if matches!(failure.kind, Kind::Context | Kind::Replay) {
-                            context_tokens = 0;
-                        }
-                        continue 'attempt;
-                    }
-                    return Err(failure);
+                    keep_spoken(&mut self.history, &mut spoken, self.turn).await;
+                    return self.retry(failure, revision).await;
                 }
             };
             match item {
                 StreamedAssistantContent::Text(chunk) => {
                     spoken.push_str(&chunk.text);
-                    chunk_into(sender, &mut open, MessageKind::Agent, &chunk.text).await;
+                    chunk_into(self.sender, &mut self.open, MessageKind::Agent, &chunk.text).await;
                 }
                 StreamedAssistantContent::ReasoningDelta { id, reasoning, .. } => {
                     reasoning_deltas.insert(id);
-                    chunk_into(sender, &mut open, MessageKind::Thought, &reasoning).await;
+                    chunk_into(
+                        self.sender,
+                        &mut self.open,
+                        MessageKind::Thought,
+                        &reasoning,
+                    )
+                    .await;
                 }
                 StreamedAssistantContent::Reasoning { id, reasoning }
                     if !reasoning_deltas.contains(&id) =>
                 {
                     for part in reasoning.content {
                         if let rig::message::ReasoningContent::Text { text, .. } = part {
-                            chunk_into(sender, &mut open, MessageKind::Thought, &text).await;
+                            chunk_into(self.sender, &mut self.open, MessageKind::Thought, &text)
+                                .await;
                         }
                     }
                 }
                 _ => {}
             }
         }
-        let reported = every_input_token(stream.usage(), &turn.model);
-        if let (Some(meter), Some(reservation)) = (&turn.meter, reservation)
+        let reported = every_input_token(stream.usage(), &self.turn.model);
+        if let (Some(meter), Some(reservation)) = (&self.turn.meter, reservation)
             && stream.response.is_some()
             && reported.has_values()
         {
             meter.settle(reservation, &reported);
         }
-        usage_complete &= stream.response.is_some() && reported.has_values();
-        context_tokens = reported.input_tokens.saturating_add(reported.output_tokens);
-        usage += reported;
-        flush(sender, &mut open).await;
-        if stopped || interrupted || turn.steering.superseded(revision) {
-            keep_spoken(&mut history, &mut spoken, turn).await;
+        self.usage_complete &= stream.response.is_some() && reported.has_values();
+        self.context_tokens = reported.input_tokens.saturating_add(reported.output_tokens);
+        self.usage += reported;
+        flush(self.sender, &mut self.open).await;
+        if self.stopped || interrupted || self.turn.steering.superseded(revision) {
+            keep_spoken(&mut self.history, &mut spoken, self.turn).await;
         }
-        if stopped {
-            break;
+        if self.stopped {
+            return Ok(Streamed::Stopped);
         }
-        if interrupted || turn.steering.superseded(revision) {
-            continue;
+        if interrupted || self.turn.steering.superseded(revision) {
+            return Ok(Streamed::Again);
         }
-        if stream.response.is_none() || (stream.choice.is_empty() && !answered_calls) {
+        if stream.response.is_none() || (stream.choice.is_empty() && !self.answered_calls) {
             let failure = Failure::classify(
                 "The model stream ended without a complete response.",
                 Some(502),
                 "stream",
             )
-            .after_tools(answered_calls);
-            keep_spoken(&mut history, &mut spoken, turn).await;
-            if recover(
-                &failure,
-                &mut retries,
-                &mut repaired,
-                &mut history,
-                turn,
-                sender,
-                jobs,
-                &mut job_results,
-                revision,
-            )
-            .await?
-            {
-                continue;
-            }
-            return Err(failure);
+            .after_tools(self.answered_calls);
+            keep_spoken(&mut self.history, &mut spoken, self.turn).await;
+            return self.retry(failure, revision).await;
         }
-        if stream.choice.is_empty() && last_round_failed {
+        if stream.choice.is_empty() && self.last_round_failed {
             send(
-                sender,
+                self.sender,
                 Update::Notice {
                     level: NoticeLevel::Info,
                     text: "Stopped after a failed step and said nothing.".into(),
@@ -464,44 +564,66 @@ async fn run_inner(
                     | rig::completion::FinishReason::ContentFilter
             )
         ) {
-            keep_spoken(&mut history, &mut spoken, turn).await;
+            keep_spoken(&mut self.history, &mut spoken, self.turn).await;
             return Err(
                 "The model response was truncated or filtered; its tool calls were not executed."
                     .into(),
             );
         }
-        retries = 0;
-        rotated = false;
-        let calls: Vec<ToolCall> = stream
-            .choice
-            .iter()
-            .filter_map(|item| match item {
-                AssistantContent::ToolCall(call) => Some(call.clone()),
-                _ => None,
-            })
-            .collect();
-        // An empty completion after a tool round is the model done; a message
-        // with nothing in it is not something a provider will take back.
-        if !stream.choice.is_empty() {
-            history.push(Message::Assistant {
-                id: stream.identity().message_id,
-                content: stream.choice,
-            });
-        }
-        answered_calls |= !calls.is_empty();
-        let mut round_failed = false;
+        self.retries = 0;
+        Ok(Streamed::Response {
+            id: stream.identity().message_id,
+            content: stream.choice,
+        })
+    }
 
-        for call in &calls {
+    /// A failed round, started again when [`recover`] says it may be, or the
+    /// failure that ends the activity.
+    #[allow(clippy::result_large_err)]
+    async fn retry(&mut self, failure: Failure, revision: u64) -> Result<Streamed, Failure> {
+        if recover(
+            &failure,
+            &mut self.retries,
+            &mut self.repaired,
+            &mut self.history,
+            self.turn,
+            self.sender,
+            self.jobs,
+            &mut self.job_results,
+            revision,
+        )
+        .await?
+        {
+            if matches!(failure.kind, Kind::Context | Kind::Replay) {
+                self.context_tokens = 0;
+            }
+            return Ok(Streamed::Again);
+        }
+        Err(failure)
+    }
+
+    /// The tool-dispatch phase: every call in an accepted response gets its
+    /// one result, in order, whether it ran or was skipped. Nothing here
+    /// retries.
+    #[allow(clippy::result_large_err)]
+    async fn dispatch_calls(
+        &mut self,
+        tools: &ToolSet,
+        calls: &[ToolCall],
+        revision: u64,
+    ) -> Result<(), Failure> {
+        let mut round_failed = false;
+        for call in calls {
             let call_id = uuid::Uuid::new_v4().to_string();
             // What the tool reads; history keeps the call as the model made it.
-            let arguments = if strict {
+            let arguments = if self.strict {
                 strict::without_nulls(&call.function.arguments)
             } else {
                 call.function.arguments.clone()
             };
             let (shown, shown_arguments) = granted::shown(&call.function.name, &arguments);
             send(
-                sender,
+                self.sender,
                 Update::ToolCall {
                     call_id: call_id.clone(),
                     title: describe_tool(&shown, &shown_arguments),
@@ -509,75 +631,16 @@ async fn run_inner(
                 },
             )
             .await;
-            let mut context = ToolContext::new();
-            let result = if stopped || turn.stop.raised.load(Ordering::SeqCst) {
-                stopped = true;
-                ToolResult::skipped("Not executed: the operator stopped this activity.")
-            } else if turn.steering.superseded(revision) {
-                ToolResult::skipped(
-                    "Not executed: a newer operator message superseded this request.",
-                )
-            } else if turn
-                .capability
-                .as_ref()
-                .is_some_and(|capability| !capability.is_current())
-            {
-                turn.stop.raise();
-                stopped = true;
-                ToolResult::skipped("Not executed: this activity's tool access was revoked.")
-            } else {
-                match call.function.name.as_str() {
-                    "shell" if jobs.shell_enabled() => {
-                        job_result(jobs.launch(call_id.clone(), arguments.clone()))
-                    }
-                    jobs::SUBAGENT if jobs.delegates() => {
-                        job_result(jobs.delegate(call_id.clone(), arguments.clone()))
-                    }
-                    "inspect_job" if jobs.enabled() => job_result(
-                        serde_json::from_value::<JobArgs>(arguments.clone())
-                            .map_err(text)
-                            .and_then(|args| jobs.snapshot(&args.job_id))
-                            .map(|job| model_job(&turn.output_dir, &job)),
-                    ),
-                    "cancel_job" if jobs.enabled() => job_result(
-                        serde_json::from_value::<JobArgs>(arguments.clone())
-                            .map_err(text)
-                            .and_then(|args| jobs.cancel(args)),
-                    ),
-                    "wait_jobs" if jobs.enabled() => {
-                        let result =
-                            wait_jobs(jobs, &arguments, turn, revision, sender, &mut job_results)
-                                .await?;
-                        stopped |= turn.stop.raised.load(Ordering::SeqCst);
-                        result
-                    }
-                    _ => {
-                        let execution =
-                            tools.execute(&call.function.name, arguments.to_string(), &mut context);
-                        tokio::pin!(execution);
-                        loop {
-                            tokio::select! {
-                                biased;
-                                () = turn.stop.raised() => {
-                                    stopped = true;
-                                    break ToolResult::skipped("Interrupted by the operator. The operation may have partial effects.");
-                                }
-                                job = jobs.next(), if jobs.active() => {
-                                    job_results.push(publish_job(turn, sender, job?).await);
-                                }
-                                result = &mut execution => break result,
-                            }
-                        }
-                    }
-                }
-            };
+            let result = self
+                .execute(tools, call, &call_id, arguments, revision)
+                .await?;
             round_failed |= !result.is_success();
             let (shown, images) = result_of(result.output().as_content());
             // The model gets its one launch receipt now. The transcript's
             // shell card stays running until the owned job produces a result.
-            if !jobs.owns(&call_id) {
+            if !self.jobs.owns(&call_id) {
                 send(
-                    sender,
+                    self.sender,
                     Update::ToolResult {
                         call_id: call_id.clone(),
                         ok: result.is_success(),
@@ -588,7 +651,7 @@ async fn run_inner(
                 .await;
             }
             let output = model_output(
-                turn,
+                self.turn,
                 &call_id,
                 &call.function.name,
                 result.output(),
@@ -596,7 +659,7 @@ async fn run_inner(
                 &images,
             )
             .await;
-            history.push(Message::User {
+            self.history.push(Message::User {
                 content: vec![UserContent::ToolResult(rig::message::ToolResult {
                     call: call.id.clone(),
                     provider: call.provider.clone(),
@@ -606,60 +669,96 @@ async fn run_inner(
             });
         }
         if !calls.is_empty() {
-            last_round_failed = round_failed;
+            self.last_round_failed = round_failed;
         }
-        // Job notifications are ordinary execution data, after every call in
-        // the completed response has its one reply. They never reopen a call.
-        for job in jobs.ready()? {
-            job_results.push(publish_job(turn, sender, job).await);
-        }
-        let new_results = !job_results.is_empty();
-        history.append(&mut job_results);
-        *turn.history.lock().await = history.clone();
-        if stopped {
-            break;
-        }
-        if calls.is_empty() && !new_results {
-            // The model has replied without waiting on its commands: each
-            // one still running goes on as a process the session holds, and
-            // the turn does not wait on it. Its card says where it went.
-            for job in jobs.release() {
-                send(
-                    sender,
-                    Update::ToolResult {
-                        call_id: job.job_id,
-                        ok: true,
-                        output: LEFT_RUNNING.into(),
-                        images: Vec::new(),
-                    },
-                )
-                .await;
-            }
-            if jobs.active() {
-                // A textual response is not activity completion while
-                // subagents (or, in an activity that hands nothing on,
-                // commands) run. Park without spending model requests; input
-                // can wake us. What it just said is what the person reads
-                // meanwhile.
-                send(sender, Update::Parked).await;
-                tokio::select! {
-                    biased;
-                    () = turn.stop.raised() => { stopped = true; break; }
-                    () = turn.steering.changed(revision) => {}
-                    job = jobs.next() => job_results.push(publish_job(turn, sender, job?).await),
-                }
-            } else if turn.steering.finish_if_empty() {
-                return Ok(("end_turn", usage, usage_complete));
-            }
-        }
+        Ok(())
     }
-    flush(sender, &mut open).await;
-    history.append(&mut job_results);
-    *turn.history.lock().await = history;
-    if stopped {
-        Ok(("aborted", usage, usage_complete))
-    } else {
-        Err("This activity reached its model-request limit.".into())
+
+    /// One call run, or skipped with the reason: the activity was stopped,
+    /// a newer message superseded it, or its tool access was revoked.
+    #[allow(clippy::result_large_err)]
+    async fn execute(
+        &mut self,
+        tools: &ToolSet,
+        call: &ToolCall,
+        call_id: &str,
+        arguments: Value,
+        revision: u64,
+    ) -> Result<ToolResult, Failure> {
+        let turn = self.turn;
+        if self.stopped || turn.stop.raised.load(Ordering::SeqCst) {
+            self.stopped = true;
+            return Ok(ToolResult::skipped(
+                "Not executed: the operator stopped this activity.",
+            ));
+        }
+        if turn.steering.superseded(revision) {
+            return Ok(ToolResult::skipped(
+                "Not executed: a newer operator message superseded this request.",
+            ));
+        }
+        if turn
+            .capability
+            .as_ref()
+            .is_some_and(|capability| !capability.is_current())
+        {
+            turn.stop.raise();
+            self.stopped = true;
+            return Ok(ToolResult::skipped(
+                "Not executed: this activity's tool access was revoked.",
+            ));
+        }
+        let jobs = &mut *self.jobs;
+        let result = match call.function.name.as_str() {
+            "shell" if jobs.shell_enabled() => job_result(jobs.launch(call_id.into(), arguments)),
+            jobs::SUBAGENT if jobs.delegates() => {
+                job_result(jobs.delegate(call_id.into(), arguments))
+            }
+            "inspect_job" if jobs.enabled() => job_result(
+                serde_json::from_value::<JobArgs>(arguments)
+                    .map_err(text)
+                    .and_then(|args| jobs.snapshot(&args.job_id))
+                    .map(|job| model_job(&turn.output_dir, &job)),
+            ),
+            "cancel_job" if jobs.enabled() => job_result(
+                serde_json::from_value::<JobArgs>(arguments)
+                    .map_err(text)
+                    .and_then(|args| jobs.cancel(args)),
+            ),
+            "wait_jobs" if jobs.enabled() => {
+                let result = wait_jobs(
+                    jobs,
+                    &arguments,
+                    turn,
+                    revision,
+                    self.sender,
+                    &mut self.job_results,
+                )
+                .await?;
+                self.stopped |= turn.stop.raised.load(Ordering::SeqCst);
+                result
+            }
+            _ => {
+                let mut context = ToolContext::new();
+                let execution =
+                    tools.execute(&call.function.name, arguments.to_string(), &mut context);
+                tokio::pin!(execution);
+                loop {
+                    tokio::select! {
+                        biased;
+                        () = turn.stop.raised() => {
+                            self.stopped = true;
+                            break ToolResult::skipped("Interrupted by the operator. The operation may have partial effects.");
+                        }
+                        job = jobs.next(), if jobs.active() => {
+                            self.job_results.push(publish_job(turn, self.sender, job?).await);
+                        }
+                        result = &mut execution => break result,
+                    }
+                }
+            }
+        };
+        Ok(result)
     }
 }
 

@@ -1,8 +1,6 @@
 ---
 id: task-132
 title: "P2-23 (C): `session/tests.rs`"
-column: review
-position: 2
 priority: high
 tags:
   - phase2
@@ -12,7 +10,7 @@ createdAt: "2026-10-17T22:40:52.292Z"
 relatedFiles:
   - crates/hotline-core/src/session/tests.rs
   - crates/hotline-core/src/session/tests/
-updatedAt: "2026-10-18T05:59:38.583Z"
+updatedAt: "2026-10-18T06:18:50.130Z"
 contract:
   status: delivered
   validation:
@@ -45,6 +43,7 @@ dispatch:
     ended: "2026-10-18T05:59:37.758Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-18T06:18:50.130Z"
 ---
 
 ## Description
@@ -76,3 +75,4 @@ Merge release/0.40.0 in, resolve, run make precheck, commit through the hooks.
 - 2026-10-18T05:37:15.268Z: Not landed: dispatch/task-132 conflicts with release/0.40.0 in crates/hotline-core/src/voice/tests.rs, docs/security.md. Nothing was merged. It was sent back once already: settle it, or send it back with a note.
 - 2026-10-18T05:52:03.878Z: [claude] Settled on dispatch/task-132 (8a0c1ef4): merged release/0.40.0. voice/tests.rs takes release's split; the a_call_that_thinks_says_so_again flake fix (no 2×THINKING_AGAIN deadline) is re-applied in voice/tests/direct.rs. docs/security.md conflicting rows (:668-:676, :710-:716) merged token-wise against the base, so they carry both release's tests/desk/*.rs and voice paths and this branch's session/tests/<topic>.rs paths. make check and make precheck (7/7) pass, session/tests.rs is 766 lines, contract.ts unchanged. Nothing left unwired; new session tests go in session/tests/<topic>.rs.
 - 2026-10-18T05:59:38.583Z: Not landed: dispatch/task-132 conflicts with release/0.40.0 in crates/hotline-core/src/voice/tests/direct.rs. Nothing was merged. It was sent back once already: settle it, or send it back with a note.
+- 2026-10-18T06:18:49.739Z: Landed on release/0.40.0

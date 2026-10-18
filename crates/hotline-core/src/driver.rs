@@ -122,7 +122,8 @@ impl CapabilityLease {
             .state
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        self.active_at_capture && state.active && state.generation == self.generation
+        let epoch_still_active = state.active && state.generation == self.generation;
+        self.active_at_capture && epoch_still_active
     }
 
     /// Refuses a call made through a stale driver, tool closure, or workspace.

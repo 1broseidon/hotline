@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp/live.rs
   - crates/hotline-core/src/driver/acp/translate.rs
   - crates/hotline-core/src/driver/acp/session.rs
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:14:55.396Z"
 contract:
   status: ready
   validation:
@@ -28,6 +28,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-135
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:14:55.256Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

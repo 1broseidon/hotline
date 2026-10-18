@@ -24,6 +24,7 @@ hooks-nudge:
 	@[ "$$(git config --get core.hooksPath)" = .githooks ] || echo "git hooks are off: make hooks turns them on (docs/development.md#git-hooks)"
 
 check: hooks-nudge ui-check deps speech-engine
+	python3 scripts/security-citations
 	python3 -m unittest discover -s scripts -p 'test_*.py'
 	python3 -m unittest discover -s site/tests -p 'test_*.py'
 	cargo fmt --all --check

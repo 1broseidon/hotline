@@ -143,7 +143,9 @@ advisories licenses` (no advisory against `Cargo.lock` that `deny.toml`
 does not list with its review condition, and no crate under a license
 nobody reviewed), `scripts/window_licenses.py` (the same for the window's
 packages; [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) says what was
-reviewed) and `bun audit` in `ui/` (no advisory at all); the speech engine fetched and checked against its pinned hash; the Python tests under `scripts/` and
+reviewed) and `bun audit` in `ui/` (no advisory at all); the speech engine fetched and checked against its pinned hash;
+`scripts/security-citations` (every test `docs/security.md` cites is a `fn` in
+the file its row names); the Python tests under `scripts/` and
 `site/tests/`; `cargo fmt --all --check`; `cargo clippy --workspace
 --all-targets -- -D warnings`; `cargo test --workspace`. A window that
 does not compile is a broken build however green the Rust is.

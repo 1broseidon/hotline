@@ -629,7 +629,7 @@ impl Calls {
                 None
             }
             Err(_) => {
-                failed(&format!("it took longer than {:?}", REWRITE_WAIT));
+                failed(&format!("it took longer than {REWRITE_WAIT:?}"));
                 None
             }
         }

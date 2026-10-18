@@ -64,6 +64,7 @@ export function Composer({
 	onClearReply,
 	onDraftChange,
 	corner,
+	focused = false,
 	embedded = false,
 }: {
 	personaId: string;
@@ -81,6 +82,8 @@ export function Composer({
 	onDraftChange?(hasContent: boolean): void;
 	/** Keys that sit on the pill's top right, over the conversation's foot. */
 	corner?: ReactNode;
+	/** Takes the keys while true: a conversation with nothing said yet has nothing else to do. */
+	focused?: boolean;
 	/**
 	 * Inside another composer's window (a side thread's): the same size and
 	 * place as the conversation's, and it leaves file drops to the conversation's own composer, which is the one a drop
@@ -104,6 +107,9 @@ export function Composer({
 	const [pasteFailed, setPasteFailed] = useState<string | null>(null);
 	const area = useRef<HTMLTextAreaElement>(null);
 	const working = isWorking(state);
+	useEffect(() => {
+		if (focused) area.current?.focus();
+	}, [focused]);
 
 	// Dictation writes into the field as the words come (voice/dictation.ts),
 	// so it reads and writes the text through a ref that is never a render behind.

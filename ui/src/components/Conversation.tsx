@@ -478,6 +478,7 @@ export function Conversation({
 					onCall={onCall}
 					onHangUp={onHangUp}
 					{...(refill !== null ? { refill } : {})}
+					focused={fresh}
 					onCancel={cancel}
 					onClearReply={() => setReplying(null)}
 					{...(cornered

@@ -55,3 +55,6 @@ Phase 2 group D (Fixes in the moved files), plan row 42 in docs/audits/0.40/READ
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T09:58:16.901Z: [claude] All 17 result_large_err allows are now #[expect(…, reason)], up from the plan's 13 because the task-31 split added turn.rs sites: 9 rig Failure sites (rig.rs run; turn.rs reserve, run, run_inner, stream_response, recover, retry, dispatch_calls, execute) and 8 tungstenite-callback sites (wire/door.rs, remote/bridge.rs, remote/tests.rs, voice realtime socket tests ×3, xai tests ×2). Every expectation fires under clippy --all-targets. Failure is not boxed (C6). No allow(clippy::result_large_err) is left for task 52's lint table. make check and make precheck pass. Commit 6ebd702a is on dispatch/task-151.

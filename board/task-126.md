@@ -1,7 +1,7 @@
 ---
 id: task-126
 title: "P2-14 (C): `foo.rs` + `foo/`"
-column: todo
+column: in-progress
 position: 15
 priority: high
 tags:
@@ -26,9 +26,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/speech/mod.rs
   - crates/hotline-core/src/websearch/mod.rs
   - crates/hotline-core/src/wire/mod.rs
-updatedAt: "2026-10-18T02:06:57.568Z"
+updatedAt: "2026-10-18T02:08:08.383Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - "! git ls-files crates | grep -E '/src/(.*/)?mod\\.rs$'"
@@ -37,6 +37,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T02:08:08.383Z"
+    reworkCount: 0
 dependsOn:
   - task-113
   - task-121

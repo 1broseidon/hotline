@@ -309,13 +309,14 @@ export function App() {
 					return;
 				}
 				await wire.command("persona.delete", { id: personaId });
-				if (selectedId === personaId) setSelectedId(null);
+				// Whoever is open by the answer, not whoever was open when asked.
+				setSelectedId((open) => (open === personaId ? null : open));
 				setSpaces(({ [personaId]: _, ...rest }) => rest);
 			} catch {
 				// The inspector's own Remove reports a refusal if this fails.
 			}
 		},
-		[selectedId, setSelectedId, setSpaces],
+		[setSelectedId, setSpaces],
 	);
 
 	/* Right-clicking chrome should not offer Reload. Fields and a live

@@ -1,8 +1,6 @@
 ---
 id: task-134
 title: "P2-25 (C): `remote/tests.rs`"
-column: in-progress
-position: 23
 priority: high
 tags:
   - phase2
@@ -12,7 +10,7 @@ createdAt: "2026-10-17T22:40:53.318Z"
 relatedFiles:
   - crates/hotline-core/src/remote/tests.rs
   - crates/hotline-core/src/remote/tests/
-updatedAt: "2026-10-18T04:14:16.191Z"
+updatedAt: "2026-10-18T04:21:30.278Z"
 contract:
   status: in_progress
   validation:
@@ -42,6 +40,7 @@ dispatch:
     ended: "2026-10-18T04:14:16.191Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-18T04:21:30.278Z"
 ---
 
 ## Description
@@ -58,3 +57,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T04:13:43.638Z: [claude] Split committed (151020ca): remote/tests.rs 3406→491 lines (harness + shared helpers), 10 new topic files beside the existing 6; 77 tests before and after, same fn names, move-only apart from super::→crate::remote:: paths; security.md test index repointed. Running make check / precheck.
+- 2026-10-18T04:21:29.703Z: Landed on release/0.40.0

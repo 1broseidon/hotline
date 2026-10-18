@@ -152,7 +152,7 @@ async fn fetch_models(session: &Session) -> Result<(Vec<ListedModel>, Endpoints)
     let request = request.body(Bytes::new()).map_err(|_| failed())?;
     let response = tokio::time::timeout(
         Duration::from_secs(30),
-        DiscoveryHttp::default().send::<Bytes, Vec<u8>>(request),
+        DiscoveryHttp::new()?.send::<Bytes, Vec<u8>>(request),
     )
     .await
     .map_err(|_| "Model discovery timed out; the previous list is unchanged.".to_string())?

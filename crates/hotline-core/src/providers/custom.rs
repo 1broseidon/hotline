@@ -96,7 +96,7 @@ pub(crate) async fn discover(base_url: &str, key: Option<&str>) -> Result<Vec<St
     let client = ClientBuilder::<CompatibleBuilder>::default()
         .api_key(OptionalKey(key.map(str::to_string)))
         .base_url(&base_url)
-        .http_client(super::discovery::DiscoveryHttp::default())
+        .http_client(super::discovery::DiscoveryHttp::new()?)
         .build()
         .map_err(|_| "Could not prepare model discovery.".to_string())?;
     Ok(super::discovery::collect(&client)

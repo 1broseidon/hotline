@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AgentSignIn, type AgentSignInAction } from "./AgentSignIn";
 import { WarningIcon } from "../icons";
+import { Refusal, refused, type Refused } from "../ui/Refusal";
 
 /**
  * The failures a second try can get past: the network, the provider having
@@ -64,7 +65,7 @@ export function ErrorCard({
     onRunAgain?: () => Promise<unknown>;
 }) {
     const error = errorDetails(text);
-    const [again, setAgain] = useState<"idle" | "trying" | string>("idle");
+    const [again, setAgain] = useState<"idle" | "trying" | Refused>("idle");
     const offerAgain = onRunAgain !== undefined && error.kind !== undefined && WORTH_ANOTHER_TRY.has(error.kind);
     return (
         <section className="my-2 min-w-0 max-w-full rounded-lg border border-line bg-raised p-3" aria-label={error.title}>
@@ -84,14 +85,14 @@ export function ErrorCard({
                             setAgain("trying");
                             onRunAgain()
                                 .then(() => setAgain("idle"))
-                                .catch((reason: unknown) => setAgain(reason instanceof Error ? reason.message : String(reason)));
+                                .catch((reason: unknown) => setAgain(refused("Couldn't try again", reason)));
                         }}
                     >
                         {again === "trying" ? "Trying again…" : "Try again"}
                     </button>
-                    {again !== "idle" && again !== "trying" && <span className="text-sm text-ink-3">{again}</span>}
                 </div>
             )}
+            {offerAgain && typeof again === "object" && <Refusal {...again} />}
             <details className="mt-2 min-w-0">
                 <summary className="cursor-pointer text-xs text-ink-3 focus-visible:outline focus-visible:outline-2">Error details</summary>
                 {error.context && <p className="mt-2 break-words text-xs text-ink-3" style={{ overflowWrap: "anywhere" }}>{error.context}</p>}

@@ -453,7 +453,7 @@ async fn list_models_with(
     ))
     .body(Bytes::new())
     .map_err(|_| discovery::failed())?;
-    let listing = DiscoveryHttp::default();
+    let listing = DiscoveryHttp::new()?;
     let body = discovery::fetch(subscription.request(request, |request| {
         HttpClientExt::send::<Bytes, Vec<u8>>(&listing, request)
     }))

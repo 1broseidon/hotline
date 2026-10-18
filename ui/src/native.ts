@@ -329,7 +329,8 @@ export type UpdateStatus = {
 	phase: "idle" | "checking" | "downloading" | "installing" | "restarting";
 	downloaded: number;
 	total: number | null;
-	error: string | null;
+	/** A few words of the updater's, with what refused it behind them. */
+	error: { message: string; detail?: string } | null;
 	disabledReason: string | null;
 };
 

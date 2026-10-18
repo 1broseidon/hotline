@@ -19,7 +19,7 @@ relatedFiles:
   - ui/src/stepText.ts
   - ui/src/voice/call.ts
   - ui/src/voice/dictation.ts
-updatedAt: "2026-10-18T01:29:49.590Z"
+updatedAt: "2026-10-18T01:31:24.773Z"
 contract:
   status: delivered
   validation:
@@ -46,9 +46,9 @@ dispatch:
   tries: 1
   claim:
     host: Georges-Mac-Studio
-    runner: desktop
-    pid: 50333
-    at: "2026-10-18T01:29:22.357Z"
+    runner: cli
+    pid: 59932
+    at: "2026-10-18T01:31:24.773Z"
 assignee: claude
 ---
 

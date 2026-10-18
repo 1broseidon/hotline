@@ -37,7 +37,7 @@ subtasks:
     title: Decide if speech-to-speech has a place in the switchboard only
     completed: false
 createdAt: "2026-10-14T14:41:07.344Z"
-updatedAt: "2026-10-14T20:05:31.119Z"
+updatedAt: "2026-10-18T23:40:58.227Z"
 ---
 
 ## Description
@@ -65,3 +65,5 @@ Spoken fillers beyond the blip (LiveKit's `with_filler`): the model's one short 
 ## Done when
 
 Numbers for 1 and 5, a prototype measurement for 2, a feasibility call on 3 and 4, and a decision on 6, written into docs/voice.md › Timing, with the follow-up tasks filed.
+
+Closed 2026-10-18 (backlog triage): The live voice fronts (0.38/0.39) replaced the transcribe-then-speak pipeline this was about. SILENCE_MS remains only for the Legacy voice fallback.

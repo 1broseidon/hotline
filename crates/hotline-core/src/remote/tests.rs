@@ -2289,7 +2289,7 @@ fn served_listen_validation_never_permits_wildcard_or_implicit_tls() {
     assert!(options.validate().is_err());
 }
 
-mod admission_tests;
+mod admission;
 
 #[tokio::test]
 async fn served_listener_uses_supplied_pem_certificate_and_key() {
@@ -3096,11 +3096,11 @@ async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
     h.remote.configure(false, network::ALL).await.unwrap();
 }
 
-mod viewer_file_tests;
+mod viewer_file;
 
-mod link_tests;
-mod relay_tests;
-mod viewer_token_tests;
+mod link;
+mod relay;
+mod viewer_token;
 
 /// An owner's phone has the desk's authority but a phone's link: once it
 /// names `lean`, its history is cut the way a companion's is, its window

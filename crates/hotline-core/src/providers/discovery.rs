@@ -84,18 +84,27 @@ pub(crate) struct DiscoveryHttp {
     requests: Arc<AtomicUsize>,
 }
 
-impl Default for DiscoveryHttp {
-    fn default() -> Self {
-        Self {
-            http: reqwest::Client::builder()
+impl DiscoveryHttp {
+    /// The client can still fail to build when the TLS backend or the system
+    /// resolver cannot start, so that is a refused listing, not a panic.
+    pub(crate) fn new() -> Result<Self, String> {
+        Self::built(
+            reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
                 .timeout(Duration::from_secs(30))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .expect("the discovery HTTP configuration is valid"),
+                .redirect(reqwest::redirect::Policy::none()),
+        )
+    }
+
+    fn built(builder: reqwest::ClientBuilder) -> Result<Self, String> {
+        let http = builder.build().map_err(|_| {
+            "Could not prepare model discovery; the previous list is unchanged.".to_string()
+        })?;
+        Ok(Self {
+            http,
             bytes: Arc::new(AtomicUsize::new(0)),
             requests: Arc::new(AtomicUsize::new(0)),
-        }
+        })
     }
 }
 
@@ -216,7 +225,7 @@ async fn api_models_at(
         ($provider:ident) => {{
             let builder = $provider::Client::builder()
                 .api_key(key)
-                .http_client(DiscoveryHttp::default());
+                .http_client(DiscoveryHttp::new()?);
             let builder = if let Some(base_url) = base_url {
                 builder.base_url(base_url)
             } else {
@@ -246,7 +255,7 @@ pub(crate) async fn ollama_models(base_url: &str, key: &str) -> Result<Vec<Liste
     let client = ollama::Client::builder()
         .api_key(key)
         .base_url(base_url)
-        .http_client(DiscoveryHttp::default())
+        .http_client(DiscoveryHttp::new()?)
         .build()
         .map_err(|_| "Could not prepare Ollama model discovery.".to_string())?;
     collect(&client).await
@@ -290,7 +299,7 @@ async fn xai_models_at(base_url: &str, key: &str) -> Result<Vec<ListedModel>, St
         .header(http::header::AUTHORIZATION, format!("Bearer {key}"))
         .body(Bytes::new())
         .map_err(|_| failed())?;
-    let body = fetch(DiscoveryHttp::default().send::<Bytes, Vec<u8>>(request)).await?;
+    let body = fetch(DiscoveryHttp::new()?.send::<Bytes, Vec<u8>>(request)).await?;
     xai_listing(&body)
 }
 
@@ -572,6 +581,19 @@ mod tests {
                 .is_err()
         );
         assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn a_client_that_cannot_build_refuses_the_listing_instead_of_panicking() {
+        // An unknown preconfigured TLS backend is reqwest's one portable way
+        // to make `build` fail, standing in for a TLS or resolver failure.
+        let refused =
+            DiscoveryHttp::built(reqwest::Client::builder().use_preconfigured_tls(())).unwrap_err();
+        assert_eq!(
+            refused,
+            "Could not prepare model discovery; the previous list is unchanged."
+        );
+        assert!(DiscoveryHttp::new().is_ok());
     }
 
     #[test]

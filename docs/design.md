@@ -646,6 +646,7 @@ crates/hotline-core/src/
   skills/                the catalog: built-in, gateway and workspace skills, copied into a workspace
   tools/                 workspace tools on cap-std, shell command
   desk.rs                the room, vault and log behind the wire
+  boot.rs                one boot, the app's and `hotline serve`'s, that returns its errors
   import.rs              copies an existing Hotline data directory
   import/                the previous edition's roster and records, read-only
   wire/                  the door: seats, commands, subscriptions

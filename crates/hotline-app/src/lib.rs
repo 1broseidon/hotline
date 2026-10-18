@@ -35,14 +35,13 @@ mod speech;
 mod transfer;
 mod updater;
 
+// Public so `tests/shell_path.rs` can run `restore` in a fresh process.
 #[cfg(unix)]
-mod shell_path;
+pub mod shell_path;
 
-use hotline_core::desk::Desk;
+use hotline_core::boot::boot;
+use hotline_core::credentials::Backend;
 use hotline_core::paths::data_root;
-use hotline_core::wire::Door;
-use rand::RngCore;
-use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use tauri::Emitter;
 #[cfg(target_os = "macos")]
@@ -62,12 +61,6 @@ const PLATFORM: &str = if cfg!(target_os = "macos") {
 } else {
     "linux"
 };
-
-fn random_token() -> String {
-    let mut bytes = [0u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
 
 /// The chords the window already listens for, shown on the menu so a shortcut
 /// nobody can see is no shortcut. `CmdOrCtrl` is Cmd here, matching the
@@ -298,23 +291,31 @@ fn window_state_flags() -> StateFlags {
     StateFlags::all() & !StateFlags::VISIBLE
 }
 
+/// The one place startup fails. Every step before the window is up returns
+/// its error here, and the desk exits unsuccessfully rather than unwinding or
+/// opening a room it could not read; the line lands in logs/hotline.log once
+/// the log is redirected.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Err(error) = start() {
+        eprintln!("[startup] Hotline couldn't start: {error}");
+        std::process::exit(1);
+    }
+}
+
+fn start() -> Result<(), String> {
     // One desk per room, settled before the room opens: a second launch
     // shows the running window and leaves (see `instance`). Every build
     // takes the lock; `make dev` runs on its own data directory instead.
     // It comes first so that second launch leaves at once, without waiting
     // on the login shell below.
     let root = data_root();
+    // A room that cannot be kept to one desk is not opened: two writers on
+    // it would both run its schedules and both write its streams.
     let instance = match instance::claim(&root) {
         Ok(instance::Claim::Held(instance)) => instance,
-        Ok(instance::Claim::Elsewhere) => return,
-        // A room that cannot be kept to one desk is not opened: two writers
-        // on it would both run its schedules and both write its streams.
-        Err(error) => {
-            eprintln!("[instance] {error}");
-            std::process::exit(1);
-        }
+        Ok(instance::Claim::Elsewhere) => return Ok(()),
+        Err(error) => return Err(format!("the room's lock could not be taken: {error}")),
     };
     // Launched from the Finder, the Start menu or a desktop launcher, the
     // app's output goes nowhere. It goes to logs/hotline.log in the data
@@ -336,33 +337,17 @@ pub fn run() {
         eprintln!("[startup] the log will not be rotated while Hotline runs: {error}");
     }
     // The keychain is this app's store, and a room made by `hotline serve
-    // --store file` is refused rather than opened on an empty keychain.
-    if let Err(error) =
-        hotline_core::credentials::claim_backend(&root, hotline_core::credentials::Backend::Native)
-    {
-        eprintln!("[store] {error}");
-        std::process::exit(1);
-    }
-
-    // Opened inside the async runtime because the room it stands up owns
-    // background work — the idle chapter sweep — and a task has to be spawned
-    // onto a runtime that is already there.
-    let desk = Arc::new(
-        tauri::async_runtime::block_on(async { Desk::open(&root) }).expect("the desk did not open"),
-    );
-    let token = random_token();
-    let remote = hotline_core::remote::Remote::open(&root, desk.log.clone(), desk.clone())
-        .expect("remote access settings did not open");
-    desk.set_remote(&remote);
-    tauri::async_runtime::block_on(remote.restore());
-    let door = Door::bind(desk.log.clone(), token.clone(), desk.clone())
-        .expect("the room's door did not bind");
-    let port = door.port();
-    tauri::async_runtime::spawn(async move {
-        if let Err(error) = door.run().await {
-            eprintln!("[door] stopped: {error}");
-        }
-    });
+    // --store file` is refused rather than opened on an empty keychain. The
+    // runtime is entered because the room spawns its background work, the
+    // idle chapter sweep and the Door among it, as it opens.
+    let booted =
+        tauri::async_runtime::block_on(boot(&root, instance.room(), Backend::Native, None))?;
+    let desk = booted
+        .desk
+        .expect("a desk that is not served always opens its room");
+    let remote = booted.remote;
+    let token = booted.token;
+    let port = booted.port;
 
     let injected = serde_json::json!({
         "platform": PLATFORM,
@@ -567,7 +552,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while running tauri application")
+        .map_err(|error| format!("the window could not be set up: {error}"))?
         .run(|app, event| {
             // Quitting, and the updater's restart, end the process without
             // dropping the desk, so no agent's driver gets to kill its child.
@@ -592,4 +577,5 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         });
+    Ok(())
 }

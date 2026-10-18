@@ -298,7 +298,7 @@ release. These are rollout checks, not claims that this rule is already live.
 
 ### Validate admission before rollout
 
-Run `cargo test -p hotline-core remote::tests::admission_tests --locked` for
+Run `cargo test -p hotline-core remote::tests::admission --locked` for
 isolated tests using fresh device keys, temporary state and a local
 TLS-terminating proxy. The tests exercise shared proxy-IP saturation,
 reconnects, existing sessions and HTTP keepalive expiry without touching a
@@ -477,6 +477,12 @@ more: encrypt the volume, and its snapshots and backups
 `serve` takes the room's lock before it opens anything. A second `serve`,
 the desktop app, or `hotline-import` on the same data directory is refused
 while it runs. The lock goes with the process, however it ends.
+
+A boot that cannot finish ends `serve` with exit status 1 and one line on
+stderr saying which step failed: the store, the room, Remote's settings, the
+Door, the runtime, the signals, or the OS random source the Door's token
+comes from. It fails before `door.json` is written, and it rewrites nothing
+it could not read, so an unreadable `remote.json` is still there to look at.
 
 ## Stopping
 

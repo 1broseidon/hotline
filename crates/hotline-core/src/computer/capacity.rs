@@ -142,6 +142,7 @@ fn host_cpus() -> Option<u32> {
 fn host_memory() -> Option<u64> {
     // SAFETY: these sysconf selectors require no pointers or initialization.
     let pages = u64::try_from(unsafe { libc::sysconf(libc::_SC_PHYS_PAGES) }).ok()?;
+    // SAFETY: as above.
     let page_size = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok()?;
     pages.checked_mul(page_size)
 }

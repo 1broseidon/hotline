@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 /// Long enough to read the password prompt and install; short enough that a
 /// stuck installer comes back as an error rather than a spinner.
-pub const INSTALL_WAIT: Duration = Duration::from_secs(10 * 60);
+pub const INSTALL_WAIT: Duration = Duration::from_mins(10);
 
 /// pkexec's own exit codes: the dialog was dismissed, or authorization
 /// failed, which includes a pkexec that cannot become root at all.

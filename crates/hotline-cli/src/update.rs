@@ -802,6 +802,10 @@ mod linux {
             )
         }
         #[test]
+        #[expect(
+            clippy::verbose_file_reads,
+            reason = "the handle opened before the swap must still read the old file"
+        )]
         fn stopped_service_stays_stopped_and_replacement_is_atomic() {
             let (_parent, target, work, staged, mut service) = fixture(false);
             let mut old = File::open(&target).unwrap();
@@ -811,7 +815,7 @@ mod linux {
             let mut bytes = Vec::new();
             old.read_to_end(&mut bytes).unwrap();
             assert_eq!(bytes, b"old binary");
-            assert!(service.restarts.is_empty());
+            assert_eq!(service.restarts, [] as [String; 0]);
         }
         #[test]
         fn active_service_restarts_into_the_requested_version() {
@@ -839,7 +843,7 @@ mod linux {
                 .is_err()
             );
             assert_eq!(fs::read(&target).unwrap(), b"old binary");
-            assert!(service.restarts.is_empty());
+            assert_eq!(service.restarts, [] as [String; 0]);
         }
         #[test]
         fn failed_atomic_restore_does_not_consume_backup() {

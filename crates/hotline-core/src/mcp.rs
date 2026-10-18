@@ -163,7 +163,10 @@ impl Connections {
 /// into a group of its own and the group is what a stop reaches, the same way
 /// the ACP child and the shell tool do it.
 struct ProcessGroup {
-    #[cfg_attr(not(unix), allow(dead_code))]
+    #[cfg_attr(
+        not(unix),
+        expect(dead_code, reason = "only a Unix stop signals the group")
+    )]
     id: Option<u32>,
     #[cfg(windows)]
     _job: crate::process_windows::Job,

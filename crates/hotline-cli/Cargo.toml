@@ -4,6 +4,10 @@ description = "The hotline command: a desk with no window, run by systemd on a s
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "hotline"

@@ -120,7 +120,10 @@ impl Push {
         self.send(messages);
     }
 
-    #[cfg_attr(test, allow(dead_code))]
+    #[cfg_attr(
+        test,
+        expect(dead_code, reason = "a test records the messages instead")
+    )]
     fn send(&self, messages: Vec<Value>) {
         let http = self.http.clone();
         tokio::spawn(async move {

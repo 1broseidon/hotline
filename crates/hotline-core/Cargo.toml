@@ -4,6 +4,10 @@ description = "Hotline's core: the log, the room, sessions and their drivers, to
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 rig.workspace = true

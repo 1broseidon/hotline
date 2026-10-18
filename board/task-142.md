@@ -1,7 +1,7 @@
 ---
 id: task-142
 title: "P2-33a (C): Window split, move-only: App() → useNavigation, useSeen, useWindowHotkeys"
-column: todo
+column: in-progress
 position: 31
 priority: high
 tags:
@@ -14,15 +14,17 @@ relatedFiles:
   - ui/src/useNavigation.ts
   - ui/src/useSeen.ts
   - ui/src/useWindowHotkeys.ts
-updatedAt: "2026-10-18T00:15:18.984Z"
+updatedAt: "2026-10-18T00:17:09.705Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make ui-check
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T00:17:09.705Z"
+    reworkCount: 0
 dependsOn:
   - task-122
 dispatch:

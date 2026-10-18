@@ -494,7 +494,7 @@ and `~/.local/bin`, because a packaged Mac app's GUI PATH is the bare
 system one. The user's pick is the room setting `computerRuntime`; absent
 means the first available. The image is the teammate's or the room's pin,
 or else the newest published release at or above the floor
-`COMPUTER_VERSION` in `crates/hotline-core/src/computer/mod.rs`, and the
+`COMPUTER_VERSION` in `crates/hotline-core/src/computer.rs`, and the
 floor itself when nothing newer is known ([computer.md](computer.md)), at
 `ghcr.io/1broseidon/hotline-computer:<release>`. Never `latest`. Tests use a fake runtime script in a temp dir; they do not talk
 to a real daemon.

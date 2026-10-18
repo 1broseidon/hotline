@@ -28,7 +28,7 @@ tape those events land on is [log.md](log.md).
 
 ## The funnel
 
-Every word a teammate says passes one funnel, in `session/mod.rs`. A quiet
+Every word a teammate says passes one funnel, in `session.rs`. A quiet
 run, a schedule's stamp, a reply and an attachment are rules about the room,
 not about whichever agent ran the turn.
 
@@ -313,7 +313,7 @@ that waits for a turn to end (a chapter's close, a computer joining or
 swapping, the next queued line) still waits, because the turn is running.
 
 The driver says the agent has nothing more to say with `Update::Parked`
-(`driver/mod.rs`), which releases a held line as the report
+(`driver.rs`), which releases a held line as the report
 (`session/narration.rs`). The DM witness (`session/dm.rs`) reads the turn as
 waiting on subagents only when every tool still in flight launched one:
 Hotline Agent's `subagent` call stays running until its run reports, and a
@@ -417,7 +417,7 @@ On each turn it is given:
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
 | Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `react`, `send_file`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
-| granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp/mod.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
+| granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
 
 Every tool definition goes out with every request, and a large server's can
 outweigh the rest of the request, so Hotline Agent keeps a granted server's
@@ -951,7 +951,7 @@ through MCP tools. The container is the machine; the agent is the operator.
 `persona.computer.enabled` is the switch. The image is
 `persona.computer.image`, else the room setting `computerImage`, else the
 pin `ghcr.io/1broseidon/hotline-computer:<COMPUTER_VERSION>` in
-`crates/hotline-core/src/computer/mod.rs`. The computer is **not** part of
+`crates/hotline-core/src/computer.rs`. The computer is **not** part of
 `mcpPolicy`: a teammate that asked for a machine gets it even on a policy
 of none.
 

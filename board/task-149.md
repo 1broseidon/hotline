@@ -1,7 +1,7 @@
 ---
 id: task-149
 title: "P2-40 (D): By-hand lints and reasoned invariants"
-column: review
+column: in-progress
 position: 0
 priority: high
 tags:
@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
-updatedAt: "2026-10-18T08:43:37.552Z"
+updatedAt: "2026-10-18T08:43:43.190Z"
 contract:
   status: in_progress
   validation:
@@ -23,8 +23,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-    pickedUpAt: "2026-10-18T08:18:11.643Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-18T08:43:43.190Z"
+    reworkCount: 1
 dependsOn:
   - task-148
 dispatch:

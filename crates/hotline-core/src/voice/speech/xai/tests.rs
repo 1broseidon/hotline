@@ -890,7 +890,7 @@ async fn streamed_tts_publishes_200ms_without_waiting_for_more_audio_or_body_com
     // A network fragment may end halfway through a PCM16 sample.
     for part in [
         &pcm[..3],
-        &pcm[3..FIRST_CLIP_PCM_BYTES + 1],
+        &pcm[3..=FIRST_CLIP_PCM_BYTES],
         &pcm[FIRST_CLIP_PCM_BYTES + 1..],
     ] {
         body_tx.send(Bytes::copy_from_slice(part)).await.unwrap();

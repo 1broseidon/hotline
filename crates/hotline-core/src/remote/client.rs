@@ -849,12 +849,12 @@ impl Client {
                         static SEQUENCE: std::sync::atomic::AtomicU64 =
                             std::sync::atomic::AtomicU64::new(1);
                         let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        desk.relay = discovered.clone();
+                        desk.relay.clone_from(&discovered);
                         relay.send_if_modified(|known| {
                             if *known == discovered {
                                 false
                             } else {
-                                *known = discovered.clone();
+                                known.clone_from(&discovered);
                                 true
                             }
                         });

@@ -309,7 +309,7 @@ impl Calls {
                 self.keep(id, Speaker::Person, &text);
             }
             let _ = self.change(id, |call| {
-                call.words = text.clone();
+                call.words.clone_from(&text);
                 Ok(())
             });
         }

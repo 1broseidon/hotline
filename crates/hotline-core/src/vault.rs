@@ -493,7 +493,7 @@ impl Vault {
                 model.manual = manual.contains(&model.id);
                 if let Some(listed) = discovered.get(&model.id) {
                     if let Some(name) = &listed.name {
-                        model.name = name.clone();
+                        model.name.clone_from(name);
                     }
                     model.context_limit = listed.context_limit.or(model.context_limit);
                     model.output_limit = listed.output_limit.or(model.output_limit);

@@ -140,7 +140,7 @@ impl ChildAgent {
         };
         self.check_capability()?;
 
-        *lock(&self.live.auth_methods) = initialized.auth_methods.clone();
+        lock(&self.live.auth_methods).clone_from(&initialized.auth_methods);
         *lock(&self.live.startup_failure) = None;
         let capabilities = capabilities_of(&initialized);
         self.live

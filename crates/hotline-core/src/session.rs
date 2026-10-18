@@ -1001,7 +1001,7 @@ impl Room {
         }
         info.agent_name = Some(reported.agent_name);
         info.agent_version = reported.agent_version;
-        info.session_id = reported.session_id.clone();
+        info.session_id.clone_from(&reported.session_id);
         info.context_restored = reported.context_restored;
         info.models = reported.models;
         info.current_model_id = Some(reported.current_model_id);
@@ -2825,17 +2825,17 @@ impl Room {
                 info.error = None;
             }
             if info.session_id != reported.session_id {
-                *lock(&session.pending_checkpoint) = reported.session_id.clone();
-                info.session_id = reported.session_id.clone();
+                lock(&session.pending_checkpoint).clone_from(&reported.session_id);
+                info.session_id.clone_from(&reported.session_id);
                 info.context_restored = reported.context_restored;
             }
-            info.models = reported.models.clone();
+            info.models.clone_from(&reported.models);
             info.current_model_id = Some(reported.current_model_id.clone());
-            info.model_label = reported.model_label.clone();
-            info.modes = reported.modes.clone();
-            info.current_mode_id = reported.current_mode_id.clone();
-            info.mode_label = reported.mode_label.clone();
-            info.configs = reported.configs.clone();
+            info.model_label.clone_from(&reported.model_label);
+            info.modes.clone_from(&reported.modes);
+            info.current_mode_id.clone_from(&reported.current_mode_id);
+            info.mode_label.clone_from(&reported.mode_label);
+            info.configs.clone_from(&reported.configs);
             info.clone()
         };
         let _ = self.info_changes.send(info.clone());

@@ -174,7 +174,7 @@ impl Room {
         if self.links.names_to_write(desk_id, &known) {
             linked::update(&self.log, desk_id, |record| {
                 let moved = record.teammates != known;
-                record.teammates = known.clone();
+                record.teammates.clone_from(&known);
                 moved
             })?;
             self.links.names_written(desk_id, known);

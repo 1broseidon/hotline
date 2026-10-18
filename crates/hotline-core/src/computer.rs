@@ -582,7 +582,7 @@ impl Computer {
                     }
                 };
             let mut status = status_of(inspection, Some((live.mcp_port, &live.token)));
-            status.release = live.release.clone();
+            status.release.clone_from(&live.release);
             return Ok(status);
         }
         let Ok((runtime, cmd)) = self.pick_for_status(prefer).await else {

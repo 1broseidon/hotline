@@ -777,11 +777,11 @@ impl Room {
             return Err("This thread ended before its agent was ready.".to_string());
         }
         agent.keep();
-        *lock(&side.reported) = agent.reported.clone();
+        lock(&side.reported).clone_from(&agent.reported);
         let changed = {
             let mut saved = lock(&side.saved);
             let changed = *saved != agent.resumed;
-            *saved = agent.resumed.clone();
+            saved.clone_from(&agent.resumed);
             changed
         };
         if changed {

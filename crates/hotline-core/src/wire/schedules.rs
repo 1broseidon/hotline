@@ -12,7 +12,8 @@
 //! A tombstone does not say whose job it was, so every job event is a reason
 //! to read the teammate's list again; a list that did not change is not sent.
 
-use super::{Outbox, send};
+use super::send;
+use super::socket::{Outbox, UNREADABLE};
 use crate::contract::ScheduleEntry;
 use crate::log::Log;
 use crate::room;
@@ -84,7 +85,7 @@ pub(super) async fn view(
             Err(Unreadable::Failed(error)) => {
                 send(
                     &sender,
-                    json!({ "sub": id, "error": error, "code": super::UNREADABLE }),
+                    json!({ "sub": id, "error": error, "code": UNREADABLE }),
                 );
                 return;
             }

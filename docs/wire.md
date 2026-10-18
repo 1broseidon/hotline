@@ -938,7 +938,7 @@ phone owners; companion grants retain the smaller set below.
 ### The phone seat
 
 A paired companion's socket is the phone seat: a smaller fixed set of commands
-(`Seat::permits` in `crates/hotline-core/src/wire.rs` lists them) and
+(`Seat::permits` in `crates/hotline-core/src/wire/seat.rs` lists them) and
 four kinds of subscription — a tape, a thread (a pair's `{"thread": key}`, or
 any thread but a call by `{"threadId": …}`), the roster, and a teammate's
 schedules. It never opens the room stream or a run, and it can

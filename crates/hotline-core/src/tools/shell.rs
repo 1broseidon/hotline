@@ -63,9 +63,14 @@ const WINDOWS_UNCONFINED: &str = "The shell is not confined to the workspace on 
 #[derive(Deserialize)]
 pub struct RunCommandArgs {
     pub(crate) command: String,
-    /// A deadline the agent set for itself. Absent means none.
-    #[serde(default)]
+    /// A deadline the agent set for itself. Absent means none, and so does
+    /// zero: a model that sends 0 means "no deadline", not "stop at once".
+    #[serde(default, deserialize_with = "deadline")]
     timeout_seconds: Option<u64>,
+}
+
+fn deadline<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<u64>, D::Error> {
+    Ok(Option::<u64>::deserialize(deserializer)?.filter(|seconds| *seconds > 0))
 }
 
 /// A shell command, run in the teammate's working directory.
@@ -103,6 +108,7 @@ impl Tool for RunCommand {
                 },
                 "timeout_seconds": {
                     "type": "integer",
+                    "minimum": 1,
                     "description": "Give up after this many seconds. Omit it unless you want a deadline; commands are not otherwise timed."
                 }
             },
@@ -580,6 +586,21 @@ mod tests {
                 },
             )
             .await
+    }
+
+    #[test]
+    fn a_zero_deadline_is_no_deadline() {
+        let args: RunCommandArgs =
+            serde_json::from_value(serde_json::json!({"command": "true", "timeout_seconds": 0}))
+                .unwrap();
+        assert_eq!(args.timeout_seconds, None);
+        let args: RunCommandArgs =
+            serde_json::from_value(serde_json::json!({"command": "true", "timeout_seconds": 5}))
+                .unwrap();
+        assert_eq!(args.timeout_seconds, Some(5));
+        let args: RunCommandArgs =
+            serde_json::from_value(serde_json::json!({"command": "true"})).unwrap();
+        assert_eq!(args.timeout_seconds, None);
     }
 
     fn finished_ok(output: &str) -> bool {

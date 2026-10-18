@@ -81,7 +81,7 @@ async fn closed(socket: &mut Fixture) {
             .await
             .unwrap()
         {
-            None | Some(Err(_)) | Some(Ok(Message::Close(_))) => return,
+            None | Some(Err(_) | Ok(Message::Close(_))) => return,
             Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
             Some(Ok(other)) => panic!("expected the close, got {other:?}"),
         }

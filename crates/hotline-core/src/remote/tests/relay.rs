@@ -167,20 +167,14 @@ where
     let next = tokio::time::timeout(PROMPTLY, socket.next())
         .await
         .expect("the cancelled relay wire remained open");
-    assert!(matches!(
-        next,
-        None | Some(Err(_)) | Some(Ok(Message::Close(_)))
-    ));
+    assert!(matches!(next, None | Some(Err(_) | Ok(Message::Close(_)))));
 }
 
 async fn control_closed(control: &mut client::Connection) {
     let next = tokio::time::timeout(ANSWER, control.next())
         .await
         .expect("the old relay generation remained open");
-    assert!(matches!(
-        next,
-        None | Some(Err(_)) | Some(Ok(Message::Close(_)))
-    ));
+    assert!(matches!(next, None | Some(Err(_) | Ok(Message::Close(_)))));
 }
 
 async fn callback_refused(client: &client::Client, desk: &client::PairedDesk, capability: &str) {

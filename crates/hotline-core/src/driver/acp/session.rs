@@ -863,11 +863,13 @@ impl Disposition {
                 }
                 // Hotline has no stable UI contract for model sub-options or
                 // arbitrary ACP settings. They remain harness-owned.
-                Some(acp::SessionConfigOptionCategory::Mode)
-                | Some(acp::SessionConfigOptionCategory::ModelConfig)
-                | None
-                | Some(acp::SessionConfigOptionCategory::Other(_))
-                | Some(_) => {}
+                Some(
+                    acp::SessionConfigOptionCategory::Mode
+                    | acp::SessionConfigOptionCategory::ModelConfig
+                    | acp::SessionConfigOptionCategory::Other(_)
+                    | _,
+                )
+                | None => {}
             }
         }
         disposition

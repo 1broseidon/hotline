@@ -142,6 +142,7 @@ fn host_cpus() -> Option<u32> {
 fn host_memory() -> Option<u64> {
     // SAFETY: these sysconf selectors require no pointers or initialization.
     let pages = u64::try_from(unsafe { libc::sysconf(libc::_SC_PHYS_PAGES) }).ok()?;
+    // SAFETY: as above.
     let page_size = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok()?;
     pages.checked_mul(page_size)
 }
@@ -172,7 +173,7 @@ fn host_memory() -> Option<u64> {
     let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
     status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
     // SAFETY: the pointer is to the local above, its size now set.
-    (unsafe { GlobalMemoryStatusEx(&mut status) } != 0).then_some(status.ullTotalPhys)
+    (unsafe { GlobalMemoryStatusEx(&raw mut status) } != 0).then_some(status.ullTotalPhys)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]

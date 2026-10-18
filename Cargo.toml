@@ -6,6 +6,82 @@ members = ["crates/hotline-core", "crates/hotline-app", "crates/hotline-cli"]
 version = "0.39.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+
+# Lint levels, read by every crate through `[lints] workspace = true`. Clippy
+# keeps its defaults; each pedantic or restriction lint here was chosen one by
+# one and the tree was clean of it first (docs/audits/0.40/lints.md says which
+# were left off and why). `make check` adds `-D warnings`, which turns each
+# `warn` into a failure there while an editor's plain clippy only warns.
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+keyword_idents = { level = "warn", priority = -1 }
+single_use_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+
+[workspace.lints.clippy]
+# Nothing in the tree hits these; they keep the door shut.
+dbg_macro = "deny"
+empty_drop = "deny"
+get_unwrap = "deny"
+lossy_float_literal = "deny"
+rc_buffer = "deny"
+todo = "deny"
+try_err = "deny"
+unimplemented = "deny"
+verbose_file_reads = "deny"
+# Every suppression says why, so it can be judged when its reason is gone.
+allow_attributes_without_reason = "warn"
+# Pedantic and restriction lints the tree was made clean of.
+assert_is_empty = "warn"
+assigning_clones = "warn"
+borrow_as_ptr = "warn"
+case_sensitive_file_extension_comparisons = "warn"
+cast_lossless = "warn"
+default_trait_access = "warn"
+duration_suboptimal_units = "warn"
+equatable_if_let = "warn"
+explicit_iter_loop = "warn"
+format_push_string = "warn"
+if_then_some_else_none = "warn"
+ignored_unit_patterns = "warn"
+implicit_clone = "warn"
+iter_on_single_items = "warn"
+manual_assert = "warn"
+manual_assert_eq = "warn"
+manual_is_variant_and = "warn"
+manual_let_else = "warn"
+manual_midpoint = "warn"
+manual_string_new = "warn"
+map_unwrap_or = "warn"
+match_bool = "warn"
+match_wild_err_arm = "warn"
+match_wildcard_for_single_variants = "warn"
+mem_forget = "warn"
+missing_fields_in_debug = "warn"
+needless_raw_string_hashes = "warn"
+nonminimal_bool = "warn"
+range_plus_one = "warn"
+redundant_clone = "warn"
+redundant_closure_for_method_calls = "warn"
+ref_option = "warn"
+semicolon_if_nothing_returned = "warn"
+single_match_else = "warn"
+single_option_map = "warn"
+stable_sort_primitive = "warn"
+suspicious_operation_groupings = "warn"
+trivially_copy_pass_by_ref = "warn"
+tuple_array_conversions = "warn"
+unchecked_time_subtraction = "warn"
+undocumented_unsafe_blocks = "warn"
+uninlined_format_args = "warn"
+unnecessary_debug_formatting = "warn"
+unnecessary_literal_bound = "warn"
+unnested_or_patterns = "warn"
+unreadable_literal = "warn"
+used_underscore_binding = "warn"
 
 [workspace.dependencies]
 # Without `derive`: nothing here uses Rig's derive macros, and they bring a

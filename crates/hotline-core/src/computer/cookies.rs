@@ -288,14 +288,11 @@ fn candidates() -> Vec<Candidate> {
     #[cfg(target_os = "windows")]
     {
         let local = std::env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("AppData/Local"));
-        let roaming = std::env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("AppData/Roaming"));
+            .map_or_else(|| home.join("AppData/Local"), PathBuf::from);
+        let roaming =
+            std::env::var_os("APPDATA").map_or_else(|| home.join("AppData/Roaming"), PathBuf::from);
         let program_files = std::env::var_os("PROGRAMFILES")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("C:/Program Files"));
+            .map_or_else(|| PathBuf::from("C:/Program Files"), PathBuf::from);
         let chromium = |id, name, sub: &str, bin: PathBuf| Candidate {
             id,
             name,

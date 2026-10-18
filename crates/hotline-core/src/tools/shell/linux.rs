@@ -63,9 +63,10 @@ fn launcher_with(
         .ok_or_else(|| super::BWRAP_MISSING.to_string())?;
     let mut mounts = runtime_mounts(host_home);
     add_path_executables(&mut mounts, path, workspace);
-    let home = workspace
-        .map(|root| root.join(".hotline-home"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/hotline-home"));
+    let home = workspace.map_or_else(
+        || PathBuf::from("/tmp/hotline-home"),
+        |root| root.join(".hotline-home"),
+    );
     let mut process = Command::new(bwrap);
     // Clear the launcher's environment too: loader variables must not affect
     // bwrap before it has established the sandbox.
@@ -450,6 +451,6 @@ mod tests {
         std::os::unix::fs::symlink("/etc", &install).unwrap();
         let mut mounts = Vec::new();
         add_installation(&mut mounts, &install);
-        assert!(mounts.is_empty());
+        assert_eq!(mounts, [] as [PathBuf; 0]);
     }
 }

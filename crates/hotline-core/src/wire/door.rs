@@ -104,7 +104,7 @@ pub(super) fn accept_again(error: &io::Error) -> Option<AcceptAgain> {
         // table or buffer pool. Only resource pressure needs a delayed retry.
         match error.raw_os_error() {
             Some(WSAECONNRESET) => return Some(AcceptAgain::Now),
-            Some(WSAEMFILE) | Some(WSAENOBUFS) => return Some(AcceptAgain::AfterPause),
+            Some(WSAEMFILE | WSAENOBUFS) => return Some(AcceptAgain::AfterPause),
             _ => {}
         }
     }

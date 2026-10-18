@@ -57,28 +57,33 @@ fn protect(path: &Path, directory: bool) -> io::Result<()> {
     // after the last Win32 call and the File owns the opened handle.
     unsafe {
         let mut token = null_mut();
-        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &raw mut token) == 0 {
             return Err(io::Error::last_os_error());
         }
         let mut len = 0;
-        GetTokenInformation(token, TokenUser, null_mut(), 0, &mut len);
+        GetTokenInformation(token, TokenUser, null_mut(), 0, &raw mut len);
         let mut buffer = vec![0usize; (len as usize).div_ceil(size_of::<usize>())];
-        let status =
-            GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), len, &mut len);
+        let status = GetTokenInformation(
+            token,
+            TokenUser,
+            buffer.as_mut_ptr().cast(),
+            len,
+            &raw mut len,
+        );
         let error = io::Error::last_os_error();
         if status == 0 {
             CloseHandle(token);
             return Err(error);
         }
         let user = &*buffer.as_ptr().cast::<TOKEN_USER>();
-        GetTokenInformation(token, TokenOwner, null_mut(), 0, &mut len);
+        GetTokenInformation(token, TokenOwner, null_mut(), 0, &raw mut len);
         let mut owner_buffer = vec![0usize; (len as usize).div_ceil(size_of::<usize>())];
         let status = GetTokenInformation(
             token,
             TokenOwner,
             owner_buffer.as_mut_ptr().cast(),
             len,
-            &mut len,
+            &raw mut len,
         );
         let error = io::Error::last_os_error();
         CloseHandle(token);
@@ -87,7 +92,7 @@ fn protect(path: &Path, directory: bool) -> io::Result<()> {
         }
         let default_owner = &*owner_buffer.as_ptr().cast::<TOKEN_OWNER>();
         let mut sid_text = null_mut();
-        if ConvertSidToStringSidW(user.User.Sid, &mut sid_text) == 0 {
+        if ConvertSidToStringSidW(user.User.Sid, &raw mut sid_text) == 0 {
             return Err(io::Error::last_os_error());
         }
         let sid_allocation = Descriptor(sid_text.cast());
@@ -105,7 +110,7 @@ fn protect(path: &Path, directory: bool) -> io::Result<()> {
         if ConvertStringSecurityDescriptorToSecurityDescriptorW(
             sddl.as_ptr(),
             1,
-            &mut descriptor,
+            &raw mut descriptor,
             null_mut(),
         ) == 0
         {
@@ -118,7 +123,7 @@ fn protect(path: &Path, directory: bool) -> io::Result<()> {
                 lpSecurityDescriptor: descriptor.0,
                 bInheritHandle: 0,
             };
-            if CreateDirectoryW(name.as_ptr(), &attributes) == 0 {
+            if CreateDirectoryW(name.as_ptr(), &raw const attributes) == 0 {
                 let error = io::Error::last_os_error();
                 if error.raw_os_error() != Some(ERROR_ALREADY_EXISTS as i32) {
                     return Err(error);
@@ -151,11 +156,11 @@ fn protect(path: &Path, directory: bool) -> io::Result<()> {
             handle,
             SE_FILE_OBJECT,
             OWNER_SECURITY_INFORMATION,
-            &mut owner,
+            &raw mut owner,
             null_mut(),
             null_mut(),
             null_mut(),
-            &mut existing,
+            &raw mut existing,
         );
         if status != 0 {
             return Err(io::Error::from_raw_os_error(status as i32));
@@ -172,7 +177,12 @@ fn protect(path: &Path, directory: bool) -> io::Result<()> {
         let mut present = 0;
         let mut defaulted = 0;
         let mut dacl = null_mut();
-        if GetSecurityDescriptorDacl(descriptor.0, &mut present, &mut dacl, &mut defaulted) == 0
+        if GetSecurityDescriptorDacl(
+            descriptor.0,
+            &raw mut present,
+            &raw mut dacl,
+            &raw mut defaulted,
+        ) == 0
             || present == 0
             || dacl.is_null()
         {
@@ -221,7 +231,7 @@ mod tests {
                     null_mut(),
                     null_mut(),
                     null_mut(),
-                    &mut descriptor
+                    &raw mut descriptor
                 ),
                 0
             );
@@ -232,7 +242,7 @@ mod tests {
                     descriptor.0,
                     1,
                     DACL_SECURITY_INFORMATION,
-                    &mut text,
+                    &raw mut text,
                     null_mut()
                 ),
                 0

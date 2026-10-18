@@ -172,7 +172,7 @@ impl Log {
                 if event
                     .get("id")
                     .and_then(Value::as_str)
-                    .is_none_or(|id| id.is_empty())
+                    .is_none_or(str::is_empty)
                     || event.get("kind").and_then(Value::as_str).is_none()
                 {
                     return Err(io::Error::new(

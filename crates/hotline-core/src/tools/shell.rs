@@ -476,7 +476,6 @@ fn path_has_command(name: &str, path: Option<&std::ffi::OsStr>) -> bool {
 /// group is gone, and killing then could only reach whatever the operating
 /// system next gave that number to — so a finished command releases the guard.
 struct ProcessGroup {
-    #[cfg_attr(not(unix), allow(dead_code))]
     id: Option<u32>,
 }
 

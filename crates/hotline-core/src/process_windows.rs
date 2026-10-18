@@ -62,7 +62,7 @@ impl Job {
             if SetInformationJobObject(
                 job.as_raw_handle(),
                 JobObjectExtendedLimitInformation,
-                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                (&raw const limits).cast(),
                 size_of_val(&limits) as u32,
             ) == 0
             {
@@ -74,7 +74,7 @@ impl Job {
             let snapshot = owned(CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0))?;
             let mut entry: THREADENTRY32 = std::mem::zeroed();
             entry.dwSize = size_of::<THREADENTRY32>() as u32;
-            let mut found = Thread32First(snapshot.as_raw_handle(), &mut entry);
+            let mut found = Thread32First(snapshot.as_raw_handle(), &raw mut entry);
             while found != 0 {
                 if entry.th32OwnerProcessID == id {
                     let thread = owned(OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID))?;
@@ -83,7 +83,7 @@ impl Job {
                     }
                     return Ok(Self(job));
                 }
-                found = Thread32Next(snapshot.as_raw_handle(), &mut entry);
+                found = Thread32Next(snapshot.as_raw_handle(), &raw mut entry);
             }
             Err(io::Error::other(
                 "The suspended child's initial thread could not be resumed.",
@@ -118,7 +118,7 @@ mod tests {
                 JobObjectBasicProcessIdList,
                 buffer.as_mut_ptr().cast(),
                 size_of_val(&buffer) as u32,
-                &mut returned,
+                &raw mut returned,
             );
             let list = &*(buffer.as_ptr() as *const JOBOBJECT_BASIC_PROCESS_ID_LIST);
             let count = (list.NumberOfProcessIdsInList as usize).min(buffer.len() - 1);

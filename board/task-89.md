@@ -10,7 +10,11 @@ tags:
   - shell
 createdAt: "2026-10-16T22:26:28.277Z"
 parentId: epic-14
-updatedAt: "2026-10-18T23:40:51.846Z"
+updatedAt: "2026-10-18T23:53:20.513Z"
+relatedFiles:
+  - crates/hotline-core/src/tools/shell/macos.rs
+  - crates/hotline-core/tests/processes.rs
+  - .github/workflows/ci.yml
 ---
 
 ## Description

@@ -5,21 +5,34 @@
 //! the token, the framing, the ordering of a subscription, and the roster
 //! view the core maintains out of the log.
 
+use super::door::{AcceptAgain, accept_again};
+use super::phone::{effort_config, phone_event, snapshot_shaped};
+use super::seat::{PRIVATE_REASON, Seat};
+use super::socket::{FORBIDDEN, Outgoing, answer};
 use super::*;
 use crate::contract::{
-    ChapterClose, ConfigChoice, Credential, CredentialKind, LoginPrompt, LoginStatus, Persona,
-    PersonaDraft, Reach, SessionCapabilities, SessionState,
+    ChapterClose, Command, ConfigChoice, Credential, CredentialKind, DeltaKind, LoginPrompt,
+    LoginStatus, Persona, PersonaDraft, Reach, SessionCapabilities, SessionInfo, SessionState,
+    StreamDelta, Target, ThreadId, ThreadKind, TranscriptEvent, ViewName,
 };
 use crate::driver::Driver;
+use crate::log::{Log, StreamId};
 use crate::mcp::server::TeammateTools;
 use crate::session::{Agents, ProviderAuth, ProviderKeys, Room};
 use crate::{paths, room};
 use async_trait::async_trait;
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::Duration;
+use tokio::net::TcpStream;
+use tokio::sync::{broadcast, mpsc};
+use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::http::StatusCode;
+use tokio_tungstenite::tungstenite::{Error, Message};
 use tokio_tungstenite::{MaybeTlsStream, connect_async};
 
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -1031,3 +1044,7 @@ mod seats;
 mod settings;
 mod threads;
 mod windows;
+
+fn snapshot_for_seat(log: &Log, stream: &StreamId, seat: Seat, threads2: bool) -> Vec<Value> {
+    snapshot_shaped(log, stream, seat == Seat::Phone, None, threads2)
+}

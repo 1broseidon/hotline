@@ -2,10 +2,15 @@
 //! session state. Tape pumps remember dirty teammate IDs rather than queueing
 //! one disk read for every event. A single wake covers the pending set.
 
-use super::{RoomHandle, roster_entry, send};
-use crate::contract::{Persona, SessionInfo};
+use super::socket::Outbox;
+use super::{RoomHandle, send};
+use crate::contract::{
+    HumanActionStatus, PasskeyAskStatus, Persona, Preview, RosterEntry, SessionInfo, SessionState,
+    ToolStatus, TranscriptEvent,
+};
 use crate::log::{Log, StreamId};
 use crate::room;
+use crate::store::previews;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -42,7 +47,7 @@ pub(super) async fn view(
     handle: Arc<dyn RoomHandle>,
     mut room_events: broadcast::Receiver<Value>,
     infos: broadcast::Receiver<SessionInfo>,
-    sender: super::Outbox,
+    sender: Outbox,
 ) {
     let mut infos = Some(infos);
     let (wake, mut spoken) = mpsc::channel(1);
@@ -183,7 +188,7 @@ fn send_snapshot(
     id: i64,
     log: &Log,
     handle: &Arc<dyn RoomHandle>,
-    sender: &super::Outbox,
+    sender: &Outbox,
     personas: &[Persona],
     pins: &[String],
 ) -> bool {
@@ -282,7 +287,7 @@ fn changes_row(event: &Value) -> bool {
 /// is every model on the desk, which the phone already has from
 /// `models.list`; slash commands and checkpoints are the desk's; the
 /// preview is a line in a list.
-fn shaped(sender: &super::Outbox, mut row: Value) -> Value {
+fn shaped(sender: &Outbox, mut row: Value) -> Value {
     if !sender.lean() {
         return row;
     }
@@ -307,6 +312,113 @@ fn shaped(sender: &super::Outbox, mut row: Value) -> Value {
 
 /// As much of the last message as a list row can show, with room to spare.
 const PREVIEW_CHARS: usize = 280;
+
+/// One roster row, joined out of the room stream, the tape's tail and the
+/// live session.
+fn roster_entry(
+    log: &Log,
+    room: &Arc<dyn RoomHandle>,
+    persona: crate::contract::Persona,
+    pins: &[String],
+) -> Value {
+    let tail = previews::tail(log.root(), &persona.id);
+    let preview: Option<Preview> = previews::preview_reaching(log.root(), &persona.id, &tail)
+        .and_then(|preview| serde_json::from_value(preview).ok());
+    let latest = preview.as_ref().map(|preview| preview.at);
+    let session = room.info(&persona.id);
+    json!(RosterEntry {
+        activity: activity_on(&tail, &session),
+        waiting: waiting_on(&tail) || room.threads_waiting(&persona.id),
+        drawing: room.drawing(&persona.id),
+        pin: pins
+            .iter()
+            .position(|pin| *pin == persona.id)
+            .and_then(|slot| u8::try_from(slot).ok()),
+        subagents: room.subagents(&persona.id),
+        sides: room.sides(&persona.id),
+        session,
+        preview,
+        latest,
+        persona,
+    })
+}
+
+/// The title of the tool still running on this tape, if the session is
+/// thinking.
+///
+/// Read from the tape rather than remembered on the view, so a lagged pump
+/// or a second snapshot cannot disagree with what the tape says. A call
+/// that is in progress sets the title; any other status for that call, a
+/// turn ending, or the session leaving thinking clears it. Only the tail is
+/// read: a tool still running is by definition near the end, and a tape is
+/// only bounded by how much has been said.
+///
+/// `pub(crate)`, not private: `list_teammates` reads it the same way the
+/// roster row does, so a colleague's activity is the one the desk shows and
+/// not a second guess at it.
+pub(crate) fn activity_on(tail: &[Value], session: &SessionInfo) -> Option<String> {
+    if session.state != SessionState::Thinking {
+        return None;
+    }
+    let mut activity: Option<(String, String)> = None;
+    for event in tail {
+        let Ok(event) = serde_json::from_value::<TranscriptEvent>(event.clone()) else {
+            continue;
+        };
+        match event {
+            TranscriptEvent::Tool {
+                tool_call_id,
+                title,
+                status,
+                ..
+            } => {
+                if status == ToolStatus::InProgress {
+                    activity = Some((tool_call_id, title));
+                } else if activity.as_ref().is_some_and(|(id, _)| *id == tool_call_id) {
+                    activity = None;
+                }
+            }
+            TranscriptEvent::Turn { .. } => activity = None,
+            _ => {}
+        }
+    }
+    activity.map(|(_, title)| title)
+}
+
+/// Whether a card on this tape is still waiting on the person.
+///
+/// A card is rewritten in place when it is answered, so the tail is folded
+/// by id and only each card's latest line counts. Read from the tail, like
+/// the running tool: a teammate waiting on the person has stopped to wait,
+/// so what it waits on is near the end.
+///
+/// `pub(crate)`: `list_teammates` asks the same question of a colleague's
+/// tape, so a teammate can tell a colleague is waiting on the person before
+/// interrupting them.
+pub(crate) fn waiting_on(tail: &[Value]) -> bool {
+    let mut open: HashMap<String, bool> = HashMap::new();
+    for event in tail {
+        let Ok(event) = serde_json::from_value::<TranscriptEvent>(event.clone()) else {
+            continue;
+        };
+        match event {
+            TranscriptEvent::Permission { id, decision, .. } => {
+                open.insert(id, decision.is_none());
+            }
+            TranscriptEvent::HumanAction { id, status, .. } => {
+                open.insert(id, status == HumanActionStatus::Pending);
+            }
+            TranscriptEvent::PasskeyAsk { id, status, .. } => {
+                open.insert(id, status == PasskeyAskStatus::Pending);
+            }
+            TranscriptEvent::ExchangePaused { id, status, .. } => {
+                open.insert(id, status == crate::contract::ExchangePauseStatus::Pending);
+            }
+            _ => {}
+        }
+    }
+    open.into_values().any(|waiting| waiting)
+}
 
 #[cfg(test)]
 mod tests {

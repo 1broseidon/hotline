@@ -1,8 +1,8 @@
 ---
 id: task-173
 title: "P2-33c (C): Window split, move-only: Transcript.tsx (folds to transcriptFolds.ts first)"
-column: in-progress
-position: 62
+column: review
+position: 0
 description: |-
   Phase 2 group C, plan row 33 (third landing) in docs/audits/0.40/README.md on release/0.40.0. Read that row, window.md F2/F3 tasks 9–12 and the Standards first.
 
@@ -30,7 +30,7 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T00:31:04.589Z"
     reworkCount: 0
-updatedAt: "2026-10-18T00:34:58.191Z"
+updatedAt: "2026-10-18T00:35:56.221Z"
 dependsOn:
   - task-122
 dispatch:

@@ -318,24 +318,23 @@ async fn pending_human(room: &Room, persona_id: &str) -> String {
 /// Waits for the `count`th delivery on a teammate's tape to have been heard
 /// and its turn to have ended.
 async fn heard_delivery(room: &Room, persona_id: &str, count: usize) -> Value {
-    for _ in 0..300 {
+    let heard = || -> Option<Value> {
         let tape = tape(room, persona_id);
-        let deliveries: Vec<&Value> = tape
+        let delivery = tape
             .iter()
             .filter(|event| event["kind"] == "delivery")
-            .collect();
-        if let Some(delivery) = deliveries.get(count - 1)
-            && delivery["receipt"] == "read"
-            && tape
-                .iter()
-                .skip_while(|event| event["id"] != delivery["id"])
-                .any(|event| event["kind"] == "turn")
-        {
-            return (*delivery).clone();
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("{persona_id} was never handed delivery {count}")
+            .nth(count - 1)?;
+        let answered = tape
+            .iter()
+            .skip_while(|event| event["id"] != delivery["id"])
+            .any(|event| event["kind"] == "turn");
+        (delivery["receipt"] == "read" && answered).then(|| delivery.clone())
+    };
+    until(&format!("{persona_id} is handed delivery {count}"), || {
+        heard().is_some()
+    })
+    .await;
+    heard().unwrap()
 }
 
 /// A teammate's own session asks and moves on: the tool returns at once,

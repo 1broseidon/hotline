@@ -263,6 +263,7 @@ function WebSearchKey({
 				aria-label={`${provider.name} API key`}
 				placeholder={provider.hasKey ? "Paste a new key" : `${provider.name} API key`}
 				autoComplete="new-password"
+				// biome-ignore lint/a11y/noAutofocus: the field opens on a press of Add key or Change key, which wants a key typed next.
 				autoFocus
 				spellCheck={false}
 				value={draft}

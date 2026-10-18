@@ -306,6 +306,7 @@ function VariableForm({
 						className="field font-mono text-sm"
 						placeholder="GITHUB_TOKEN"
 						autoComplete="off"
+						// biome-ignore lint/a11y/noAutofocus: the form opens on a press of Add a secret, and the name comes first.
 						autoFocus
 						spellCheck={false}
 						value={name}
@@ -319,6 +320,7 @@ function VariableForm({
 					type="password"
 					className="field text-sm"
 					autoComplete="new-password"
+					// biome-ignore lint/a11y/noAutofocus: on a press of Replace the name is fixed, so the new value is the field to type in.
 					autoFocus={fixed !== undefined}
 					spellCheck={false}
 					placeholder="At least eight characters"
@@ -381,6 +383,7 @@ function LoginForm({
 						className="field font-mono text-sm"
 						placeholder="GITHUB_LOGIN"
 						autoComplete="off"
+						// biome-ignore lint/a11y/noAutofocus: the form opens when Login is picked under Add a secret, and the name comes first.
 						autoFocus
 						spellCheck={false}
 						value={name}

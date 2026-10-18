@@ -269,6 +269,7 @@ export function ComputerSection({
 							placeholder={pinnedComputerImage() || "registry/name:tag"}
 							autoComplete="off"
 							spellCheck={false}
+							// biome-ignore lint/a11y/noAutofocus: it is only on when the field appears because Custom image was just picked.
 							autoFocus={custom}
 							value={draft}
 							onChange={(event) => setDraft(event.target.value)}

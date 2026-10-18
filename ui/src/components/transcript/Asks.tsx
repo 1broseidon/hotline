@@ -136,6 +136,7 @@ export function HumanAction({
 					aria-label="A note for the teammate"
 					placeholder="A note for the teammate"
 					autoComplete="off"
+					// biome-ignore lint/a11y/noAutofocus: the field opens on a press of Add a note, which wants a note typed next.
 					autoFocus
 					value={note}
 					onChange={(change) => setNote(change.target.value)}

@@ -219,6 +219,7 @@ export function NewTeammateForm({
 								id="new-name"
 								className="field pr-9"
 								value={name}
+								// biome-ignore lint/a11y/noAutofocus: the pane opens only when New teammate is asked for, and the name is the first thing it asks.
 								autoFocus
 								autoComplete="off"
 								placeholder="Name your teammate"

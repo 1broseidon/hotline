@@ -190,6 +190,7 @@ function Browser({ browsing }: { browsing: Browsing }) {
 								data-naming
 								aria-label="New folder name"
 								placeholder="Folder name"
+								// biome-ignore lint/a11y/noAutofocus: the field takes the place of the New folder button just pressed, so focus goes where that button was.
 								autoFocus
 								value={naming}
 								onChange={(event) => setNaming(event.target.value)}

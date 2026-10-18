@@ -484,6 +484,7 @@ async fn forward(State(state): State<Arc<Shared>>, request: Request) -> Response
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::until;
 
     fn holder(key: &str) -> Holder {
         Holder::new(key, format!("the {key} thread"))
@@ -763,12 +764,10 @@ mod tests {
         );
 
         alive.store(false, std::sync::atomic::Ordering::SeqCst);
-        tokio::time::sleep(Duration::from_millis(600)).await;
-        assert_eq!(
-            leases.holder("ada"),
-            None,
-            "a gate that ends releases what it held"
-        );
+        until("a gate that ends releases what it held", || {
+            leases.holder("ada").is_none()
+        })
+        .await;
     }
 
     #[tokio::test]

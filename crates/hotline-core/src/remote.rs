@@ -28,7 +28,7 @@ use std::{
     fs, io,
     net::IpAddr,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
@@ -46,6 +46,22 @@ fn hash(value: &str) -> String {
 }
 fn message(error: impl std::fmt::Display) -> String {
     error.to_string()
+}
+/// A panic on one connection must not take every later one down with it, nor
+/// unwind a destructor before it signals release. Recovering the guard is
+/// sound only where the writers under it leave the value whole at every point
+/// that can panic; each lock taken through here has been read for that.
+fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
+    held.lock().unwrap_or_else(PoisonError::into_inner)
+}
+/// Leaves `held` poisoned, as a panic while it was held would.
+#[cfg(test)]
+fn poison<T>(held: &Mutex<T>) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _held = held.lock();
+        panic!("poisoned on purpose");
+    }));
+    assert!(held.is_poisoned());
 }
 impl DeviceRole {
     /// The seat this role is given on the wire, if any. A relay grant has

@@ -162,7 +162,8 @@ impl Room {
             }
             // Ending the call writes its link and takes its note.
             ThreadKind::Call => {
-                if let Some(voice) = lock(&self.voice).upgrade() {
+                let voice = lock(&self.voice).upgrade();
+                if let Some(voice) = voice {
                     voice.end_quiet(&thread.key);
                 }
             }

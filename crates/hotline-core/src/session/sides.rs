@@ -344,7 +344,8 @@ impl Occupant for LiveSide {
                 .expire_asked(&side.thread(), &side.persona_id);
         }
         let said_so = lock(&side.archive_note).take();
-        if let Some(request) = lock(&side.handoff).take() {
+        let request = lock(&side.handoff).take();
+        if let Some(request) = request {
             // The handoff's result is what the teammate said when it was
             // done. The thread closes with it unless the turn stopped to
             // wait for the person, in which case it is the person's answer

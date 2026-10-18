@@ -893,7 +893,8 @@ pub(super) async fn answer_delegation(
     )
     .await
     .unwrap_or_else(|_| Err("The call assistant did not answer in time.".into()));
-    if let Some(words) = super::lock(&handed).take() {
+    let words = super::lock(&handed).take();
+    if let Some(words) = words {
         let arguments = json!({ "words": words }).to_string();
         return Delegated::HandOff { call_id, arguments };
     }

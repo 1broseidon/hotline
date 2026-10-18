@@ -147,11 +147,11 @@ async fn openrouter_login_at(
                         "Missing or invalid sign-in code.",
                     );
                 };
-                if let Some(tx) = tx
+                let tx = tx
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .take()
-                {
+                    .take();
+                if let Some(tx) = tx {
                     let _ = tx.send(result);
                 }
                 (

@@ -681,11 +681,11 @@ impl RoomHandle for Desk {
         let prompt_tx = Arc::new(Mutex::new(Some(prompt_tx)));
         let login_id = id.clone();
         let emit = move |user_code: String, verification_uri: String| {
-            if let Some(tx) = prompt_tx
+            let tx = prompt_tx
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .take()
-            {
+                .take();
+            if let Some(tx) = tx {
                 let _ = tx.send(LoginPrompt {
                     login_id: login_id.clone(),
                     user_code,

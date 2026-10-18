@@ -442,7 +442,8 @@ impl ChildAgent {
         };
         for server in &self.mcp_servers {
             if is_oauth_server(server) {
-                if let Some(reason) = lock(&self.oauth_refused).get(&server.id).cloned() {
+                let refused = lock(&self.oauth_refused).get(&server.id).cloned();
+                if let Some(reason) = refused {
                     ledger.absent(ToolSourceKind::Mcp, &server.id, &server.name, reason);
                 } else if lock(&self.oauth_proxies).contains_key(&server.id) {
                     ledger.declared(

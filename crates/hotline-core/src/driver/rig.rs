@@ -597,7 +597,8 @@ impl InProcess {
         if !granted.is_empty() {
             mcp_tools.extend(granted::tools(granted));
         }
-        if let Some(escalation) = lock(&self.escalation).take() {
+        let escalation = lock(&self.escalation).take();
+        if let Some(escalation) = escalation {
             mcp_tools.push(tell_person(escalation));
         }
         let model = lock(&self.model).clone();

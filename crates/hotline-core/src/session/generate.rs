@@ -278,8 +278,11 @@ impl Room {
             return Err(format!("{}.", imagegen::IMAGES_OFF));
         }
         #[cfg(test)]
-        if let Some(generators) = super::lock(&self.image_generators).clone() {
-            return Ok(generators);
+        {
+            let generators = super::lock(&self.image_generators).clone();
+            if let Some(generators) = generators {
+                return Ok(generators);
+            }
         }
         let vault = self
             .vault

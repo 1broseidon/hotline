@@ -855,12 +855,12 @@ impl McpOAuthService {
             Ok(_) => {
                 *state = OAuthLoginState::Complete;
                 login.shutdown.cancel();
-                if let Some(callback) = self
+                let callback = self
                     .on_complete
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .clone()
-                {
+                    .clone();
+                if let Some(callback) = callback {
                     callback();
                 }
                 Ok(())

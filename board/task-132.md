@@ -1,7 +1,7 @@
 ---
 id: task-132
 title: "P2-23 (C): `session/tests.rs`"
-column: in-progress
+column: review
 position: 2
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:40:52.292Z"
 relatedFiles:
   - crates/hotline-core/src/session/tests.rs
   - crates/hotline-core/src/session/tests/
-updatedAt: "2026-10-18T05:44:05.435Z"
+updatedAt: "2026-10-18T05:52:04.309Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - test $(wc -l < crates/hotline-core/src/session/tests.rs) -le 2000
@@ -25,8 +25,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T05:44:05.435Z"
     reworkCount: 2
-    deliveredAt: "2026-10-18T05:32:01.030Z"
-    duration: 242
+    deliveredAt: "2026-10-18T05:52:04.309Z"
+    duration: 479
 dependsOn:
   - task-130
   - task-113

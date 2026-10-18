@@ -1,7 +1,7 @@
 ---
 id: task-169
 title: "P2-54 (F): The window's gates"
-column: todo
+column: in-progress
 position: 58
 priority: high
 tags:
@@ -14,9 +14,9 @@ relatedFiles:
   - ui/package.json
   - ui/bun.lock
   - Makefile
-updatedAt: "2026-10-18T03:33:54.818Z"
+updatedAt: "2026-10-18T03:34:31.529Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - test -f ui/knip.json
@@ -25,6 +25,8 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T03:34:31.529Z"
+    reworkCount: 0
 dependsOn:
   - task-168
 dispatch:

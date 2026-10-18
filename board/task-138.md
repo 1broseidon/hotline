@@ -1,7 +1,7 @@
 ---
 id: task-138
 title: "P2-29 (C): `wire/mod.rs`"
-column: todo
+column: in-progress
 position: 27
 priority: high
 tags:
@@ -17,9 +17,9 @@ relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/subscribe.rs
   - crates/hotline-core/src/wire/phone.rs
-updatedAt: "2026-10-18T04:17:15.079Z"
+updatedAt: "2026-10-18T04:17:24.473Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - test $(wc -l < crates/hotline-core/src/wire.rs) -le 1500
@@ -28,6 +28,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T04:17:24.473Z"
+    reworkCount: 0
 dependsOn:
   - task-128
 dispatch:

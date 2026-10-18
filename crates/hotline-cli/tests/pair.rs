@@ -1,15 +1,13 @@
 //! A pairing invitation belongs to the live CLI connection, not its process id.
 #![cfg(unix)]
+mod common;
 
+use common::{free_address, hotline};
 use std::{
-    io::Write,
-    net::TcpListener,
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     time::{Duration, Instant},
 };
-
-const HOTLINE: &str = env!("CARGO_BIN_EXE_hotline");
 
 struct OwnedChild(Child);
 impl Drop for OwnedChild {
@@ -18,18 +16,6 @@ impl Drop for OwnedChild {
         let _ = self.0.wait();
     }
 }
-fn command(root: &Path, args: &[&str]) -> Command {
-    let mut command = Command::new(HOTLINE);
-    command
-        .args(args)
-        .arg("--data")
-        .arg(root)
-        .env_remove("DISPLAY")
-        .env_remove("WAYLAND_DISPLAY")
-        .env_remove("DBUS_SESSION_BUS_ADDRESS")
-        .env_remove("HOTLINE_DATA_DIR");
-    command
-}
 fn eventually(mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(30);
     while !condition() {
@@ -37,15 +23,9 @@ fn eventually(mut condition: impl FnMut() -> bool) {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
+/// A wire command with no params, which must succeed, and its reply.
 fn wire(root: &Path, cmd: &str) -> serde_json::Value {
-    let mut child = command(root, &["wire", cmd])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(b"{}").unwrap();
-    let output = child.wait_with_output().unwrap();
+    let output = common::wire(root, cmd, "{}");
     assert!(
         output.status.success(),
         "{}",
@@ -57,12 +37,10 @@ fn wire(root: &Path, cmd: &str) -> serde_json::Value {
 #[test]
 fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
     let root = tempfile::tempdir().unwrap();
-    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = reservation.local_addr().unwrap();
-    drop(reservation);
+    let address = free_address();
     let endpoint = format!("https://{address}");
     let mut desk = OwnedChild(
-        command(
+        hotline(
             root.path(),
             &[
                 "serve",
@@ -114,14 +92,14 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
     assert_eq!(status("/v2/pair"), 404);
     assert_eq!(status("/pair"), 404);
     assert_eq!(status("/pair/manual/start"), 404);
-    let devices = command(root.path(), &["devices"]).output().unwrap();
+    let devices = hotline(root.path(), &["devices"]).output().unwrap();
     assert!(devices.status.success());
     assert!(String::from_utf8_lossy(&devices.stdout).contains("No paired devices"));
 
     // SIGINT cancels explicitly; SIGKILL proves socket teardown alone is enough.
     for signal in [libc::SIGINT, libc::SIGKILL] {
         let mut pair = OwnedChild(
-            command(root.path(), &["pair", "--companion"])
+            hotline(root.path(), &["pair", "--companion"])
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
@@ -147,7 +125,7 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
     );
     for flag in ["--json", "--link"] {
         let mut pair = OwnedChild(
-            command(root.path(), &["pair", flag])
+            hotline(root.path(), &["pair", flag])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
                 .spawn()
@@ -194,12 +172,12 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
     }
 
     // A relay invitation says so, and makes a grant `devices` names relay.
-    let both = command(root.path(), &["pair", "--companion", "--relay"])
+    let both = hotline(root.path(), &["pair", "--companion", "--relay"])
         .output()
         .unwrap();
     assert!(!both.status.success());
     let mut pair = OwnedChild(
-        command(root.path(), &["pair", "--relay", "--link"])
+        hotline(root.path(), &["pair", "--relay", "--link"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
@@ -224,7 +202,7 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
         .block_on(client.pair_relay(&payload, "Relay laptop"))
         .unwrap();
     eventually(|| pair.0.try_wait().unwrap().is_some());
-    let devices = command(root.path(), &["devices"]).output().unwrap();
+    let devices = hotline(root.path(), &["devices"]).output().unwrap();
     let devices = String::from_utf8_lossy(&devices.stdout);
     assert!(
         devices
@@ -240,12 +218,10 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
 #[test]
 fn a_relay_only_server_refuses_a_phones_claim_and_keeps_its_window() {
     let root = tempfile::tempdir().unwrap();
-    let reservation = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = reservation.local_addr().unwrap();
-    drop(reservation);
+    let address = free_address();
     let endpoint = format!("https://{address}");
     let mut server = OwnedChild(
-        command(
+        hotline(
             root.path(),
             &[
                 "serve",
@@ -277,7 +253,7 @@ fn a_relay_only_server_refuses_a_phones_claim_and_keeps_its_window() {
     assert!(qr["url"].as_str().unwrap().contains("r=relay"), "{qr}");
 
     let mut pair = OwnedChild(
-        command(root.path(), &["pair", "--json"])
+        hotline(root.path(), &["pair", "--json"])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()

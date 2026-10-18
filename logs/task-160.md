@@ -1,8 +1,6 @@
 ---
 id: task-160
 title: "P2-51 (D): Audit lenses, with no table entry"
-column: in-progress
-position: 49
 priority: high
 tags:
   - phase2
@@ -13,7 +11,7 @@ relatedFiles:
   - crates/hotline-core/src/
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
-updatedAt: "2026-10-18T10:04:10.837Z"
+updatedAt: "2026-10-18T10:49:31.515Z"
 contract:
   status: in_progress
   validation:
@@ -39,7 +37,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T10:04:02.211Z"
+    ended: "2026-10-18T10:49:31.515Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T10:49:31.126Z"
 ---
 
 ## Description
@@ -53,3 +54,6 @@ Phase 2 group D (Fixes in the moved files), plan row 51 in docs/audits/0.40/READ
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T10:49:30.752Z: Landed on release/0.40.0

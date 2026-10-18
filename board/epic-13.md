@@ -11,7 +11,8 @@ tags:
   - phase2
 createdAt: "2026-10-17T22:40:41.476Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-17T23:18:45.379Z"
+updatedAt: "2026-10-18T00:13:12.368Z"
+assignee: claude
 dispatch:
   agent: claude
   model: opus
@@ -24,7 +25,7 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-17T23:18:45.379Z"
-assignee: claude
+  paused: "2026-10-18T00:13:12.368Z"
 ---
 
 ## Description

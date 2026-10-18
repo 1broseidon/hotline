@@ -1,8 +1,6 @@
 ---
 id: task-174
 title: "P2-33d (C): Window split, move-only: Teammate.tsx"
-column: review
-position: 63
 description: |-
   Phase 2 group C, plan row 33 (fourth landing) in docs/audits/0.40/README.md on release/0.40.0. Read that row, window.md F2/F3 tasks 9–12 and the Standards first.
 
@@ -30,7 +28,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-18T00:38:51.243Z"
     duration: 357
-updatedAt: "2026-10-18T00:38:51.243Z"
+updatedAt: "2026-10-18T00:46:12.272Z"
 dependsOn:
   - task-122
 dispatch:
@@ -46,6 +44,7 @@ dispatch:
     pid: 50333
     at: "2026-10-18T00:32:29.166Z"
 assignee: claude
+completedAt: "2026-10-18T00:46:12.272Z"
 ---
 
 ## Description
@@ -57,3 +56,4 @@ End with `make precheck` and `make ui-check` (the hooks are on; never --no-verif
 
 ## Log
 - 2026-10-18T00:38:50.805Z: [claude] Done on dispatch/task-174 (40129382), move-only: Teammate.tsx 1849→686 lines (Teammate, VoiceRow, HarnessRows, CollaborationRows, FolderRows/foldersNote). New in components/teammate/: rows.tsx (SwitchRow, FoldRow, RowText, InfoKey, NESTED, the three *_ABOUT strings), ComputerRows.tsx (with SliderRow, LimitRow, AddMount), GrantRows.tsx (McpRows, SkillRows), ToolLedger.tsx, Threads.tsx. Teammate.tsx re-exports BACKGROUND_ABOUT, COMPUTER_ABOUT, MACHINE_ABOUT and SwitchRow, so no importer changed. Only change beyond the move: three doc comments that sat apart from their functions now sit on them. For P2-49 (task-158): the seen-record copy (THREAD_SEEN_KEY, loadThreadSeen, saveThreadSeen) is now in ui/src/components/teammate/Threads.tsx: the key at line 8, the helpers at lines 115-137. Knip is unchanged from baseline. make ui-check and make precheck pass; nothing left unwired.
+- 2026-10-18T00:46:11.796Z: Landed on release/0.40.0

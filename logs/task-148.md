@@ -1,8 +1,6 @@
 ---
 id: task-148
 title: "P2-39 (D): Lint autofix slice"
-column: review
-position: 37
 priority: high
 tags:
   - phase2
@@ -15,7 +13,7 @@ relatedFiles:
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
   - crates/hotline-cli/tests/
-updatedAt: "2026-10-18T08:16:18.260Z"
+updatedAt: "2026-10-18T08:17:55.305Z"
 contract:
   status: delivered
   validation:
@@ -58,7 +56,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T07:18:10.748Z"
+    ended: "2026-10-18T08:17:55.305Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T08:17:54.911Z"
 ---
 
 ## Description
@@ -75,3 +76,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T08:16:17.943Z: [claude] Done on dispatch/task-148 (2f896d04 + a follow-up, 16 commits): one commit per "[1]" lint, about 600 sites. Each lint is proven clean with `cargo clippy --workspace --all-targets -- -W clippy::<lint>`, and all fifteen together come back with zero hits. The unfiltered `cargo test -p hotline-core` passes, contract.ts is unchanged, and make check and make precheck (8/8) pass. No [lints] table was added; that is row 52. Choices a reviewer should know about: (1) assert_is_empty: where the empty literal can't be inferred, it is `assert_eq!(x, [] as [T; 0])`, with the short type name where it's in scope. pair.rs compares to `json!([])`. (2) format_push_string: `let _ = write!(s, …)` (writeln! where it ends in \n), with `use std::fmt::Write` (`as _` in avatar.rs, which imports io::Write). Writing to a String cannot fail. (3) default_trait_access names each type and adds the imports it needs; session_new.rs uses rmcp::model::ClientCapabilities, because acp's own type shares that name. (4) The last commit adds two semicolons that the let-else rewrite left bare. For row 52: I linted on macOS only. Code compiled only on Linux or Windows (#[cfg(target_os)] bodies) was not checked against these lints. Run clippy -W for each on those targets before setting them to warn under -D warnings. Nothing left unwired.
+- 2026-10-18T08:17:54.536Z: Landed on release/0.40.0

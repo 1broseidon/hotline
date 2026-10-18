@@ -1,7 +1,7 @@
 ---
 id: task-167
 title: "P2-52 (F): The `[workspace.lints]` table in one change"
-column: in-progress
+column: review
 position: 56
 priority: high
 tags:
@@ -14,9 +14,9 @@ relatedFiles:
   - crates/hotline-core/Cargo.toml
   - crates/hotline-app/Cargo.toml
   - crates/hotline-cli/Cargo.toml
-updatedAt: "2026-10-18T10:49:39.580Z"
+updatedAt: "2026-10-18T11:17:43.064Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - grep -q '^\[workspace.lints' Cargo.toml
@@ -28,6 +28,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T10:49:39.580Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T11:17:43.064Z"
+    duration: 1683
 dependsOn:
   - task-160
   - task-156

@@ -15,7 +15,7 @@ relatedFiles:
   - Cargo.lock
   - crates/hotline-core/src/remote/tests/viewer_token.rs
   - crates/hotline-core/src/voice/speech/xai/tests.rs
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:13.388Z"
 contract:
   status: ready
   validation:
@@ -27,6 +27,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-146
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:13.251Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

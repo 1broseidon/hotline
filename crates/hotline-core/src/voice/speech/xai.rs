@@ -567,7 +567,7 @@ impl Xai {
                         next_send = next_send.max(Instant::now());
                         sleep_until(next_send).await;
                         socket.send(Message::Binary(frame.to_vec().into())).await.map_err(|error| self.access.socket_error(error))?;
-                        next_send += Duration::from_secs_f64(frame.len() as f64 / (INPUT_RATE * 2) as f64);
+                        next_send += Duration::from_secs_f64(frame.len() as f64 / f64::from(INPUT_RATE * 2));
                     }
                 }
                 event = self.event(&mut socket, &mut events) => {

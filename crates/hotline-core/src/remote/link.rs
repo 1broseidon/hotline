@@ -318,7 +318,7 @@ impl Remote {
                 }
                 let wait = Duration::from_millis((500u64 << tries.min(6)).min(30_000));
                 tries = tries.saturating_add(1);
-                let jitter = 0.8 + (Uuid::new_v4().as_bytes()[0] as f64 / 255.0) * 0.4;
+                let jitter = 0.8 + (f64::from(Uuid::new_v4().as_bytes()[0]) / 255.0) * 0.4;
                 tokio::select! {
                     _ = cancel.cancelled() => return,
                     _ = tokio::time::sleep(wait.mul_f64(jitter)) => {}

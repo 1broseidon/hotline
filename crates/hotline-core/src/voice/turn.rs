@@ -253,7 +253,7 @@ impl Calls {
         let billable_ms = speech::billable_ms(&clip.mime, bytes, duration);
         self.pay(
             Kind::Stt,
-            ledger::stt_usd(&stt.id().provider_id, billable_ms as f64 / 1000.0),
+            ledger::stt_usd(&stt.id().provider_id, f64::from(billable_ms) / 1000.0),
         )?;
         let text = tokio::select! {
             _ = context.cancel.cancelled() => return Ok(()),

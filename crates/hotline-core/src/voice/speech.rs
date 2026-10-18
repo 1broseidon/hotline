@@ -481,10 +481,19 @@ mod timing_tests {
     #[test]
     fn a_new_utterance_restarts_the_clock_and_a_stale_one_is_not_reported() {
         let clock = TurnClock::default();
-        *clock.lock() = Some(Instant::now() - TURN_LAPSES_AFTER - Duration::from_secs(1));
+        let lapsed = TURN_LAPSES_AFTER + Duration::from_secs(1);
+        *clock.lock() = Some(
+            Instant::now()
+                .checked_sub(lapsed)
+                .expect("the machine has been up for longer than a turn lapses"),
+        );
         assert_eq!(clock.first_clip(&id()), None);
 
-        *clock.lock() = Some(Instant::now() - Duration::from_secs(30));
+        *clock.lock() = Some(
+            Instant::now()
+                .checked_sub(Duration::from_secs(30))
+                .expect("the machine has been up for longer than thirty seconds"),
+        );
         clock.heard();
         assert!(clock.first_clip(&id()).unwrap() < Duration::from_secs(5));
     }

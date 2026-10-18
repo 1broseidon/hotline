@@ -323,7 +323,9 @@ async fn idle_replacement_and_disconnect_end_only_the_named_call() {
         .iter_mut()
         .find(|c| c.id == second)
         .unwrap()
-        .activity = Instant::now() - Duration::from_millis(crate::thread::QUIET_MS as u64);
+        .activity = Instant::now()
+        .checked_sub(Duration::from_millis(crate::thread::QUIET_MS as u64))
+        .expect("the machine has been up for longer than a call stays quiet");
     for (call, quiet) in calls.quiet() {
         if quiet >= crate::thread::QUIET_MS {
             calls.end_quiet(&call);

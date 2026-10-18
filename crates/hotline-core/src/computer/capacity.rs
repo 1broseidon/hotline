@@ -343,7 +343,9 @@ mod tests {
         assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
         cache.get(Some(Runtime::Docker), &probe).await;
         assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
-        cache.entries.lock().await.get_mut(&None).unwrap().0 = Instant::now() - CACHE_FOR;
+        cache.entries.lock().await.get_mut(&None).unwrap().0 = Instant::now()
+            .checked_sub(CACHE_FOR)
+            .expect("the machine has been up for longer than the cache lasts");
         cache.get(None, &probe).await;
         assert_eq!(probe.calls.load(Ordering::SeqCst), 3);
     }

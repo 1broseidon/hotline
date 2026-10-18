@@ -1,4 +1,5 @@
 use super::*;
+use crate::contract::SkillPolicy;
 use crate::contract::{McpPolicy, Persona, PolicyMode};
 use crate::log::Log;
 use crate::mcp::server::TeammateTools;
@@ -38,7 +39,7 @@ fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
             mode: PolicyMode::None,
             server_ids: Vec::new(),
         },
-        skill_policy: Default::default(),
+        skill_policy: SkillPolicy::default(),
         background_work: false,
         allowed_senders: Vec::new(),
         web_search_policy: None,

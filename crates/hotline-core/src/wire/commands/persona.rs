@@ -1,6 +1,7 @@
 //! A teammate on the room stream: made, changed, pinned and removed.
 
 use super::{append, now};
+use crate::contract::SkillPolicy;
 use crate::contract::{
     FolderGrant, McpPolicy, Persona, PersonaComputer, PersonaDraft, PolicyMode, Reach, SessionInfo,
 };
@@ -82,7 +83,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
             mode: PolicyMode::None,
             server_ids: Vec::new(),
         },
-        skill_policy: Default::default(),
+        skill_policy: SkillPolicy::default(),
         background_work: draft.background_work.unwrap_or(false),
         allowed_senders: Vec::new(),
         web_search_policy: None,

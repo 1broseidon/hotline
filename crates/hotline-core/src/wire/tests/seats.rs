@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::Map;
 
 #[tokio::test]
 async fn human_answer_is_a_command_the_wire_can_read() {
@@ -508,7 +509,7 @@ fn the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one() {
     }));
     assert!(!Seat::Phone.permits(&Command::PersonaUpdate {
         id: persona_id,
-        patch: Default::default(),
+        patch: Value::default(),
     }));
 }
 
@@ -543,7 +544,7 @@ fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
     // The whole room's list is every teammate's; a phone asks for one.
     let list = Command::ScheduleList {};
     let settings = Command::SettingsUpdate {
-        patch: Default::default(),
+        patch: Map::default(),
     };
     for command in [&create, &cancel, &quiet, &list, &settings] {
         assert!(Seat::Desk.permits(command), "{command:?}");

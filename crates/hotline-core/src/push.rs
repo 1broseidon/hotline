@@ -51,7 +51,7 @@ impl Push {
             http: reqwest::Client::new(),
             looked_at: AtomicU64::new(0),
             #[cfg(test)]
-            sent: Default::default(),
+            sent: std::sync::Mutex::default(),
         }
     }
 

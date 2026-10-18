@@ -38,7 +38,7 @@ use crate::contract::{McpPolicy, PolicyMode};
 use crate::driver::CapabilityLease;
 use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use rmcp::ServiceExt;
-use rmcp::model::{ClientInfo, Implementation};
+use rmcp::model::{ClientCapabilities, ClientInfo, Implementation};
 use rmcp::service::RunningService;
 use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
@@ -542,7 +542,7 @@ where
 
 fn hotline_client() -> ClientInfo {
     ClientInfo::new(
-        Default::default(),
+        ClientCapabilities::default(),
         Implementation::new("Hotline", env!("CARGO_PKG_VERSION")),
     )
 }
@@ -909,6 +909,7 @@ fn unique_keep_first(items: impl IntoIterator<Item = String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::SkillPolicy;
     use crate::driver::CapabilityEpoch;
     use rmcp::handler::server::ServerHandler;
     use rmcp::model::{
@@ -1658,7 +1659,7 @@ mod tests {
                 mode: crate::contract::PolicyMode::All,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,

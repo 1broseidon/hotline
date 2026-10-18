@@ -6,6 +6,7 @@
 //! it happens.
 
 use super::*;
+use crate::contract::SkillPolicy;
 use crate::contract::{
     AttachmentKind, ChapterStatus, DeltaKind, HumanAnswer, McpPolicy, PermissionOption,
     PersonaComputer, PolicyMode, ScheduledJob, SessionCheckpoint,
@@ -499,7 +500,7 @@ pub(crate) fn persona(id: &str) -> Persona {
             mode: PolicyMode::All,
             server_ids: Vec::new(),
         },
-        skill_policy: Default::default(),
+        skill_policy: SkillPolicy::default(),
         // Existing scheduler fixtures represent a teammate that has been
         // granted persistent work; revocation tests turn this off explicitly.
         background_work: true,

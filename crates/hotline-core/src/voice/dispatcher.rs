@@ -1005,6 +1005,7 @@ fn tools(context: Context) -> Vec<DynamicTool> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     #[test]
     fn a_signed_in_or_local_call_assistant_costs_nothing_and_a_key_pays_its_price() {
         let catalogue = ModelCost {
@@ -1037,7 +1038,7 @@ mod tests {
         let anthropic = &crate::models::catalog().providers["anthropic"];
         assert!(!anthropic.models.is_empty());
         for id in anthropic.models.keys() {
-            let price = listed_price(&format!("anthropic/{id}"), &Default::default())
+            let price = listed_price(&format!("anthropic/{id}"), &HashMap::default())
                 .unwrap_or_else(|| panic!("anthropic/{id} has no price"));
             assert!(price.input > 0.0 && price.output > 0.0, "{id}");
             assert!(
@@ -1048,7 +1049,7 @@ mod tests {
         // The call assistant this was found on: Anthropic's published prices
         // for prompts up to 100,000 tokens.
         assert_eq!(
-            listed_price("anthropic/claude-haiku-5-5", &Default::default()),
+            listed_price("anthropic/claude-haiku-5-5", &HashMap::default()),
             Some(ModelCost {
                 input: 0.1,
                 output: 0.5,

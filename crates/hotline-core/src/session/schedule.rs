@@ -520,6 +520,7 @@ impl Room {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::SkillPolicy;
     use crate::contract::{McpPolicy, Persona, PolicyMode};
     use std::collections::HashMap;
 
@@ -559,7 +560,7 @@ mod tests {
                 mode: PolicyMode::None,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work,
             allowed_senders: Vec::new(),
             web_search_policy: None,

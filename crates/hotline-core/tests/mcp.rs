@@ -12,6 +12,7 @@ use hotline_core::log::{Log, StreamId};
 use hotline_core::mcp::{self, McpServer, McpTransport};
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -209,7 +210,7 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
             transport: McpTransport::Stdio {
                 command: echo_command(),
                 args: Vec::new(),
-                env: Default::default(),
+                env: HashMap::default(),
             },
             refuse: None,
         }],
@@ -635,7 +636,7 @@ async fn a_stdio_child_dropped_after_the_first_call_says_so_once() {
             transport: McpTransport::Stdio {
                 command: echo_command(),
                 args: Vec::new(),
-                env: Default::default(),
+                env: HashMap::default(),
             },
             refuse: None,
         }],

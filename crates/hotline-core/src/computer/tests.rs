@@ -4,6 +4,7 @@ use super::container::{
 };
 use super::fixtures::*;
 use super::*;
+use crate::contract::SkillPolicy;
 use crate::contract::{ComputerMount, FolderGrant, McpPolicy, PersonaComputer, PolicyMode};
 use std::fs;
 use std::path::Path;
@@ -76,7 +77,7 @@ fn persona(id: &str, cwd: &str) -> Persona {
             mode: PolicyMode::All,
             server_ids: Vec::new(),
         },
-        skill_policy: Default::default(),
+        skill_policy: SkillPolicy::default(),
         background_work: false,
         allowed_senders: Vec::new(),
         web_search_policy: None,

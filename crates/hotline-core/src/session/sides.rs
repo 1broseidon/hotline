@@ -71,7 +71,7 @@ use crate::driver::{CapabilityLease, Driver};
 use crate::log::StreamId;
 use crate::thread::{AgentBinding, Link, Opener, ThreadState};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -680,11 +680,11 @@ impl Room {
             capability: lease,
             // Claimed for the start: a line said now is queued, not run.
             turns: Mutex::new(Turns {
-                waiting: Default::default(),
+                waiting: VecDeque::default(),
                 running: true,
             }),
             last_used: Mutex::new(now_ms()),
-            dispatched: Mutex::new(Default::default()),
+            dispatched: Mutex::new(HashSet::default()),
             closed: AtomicBool::new(false),
             archive_note: Mutex::new(None),
             reported: Mutex::new(None),

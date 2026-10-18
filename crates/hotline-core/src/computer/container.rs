@@ -462,8 +462,8 @@ impl PullTally {
     pub(super) fn new(runtime: Runtime) -> Self {
         Self {
             runtime,
-            named: Default::default(),
-            finished: Default::default(),
+            named: HashSet::default(),
+            finished: HashSet::default(),
         }
     }
 

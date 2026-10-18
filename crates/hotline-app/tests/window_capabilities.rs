@@ -7,8 +7,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 use tauri::{
-    App, WebviewWindow, WebviewWindowBuilder,
-    ipc::CallbackFn,
+    App, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    http::HeaderMap,
+    ipc::{CallbackFn, InvokeBody},
     test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder},
     utils::acl::{APP_ACL_KEY, manifest::Manifest},
     webview::InvokeRequest,
@@ -205,7 +206,7 @@ fn acl_app() -> App<MockRuntime> {
 }
 
 fn window(app: &App<MockRuntime>, label: &str) -> WebviewWindow<MockRuntime> {
-    WebviewWindowBuilder::new(app, label, Default::default())
+    WebviewWindowBuilder::new(app, label, WebviewUrl::default())
         .build()
         .expect("mock webview window")
 }
@@ -230,8 +231,8 @@ fn invoke(
             callback: CallbackFn(0),
             error: CallbackFn(1),
             url: origin.parse().unwrap(),
-            body: Default::default(),
-            headers: Default::default(),
+            body: InvokeBody::default(),
+            headers: HeaderMap::default(),
             invoke_key: INVOKE_KEY.into(),
         },
     )

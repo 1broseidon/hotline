@@ -610,6 +610,7 @@ fn with_checkpoints(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::SkillPolicy;
     use crate::contract::{McpPolicy, PolicyMode};
     use serde_json::json;
 
@@ -641,7 +642,7 @@ mod tests {
                 mode: PolicyMode::All,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,

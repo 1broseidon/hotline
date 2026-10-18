@@ -456,8 +456,8 @@ impl Default for State {
 impl State {
     pub fn with_ttl(ttl: Duration) -> Self {
         Self {
-            cooling: Default::default(),
-            cache: Default::default(),
+            cooling: std::sync::Mutex::default(),
+            cache: std::sync::Mutex::default(),
             ttl,
         }
     }

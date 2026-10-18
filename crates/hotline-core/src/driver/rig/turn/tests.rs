@@ -1042,7 +1042,7 @@ async fn a_transient_failure_after_tools_retries_only_the_inference() {
     first
         .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
             "scripted",
-            Default::default(),
+            rig::completion::Usage::default(),
         ))))
         .await
         .unwrap();
@@ -1108,7 +1108,7 @@ async fn a_report_shown_before_the_stream_dropped_is_remembered_on_retry() {
     first
         .send(Ok(RawStreamingChoice::FinalResponse(StreamFinal::new(
             "scripted",
-            Default::default(),
+            rig::completion::Usage::default(),
         ))))
         .await
         .unwrap();

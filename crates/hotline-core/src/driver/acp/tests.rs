@@ -9,6 +9,7 @@ use super::oauth_proxy::{OAuthProxyState, ProxyCredential, oauth_proxy_request};
 use super::session::{Disposition, RawInitialize};
 use super::translate::{SUBAGENT_LAUNCH, finished, tool_kind, translate};
 use super::*;
+use crate::contract::SkillPolicy;
 use crate::contract::{McpPolicy, PolicyMode, SessionCheckpoint};
 use agent_client_protocol::schema::v1::SessionNotification;
 use agent_client_protocol::schema::v1::{
@@ -60,7 +61,7 @@ pub(super) fn persona(cwd: &str, checkpoints: Vec<SessionCheckpoint>) -> Persona
             mode: PolicyMode::All,
             server_ids: Vec::new(),
         },
-        skill_policy: Default::default(),
+        skill_policy: SkillPolicy::default(),
         background_work: false,
         allowed_senders: Vec::new(),
         web_search_policy: None,

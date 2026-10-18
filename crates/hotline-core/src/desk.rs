@@ -150,7 +150,7 @@ impl Desk {
             store,
             services,
             crate::voice::speech::local::catalogue(),
-            Default::default(),
+            acp::StartBounds::default(),
         )
     }
 
@@ -177,7 +177,7 @@ impl Desk {
         store: Arc<dyn crate::credentials::SecretStore>,
         models: Vec<crate::voice::speech::local::Model>,
     ) -> io::Result<Desk> {
-        Self::open_inner(root, store, None, models, Default::default())
+        Self::open_inner(root, store, None, models, acp::StartBounds::default())
     }
 
     fn open_inner(
@@ -1358,6 +1358,7 @@ pub(crate) fn install_crypto_provider() {
 #[cfg(test)]
 mod tests {
     use super::Desk;
+    use crate::contract::SkillPolicy;
     use crate::contract::{Attachment, McpPolicy, Persona, PolicyMode, Reach};
     use crate::driver::rig::Said;
     use crate::driver::{Driver, DriverInfo, Update};
@@ -1484,7 +1485,7 @@ mod tests {
                 mode: PolicyMode::All,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,

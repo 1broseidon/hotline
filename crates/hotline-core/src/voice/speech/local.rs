@@ -564,12 +564,12 @@ fn aac(bytes: &[u8]) -> Option<Samples> {
     use symphonia::core::errors::Error;
     use symphonia::core::formats::probe::Hint;
     use symphonia::core::formats::{FormatOptions, TrackType};
-    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
     use symphonia::core::meta::MetadataOptions;
 
     let source = MediaSourceStream::new(
         Box::new(std::io::Cursor::new(bytes.to_vec())),
-        Default::default(),
+        MediaSourceStreamOptions::default(),
     );
     let mut hint = Hint::new();
     hint.with_extension("m4a");

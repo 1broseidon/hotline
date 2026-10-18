@@ -138,7 +138,7 @@ async fn session_new_carries_hotlines_own_server_and_the_granted_ones() {
     // Listing tools on the endpoint is the one thing Hotline can watch a
     // child do, so it is the one thing that turns declared into verified.
     let listing = rmcp::model::ClientInfo::new(
-        Default::default(),
+        rmcp::model::ClientCapabilities::default(),
         rmcp::model::Implementation::new("test", "1"),
     )
     .serve(
@@ -218,7 +218,7 @@ fn agent_that_lists_hotlines_tools_during_session_new(
                             .expect("a bearer token")
                             .to_string();
                         let client = rmcp::model::ClientInfo::new(
-                            Default::default(),
+                            rmcp::model::ClientCapabilities::default(),
                             rmcp::model::Implementation::new("eager", "1"),
                         )
                         .serve(

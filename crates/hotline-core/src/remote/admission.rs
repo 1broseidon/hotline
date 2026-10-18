@@ -54,7 +54,7 @@ impl Admission {
     pub async fn accept(self: &Arc<Self>, ip: IpAddr, accepted: Instant) -> Arc<Permit> {
         let ip = match ip {
             IpAddr::V6(ip) => ip.to_ipv4_mapped().map_or(IpAddr::V6(ip), IpAddr::V4),
-            ip => ip,
+            ip @ IpAddr::V4(_) => ip,
         };
         loop {
             let (released, ready) = {

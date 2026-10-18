@@ -847,7 +847,7 @@ fn parse_server(value: &Value) -> Option<McpServer> {
         McpTransport::Http { url, .. } => {
             validate_http_url(url).err().map(|error| error.to_string())
         }
-        _ => None,
+        McpTransport::Stdio { .. } => None,
     };
     Some(McpServer {
         id,

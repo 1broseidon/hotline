@@ -335,7 +335,7 @@ pub(super) fn words(said: Vec<Said>) -> Vec<Said> {
     said.into_iter()
         .map(|line| match line {
             Said::User(heard) => Said::User(words_of(&heard)),
-            agent => agent,
+            agent @ Said::Agent(_) => agent,
         })
         .collect()
 }

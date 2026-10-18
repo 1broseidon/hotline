@@ -11,7 +11,15 @@ tags:
   - triage
 createdAt: "2026-10-18T23:40:44.455Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T23:40:44.961Z"
+updatedAt: "2026-10-18T23:51:14.157Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T23:51:14.029Z"
+  until: done
+  role: lead
+assignee: claude
 ---
 
 ## Description

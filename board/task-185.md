@@ -9,6 +9,11 @@ tags:
   - ui
 parentId: epic-14
 createdAt: "2026-10-18T23:40:55.776Z"
+relatedFiles:
+  - crates/hotline-core/src/computer/container.rs
+  - ui/src/components/settings
+  - ui/src/generated/contract.ts
+updatedAt: "2026-10-18T23:53:18.564Z"
 ---
 
 ## Description

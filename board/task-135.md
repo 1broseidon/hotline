@@ -1,7 +1,7 @@
 ---
 id: task-135
 title: "P2-26 (C): `driver/acp.rs` tests"
-column: todo
+column: in-progress
 position: 24
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp.rs
   - crates/hotline-core/src/driver/acp/tests.rs
   - crates/hotline-core/src/driver/acp/tests/
-updatedAt: "2026-10-18T04:03:10.266Z"
+updatedAt: "2026-10-18T04:03:35.101Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - test -f crates/hotline-core/src/driver/acp/tests.rs
@@ -24,6 +24,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T04:03:35.101Z"
+    reworkCount: 0
 dependsOn:
   - task-128
   - task-115

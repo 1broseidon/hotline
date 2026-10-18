@@ -53,3 +53,6 @@ Phase 2 group E (Docs), plan row D-6 in docs/audits/0.40/README.md on release/0.
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T06:41:38.307Z: [claude] Done on dispatch/task-166, commit 4c0be615. Docs only. New docs/standards.md is the README's Standards section, approved as written (epic-13), in present-tense rules. The window file budget, which was "my proposal" in the README, is stated as a rule: the same numbers, with call.ts's Call class as the exception. AGENTS.md "Code standards" links to it. make precheck: all 8 legs passed. Unwired, for the tasks after this one: two rules are not true of the tree yet. There is no [workspace.lints] or rust-version until P2-52 (task-167) lands, and no shared until(what, cond) until P2-45b (task-175) lands. Those tasks make the doc true. If either one changes the rule, it edits docs/standards.md in the same commit.

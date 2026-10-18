@@ -7,17 +7,13 @@
 
 mod common;
 
-use futures_util::{SinkExt, StreamExt};
+use common::Client;
 use hotline_core::log::{Log, StreamId};
 use hotline_core::mcp::{self, McpServer, McpTransport};
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
-use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::net::TcpStream;
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 const TOKEN: &str = "a-token-only-this-harness-knows";
 
@@ -62,52 +58,6 @@ async fn open(name: &str) -> (PathBuf, u16) {
     let port = door.port();
     tokio::spawn(door.run());
     (root, port)
-}
-
-struct Client {
-    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    next_id: i64,
-    inbox: VecDeque<Value>,
-}
-
-impl Client {
-    async fn connect(port: u16) -> Client {
-        let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token={TOKEN}"))
-            .await
-            .unwrap();
-        Client {
-            socket,
-            next_id: 1,
-            inbox: VecDeque::new(),
-        }
-    }
-
-    async fn read(&mut self) -> Value {
-        loop {
-            match self.socket.next().await.expect("the door closed") {
-                Ok(Message::Text(text)) => return serde_json::from_str(&text).unwrap(),
-                Ok(_) => continue,
-                Err(error) => panic!("the socket failed: {error}"),
-            }
-        }
-    }
-
-    async fn call(&mut self, cmd: &str, params: Value) -> Value {
-        let id = self.next_id;
-        self.next_id += 1;
-        let frame = json!({ "id": id, "cmd": cmd, "params": params });
-        self.socket
-            .send(Message::text(frame.to_string()))
-            .await
-            .unwrap();
-        loop {
-            let frame = self.read().await;
-            if frame.get("id").and_then(Value::as_i64) == Some(id) {
-                return frame;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
 }
 
 fn echo_server() -> Value {
@@ -165,7 +115,7 @@ async fn mcp_tools(client: &mut Client, persona_id: &str) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 async fn oauth_client_secrets_are_removed_before_mcp_settings_are_written() {
     let (root, port) = open("oauth-settings-boundary").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let updated = client
         .call(
             "settings.update",
@@ -203,7 +153,7 @@ async fn oauth_client_secrets_are_removed_before_mcp_settings_are_written() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches_it() {
     let (_root, port) = open("granted").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     keyed(&mut client).await;
 
     let settings = client
@@ -286,7 +236,7 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stdio_servers_arguments_come_back_from_the_vault_at_start() {
     let (root, port) = open("args").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     keyed(&mut client).await;
 
     let settings = client
@@ -362,7 +312,7 @@ async fn a_stdio_servers_arguments_come_back_from_the_vault_at_start() {
 #[tokio::test(flavor = "multi_thread")]
 async fn hotline_agent_gets_hotlines_own_tools() {
     let (_root, port) = open("hotline-tools").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     keyed(&mut client).await;
 
     let created = client
@@ -398,7 +348,7 @@ async fn hotline_agent_gets_hotlines_own_tools() {
 #[tokio::test(flavor = "multi_thread")]
 async fn with_images_off_generate_image_is_not_in_a_teammates_tools() {
     let (_root, port) = open("images-off").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     keyed(&mut client).await;
     let updated = client
         .call(
@@ -443,7 +393,7 @@ async fn with_images_off_generate_image_is_not_in_a_teammates_tools() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_new_teammate_gets_no_gateway_tools_even_with_machine_reach() {
     let (_root, port) = open("none").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     keyed(&mut client).await;
 
     client
@@ -484,7 +434,7 @@ async fn a_new_teammate_gets_no_gateway_tools_even_with_machine_reach() {
 #[tokio::test(flavor = "multi_thread")]
 async fn gateway_access_is_explicit_and_changes_rebuild_the_live_tools() {
     let (_root, port) = open("gateway").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     keyed(&mut client).await;
     let created = client
         .call("persona.create", json!({ "draft": { "name": "Ada" } }))
@@ -553,7 +503,7 @@ async fn gateway_access_is_explicit_and_changes_rebuild_the_live_tools() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_server_that_fails_to_start_is_absent_with_the_error_as_its_reason() {
     let (_root, port) = open("absent").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     keyed(&mut client).await;
 
     let gone = format!(
@@ -605,7 +555,7 @@ async fn a_server_that_fails_to_start_is_absent_with_the_error_as_its_reason() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_malformed_settings_entry_is_skipped() {
     let (_root, port) = open("malformed").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let updated = client
         .call(
             "settings.update",
@@ -625,7 +575,7 @@ async fn a_malformed_settings_entry_is_skipped() {
 #[tokio::test(flavor = "multi_thread")]
 async fn teammate_tools_is_null_before_a_session_has_started() {
     let (_root, port) = open("never").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let created = client
         .call("persona.create", json!({ "draft": { "name": "Ada" } }))
         .await;
@@ -645,7 +595,7 @@ async fn teammate_tools_is_null_before_a_session_has_started() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_non_string_env_value_is_rejected_before_settings_are_written() {
     let (root, port) = open("env-not-string").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     keyed(&mut client).await;
 
     let rejected = client

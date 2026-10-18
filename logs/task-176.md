@@ -1,8 +1,6 @@
 ---
 id: task-176
 title: "Phase 2 holds together: precheck-full, verify, and every gate in make check"
-column: in-progress
-position: 65
 description: |-
   The epic's closing check, last of all, on release/0.40.0 with every other child of epic-13 landed. The epic is done when every child has landed, `make precheck-full` passes, and the gates in F are in `make check`.
 
@@ -38,7 +36,7 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T11:19:59.825Z"
     reworkCount: 0
-updatedAt: "2026-10-18T11:19:59.825Z"
+updatedAt: "2026-10-18T11:38:55.880Z"
 dependsOn:
   - task-161
   - task-162
@@ -58,7 +56,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T11:19:52.038Z"
+    ended: "2026-10-18T11:38:55.880Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T11:38:55.490Z"
 ---
 
 ## Description
@@ -71,3 +72,6 @@ The epic's closing check, last of all, on release/0.40.0 with every other child 
 5. `docs/development.md`'s module map matches the tree; `docs/standards.md` exists.
 
 Write what you checked, and anything left over for George, as a note on epic-13.
+
+## Log
+- 2026-10-18T11:38:55.118Z: Landed on release/0.40.0

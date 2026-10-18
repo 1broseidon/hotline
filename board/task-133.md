@@ -53,3 +53,6 @@ Phase 2 group C (Move-only renames and splits), plan row 24 in docs/audits/0.40/
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T04:03:01.074Z: [claude] Done on dispatch/task-133 (43e3b49b): wire/tests.rs keeps the fixtures (1,040 lines), and the 126 tests sit in 15 files under wire/tests/ using structure F6's ranges (door, roster, personas, deltas, seats, files, schedules, models, settings, mobile_computer, owner_handler, capabilities, threads, windows, linked). Count checked before and after. One change from F6: the two web_search tests (6678–6806) went into settings.rs, so linked.rs holds only the linked-desk test. Two helpers that more than one topic uses moved up into the fixtures: hello_threads2 and remote_control_answer. The only edit that isn't a pure move: schedules.rs calls `crate::wire::schedules::view`, because the topic module's own name hides `schedules::`. contract.ts is unchanged; make check and make precheck pass. For 37 and 45: the test plumbing they touch is now in wire/tests.rs plus the topic files. Nothing is left unwired.

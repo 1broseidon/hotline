@@ -1,8 +1,8 @@
 ---
 id: task-130
 title: "P2-18–22 (C): `session/mod.rs` in five parts:"
-column: in-progress
-position: 19
+column: review
+position: 1
 priority: high
 tags:
   - phase2
@@ -19,7 +19,7 @@ relatedFiles:
   - crates/hotline-core/src/session/driver_info.rs
   - crates/hotline-core/src/session/start.rs
   - crates/hotline-core/src/session/chapters.rs
-updatedAt: "2026-10-18T03:50:53.522Z"
+updatedAt: "2026-10-18T04:00:18.636Z"
 contract:
   status: in_progress
   validation:
@@ -46,6 +46,8 @@ dispatch:
     runner: cli
     pid: 39764
     at: "2026-10-18T03:50:39.278Z"
+    ended: "2026-10-18T04:00:16.979Z"
+    outcome: review
 assignee: claude
 ---
 
@@ -60,3 +62,6 @@ Phase 2 group C (Move-only renames and splits), plan row 18–22 in docs/audits/
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T04:00:18.636Z: Not landed: 17 files are not committed in the worktree: send it back, or commit in your editor

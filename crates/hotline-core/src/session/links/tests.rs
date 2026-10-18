@@ -12,6 +12,7 @@ use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::paths::thread_key;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
+use crate::test_support::until;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -134,16 +135,6 @@ impl Channel {
         self.laptop.links.closed(GRIZZLY, Some(laptop), None);
         self.grizzly.links.closed(LAPTOP, Some(grizzly), None);
     }
-}
-
-async fn until(what: &str, mut condition: impl FnMut() -> bool) {
-    for _ in 0..1000 {
-        if condition() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("never: {what}");
 }
 
 async fn message(room: &Arc<Room>, from: &str, to: &str, intent: &str) -> Result<String, String> {

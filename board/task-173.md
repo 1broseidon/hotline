@@ -30,9 +30,9 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T01:06:32.689Z"
     reworkCount: 2
-    deliveredAt: "2026-10-18T01:11:39.472Z"
-    duration: 307
-updatedAt: "2026-10-18T01:11:45.378Z"
+    deliveredAt: "2026-10-18T01:12:12.437Z"
+    duration: 340
+updatedAt: "2026-10-18T01:12:12.437Z"
 dependsOn:
   - task-122
 dispatch:

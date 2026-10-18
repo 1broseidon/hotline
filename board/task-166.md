@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:41:10.035Z"
 relatedFiles:
   - docs/standards.md
   - AGENTS.md
-updatedAt: "2026-10-18T00:15:26.787Z"
+updatedAt: "2026-10-18T06:35:23.419Z"
 contract:
   status: ready
   validation:
@@ -29,7 +29,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:26.653Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T06:35:23.419Z"
 assignee: claude
 ---
 

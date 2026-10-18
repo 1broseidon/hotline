@@ -1536,12 +1536,22 @@ impl Calls {
             let budget_failed = result.as_ref().err().is_some_and(|e| e == BUDGET_ERROR);
             if !context.cancel.is_cancelled() {
                 if budget_failed {
-                    self.system_line(&id, BUDGET_LINE, include_bytes!("assets/budget.wav"), None);
+                    self.system_line(
+                        &id,
+                        BUDGET_LINE,
+                        include_bytes!("voice/assets/budget.wav"),
+                        None,
+                    );
                     let _ = self.finish(&id, VoiceEndReason::Budget);
                 } else if result.is_err() {
                     failures += 1;
                     if failures >= MAX_FAILURES {
-                        self.system_line(&id, ERROR_LINE, include_bytes!("assets/error.wav"), None);
+                        self.system_line(
+                            &id,
+                            ERROR_LINE,
+                            include_bytes!("voice/assets/error.wav"),
+                            None,
+                        );
                         let _ = self.finish(&id, VoiceEndReason::Error);
                     } else {
                         let speech = match &next {
@@ -1556,7 +1566,7 @@ impl Calls {
                         self.system_line(
                             &id,
                             RETRY_LINE,
-                            include_bytes!("assets/retry.wav"),
+                            include_bytes!("voice/assets/retry.wav"),
                             speech,
                         );
                     }
@@ -1680,7 +1690,7 @@ impl Calls {
                 self.system_line(
                     id,
                     "Goodbye.",
-                    include_bytes!("assets/goodbye.wav"),
+                    include_bytes!("voice/assets/goodbye.wav"),
                     Some(speech_cancel),
                 );
             }

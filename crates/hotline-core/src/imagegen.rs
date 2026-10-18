@@ -311,7 +311,7 @@ pub const STYLES: &[&str] = &["avatar"];
 
 /// One finished crew portrait: it shows the model the finish and the framing
 /// every teammate shares, never the head, which is each one's own.
-const CREW: &[u8] = include_bytes!("house-avatar.jpg");
+const CREW: &[u8] = include_bytes!("imagegen/house-avatar.jpg");
 
 const AVATAR: &str = "Profile avatar for an AI teammate in a chat app, one of the Hotline crew. \
 From the first reference image take ONLY the finish and framing: a premium matte vinyl designer \

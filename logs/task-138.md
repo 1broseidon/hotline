@@ -1,8 +1,6 @@
 ---
 id: task-138
 title: "P2-29 (C): `wire/mod.rs`"
-column: review
-position: 27
 priority: high
 tags:
   - phase2
@@ -17,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/subscribe.rs
   - crates/hotline-core/src/wire/phone.rs
-updatedAt: "2026-10-18T04:38:44.574Z"
+updatedAt: "2026-10-18T04:49:37.951Z"
 contract:
   status: delivered
   validation:
@@ -46,7 +44,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T04:17:15.079Z"
+    ended: "2026-10-18T04:49:37.951Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T04:49:37.406Z"
 ---
 
 ## Description
@@ -63,3 +64,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T04:38:48.946Z: [claude] Split wire.rs (2,518 → 69 lines) per structure F5 into wire/{room_handle,seat,door,socket,subscribe,phone}.rs, with roster_entry/activity_on/waiting_on appended to wire/roster.rs; commit ed08b065 on dispatch/task-138. Move-only: the bodies match, and the only changes are pub(super) where a sibling or a test reaches an item, the sibling imports, roster's mod tests moved back to the file's end, and the federation doc link. Deviations: TAPE_PAGE/TAPE_PAGE_MAX/THROUGH_CONTEXT moved to subscribe.rs beside thread_page (their only user); Outbox/Outgoing/Refused/the code constants landed in socket.rs; the test-only snapshot_for_seat moved into wire/tests.rs fixtures; wire/tests.rs now imports the moved items explicitly (tests/*.rs unchanged). docs/security.md and docs/wire.md point Seat::permits at wire/seat.rs. For row 41: subscribe and stream_events are now in wire/subscribe.rs. For row 42: the result_large_err allow is on door.rs `serve` (was wire/mod.rs:1021). Nothing left unwired. make check and make precheck pass (all 7 legs); contract.ts unchanged.
+- 2026-10-18T04:49:36.894Z: Landed on release/0.40.0

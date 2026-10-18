@@ -117,6 +117,7 @@ export function Welcome({
 	/* Read once the socket is up, and again after a reconnect: the screen
 	 * mounts with the window, before the wire has dialled. A default set
 	 * on another seat, or in Settings, changes what is done. */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: defaultBackendId changes what is done, and the providers are asked for only while the list is empty: asking again on every read is noise.
 	useEffect(() => {
 		if (connection !== "open") return;
 		read();
@@ -125,7 +126,6 @@ export function Welcome({
 			.command("providers.list", {})
 			.then((list) => setProviders(list.slice().sort((a, b) => a.name.localeCompare(b.name))))
 			.catch((error: Error) => setRefusal(error.message));
-		// The list is asked for while empty; asking again on every read is noise.
 	}, [connection, read, defaultBackendId]);
 
 	/* The first read decides where a returning person lands: a room that can

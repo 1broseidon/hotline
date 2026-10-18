@@ -12,7 +12,7 @@ createdAt: "2026-10-18T23:40:56.843Z"
 relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/tests.rs
-updatedAt: "2026-10-18T23:54:15.630Z"
+updatedAt: "2026-10-18T23:54:20.975Z"
 contract:
   status: ready
   deliverables:
@@ -33,7 +33,12 @@ dispatch:
   by: lead
   at: "2026-10-18T23:54:15.490Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 59290
+    at: "2026-10-18T23:54:20.975Z"
 assignee: claude
 ---
 

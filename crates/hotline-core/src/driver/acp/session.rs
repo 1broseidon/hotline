@@ -388,7 +388,7 @@ impl ChildAgent {
                 McpTransport::Http { url, auth } => {
                     let proxies = lock(&self.oauth_proxies);
                     let proxy = proxies.get(&server.id);
-                    let proxy_url = proxy.map(|proxy| proxy.url.as_str()).unwrap_or(url);
+                    let proxy_url = proxy.map_or(url.as_str(), |proxy| proxy.url.as_str());
                     let http = acp::McpServerHttp::new(&server.name, proxy_url);
                     acp::McpServer::Http(match auth {
                         HttpAuth::Oauth

@@ -746,6 +746,5 @@ fn alive(pid: &str) -> bool {
         .args(["-0", pid])
         .stderr(std::process::Stdio::null())
         .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+        .is_ok_and(|status| status.success())
 }

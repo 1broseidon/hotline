@@ -444,8 +444,7 @@ pub fn login_refusal(provider_id: &str) -> Option<String> {
             let name = catalog()
                 .providers
                 .get(wiring.id)
-                .map(|entry| entry.name.as_str())
-                .unwrap_or(wiring.id);
+                .map_or(wiring.id, |entry| entry.name.as_str());
             Some(if wiring.client == Client::Ollama {
                 format!("{name} takes a server URL, not a sign-in.")
             } else {
@@ -593,9 +592,7 @@ pub fn catalog_models(
             let metadata = model_of(provider_id, &id);
             let metadata = metadata.as_deref();
             CatalogModel {
-                name: metadata
-                    .map(|model| model.name.clone())
-                    .unwrap_or_else(|| id.clone()),
+                name: metadata.map_or_else(|| id.clone(), |model| model.name.clone()),
                 release_date: metadata
                     .map(|model| model.release_date.clone())
                     .unwrap_or_default(),

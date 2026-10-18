@@ -55,8 +55,7 @@ impl Failure {
             .map(|status| status.as_u16());
         let body = error
             .provider_response_body()
-            .map(str::to_owned)
-            .unwrap_or_else(|| error.to_string());
+            .map_or_else(|| error.to_string(), str::to_owned);
         let mut failure = Self::classify(&body, status, phase);
         if status.is_none() && matches!(error, CompletionError::HttpError(_)) {
             failure.set_kind(Kind::Transport);
@@ -87,11 +86,7 @@ impl Failure {
                     .or_else(|| v.pointer("/error/type"))
                     .or_else(|| v.get("code"))
             })
-            .map(|v| {
-                v.as_str()
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| v.to_string())
-            });
+            .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned));
         let lower = body.to_lowercase();
         let contains = |words: &[&str]| words.iter().any(|word| lower.contains(word));
         let refused_replay_field = status == Some(400)

@@ -300,9 +300,7 @@ pub(crate) async fn manager_for_server(
             .map(|client_id| McpOAuthRegistration {
                 client_id: client_id.clone(),
                 client_secret: None,
-                redirect_uri: redirect_uri
-                    .map(str::to_string)
-                    .unwrap_or_else(loopback_redirect),
+                redirect_uri: redirect_uri.map_or_else(loopback_redirect, str::to_string),
                 issuer: metadata.issuer.clone(),
                 resource: configured
                     .as_ref()
@@ -1166,8 +1164,7 @@ fn is_loopback_host(host: Option<&str>) -> bool {
     host.eq_ignore_ascii_case("localhost")
         || host
             .parse::<IpAddr>()
-            .map(|address| address.is_loopback())
-            .unwrap_or(false)
+            .is_ok_and(|address| address.is_loopback())
 }
 
 fn validate_redirect_uri(value: &str) -> Result<(), String> {

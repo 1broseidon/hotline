@@ -124,10 +124,10 @@ async fn login_at(
         .request_async(&send)
         .await
         .map_err(|_| oauth_failure(None))?;
-    let verification = details
-        .verification_uri_complete()
-        .map(|uri| uri.secret().as_str())
-        .unwrap_or_else(|| details.verification_uri().as_str());
+    let verification = details.verification_uri_complete().map_or_else(
+        || details.verification_uri().as_str(),
+        |uri| uri.secret().as_str(),
+    );
     let url = url::Url::parse(verification).map_err(|_| oauth_failure(None))?;
     if url.scheme() != "https"
         || url.host_str().is_none()

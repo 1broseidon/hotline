@@ -130,8 +130,7 @@ impl Vault {
         let key = self.custom_key(id, &draft.base_url, draft.secret.as_deref())?;
         let id = previous
             .as_ref()
-            .map(|c| c.id.clone())
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            .map_or_else(|| uuid::Uuid::new_v4().to_string(), |c| c.id.clone());
         self.check_layout()?;
         let dir = self.login_dir(&id);
         make_private_directory(&dir)?;

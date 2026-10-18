@@ -59,8 +59,7 @@ pub(crate) fn segments_of(root: &Path, persona_id: &str) -> Vec<(u64, PathBuf)> 
 pub(crate) fn open_epoch(root: &Path, persona_id: &str) -> u64 {
     segments_of(root, persona_id)
         .last()
-        .map(|(epoch, _)| *epoch)
-        .unwrap_or(1)
+        .map_or(1, |(epoch, _)| *epoch)
 }
 
 /// Relocates the legacy flat file if needed, then answers the segment this

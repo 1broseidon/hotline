@@ -144,10 +144,9 @@ mod tests {
                 let path = entry.path();
                 if path.is_dir() {
                     walk(&path, found);
-                } else if fs::read(&path)
-                    .map(|bytes| String::from_utf8_lossy(&bytes).contains("sekrit-keenable-value"))
-                    .unwrap_or(false)
-                {
+                } else if fs::read(&path).is_ok_and(|bytes| {
+                    String::from_utf8_lossy(&bytes).contains("sekrit-keenable-value")
+                }) {
                     *found = true;
                 }
             }

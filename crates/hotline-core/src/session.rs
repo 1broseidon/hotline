@@ -3777,9 +3777,10 @@ impl Room {
         let browser = browsers.iter().find(|browser| browser.id == browser_id);
         let import = crate::contract::CookieImport {
             browser_id: browser_id.to_owned(),
-            browser_name: browser
-                .map(|browser| browser.name.clone())
-                .unwrap_or_else(|| source_name.unwrap_or(browser_id).to_owned()),
+            browser_name: browser.map_or_else(
+                || source_name.unwrap_or(browser_id).to_owned(),
+                |browser| browser.name.clone(),
+            ),
             profile_id: profile_id.to_owned(),
             profile_name: browser
                 .and_then(|browser| {
@@ -3788,8 +3789,7 @@ impl Room {
                         .iter()
                         .find(|profile| profile.id == profile_id)
                 })
-                .map(|profile| profile.name.clone())
-                .unwrap_or_else(|| profile_id.to_owned()),
+                .map_or_else(|| profile_id.to_owned(), |profile| profile.name.clone()),
             imported_at: now_ms(),
             sites: imported.clone(),
         };
@@ -4324,8 +4324,7 @@ impl Room {
         };
         let name = self
             .persona(&session.persona_id)
-            .map(|persona| persona.name)
-            .unwrap_or_else(|_| "Hotline".to_string());
+            .map_or_else(|_| "Hotline".to_string(), |persona| persona.name);
         if let Some(voice) = lock(&self.voice).upgrade()
             && voice.delivery(
                 &session.persona_id,

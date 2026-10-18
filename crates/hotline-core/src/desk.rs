@@ -668,8 +668,7 @@ impl RoomHandle for Desk {
         let label = crate::models::catalog()
             .providers
             .get(wiring.id)
-            .map(|entry| entry.name.clone())
-            .unwrap_or_else(|| wiring.id.to_string());
+            .map_or_else(|| wiring.id.to_string(), |entry| entry.name.clone());
         let (id, token_dir) = self
             .vault
             .begin_login(provider_id)

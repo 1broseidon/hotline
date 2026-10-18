@@ -211,8 +211,7 @@ fn message(
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or(0)
+        .map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
 /// The first line of a message, cut to a glance, markdown marks dropped.

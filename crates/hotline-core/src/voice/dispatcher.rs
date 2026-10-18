@@ -932,7 +932,7 @@ fn hand_off(handed: Arc<Mutex<Option<String>>>) -> DynamicTool {
         move |_, arguments| {
             let handed = handed.clone();
             Box::pin(async move {
-                let words = arguments["words"].as_str().map(str::trim).unwrap_or("");
+                let words = arguments["words"].as_str().map_or("", str::trim);
                 if words.is_empty() {
                     return Ok(ToolOutput::text(
                         "send_to_teammate needs the person's words.",

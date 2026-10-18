@@ -98,9 +98,7 @@ impl Workspace {
         let callback_cwd = if cwd.is_absolute() {
             cwd.clone()
         } else {
-            std::env::current_dir()
-                .map(|directory| directory.join(&cwd))
-                .unwrap_or_else(|_| cwd.clone())
+            std::env::current_dir().map_or_else(|_| cwd.clone(), |directory| directory.join(&cwd))
         };
         let cwd = cwd.canonicalize().map_err(|error| {
             ToolError::new(format!(
@@ -113,8 +111,7 @@ impl Workspace {
             Reach::Machine => cwd
                 .ancestors()
                 .last()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from("/")),
+                .map_or_else(|| PathBuf::from("/"), Path::to_path_buf),
         };
         let dir = Dir::open_ambient_dir(&root, ambient_authority()).map_err(|error| {
             ToolError::new(format!(

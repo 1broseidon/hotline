@@ -119,8 +119,7 @@ pub(super) fn result_of(content: &[ToolResultContent]) -> (String, Vec<ToolImage
                 let mime = image
                     .media_type
                     .as_ref()
-                    .map(rig::message::MimeType::to_mime_type)
-                    .unwrap_or("image")
+                    .map_or("image", rig::message::MimeType::to_mime_type)
                     .to_string();
                 match &image.data {
                     DocumentSourceKind::Base64(data) => images.push(ToolImage {

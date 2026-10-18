@@ -244,8 +244,7 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
                 .filter(|job| should_consider(&room.log, job))
                 .map(|job| job.next_at.saturating_sub(now))
                 .min()
-                .map(|ms| Duration::from_millis(ms as u64))
-                .unwrap_or(LOOK_AGAIN)
+                .map_or(LOOK_AGAIN, |ms| Duration::from_millis(ms as u64))
                 .min(LOOK_AGAIN);
             drop(room);
             tokio::select! {

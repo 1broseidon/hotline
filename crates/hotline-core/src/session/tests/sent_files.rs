@@ -47,9 +47,7 @@ fn files_on(room: &Room) -> Vec<Value> {
 }
 
 fn kept(room: &Room) -> usize {
-    std::fs::read_dir(room.log.root().join("files").join("ada"))
-        .map(Iterator::count)
-        .unwrap_or(0)
+    std::fs::read_dir(room.log.root().join("files").join("ada")).map_or(0, Iterator::count)
 }
 
 #[tokio::test]

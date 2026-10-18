@@ -646,8 +646,10 @@ impl Remote {
         let name = stand_ins(&self.root)
             .into_iter()
             .find(|desk| &desk.desk_id == id)
-            .map(|desk| desk.name)
-            .unwrap_or_else(|| "A desk this computer no longer pairs with".into());
+            .map_or_else(
+                || "A desk this computer no longer pairs with".into(),
+                |desk| desk.name,
+            );
         Some(RemoteRelay {
             desk_id: id.clone(),
             name,

@@ -497,8 +497,8 @@ fn remote_entry(desk: &PairedDesk, live: Option<&Live>) -> Value {
         "id": desk.desk_id,
         "name": desk.name,
         "kind": "remote",
-        "origin": bridge.map(|bridge| bridge.origin.as_str()).unwrap_or(""),
-        "token": bridge.map(|bridge| bridge.token.as_str()).unwrap_or(""),
+        "origin": bridge.map_or("", |bridge| bridge.origin.as_str()),
+        "token": bridge.map_or("", |bridge| bridge.token.as_str()),
         "state": live.map_or(State::Connecting, |live| live.state),
         "relayDeclined": desk.relay_declined,
     });

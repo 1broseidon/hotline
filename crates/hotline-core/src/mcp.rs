@@ -616,8 +616,7 @@ fn normalize_server(value: &Value) -> Option<Value> {
         .get("id")
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        .map_or_else(|| uuid::Uuid::new_v4().to_string(), str::to_string);
     let name = candidate
         .get("name")
         .and_then(Value::as_str)

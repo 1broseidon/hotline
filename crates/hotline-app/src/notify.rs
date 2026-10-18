@@ -116,8 +116,7 @@ pub fn notify(persona_id: String, title: String, body: String) -> bool {
         content.setUserInfo(&Retained::cast_unchecked(info));
         let millis = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|since| since.as_millis())
-            .unwrap_or(0);
+            .map_or(0, |since| since.as_millis());
         UNNotificationRequest::requestWithIdentifier_content_trigger(
             &NSString::from_str(&format!("{persona_id}:{millis}")),
             &content,

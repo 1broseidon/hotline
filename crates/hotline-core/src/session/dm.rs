@@ -315,8 +315,7 @@ impl Witness for Heard<'_> {
                 {
                     let name = room
                         .persona(&session.persona_id)
-                        .map(|p| p.name)
-                        .unwrap_or_else(|_| "Hotline".into());
+                        .map_or_else(|_| "Hotline".into(), |p| p.name);
                     voice.delivery(&session.persona_id, id, &name, text, true, Some(origin));
                 }
                 // The phone is shown the reply as the chat is, its written

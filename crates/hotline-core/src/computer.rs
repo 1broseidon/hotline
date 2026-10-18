@@ -762,9 +762,10 @@ pub fn release_of(image: &str) -> String {
 }
 
 fn abs_cwd(cwd: &str) -> String {
-    std::fs::canonicalize(cwd)
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| cwd.to_string())
+    std::fs::canonicalize(cwd).map_or_else(
+        |_| cwd.to_string(),
+        |path| path.to_string_lossy().into_owned(),
+    )
 }
 
 fn new_token() -> String {

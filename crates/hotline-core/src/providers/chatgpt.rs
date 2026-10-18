@@ -48,8 +48,10 @@ fn client_version(installed: Option<&str>) -> String {
     installed
         .and_then(release)
         .filter(|found| Some(*found) > release(CLIENT_VERSION_FLOOR))
-        .map(|(major, minor, patch)| format!("{major}.{minor}.{patch}"))
-        .unwrap_or_else(|| CLIENT_VERSION_FLOOR.to_string())
+        .map_or_else(
+            || CLIENT_VERSION_FLOOR.to_string(),
+            |(major, minor, patch)| format!("{major}.{minor}.{patch}"),
+        )
 }
 
 /// `major.minor.patch` out of `codex --version`'s line (`codex-cli 0.159.0`),

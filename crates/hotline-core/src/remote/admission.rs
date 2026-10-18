@@ -53,10 +53,7 @@ impl Admission {
     /// TLS/HTTP state, including when its WebSocket upgrade has already spawned.
     pub async fn accept(self: &Arc<Self>, ip: IpAddr, accepted: Instant) -> Arc<Permit> {
         let ip = match ip {
-            IpAddr::V6(ip) => ip
-                .to_ipv4_mapped()
-                .map(IpAddr::V4)
-                .unwrap_or(IpAddr::V6(ip)),
+            IpAddr::V6(ip) => ip.to_ipv4_mapped().map_or(IpAddr::V6(ip), IpAddr::V4),
             ip => ip,
         };
         loop {

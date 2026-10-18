@@ -127,7 +127,7 @@ pub fn import(from: &Path, log: &Log, vault: &Vault) -> io::Result<Report> {
     // WAL file, so the store is read from a copy. Tapes and settings are
     // ordinary files and are read in place.
     let snapshot = snapshot_store(from)?;
-    let store_root = snapshot.as_ref().map(StoreSnapshot::path).unwrap_or(from);
+    let store_root = snapshot.as_ref().map_or(from, StoreSnapshot::path);
     let imported = import_teammates(store_root, from, log, &mut report)?;
     threads::import(from, log, &mut report)?;
     schedules::import(from, log, &mut report)?;

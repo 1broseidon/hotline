@@ -106,14 +106,52 @@ pub struct Hit {
 /// errors are reduced to a reason, not the URL they failed on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
+    /// What went wrong, for the cooldown and the footer. The message is for a
+    /// person and may be reworded; this is what the code decides by.
+    pub kind: Kind,
     pub message: String,
     /// How long the provider asked to be left alone, when it said.
     pub retry_after: Option<Duration>,
 }
 
+/// The kinds of failure a search treats differently.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// HTTP 429.
+    RateLimited,
+    /// HTTP 402: the plan's credits are spent.
+    OutOfCredits,
+    /// The request, or the search's wait for it, ran out of time.
+    TimedOut,
+    /// Any other HTTP status that was not a success.
+    Status(u16),
+    /// Not asked, because an earlier failure left it resting.
+    Resting,
+    /// A transport error, an answer that would not decode, or a refusal in
+    /// the body of a success.
+    Other,
+}
+
+impl Kind {
+    /// The failure in a word, for the line that says who was left out.
+    fn word(self) -> &'static str {
+        match self {
+            Kind::Resting => "cooling down",
+            Kind::TimedOut => "timed out",
+            Kind::RateLimited => "rate limited",
+            Kind::OutOfCredits | Kind::Status(_) | Kind::Other => "failed",
+        }
+    }
+}
+
 impl Failure {
     pub(crate) fn new(message: impl Into<String>) -> Self {
+        Self::of(Kind::Other, message)
+    }
+
+    pub(crate) fn of(kind: Kind, message: impl Into<String>) -> Self {
         Self {
+            kind,
             message: message.into(),
             retry_after: None,
         }
@@ -129,7 +167,7 @@ impl Failure {
     /// in its errors, and Exa's key is in its URL.
     pub(crate) fn transport(name: &str, error: &reqwest::Error) -> Self {
         if error.is_timeout() {
-            Self::new(format!("{name}: request failed: timed out"))
+            Self::of(Kind::TimedOut, format!("{name}: request failed: timed out"))
         } else {
             Self::new(format!("{name}: request failed: transport error"))
         }
@@ -142,7 +180,12 @@ impl Failure {
             .ok()
             .and_then(|value| value.get("retry_after_seconds")?.as_u64())
             .map(Duration::from_secs);
-        Self::new(match status {
+        let kind = match status {
+            429 => Kind::RateLimited,
+            402 => Kind::OutOfCredits,
+            _ => Kind::Status(status),
+        };
+        let message = match status {
             401 | 403 if keyed => {
                 format!("{name}: invalid API key (check it in Settings, Tools)")
             }
@@ -157,17 +200,24 @@ impl Failure {
                     format!("{name} returned status {status}: {detail}")
                 }
             }
-        })
-        .after(wait)
+        };
+        Self::of(kind, message).after(wait)
     }
 
     /// How long to leave the provider alone after this failure, if at all: a
     /// rate limit for what it asked or a minute, a timeout or a server error
     /// for a short while. Other failures (a bad key, a changed API) are not
     /// helped by waiting.
-    #[cfg(test)]
     pub(crate) fn cooldown(&self) -> Option<Duration> {
-        cooldown_for(&self.message, self.retry_after)
+        match self.kind {
+            Kind::RateLimited | Kind::OutOfCredits => Some(
+                self.retry_after
+                    .unwrap_or(RATE_LIMIT_COOLDOWN)
+                    .min(LONGEST_COOLDOWN),
+            ),
+            Kind::TimedOut | Kind::Status(500..=599) => Some(SLOW_COOLDOWN),
+            Kind::Status(_) | Kind::Resting | Kind::Other => None,
+        }
     }
 
     /// A server's own words, on one line and bounded.
@@ -188,24 +238,6 @@ const RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(60);
 const SLOW_COOLDOWN: Duration = Duration::from_secs(20);
 /// No provider is left alone longer than this, whatever it asks.
 const LONGEST_COOLDOWN: Duration = Duration::from_secs(15 * 60);
-
-fn cooldown_for(message: &str, retry_after: Option<Duration>) -> Option<Duration> {
-    if message.contains("cooling down") {
-        return None;
-    }
-    if message.contains("rate limited") || message.contains("credits exhausted") {
-        return Some(
-            retry_after
-                .unwrap_or(RATE_LIMIT_COOLDOWN)
-                .min(LONGEST_COOLDOWN),
-        );
-    }
-    let server_error = message
-        .split(" returned status ")
-        .nth(1)
-        .is_some_and(|rest| rest.starts_with('5'));
-    (message.contains("timed out") || server_error).then_some(SLOW_COOLDOWN)
-}
 
 /// `text` cut to at most `max` characters, ending in an ellipsis when it was cut.
 pub(crate) fn bounded(text: &str, max: usize) -> String {
@@ -399,7 +431,7 @@ pub struct Answered {
     /// Said when the query's rare words matched no result.
     pub note: Option<String>,
     pub answered: Vec<WebSearchProvider>,
-    pub failed: Vec<(WebSearchProvider, String)>,
+    pub failed: Vec<(WebSearchProvider, Failure)>,
 }
 
 /// How long a fused answer is kept for the same question.
@@ -410,7 +442,7 @@ const CACHE_ENTRIES: usize = 100;
 /// What a room remembers between searches: which providers are resting, and
 /// the answers it gave lately, so a repeated question is steady and instant.
 pub struct State {
-    cooling: std::sync::Mutex<HashMap<WebSearchProvider, (Instant, String)>>,
+    cooling: std::sync::Mutex<HashMap<WebSearchProvider, (Instant, &'static str)>>,
     cache: std::sync::Mutex<HashMap<String, (Instant, Answered)>>,
     ttl: Duration,
 }
@@ -431,10 +463,10 @@ impl State {
     }
 
     /// Why a provider is resting, if it is.
-    fn resting(&self, provider: WebSearchProvider) -> Option<String> {
+    fn resting(&self, provider: WebSearchProvider) -> Option<&'static str> {
         let mut cooling = self.cooling.lock().unwrap_or_else(|e| e.into_inner());
         match cooling.get(&provider) {
-            Some((until, why)) if *until > Instant::now() => Some(why.clone()),
+            Some((until, why)) if *until > Instant::now() => Some(*why),
             Some(_) => {
                 cooling.remove(&provider);
                 None
@@ -443,11 +475,11 @@ impl State {
         }
     }
 
-    fn rest(&self, provider: WebSearchProvider, wait: Duration, why: &str) {
+    fn rest(&self, provider: WebSearchProvider, wait: Duration, why: &'static str) {
         self.cooling
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(provider, (Instant::now() + wait, why.to_string()));
+            .insert(provider, (Instant::now() + wait, why));
     }
 
     fn recall(&self, key: &str) -> Option<Answered> {
@@ -491,7 +523,7 @@ pub struct Search {
 
 enum Outcome {
     Hits(Vec<Hit>),
-    Failed(String, Option<Duration>),
+    Failed(Failure),
 }
 
 impl Search {
@@ -530,10 +562,10 @@ impl Search {
         // A provider that was rate limited or fell over is left alone a while.
         for (index, attempt) in self.attempts.iter().enumerate() {
             if let Some(why) = self.state.resting(attempt.provider) {
-                outcomes[index] = Some(Outcome::Failed(
+                outcomes[index] = Some(Outcome::Failed(Failure::of(
+                    Kind::Resting,
                     format!("{}: cooling down ({why})", id(attempt.provider)),
-                    None,
-                ));
+                )));
             }
         }
         let mut pending: FuturesUnordered<_> = self
@@ -548,18 +580,18 @@ impl Search {
                         tokio::time::timeout(self.timeout, attempt.searcher.search(request)).await;
                     let outcome = match outcome {
                         Ok(Ok(hits)) => Outcome::Hits(hits),
-                        Ok(Err(failure)) => Outcome::Failed(
-                            scrub(&failure.message, attempt.key.as_deref()),
-                            failure.retry_after,
-                        ),
-                        Err(_) => Outcome::Failed(
+                        Ok(Err(failure)) => Outcome::Failed(Failure {
+                            message: scrub(&failure.message, attempt.key.as_deref()),
+                            ..failure
+                        }),
+                        Err(_) => Outcome::Failed(Failure::of(
+                            Kind::TimedOut,
                             format!(
                                 "{}: timed out after {:?}",
                                 id(attempt.provider),
                                 self.timeout
                             ),
-                            None,
-                        ),
+                        )),
                     };
                     (index, outcome)
                 }
@@ -586,7 +618,7 @@ impl Search {
         let mut answered = Vec::new();
         let mut failed = Vec::new();
         for (attempt, outcome) in self.attempts.iter().zip(outcomes) {
-            let (reason, retry) = match outcome {
+            let failure = match outcome {
                 Some(Outcome::Hits(hits)) => {
                     answered.push(attempt.provider);
                     sources.push(rank::Source {
@@ -595,20 +627,20 @@ impl Search {
                     });
                     continue;
                 }
-                Some(Outcome::Failed(reason, retry)) => (reason, retry),
-                None => (
+                Some(Outcome::Failed(failure)) => failure,
+                None => Failure::of(
+                    Kind::TimedOut,
                     format!(
                         "{}: timed out after {:?}",
                         id(attempt.provider),
                         self.budget
                     ),
-                    None,
                 ),
             };
-            if let Some(wait) = cooldown_for(&reason, retry) {
-                self.state.rest(attempt.provider, wait, why(&reason));
+            if let Some(wait) = failure.cooldown() {
+                self.state.rest(attempt.provider, wait, failure.kind.word());
             }
-            failed.push((attempt.provider, reason));
+            failed.push((attempt.provider, failure));
         }
         if answered.is_empty() {
             return Err(if over_budget {
@@ -639,15 +671,15 @@ impl Search {
     }
 }
 
-fn reasons(failed: &[(WebSearchProvider, String)]) -> String {
+fn reasons(failed: &[(WebSearchProvider, Failure)]) -> String {
     failed
         .iter()
-        .map(|(provider, reason)| {
+        .map(|(provider, failure)| {
             // A reason already begins with its provider's id, as ketch's do.
-            if reason.starts_with(id(*provider)) {
-                reason.clone()
+            if failure.message.starts_with(id(*provider)) {
+                failure.message.clone()
             } else {
-                format!("{}: {reason}", id(*provider))
+                format!("{}: {}", id(*provider), failure.message)
             }
         })
         .collect::<Vec<_>>()
@@ -661,19 +693,6 @@ fn scrub(text: &str, key: Option<&str>) -> String {
     match key {
         Some(key) if !key.is_empty() => text.replace(key, "[key]"),
         _ => text.to_string(),
-    }
-}
-
-/// A provider's failure in a word, for the line that says who was left out.
-fn why(reason: &str) -> &'static str {
-    if reason.contains("cooling down") {
-        "cooling down"
-    } else if reason.contains("timed out") {
-        "timed out"
-    } else if reason.contains("rate limited") {
-        "rate limited"
-    } else {
-        "failed"
     }
 }
 
@@ -704,7 +723,9 @@ pub fn render(answered: &Answered) -> String {
         let left: Vec<String> = answered
             .failed
             .iter()
-            .map(|(provider, reason)| format!("{} {}", display_name(*provider), why(reason)))
+            .map(|(provider, failure)| {
+                format!("{} {}", display_name(*provider), failure.kind.word())
+            })
             .collect();
         out.push_str(&format!(" ({})", left.join(", ")));
     }

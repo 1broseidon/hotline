@@ -481,12 +481,11 @@ const glyph = {
 	strokeWidth: 1.6,
 	strokeLinecap: "round" as const,
 	strokeLinejoin: "round" as const,
-	"aria-hidden": true as const,
 };
 
 function HomeGlyph() {
 	return (
-		<svg {...glyph}>
+		<svg {...glyph} aria-hidden="true">
 			<path d="M3.5 9 10 3.5 16.5 9v7a1 1 0 0 1-1 1h-3.5v-5h-4v5H4.5a1 1 0 0 1-1-1V9Z" />
 		</svg>
 	);
@@ -494,7 +493,7 @@ function HomeGlyph() {
 
 function SparkGlyph() {
 	return (
-		<svg {...glyph}>
+		<svg {...glyph} aria-hidden="true">
 			<path d="M10 2.5c.6 3.6 1.9 4.9 5.5 5.5-3.6.6-4.9 1.9-5.5 5.5-.6-3.6-1.9-4.9-5.5-5.5 3.6-.6 4.9-1.9 5.5-5.5Z" />
 			<path d="M15.5 13.5c.2 1.3.7 1.8 2 2-1.3.2-1.8.7-2 2-.2-1.3-.7-1.8-2-2 1.3-.2 1.8-.7 2-2Z" />
 		</svg>
@@ -503,7 +502,7 @@ function SparkGlyph() {
 
 function ScreenGlyph() {
 	return (
-		<svg {...glyph}>
+		<svg {...glyph} aria-hidden="true">
 			<rect x="2.75" y="3.5" width="14.5" height="10" rx="1.5" />
 			<path d="M7.5 16.75h5M10 13.5v3.25" />
 		</svg>
@@ -512,7 +511,7 @@ function ScreenGlyph() {
 
 function PhoneGlyph() {
 	return (
-		<svg {...glyph}>
+		<svg {...glyph} aria-hidden="true">
 			<rect x="5.75" y="2.25" width="8.5" height="15.5" rx="2" />
 			<path d="M9 14.75h2" />
 		</svg>

@@ -1,8 +1,6 @@
 ---
 id: task-141
 title: "P2-32 (C): The remaining big test files:"
-column: in-progress
-position: 30
 priority: high
 tags:
   - phase2
@@ -13,7 +11,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/tests.rs
   - crates/hotline-core/tests/voice.rs
   - crates/hotline-core/tests/desk.rs
-updatedAt: "2026-10-18T04:55:22.353Z"
+updatedAt: "2026-10-18T05:37:01.160Z"
 contract:
   status: in_progress
   validation:
@@ -40,7 +38,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T04:55:09.935Z"
+    ended: "2026-10-18T05:37:01.160Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T05:36:59.955Z"
 ---
 
 ## Description
@@ -54,3 +55,6 @@ Phase 2 group C (Move-only renames and splits), plan row 32 in docs/audits/0.40/
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T05:36:58.843Z: Landed on release/0.40.0

@@ -16,7 +16,7 @@ relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/voice.rs
   - crates/hotline-core/src/tools/shell/macos.rs
-updatedAt: "2026-10-18T00:15:14.512Z"
+updatedAt: "2026-10-18T05:37:10.369Z"
 contract:
   status: ready
   validation:
@@ -33,7 +33,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:14.378Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T05:37:10.369Z"
 assignee: claude
 ---
 

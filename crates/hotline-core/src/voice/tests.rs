@@ -58,7 +58,7 @@ impl Default for Fake {
 }
 #[async_trait]
 impl speech::Speech for Fake {
-    fn output_mime(&self) -> &str {
+    fn output_mime(&self) -> &'static str {
         self.output_mime
     }
     fn id(&self) -> SpeechId {

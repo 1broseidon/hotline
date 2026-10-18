@@ -182,7 +182,7 @@ impl Speech for OpenAiShape {
         }
     }
 
-    fn output_mime(&self) -> &str {
+    fn output_mime(&self) -> &'static str {
         match &self.job {
             Job::Speak { format, .. } => format.mime(),
             Job::Listen { .. } => "audio/wav",

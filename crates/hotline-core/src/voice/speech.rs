@@ -144,7 +144,7 @@ pub trait Speech: Send + Sync {
         false
     }
     /// Primary output advertised at call start; every clip still names its type.
-    fn output_mime(&self) -> &str {
+    fn output_mime(&self) -> &'static str {
         "audio/wav"
     }
     /// The words in one clip (`audio/wav` or `audio/mp4`); empty when nobody spoke.

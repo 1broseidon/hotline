@@ -114,7 +114,7 @@ impl Speech for FrontSpeech {
     fn is_subscription(&self) -> bool {
         self.subscription
     }
-    fn output_mime(&self) -> &str {
+    fn output_mime(&self) -> &'static str {
         "audio/pcm"
     }
     async fn transcribe(&self, _clip: Clip) -> Result<String, speech::SpeechError> {

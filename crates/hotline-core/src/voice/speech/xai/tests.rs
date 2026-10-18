@@ -155,7 +155,7 @@ async fn live_grok_subscription_voice_entitlement_probe() {
             !text.is_empty()
         ),
         Err(SpeechError::Refused { status, .. } | SpeechError::Entitlement { status, .. }) => {
-            println!("grok_voice_probe stt_success=false status={status}")
+            println!("grok_voice_probe stt_success=false status={status}");
         }
         Err(_) => println!("grok_voice_probe stt_success=false transport_or_format=true"),
     }

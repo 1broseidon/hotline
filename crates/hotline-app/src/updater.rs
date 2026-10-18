@@ -330,7 +330,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
                         .chars()
                         .take(4_000)
                         .collect(),
-                })
+                });
             }
             Err(error) => status.error = Some(error.clone()),
         }

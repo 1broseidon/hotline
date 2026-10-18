@@ -224,7 +224,7 @@ impl Remote {
                     }
                     Err(error) => {
                         lock(&remote.state).error =
-                            Some(format!("Waiting for {}: {error}", options.listen))
+                            Some(format!("Waiting for {}: {error}", options.listen));
                     }
                 }
                 tokio::select! { _ = cancel.cancelled() => return, _ = tokio::time::sleep(Duration::from_secs(1)) => {} }

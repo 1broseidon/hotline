@@ -706,7 +706,7 @@ impl RoomHandle for Desk {
                         .oauth()
                         .auth_file(token_dir.join("auth.json"))
                         .on_device_code(move |prompt| {
-                            emit(prompt.user_code, prompt.verification_uri)
+                            emit(prompt.user_code, prompt.verification_uri);
                         })
                         .allow_device_flow(true)
                         .build()
@@ -718,7 +718,7 @@ impl RoomHandle for Desk {
                         .oauth()
                         .token_dir(&token_dir)
                         .on_device_code(move |prompt| {
-                            emit(prompt.user_code, prompt.verification_uri)
+                            emit(prompt.user_code, prompt.verification_uri);
                         })
                         .allow_device_flow(true)
                         .build()

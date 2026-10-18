@@ -432,7 +432,7 @@ impl RoomHandle for Computered {
         self.desk.credential_refresh_models(provider_id).await
     }
     fn forget(&self, persona_id: &str) {
-        self.desk.forget(persona_id)
+        self.desk.forget(persona_id);
     }
     async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport> {
         self.desk.computer_runtimes().await

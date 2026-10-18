@@ -179,7 +179,7 @@ pub(super) async fn run(
                         text: error,
                     },
                 )
-                .await
+                .await;
             }
         }
     }

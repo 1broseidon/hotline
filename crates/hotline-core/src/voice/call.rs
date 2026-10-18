@@ -168,7 +168,7 @@ impl Calls {
                     Some(client) => {
                         crate::wire::commands::PROMPT_CLIENT
                             .scope(client, run)
-                            .await
+                            .await;
                     }
                     None => run.await,
                 }

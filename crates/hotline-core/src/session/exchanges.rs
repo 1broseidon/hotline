@@ -924,7 +924,7 @@ impl Room {
                     pair.paused = pair.exchanges >= EXCHANGE_CAP;
                     self.save_pair(&pair)?;
                     if pair.paused {
-                        self.exchange_card(&pair, ExchangePauseStatus::Pending)
+                        self.exchange_card(&pair, ExchangePauseStatus::Pending);
                     }
                 }
                 let target = self.participant(&request.to)?;

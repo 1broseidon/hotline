@@ -95,7 +95,7 @@ async fn provision(
                 eprintln!(
                     "pull {}: {}/{} layers, {:?}",
                     report.image, report.layers_done, report.layers_total, report.outcome
-                )
+                );
             },
         )
         .await?;
@@ -122,7 +122,7 @@ async fn provision(
                 eprintln!(
                     "pull {}: {}/{} layers, {:?}",
                     report.image, report.layers_done, report.layers_total, report.outcome
-                )
+                );
             },
         )
         .await?;

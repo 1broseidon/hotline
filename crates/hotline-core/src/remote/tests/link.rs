@@ -100,7 +100,7 @@ async fn connect(laptop: &Linked, grizzly: &Linked) {
 }
 
 fn paired(laptop: &Linked) -> client::PairedDesk {
-    relay::paired(laptop.root.path()).remove(0)
+    crate::remote::relay::paired(laptop.root.path()).remove(0)
 }
 
 async fn until(what: &str, mut condition: impl FnMut() -> bool) {
@@ -441,7 +441,7 @@ async fn a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_it
 
 #[tokio::test]
 async fn a_desk_reachable_only_through_its_relay_is_linked_through_it() {
-    let (_relay_root, relay, _) = super::relay_tests::served().await;
+    let (_relay_root, relay, _) = super::relay::served().await;
     let home = desk("lou", "Lou").await;
     let invitation = relay.pairing_v2(DeviceRole::Owner).unwrap();
     let server = client::Client::new(home.store.clone())

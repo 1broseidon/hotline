@@ -217,3 +217,6 @@ async fn authenticate(
 pub(super) fn poll(agent: &ChildAgent, id: &str) -> Result<AuthStatus, String> {
     Ok(attempt(agent, id)?.poll())
 }
+
+#[cfg(test)]
+mod tests;

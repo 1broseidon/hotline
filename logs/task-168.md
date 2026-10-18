@@ -1,8 +1,6 @@
 ---
 id: task-168
 title: "P2-53 (F): Biome for lint only"
-column: review
-position: 57
 priority: high
 tags:
   - phase2
@@ -14,7 +12,7 @@ relatedFiles:
   - ui/package.json
   - ui/bun.lock
   - Makefile
-updatedAt: "2026-10-18T03:32:33.656Z"
+updatedAt: "2026-10-18T03:33:43.090Z"
 contract:
   status: delivered
   validation:
@@ -43,7 +41,10 @@ dispatch:
     runner: cli
     pid: 39764
     at: "2026-10-18T03:26:03.467Z"
+    ended: "2026-10-18T03:33:43.090Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T03:33:42.716Z"
 ---
 
 ## Description
@@ -60,3 +61,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T03:32:33.222Z: [claude] Done on dispatch/task-168 (528e3c80): ui/biome.json (Biome 2.5.15 pinned, lint only, no formatter or assist, CSS linter off, src+tests minus src/generated), `bun run lint` in make ui-check, CI's per-OS check and precheck's ui leg; docs/development.md and AGENTS.md say so. window.md rule set: recommended + useExhaustiveDependencies/useHookAtTopLevel/noUnusedImports/noExplicitAny at error, noNonNullAssertion and useLiteralKeys off (noDescendingSpecificity moot with CSS off). a11y is at error (50 landed) except four recommended rules that still have hits, which are at warn with the others the tree does not pass yet. Fixed the 3 useButtonType hits in AgentSignIn. Left at warn for a later task (39 warnings): a11y useAriaPropsSupportedByRole 7, useAriaPropsForRole 3, useKeyWithClickEvents 3 (Viewer), noAriaHiddenOnFocusable 1 (Rail kbd); noVoidTypeReturn 11 (voice/call.ts, dictation.ts), noArrayIndexKey 10, noAssignInExpressions 1 (tests/dock.test.ts); plus 3 recommended warns/infos (useOptionalChain 2, noCommaOperator 1, noUselessFragments 2). Each fix should flip its rule to error in biome.json. lint does not use --error-on-warnings. make ui-check and make precheck pass.
+- 2026-10-18T03:33:42.346Z: Landed on release/0.40.0

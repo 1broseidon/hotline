@@ -433,14 +433,14 @@ fn word_of<T: serde::Serialize>(value: &T) -> String {
         .unwrap_or_default()
 }
 
-pub(super) fn usage_of(usage: Option<&acp::Usage>) -> Option<TokenUsage> {
-    usage.map(|usage| TokenUsage {
+pub(super) fn usage_of(usage: &acp::Usage) -> TokenUsage {
+    TokenUsage {
         input_tokens: Some(usage.input_tokens as i64),
         output_tokens: Some(usage.output_tokens as i64),
         total_tokens: Some(usage.total_tokens as i64),
         cache_read_tokens: usage.cached_read_tokens.map(|tokens| tokens as i64),
         cache_write_tokens: usage.cached_write_tokens.map(|tokens| tokens as i64),
-    })
+    }
 }
 
 /// Carries the lines sent while a turn runs into that turn, one at a time and

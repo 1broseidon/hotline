@@ -741,7 +741,7 @@ impl Driver for ChildAgent {
                     let _ = sender
                         .send(Update::Turn {
                             stop_reason: stop_reason_of(response.stop_reason),
-                            usage: usage_of(response.usage.as_ref()),
+                            usage: response.usage.as_ref().map(usage_of),
                         })
                         .await;
                 }

@@ -1,7 +1,7 @@
 ---
 id: task-134
 title: "P2-25 (C): `remote/tests.rs`"
-column: todo
+column: in-progress
 position: 23
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:40:53.318Z"
 relatedFiles:
   - crates/hotline-core/src/remote/tests.rs
   - crates/hotline-core/src/remote/tests/
-updatedAt: "2026-10-18T04:00:22.933Z"
+updatedAt: "2026-10-18T04:00:40.779Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - test $(wc -l < crates/hotline-core/src/remote/tests.rs) -le 2000
@@ -23,6 +23,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T04:00:40.779Z"
+    reworkCount: 0
 dependsOn:
   - task-128
 dispatch:

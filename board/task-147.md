@@ -17,7 +17,7 @@ relatedFiles:
   - crates/hotline-cli/tests/serve.rs
   - crates/hotline-cli/tests/relay.rs
   - crates/hotline-cli/tests/pair.rs
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:07.742Z"
 contract:
   status: ready
   validation:
@@ -29,6 +29,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-146
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:07.611Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

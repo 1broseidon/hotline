@@ -349,9 +349,6 @@ impl Phone {
 }
 
 impl Remote {
-    pub fn open(root: &Path, log: Log, room: Arc<dyn RoomHandle>) -> io::Result<Arc<Self>> {
-        Self::open_with_store(root, log, room, crate::credentials::default_store())
-    }
     pub fn open_with_store(
         root: &Path,
         log: Log,

@@ -478,6 +478,12 @@ more: encrypt the volume, and its snapshots and backups
 the desktop app, or `hotline-import` on the same data directory is refused
 while it runs. The lock goes with the process, however it ends.
 
+A boot that cannot finish ends `serve` with exit status 1 and one line on
+stderr saying which step failed: the store, the room, Remote's settings, the
+Door, the runtime, the signals, or the OS random source the Door's token
+comes from. It fails before `door.json` is written, and it rewrites nothing
+it could not read, so an unreadable `remote.json` is still there to look at.
+
 ## Stopping
 
 On SIGTERM (`systemctl stop`, `restart`) the desk stops for a restart:

@@ -20,106 +20,116 @@ fn outcome(result: Result<(), String>) -> ExitCode {
 }
 
 pub fn devices(room: &Room) -> ExitCode {
-    outcome(door::runtime().block_on(async {
-        let desk = door::running(room)?;
-        let devices = door::ask(&desk, "remote.devices", json!({})).await?;
-        let devices = devices
-            .as_array()
-            .ok_or("The desk returned an invalid device list")?;
-        if devices.is_empty() {
-            println!("No paired devices. Run `hotline pair` to link a phone.");
-        }
-        for device in devices {
-            println!(
-                "{}  {}  {}",
-                field(device, "id")?,
-                field(device, "role")?,
-                field(device, "name")?.escape_default()
-            );
-        }
-        Ok(())
+    outcome(door::runtime().and_then(|runtime| {
+        runtime.block_on(async {
+            let desk = door::running(room)?;
+            let devices = door::ask(&desk, "remote.devices", json!({})).await?;
+            let devices = devices
+                .as_array()
+                .ok_or("The desk returned an invalid device list")?;
+            if devices.is_empty() {
+                println!("No paired devices. Run `hotline pair` to link a phone.");
+            }
+            for device in devices {
+                println!(
+                    "{}  {}  {}",
+                    field(device, "id")?,
+                    field(device, "role")?,
+                    field(device, "name")?.escape_default()
+                );
+            }
+            Ok(())
+        })
     }))
 }
 
 pub fn revoke(room: &Room, id: &str) -> ExitCode {
-    outcome(door::runtime().block_on(async {
-        let desk = door::running(room)?;
-        door::ask(&desk, "remote.revoke", json!({"deviceId":id})).await?;
-        println!("Device revoked.");
-        Ok(())
+    outcome(door::runtime().and_then(|runtime| {
+        runtime.block_on(async {
+            let desk = door::running(room)?;
+            door::ask(&desk, "remote.revoke", json!({"deviceId":id})).await?;
+            println!("Device revoked.");
+            Ok(())
+        })
     }))
 }
 
 /// The desks this one is linked with (ADR 0003): a link is made from a
 /// desktop's Settings › Desks, and either side lists and ends it.
 pub fn links(room: &Room) -> ExitCode {
-    outcome(door::runtime().block_on(async {
-        let desk = door::running(room)?;
-        let links = door::ask(&desk, "desks.links", json!({})).await?;
-        let links = links
-            .as_array()
-            .ok_or("The desk returned an invalid link list")?;
-        if links.is_empty() {
-            println!("Not linked with any desk. Link from a desktop's Settings › Desks.");
-        }
-        for link in links {
-            let teammates = link["teammates"].as_array().map_or(0, Vec::len);
-            println!(
-                "{}  {}  {}  {teammates} teammates",
-                field(link, "deskId")?,
-                field(link, "state")?,
-                field(link, "name")?.escape_default(),
-            );
-        }
-        Ok(())
+    outcome(door::runtime().and_then(|runtime| {
+        runtime.block_on(async {
+            let desk = door::running(room)?;
+            let links = door::ask(&desk, "desks.links", json!({})).await?;
+            let links = links
+                .as_array()
+                .ok_or("The desk returned an invalid link list")?;
+            if links.is_empty() {
+                println!("Not linked with any desk. Link from a desktop's Settings › Desks.");
+            }
+            for link in links {
+                let teammates = link["teammates"].as_array().map_or(0, Vec::len);
+                println!(
+                    "{}  {}  {}  {teammates} teammates",
+                    field(link, "deskId")?,
+                    field(link, "state")?,
+                    field(link, "name")?.escape_default(),
+                );
+            }
+            Ok(())
+        })
     }))
 }
 
 pub fn unlink(room: &Room, id: &str) -> ExitCode {
-    outcome(door::runtime().block_on(async {
-        let desk = door::running(room)?;
-        door::ask(&desk, "desks.unlink", json!({"deskId":id})).await?;
-        println!("Link ended. The other desk ends it too when it hears.");
-        Ok(())
+    outcome(door::runtime().and_then(|runtime| {
+        runtime.block_on(async {
+            let desk = door::running(room)?;
+            door::ask(&desk, "desks.unlink", json!({"deskId":id})).await?;
+            println!("Link ended. The other desk ends it too when it hears.");
+            Ok(())
+        })
     }))
 }
 
 /// `role` is the grant the invitation makes: owner, companion or relay, or
 /// none for the one the server usually makes.
 pub fn pair(room: &Room, role: Option<&str>, json: bool, link: bool) -> ExitCode {
-    outcome(door::runtime().block_on(async {
-        let desk = door::running(room)?;
-        let url = format!("ws://127.0.0.1:{}/ws?token={}", desk.port, desk.token);
-        let (mut socket, _) = tokio::time::timeout(
-            Duration::from_secs(5),
-            tokio_tungstenite::connect_async(url),
-        )
-        .await
-        .map_err(|_| "The desk did not answer")?
-        .map_err(|_| "The desk refused the connection")?;
-        // One socket owns the invitation until this command exits. Disconnect
-        // also closes the window, including when SSH or this process dies.
-        let mut serial = 0;
-        let invitation = ask(&mut socket, &mut serial, json!({"role":role})).await?;
-        let id = field(&invitation, "id")?.to_owned();
-        if json {
-            println!(
-                "{}",
-                invitation
-                    .get("payload")
-                    .ok_or("The desk does not support JSON pairing; update it first.")?
-            );
-        } else if link {
-            println!("{}", field(&invitation, "link")?);
-        } else {
-            print_invitation(&invitation)?;
-        }
-        use std::io::Write;
-        std::io::stdout().flush().map_err(|e| e.to_string())?;
-        let result = wait_for_phone(&mut socket, &mut serial, &invitation, &id).await;
-        let _ = ask(&mut socket, &mut serial, json!({"id":id,"cancel":true})).await;
-        let _ = socket.close(None).await;
-        result
+    outcome(door::runtime().and_then(|runtime| {
+        runtime.block_on(async {
+            let desk = door::running(room)?;
+            let url = format!("ws://127.0.0.1:{}/ws?token={}", desk.port, desk.token);
+            let (mut socket, _) = tokio::time::timeout(
+                Duration::from_secs(5),
+                tokio_tungstenite::connect_async(url),
+            )
+            .await
+            .map_err(|_| "The desk did not answer")?
+            .map_err(|_| "The desk refused the connection")?;
+            // One socket owns the invitation until this command exits. Disconnect
+            // also closes the window, including when SSH or this process dies.
+            let mut serial = 0;
+            let invitation = ask(&mut socket, &mut serial, json!({"role":role})).await?;
+            let id = field(&invitation, "id")?.to_owned();
+            if json {
+                println!(
+                    "{}",
+                    invitation
+                        .get("payload")
+                        .ok_or("The desk does not support JSON pairing; update it first.")?
+                );
+            } else if link {
+                println!("{}", field(&invitation, "link")?);
+            } else {
+                print_invitation(&invitation)?;
+            }
+            use std::io::Write;
+            std::io::stdout().flush().map_err(|e| e.to_string())?;
+            let result = wait_for_phone(&mut socket, &mut serial, &invitation, &id).await;
+            let _ = ask(&mut socket, &mut serial, json!({"id":id,"cancel":true})).await;
+            let _ = socket.close(None).await;
+            result
+        })
     }))
 }
 

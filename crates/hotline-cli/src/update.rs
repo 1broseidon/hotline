@@ -305,8 +305,8 @@ mod linux {
         let current = parse_version(env!("CARGO_PKG_VERSION"))?;
         if before.active {
             // Refuse an unhealthy or unsupported custom unit before writing anything.
-            service
-                .probe(target_path, &current, &crate::door::runtime())
+            crate::door::runtime()
+                .and_then(|runtime| service.probe(target_path, &current, &runtime))
                 .map_err(|error| {
                     format!(
                         "the existing service is not ready for an update: {error}; nothing changed"
@@ -512,7 +512,7 @@ mod linux {
         fn restart_ready(&mut self, binary: &Path, version: &Version) -> Result<()> {
             systemctl(&["restart"])?;
             let deadline = Instant::now() + Duration::from_secs(30);
-            let runtime = crate::door::runtime();
+            let runtime = crate::door::runtime()?;
             let mut stable_pid = 0;
             let mut successes = 0;
             let mut last_error = "service has not become ready".to_owned();

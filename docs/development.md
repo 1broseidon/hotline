@@ -87,6 +87,7 @@ crates/hotline-core/src/
   import/                    the previous edition's roster and records, read-only
   log_file.rs                where the app's own lines go when nobody reads its output
   process_windows.rs         a Windows child's kill-on-close job
+  test_support.rs            what the unit tests of more than one module share
   bin/hotline-import.rs      the importer as a binary
   bin/hotline-mcp-echo.rs    a one-tool stdio server the MCP harnesses spawn
   bin/hotline-models-sync.rs rewrites models.json from models.dev

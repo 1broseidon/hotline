@@ -14,7 +14,7 @@ relatedFiles:
   - scripts/fetch-speech-engine
   - scripts/speech-engine.sha256
   - Cargo.lock
-updatedAt: "2026-10-18T01:25:04.259Z"
+updatedAt: "2026-10-18T01:25:22.099Z"
 contract:
   status: in_progress
   validation:
@@ -24,8 +24,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-    pickedUpAt: "2026-10-18T01:25:04.259Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-18T01:25:22.099Z"
+    reworkCount: 1
 dependsOn:
   - task-116
 dispatch:

@@ -223,6 +223,7 @@ function FollowWindow({
 		const el = frame.current;
 		if (el && following) el.scrollTop = el.scrollHeight;
 	});
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new followKey is new work to follow.
 	useEffect(() => setFollowing(true), [followKey]);
 
 	return (

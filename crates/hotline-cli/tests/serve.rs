@@ -136,7 +136,10 @@ fn invite(root: &Path, flags: &[&str]) -> (Child, PairingPayload) {
         .unwrap();
     match serde_json::from_str(&line) {
         Ok(payload) => (child, payload),
-        Err(_) => panic!("no invitation: {line} {:?}", child.wait_with_output()),
+        Err(error) => panic!(
+            "no invitation ({error}): {line} {:?}",
+            child.wait_with_output()
+        ),
     }
 }
 

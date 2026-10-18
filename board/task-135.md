@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp.rs
   - crates/hotline-core/src/driver/acp/tests.rs
   - crates/hotline-core/src/driver/acp/tests/
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:14:54.268Z"
 contract:
   status: ready
   validation:
@@ -27,6 +27,14 @@ contract:
 dependsOn:
   - task-128
   - task-115
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:14:54.128Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

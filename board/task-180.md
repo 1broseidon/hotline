@@ -11,8 +11,17 @@ tags:
   - bug
 createdAt: "2026-10-18T21:59:36.514Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T23:40:52.707Z"
+updatedAt: "2026-10-18T23:53:17.105Z"
 parentId: epic-14
+relatedFiles:
+  - crates/hotline-core/src/session.rs
+  - crates/hotline-core/src/session/asking.rs
+  - crates/hotline-core/src/mcp/server.rs
+  - crates/hotline-core/src/contract/command.rs
+  - crates/hotline-core/src/contract/transcript.rs
+  - crates/hotline-core/skills/hotline-room/SKILL.md
+  - crates/hotline-core/src/session/tests/cards.rs
+  - ui/src/generated/contract.ts
 ---
 
 ## Description

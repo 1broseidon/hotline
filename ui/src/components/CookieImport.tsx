@@ -337,6 +337,7 @@ export function CookieImports({
 
 	// The record is re-read whenever the picker closes, so a fresh import
 	// shows up without a reload.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh is a count the picker bumps to ask for a re-read.
 	useEffect(() => {
 		let gone = false;
 		wire

@@ -30,6 +30,7 @@ export function DeskModels({ onInstalledChanged }: { onInstalledChanged(): void 
 		setModels(next);
 	};
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: take reads only refs and setters.
 	useEffect(() => {
 		void wire
 			.command("voice.models", {})
@@ -38,6 +39,7 @@ export function DeskModels({ onInstalledChanged }: { onInstalledChanged(): void 
 	}, []);
 
 	// A download is followed by asking again until it settles.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: take reads only refs and setters.
 	useEffect(() => {
 		if (models === null || !busy(models)) return;
 		const timer = setTimeout(() => {

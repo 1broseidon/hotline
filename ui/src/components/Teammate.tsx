@@ -78,6 +78,7 @@ export function Teammate({
 		setGoal(persona.goal);
 	}, [persona.name, persona.goal]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new teammate is what hides the path again.
 	useEffect(() => {
 		setPathShown(false);
 	}, [persona.id]);
@@ -85,6 +86,7 @@ export function Teammate({
 	// The goal is as tall as its text, never a well with room to spare, up to
 	// the card's four lines; past them it fades out.
 	const [goalClipped, setGoalClipped] = useState(false);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the goal's text is what changes its height.
 	useEffect(() => {
 		const field = goalField.current;
 		if (!field) return;

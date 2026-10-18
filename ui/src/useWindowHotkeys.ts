@@ -134,7 +134,7 @@ export function useWindowHotkeys({
 		};
 		window.addEventListener("keydown", onKey);
 		return () => window.removeEventListener("keydown", onKey);
-	}, [selectedId, pane, dock, inspector, workOf, closeWork, select, seatOf, closePane, closeDock, togglePane, newTeammate, toggleInspector, toggleRail]);
+	}, [selectedId, pane, dock, inspector, workOf, closeWork, select, seatOf, closePane, setDock, closeDock, setInspector, togglePane, newTeammate, toggleInspector, toggleRail, setSearchAsk]);
 
 	useEffect(() => {
 		return listenMenu((id) => {
@@ -173,7 +173,7 @@ export function useWindowHotkeys({
 				if (row) select(row.entry.persona.id, row.deskId);
 			}
 		});
-	}, [selectedId, pane, select, seatOf, togglePane, newTeammate, toggleInspector, toggleRail]);
+	}, [select, seatOf, togglePane, newTeammate, toggleInspector, toggleRail, setSearchAsk, setSettingsSection, setPane]);
 
 	/* The shortcuts heard anywhere on this computer (hotkeys.ts). Dictate
 	 * brings the window forward and hands its press and release to the open

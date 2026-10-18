@@ -166,6 +166,7 @@ export function Composer({
 	useEffect(() => {
 		if (callLive) dictation.release();
 	}, [callLive, dictation]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new draftOf means the draft was put away, which lets go of the mic too.
 	useEffect(
 		() => () => {
 			dictation.release();
@@ -232,6 +233,7 @@ export function Composer({
 
 	// Grow with content, up to a ceiling. Before paint, because measuring after
 	// it draws a wrapped line at the old height for one frame first.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the text and the teammate are what change the height.
 	useLayoutEffect(() => {
 		const el = area.current;
 		if (!el) return;

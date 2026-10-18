@@ -1022,7 +1022,7 @@ mod tests {
             json!({"domain": "sub.example.com", "name": "b", "value": "2"}),
             json!({"domain": ".other.test", "name": "c", "value": "3"}),
         ];
-        let wanted: std::collections::HashSet<&str> = ["example.com"].into_iter().collect();
+        let wanted: std::collections::HashSet<&str> = std::iter::once("example.com").collect();
         let kept: Vec<Value> = cookies
             .into_iter()
             .filter(|cookie| {

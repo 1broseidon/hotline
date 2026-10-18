@@ -3,15 +3,12 @@
 
 mod common;
 
-use futures_util::{SinkExt, StreamExt};
+use common::Client;
 use hotline_core::log::{Log, StreamId};
 use hotline_core::wire::Door;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::net::TcpStream;
-use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 const TOKEN: &str = "a-token-only-this-harness-knows";
 
@@ -34,46 +31,10 @@ async fn open(name: &str) -> u16 {
     port
 }
 
-struct Client {
-    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    next_id: i64,
-}
-
-impl Client {
-    async fn connect(port: u16) -> Client {
-        let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token={TOKEN}"))
-            .await
-            .unwrap();
-        Client { socket, next_id: 1 }
-    }
-
-    async fn call(&mut self, cmd: &str, params: Value) -> Value {
-        let id = self.next_id;
-        self.next_id += 1;
-        let frame = json!({ "id": id, "cmd": cmd, "params": params });
-        self.socket
-            .send(Message::text(frame.to_string()))
-            .await
-            .unwrap();
-        loop {
-            match self.socket.next().await.expect("the door closed") {
-                Ok(Message::Text(text)) => {
-                    let frame: Value = serde_json::from_str(&text).unwrap();
-                    if frame.get("id").and_then(Value::as_i64) == Some(id) {
-                        return frame;
-                    }
-                }
-                Ok(_) => continue,
-                Err(error) => panic!("the socket failed: {error}"),
-            }
-        }
-    }
-}
-
 #[tokio::test]
 async fn a_job_is_created_listed_silenced_and_cancelled_over_the_wire() {
     let port = open("commands").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
 
     let created = client
         .call(
@@ -129,7 +90,7 @@ async fn a_job_is_created_listed_silenced_and_cancelled_over_the_wire() {
 #[tokio::test]
 async fn a_loop_over_the_wire_carries_every_and_has_no_when() {
     let port = open("loop").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
 
     let created = client
         .call(
@@ -183,7 +144,7 @@ async fn an_old_job_on_the_wire_requires_the_background_grant() {
     let port = door.port();
     tokio::spawn(door.run());
 
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let listed = client.call("schedule.list", json!({})).await;
     assert_eq!(listed["ok"], true, "{listed}");
     assert_eq!(listed["result"].as_array().unwrap().len(), 1);

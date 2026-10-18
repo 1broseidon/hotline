@@ -12,7 +12,7 @@ async fn legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history(
     })).unwrap();
     drop(log);
     let port = open_at(&root);
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let subscription = client.subscribe(json!("room")).await;
     let snapshot = client
         .next_where(Duration::from_secs(5), |frame| {
@@ -70,7 +70,7 @@ async fn grok_signout_removes_tokens_and_zai_plans_have_separate_connections() {
     vault.finish_login(&id, "xai", "SuperGrok").unwrap();
     drop(vault);
     let port = open_at(&root);
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let providers = client.call("providers.list", json!({})).await;
     let providers = providers["result"].as_array().unwrap();
     for (id, kinds) in [
@@ -149,7 +149,7 @@ async fn grok_signout_removes_tokens_and_zai_plans_have_separate_connections() {
 #[tokio::test(flavor = "multi_thread")]
 async fn credential_refresh_models_needs_a_login() {
     let (_root, port) = open("refresh-models").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let refused = client
         .call(
             "credential.refresh_models",
@@ -168,7 +168,7 @@ async fn credential_refresh_models_needs_a_login() {
 #[tokio::test(flavor = "multi_thread")]
 async fn models_catalog_flags_a_saved_filter_and_refuses_an_unwired_provider() {
     let (_root, port) = open("models-catalog").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
 
     let nope = client
         .call("models.catalog", json!({ "providerId": "nope" }))
@@ -216,7 +216,7 @@ async fn models_catalog_flags_a_saved_filter_and_refuses_an_unwired_provider() {
 #[tokio::test(flavor = "multi_thread")]
 async fn cancelling_openrouter_login_closes_callback_and_discards_pending_credentials() {
     let (root, port) = open("openrouter-cancel").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let prompt = client
         .call("credential.login", json!({"providerId":"openrouter"}))
         .await;

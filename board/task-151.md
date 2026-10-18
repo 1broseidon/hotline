@@ -14,9 +14,9 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/wire/
   - crates/hotline-core/src/remote/bridge.rs
-updatedAt: "2026-10-18T10:00:25.317Z"
+updatedAt: "2026-10-18T10:00:25.640Z"
 contract:
-  status: delivered
+  status: in_progress
   validation:
     commands:
       - "! git grep -n 'allow(clippy::result_large_err' -- crates"
@@ -25,8 +25,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-    pickedUpAt: "2026-10-18T09:49:14.234Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-18T10:00:25.640Z"
+    reworkCount: 1
     deliveredAt: "2026-10-18T09:58:17.380Z"
     duration: 543
 dependsOn:

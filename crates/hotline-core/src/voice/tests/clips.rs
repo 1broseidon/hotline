@@ -391,7 +391,7 @@ fn audio_limits_use_actual_wav_samples() {
 
 #[test]
 fn mp4_duration_cannot_be_hidden_behind_a_short_client_claim() {
-    fn atom(kind: &[u8; 4], payload: Vec<u8>) -> Vec<u8> {
+    fn atom(kind: [u8; 4], payload: Vec<u8>) -> Vec<u8> {
         let mut bytes = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
         bytes.extend(kind);
         bytes.extend(payload);
@@ -401,10 +401,10 @@ fn mp4_duration_cannot_be_hidden_behind_a_short_client_claim() {
         let mut mdhd = vec![0u8; 12];
         mdhd.extend(1000u32.to_be_bytes());
         mdhd.extend(milliseconds.to_be_bytes());
-        let mut bytes = atom(b"ftyp", b"M4A ".to_vec());
+        let mut bytes = atom(*b"ftyp", b"M4A ".to_vec());
         bytes.extend(atom(
-            b"moov",
-            atom(b"trak", atom(b"mdia", atom(b"mdhd", mdhd))),
+            *b"moov",
+            atom(*b"trak", atom(*b"mdia", atom(*b"mdhd", mdhd))),
         ));
         bytes
     }

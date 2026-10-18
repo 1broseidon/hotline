@@ -41,7 +41,7 @@ impl Seat {
         matches!(self, Self::Owner | Self::Phone | Self::Link)
     }
 
-    pub fn permits(&self, command: &Command) -> bool {
+    pub fn permits(self, command: &Command) -> bool {
         match self {
             // The federation commands speak for a linked desk, which only
             // the link's own authenticated channel can name.
@@ -172,7 +172,7 @@ impl Seat {
         capabilities
     }
 
-    pub fn permits_sub(&self, target: &Target) -> bool {
+    pub fn permits_sub(self, target: &Target) -> bool {
         match self {
             Seat::Desk | Seat::Owner => true,
             Seat::Link => false,

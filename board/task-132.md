@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:52.292Z"
 relatedFiles:
   - crates/hotline-core/src/session/tests.rs
   - crates/hotline-core/src/session/tests/
-updatedAt: "2026-10-18T05:43:43.018Z"
+updatedAt: "2026-10-18T05:43:50.633Z"
 contract:
   status: delivered
   validation:
@@ -36,7 +36,12 @@ dispatch:
   by: cli
   at: "2026-10-18T05:43:42.878Z"
   until: done
-  tries: 2
+  tries: 3
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T05:43:50.633Z"
 assignee: claude
 ---
 

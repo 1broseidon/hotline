@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import type { Credential, CredentialKind, LoginPrompt, Provider, ProviderJob } from "../generated/contract";
 import { ChevronRightIcon } from "../icons";
 import { openLink } from "../native";
-import { Refusal } from "../ui/Refusal";
+import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { wire } from "../wire";
 import { CustomProviderForm } from "./CustomProviderForm";
+
+const SIGN_IN_FAILED = "Sign-in failed";
 
 /**
  * Connecting one provider, in place: the method when it offers more than
@@ -32,7 +34,7 @@ export function ConnectProvider({
 	const [method, setMethod] = useState<CredentialKind | null>(initial);
 	const [login, setLogin] = useState<LoginPrompt | null>(null);
 	const [busy, setBusy] = useState(false);
-	const [refusal, setRefusal] = useState<string | null>(null);
+	const [refusal, setRefusal] = useState<Refused | null>(null);
 	const attempt = useRef(0);
 	const finished = useRef(false);
 
@@ -63,7 +65,7 @@ export function ConnectProvider({
 			setLogin(prompt);
 		} catch (error) {
 			if (mine !== attempt.current) return;
-			setRefusal(error instanceof Error ? error.message : String(error));
+			setRefusal(refused(SIGN_IN_FAILED, error));
 			setBusy(false);
 			setMethod(initial === "oauth" ? null : initial);
 		}
@@ -99,7 +101,7 @@ export function ConnectProvider({
 						return;
 					}
 					if (status.state === "failed") {
-						setRefusal(status.error ?? "Sign-in failed.");
+						setRefusal(status.error === undefined ? { message: SIGN_IN_FAILED } : refused(SIGN_IN_FAILED, status.error));
 						setLogin(null);
 						setBusy(false);
 						setMethod(initial === "oauth" ? null : initial);
@@ -109,7 +111,7 @@ export function ConnectProvider({
 				})
 				.catch((error: Error) => {
 					if (cancelled) return;
-					setRefusal(error.message);
+					setRefusal(refused(SIGN_IN_FAILED, error));
 					setLogin(null);
 					setBusy(false);
 				});
@@ -142,7 +144,7 @@ export function ConnectProvider({
 		try {
 			await finish(await wire.command("credential.create", { providerId: provider.id, label: provider.name, secret }));
 		} catch (error) {
-			setRefusal(error instanceof Error ? error.message : String(error));
+			setRefusal(refused("Connection failed", error));
 			setBusy(false);
 		}
 	};
@@ -154,7 +156,7 @@ export function ConnectProvider({
 		try {
 			await finish(await wire.command("credential.connect_local", { baseUrl }));
 		} catch (error) {
-			setRefusal(error instanceof Error ? error.message : String(error));
+			setRefusal(refused("Connection failed", error));
 			setBusy(false);
 		}
 	};
@@ -223,7 +225,7 @@ export function ConnectProvider({
 					<p className="group-hint">{login?.userCode ? "Enter the code on that page." : "Finish signing in with your browser, then return here."}</p>
 				</section>
 			)}
-			{refusal !== null && <Refusal message={refusal} />}
+			{refusal !== null && <Refusal {...refusal} />}
 		</>
 	);
 }

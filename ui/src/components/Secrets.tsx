@@ -4,7 +4,7 @@ import { CloseIcon, PlusIcon, WarningIcon } from "../icons";
 import { BackKey, Band } from "../ui/Band";
 import { Chips } from "../ui/Chips";
 import { Fold } from "../ui/Fold";
-import { Refusal } from "../ui/Refusal";
+import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 
@@ -12,9 +12,8 @@ const NESTED = "group-row pl-7";
 /** What the desk asks of a value, said here before the desk has to. */
 const MIN_VALUE_CHARS = 8;
 
-function reason(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
+const UNREAD = "Couldn't read the keychain";
+const UNSAVED = "Couldn't store secret";
 
 /** What a secret is for, as its row says it: never a value. */
 function describe(secret: SharedSecret): string {
@@ -55,7 +54,7 @@ function describeShort(secret: SharedSecret): string {
  */
 export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }) {
 	const [stored, setStored] = useState<SharedSecret[] | null>(null);
-	const [refusal, setRefusal] = useState<string | null>(null);
+	const [refusal, setRefusal] = useState<Refused | null>(null);
 	// Which kind is being added, if one is.
 	const [adding, setAdding] = useState<SharedSecretKind | null>(null);
 	// The name being replaced, if one is.
@@ -67,7 +66,7 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 		void wire
 			.command("secrets.list", {})
 			.then(setStored)
-			.catch((error: unknown) => setRefusal(reason(error)));
+			.catch((error: unknown) => setRefusal(refused(UNREAD, error)));
 	}, []);
 
 	useEffect(() => {
@@ -88,7 +87,7 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 			close();
 			refresh();
 		} catch (error) {
-			setRefusal(reason(error));
+			setRefusal(refused(UNSAVED, error));
 		} finally {
 			setBusy(false);
 		}
@@ -102,7 +101,7 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 			close();
 			refresh();
 		} catch (error) {
-			setRefusal(reason(error));
+			setRefusal(refused(UNSAVED, error));
 		} finally {
 			setBusy(false);
 		}
@@ -116,7 +115,7 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 			close();
 			refresh();
 		} catch (error) {
-			setRefusal(reason(error));
+			setRefusal(refused("Couldn't remove secret", error));
 		} finally {
 			setBusy(false);
 		}
@@ -244,7 +243,7 @@ export function SecretsSection({ onBack }: { onBack?: (() => void) | undefined }
 							Kept in your keychain. Give one to a teammate's computer in its pane.
 						</p>
 					</section>
-					{refusal !== null && <Refusal message={refusal} />}
+					{refusal !== null && <Refusal {...refusal} />}
 				</div>
 			</Scroll>
 		</div>
@@ -462,7 +461,7 @@ export function ComputerSecrets({
 	onChange(granted: string[]): void;
 }) {
 	const [stored, setStored] = useState<SharedSecret[] | null>(null);
-	const [note, setNote] = useState<string | null>(null);
+	const [note, setNote] = useState<Refused | null>(null);
 
 	// Re-read whenever the ticks change from elsewhere — a passkey the room
 	// just stored and ticked shows as what it is, not as "not stored".
@@ -473,7 +472,7 @@ export function ComputerSecrets({
 		wire
 			.command("secrets.list", {})
 			.then((list) => !gone && setStored(list))
-			.catch((error: unknown) => !gone && setNote(reason(error)));
+			.catch((error: unknown) => !gone && setNote(refused(UNREAD, error)));
 		return () => {
 			gone = true;
 		};
@@ -490,11 +489,7 @@ export function ComputerSecrets({
 				Stored under Settings → Secrets. Tick what this computer may use; a passkey made for this teammate is ticked by itself.
 			</span>
 			{stored === null && note === null && <span className="group-row-detail">Reading the keychain…</span>}
-			{note !== null && (
-				<span className="group-row-detail text-danger" style={{ whiteSpace: "normal" }}>
-					{note}
-				</span>
-			)}
+			{note !== null && <Refusal {...note} />}
 			{stored !== null && names.length === 0 && <span className="group-row-detail">None stored yet.</span>}
 			{names.map((name) => {
 				const record = stored?.find((one) => one.name === name);

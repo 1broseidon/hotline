@@ -1,25 +1,36 @@
 import { useEffect, useState } from "react";
 import { appVersion, cancelUpdate, checkUpdate, installUpdate, openLink, updateStatus, watchUpdates, type UpdateStatus } from "../native";
-import { Refusal } from "../ui/Refusal";
+import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { Markdown } from "./Markdown";
 
 const RELEASES = "https://github.com/1Broseidon/hotline/releases/latest";
-const describe = (error: unknown) => error instanceof Error ? error.message : String(error);
+/**
+ * The updater's own commands refuse with a label and its detail already
+ * apart; anything else (a refusal from the shell, a plain sentence) is
+ * labelled here.
+ */
+function refusal(label: string, error: unknown): Refused {
+	if (typeof error === "object" && error !== null && !(error instanceof Error) && "message" in error && typeof error.message === "string") {
+		return "detail" in error && typeof error.detail === "string" ? { message: error.message, detail: error.detail } : { message: error.message };
+	}
+	return refused(label, error);
+}
+const STATUS_UNREAD = "Couldn't read update status";
 const mb = (bytes: number) => `${(bytes / 1_000_000).toFixed(1)} MB`;
 
 export function UpdatesSection() {
 	const [status, setStatus] = useState<UpdateStatus | null>(null);
-	const [error, setError] = useState<string | null>(null);
+	const [error, setError] = useState<Refused | null>(null);
 	const [pending, setPending] = useState(false);
-	useEffect(() => watchUpdates(setStatus, (error) => setError(describe(error))), []);
+	useEffect(() => watchUpdates(setStatus, (error) => setError(refusal(STATUS_UNREAD, error))), []);
 
-	const run = async (action: () => Promise<void>) => {
+	const run = async (label: string, action: () => Promise<void>) => {
 		setPending(true);
 		setError(null);
 		try { await action(); }
-		catch (error) { setError(describe(error)); }
+		catch (error) { setError(refusal(label, error)); }
 		finally {
-			try { setStatus(await updateStatus()); } catch (error) { setError(describe(error)); }
+			try { setStatus(await updateStatus()); } catch (error) { setError(refusal(STATUS_UNREAD, error)); }
 			setPending(false);
 		}
 	};
@@ -45,7 +56,7 @@ export function UpdatesSection() {
 				<div className="nt-fold-row">
 					<span className="nt-fold-title">Hotline {status?.current || appVersion()}</span>
 					<span className="nt-fold-value">{state}</span>
-					<button type="button" className="nt-fold-action" disabled={busy || !status || !!status.disabledReason} onClick={() => void run(checkUpdate)}>
+					<button type="button" className="nt-fold-action" disabled={busy || !status || !!status.disabledReason} onClick={() => void run("Update check failed", checkUpdate)}>
 						{phase === "checking" ? "Checking…" : "Check now"}
 					</button>
 				</div>
@@ -58,10 +69,10 @@ export function UpdatesSection() {
 						</div>}
 						{installing && <p className="text-sm text-ink-2" role="status">{phase === "restarting" ? "Restarting Hotline…" : "Installing… Complete any system permission prompt to continue."}</p>}
 						<div className="flex items-center gap-3">
-							<button type="button" className="control btn btn-primary nt-submit" disabled={busy || !!status?.disabledReason} onClick={() => void run(() => installUpdate(available.version))}>
+							<button type="button" className="control btn btn-primary nt-submit" disabled={busy || !!status?.disabledReason} onClick={() => void run("Update failed", () => installUpdate(available.version))}>
 								{installing ? "Updating…" : downloading ? "Downloading…" : "Update and restart"}
 							</button>
-							{downloading && <button type="button" className="control btn-quiet" onClick={() => void cancelUpdate().catch((error) => setError(describe(error)))}>Cancel</button>}
+							{downloading && <button type="button" className="control btn-quiet" onClick={() => void cancelUpdate().catch((error) => setError(refusal("Couldn't cancel download", error)))}>Cancel</button>}
 							<span className="min-w-0 flex-1 text-sm text-ink-3">Waits for teammates to finish. Nothing is lost.</span>
 						</div>
 					</div>
@@ -78,7 +89,7 @@ export function UpdatesSection() {
 					</button>
 				</div>
 			</div>
-			{problem && <Refusal message={problem} />}
+			{problem && <Refusal {...problem} />}
 		</section>
 	);
 }

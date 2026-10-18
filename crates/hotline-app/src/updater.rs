@@ -19,6 +19,8 @@ const INTERVAL: u64 = 6 * 60 * 60;
 const FIRST_CHECK: u64 = 20;
 const MAX_NOTES: usize = 16_000;
 const MAX_CACHE: u64 = 32_000;
+const CHECK_FAILED: &str = "Update check failed";
+const INSTALL_FAILED: &str = "Installation failed";
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -46,8 +48,43 @@ pub struct Status {
     phase: Phase,
     downloaded: u64,
     total: Option<u64>,
-    error: Option<String>,
+    error: Option<Problem>,
     disabled_reason: Option<String>,
+}
+
+/// What went wrong, as the window shows it: a few words of ours, and the
+/// words of whatever refused (the network, the package, the installer)
+/// behind its disclosure. A refusal that is already a sentence of ours has
+/// no detail.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct Problem {
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+impl Problem {
+    fn failed(label: &str, error: impl std::fmt::Display) -> Self {
+        Self {
+            message: label.into(),
+            detail: Some(error.to_string()),
+        }
+    }
+}
+
+impl From<String> for Problem {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            detail: None,
+        }
+    }
+}
+
+impl From<&str> for Problem {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -252,13 +289,13 @@ pub fn get_update_status(
 
 /// Caller serializes this with installation. Persist check attempts too, so an
 /// offline restart cannot hammer GitHub. A failed check retains the previous offer.
-async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option<Update>, String> {
+async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option<Update>, Problem> {
     state.enabled()?;
     state.change(app, |status| {
         status.phase = Phase::Checking;
         status.error = None;
     });
-    let result: Result<Option<Update>, String> = async {
+    let result: Result<Option<Update>, Problem> = async {
         let updater = app
             .updater_builder()
             .target(state.target.as_ref().ok_or("Unsupported installation.")?)
@@ -267,10 +304,11 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
                 newer(&current.to_string(), &release.version.to_string())
             })
             .build()
-            .map_err(|error| error.to_string())?;
-        let mut found = updater.check().await.map_err(|error| {
-            format!("Could not check for updates. Check your connection and try again. {error}")
-        })?;
+            .map_err(|error| Problem::failed(CHECK_FAILED, error))?;
+        let mut found = updater
+            .check()
+            .await
+            .map_err(|error| Problem::failed(CHECK_FAILED, error))?;
         if let Some(update) = &mut found {
             validate_update(update, state.target.as_deref().unwrap())?;
             update.timeout = Some(Duration::from_secs(15 * 60));
@@ -331,7 +369,7 @@ fn validate_update(update: &Update, target: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn check_update(window: tauri::WebviewWindow, app: AppHandle) -> Result<Status, String> {
+pub async fn check_update(window: tauri::WebviewWindow, app: AppHandle) -> Result<Status, Problem> {
     main_window(&window)?;
     let state = app.state::<Updates>();
     let _operation = state
@@ -361,7 +399,7 @@ pub async fn install_update(
     window: tauri::WebviewWindow,
     app: AppHandle,
     version: String,
-) -> Result<(), String> {
+) -> Result<(), Problem> {
     main_window(&window)?;
     let state = app.state::<Updates>();
     let _operation = state
@@ -379,7 +417,7 @@ pub async fn install_update(
     result
 }
 
-async fn install(app: &AppHandle, state: &Updates, version: &str) -> Result<(), String> {
+async fn install(app: &AppHandle, state: &Updates, version: &str) -> Result<(), Problem> {
     // Cached metadata is display-only. Recheck through the trusted endpoint,
     // and require the version the person actually reviewed.
     let update = check(app, state)
@@ -417,7 +455,7 @@ async fn install(app: &AppHandle, state: &Updates, version: &str) -> Result<(), 
     }
     state.change(app, |_| {});
     app.save_window_state(super::window_state_flags())
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| Problem::failed(INSTALL_FAILED, error))?;
     let app = app.clone();
     #[cfg(target_os = "linux")]
     let package = state
@@ -431,31 +469,32 @@ async fn install(app: &AppHandle, state: &Updates, version: &str) -> Result<(), 
         // plugin's PATH lookup and sudo fallbacks (see linux_package).
         #[cfg(target_os = "linux")]
         if let Some(package) = package {
-            super::linux_package::install(package, &bytes)?;
+            super::linux_package::install(package, &bytes)
+                .map_err(|error| Problem::failed(INSTALL_FAILED, error))?;
             app.state::<Updates>()
                 .change(&app, |status| status.phase = Phase::Restarting);
             app.restart();
         }
-        update.install(bytes).map_err(|error| {
-            format!("Installation failed. Hotline is still running; try again. {error}")
-        })?;
+        update
+            .install(bytes)
+            .map_err(|error| Problem::failed(INSTALL_FAILED, error))?;
         app.state::<Updates>()
             .change(&app, |status| status.phase = Phase::Restarting);
         app.restart();
     })
     .await
-    .map_err(|error| error.to_string())?
+    .map_err(|error| Problem::failed(INSTALL_FAILED, error))?
 }
 
 async fn download_verified(
     update: &Update,
     cancel: &CancellationToken,
     progress: impl FnMut(usize, Option<u64>),
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, Problem> {
     tokio::select! {
         biased;
         _ = cancel.cancelled() => Err("Download cancelled. Hotline has not been changed.".into()),
-        result = update.download(progress, || {}) => result.map_err(|error| format!("The update could not be downloaded or verified. Try again. {error}")),
+        result = update.download(progress, || {}) => result.map_err(|error| Problem::failed("Download failed", error)),
     }
 }
 
@@ -671,7 +710,7 @@ mod tests {
             assert_eq!(result.is_ok(), accepted, "{target} {file}");
             assert_eq!(state.status().available.is_some(), accepted);
             if let Err(error) = result {
-                assert!(error.contains("matching update package"));
+                assert!(error.message.contains("matching update package"));
             }
         }
     }
@@ -712,7 +751,10 @@ mod tests {
             state.lock().status.available = Some(previous.clone());
             assert!(check(app.handle(), &state).await.is_err());
             assert_eq!(state.status().available, Some(previous));
-            assert!(state.status().error.is_some());
+            // The label is ours; what the network said is only the detail.
+            let error = state.status().error.unwrap();
+            assert_eq!(error.message, CHECK_FAILED);
+            assert!(error.detail.is_some());
             assert_eq!(state.status().phase, Phase::Idle);
         }
     }
@@ -776,7 +818,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(result.unwrap_err().contains("cancelled"));
+        assert!(result.unwrap_err().message.contains("cancelled"));
         finish.send(()).unwrap();
         server.join().unwrap();
     }
@@ -791,6 +833,7 @@ mod tests {
                 .await
                 .err()
                 .unwrap()
+                .message
                 .contains("development")
         );
         assert!(!state.cache.exists());

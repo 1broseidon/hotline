@@ -1500,7 +1500,7 @@ mod tests {
         let options = options_from(&[], &[connected("groq")], &discovered);
         assert_eq!(options.stt.len(), 1);
         assert_eq!(options.stt[0].provider_id, "groq");
-        assert!(options.tts[0].provider_id == "groq");
+        assert_eq!(options.tts[0].provider_id, "groq");
     }
 
     #[test]

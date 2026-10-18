@@ -497,7 +497,7 @@ async fn an_existing_desktop_remains_viewable_and_is_not_recreated_after_restart
         )
         .await
         .unwrap();
-    assert!(ready.token == "fixture-persisted-token");
+    assert_eq!(ready.token, "fixture-persisted-token");
     let recorded = log_text(&root.join("argv.log"));
     assert!(
         !recorded.lines().any(|line| line.starts_with("rm ")

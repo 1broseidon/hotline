@@ -557,7 +557,7 @@ impl Mic {
     fn push(&mut self, pcm: &[u8]) {
         for pair in pcm.as_chunks::<2>().0 {
             let sample = i16::from_le_bytes(*pair);
-            let between = ((i32::from(self.last) + i32::from(sample)) / 2) as i16;
+            let between = i32::midpoint(i32::from(self.last), i32::from(sample)) as i16;
             self.samples.push_back(between);
             self.samples.push_back(sample);
             self.last = sample;

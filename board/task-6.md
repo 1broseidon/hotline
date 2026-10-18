@@ -25,7 +25,9 @@ description: |-
   Brainfile: toad-next/task-67 · Source file: `.brainfile/board/task-67.md` on the Linux desk (gitignored, local only)
 
   Migrated from Linear BRO-20: https://linear.app/1broseidon/issue/BRO-20/a-moved-data-directory-should-say-so-instead-of-asking-for-every-sign (2026-10-11).
-updatedAt: "2026-10-12T20:52:36.434Z"
+
+  Closed 2026-10-18 (backlog triage): Won't do (2026-10-11 review): the path-bound key is deliberate. Option (a), a 'data directory moved' message, is the cheap path if it's ever reopened.
+updatedAt: "2026-10-18T23:41:02.370Z"
 ---
 
 ## Log

@@ -1,7 +1,7 @@
 ---
 id: task-151
 title: "P2-42 (D): `result_large_err`: all 13 become `#[expect(…, reason)]`"
-column: in-progress
+column: review
 position: 1
 priority: high
 tags:
@@ -14,9 +14,9 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/wire/
   - crates/hotline-core/src/remote/bridge.rs
-updatedAt: "2026-10-18T10:00:25.640Z"
+updatedAt: "2026-10-18T10:02:29.337Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - "! git grep -n 'allow(clippy::result_large_err' -- crates"
@@ -27,8 +27,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T10:00:25.640Z"
     reworkCount: 1
-    deliveredAt: "2026-10-18T09:58:17.380Z"
-    duration: 543
+    deliveredAt: "2026-10-18T10:02:29.337Z"
+    duration: 124
 dependsOn:
   - task-150
 dispatch:

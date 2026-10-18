@@ -32,7 +32,7 @@ contract:
     reworkCount: 2
     deliveredAt: "2026-10-18T01:11:39.472Z"
     duration: 307
-updatedAt: "2026-10-18T01:11:39.472Z"
+updatedAt: "2026-10-18T01:11:43.835Z"
 dependsOn:
   - task-122
 dispatch:
@@ -47,6 +47,8 @@ dispatch:
     runner: cli
     pid: 59932
     at: "2026-10-18T01:06:05.806Z"
+    ended: "2026-10-18T01:11:43.835Z"
+    outcome: review
 assignee: claude
 ---
 

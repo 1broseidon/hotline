@@ -1,8 +1,6 @@
 ---
 id: task-24
 title: "Phone link: compress frames inside the sealed channel and resume from a cursor"
-column: backlog
-position: 9
 priority: medium
 tags:
   - improvement
@@ -22,7 +20,8 @@ description: |-
   Needs a native phone build too.
 
   Closed 2026-10-18 (backlog triage): Won't do until something shows the phone link is bandwidth-bound.
-updatedAt: "2026-10-18T23:41:06.514Z"
+updatedAt: "2026-10-18T23:41:07.042Z"
+completedAt: "2026-10-18T23:41:07.042Z"
 ---
 
 ## Log

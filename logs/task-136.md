@@ -1,8 +1,6 @@
 ---
 id: task-136
 title: "P2-27 (C): `driver/acp.rs` code"
-column: review
-position: 25
 priority: high
 tags:
   - phase2
@@ -15,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp/live.rs
   - crates/hotline-core/src/driver/acp/translate.rs
   - crates/hotline-core/src/driver/acp/session.rs
-updatedAt: "2026-10-18T04:54:58.827Z"
+updatedAt: "2026-10-18T05:14:54.598Z"
 contract:
   status: delivered
   validation:
@@ -44,7 +42,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T04:36:06.317Z"
+    ended: "2026-10-18T05:14:54.598Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T05:14:54.189Z"
 ---
 
 ## Description
@@ -61,3 +62,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T04:55:03.082Z: [claude] Done on branch dispatch/task-136 (commit bf4110d1, one move-only commit): driver/acp.rs 3182 → 990 lines; code moved unchanged into acp/oauth_proxy.rs (312), live.rs (430), translate.rs (~550, receive…usage_of, steer_lane, operator_*, text_block, file_uri) and session.rs (~920, second impl ChildAgent, connect, Raw*/Announced, initialize_request, granted_directories, capabilities_of, Disposition, apply_configs_to_session, choices_of). Per the plan, acp.rs keeps the process plumbing (pump_stderr, read/write_text_file, fail), lock and new_id. Children open with `use super::*` like auth.rs; acp.rs imports what it uses from them, and items used only by tests are imported in acp/tests.rs. Moved items/fields gained pub(super) only where the compiler needed it. Doc pointers updated: sessions.md (session/update → acp/session.rs, park_for_subagents → acp/live.rs), security.md:73 callback_workspace → acp/session.rs, mcp/server.rs comment. Left as is: the security.md test rows that still say `driver/acp.rs` for tests that live in acp/tests/* since task-135 (it's the same module). contract.ts byte-identical; make check and make precheck pass (7/7).
+- 2026-10-18T05:14:53.783Z: Landed on release/0.40.0

@@ -1,7 +1,7 @@
 ---
 id: task-131
 title: "P2-22a (C): `Room` constructors:"
-column: todo
+column: in-progress
 position: 20
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:40:51.759Z"
 relatedFiles:
   - crates/hotline-core/src/session.rs
   - crates/hotline-core/src/session/start.rs
-updatedAt: "2026-10-18T04:49:43.725Z"
+updatedAt: "2026-10-18T04:49:50.592Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - git diff --exit-code $(git merge-base HEAD release/0.40.0) -- ui/src/generated/contract.ts
@@ -23,6 +23,8 @@ contract:
       - make verify
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T04:49:50.592Z"
+    reworkCount: 0
 dependsOn:
   - task-130
 dispatch:

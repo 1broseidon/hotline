@@ -1,8 +1,8 @@
 ---
 id: task-132
 title: "P2-23 (C): `session/tests.rs`"
-column: review
-position: 21
+column: in-progress
+position: 2
 priority: high
 tags:
   - phase2
@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:52.292Z"
 relatedFiles:
   - crates/hotline-core/src/session/tests.rs
   - crates/hotline-core/src/session/tests/
-updatedAt: "2026-10-18T05:43:50.633Z"
+updatedAt: "2026-10-18T05:44:04.959Z"
 contract:
   status: delivered
   validation:

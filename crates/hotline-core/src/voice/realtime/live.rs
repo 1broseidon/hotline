@@ -230,7 +230,7 @@ impl GptLive {
     /// conversation so far when it replaces an earlier one.
     async fn place(&self, config: &RealtimeConfig, carry: &Carry) -> Result<Placed, SpeechError> {
         let who = self.identity().await?;
-        let peer = Peer::new().await.map_err(|_| self.unreachable())?;
+        let peer = Peer::new().await.map_err(|()| self.unreachable())?;
         let offer = match peer.offer().await {
             Ok(offer) => offer,
             Err(()) => {
@@ -820,13 +820,13 @@ impl Driver {
                 command = commands.recv() => Next::Command(command),
                 _ = pacer.tick() => Next::Packet,
                 read = sideband.next() => Next::Read(read),
-                _ = failed.notified() => Next::PeerFailed,
-                _ = sleep_until(self.renew_at), if !renewing => Next::Renew,
+                () = failed.notified() => Next::PeerFailed,
+                () = sleep_until(self.renew_at), if !renewing => Next::Renew,
                 placed = async { self.placing.as_mut().expect("guarded").await }, if self.placing.is_some() => {
                     self.placing = None;
                     Next::Placed(placed.unwrap_or(Err(SpeechError::Cancelled)))
                 }
-                _ = self.events.closed() => return Err(SpeechError::Cancelled),
+                () = self.events.closed() => return Err(SpeechError::Cancelled),
             };
             if self.held.is_some() && Instant::now() >= self.start_by {
                 self.release(sideband).await?;

@@ -198,7 +198,7 @@ impl Context {
                     }
                 };
                 let result = tokio::select! {
-                    _ = context.cancel.cancelled() => Err("The call ended before the handoff landed.".to_string()),
+                    () = context.cancel.cancelled() => Err("The call ended before the handoff landed.".to_string()),
                     result = tokio::time::timeout(std::time::Duration::from_secs(60), work) => result.unwrap_or_else(|_| Err("The teammate did not start in time.".into())),
                 };
                 if result.is_err()

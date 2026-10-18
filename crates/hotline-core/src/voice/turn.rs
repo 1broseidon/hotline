@@ -71,7 +71,7 @@ impl Calls {
     ) {
         let mut failures = 0u8;
         loop {
-            let next = tokio::select! { biased; _ = context.cancel.cancelled() => None, work = work.recv() => work };
+            let next = tokio::select! { biased; () = context.cancel.cancelled() => None, work = work.recv() => work };
             let Some(next) = next else {
                 break;
             };
@@ -101,8 +101,8 @@ impl Calls {
                 } => {
                     let receiver = lock(input).take().expect("one live consumer");
                     let transcribed = tokio::select! {
-                        _ = context.cancel.cancelled() => Ok(String::new()),
-                        _ = speech.cancelled() => Ok(String::new()),
+                        () = context.cancel.cancelled() => Ok(String::new()),
+                        () = speech.cancelled() => Ok(String::new()),
                         result = tokio::time::timeout(Duration::from_secs(50), stt.transcribe_live(receiver, 16_000)) =>
                             result.map_err(|_| "The live voice input timed out.".to_string()).and_then(|r| r.map_err(|e| e.to_string())),
                     };
@@ -256,8 +256,8 @@ impl Calls {
             ledger::stt_usd(&stt.id().provider_id, f64::from(billable_ms) / 1000.0),
         )?;
         let text = tokio::select! {
-            _ = context.cancel.cancelled() => return Ok(()),
-            _ = speech_cancel.cancelled() => return Ok(()),
+            () = context.cancel.cancelled() => return Ok(()),
+            () = speech_cancel.cancelled() => return Ok(()),
             text = stt.transcribe(clip) => text.map_err(|e| e.to_string())?,
         };
         if context.cancel.is_cancelled() {
@@ -356,7 +356,7 @@ impl Calls {
         let reply = Mutex::new(Reply::default());
         let consume = self.say_reply(id, &mut answers, &reply, speech_cancel, &context.cancel);
         tokio::select! {
-            _ = context.cancel.cancelled() => Ok(()),
+            () = context.cancel.cancelled() => Ok(()),
             result = async {
                 let (produced, spoken) = tokio::join!(produce, consume);
                 let kept = self.keep_reply(id, std::mem::take(&mut *lock(&reply)));
@@ -390,8 +390,8 @@ impl Calls {
         // Once accepted, this work is independent of the call's speech token.
         tokio::select! {
             biased;
-            _ = context.cancel.cancelled() => return Ok(()),
-            _ = speech_cancel.cancelled() => return Ok(()),
+            () = context.cancel.cancelled() => return Ok(()),
+            () = speech_cancel.cancelled() => return Ok(()),
             started = tokio::time::timeout(Duration::from_secs(60), room.start(target)) => {
                 started.map_err(|_| "The teammate did not start in time.".to_string())??;
             }
@@ -407,8 +407,8 @@ impl Calls {
         // accepted. Cancellation stops that wait, not an accepted turn.
         tokio::select! {
             biased;
-            _ = context.cancel.cancelled() => return Ok(()),
-            _ = speech_cancel.cancelled() => return Ok(()),
+            () = context.cancel.cancelled() => return Ok(()),
+            () = speech_cancel.cancelled() => return Ok(()),
             accepted = tokio::time::timeout(Duration::from_secs(60), prompt) => {
                 accepted.map_err(|_| "The teammate did not accept the instruction in time.".to_string())??;
             }
@@ -456,8 +456,8 @@ impl Calls {
     ) -> Result<(), String> {
         self.ready_for(id)?;
         let text = tokio::select! {
-            _ = context.cancel.cancelled() => return Ok(()),
-            _ = speech.cancelled() => { self.push(delivery, &delivery.text); return Ok(()); },
+            () = context.cancel.cancelled() => return Ok(()),
+            () = speech.cancelled() => { self.push(delivery, &delivery.text); return Ok(()); },
             text = self.summary(delivery) => text?,
         };
         if text.is_empty() {
@@ -531,9 +531,9 @@ impl Calls {
         let reply = Mutex::new(Reply::default());
         let say = self.say_reply(id, &mut said, &reply, speech, ended);
         let result = tokio::select! {
-            _ = speech.cancelled() => Ok(()),
-            _ = ended.cancelled() => Ok(()),
-            (_, said) = async { tokio::join!(split, say) } => said,
+            () = speech.cancelled() => Ok(()),
+            () = ended.cancelled() => Ok(()),
+            ((), said) = async { tokio::join!(split, say) } => said,
         };
         let _ = self.change(id, |call| {
             call.streams.remove(event);

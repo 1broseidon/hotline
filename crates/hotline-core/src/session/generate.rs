@@ -370,7 +370,7 @@ pub(super) fn read_workspace_image(
                     .map_err(|_| ())
             });
         inside
-            .map_err(|_| format!("{noun} must be inside your workspace."))?
+            .map_err(|()| format!("{noun} must be inside your workspace."))?
             .to_string_lossy()
             .into_owned()
     } else {

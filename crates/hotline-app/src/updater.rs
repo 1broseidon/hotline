@@ -493,7 +493,7 @@ async fn download_verified(
 ) -> Result<Vec<u8>, Problem> {
     tokio::select! {
         biased;
-        _ = cancel.cancelled() => Err("Download cancelled. Hotline has not been changed.".into()),
+        () = cancel.cancelled() => Err("Download cancelled. Hotline has not been changed.".into()),
         result = update.download(progress, || {}) => result.map_err(|error| Problem::failed("Download failed", error)),
     }
 }

@@ -219,7 +219,7 @@ impl Calls {
             every.tick().await;
             loop {
                 tokio::select! {
-                    _ = cancel.cancelled() => return,
+                    () = cancel.cancelled() => return,
                     _ = every.tick() => {}
                 }
                 let Some(this) = this.upgrade() else { return };
@@ -246,8 +246,8 @@ impl Calls {
         if let Some(call_cancel) = call_cancel {
             tokio::spawn(async move {
                 tokio::select! {
-                    _ = cancel.cancelled() => if let Some(this) = this.upgrade() { let _ = this.end(&id); },
-                    _ = call_cancel.cancelled() => {},
+                    () = cancel.cancelled() => if let Some(this) = this.upgrade() { let _ = this.end(&id); },
+                    () = call_cancel.cancelled() => {},
                 }
             });
         }

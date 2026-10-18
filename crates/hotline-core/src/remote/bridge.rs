@@ -135,7 +135,7 @@ impl Bridge {
             loop {
                 tokio::select! {
                     biased;
-                    _ = stopped.cancelled() => break,
+                    () = stopped.cancelled() => break,
                     _ = tasks.join_next(), if !tasks.is_empty() => {},
                     accepted = listener.accept() => {
                         let Ok((socket, peer)) = accepted else { break; };

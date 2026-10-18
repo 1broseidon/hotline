@@ -284,7 +284,7 @@ impl Access {
             "http" => "ws",
             _ => return Err(self.malformed()),
         };
-        url.set_scheme(scheme).map_err(|_| self.malformed())?;
+        url.set_scheme(scheme).map_err(|()| self.malformed())?;
         Ok(url)
     }
 
@@ -573,7 +573,7 @@ impl Xai {
                 event = self.event(&mut socket, &mut events) => {
                     let event = event?;
                     match event["type"].as_str() {
-                        Some("transcript.partial") => finalized.accept(&event).map_err(|_| self.access.malformed())?,
+                        Some("transcript.partial") => finalized.accept(&event).map_err(|()| self.access.malformed())?,
                         _ => return Err(self.access.malformed()),
                     }
                 }
@@ -591,11 +591,11 @@ impl Xai {
                 match event["type"].as_str() {
                     Some("transcript.partial") => finalized
                         .accept(&event)
-                        .map_err(|_| self.access.malformed())?,
+                        .map_err(|()| self.access.malformed())?,
                     Some("transcript.done") => {
                         return finalized
                             .finish(&event)
-                            .map_err(|_| self.access.malformed());
+                            .map_err(|()| self.access.malformed());
                     }
                     _ => return Err(self.access.malformed()),
                 }
@@ -807,7 +807,7 @@ impl Speech for Xai {
             return Err(SpeechError::Cancelled);
         }
         tokio::select! {
-            _ = output.closed() => Err(SpeechError::Cancelled),
+            () = output.closed() => Err(SpeechError::Cancelled),
             result = self.stream_speech(text, &output) => result,
         }
     }

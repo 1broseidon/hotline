@@ -3016,7 +3016,7 @@ impl Room {
         );
         let answer = tokio::select! {
             answered = receiver => answered.unwrap_or_else(|_| HumanAnswered::expired()),
-            _ = tokio::time::sleep(deadline) => {
+            () = tokio::time::sleep(deadline) => {
                 self.expire_human(&action_id);
                 HumanAnswered::expired()
             }

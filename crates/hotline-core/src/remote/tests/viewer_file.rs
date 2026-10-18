@@ -92,7 +92,7 @@ async fn file_service(
                 }
             }
         });
-        return Ok(response.map(|_| Full::new(Bytes::new())));
+        return Ok(response.map(|()| Full::new(Bytes::new())));
     }
     assert!(
         !query.contains_key("token"),

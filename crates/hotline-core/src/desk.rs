@@ -733,7 +733,7 @@ impl RoomHandle for Desk {
             };
             let result = tokio::select! {
                 biased;
-                _ = cancel.cancelled() => Err("Sign-in cancelled.".to_string()),
+                () = cancel.cancelled() => Err("Sign-in cancelled.".to_string()),
                 result = tokio::time::timeout(Duration::from_secs(10 * 60), authorize) =>
                     result.unwrap_or_else(|_| Err("Sign-in timed out. Try again.".to_string())),
             };
@@ -752,7 +752,7 @@ impl RoomHandle for Desk {
                 }
             },
             _ = &mut task => Err(self.login_error(&id)),
-            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+            () = tokio::time::sleep(Duration::from_secs(30)) => {
                 self.credential_login_cancel(&id)?;
                 Err("Timed out waiting for sign-in instructions.".to_string())
             }

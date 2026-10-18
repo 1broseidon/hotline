@@ -648,7 +648,7 @@ pub(super) async fn dial(base: &str, path: &str) -> Result<Socket, String> {
         .await
         .map_err(|_| "Could not open TLS to the desk.")?;
     let mut target = url.clone();
-    target.set_scheme("wss").map_err(|_| "Invalid desk URL.")?;
+    target.set_scheme("wss").map_err(|()| "Invalid desk URL.")?;
     let config = WebSocketConfig::default()
         .max_message_size(Some(65535))
         .max_frame_size(Some(65535));
@@ -803,8 +803,8 @@ impl Client {
         let stopped = cancel.clone();
         tokio::spawn(async move {
             tokio::select! {
-                _ = stopped.cancelled() => {},
-                _ = client.reconnect(desk, outgoing, incoming, state, relay, discovery) => {},
+                () = stopped.cancelled() => {},
+                () = client.reconnect(desk, outgoing, incoming, state, relay, discovery) => {},
             }
         });
         Session {
@@ -913,7 +913,7 @@ impl Client {
             tokio::pin!(sleep);
             loop {
                 tokio::select! {
-                    _ = &mut sleep => break,
+                    () = &mut sleep => break,
                     frame = outgoing.recv() => {
                         let Some(frame) = frame else { return; };
                         if let Ok(value) = serde_json::from_str::<Value>(&frame) {

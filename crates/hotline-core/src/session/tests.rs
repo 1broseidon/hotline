@@ -243,7 +243,7 @@ impl Driver for Scripted {
                     tokio::pin!(stop);
                     tokio::select! {
                         permit = gate.acquire() => { permit.expect("the gate closed").forget(); }
-                        _ = &mut stop => {
+                        () = &mut stop => {
                             for update in on_cancel {
                                 let _ = sender.send(update).await;
                             }

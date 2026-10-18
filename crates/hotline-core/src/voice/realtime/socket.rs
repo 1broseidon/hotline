@@ -376,8 +376,8 @@ impl Driver {
             let next = tokio::select! {
                 command = commands.recv() => Next::Command(command),
                 read = self.voice.read(socket) => Next::Read(read?),
-                _ = sleep_until(renew_at) => Next::Renew,
-                _ = self.events.closed() => return Err(SpeechError::Cancelled),
+                () = sleep_until(renew_at) => Next::Renew,
+                () = self.events.closed() => return Err(SpeechError::Cancelled),
             };
             match next {
                 Next::Command(None) => return Ok(()),

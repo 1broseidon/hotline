@@ -765,14 +765,14 @@ impl McpOAuthService {
         let deadline_at = Instant::now() + CALLBACK_DEADLINE;
         loop {
             tokio::select! {
-                _ = tokio::time::sleep_until(deadline_at) => {
+                () = tokio::time::sleep_until(deadline_at) => {
                     let mut state = login.state.lock().await;
                     if *state == OAuthLoginState::Pending {
                         *state = OAuthLoginState::Failed("MCP OAuth sign-in timed out.".to_string());
                     }
                     break;
                 }
-                _ = login.shutdown.cancelled() => break,
+                () = login.shutdown.cancelled() => break,
                 accepted = listener.accept() => {
                     let Ok((mut socket, _)) = accepted else { break; };
                     let request = read_callback_request(
@@ -1021,7 +1021,7 @@ async fn read_callback_request(
             .map_err(|error| format!("OAuth callback URL was invalid: {error}"))
     };
     tokio::select! {
-        _ = shutdown.cancelled() => Err("MCP OAuth callback listener was closed".to_string()),
+        () = shutdown.cancelled() => Err("MCP OAuth callback listener was closed".to_string()),
         result = tokio::time::timeout_at(deadline_at, read) => result
             .map_err(|_| "MCP OAuth callback request timed out".to_string())?,
     }

@@ -349,7 +349,7 @@ impl Calls {
             (Some(persona), Some(room)) => {
                 let reach = room.front_reach(persona);
                 let opened = tokio::select! {
-                    _ = cancel.cancelled() => return,
+                    () = cancel.cancelled() => return,
                     opened = FrontTools::open(Arc::downgrade(&room), &id, &persona.id, reach) => opened,
                 };
                 Some(Arc::new(opened))
@@ -383,7 +383,7 @@ impl Calls {
         };
         let bridge = bridge.with_desk_tools(desk_tools).with_delegation(mind);
         let opened = tokio::select! {
-            _ = cancel.cancelled() => return,
+            () = cancel.cancelled() => return,
             opened = realtime.open(config) => opened,
         };
         let session = match opened {
@@ -458,7 +458,7 @@ impl Calls {
         let (answered_tx, mut answered) = mpsc::unbounded_channel::<Delegated>();
         loop {
             let event = tokio::select! {
-                _ = cancel.cancelled() => return FrontEnd::Call,
+                () = cancel.cancelled() => return FrontEnd::Call,
                 _ = summaries.tick() => {
                     if let Some(teammate) = teammate.as_deref() {
                         // What is unanswered is still being answered; it is
@@ -566,7 +566,7 @@ impl Calls {
                     let cancel = cancel.clone();
                     tokio::spawn(async move {
                         let output = tokio::select! {
-                            _ = cancel.cancelled() => return,
+                            () = cancel.cancelled() => return,
                             output = tools.call(&name, &arguments) => output,
                         };
                         let _ = input.tool_result(&call_id, &output, true).await;
@@ -588,7 +588,7 @@ impl Calls {
                     let cancel = cancel.clone();
                     tokio::spawn(async move {
                         let delegated = tokio::select! {
-                            _ = cancel.cancelled() => return,
+                            () = cancel.cancelled() => return,
                             delegated = answer_delegation(
                                 assistant.as_ref(), &preamble, tools.dynamic(), ledger, call_id, arguments,
                             ) => delegated,

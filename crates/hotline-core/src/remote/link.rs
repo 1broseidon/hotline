@@ -289,7 +289,7 @@ impl Remote {
                 }
                 let opened = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
+                    () = cancel.cancelled() => return,
                     opened = remote.open_link(&desk_id) => opened,
                 };
                 match opened {
@@ -320,8 +320,8 @@ impl Remote {
                 tries = tries.saturating_add(1);
                 let jitter = 0.8 + (f64::from(Uuid::new_v4().as_bytes()[0]) / 255.0) * 0.4;
                 tokio::select! {
-                    _ = cancel.cancelled() => return,
-                    _ = tokio::time::sleep(wait.mul_f64(jitter)) => {}
+                    () = cancel.cancelled() => return,
+                    () = tokio::time::sleep(wait.mul_f64(jitter)) => {}
                 }
             }
         });
@@ -421,8 +421,8 @@ where
     };
     let established = tokio::select! {
         biased;
-        _ = cancel.cancelled() => return,
-        _ = seat.expired(deadline) => return,
+        () = cancel.cancelled() => return,
+        () = seat.expired(deadline) => return,
         result = handshake => result,
     };
     let Some((channel, desk_id, link, _seated)) = established else {
@@ -436,9 +436,9 @@ where
     };
     let watch = tokio::spawn(async move {
         tokio::select! {
-            _ = cancel.cancelled() => {},
-            _ = relayed.cancelled() => {},
-            _ = ended.cancelled() => {},
+            () = cancel.cancelled() => {},
+            () = relayed.cancelled() => {},
+            () = ended.cancelled() => {},
         }
         ended.cancel();
     });
@@ -490,7 +490,7 @@ async fn session<S>(
         let mut frames = Vec::new();
         tokio::select! {
             biased;
-            _ = cancel.cancelled() => break None,
+            () = cancel.cancelled() => break None,
             _ = roster.tick() => frames.extend(publish(&mut next)),
             call = waiting.recv() => {
                 let Some(call) = call else { break None };
@@ -519,8 +519,8 @@ async fn session<S>(
                             throttled = true;
                         }
                         tokio::select! {
-                            _ = cancel.cancelled() => break None,
-                            _ = tokio::time::sleep(wait) => {}
+                            () = cancel.cancelled() => break None,
+                            () = tokio::time::sleep(wait) => {}
                         }
                     } else {
                         throttled = false;

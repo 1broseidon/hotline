@@ -2421,7 +2421,7 @@ pub enum ThreadKind {
 
 /// Which thread: its kind and the key its stream is named by. A teammate's id
 /// for a DM, the minted id for a side thread, run or call, and the pair key
-/// (see [`crate::paths::thread_key`]) for a pair.
+/// (see `paths::thread_key`) for a pair.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "contract.ts")]
 pub struct ThreadId {

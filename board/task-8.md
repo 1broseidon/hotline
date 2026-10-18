@@ -32,5 +32,8 @@ description: |-
   * A genuinely revoked token still gets "Provider sign-in required".
 
   Migrated from Linear BRO-126: https://linear.app/1broseidon/issue/BRO-126/a-provider-refusing-turns-shouldnt-read-as-sign-in-again-when-the-sign (2026-10-11).
-updatedAt: "2026-10-14T20:05:33.107Z"
+
+  0.40 triage (2026-10-18): In scope as is: the wording plus a one-off discovery probe. driver/failure.rs:273-275 still says 'Provider sign-in required… Check its credentials' for every Kind::Auth. Probe providers/chatgpt.rs list_models_at once per failure, cache the verdict briefly, and say 'ChatGPT is refusing requests' (or the provider's name) when the sign-in still lists models.
+updatedAt: "2026-10-18T23:40:45.819Z"
+parentId: epic-14
 ---

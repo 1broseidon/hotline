@@ -558,7 +558,7 @@ fn start() -> Result<(), String> {
             // dropping the desk, so no agent's driver gets to kill its child.
             // A launcher that ignores its closed stdin would be left running
             // under pid 1, so every agent's process group is killed here.
-            if let tauri::RunEvent::Exit = event {
+            if matches!(event, tauri::RunEvent::Exit) {
                 hotline_core::driver::acp::end_every_agent();
             }
             #[cfg(target_os = "macos")]

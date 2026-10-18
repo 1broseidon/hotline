@@ -360,7 +360,7 @@ pub(super) async fn sealed_session<S>(
         let size = noise.read_message(&first, &mut payload).ok()?;
         let public = noise.get_remote_static()?.to_vec();
         let mut desk = None;
-        let (phone, answer) = if let Purpose::Pair = purpose {
+        let (phone, answer) = if matches!(purpose, Purpose::Pair) {
             let answer = match remote.claim_v2(&public, &payload[..size]).ok()? {
                 super::v2::Claimed::Granted(role) => json!({
                     "role": role,

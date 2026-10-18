@@ -240,12 +240,11 @@ mod tests {
         };
         assert_eq!(first, (OsString::from("/from/the/shell"), false));
 
-        // The next one takes it from the room: a shell that would hang is never waited on.
+        // The next one takes it from the room: a shell that would hang is never
+        // waited on, which `true` (known, not asked) proves.
         std::fs::write(&shell, "#!/bin/sh\nwhile :; do :; done\n").unwrap();
-        let started = Instant::now();
         let second = recovered_path(root.path(), shell.as_os_str(), Duration::from_secs(5));
         assert_eq!(second, (OsString::from("/from/the/shell"), true));
-        assert!(started.elapsed() < Duration::from_secs(1));
     }
 
     #[test]

@@ -319,10 +319,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs bubblewrap"]
     fn a_path_program_does_not_expose_its_neighbors_or_symlink_target_directory() {
-        if super::super::tests::skip_without_sandbox() {
-            return;
-        }
+        super::super::tests::require_sandbox();
         let root = super::super::tests::TestDirectory::new();
         let workspace = root.path().join("workspace");
         let bin = root.path().join("bin");
@@ -358,10 +357,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs bubblewrap"]
     fn home_toolchains_are_read_only_and_do_not_expose_credentials() {
-        if super::super::tests::skip_without_sandbox() {
-            return;
-        }
+        super::super::tests::require_sandbox();
         let root = super::super::tests::TestDirectory::new();
         let home = root.path().join("host-home");
         let workspace = root.path().join("workspace");
@@ -410,10 +408,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs bubblewrap"]
     fn granted_folders_are_open_to_the_shell_as_granted() {
-        if super::super::tests::skip_without_sandbox() {
-            return;
-        }
+        super::super::tests::require_sandbox();
         let root = super::super::tests::TestDirectory::new();
         let [workspace, read_only, writable, outside] =
             ["workspace", "read", "write", "outside"].map(|name| root.path().join(name));

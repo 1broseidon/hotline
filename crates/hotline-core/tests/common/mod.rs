@@ -42,6 +42,18 @@ pub fn open_vault(root: &Path, log: Log) -> io::Result<Vault> {
 #[cfg(unix)]
 pub mod stalled;
 
+/// Fails the test by name when `tool` cannot be started here. A harness whose
+/// command runs an interpreter would otherwise time out waiting on what the
+/// command was meant to do, and say nothing about the interpreter.
+#[allow(dead_code)]
+pub fn require(tool: &str) {
+    let ran = std::process::Command::new(tool).arg("--version").output();
+    assert!(
+        ran.is_ok_and(|output| output.status.success()),
+        "needs {tool}: it is not on PATH or does not run"
+    );
+}
+
 /// Stands in for the system's link opener, so a teammate's `open_link` in a
 /// harness opens no tab on the machine running it. The opener the core runs
 /// (`open`, or `xdg-open`) is found on `PATH`; a script by that name goes

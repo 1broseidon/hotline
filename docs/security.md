@@ -257,8 +257,8 @@ Proofs: `wire::tests::the_desks_speech_models_are_the_owners_through_the_real_ha
 the headless `tests/local_speech.rs::a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`;
 `voice::speech::local::tests` for what counts as installed, a damaged model
 refused before loading and a click heard as nothing; `voice::ledger::tests::the_desks_own_hearing_costs_nothing_batch_or_live`.
-`a_real_model_installs_and_hears_what_was_said` runs a real model when
-`HOTLINE_TEST_SPEECH_MODEL` names one.
+`a_real_model_installs_and_hears_what_was_said` runs a real model with
+`--ignored` when `HOTLINE_TEST_SPEECH_MODEL` names one.
 
 ## Generated images (BRO-174)
 

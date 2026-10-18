@@ -574,8 +574,9 @@ processes and `/proc`, clean environment, persistent private home, standalone
 PATH tools, installed Python/Node/Go/Rust, and cancellation. The desk harness
 switches reach over the wire and checks the real shell and read tool against
 another project's `.env` and checks the live session's tool ledger. Linux tests
-require working bubblewrap; macOS isolation tests fail rather than skip if
-Seatbelt cannot enforce the policy. Mac-specific tests exercise hostile home
+are ignored unless run with `--ignored`, and then fail by name without working
+bubblewrap; macOS isolation tests always run, and fail if Seatbelt cannot
+enforce the policy. Mac-specific tests exercise hostile home
 and scratch symlinks, shared temporary files, helper services, Unix sockets,
 and missing or ineffective launchers. The explicit network smoke tests
 (`cargo test --workspace tools::shell::macos::tests -- --ignored`) additionally

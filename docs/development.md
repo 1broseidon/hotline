@@ -185,8 +185,9 @@ How the less obvious legs work:
   to the tests that check a process group died), with every test binary
   run even after one fails. The container's masked `/proc` paths are
   cleared so bubblewrap can mount its own: the workspace shell's sandbox
-  tests run here, where ci.yml's Linux job, without the AppArmor grant
-  workspace-isolation.yml adds, skips them.
+  tests, ignored on Linux unless asked for, run here with `--ignored`, as
+  in workspace-isolation.yml; ci.yml's Linux job, without the AppArmor
+  grant, reports them ignored.
   The container is arm64, this Mac's own architecture, where the runner
   is x86_64: code that differs by architecture rather than by operating
   system is the one thing this leg does not see. `container volume rm`
@@ -632,16 +633,17 @@ the test suite.
 
 Most of `desk.rs` needs no provider key: it creates a teammate, watches
 the roster view, lists models, adds a credential, lists and marks a peer
-thread, and so on. The tests that need a real agent are skipped without
-their env. One starts a Hotline Agent turn with a real key, has it read a
-file, and checks the tape; it runs when `HOTLINE_HARNESS_ANTHROPIC_KEY` is
-set. The others are the same proof for the other kind of agent: set
-`HOTLINE_HARNESS_ACP` to a backend id this machine can run (`cursor`, say)
-and they drive a real harness as a child, including a line sent mid-turn.
+thread, and so on. The tests that need a real agent are ignored, and run
+with `--ignored`, failing by name when their env is missing. One starts a
+Hotline Agent turn with a real key in `HOTLINE_HARNESS_ANTHROPIC_KEY`, has it
+read a file, and checks the tape. The others are the same proof for the
+other kind of agent: set `HOTLINE_HARNESS_ACP` to a backend id this machine
+can run (`cursor`, say) and they drive a real harness as a child, including
+a line sent mid-turn.
 
 ```bash
-HOTLINE_HARNESS_ANTHROPIC_KEY=… make verify
-HOTLINE_HARNESS_ACP=cursor make verify
+HOTLINE_HARNESS_ANTHROPIC_KEY=… cargo test -p hotline-core --test desk -- --ignored a_turn_with_a_real_key
+HOTLINE_HARNESS_ACP=cursor cargo test -p hotline-core --test desk -- --ignored real_acp_harness
 ```
 
 A harness that wants state in a stream asks the core over the wire, or

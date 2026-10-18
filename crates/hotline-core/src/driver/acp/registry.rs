@@ -212,7 +212,7 @@ const ADAPTED: &[Adapted] = &[
 /// How long Hotline leaves the catalogue alone after trying for it, whether
 /// or not it got it. Without this a machine that is offline pays the whole
 /// fetch timeout on every list the picker or the welcome asks for.
-const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
+const RETRY_AFTER: Duration = Duration::from_mins(10);
 
 /// When each room last went after its catalogue, for [`RETRY_AFTER`].
 static LAST_TRIED: Mutex<Vec<(PathBuf, Instant)>> = Mutex::new(Vec::new());
@@ -520,9 +520,8 @@ fn platform() -> Option<String> {
         "windows" => "windows",
         _ => return None,
     };
-    let arch = match std::env::consts::ARCH {
-        arch @ ("x86_64" | "aarch64") => arch,
-        _ => return None,
+    let arch @ ("x86_64" | "aarch64") = std::env::consts::ARCH else {
+        return None;
     };
     Some(format!("{os}-{arch}"))
 }
@@ -878,7 +877,7 @@ mod tests {
                 native
                     .args
                     .iter()
-                    .map(|a| a.to_string())
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
             );
         }

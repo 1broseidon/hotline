@@ -36,14 +36,12 @@ impl ChildAgent {
         #[cfg(windows)]
         let job = crate::process_windows::Job::attach(child.id())
             .map_err(|error| format!("Could not contain the agent process tree: {error}"))?;
-        let (stdin, stdout, stderr) =
-            match (child.stdin.take(), child.stdout.take(), child.stderr.take()) {
-                (Some(stdin), Some(stdout), Some(stderr)) => (stdin, stdout, stderr),
-                _ => {
-                    end_group(&child);
-                    return Err(format!("{} gave no pipes to speak over.", launch.command));
-                }
-            };
+        let (Some(stdin), Some(stdout), Some(stderr)) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        else {
+            end_group(&child);
+            return Err(format!("{} gave no pipes to speak over.", launch.command));
+        };
         pump_stderr(self.live.clone(), stderr);
         *lock(&self.child) = Some(child);
         #[cfg(windows)]
@@ -140,7 +138,7 @@ impl ChildAgent {
         };
         self.check_capability()?;
 
-        *lock(&self.live.auth_methods) = initialized.auth_methods.clone();
+        lock(&self.live.auth_methods).clone_from(&initialized.auth_methods);
         *lock(&self.live.startup_failure) = None;
         let capabilities = capabilities_of(&initialized);
         self.live
@@ -388,7 +386,7 @@ impl ChildAgent {
                 McpTransport::Http { url, auth } => {
                     let proxies = lock(&self.oauth_proxies);
                     let proxy = proxies.get(&server.id);
-                    let proxy_url = proxy.map(|proxy| proxy.url.as_str()).unwrap_or(url);
+                    let proxy_url = proxy.map_or(url.as_str(), |proxy| proxy.url.as_str());
                     let http = acp::McpServerHttp::new(&server.name, proxy_url);
                     acp::McpServer::Http(match auth {
                         HttpAuth::Oauth
@@ -863,11 +861,13 @@ impl Disposition {
                 }
                 // Hotline has no stable UI contract for model sub-options or
                 // arbitrary ACP settings. They remain harness-owned.
-                Some(acp::SessionConfigOptionCategory::Mode)
-                | Some(acp::SessionConfigOptionCategory::ModelConfig)
-                | None
-                | Some(acp::SessionConfigOptionCategory::Other(_))
-                | Some(_) => {}
+                Some(
+                    acp::SessionConfigOptionCategory::Mode
+                    | acp::SessionConfigOptionCategory::ModelConfig
+                    | acp::SessionConfigOptionCategory::Other(_)
+                    | _,
+                )
+                | None => {}
             }
         }
         disposition

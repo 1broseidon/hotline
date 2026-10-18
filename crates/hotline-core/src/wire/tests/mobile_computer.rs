@@ -52,7 +52,7 @@ fn mobile_persona_computer_contract_distinguishes_absent_null_and_number() {
     };
     assert_eq!(
         json!(capacity),
-        json!({"runtime":null,"cpus":2,"memoryBytes":4294967296_u64,"source":"default"})
+        json!({"runtime":null,"cpus":2,"memoryBytes":4_294_967_296_u64,"source":"default"})
     );
 }
 
@@ -162,7 +162,7 @@ async fn mobile_persona_computer_validates_limits_atomically_against_fake_capaci
         assert_eq!(answer["ok"], true, "{answer}");
         assert_eq!(
             answer["result"],
-            json!({"runtime":"podman","cpus":8,"memoryBytes":17179869184_u64,"source":"runtime"})
+            json!({"runtime":"podman","cpus":8,"memoryBytes":17_179_869_184_u64,"source":"runtime"})
         );
     }
     let empty = remote_control_answer(
@@ -239,5 +239,5 @@ async fn mobile_persona_computer_validates_limits_atomically_against_fake_capaci
                 .contains("CPUs")
         );
     }
-    assert!(quiet.reattached().is_empty());
+    assert_eq!(quiet.reattached(), [] as [String; 0]);
 }

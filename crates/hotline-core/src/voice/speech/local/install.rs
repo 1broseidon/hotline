@@ -346,7 +346,7 @@ async fn download(
     let unreachable =
         |_| "The model could not be downloaded. Check the connection and try again.".to_string();
     let response = tokio::select! {
-        _ = cancel.cancelled() => return Err("Cancelled.".into()),
+        () = cancel.cancelled() => return Err("Cancelled.".into()),
         response = client.get(&model.url).send() => response.map_err(unreachable)?,
     };
     if !response.status().is_success() {
@@ -363,7 +363,7 @@ async fn download(
     let mut count: u64 = 0;
     loop {
         let chunk = tokio::select! {
-            _ = cancel.cancelled() => return Err("Cancelled.".into()),
+            () = cancel.cancelled() => return Err("Cancelled.".into()),
             chunk = body.next() => chunk,
         };
         let Some(chunk) = chunk else { break };

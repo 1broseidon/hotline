@@ -216,14 +216,14 @@ impl Calls {
         let sentence = &spoken::speech_text(sentence);
         if streaming {
             return tokio::select! {
-                _ = interrupted.cancelled() => Ok(()),
-                _ = ended.cancelled() => Ok(()),
+                () = interrupted.cancelled() => Ok(()),
+                () = ended.cancelled() => Ok(()),
                 result = self.synthesize_stream(id, line, speech, sentence, index, last, interrupted) => result,
             };
         }
         let clip = tokio::select! {
-            _ = interrupted.cancelled() => return Ok(()),
-            _ = ended.cancelled() => return Ok(()),
+            () = interrupted.cancelled() => return Ok(()),
+            () = ended.cancelled() => return Ok(()),
             clip = self.synthesize(speech, sentence) => clip?,
         };
         // A hold/interrupt can arrive at the same time as the provider.

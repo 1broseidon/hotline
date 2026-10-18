@@ -48,8 +48,10 @@ fn client_version(installed: Option<&str>) -> String {
     installed
         .and_then(release)
         .filter(|found| Some(*found) > release(CLIENT_VERSION_FLOOR))
-        .map(|(major, minor, patch)| format!("{major}.{minor}.{patch}"))
-        .unwrap_or_else(|| CLIENT_VERSION_FLOOR.to_string())
+        .map_or_else(
+            || CLIENT_VERSION_FLOOR.to_string(),
+            |(major, minor, patch)| format!("{major}.{minor}.{patch}"),
+        )
 }
 
 /// `major.minor.patch` out of `codex --version`'s line (`codex-cli 0.159.0`),
@@ -163,7 +165,7 @@ mod tests {
     fn only_listed_api_models_are_offered_with_their_names_and_windows() {
         let body = json!({"models": [
             {"slug": "gpt-6-sol", "display_name": "GPT-6-Sol", "visibility": "list",
-             "supported_in_api": true, "context_window": 272000, "shell_type": "unified_exec"},
+             "supported_in_api": true, "context_window": 272_000, "shell_type": "unified_exec"},
             {"slug": "gpt-reserve", "visibility": "hide", "supported_in_api": true},
             {"slug": "app-only", "visibility": "list", "supported_in_api": false},
             {"slug": "gpt-5.5", "visibility": "list"},
@@ -182,7 +184,7 @@ mod tests {
                 ListedModel {
                     id: "gpt-6-sol".into(),
                     name: Some("GPT-6-Sol".into()),
-                    context_limit: Some(272000),
+                    context_limit: Some(272_000),
                     output_limit: None,
                 },
             ]

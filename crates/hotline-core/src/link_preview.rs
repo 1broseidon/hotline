@@ -19,7 +19,7 @@ use url::Url;
 const TIMEOUT: Duration = Duration::from_secs(6);
 /// A page is read only as far as this for its head.
 const MAX_BYTES: usize = 2 * 1024 * 1024;
-const RETRY_EMPTY: Duration = Duration::from_secs(6 * 60 * 60);
+const RETRY_EMPTY: Duration = Duration::from_hours(6);
 const KEEP: usize = 300;
 /// A name that will not resolve is no card, and nobody waits on a resolver
 /// for longer than the page itself is given.

@@ -96,7 +96,7 @@ impl speech::Speech for Fake {
         assert_eq!(sample_rate, 16_000);
         self.transcriptions.fetch_add(1, Ordering::SeqCst);
         while let Some(bytes) = input.recv().await {
-            assert!(!bytes.is_empty());
+            assert_ne!(bytes, [] as [u8; 0]);
             self.live_chunks.fetch_add(1, Ordering::SeqCst);
         }
         Ok(lock(&self.transcript).clone())

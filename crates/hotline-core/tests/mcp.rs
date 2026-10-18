@@ -12,6 +12,7 @@ use hotline_core::log::{Log, StreamId};
 use hotline_core::mcp::{self, McpServer, McpTransport};
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -193,7 +194,7 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
     assert_eq!(shout["source"], "mcp");
     assert_eq!(shout["origin"], "echo");
     assert_eq!(shout["state"], "verified");
-    assert!(!shout["reason"].as_str().unwrap().is_empty());
+    assert_ne!(shout["reason"].as_str().unwrap(), "");
     assert!(
         rows.iter().any(|row| row["name"] == "read"
             && row["source"] == "builtin"
@@ -209,7 +210,7 @@ async fn a_granted_server_lists_its_tool_as_verified_and_a_scripted_call_reaches
             transport: McpTransport::Stdio {
                 command: echo_command(),
                 args: Vec::new(),
-                env: Default::default(),
+                env: HashMap::default(),
             },
             refuse: None,
         }],
@@ -339,7 +340,7 @@ async fn hotline_agent_gets_hotlines_own_tools() {
         assert_eq!(row["source"], "builtin");
         assert_eq!(row["origin"], "hotline");
         assert_eq!(row["state"], "verified");
-        assert!(!row["reason"].as_str().unwrap().is_empty());
+        assert_ne!(row["reason"].as_str().unwrap(), "");
     }
 }
 
@@ -419,7 +420,7 @@ async fn a_new_teammate_gets_no_gateway_tools_even_with_machine_reach() {
         .await;
     assert_eq!(started["ok"], true, "{started}");
 
-    assert!(mcp_tools(&mut client, &persona_id).await.is_empty());
+    assert_eq!(mcp_tools(&mut client, &persona_id).await, [] as [String; 0]);
 
     let patched = client
         .call(
@@ -428,7 +429,7 @@ async fn a_new_teammate_gets_no_gateway_tools_even_with_machine_reach() {
         )
         .await;
     assert_eq!(patched["ok"], true, "{patched}");
-    assert!(mcp_tools(&mut client, &persona_id).await.is_empty());
+    assert_eq!(mcp_tools(&mut client, &persona_id).await, [] as [String; 0]);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -454,7 +455,7 @@ async fn gateway_access_is_explicit_and_changes_rebuild_the_live_tools() {
         )
         .await;
     assert_eq!(updated["ok"], true, "{updated}");
-    assert!(mcp_tools(&mut client, &persona_id).await.is_empty());
+    assert_eq!(mcp_tools(&mut client, &persona_id).await, [] as [String; 0]);
 
     set_policy(&mut client, &persona_id, "some", &["echo"]).await;
     assert_eq!(mcp_tools(&mut client, &persona_id).await, ["echo__shout"]);
@@ -495,7 +496,7 @@ async fn gateway_access_is_explicit_and_changes_rebuild_the_live_tools() {
 
     // Retained selections are dormant while access is off.
     set_policy(&mut client, &persona_id, "none", &["echo"]).await;
-    assert!(mcp_tools(&mut client, &persona_id).await.is_empty());
+    assert_eq!(mcp_tools(&mut client, &persona_id).await, [] as [String; 0]);
     set_policy(&mut client, &persona_id, "some", &["echo"]).await;
     assert_eq!(mcp_tools(&mut client, &persona_id).await, ["echo__shout"]);
 }
@@ -549,7 +550,7 @@ async fn a_server_that_fails_to_start_is_absent_with_the_error_as_its_reason() {
         .expect("the failed server is on the ledger");
     assert_eq!(gone["source"], "mcp");
     assert_eq!(gone["state"], "absent");
-    assert!(!gone["reason"].as_str().unwrap().is_empty());
+    assert_ne!(gone["reason"].as_str().unwrap(), "");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -635,7 +636,7 @@ async fn a_stdio_child_dropped_after_the_first_call_says_so_once() {
             transport: McpTransport::Stdio {
                 command: echo_command(),
                 args: Vec::new(),
-                env: Default::default(),
+                env: HashMap::default(),
             },
             refuse: None,
         }],
@@ -745,6 +746,5 @@ fn alive(pid: &str) -> bool {
         .args(["-0", pid])
         .stderr(std::process::Stdio::null())
         .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+        .is_ok_and(|status| status.success())
 }

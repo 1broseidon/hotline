@@ -205,7 +205,7 @@ async fn check_clip(
         let ledger: Value =
             serde_json::from_slice(&std::fs::read(root.path().join("voice-ledger.json")).unwrap())
                 .unwrap();
-        let expected = hotline_core::voice::ledger::stt_usd("test", billed as f64 / 1000.0);
+        let expected = hotline_core::voice::ledger::stt_usd("test", f64::from(billed) / 1000.0);
         assert!((ledger["daySpend"]["stt"].as_f64().unwrap() - expected).abs() < 1e-9);
     }
     socket.close(None).await.unwrap();

@@ -309,7 +309,7 @@ async fn exa_with_nothing_matched_is_an_empty_success() {
         .search(&Request::plain("zzz", 5))
         .await
         .unwrap();
-    assert!(hits.is_empty());
+    assert_eq!(hits, [] as [Hit; 0]);
 }
 
 #[tokio::test]
@@ -683,7 +683,7 @@ fn a_rate_limit_rests_a_provider_a_minute_or_what_it_asked_and_a_timeout_a_littl
     assert_eq!(asked.cooldown(), Some(Duration::from_secs(90)));
     // Firecrawl says it in the body, and no one is left alone for a day.
     let body = Failure::status("firecrawl", 429, r#"{"retry_after_seconds":76207}"#, false);
-    assert_eq!(body.cooldown(), Some(Duration::from_secs(15 * 60)));
+    assert_eq!(body.cooldown(), Some(Duration::from_mins(15)));
     assert_eq!(
         Failure::status("exa", 503, "", false).cooldown(),
         Some(Duration::from_secs(20))
@@ -1247,9 +1247,15 @@ fn a_teammates_some_narrows_the_chain_and_none_empties_it() {
         vec![P::Parallel, P::Firecrawl]
     );
     let none = policy(PolicyMode::None, &[P::Exa]);
-    assert!(effective_chain(&set(&[]), Some(&none)).is_empty());
+    assert_eq!(
+        effective_chain(&set(&[]), Some(&none)),
+        [] as [WebSearchProvider; 0]
+    );
     let nothing_named = policy(PolicyMode::Some, &[]);
-    assert!(effective_chain(&set(&[]), Some(&nothing_named)).is_empty());
+    assert_eq!(
+        effective_chain(&set(&[]), Some(&nothing_named)),
+        [] as [WebSearchProvider; 0]
+    );
 }
 
 #[test]

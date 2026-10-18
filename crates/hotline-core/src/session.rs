@@ -93,6 +93,7 @@ use jobs::Processes;
 use quiet::QuietWindow;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
@@ -131,7 +132,7 @@ const BUSY_RECHECK_MS: i64 = 10 * 60_000;
 
 /// How long a `request_human` card waits for the person. Tests pass a
 /// shorter deadline; the tool uses this.
-pub const HUMAN_DEADLINE: Duration = Duration::from_secs(10 * 60);
+pub const HUMAN_DEADLINE: Duration = Duration::from_mins(10);
 
 /// How long a `request_human` card that delivers stays up unanswered before
 /// it is expired and the teammate told.
@@ -781,8 +782,8 @@ impl Room {
             answering_later: Mutex::new(()),
             links: Arc::default(),
             exchange_lock: Mutex::new(()),
-            exchange_workers: Mutex::new(Default::default()),
-            exchange_leases: Mutex::new(Default::default()),
+            exchange_workers: Mutex::new(HashSet::default()),
+            exchange_leases: Mutex::new(HashMap::default()),
             computer_leases: crate::computer::gate::Leases::new(),
             push,
             computers,
@@ -1001,7 +1002,7 @@ impl Room {
         }
         info.agent_name = Some(reported.agent_name);
         info.agent_version = reported.agent_version;
-        info.session_id = reported.session_id.clone();
+        info.session_id.clone_from(&reported.session_id);
         info.context_restored = reported.context_restored;
         info.models = reported.models;
         info.current_model_id = Some(reported.current_model_id);
@@ -1026,7 +1027,7 @@ impl Room {
             pending_scheduled: Mutex::new(None),
             unread: Mutex::new(Vec::new()),
             voice_origin: Mutex::new(None),
-            dispatched_deliveries: Mutex::new(Default::default()),
+            dispatched_deliveries: Mutex::new(HashSet::default()),
             quiet: Mutex::new(None),
             glance: Mutex::new(None),
             pending_checkpoint: Mutex::new(
@@ -2825,17 +2826,17 @@ impl Room {
                 info.error = None;
             }
             if info.session_id != reported.session_id {
-                *lock(&session.pending_checkpoint) = reported.session_id.clone();
-                info.session_id = reported.session_id.clone();
+                lock(&session.pending_checkpoint).clone_from(&reported.session_id);
+                info.session_id.clone_from(&reported.session_id);
                 info.context_restored = reported.context_restored;
             }
-            info.models = reported.models.clone();
+            info.models.clone_from(&reported.models);
             info.current_model_id = Some(reported.current_model_id.clone());
-            info.model_label = reported.model_label.clone();
-            info.modes = reported.modes.clone();
-            info.current_mode_id = reported.current_mode_id.clone();
-            info.mode_label = reported.mode_label.clone();
-            info.configs = reported.configs.clone();
+            info.model_label.clone_from(&reported.model_label);
+            info.modes.clone_from(&reported.modes);
+            info.current_mode_id.clone_from(&reported.current_mode_id);
+            info.mode_label.clone_from(&reported.mode_label);
+            info.configs.clone_from(&reported.configs);
             info.clone()
         };
         let _ = self.info_changes.send(info.clone());
@@ -3016,7 +3017,7 @@ impl Room {
         );
         let answer = tokio::select! {
             answered = receiver => answered.unwrap_or_else(|_| HumanAnswered::expired()),
-            _ = tokio::time::sleep(deadline) => {
+            () = tokio::time::sleep(deadline) => {
                 self.expire_human(&action_id);
                 HumanAnswered::expired()
             }
@@ -3777,9 +3778,10 @@ impl Room {
         let browser = browsers.iter().find(|browser| browser.id == browser_id);
         let import = crate::contract::CookieImport {
             browser_id: browser_id.to_owned(),
-            browser_name: browser
-                .map(|browser| browser.name.clone())
-                .unwrap_or_else(|| source_name.unwrap_or(browser_id).to_owned()),
+            browser_name: browser.map_or_else(
+                || source_name.unwrap_or(browser_id).to_owned(),
+                |browser| browser.name.clone(),
+            ),
             profile_id: profile_id.to_owned(),
             profile_name: browser
                 .and_then(|browser| {
@@ -3788,8 +3790,7 @@ impl Room {
                         .iter()
                         .find(|profile| profile.id == profile_id)
                 })
-                .map(|profile| profile.name.clone())
-                .unwrap_or_else(|| profile_id.to_owned()),
+                .map_or_else(|| profile_id.to_owned(), |profile| profile.name.clone()),
             imported_at: now_ms(),
             sites: imported.clone(),
         };
@@ -4324,8 +4325,7 @@ impl Room {
         };
         let name = self
             .persona(&session.persona_id)
-            .map(|persona| persona.name)
-            .unwrap_or_else(|_| "Hotline".to_string());
+            .map_or_else(|_| "Hotline".to_string(), |persona| persona.name);
         if let Some(voice) = lock(&self.voice).upgrade()
             && voice.delivery(
                 &session.persona_id,
@@ -5463,10 +5463,11 @@ fn folders_sentence(persona: &Persona, reach: Option<Reach>) -> String {
             .map(|(folder, path)| format!("{} at {path}", folder.path))
             .collect();
         if !mounted.is_empty() {
-            sentence.push_str(&format!(
+            let _ = write!(
+                sentence,
                 " Your computer has them too, the same way: {}.",
                 mounted.join(", ")
-            ));
+            );
         }
     }
     sentence

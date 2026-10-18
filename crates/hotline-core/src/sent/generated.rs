@@ -1,6 +1,7 @@
 use super::{MAX_BYTES, Prepared, clean_name, too_large};
 use crate::contract::AttachmentKind;
 use image::{ImageDecoder, ImageFormat};
+use std::fmt::Write;
 use std::io::Cursor;
 
 const MAX_EDGE: u32 = 2048;
@@ -11,8 +12,10 @@ pub(crate) fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
     if bytes.len() as u64 > MAX_BYTES {
         return Err(too_large(&name, Some(bytes.len() as u64)));
     }
-    let (bytes, mime, extension, dimensions) = match image::guess_format(&bytes) {
-        Ok(format @ (ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP)) => {
+    let (bytes, mime, extension, dimensions) =
+        if let Ok(format @ (ImageFormat::Png | ImageFormat::Jpeg | ImageFormat::WebP)) =
+            image::guess_format(&bytes)
+        {
             let mut reader = image::ImageReader::with_format(Cursor::new(&bytes), format);
             let mut limits = image::Limits::default();
             limits.max_image_width = Some(16000);
@@ -48,12 +51,10 @@ pub(crate) fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
                 _ => unreachable!(),
             };
             (bytes, format.to_mime_type(), extension, dimensions)
-        }
-        _ => {
+        } else {
             let (bytes, dimensions) = svg(bytes)?;
             (bytes, "image/svg+xml", "svg", dimensions)
-        }
-    };
+        };
     if bytes.len() as u64 > MAX_BYTES {
         return Err(too_large(&name, Some(bytes.len() as u64)));
     }
@@ -148,7 +149,7 @@ fn svg(bytes: Vec<u8>) -> Result<(Vec<u8>, (u32, u32)), String> {
         dimensions.0, dimensions.1
     );
     if root.attribute("viewBox").is_none() {
-        attributes.push_str(&format!(" viewBox=\"0 0 {width} {height}\""));
+        let _ = write!(attributes, " viewBox=\"0 0 {width} {height}\"");
     }
     let mut edits = vec![(name_end..name_end, attributes)];
     for attribute in root.attributes() {

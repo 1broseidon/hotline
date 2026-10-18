@@ -750,7 +750,7 @@ mod tests {
             "listing tools is not driving the computer"
         );
 
-        let (status, _) = reqwest::Client::new()
+        let (status, ()) = reqwest::Client::new()
             .post(&main.url)
             .json(&call)
             .send()

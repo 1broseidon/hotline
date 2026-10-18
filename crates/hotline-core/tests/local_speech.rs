@@ -65,20 +65,17 @@ fn archive(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {
         let mut header = tar::Header::new_gnu();
         header.as_gnu_mut().unwrap().name[..path.len()].copy_from_slice(path.as_bytes());
         header.set_mode(0o644);
-        match body {
-            Some(body) => {
-                header.set_entry_type(tar::EntryType::Regular);
-                header.set_size(body.len() as u64);
-                header.set_cksum();
-                builder.append(&header, *body).unwrap();
-            }
-            None => {
-                header.set_entry_type(tar::EntryType::Symlink);
-                header.set_size(0);
-                header.set_link_name("/etc/passwd").unwrap();
-                header.set_cksum();
-                builder.append(&header, std::io::empty()).unwrap();
-            }
+        if let Some(body) = body {
+            header.set_entry_type(tar::EntryType::Regular);
+            header.set_size(body.len() as u64);
+            header.set_cksum();
+            builder.append(&header, *body).unwrap();
+        } else {
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_size(0);
+            header.set_link_name("/etc/passwd").unwrap();
+            header.set_cksum();
+            builder.append(&header, std::io::empty()).unwrap();
         }
     }
     builder.into_inner().unwrap().finish().unwrap()

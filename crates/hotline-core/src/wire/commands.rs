@@ -502,8 +502,8 @@ pub(crate) async fn run(
             size,
         } => {
             living(log, &persona_id)?;
-            match size {
-                Some(edge) => crate::sent::read_message_thumb(
+            if let Some(edge) = size {
+                crate::sent::read_message_thumb(
                     log,
                     &persona_id,
                     &event_id,
@@ -512,21 +512,20 @@ pub(crate) async fn run(
                     edge,
                 )
                 .await
-                .map(|chunk| json!(chunk)),
-                None => {
-                    let log = log.clone();
-                    off_the_reactor(move || {
-                        crate::sent::read_message(
-                            &log,
-                            &persona_id,
-                            &event_id,
-                            index.unwrap_or(0),
-                            offset,
-                        )
-                        .map(|chunk| json!(chunk))
-                    })
-                    .await
-                }
+                .map(|chunk| json!(chunk))
+            } else {
+                let log = log.clone();
+                off_the_reactor(move || {
+                    crate::sent::read_message(
+                        &log,
+                        &persona_id,
+                        &event_id,
+                        index.unwrap_or(0),
+                        offset,
+                    )
+                    .map(|chunk| json!(chunk))
+                })
+                .await
             }
         }
         Command::AvatarRead {

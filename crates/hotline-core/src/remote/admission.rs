@@ -53,10 +53,7 @@ impl Admission {
     /// TLS/HTTP state, including when its WebSocket upgrade has already spawned.
     pub async fn accept(self: &Arc<Self>, ip: IpAddr, accepted: Instant) -> Arc<Permit> {
         let ip = match ip {
-            IpAddr::V6(ip) => ip
-                .to_ipv4_mapped()
-                .map(IpAddr::V4)
-                .unwrap_or(IpAddr::V6(ip)),
+            IpAddr::V6(ip) => ip.to_ipv4_mapped().map_or(IpAddr::V6(ip), IpAddr::V4),
             ip => ip,
         };
         loop {
@@ -99,8 +96,8 @@ impl Admission {
             };
             if let Some(ready) = ready {
                 tokio::select! {
-                    _ = released.cancelled() => {},
-                    _ = tokio::time::sleep_until(ready) => {},
+                    () = released.cancelled() => {},
+                    () = tokio::time::sleep_until(ready) => {},
                 }
             } else {
                 released.cancelled().await;
@@ -188,9 +185,9 @@ impl Permit {
     pub async fn expired(&self) {
         tokio::select! {
             biased;
-            _ = self.authenticated.cancelled() => std::future::pending::<()>().await,
-            _ = self.evicted.cancelled() => {},
-            _ = tokio::time::sleep_until(self.deadline) => {},
+            () = self.authenticated.cancelled() => std::future::pending::<()>().await,
+            () = self.evicted.cancelled() => {},
+            () = tokio::time::sleep_until(self.deadline) => {},
         }
     }
 }
@@ -245,7 +242,7 @@ mod tests {
         tokio::pin!(replacement);
         tokio::select! {
             _ = &mut replacement => panic!("replacement allocated before victim release"),
-            _ = extra_owner.evicted.cancelled() => {},
+            () = extra_owner.evicted.cancelled() => {},
         }
         assert!(started.elapsed() >= PRE_AUTH_GRACE);
         assert!(!extra_owner.authenticate("device"));
@@ -298,7 +295,7 @@ mod tests {
         tokio::pin!(replacement);
         tokio::select! {
             _ = &mut replacement => panic!("global pending bound exceeded"),
-            _ = pending[0].evicted.cancelled() => {},
+            () = pending[0].evicted.cancelled() => {},
         }
         assert!(!sessions.iter().any(|p| p.evicted.is_cancelled()));
         pending.remove(0);

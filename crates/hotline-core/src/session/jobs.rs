@@ -352,11 +352,14 @@ impl Jobs {
             let ended = std::panic::AssertUnwindSafe(runner.run(args, job_cancel, &job_tail))
                 .catch_unwind()
                 .await
-                .map(finished)
-                .unwrap_or_else(|_| Finished {
-                    state: JobState::Unknown,
-                    output: "The managed job runner failed; execution outcome is unknown.".into(),
-                });
+                .map_or_else(
+                    |_| Finished {
+                        state: JobState::Unknown,
+                        output: "The managed job runner failed; execution outcome is unknown."
+                            .into(),
+                    },
+                    finished,
+                );
             deliver(&job_route, job_id, ended);
         })
         .abort_handle();

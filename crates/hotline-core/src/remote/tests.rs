@@ -89,27 +89,24 @@ impl Harness {
         let store = Arc::new(MemoryStore::default());
         let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
         let room = room_of(desk.clone());
-        let remote = match listener {
-            Some(listener) => {
-                Remote::open_on(listener, root.path(), desk.log.clone(), room, store.clone())
-            }
-            None => {
-                // On every interface the desk binds a port itself, and one it
-                // is given here is never the install default: harnesses run
-                // side by side, and each re-enable expects its own back.
-                let port = std::net::TcpListener::bind("[::]:0")
-                    .or_else(|_| std::net::TcpListener::bind("0.0.0.0:0"))
-                    .unwrap()
-                    .local_addr()
-                    .unwrap()
-                    .port();
-                fs::write(
-                    root.path().join("remote.json"),
-                    json!({"desktopId": Uuid::new_v4(), "host": network::ALL, "port": port, "enabled": false, "grants": []}).to_string(),
-                )
-                .unwrap();
-                Remote::open_with_store(root.path(), desk.log.clone(), room, store.clone())
-            }
+        let remote = if let Some(listener) = listener {
+            Remote::open_on(listener, root.path(), desk.log.clone(), room, store.clone())
+        } else {
+            // On every interface the desk binds a port itself, and one it
+            // is given here is never the install default: harnesses run
+            // side by side, and each re-enable expects its own back.
+            let port = std::net::TcpListener::bind("[::]:0")
+                .or_else(|_| std::net::TcpListener::bind("0.0.0.0:0"))
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port();
+            fs::write(
+                root.path().join("remote.json"),
+                json!({"desktopId": Uuid::new_v4(), "host": network::ALL, "port": port, "enabled": false, "grants": []}).to_string(),
+            )
+            .unwrap();
+            Remote::open_with_store(root.path(), desk.log.clone(), room, store.clone())
         }
         .unwrap();
         assert!(!remote.status().enabled);
@@ -432,7 +429,7 @@ impl RoomHandle for Computered {
         self.desk.credential_refresh_models(provider_id).await
     }
     fn forget(&self, persona_id: &str) {
-        self.desk.forget(persona_id)
+        self.desk.forget(persona_id);
     }
     async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport> {
         self.desk.computer_runtimes().await

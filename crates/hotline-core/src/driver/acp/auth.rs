@@ -119,10 +119,10 @@ pub(super) async fn start(
         tokio::pin!(work);
         let result = tokio::select! {
             result = &mut work => result,
-            _ = attempt.cancel.cancelled() => Err("Sign-in cancelled.".into()),
-            _ = attempt.owner.cancelled() => Err("Sign-in cancelled when the desktop disconnected.".into()),
-            _ = revoke => Err("Sign-in stopped because this teammate was stopped or changed.".into()),
-            _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => Err("Sign-in timed out. You can try again.".into()),
+            () = attempt.cancel.cancelled() => Err("Sign-in cancelled.".into()),
+            () = attempt.owner.cancelled() => Err("Sign-in cancelled when the desktop disconnected.".into()),
+            () = revoke => Err("Sign-in stopped because this teammate was stopped or changed.".into()),
+            () = tokio::time::sleep(std::time::Duration::from_secs(300)) => Err("Sign-in timed out. You can try again.".into()),
         };
         if result.is_err() {
             attempt.cancel.cancel();

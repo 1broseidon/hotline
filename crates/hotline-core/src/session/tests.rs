@@ -6,6 +6,7 @@
 //! it happens.
 
 use super::*;
+use crate::contract::SkillPolicy;
 use crate::contract::{
     AttachmentKind, ChapterStatus, DeltaKind, HumanAnswer, McpPolicy, PermissionOption,
     PersonaComputer, PolicyMode, ScheduledJob, SessionCheckpoint,
@@ -243,7 +244,7 @@ impl Driver for Scripted {
                     tokio::pin!(stop);
                     tokio::select! {
                         permit = gate.acquire() => { permit.expect("the gate closed").forget(); }
-                        _ = &mut stop => {
+                        () = &mut stop => {
                             for update in on_cancel {
                                 let _ = sender.send(update).await;
                             }
@@ -291,7 +292,7 @@ impl Driver for Scripted {
     fn subscribe_info(&self) -> Option<watch::Receiver<DriverInfo>> {
         self.info_changes
             .as_ref()
-            .map(|changes| changes.subscribe())
+            .map(tokio::sync::watch::Sender::subscribe)
     }
 
     fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {
@@ -499,7 +500,7 @@ pub(crate) fn persona(id: &str) -> Persona {
             mode: PolicyMode::All,
             server_ids: Vec::new(),
         },
-        skill_policy: Default::default(),
+        skill_policy: SkillPolicy::default(),
         // Existing scheduler fixtures represent a teammate that has been
         // granted persistent work; revocation tests turn this off explicitly.
         background_work: true,

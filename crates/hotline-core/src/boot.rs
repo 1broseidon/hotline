@@ -125,9 +125,8 @@ mod tests {
         let held = RoomLock::take(root).unwrap();
         let broken = br#"{"enabled": tr"#;
         std::fs::write(root.join("remote.json"), broken).unwrap();
-        let error = match boot(root, &held, Backend::File, None).await {
-            Ok(_) => panic!("the boot went on over unreadable settings"),
-            Err(error) => error,
+        let Err(error) = boot(root, &held, Backend::File, None).await else {
+            panic!("the boot went on over unreadable settings")
         };
         assert!(
             error.starts_with("remote access settings did not open"),

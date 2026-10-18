@@ -31,7 +31,7 @@ async fn run() -> Result<(), String> {
     let body = match (args.next().as_deref(), args.next()) {
         (None, None) => reqwest::get(models::SOURCE)
             .await
-            .and_then(|response| response.error_for_status())
+            .and_then(reqwest::Response::error_for_status)
             .map_err(|error| format!("{}: {error}", models::SOURCE))?
             .text()
             .await

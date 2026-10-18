@@ -89,7 +89,10 @@ async fn a_desk_call_is_kept_on_the_dispatchers_tape_and_is_no_thread() {
         desk.log.load(&StreamId::Call(id.clone())).is_empty(),
         "no thread, and so no call stream"
     );
-    assert!(!desk.log.load(&StreamId::Tape(TAPE_ID.into())).is_empty());
+    assert_ne!(
+        desk.log.load(&StreamId::Tape(TAPE_ID.into())),
+        [] as [Value; 0]
+    );
     calls.end(&id).unwrap();
 }
 

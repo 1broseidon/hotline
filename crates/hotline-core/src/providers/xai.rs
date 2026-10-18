@@ -124,10 +124,10 @@ async fn login_at(
         .request_async(&send)
         .await
         .map_err(|_| oauth_failure(None))?;
-    let verification = details
-        .verification_uri_complete()
-        .map(|uri| uri.secret().as_str())
-        .unwrap_or_else(|| details.verification_uri().as_str());
+    let verification = details.verification_uri_complete().map_or_else(
+        || details.verification_uri().as_str(),
+        |uri| uri.secret().as_str(),
+    );
     let url = url::Url::parse(verification).map_err(|_| oauth_failure(None))?;
     if url.scheme() != "https"
         || url.host_str().is_none()
@@ -943,9 +943,8 @@ mod tests {
                 );
             let (url, _server) = serve(app).await;
             let http = transport(&scratch.0, &url);
-            let error = match HttpClientExt::send::<_, Bytes>(&http, request(&url)).await {
-                Ok(_) => panic!("expected subscription refusal"),
-                Err(error) => error,
+            let Err(error) = HttpClientExt::send::<_, Bytes>(&http, request(&url)).await else {
+                panic!("expected subscription refusal")
             };
             assert_eq!(status(&error).unwrap().as_u16(), code);
             assert!(error.to_string().contains("subscription"));
@@ -974,9 +973,8 @@ mod tests {
         );
         let (url, _server) = serve(app).await;
         let http = transport(&scratch.0, &url);
-        let error = match HttpClientExt::send::<_, Bytes>(&http, request(&url)).await {
-            Ok(_) => panic!("request must not run after signout"),
-            Err(error) => error,
+        let Err(error) = HttpClientExt::send::<_, Bytes>(&http, request(&url)).await else {
+            panic!("request must not run after signout")
         };
         assert!(error.to_string().contains("save Grok sign-in"));
         assert!(!scratch.0.exists());
@@ -1003,9 +1001,8 @@ mod tests {
             (request(&url), "no longer valid"),
             (request("https://example.com"), "another server"),
         ] {
-            let error = match HttpClientExt::send::<_, Bytes>(&http, req).await {
-                Ok(_) => panic!("must refuse"),
-                Err(error) => error,
+            let Err(error) = HttpClientExt::send::<_, Bytes>(&http, req).await else {
+                panic!("must refuse")
             };
             assert!(error.to_string().contains(expected), "{error}");
             assert!(!error.to_string().contains("old-refresh"));

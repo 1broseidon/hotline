@@ -24,7 +24,7 @@ const TAIL_BYTES: u64 = 64 * 1024;
 const PREVIEW_REACH: [u64; 2] = [1024 * 1024, 8 * 1024 * 1024];
 
 fn segment_size(path: &Path) -> u64 {
-    fs::metadata(path).map(|meta| meta.len()).unwrap_or(0)
+    fs::metadata(path).map_or(0, |meta| meta.len())
 }
 
 fn logical_size(segments: &[(u64, PathBuf)]) -> u64 {
@@ -80,9 +80,7 @@ fn read_tail_logical(segments: &[(u64, PathBuf)], window: u64) -> Vec<Value> {
     let bytes: Vec<u8> = chunks.into_iter().flatten().collect();
     let text = String::from_utf8_lossy(&bytes).into_owned();
     let sliced: &str = if started_mid {
-        text.find('\n')
-            .map(|index| &text[index + 1..])
-            .unwrap_or("")
+        text.find('\n').map_or("", |index| &text[index + 1..])
     } else {
         &text
     };

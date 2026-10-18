@@ -131,7 +131,7 @@ async fn a_run_works_on_its_own_stream_and_hands_back_its_last_words() {
         !preamble.contains("Keep the harbour running."),
         "the teammate's goal is its own, not its worker's"
     );
-    assert!(lock(&agents.seeds).last().unwrap().is_empty());
+    assert_eq!(lock(&agents.seeds).last().unwrap().as_slice(), []);
     assert_eq!(
         lock(&agents.driver.prompts).last().unwrap(),
         "Ada handed you this task:\n\nFind out why the crane stopped."
@@ -172,7 +172,7 @@ async fn a_run_is_on_its_teammates_live_model_with_no_computer_and_no_session_to
         Some("anthropic/claude"),
         "the model the session is on now, not the one on the record"
     );
-    assert!(view.session_checkpoints.is_empty());
+    assert_eq!(view.session_checkpoints, [] as [SessionCheckpoint; 0]);
     let tools = lock(&agents.tools).last().cloned().unwrap();
     assert!(tools.in_run());
     assert!(!tools.offers_subagents(), "a run starts no runs of its own");
@@ -398,7 +398,10 @@ async fn a_harness_subagent_is_written_as_a_run() {
         .unwrap();
     let tape = settled("done").await;
     assert_eq!(kinds(&tape), ["subagent"], "none of the run's words");
-    assert!(room.subagents("ada").is_empty());
+    assert_eq!(
+        room.subagents("ada"),
+        [] as [crate::contract::RunningSubagent; 0]
+    );
     let stream = run_stream(&room, &run_id);
     assert_eq!(
         kinds(&stream),
@@ -429,7 +432,10 @@ async fn a_harness_subagent_nobody_heard_end_is_cancelled() {
             .first()
             .is_some_and(|line| line["status"] == "cancelled")
         {
-            assert!(room.subagents("ada").is_empty());
+            assert_eq!(
+                room.subagents("ada"),
+                [] as [crate::contract::RunningSubagent; 0]
+            );
             let run_id = tape(&room, "ada")[0]["runId"].as_str().unwrap().to_string();
             assert_eq!(
                 kinds(&run_stream(&room, &run_id)),

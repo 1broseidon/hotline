@@ -98,9 +98,7 @@ impl Workspace {
         let callback_cwd = if cwd.is_absolute() {
             cwd.clone()
         } else {
-            std::env::current_dir()
-                .map(|directory| directory.join(&cwd))
-                .unwrap_or_else(|_| cwd.clone())
+            std::env::current_dir().map_or_else(|_| cwd.clone(), |directory| directory.join(&cwd))
         };
         let cwd = cwd.canonicalize().map_err(|error| {
             ToolError::new(format!(
@@ -113,8 +111,7 @@ impl Workspace {
             Reach::Machine => cwd
                 .ancestors()
                 .last()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| PathBuf::from("/")),
+                .map_or_else(|| PathBuf::from("/"), Path::to_path_buf),
         };
         let dir = Dir::open_ambient_dir(&root, ambient_authority()).map_err(|error| {
             ToolError::new(format!(
@@ -718,24 +715,19 @@ impl Workspace {
             Some(MAX_SEARCH_FILE_BYTES),
             args.include_hidden.unwrap_or(false),
         ) {
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(_) => continue,
-            };
+            let Ok(entry) = entry else { continue };
             if !entry.file_type().is_some_and(|kind| kind.is_file()) {
                 continue;
             }
-            let relative = match entry.path().strip_prefix(&root) {
-                Ok(path) => path,
-                Err(_) => continue,
+            let Ok(relative) = entry.path().strip_prefix(&root) else {
+                continue;
             };
             if !glob_matches(&glob, relative) {
                 continue;
             }
 
-            let file = match dir.open(relative) {
-                Ok(file) => file,
-                Err(_) => continue,
+            let Ok(file) = dir.open(relative) else {
+                continue;
             };
             let shown_path = self.shown(&root, relative);
             let mut searcher = SearcherBuilder::new()
@@ -789,10 +781,7 @@ impl Workspace {
         let mut results = Vec::new();
         let mut truncated = false;
         for entry in walk(&start, None, args.include_hidden.unwrap_or(false)) {
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(_) => continue,
-            };
+            let Ok(entry) = entry else { continue };
             let relative = match entry.path().strip_prefix(&root) {
                 Ok(path) if !path.as_os_str().is_empty() => path,
                 _ => continue,
@@ -975,7 +964,7 @@ impl Workspace {
         let permissions = parent_dir
             .symlink_metadata(file_name)
             .ok()
-            .filter(|metadata| metadata.is_file())
+            .filter(cap_std::fs::Metadata::is_file)
             .map(|metadata| metadata.permissions());
 
         let mut temporary = None;
@@ -1145,7 +1134,7 @@ fn walk(start: &Path, max_filesize: Option<u64>, include_hidden: bool) -> ignore
         .parents(false)
         .follow_links(false)
         .max_filesize(max_filesize)
-        .sort_by_file_path(|left, right| left.cmp(right));
+        .sort_by_file_path(Ord::cmp);
     builder.build()
 }
 

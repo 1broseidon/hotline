@@ -13,7 +13,7 @@
 
 use super::Ready;
 use rmcp::ServiceExt;
-use rmcp::model::{CallToolRequestParams, ClientInfo, Implementation};
+use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
 use rmcp::transport::streamable_http_client::{
     StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
 };
@@ -50,7 +50,7 @@ async fn ask(ready: &Ready) -> Result<Guide, String> {
             .auth_header(ready.token.clone()),
     );
     let service = ClientInfo::new(
-        Default::default(),
+        ClientCapabilities::default(),
         Implementation::new("hotline", env!("CARGO_PKG_VERSION")),
     )
     .serve(transport)
@@ -108,7 +108,7 @@ pub(crate) mod fake {
     };
     use rmcp::service::RequestContext;
     use rmcp::transport::streamable_http_server::{
-        StreamableHttpService, session::local::LocalSessionManager,
+        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
     };
     use serde_json::{Value, json};
     use std::collections::BTreeMap;
@@ -652,7 +652,7 @@ pub(crate) mod fake {
             StreamableHttpService::new(
                 move || Ok(computer.clone()),
                 Arc::new(LocalSessionManager::default()),
-                Default::default(),
+                StreamableHttpServerConfig::default(),
             );
         let mut app = axum::Router::new()
             .route("/health", axum::routing::get(|| async { "ok" }))

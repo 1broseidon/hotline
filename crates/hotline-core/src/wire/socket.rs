@@ -134,7 +134,7 @@ where
     }
     tokio::select! {
         biased;
-        _ = phone.cancel.cancelled() => return Ok(()),
+        () = phone.cancel.cancelled() => return Ok(()),
         result = socket.send(Message::text(hello.to_string())) => result?,
     }
     seated_inner(socket, Seat::for_phone(role), log, room, Some(phone)).await
@@ -214,7 +214,7 @@ where
         };
         let incoming = tokio::select! {
             biased;
-            _ = cancel.cancelled() => break Ok(()),
+            () = cancel.cancelled() => break Ok(()),
             frame = incoming.next() => frame,
             () = silent => break Ok(()),
         };
@@ -262,8 +262,8 @@ where
                     // durable unknown receipt. Desk mutations still run to completion.
                     tokio::select! {
                         biased;
-                        _ = cancel.cancelled() => break Ok(()),
-                        _ = answer => {}
+                        () = cancel.cancelled() => break Ok(()),
+                        () = answer => {}
                     }
                 } else {
                     answer.await;
@@ -347,8 +347,8 @@ fn open_lane(
             if seat.is_remote() {
                 tokio::select! {
                     biased;
-                    _ = sender.cancel.cancelled() => break,
-                    _ = answered => {}
+                    () = sender.cancel.cancelled() => break,
+                    () = answered => {}
                 }
             } else {
                 answered.await;

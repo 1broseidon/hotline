@@ -343,7 +343,7 @@ mod tests {
             split_for_speech("Handing that to Mack.", 200),
             ["Handing that to Mack."]
         );
-        assert!(split_for_speech("   ", 200).is_empty());
+        assert_eq!(split_for_speech("   ", 200), [] as [String; 0]);
     }
 
     #[test]

@@ -145,7 +145,7 @@ async fn explicit_pairing_is_atomic_and_only_owners_have_desk_authority() {
         assert!(claim(&h, &pairing, private).await.is_none());
         let (mut socket, mut state, payload) =
             exchange(&h, "/v2", private, &public, &[]).await.unwrap();
-        assert!(payload.is_empty());
+        assert_eq!(payload, [] as [u8; 0]);
         assert_eq!(
             read_sealed(&mut socket, &mut state).await["protocolVersion"],
             2
@@ -405,7 +405,7 @@ async fn sealed_computer_door_refuses_a_stopped_computer() {
     )
     .await
     .unwrap();
-    assert!(answer.is_empty());
+    assert_eq!(answer, [] as [u8; 0]);
     // Device authentication completes before the desk resolves the
     // viewer. A stopped computer sends no application frame.
     closed(&mut socket).await;

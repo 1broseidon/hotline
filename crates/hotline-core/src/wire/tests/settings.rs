@@ -99,7 +99,7 @@ async fn removing_a_tool_source_takes_it_out_of_every_grant() {
     )
     .await;
     assert_eq!(answered(&mut socket, 4).await["ok"], true);
-    assert!(granted(&log).is_empty());
+    assert_eq!(granted(&log), [] as [String; 0]);
 }
 
 /// A server that no longer exists is settled, not an error, even when a

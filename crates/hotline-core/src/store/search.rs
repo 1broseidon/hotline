@@ -941,7 +941,10 @@ mod tests {
 
         assert!(hits(&search(&root, "ada", "harbour zeppelin", None).unwrap()).len() == 1);
         // One term that matches nothing has nothing to fall back to.
-        assert!(hits(&search(&root, "ada", "zeppelin", None).unwrap()).is_empty());
+        assert_eq!(
+            hits(&search(&root, "ada", "zeppelin", None).unwrap()).as_slice(),
+            [] as [Value; 0]
+        );
     }
 
     #[test]
@@ -1226,7 +1229,10 @@ mod tests {
         indexer.database.execute("DROP TABLE messages", []).unwrap();
         let event = message_event("m1", 1, "user", "harbour");
         assert!(indexer.index_event("ada", &event).is_err());
-        assert!(rows_of(&indexer.database, "SELECT id FROM message_ids").is_empty());
+        assert_eq!(
+            rows_of(&indexer.database, "SELECT id FROM message_ids"),
+            [] as [Vec<SqlValue>; 0]
+        );
         indexer.database.execute(SCHEMA[1], []).unwrap();
         indexer.index_event("ada", &event).unwrap();
         assert_eq!(messages(&indexer.database).len(), 1);
@@ -1264,7 +1270,10 @@ mod tests {
             ids(&search(root.path(), "ada", "harbour", None).unwrap()),
             ["m1"]
         );
-        assert!(hits(&search(root.path(), "ada", "obsolete", None).unwrap()).is_empty());
+        assert_eq!(
+            hits(&search(root.path(), "ada", "obsolete", None).unwrap()).as_slice(),
+            [] as [Value; 0]
+        );
     }
 
     #[test]
@@ -1654,6 +1663,9 @@ mod tests {
         let found = search_teammate(&root, "ada", "winch", None).unwrap();
         assert_eq!(sorted_ids(&found), ["a1", "u1"]);
         assert!(hits(&found).iter().all(|hit| hit["thread"] == "side:s1"));
-        assert!(hits(&search(&root, "ada", "winch", None).unwrap()).is_empty());
+        assert_eq!(
+            hits(&search(&root, "ada", "winch", None).unwrap()).as_slice(),
+            [] as [Value; 0]
+        );
     }
 }

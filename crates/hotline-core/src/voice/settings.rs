@@ -153,18 +153,19 @@ impl VoiceSettings {
             .and_then(Value::as_object)
             .unwrap_or(&empty);
         let (chat, voice_limits) = match settings.get("spending") {
-            Some(spending) => match serde_json::from_value::<SpendingSettings>(spending.clone())
-                .ok()
-                .filter(|spending| spending.validate().is_ok())
-            {
-                Some(spending) => (spending.chat, spending.voice),
-                // A spending setting that cannot be read turns paid chat and
-                // voice off rather than leaving them without limits.
-                None => {
+            Some(spending) => {
+                if let Some(spending) = serde_json::from_value::<SpendingSettings>(spending.clone())
+                    .ok()
+                    .filter(|spending| spending.validate().is_ok())
+                {
+                    (spending.chat, spending.voice)
+                } else {
+                    // A spending setting that cannot be read turns paid chat and
+                    // voice off rather than leaving them without limits.
                     let off = BudgetLimits::new(Some(0.0), Some(0.0));
                     (off, off)
                 }
-            },
+            }
             None => (
                 BudgetLimits::default(),
                 BudgetLimits::new(cap(voice, "dayUsd"), cap(voice, "monthUsd")),

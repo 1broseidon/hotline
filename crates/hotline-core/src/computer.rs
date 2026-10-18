@@ -88,7 +88,7 @@ const PICK_FOR_STATUS: Duration = Duration::from_secs(30);
 /// How long the list of installed runtimes is trusted. Probing runs each CLI,
 /// and the settings pane that asks is not worth that every time it opens.
 const RUNTIMES_CACHE: Duration = Duration::from_secs(30);
-const PULL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const PULL_TIMEOUT: Duration = Duration::from_mins(10);
 const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// One step of an image pull, as the runtime's own output tells it: how
@@ -567,22 +567,20 @@ impl Computer {
         let name = container_name(persona_id);
         let known = self.lock().containers.get(persona_id).cloned();
         if let Some(live) = known {
-            let inspection =
-                match inspect_within(&live.cmd, live.runtime, &name, STATUS_TIMEOUT).await {
-                    Ok(seen) => seen,
-                    Err(_) => {
-                        return Ok(ComputerStatus {
-                            state: ComputerState::Absent,
-                            url: None,
-                            viewer: None,
-                            release: None,
-                            available: None,
-                            update_failed: None,
-                        });
-                    }
-                };
+            let Ok(inspection) =
+                inspect_within(&live.cmd, live.runtime, &name, STATUS_TIMEOUT).await
+            else {
+                return Ok(ComputerStatus {
+                    state: ComputerState::Absent,
+                    url: None,
+                    viewer: None,
+                    release: None,
+                    available: None,
+                    update_failed: None,
+                });
+            };
             let mut status = status_of(inspection, Some((live.mcp_port, &live.token)));
-            status.release = live.release.clone();
+            status.release.clone_from(&live.release);
             return Ok(status);
         }
         let Ok((runtime, cmd)) = self.pick_for_status(prefer).await else {
@@ -595,18 +593,15 @@ impl Computer {
                 update_failed: None,
             });
         };
-        let inspection = match inspect_within(&cmd, runtime, &name, STATUS_TIMEOUT).await {
-            Ok(seen) => seen,
-            Err(_) => {
-                return Ok(ComputerStatus {
-                    state: ComputerState::Absent,
-                    url: None,
-                    viewer: None,
-                    release: None,
-                    available: None,
-                    update_failed: None,
-                });
-            }
+        let Ok(inspection) = inspect_within(&cmd, runtime, &name, STATUS_TIMEOUT).await else {
+            return Ok(ComputerStatus {
+                state: ComputerState::Absent,
+                url: None,
+                viewer: None,
+                release: None,
+                available: None,
+                update_failed: None,
+            });
         };
         Ok(status_of(inspection, None))
     }
@@ -762,9 +757,10 @@ pub fn release_of(image: &str) -> String {
 }
 
 fn abs_cwd(cwd: &str) -> String {
-    std::fs::canonicalize(cwd)
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| cwd.to_string())
+    std::fs::canonicalize(cwd).map_or_else(
+        |_| cwd.to_string(),
+        |path| path.to_string_lossy().into_owned(),
+    )
 }
 
 fn new_token() -> String {

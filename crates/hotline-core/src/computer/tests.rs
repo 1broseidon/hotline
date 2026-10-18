@@ -4,6 +4,7 @@ use super::container::{
 };
 use super::fixtures::*;
 use super::*;
+use crate::contract::SkillPolicy;
 use crate::contract::{ComputerMount, FolderGrant, McpPolicy, PersonaComputer, PolicyMode};
 use std::fs;
 use std::path::Path;
@@ -76,7 +77,7 @@ fn persona(id: &str, cwd: &str) -> Persona {
             mode: PolicyMode::All,
             server_ids: Vec::new(),
         },
-        skill_policy: Default::default(),
+        skill_policy: SkillPolicy::default(),
         background_work: false,
         allowed_senders: Vec::new(),
         web_search_policy: None,
@@ -145,7 +146,7 @@ async fn ensure_running_on_an_absent_container_creates_with_the_hardened_args() 
         .await
         .expect("ensure");
     assert_eq!(ready.url, format!("http://127.0.0.1:{port}/mcp"));
-    assert!(!ready.token.is_empty());
+    assert_ne!(ready.token, "");
 
     let recorded = log_text(&log);
     let create = create_line(&recorded);

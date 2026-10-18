@@ -40,7 +40,7 @@ pub(super) fn hand_to_model(
 pub(super) fn keep(output_dir: &Path, name: &str, text: &str) -> Option<PathBuf> {
     let path = output_dir.join(format!("{name}.txt"));
     std::fs::create_dir_all(output_dir)
-        .and_then(|_| std::fs::write(&path, text))
+        .and_then(|()| std::fs::write(&path, text))
         .ok()?;
     Some(path.canonicalize().unwrap_or(path))
 }

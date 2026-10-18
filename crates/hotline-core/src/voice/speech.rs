@@ -176,7 +176,7 @@ pub trait Speech: Send + Sync {
             return Err(SpeechError::Cancelled);
         }
         tokio::select! {
-            _ = output.closed() => Err(SpeechError::Cancelled),
+            () = output.closed() => Err(SpeechError::Cancelled),
             clip = self.speak(text) => {
                 output.send(SpeechChunk { clip: clip?, final_chunk: true }).await.map_err(|_| SpeechError::Cancelled)
             }

@@ -311,7 +311,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
             .map_err(|error| Problem::failed(CHECK_FAILED, error))?;
         if let Some(update) = &mut found {
             validate_update(update, state.target.as_deref().unwrap())?;
-            update.timeout = Some(Duration::from_secs(15 * 60));
+            update.timeout = Some(Duration::from_mins(15));
         }
         Ok(found)
     }
@@ -330,7 +330,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
                         .chars()
                         .take(4_000)
                         .collect(),
-                })
+                });
             }
             Err(error) => status.error = Some(error.clone()),
         }
@@ -493,7 +493,7 @@ async fn download_verified(
 ) -> Result<Vec<u8>, Problem> {
     tokio::select! {
         biased;
-        _ = cancel.cancelled() => Err("Download cancelled. Hotline has not been changed.".into()),
+        () = cancel.cancelled() => Err("Download cancelled. Hotline has not been changed.".into()),
         result = update.download(progress, || {}) => result.map_err(|error| Problem::failed("Download failed", error)),
     }
 }

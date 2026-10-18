@@ -372,7 +372,7 @@ mod tests {
         );
         let imported: Persona = serde_json::from_value(personas[0].clone()).unwrap();
         assert!(!imported.background_work);
-        assert!(imported.allowed_senders.is_empty());
+        assert_eq!(imported.allowed_senders, [] as [String; 0]);
     }
 
     #[test]
@@ -482,7 +482,7 @@ mod tests {
 
     #[test]
     fn a_missing_store_is_an_empty_roster() {
-        assert!(list_local_personas(&scratch("no-store")).is_empty());
+        assert_eq!(list_local_personas(&scratch("no-store")), [] as [Value; 0]);
     }
 
     #[test]
@@ -493,6 +493,6 @@ mod tests {
             "this file is emphatically not a sqlite database\n",
         )
         .unwrap();
-        assert!(list_local_personas(&root).is_empty());
+        assert_eq!(list_local_personas(&root), [] as [Value; 0]);
     }
 }

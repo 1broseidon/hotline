@@ -196,7 +196,7 @@ impl Remote {
             loop {
                 let result = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
+                    () = cancel.cancelled() => return,
                     result = remote.listen_served(options.listen) => result,
                 };
                 match result {
@@ -224,10 +224,10 @@ impl Remote {
                     }
                     Err(error) => {
                         lock(&remote.state).error =
-                            Some(format!("Waiting for {}: {error}", options.listen))
+                            Some(format!("Waiting for {}: {error}", options.listen));
                     }
                 }
-                tokio::select! { _ = cancel.cancelled() => return, _ = tokio::time::sleep(Duration::from_secs(1)) => {} }
+                tokio::select! { () = cancel.cancelled() => return, () = tokio::time::sleep(Duration::from_secs(1)) => {} }
             }
         }));
         Ok(self.status())

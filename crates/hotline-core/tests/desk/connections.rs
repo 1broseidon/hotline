@@ -116,7 +116,10 @@ async fn ollama_local_discovers_custom_models_and_runs_through_rig() {
         .unwrap();
     assert_eq!(request["model"], "custom/coder:latest");
     assert_eq!(request["stream"], true);
-    assert!(!request["tools"].as_array().unwrap().is_empty());
+    assert_ne!(
+        request["tools"].as_array().unwrap().as_slice(),
+        [] as [Value; 0]
+    );
     let answer = client
         .next_where(Duration::from_secs(15), |frame| {
             is_sub(frame, tape, "event") && frame["event"]["kind"] == "agent"
@@ -523,7 +526,7 @@ fn custom_stream_events(api: &str, has_tool_result: bool) -> Vec<Value> {
 async fn custom_responses_connections_read_loosely_shaped_streams() {
     use axum::{Router, routing::post};
     let response = |status: &str, output: Value| {
-        json!({"id":"resp_1","object":"response","created_at":1791871040.25,"status":status,"error":{},"incomplete_details":null,
+        json!({"id":"resp_1","object":"response","created_at":1_791_871_040.25,"status":status,"error":{},"incomplete_details":null,
             "instructions":[{"type":"message","role":"developer","content":[{"type":"input_text","text":"Answer plainly."}]}],
             "model":"vendor/coder","output":output,"tools":[{"type":"function","name":"read","description":null,"parameters":{}}],
             "usage":if status == "completed" { json!({"input_tokens":3,"output_tokens":4,"total_tokens":7}) } else { Value::Null }})

@@ -362,7 +362,7 @@ impl Driver for InProcess {
         })?;
         *lock(&self.cwd) = PathBuf::from(&persona.cwd);
         *lock(&self.folders) = persona.folders.clone().unwrap_or_default();
-        *lock(&self.model) = model.clone();
+        lock(&self.model).clone_from(&model);
         // The stored effort when the model lists it, else the blank's
         // default, so a fresh teammate is never sent without a level the
         // model offers.

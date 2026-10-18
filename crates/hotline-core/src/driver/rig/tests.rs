@@ -83,7 +83,10 @@ async fn native_anthropic_requests_use_live_limits_or_a_conservative_unknown_bud
         assert_eq!(request["max_tokens"], expected);
     }
     assert_eq!(models::output_limit("anthropic/brand-new-claude"), None);
-    assert!(models::efforts("anthropic/brand-new-claude").is_empty());
+    assert_eq!(
+        models::efforts("anthropic/brand-new-claude"),
+        [] as [String; 0]
+    );
     server.abort();
 }
 
@@ -927,7 +930,7 @@ async fn a_granted_tool_is_read_and_called_through_the_fixed_pair() {
         index.contains(&format!("- {name}: Echo the text back in upper case.")),
         "{index}"
     );
-    assert!(granted::index(&[]).is_empty());
+    assert_eq!(granted::index(&[]), "");
 
     let set = ToolSet::from_dynamic_tools(granted::tools(echo).into());
     let schema = set

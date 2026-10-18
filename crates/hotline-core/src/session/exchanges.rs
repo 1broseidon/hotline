@@ -320,8 +320,7 @@ impl Room {
                     with_persona_id: other.clone(),
                     with_name: self
                         .participant(other)
-                        .map(|p| super::links::shown(&p))
-                        .unwrap_or_else(|_| other.clone()),
+                        .map_or_else(|_| other.clone(), |p| super::links::shown(&p)),
                     exchanges: pair.exchanges,
                     status,
                 },
@@ -924,7 +923,7 @@ impl Room {
                     pair.paused = pair.exchanges >= EXCHANGE_CAP;
                     self.save_pair(&pair)?;
                     if pair.paused {
-                        self.exchange_card(&pair, ExchangePauseStatus::Pending)
+                        self.exchange_card(&pair, ExchangePauseStatus::Pending);
                     }
                 }
                 let target = self.participant(&request.to)?;
@@ -1290,8 +1289,7 @@ impl Room {
                 };
                 let name = self
                     .participant(linked_side)
-                    .map(|persona| persona.name)
-                    .unwrap_or_else(|_| "That teammate".to_string());
+                    .map_or_else(|_| "That teammate".to_string(), |persona| persona.name);
                 self.cancel_handoff(request);
                 request.phase = Phase::Stopped;
                 request.failed = true;

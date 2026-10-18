@@ -229,11 +229,10 @@ async fn granted_folders_hold_the_real_tools_and_a_change_takes_them_back() {
     )
     .await;
     let result = |id: &str| {
-        results
-            .iter()
-            .find(|(call, _)| call == id)
-            .map(|(_, text)| text.clone())
-            .unwrap_or_else(|| panic!("no result for {id}: {results:?}"))
+        results.iter().find(|(call, _)| call == id).map_or_else(
+            || panic!("no result for {id}: {results:?}"),
+            |(_, text)| text.clone(),
+        )
     };
     assert!(result("read_granted").contains("granted-canary"));
     assert!(

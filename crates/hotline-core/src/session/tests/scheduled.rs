@@ -306,7 +306,7 @@ async fn a_job_is_created_silenced_and_cancelled_on_the_room() {
     assert_eq!(room.schedule_list()[0].quiet, None);
 
     room.schedule_cancel(&job.id).unwrap();
-    assert!(room.schedule_list().is_empty());
+    assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
 }
 
 /// A job that is already due, planted on the stream before the room opens so
@@ -484,7 +484,7 @@ async fn a_due_agent_job_waits_for_a_grant_then_fires_once() {
     assert_eq!(events[0]["text"], "say the word");
     assert_eq!(events[0]["scheduled"]["operatorCreated"], false);
     assert_eq!(*lock(&prompts), ["scheduled · say the word"]);
-    assert!(crate::room::schedules(&room.log).is_empty());
+    assert_eq!(crate::room::schedules(&room.log), [] as [ScheduledJob; 0]);
 }
 
 /// A job the operator entered from the desk remains runnable when the
@@ -507,7 +507,7 @@ async fn a_due_operator_job_runs_without_a_background_grant() {
     assert_eq!(events[0]["text"], "say the word");
     assert_eq!(events[0]["scheduled"]["operatorCreated"], true);
     assert_eq!(*lock(&prompts), ["scheduled · say the word"]);
-    assert!(crate::room::schedules(&room.log).is_empty());
+    assert_eq!(crate::room::schedules(&room.log), [] as [ScheduledJob; 0]);
 }
 
 /// A scheduled line can be queued behind a turn while its one-shot job is

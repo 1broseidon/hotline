@@ -189,7 +189,7 @@ fn read_model(dir: &Path) -> Option<Installed> {
         let recorded = manifest.files.iter().find(|one| one.name == *file);
         let size = std::fs::metadata(dir.join(file))
             .ok()
-            .filter(|meta| meta.is_file());
+            .filter(std::fs::Metadata::is_file);
         matches!((recorded, size), (Some(recorded), Some(size)) if recorded.bytes == size.len())
     });
     (named && whole).then(|| Installed {
@@ -564,12 +564,12 @@ fn aac(bytes: &[u8]) -> Option<Samples> {
     use symphonia::core::errors::Error;
     use symphonia::core::formats::probe::Hint;
     use symphonia::core::formats::{FormatOptions, TrackType};
-    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
     use symphonia::core::meta::MetadataOptions;
 
     let source = MediaSourceStream::new(
         Box::new(std::io::Cursor::new(bytes.to_vec())),
-        Default::default(),
+        MediaSourceStreamOptions::default(),
     );
     let mut hint = Hint::new();
     hint.with_extension("m4a");

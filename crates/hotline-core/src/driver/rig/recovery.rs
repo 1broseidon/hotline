@@ -94,7 +94,7 @@ pub(super) fn fresh(history: &[Message], output_dir: &Path) -> Vec<Message> {
         facts.clone()
     } else {
         let path = output_dir.join(format!("continuation-{}.txt", uuid::Uuid::new_v4()));
-        match std::fs::create_dir_all(output_dir).and_then(|_| std::fs::write(&path, &facts)) {
+        match std::fs::create_dir_all(output_dir).and_then(|()| std::fs::write(&path, &facts)) {
             Ok(()) => format!(
                 "{}\nFull execution checkpoint: {}. Consult this record before considering any repeated action whose result is absent from this excerpt.",
                 elide(&facts, Budget::BUILT_IN),

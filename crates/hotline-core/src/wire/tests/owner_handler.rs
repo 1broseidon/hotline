@@ -388,7 +388,7 @@ async fn cookie_push_is_operator_only_through_the_real_handler() {
         remote_control_answer(Seat::Owner, &quiet, &log, invalid).await["ok"],
         false
     );
-    assert!(log.load(&StreamId::Room).is_empty());
+    assert_eq!(log.load(&StreamId::Room), [] as [Value; 0]);
 }
 
 #[tokio::test]
@@ -413,5 +413,5 @@ async fn images_status_is_operator_only_and_mock_rooms_are_unavailable() {
             );
         }
     }
-    assert!(log.load(&StreamId::Room).is_empty());
+    assert_eq!(log.load(&StreamId::Room), [] as [Value; 0]);
 }

@@ -88,8 +88,8 @@ const REJOINS: u32 = 3;
 const START_WAIT: Duration = Duration::from_secs(5);
 /// A replacement call is placed this long into a session, or five minutes
 /// before the end the server gives, whichever is sooner.
-const RENEW_AFTER: Duration = Duration::from_secs(55 * 60);
-const RENEW_EARLY: Duration = Duration::from_secs(5 * 60);
+const RENEW_AFTER: Duration = Duration::from_mins(55);
+const RENEW_EARLY: Duration = Duration::from_mins(5);
 /// A replacement waits for the model to finish speaking, this long at most.
 const SWITCH_WAIT: Duration = Duration::from_secs(30);
 /// A replacement that could not be placed is tried again after this.
@@ -230,13 +230,10 @@ impl GptLive {
     /// conversation so far when it replaces an earlier one.
     async fn place(&self, config: &RealtimeConfig, carry: &Carry) -> Result<Placed, SpeechError> {
         let who = self.identity().await?;
-        let peer = Peer::new().await.map_err(|_| self.unreachable())?;
-        let offer = match peer.offer().await {
-            Ok(offer) => offer,
-            Err(()) => {
-                peer.close().await;
-                return Err(self.unreachable());
-            }
+        let peer = Peer::new().await.map_err(|()| self.unreachable())?;
+        let Ok(offer) = peer.offer().await else {
+            peer.close().await;
+            return Err(self.unreachable());
         };
         let instructions = carry.instructions(&config.instructions);
         let instructions = self::instructions(&instructions);
@@ -820,13 +817,13 @@ impl Driver {
                 command = commands.recv() => Next::Command(command),
                 _ = pacer.tick() => Next::Packet,
                 read = sideband.next() => Next::Read(read),
-                _ = failed.notified() => Next::PeerFailed,
-                _ = sleep_until(self.renew_at), if !renewing => Next::Renew,
+                () = failed.notified() => Next::PeerFailed,
+                () = sleep_until(self.renew_at), if !renewing => Next::Renew,
                 placed = async { self.placing.as_mut().expect("guarded").await }, if self.placing.is_some() => {
                     self.placing = None;
                     Next::Placed(placed.unwrap_or(Err(SpeechError::Cancelled)))
                 }
-                _ = self.events.closed() => return Err(SpeechError::Cancelled),
+                () = self.events.closed() => return Err(SpeechError::Cancelled),
             };
             if self.held.is_some() && Instant::now() >= self.start_by {
                 self.release(sideband).await?;

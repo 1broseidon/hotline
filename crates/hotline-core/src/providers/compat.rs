@@ -236,13 +236,12 @@ pub(crate) fn repair_event(
     if !event.get("type").is_some_and(Value::is_string) {
         return;
     }
-    match event.get("sequence_number").and_then(Value::as_u64) {
-        Some(number) => *next = number + 1,
-        None => {
-            event.insert("sequence_number".into(), (*next).into());
-            *next += 1;
-            fixed.insert("sequence_number");
-        }
+    if let Some(number) = event.get("sequence_number").and_then(Value::as_u64) {
+        *next = number + 1;
+    } else {
+        event.insert("sequence_number".into(), (*next).into());
+        *next += 1;
+        fixed.insert("sequence_number");
     }
     let done = event
         .get("type")
@@ -429,7 +428,7 @@ mod tests {
         let mut instructions = response();
         instructions["instructions"] = json!([{"type":"message","role":"developer","content":[]}]);
         let mut float_time = response();
-        float_time["created_at"] = json!(1791871040.5);
+        float_time["created_at"] = json!(1_791_871_040.5);
         let mut empty_error = response();
         empty_error["error"] = json!({});
         let mut empty_details = response();

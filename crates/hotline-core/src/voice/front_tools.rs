@@ -18,7 +18,7 @@ use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer, McpTool};
 use crate::session::{FrontReach, Room};
 use rig::tool::{DynamicTool, ToolOutput};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
@@ -147,7 +147,7 @@ impl FrontTools {
     /// refusal in words, clipped.
     pub async fn call(&self, name: &str, arguments: &str) -> String {
         let arguments: Value = if arguments.trim().is_empty() {
-            Value::Object(Default::default())
+            Value::Object(Map::default())
         } else {
             match serde_json::from_str(arguments) {
                 Ok(arguments) => arguments,

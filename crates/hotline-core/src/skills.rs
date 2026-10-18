@@ -12,6 +12,7 @@
 //! skill with the name, the description and the path — the format's
 //! progressive disclosure, so a body costs nothing until it is read.
 
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
@@ -469,12 +470,13 @@ pub fn index(skills: &[SkillEntry]) -> String {
         "You have skills: procedures to read when the task calls for one, each a file in your working directory. Read the file before starting work it describes.",
     );
     for skill in skills {
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "\n- {}: {} ({})",
             skill.name,
             skill.description,
             workspace_path(&skill.name)
-        ));
+        );
     }
     out
 }
@@ -766,7 +768,10 @@ mod tests {
             "a copied entry is the grant, not the teammate's own"
         );
 
-        assert!(read_folder(&root.join("nowhere"), SkillSource::Gateway, false).is_empty());
+        assert_eq!(
+            read_folder(&root.join("nowhere"), SkillSource::Gateway, false),
+            [] as [SkillEntry; 0]
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

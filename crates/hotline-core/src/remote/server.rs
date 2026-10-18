@@ -60,18 +60,15 @@ pub(super) fn run(
 ) -> futures_util::future::BoxFuture<'static, ()> {
     Box::pin(async move {
         loop {
-            let accepted = tokio::select! { biased; _ = cancel.cancelled() => break, accepted = listener.accept() => accepted };
-            let (socket, peer) = match accepted {
-                Ok(v) => v,
-                Err(_) => {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    continue;
-                }
+            let accepted = tokio::select! { biased; () = cancel.cancelled() => break, accepted = listener.accept() => accepted };
+            let Ok((socket, peer)) = accepted else {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
             };
             let accepted = tokio::time::Instant::now();
             let slot = tokio::select! {
                 biased;
-                _ = cancel.cancelled() => break,
+                () = cancel.cancelled() => break,
                 slot = remote.admission.accept(peer.ip(), accepted) => slot,
             };
             let remote = remote.clone();
@@ -80,8 +77,8 @@ pub(super) fn run(
             tokio::spawn(async move {
                 let accepted = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
-                    _ = slot.expired() => return,
+                    () = cancel.cancelled() => return,
+                    () = slot.expired() => return,
                     accepted = tls.accept(socket) => accepted,
                 };
                 let Ok(socket) = accepted else {
@@ -97,7 +94,7 @@ pub(super) fn run(
                 let connection = builder
                     .serve_connection(TokioIo::new(socket), service)
                     .with_upgrades();
-                tokio::select! { biased; _ = cancel.cancelled() => {}, _ = pending.expired() => {}, _ = connection => {} }
+                tokio::select! { biased; () = cancel.cancelled() => {}, () = pending.expired() => {}, _ = connection => {} }
             });
         }
     })
@@ -189,14 +186,14 @@ async fn sealed_door(
         };
         let socket = tokio::select! {
             biased;
-            _ = slot.expired() => return,
+            () = slot.expired() => return,
             socket = socket => socket,
         };
         if let Some(socket) = socket {
             sealed_session(remote, socket, purpose, Seat::Direct(slot)).await;
         }
     });
-    reply.map(|_| Full::new(Bytes::new()))
+    reply.map(|()| Full::new(Bytes::new()))
 }
 
 /// A visitor waits for the registered desk's sealed callback. The upgrade
@@ -223,8 +220,8 @@ async fn relay_door(
     tokio::spawn(async move {
         let upgraded = tokio::select! {
             biased;
-            _ = cancel.cancelled() => return,
-            _ = slot.expired() => return,
+            () = cancel.cancelled() => return,
+            () = slot.expired() => return,
             upgraded = upgraded => upgraded,
         };
         let Ok(upgraded) = upgraded else {
@@ -239,7 +236,7 @@ async fn relay_door(
         .await;
         super::relay::arrive(remote.relay.clone(), socket, notify, permit, path).await;
     });
-    reply.map(|_| Full::new(Bytes::new()))
+    reply.map(|()| Full::new(Bytes::new()))
 }
 
 /// The initial WebSocket cap prevents allocation of an unbounded handshake.
@@ -311,8 +308,8 @@ impl Seat {
         match self {
             Self::Direct(slot) => slot.expired().await,
             Self::Relayed { cancel, .. } => tokio::select! {
-                _ = cancel.cancelled() => {},
-                _ = tokio::time::sleep_until(deadline) => {},
+                () = cancel.cancelled() => {},
+                () = tokio::time::sleep_until(deadline) => {},
             },
         }
     }
@@ -445,8 +442,8 @@ pub(super) async fn sealed_session<S>(
     };
     let established = tokio::select! {
         biased;
-        _ = cancel.cancelled() => return,
-        _ = seat.expired(deadline) => return,
+        () = cancel.cancelled() => return,
+        () = seat.expired(deadline) => return,
         result = handshake => result,
     };
     let Some((socket, phone, desk, _authenticated)) = established else {
@@ -459,8 +456,8 @@ pub(super) async fn sealed_session<S>(
         let phone_cancel = phone.cancel.clone();
         Some(tokio::spawn(async move {
             tokio::select! {
-                _ = cancel.cancelled() => phone_cancel.cancel(),
-                _ = phone_cancel.cancelled() => {},
+                () = cancel.cancelled() => phone_cancel.cancel(),
+                () = phone_cancel.cancelled() => {},
             }
         }))
     } else {
@@ -474,8 +471,8 @@ pub(super) async fn sealed_session<S>(
             let revoked = phone.cancel.clone();
             tokio::select! {
                 biased;
-                _ = revoked.cancelled() => {},
-                _ = sealed_computer(remote.clone(), socket, &persona) => {},
+                () = revoked.cancelled() => {},
+                () = sealed_computer(remote.clone(), socket, &persona) => {},
             }
         }
         Purpose::Relay => {

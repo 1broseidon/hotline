@@ -89,7 +89,7 @@ impl Discoveries {
             if *known == discovery.relay {
                 false
             } else {
-                *known = discovery.relay.clone();
+                known.clone_from(&discovery.relay);
                 true
             }
         });
@@ -135,7 +135,7 @@ impl Bridge {
             loop {
                 tokio::select! {
                     biased;
-                    _ = stopped.cancelled() => break,
+                    () = stopped.cancelled() => break,
                     _ = tasks.join_next(), if !tasks.is_empty() => {},
                     accepted = listener.accept() => {
                         let Ok((socket, peer)) = accepted else { break; };
@@ -143,7 +143,7 @@ impl Bridge {
                         let client = client.clone(); let mut desk = desk.clone(); let key = key.clone(); let state = state.clone(); let viewers = viewers.clone(); let discoveries = discoveries.clone();
                         // New command and viewer sessions use what an earlier
                         // authenticated hello taught this bridge.
-                        desk.relay = discoveries.relay.borrow().clone();
+                        desk.relay.clone_from(&discoveries.relay.borrow());
                         tasks.spawn(async move { serve(socket, client, desk, key, viewers, state, discoveries).await; });
                     }
                 }

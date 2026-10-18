@@ -659,9 +659,9 @@ async fn invalid_image_or_spending_settings_do_not_write_any_patch_key() {
         .await;
         assert_eq!(refused["ok"], false, "{refused}");
         assert!(refused["error"].is_string());
-        assert!(log.load(&StreamId::Room).is_empty());
+        assert_eq!(log.load(&StreamId::Room), [] as [Value; 0]);
         assert!(quiet.invalidations.lock().unwrap().is_empty());
-        assert!(quiet.reattached().is_empty());
+        assert_eq!(quiet.reattached(), [] as [String; 0]);
     }
 }
 

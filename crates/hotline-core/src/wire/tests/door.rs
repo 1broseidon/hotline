@@ -62,7 +62,10 @@ async fn the_wire_answers_a_core_owned_collaboration_card_before_peer_start() {
     assert_eq!(answer["ok"], true, "{answer}");
     let denied = delivery.await.unwrap().unwrap_err();
     assert!(denied.contains("denied"), "{denied}");
-    assert!(log.load(&StreamId::Pair("ada~bob".to_string())).is_empty());
+    assert_eq!(
+        log.load(&StreamId::Pair("ada~bob".to_string())),
+        [] as [Value; 0]
+    );
 }
 
 #[tokio::test]

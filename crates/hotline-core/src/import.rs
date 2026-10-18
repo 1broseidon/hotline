@@ -127,7 +127,7 @@ pub fn import(from: &Path, log: &Log, vault: &Vault) -> io::Result<Report> {
     // WAL file, so the store is read from a copy. Tapes and settings are
     // ordinary files and are read in place.
     let snapshot = snapshot_store(from)?;
-    let store_root = snapshot.as_ref().map(StoreSnapshot::path).unwrap_or(from);
+    let store_root = snapshot.as_ref().map_or(from, StoreSnapshot::path);
     let imported = import_teammates(store_root, from, log, &mut report)?;
     threads::import(from, log, &mut report)?;
     schedules::import(from, log, &mut report)?;
@@ -314,15 +314,14 @@ fn setting_value_to_import(key: &str, value: Value, report: &mut Report) -> Opti
     if key == "defaultBackendId" {
         // The old tree's default names a backend by its old id, like a
         // teammate's record does; both go through the same table.
-        return match value.as_str().and_then(counterpart) {
-            Some(mapped) => Some(Value::from(mapped)),
-            None => {
-                report.skipped.push(Skipped {
-                    item: "setting defaultBackendId".into(),
-                    reason: "not a backend this Hotline has".into(),
-                });
-                None
-            }
+        return if let Some(mapped) = value.as_str().and_then(counterpart) {
+            Some(Value::from(mapped))
+        } else {
+            report.skipped.push(Skipped {
+                item: "setting defaultBackendId".into(),
+                reason: "not a backend this Hotline has".into(),
+            });
+            None
         };
     }
     if key != "mcpServers" {

@@ -117,7 +117,7 @@ mod tests {
     fn counts_are_kept_by_model_and_survive_a_reopen() {
         let root = tempfile::tempdir().unwrap();
         let replies = Replies::open(root.path());
-        assert!(replies.counts().is_empty());
+        assert_eq!(replies.counts(), [] as [VoiceReplies; 0]);
         replies.count("acp/claude-code", Path::Both);
         replies.count("acp/claude-code", Path::Both);
         replies.count("acp/claude-code", Path::Untagged);
@@ -161,7 +161,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join(FILE), "not json").unwrap();
         let replies = Replies::open(root.path());
-        assert!(replies.counts().is_empty());
+        assert_eq!(replies.counts(), [] as [VoiceReplies; 0]);
         replies.count("acp/codex", Path::Untagged);
         assert_eq!(Replies::open(root.path()).counts()[0].untagged, 1);
     }

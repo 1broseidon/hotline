@@ -254,7 +254,7 @@ async fn the_twelfth_request_keeps_its_reply_queued_until_keep_going() {
     let pair = room.exchange_pair("ada~bob").unwrap();
     assert!(pair.paused);
     assert_eq!(pair.exchanges, 12);
-    assert!(!pair.requests[0].reply.is_empty());
+    assert_ne!(pair.requests[0].reply, "");
     assert!(room.tape("ada").iter().all(|v| v["kind"] != "delivery"));
     room.resume_exchange("ada", "bob").unwrap();
     done(&room, "twelfth").await;
@@ -284,7 +284,7 @@ async fn restart_preserves_a_paused_queue_and_unstarted_handoff_without_counting
     let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
     room.recover_queued_exchanges();
     tokio::time::sleep(Duration::from_millis(150)).await;
-    assert!(agents.prompts().is_empty());
+    assert_eq!(agents.prompts(), [] as [String; 0]);
     assert_eq!(
         room.exchange_pair("ada~bob").unwrap().requests[0].phase,
         Phase::Queued
@@ -309,7 +309,7 @@ async fn restart_never_replays_started_work_and_delivers_an_explicit_failure() {
     room.recover_queued_exchanges();
     done(&room, "started").await;
     assert_eq!(agents.prompts().len(), 1, "only sender hears the failure");
-    assert!(room.tape("bob").is_empty());
+    assert_eq!(room.tape("bob"), [] as [serde_json::Value; 0]);
     let result = room
         .tape("ada")
         .into_iter()
@@ -353,7 +353,7 @@ async fn stop_and_revocation_settle_saved_work_and_resume_cannot_resurrect_it() 
         room.exchange_pair("ada~bob").unwrap().requests[0].phase,
         Phase::Stopped
     );
-    assert!(agents.prompts().is_empty());
+    assert_eq!(agents.prompts(), [] as [String; 0]);
     assert!(
         room.tape("ada")
             .iter()
@@ -747,7 +747,7 @@ async fn nested_handoff(active: bool, expire_dependency_only: bool) {
         // The handoff had its own thread beside the person's turn, and
         // stopping it closed that thread (this fake shares one driver between
         // threads, so it cannot tell whose turn a cancel reached).
-        assert!(room.sides("cara").is_empty());
+        assert_eq!(room.sides("cara"), [] as [crate::contract::RunningSide; 0]);
         agents.drivers["cara"].updates.add_permits(2);
         until("cara's turn ends", || !room.mid_turn("cara")).await;
     }
@@ -1188,7 +1188,7 @@ async fn stopped_or_revoked_human_handoffs_cannot_resume_after_restart() {
             .unwrap();
         room.recover_exchanges().await;
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(agents.prompts().is_empty());
+        assert_eq!(agents.prompts(), [] as [String; 0]);
         assert_eq!(
             room.exchange_pair("ada~bob").unwrap().requests[0].phase,
             Phase::Stopped

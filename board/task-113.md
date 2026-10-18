@@ -9,7 +9,7 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:42.496Z"
-updatedAt: "2026-10-18T00:14:35.080Z"
+updatedAt: "2026-10-18T00:14:36.590Z"
 relatedFiles:
   - docs/security.md
   - crates/hotline-core/src/session/tests.rs
@@ -31,7 +31,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:14:34.954Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-18T00:14:36.590Z"
 assignee: claude
 ---
 

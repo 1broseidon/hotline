@@ -56,3 +56,6 @@ Phase 2 group C, plan row 33 (second landing) in docs/audits/0.40/README.md on r
 Move-only: split `ui/src/components/Settings.tsx` into `ui/src/components/settings/*.tsx` by section, and re-export everything from `components/Settings.tsx` so no importer changes. No behaviour change, no fixes (those are P2-47/48/49 after).
 
 End with `make precheck` and `make ui-check` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T00:31:59.543Z: [claude] Done on dispatch/task-172 (e0eefcf1), move-only: Settings.tsx (2068→255 lines) keeps SettingsRail, RailFooter, the Settings router and ServerRemoteNote; sections moved to components/settings/{General (with AppearanceSection, idle-hour bounds), Computer, Providers, Tools (MCP pages + WebSearch), Import}.tsx. The only edits: `export` on the five section functions, and `export { McpOAuthControls } from "./settings/Tools"` in Settings.tsx, so App.tsx and the tests import unchanged (a sorted-line diff against the old file shows nothing else). Nothing left unwired. For P2-48: the useExhaustiveDependencies hits window.md cites in Settings.tsx (:731, :1548, :1637) now live in settings/Providers.tsx and settings/Tools.tsx. make ui-check (420 pass) and make precheck (7 legs) pass.

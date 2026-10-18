@@ -150,6 +150,7 @@ fn tool_chunks(name: &str, arguments: Value) -> Vec<Value> {
 /// stopping the server from the desk says nothing on the call.
 #[tokio::test]
 async fn running_process_a_server_started_on_a_call_leaves_the_call_listening() {
+    common::require("python3");
     let opened = common::browser();
     let mut desk = front_desk(true, 64).await;
     let root = desk.root.path().to_path_buf();

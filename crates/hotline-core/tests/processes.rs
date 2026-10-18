@@ -24,6 +24,7 @@ const TOKEN: &str = "disposable-processes-test";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn running_process_a_server_left_running_ends_the_turn_and_a_later_turn_stops_it() {
+    common::require("python3");
     let mut desk = Desk::open().await;
     let server = "echo $$ > server.pid; exec python3 -m http.server 0 --bind 127.0.0.1";
     desk.script([
@@ -77,24 +78,19 @@ async fn running_process_a_server_left_running_ends_the_turn_and_a_later_turn_st
 #[tokio::test(flavor = "multi_thread")]
 async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     let mut desk = Desk::open().await;
+    // The command cannot end until the test lets it, so the turn ending first
+    // is an order, not a race against a clock.
+    let build = "while [ ! -e go ]; do sleep 0.05; done; echo done";
     desk.script([
-        tool_call(
-            "shell",
-            json!({"command": "sleep 2; echo done"}),
-            "call_build",
-        ),
+        tool_call("shell", json!({"command": build}), "call_build"),
         text("The build is going."),
         text("The build finished: done."),
     ]);
-    let asked = tokio::time::Instant::now();
     desk.prompt("build it").await;
     desk.request().await;
     desk.request().await;
     assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
-    assert!(
-        asked.elapsed() < Duration::from_secs(2),
-        "the turn ended before the command did"
-    );
+    std::fs::write(desk.workspace.join("go"), "").unwrap();
 
     let woke = desk.request().await;
     let said = woke.to_string();
@@ -293,6 +289,7 @@ async fn process_chip_output_is_the_latest_of_what_it_wrote() {
 /// takes its whole process tree and wakes nobody.
 #[tokio::test(flavor = "multi_thread")]
 async fn running_process_serve_open_and_stop_end_to_end() {
+    common::require("perl");
     let opened = common::browser();
     let mut desk = Desk::open().await;
     desk.client.subscribe(json!({"view": "roster"})).await;
@@ -378,12 +375,12 @@ async fn running_process_serve_open_and_stop_end_to_end() {
     desk.quiet_for(Duration::from_secs(1)).await;
 }
 
-/// A port nothing listens on now, for a server the teammate starts.
 /// A static server for `chart.html` on the port it is given, in perl: it
 /// says when it is listening, answers each request with the page, and runs
 /// until it is killed.
 const SERVE: &str = r#"perl -MIO::Socket::INET -e '$| = 1; my $s = IO::Socket::INET->new(LocalAddr => "127.0.0.1", LocalPort => $ARGV[0], Listen => 5, ReuseAddr => 1) or die "cannot listen: $!\n"; print "listening\n"; while (my $c = $s->accept) { <$c>; open(my $f, "<", "chart.html"); print $c "HTTP/1.0 200 OK\r\n\r\n", <$f>; close $c }'"#;
 
+/// A port nothing listens on now, for a server the teammate starts.
 fn free_port() -> u16 {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.local_addr().unwrap().port()

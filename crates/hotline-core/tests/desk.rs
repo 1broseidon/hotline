@@ -2,11 +2,12 @@
 //! runs, and all of it is watched through the wire the window uses.
 //!
 //! The first test needs nothing but this machine. The second needs a real
-//! provider key in `HOTLINE_HARNESS_ANTHROPIC_KEY` and is skipped without one,
-//! because a turn that reaches a model is the only honest proof that the
-//! driver, the tools and the tape agree. The third is the same proof for the
-//! other kind of agent: set `HOTLINE_HARNESS_ACP` to a backend id this machine
-//! can run (`cursor`, say) and it drives a real harness as a child.
+//! provider key in `HOTLINE_HARNESS_ANTHROPIC_KEY` and is ignored unless run
+//! with `--ignored`, because a turn that reaches a model is the only honest
+//! proof that the driver, the tools and the tape agree. The third is the same
+//! proof for the other kind of agent: set `HOTLINE_HARNESS_ACP` to a backend id
+//! this machine can run (`cursor`, say), pass `--ignored`, and it drives a real
+//! harness as a child.
 
 mod common;
 

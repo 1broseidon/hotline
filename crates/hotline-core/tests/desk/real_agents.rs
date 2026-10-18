@@ -3,11 +3,10 @@ use super::*;
 /// A real turn, with a real key: the agent reads a file in its workspace with
 /// a tool and answers from it, and every step reaches the tape and the wire.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs an Anthropic key in HOTLINE_HARNESS_ANTHROPIC_KEY"]
 async fn a_turn_with_a_real_key_reads_a_file_and_answers_from_it() {
-    let Ok(key) = std::env::var("HOTLINE_HARNESS_ANTHROPIC_KEY") else {
-        eprintln!("skipped: set HOTLINE_HARNESS_ANTHROPIC_KEY to run a real turn");
-        return;
-    };
+    let key = std::env::var("HOTLINE_HARNESS_ANTHROPIC_KEY")
+        .expect("set HOTLINE_HARNESS_ANTHROPIC_KEY to run a real turn");
     let (root, port) = open("live").await;
     let workspace = root.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -118,13 +117,10 @@ async fn a_turn_with_a_real_key_reads_a_file_and_answers_from_it() {
 /// The backend is named rather than assumed, because which harness is
 /// installed and logged in is a fact about the machine and not about Hotline.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a backend id in HOTLINE_HARNESS_ACP"]
 async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
-    let Ok(backend_id) = std::env::var("HOTLINE_HARNESS_ACP") else {
-        eprintln!(
-            "skipped: set HOTLINE_HARNESS_ACP to a backend id (e.g. cursor) to drive a harness"
-        );
-        return;
-    };
+    let backend_id = std::env::var("HOTLINE_HARNESS_ACP")
+        .expect("set HOTLINE_HARNESS_ACP to a backend id (e.g. cursor) to drive a harness");
     let (root, port) = open("acp").await;
     let workspace = root.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
@@ -270,15 +266,12 @@ async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
 /// harness offers steering: the turn that was counting ends with the answer
 /// to the line, and no second turn is needed for it. A harness without
 /// steering still answers, in the turn after. Driven by the same
-/// `HOTLINE_HARNESS_ACP` as the turn above, and skipped without it.
+/// `HOTLINE_HARNESS_ACP` as the turn above, and ignored unless asked for.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs a backend id in HOTLINE_HARNESS_ACP"]
 async fn a_line_sent_mid_turn_reaches_a_real_acp_harness() {
-    let Ok(backend_id) = std::env::var("HOTLINE_HARNESS_ACP") else {
-        eprintln!(
-            "skipped: set HOTLINE_HARNESS_ACP to a backend id (e.g. claude-acp) to drive a harness"
-        );
-        return;
-    };
+    let backend_id = std::env::var("HOTLINE_HARNESS_ACP")
+        .expect("set HOTLINE_HARNESS_ACP to a backend id (e.g. claude-acp) to drive a harness");
     let (root, port) = open("acp-steer").await;
     let workspace = root.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();

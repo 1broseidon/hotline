@@ -1,7 +1,7 @@
 ---
 id: task-115
 title: "P2-3 (A): Patch ACP ZIP extraction (F1)"
-column: in-progress
+column: review
 position: 4
 priority: high
 tags:
@@ -14,9 +14,9 @@ relatedFiles:
   - Cargo.lock
   - crates/hotline-core/src/driver/acp/install.rs
   - docs/security.md
-updatedAt: "2026-10-18T00:32:59.528Z"
+updatedAt: "2026-10-18T00:50:40.610Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - make precheck
@@ -25,6 +25,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T00:32:59.528Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T00:50:40.610Z"
+    duration: 1061
 dependsOn:
   - task-113
   - task-114

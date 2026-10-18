@@ -14,7 +14,7 @@ relatedFiles:
   - ui/package.json
   - ui/bun.lock
   - Makefile
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:30.158Z"
 contract:
   status: ready
   validation:
@@ -27,6 +27,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-168
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:30.025Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

@@ -16,12 +16,20 @@ use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 /// What the desk takes in one upload chunk.
 const CHUNK: u64 = 512 * 1024;
+
+/// Both maps only gain or lose whole entries, so a panic while one is held
+/// leaves nothing half-made in it: a poisoned map is recovered, and a handed
+/// path is still the only kind read. A chunk whose write panicked fails its
+/// command, and the page then abandons the download, which removes the copy.
+fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
+    held.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 #[derive(Default)]
 pub struct Transfers {
@@ -43,7 +51,7 @@ struct Download {
 impl Transfers {
     /// Paths the person dropped on the window.
     pub fn hand(&self, paths: &[PathBuf]) {
-        let mut handed = self.handed.lock().unwrap();
+        let mut handed = lock(&self.handed);
         for path in paths {
             if let Ok(path) = path.canonicalize() {
                 handed.insert(path);
@@ -55,7 +63,7 @@ impl Transfers {
         let path = Path::new(path)
             .canonicalize()
             .map_err(|_| "That file is no longer on this computer.".to_string())?;
-        if !self.handed.lock().unwrap().contains(&path) || !path.is_file() {
+        if !lock(&self.handed).contains(&path) || !path.is_file() {
             return Err("Pick or drop a file to send it.".to_string());
         }
         Ok(path)
@@ -180,7 +188,7 @@ pub async fn transfer_begin(
     let file =
         File::create(&path).map_err(|error| format!("The copy could not be written: {error}"))?;
     let id = format!("{:032x}", rand::random::<u128>());
-    transfers.writing.lock().unwrap().insert(
+    lock(&transfers.writing).insert(
         id.clone(),
         Download {
             file,
@@ -203,7 +211,7 @@ pub async fn transfer_write(
         let bytes = STANDARD
             .decode(data)
             .map_err(|_| "The desk sent a damaged chunk.".to_string())?;
-        let mut writing = transfers.writing.lock().unwrap();
+        let mut writing = lock(&transfers.writing);
         let download = writing.get_mut(&id).ok_or("That download has ended.")?;
         download
             .file
@@ -224,7 +232,7 @@ pub async fn transfer_end(
 ) -> Result<Option<String>, String> {
     let transfers = transfers.inner().clone();
     off_the_window(move || {
-        let Some(mut download) = transfers.writing.lock().unwrap().remove(&id) else {
+        let Some(mut download) = lock(&transfers.writing).remove(&id) else {
             return Ok(None);
         };
         let flushed = download.file.flush();
@@ -286,6 +294,24 @@ mod tests {
         let sideways = dir.path().join("x/../other.txt");
         assert!(transfers.handed(&sideways.to_string_lossy()).is_err());
         assert!(transfers.handed(&dir.path().to_string_lossy()).is_err());
+    }
+
+    #[test]
+    fn a_poisoned_hand_still_reads_only_what_was_handed_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let picked = dir.path().join("picked.txt");
+        let other = dir.path().join("other.txt");
+        std::fs::write(&picked, b"hello").unwrap();
+        std::fs::write(&other, b"secret").unwrap();
+        let transfers = Transfers::default();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _held = transfers.handed.lock();
+            panic!("poisoned on purpose");
+        }));
+        assert!(transfers.handed.is_poisoned());
+        transfers.hand(std::slice::from_ref(&picked));
+        assert!(transfers.handed(&picked.to_string_lossy()).is_ok());
+        assert!(transfers.handed(&other.to_string_lossy()).is_err());
     }
 
     #[test]

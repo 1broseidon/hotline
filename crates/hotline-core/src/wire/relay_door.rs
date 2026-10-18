@@ -7,7 +7,7 @@
 //! refused with a sentence saying so. As on the wire, an invitation this
 //! socket opened closes when the socket does.
 
-use super::read_command;
+use super::socket::read_command;
 use crate::contract::Command;
 use crate::remote::{RELAY_ONLY, Remote};
 use futures_util::{SinkExt, StreamExt};

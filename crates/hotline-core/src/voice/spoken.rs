@@ -323,7 +323,7 @@ impl Spoken {
                 self.line(&text, &mut out);
             }
             self.prose_line = false;
-            let rest = super::take_sentences(&mut self.prose, true);
+            let rest = super::synthesis::take_sentences(&mut self.prose, true);
             self.gate(rest, &mut out);
             return out;
         }
@@ -334,7 +334,7 @@ impl Spoken {
         {
             self.prose_line = true;
             self.prose.push_str(&text);
-            let sentences = super::take_sentences(&mut self.prose, false);
+            let sentences = super::synthesis::take_sentences(&mut self.prose, false);
             self.gate(sentences, &mut out);
         } else {
             // Not yet known: it waits for the rest of its line.
@@ -361,7 +361,7 @@ impl Spoken {
             }
         }
         self.prose.push_str(line);
-        let sentences = super::take_sentences(&mut self.prose, false);
+        let sentences = super::synthesis::take_sentences(&mut self.prose, false);
         self.gate(sentences, out);
     }
 
@@ -394,7 +394,7 @@ pub(crate) fn said_as_written(written: &str) -> bool {
         && !text.contains(['\n', '`'])
         && !table(text)
         && text.split_whitespace().count() < LINE_WORDS
-        && super::sentences(text).len() <= FALLBACK_SENTENCES
+        && super::synthesis::sentences(text).len() <= FALLBACK_SENTENCES
 }
 
 /// A reply as the chat shows it while it streams: the written version, and

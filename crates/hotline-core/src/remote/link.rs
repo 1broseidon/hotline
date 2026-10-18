@@ -330,7 +330,7 @@ impl Remote {
     /// The token a dialing desk's channel runs under, if `public` is the key
     /// this desk's link record for `desk_id` trusts.
     fn authenticate_link(&self, desk_id: &str, public: &[u8]) -> Option<CancellationToken> {
-        if self.state.lock().unwrap().endpoints.is_empty() {
+        if lock(&self.state).endpoints.is_empty() {
             return None;
         }
         let public = URL_SAFE_NO_PAD.encode(public);
@@ -355,7 +355,7 @@ where
         purpose: String,
         desk_id: String,
     }
-    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let cancel = lock(&remote.state).cancel.clone();
     let deadline = tokio::time::Instant::now() + STEP_WITHIN;
     let handshake = async {
         let (private, _) = remote.noise_keys().ok()?;

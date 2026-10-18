@@ -4,6 +4,7 @@ use super::synthesis::{goodbye, own_voice, sentences, speech_ready, take_sentenc
 use super::*;
 use crate::contract::VoiceCallMode;
 use crate::log::StreamId;
+use crate::test_support::until;
 use crate::wire::RoomHandle;
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -326,16 +327,6 @@ async fn one_reply(
     .await
     .unwrap();
     (said, clips)
-}
-
-async fn until_written(what: &str, mut done: impl FnMut() -> bool) {
-    for _ in 0..1000 {
-        if done() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    panic!("{what} was never written");
 }
 
 fn said_on(desk: &crate::desk::Desk, id: &str) -> Vec<(String, String)> {

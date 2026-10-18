@@ -103,7 +103,7 @@ async fn a_blocked_dispatcher_says_nothing_and_interrupt_preserves_its_text() {
         .await;
         tokio::task::yield_now().await;
         assert!(lock(&fake.spoken).is_empty());
-        until_written("the answer", || {
+        until("the answer", || {
             desk.log
                 .load(&crate::log::StreamId::Tape(TAPE_ID.into()))
                 .iter()

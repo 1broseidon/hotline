@@ -28,7 +28,7 @@ async fn a_desk_calls_streamed_answer_is_one_line_on_its_tape() {
             .map(|event| event["text"].as_str().unwrap().to_string())
             .collect()
     };
-    until_written("the answer", || !agent().is_empty()).await;
+    until("the answer", || !agent().is_empty()).await;
     assert_eq!(agent(), ["The first sentence. The second sentence."]);
     calls.end(&id).unwrap();
 }
@@ -38,7 +38,7 @@ async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_
     let (_root, desk, calls, id, persona, _rx, _fake) = direct_call().await;
     let room = calls.room.upgrade().unwrap();
     let mut looked_again = std::collections::HashMap::new();
-    until_written("the link", || call_link(&desk, &persona).is_some()).await;
+    until("the link", || call_link(&desk, &persona).is_some()).await;
 
     room.sweep(
         crate::session::now_ms() + crate::thread::QUIET_MS - 60_000,
@@ -68,7 +68,7 @@ async fn the_room_sweep_ends_a_call_that_has_gone_quiet_and_leaves_one_that_has_
             listening: false,
         }
     );
-    until_written("the closing link", || {
+    until("the closing link", || {
         call_link(&desk, &persona).is_some_and(|link| link["state"] == "closed")
     })
     .await;

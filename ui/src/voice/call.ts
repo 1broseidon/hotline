@@ -1104,6 +1104,7 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 			window.removeEventListener("focus", again);
 		};
 	}, []);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: asked and voiceSettings are what ask again.
 	useEffect(() => {
 		if (connection !== "open") { setSupport({ available: false, directCalls: false }); return; }
 		let current = true;

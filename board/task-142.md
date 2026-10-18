@@ -14,7 +14,7 @@ relatedFiles:
   - ui/src/useNavigation.ts
   - ui/src/useSeen.ts
   - ui/src/useWindowHotkeys.ts
-updatedAt: "2026-10-18T00:15:02.154Z"
+updatedAt: "2026-10-18T00:15:18.984Z"
 contract:
   status: ready
   validation:
@@ -31,7 +31,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:02.018Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: desktop
+    pid: 50333
+    at: "2026-10-18T00:15:18.984Z"
 assignee: claude
 ---
 

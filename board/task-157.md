@@ -19,7 +19,7 @@ relatedFiles:
   - ui/src/stepText.ts
   - ui/src/voice/call.ts
   - ui/src/voice/dictation.ts
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:18.984Z"
 contract:
   status: ready
   validation:
@@ -33,6 +33,14 @@ dependsOn:
   - task-172
   - task-173
   - task-174
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:18.843Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

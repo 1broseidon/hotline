@@ -26,7 +26,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/speech/mod.rs
   - crates/hotline-core/src/websearch/mod.rs
   - crates/hotline-core/src/wire/mod.rs
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:14:44.186Z"
 contract:
   status: ready
   validation:
@@ -41,6 +41,14 @@ dependsOn:
   - task-113
   - task-121
   - task-125
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:14:44.049Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

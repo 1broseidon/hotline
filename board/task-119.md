@@ -1,7 +1,7 @@
 ---
 id: task-119
 title: "P2-7 (A): Ship a Mermaid bundle with KaTeX fixed"
-column: todo
+column: in-progress
 position: 8
 priority: high
 tags:
@@ -13,15 +13,17 @@ relatedFiles:
   - ui/package.json
   - ui/bun.lock
   - ui/src/components/Mermaid.tsx
-updatedAt: "2026-10-18T00:14:42.053Z"
+updatedAt: "2026-10-18T00:17:03.458Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make ui-check
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T00:17:03.458Z"
+    reworkCount: 0
 dependsOn:
   - task-118
 dispatch:

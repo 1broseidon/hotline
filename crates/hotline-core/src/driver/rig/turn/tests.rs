@@ -778,7 +778,7 @@ async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is()
         let Message::User { content } = message else {
             continue;
         };
-        for content in content.iter() {
+        for content in content {
             match content {
                 UserContent::Text(text) => {
                     if let Some(data) = text.text.strip_prefix(

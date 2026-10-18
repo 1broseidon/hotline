@@ -8,7 +8,7 @@ beside them (`crates/hotline-core/src/voice/`).
 
 ## The seam
 
-`Speech` (`voice/speech/mod.rs`) has `transcribe(clip)` and `speak(text)`, and
+`Speech` (`voice/speech.rs`) has `transcribe(clip)` and `speak(text)`, and
 `resolve(vault, settings)` returns a `SpeechSet` of three: `stt`, `tts` and an
 optional `fallback_tts`. An adapter is built for one job, so `id()` names the
 model behind that job, and the other job answers `WrongJob`. `output_mime()`

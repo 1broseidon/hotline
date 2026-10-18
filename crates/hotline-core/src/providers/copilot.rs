@@ -419,6 +419,8 @@ struct Login {
     token_dir: PathBuf,
 }
 
+// The Copilot client holds the live token, so Debug names only where it is
+// stored and marks the rest as omitted.
 impl fmt::Debug for Transport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CopilotTransport")
@@ -426,7 +428,7 @@ impl fmt::Debug for Transport {
                 "token_dir",
                 &self.login.as_ref().map(|login| login.token_dir.as_path()),
             )
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

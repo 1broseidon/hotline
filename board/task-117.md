@@ -14,7 +14,7 @@ relatedFiles:
   - scripts/fetch-speech-engine
   - scripts/speech-engine.sha256
   - Cargo.lock
-updatedAt: "2026-10-18T01:22:46.870Z"
+updatedAt: "2026-10-18T01:24:36.227Z"
 contract:
   status: ready
   validation:
@@ -35,9 +35,9 @@ dispatch:
   tries: 1
   claim:
     host: Georges-Mac-Studio
-    runner: cli
-    pid: 59932
-    at: "2026-10-18T01:22:46.870Z"
+    runner: desktop
+    pid: 50333
+    at: "2026-10-18T01:24:36.226Z"
 assignee: claude
 ---
 

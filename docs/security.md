@@ -242,10 +242,13 @@ the owner's own clients send to calls and to `voice.transcribe`.
 - **Residual risk.** The pin trusts what NVIDIA trained and sherpa-onnx
   converted on the day it was pinned; a model is data that onnxruntime
   parses, so a hostile one could attack the parser, which is why only pinned
-  archives are fetched. The engine's static library is downloaded by
-  `sherpa-onnx-sys`'s build script from that project's GitHub release for
-  the exact crate version in `Cargo.lock`; TLS is the only check on the
-  archive itself. Anyone who can write the data directory can replace a
+  archives are fetched. The engine's static library comes from that
+  project's GitHub release for the exact crate version in `Cargo.lock`:
+  `scripts/fetch-speech-engine` keeps the archive only if it matches its
+  SHA-256 in `scripts/speech-engine.sha256`, and the build links only what
+  that script left in `.speech-engine`, never downloading one itself. The
+  build script comes from an upstream commit (the `[patch.crates-io]` in
+  `Cargo.toml`) until a sherpa-onnx release builds with ZIP 9. Anyone who can write the data directory can replace a
   model's files and its record together, as they can every other file there.
   Audio sent to `voice.transcribe` is decoded in the desk's process, AAC by
   symphonia, which is pure Rust.

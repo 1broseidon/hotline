@@ -17,23 +17,20 @@ import { Teammate } from "./components/Teammate";
 import { ProcessWork, sameWork, Work, type OpenWork } from "./components/Work";
 import type { ThreadRef } from "./components/Transcript";
 import { EmptyRoom, Welcome } from "./components/Welcome";
-import { matchChord } from "./chords";
-import { hotkeyRegistrar, onHotkey, useHotkeys, useRecording, type HotkeyId, type KeyState } from "./hotkeys";
-import { requestDictation, useDictationAvailable } from "./voice/dictation";
-import { confirmRemove, listenMenu, listenToastClicks, openLink, platform, setBadge, showWindow, watchWindowShape } from "./native";
+import { confirmRemove, listenToastClicks, platform, setBadge, watchWindowShape } from "./native";
 import { watchLooking } from "./looking";
 import { noticeRoster, setWindowTitle, toastTarget } from "./notify";
 import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
-import { shownTeam, teamOrder } from "./pins";
-import { activeDeskId, allDesks, deskFilter, useActiveDesk, useDesks, wireFor } from "./desks";
+import { activeDeskId, useActiveDesk, useDesks, wireFor } from "./desks";
 import { cachedRoster, keepRoster, syncWatches, useBackgroundRosters, useBackgroundUnread } from "./deskWatch";
 import { AddDesk } from "./components/AddDesk";
 import { ServerFiles } from "./components/ServerFiles";
 import { useSaved } from "./useSaved";
 import { openOnDesk, useNavigation } from "./useNavigation";
 import { useSeen } from "./useSeen";
+import { useWindowHotkeys } from "./useWindowHotkeys";
 
 
 /* Settings is opened now and then, not at launch: it loads on first open,
@@ -316,119 +313,6 @@ export function App() {
 		[selectedId],
 	);
 
-	/* ⌃1–9 count along the rail as it is drawn: every desk it lists. */
-	const seatOf = useCallback(
-		(seat: number) => teamOrder(shownTeam(allDesks(), activeDeskId() ?? "", deskFilter(), roster, elsewhere)).all[seat - 1],
-		[roster, elsewhere],
-	);
-
-	// Chords live in chords.ts so Help cannot list a key the window does
-	// not hear. Escape closes whatever is on top: the search, then a pane,
-	// then the inspector.
-	useEffect(() => {
-		const onKey = (event: KeyboardEvent) => {
-			const chord = matchChord(event);
-			if (chord === "close") {
-				if (pane !== null) {
-					event.preventDefault();
-					closePane();
-					return;
-				}
-				if (dock !== null && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
-					// One step back, then out: a thread to the list, the list to the window.
-					event.preventDefault();
-					if (dock.open !== null) setDock({ open: null });
-					else closeDock();
-					return;
-				}
-				if (selectedId !== null && workOf !== undefined && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
-					event.preventDefault();
-					closeWork(selectedId);
-					return;
-				}
-				if (inspector && !(event.target as HTMLElement | null)?.closest("textarea, input")) {
-					event.preventDefault();
-					setInspector(false);
-					return;
-				}
-				return;
-			}
-			if (chord === "new-teammate") {
-				event.preventDefault();
-				if (takeChord()) newTeammate();
-				return;
-			}
-			if (chord === "settings") {
-				event.preventDefault();
-				if (takeChord()) togglePane("settings");
-				return;
-			}
-			if (chord === "teammate") {
-				if (selectedId === null) return;
-				event.preventDefault();
-				if (takeChord()) toggleInspector();
-				return;
-			}
-			if (chord === "search") {
-				event.preventDefault();
-				setSearchAsk((count) => count + 1);
-				return;
-			}
-			if (chord === "sidebar") {
-				event.preventDefault();
-				if (takeChord()) toggleRail();
-				return;
-			}
-			if (chord === null || !chord.startsWith("teammate-")) return;
-			const seat = Number(chord.slice("teammate-".length));
-			const row = seatOf(seat);
-			if (!row) return;
-			event.preventDefault();
-			select(row.entry.persona.id, row.deskId);
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [selectedId, pane, dock, inspector, workOf, closeWork, select, seatOf, closePane, closeDock, togglePane, newTeammate, toggleInspector, toggleRail]);
-
-	useEffect(() => {
-		return listenMenu((id) => {
-			if (id === "sidebar") {
-				if (takeChord()) toggleRail();
-				return;
-			}
-			if (id === "settings") {
-				if (takeChord()) togglePane("settings");
-				return;
-			}
-			if (id === "new-teammate") {
-				if (takeChord()) newTeammate();
-				return;
-			}
-			if (id === "teammate") {
-				if (takeChord()) toggleInspector();
-				return;
-			}
-			if (id === "search") {
-				setSearchAsk((count) => count + 1);
-				return;
-			}
-			// About and the shortcuts are sections of Settings.
-			if (id === "about" || id === "shortcuts") {
-				setSettingsSection(id);
-				setPane("settings");
-				return;
-			}
-			if (id === "github") {
-				void openLink("https://github.com/1broseidon/hotline");
-				return;
-			}
-			if (id.startsWith("teammate-")) {
-				const row = seatOf(Number(id.slice("teammate-".length)));
-				if (row) select(row.entry.persona.id, row.deskId);
-			}
-		});
-	}, [selectedId, pane, select, seatOf, togglePane, newTeammate, toggleInspector, toggleRail]);
-
 	/* Right-clicking chrome should not offer Reload. Fields and a live
 	 * selection keep the system's own menu. A teammate row handles its own. */
 	useEffect(() => {
@@ -484,45 +368,34 @@ export function App() {
 		[nameOf],
 	);
 
-	/* The shortcuts heard anywhere on this computer (hotkeys.ts). Dictate
-	 * brings the window forward and hands its press and release to the open
-	 * conversation's composer, or the last teammate's when a pane stands in
-	 * its place, which tells a tap from a hold. Call your agent calls the
-	 * open teammate and Call the desk calls the desk, each coming forward to
-	 * do it; either hangs up a live call where the person is. */
-	const hotkeyPressed = useRef<(id: HotkeyId, state: KeyState) => void>(() => {});
-	hotkeyPressed.current = (id, state) => {
-		if (id === "dictate") {
-			if (selected === null) return;
-			if (state === "Pressed") {
-				void showWindow();
-				setPane(null);
-			}
-			requestDictation(state === "Pressed" ? "down" : "up");
-			return;
-		}
-		if (state !== "Pressed") return;
-		if (calling) {
-			closeCall();
-			return;
-		}
-		if (id === "desk") {
-			if (!voice) return;
-			void showWindow();
-			void startCall(nameOf);
-			return;
-		}
-		if (selected === null || !directCalls) return;
-		void showWindow();
-		callTeammate(selected);
-	};
-	useEffect(() => onHotkey((id, state) => hotkeyPressed.current(id, state)), []);
-	const bindings = useHotkeys();
-	const recordingKeys = useRecording();
-	const dictationHere = useDictationAvailable();
-	useEffect(() => {
-		void hotkeyRegistrar()?.sync(recordingKeys ? {} : { dictate: dictationHere ? bindings.dictate : "", conversation: bindings.conversation, desk: bindings.desk });
-	}, [bindings, recordingKeys, dictationHere]);
+	useWindowHotkeys({
+		roster,
+		elsewhere,
+		selectedId,
+		selected,
+		pane,
+		setPane,
+		dock,
+		setDock,
+		closeDock,
+		inspector,
+		setInspector,
+		workOf,
+		closeWork,
+		select,
+		closePane,
+		togglePane,
+		newTeammate,
+		toggleInspector,
+		toggleRail,
+		setSearchAsk,
+		setSettingsSection,
+		calling,
+		voice,
+		directCalls,
+		nameOf,
+		callTeammate,
+	});
 	/* A narrow window has room for faces beside the pane and no more. */
 	const faces = narrow || railSize.compact;
 	/* Settings' sections have no faces to fall back to: they stand at the
@@ -773,16 +646,6 @@ export function App() {
 
 /** The teammate's pane (`.inspector` in index.css); what floats keeps clear of it. */
 const INSPECTOR_WIDTH = 320;
-
-/** The menu bar and the window both hear the same chord; one press is one
- * action, even when both fire. */
-let lastChordAt = 0;
-function takeChord(): boolean {
-	const now = performance.now();
-	if (now - lastChordAt < 120) return false;
-	lastChordAt = now;
-	return true;
-}
 
 /** The width of the window's main column below which a work card docks. */
 const WORK_DOCK_BELOW = 960;

@@ -17,7 +17,7 @@ relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/subscribe.rs
   - crates/hotline-core/src/wire/phone.rs
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:14:57.641Z"
 contract:
   status: ready
   validation:
@@ -30,6 +30,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-128
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:14:57.496Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

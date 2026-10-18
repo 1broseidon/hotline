@@ -1,8 +1,6 @@
 ---
 id: task-5
 title: Sign Windows releases with a trusted publisher identity when demand warrants it
-column: backlog
-position: 6
 priority: low
 tags:
   - bro-19
@@ -19,7 +17,8 @@ description: |-
   Migrated from Linear BRO-19: https://linear.app/1broseidon/issue/BRO-19/sign-windows-releases-with-a-trusted-publisher-identity-when-demand (2026-10-11).
 
   Closed 2026-10-18 (backlog triage): Won't do until Windows demand shows up.
-updatedAt: "2026-10-18T23:41:00.990Z"
+updatedAt: "2026-10-18T23:41:01.507Z"
+completedAt: "2026-10-18T23:41:01.507Z"
 ---
 
 ## Log

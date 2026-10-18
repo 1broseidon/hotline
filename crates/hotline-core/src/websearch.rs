@@ -33,6 +33,7 @@ use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use query::{Language, Query};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use when::Window;
@@ -284,14 +285,15 @@ impl Request {
     pub(crate) fn objective(&self) -> String {
         let mut text = self.query.clone();
         if let Some(language) = self.language {
-            text.push_str(&format!(" Prefer pages written in {}.", language.name));
+            let _ = write!(text, " Prefer pages written in {}.", language.name);
         }
         if let Some(window) = self.window {
             // Neither API has a date field, so the sentence is the only way.
-            text.push_str(&format!(
+            let _ = write!(
+                text,
                 " Today is {}. Only pages published on or after {}, and stories rather than index, tag or section pages.",
                 self.today, window.from
-            ));
+            );
         }
         text
     }
@@ -717,17 +719,17 @@ pub fn render(answered: &Answered) -> String {
         out.push_str("No results.\n\n");
     }
     for (index, hit) in answered.hits.iter().enumerate() {
-        out.push_str(&format!("{}. {}\n   {}\n", index + 1, hit.title, hit.url));
+        let _ = write!(out, "{}. {}\n   {}\n", index + 1, hit.title, hit.url);
         let snippet = bounded(&one_line(&hit.snippet), SNIPPET_CHARS);
         if snippet.is_empty() {
             out.push_str("   (no preview)\n");
         } else {
-            out.push_str(&format!("   {snippet}\n"));
+            let _ = writeln!(out, "   {snippet}");
         }
         out.push('\n');
     }
     let names: Vec<&str> = answered.answered.iter().map(|p| display_name(*p)).collect();
-    out.push_str(&format!("Searched with {}", names.join(", ")));
+    let _ = write!(out, "Searched with {}", names.join(", "));
     if !answered.failed.is_empty() {
         let left: Vec<String> = answered
             .failed
@@ -736,7 +738,7 @@ pub fn render(answered: &Answered) -> String {
                 format!("{} {}", display_name(*provider), failure.kind.word())
             })
             .collect();
-        out.push_str(&format!(" ({})", left.join(", ")));
+        let _ = write!(out, " ({})", left.join(", "));
     }
     out.push('.');
     out

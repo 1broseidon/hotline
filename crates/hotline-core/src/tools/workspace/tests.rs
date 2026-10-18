@@ -3,6 +3,7 @@ use super::{
     ReadFile, ReadFileArgs, SearchFiles, SearchFilesArgs, Workspace, WriteFile, WriteFileArgs,
     normalize_relative_path,
 };
+use std::fmt::Write;
 // The extra-folder tests build their fixture with symlinks, so they run where those do.
 #[cfg(unix)]
 use super::{FolderGrant, ListDirectoryArgs};
@@ -82,7 +83,7 @@ fn a_read_of_a_file_longer_than_the_default_slice_answers_the_slice_and_the_rema
     let total = DEFAULT_READ_LINES + 5;
     let mut content = String::new();
     for index in 1..=total {
-        content.push_str(&format!("line-{index}\n"));
+        let _ = writeln!(content, "line-{index}");
     }
     fs::write(directory.path().join("long.txt"), content).unwrap();
     let workspace = opened(directory.path(), Reach::Workspace);

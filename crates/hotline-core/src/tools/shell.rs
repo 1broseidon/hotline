@@ -25,6 +25,7 @@ use crate::contract::Reach;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -344,8 +345,12 @@ impl RunCommand {
         });
         match state {
             CommandState::Cancelled => text.push_str("\n[Cancelled: the command exited after termination was requested. Existing effects were not rolled back.]"),
-            CommandState::TimedOut => text.push_str(&format!("\nThe command did not finish within {} seconds.", args.timeout_seconds.unwrap_or_default())),
-            _ if status != 0 => text.push_str(&format!("\n[exit status {status}]")),
+            CommandState::TimedOut => {
+                let _ = write!(text, "\nThe command did not finish within {} seconds.", args.timeout_seconds.unwrap_or_default());
+            }
+            _ if status != 0 => {
+                let _ = write!(text, "\n[exit status {status}]");
+            }
             _ => {},
         }
         Ok(CommandOutcome {

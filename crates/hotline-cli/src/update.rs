@@ -52,9 +52,10 @@ impl Options {
 
     #[cfg(any(target_os = "linux", test))]
     fn sudo_command(&self) -> String {
+        use std::fmt::Write;
         let mut command = format!("sudo {BINARY} update");
         if let Some(version) = &self.version {
-            command.push_str(&format!(" --version {version}"));
+            let _ = write!(command, " --version {version}");
         }
         command
     }

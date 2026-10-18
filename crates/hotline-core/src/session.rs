@@ -93,6 +93,7 @@ use jobs::Processes;
 use quiet::QuietWindow;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
@@ -5462,10 +5463,11 @@ fn folders_sentence(persona: &Persona, reach: Option<Reach>) -> String {
             .map(|(folder, path)| format!("{} at {path}", folder.path))
             .collect();
         if !mounted.is_empty() {
-            sentence.push_str(&format!(
+            let _ = write!(
+                sentence,
                 " Your computer has them too, the same way: {}.",
                 mounted.join(", ")
-            ));
+            );
         }
     }
     sentence

@@ -18,6 +18,7 @@ use crate::tools::Workspace;
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
@@ -225,7 +226,7 @@ fn avatar_subject(name: &str, goal: &str) -> String {
     let goal: String = goal.trim().chars().take(600).collect();
     let mut subject = format!("a teammate called {}", name.trim());
     if !goal.is_empty() {
-        subject.push_str(&format!(", whose job is: {goal}"));
+        let _ = write!(subject, ", whose job is: {goal}");
     }
     subject.push_str(
         ". Pick its taste decisions from these, the few a person would remember it by. If the name is a thing, its colour, skin or a detail echoes that thing.",

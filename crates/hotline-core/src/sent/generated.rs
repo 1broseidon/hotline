@@ -1,6 +1,7 @@
 use super::{MAX_BYTES, Prepared, clean_name, too_large};
 use crate::contract::AttachmentKind;
 use image::{ImageDecoder, ImageFormat};
+use std::fmt::Write;
 use std::io::Cursor;
 
 const MAX_EDGE: u32 = 2048;
@@ -148,7 +149,7 @@ fn svg(bytes: Vec<u8>) -> Result<(Vec<u8>, (u32, u32)), String> {
         dimensions.0, dimensions.1
     );
     if root.attribute("viewBox").is_none() {
-        attributes.push_str(&format!(" viewBox=\"0 0 {width} {height}\""));
+        let _ = write!(attributes, " viewBox=\"0 0 {width} {height}\"");
     }
     let mut edits = vec![(name_end..name_end, attributes)];
     for attribute in root.attributes() {

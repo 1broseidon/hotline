@@ -1,8 +1,6 @@
 ---
 id: task-125
 title: "P2-13 (B): Declare crate licenses"
-column: review
-position: 14
 priority: high
 tags:
   - phase2
@@ -14,7 +12,7 @@ relatedFiles:
   - crates/hotline-core/Cargo.toml
   - crates/hotline-app/Cargo.toml
   - crates/hotline-cli/Cargo.toml
-updatedAt: "2026-10-18T02:04:23.966Z"
+updatedAt: "2026-10-18T02:06:56.403Z"
 contract:
   status: delivered
   validation:
@@ -42,7 +40,10 @@ dispatch:
     runner: cli
     pid: 39764
     at: "2026-10-18T01:54:01.588Z"
+    ended: "2026-10-18T02:06:56.403Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T02:06:56.022Z"
 ---
 
 ## Description
@@ -59,3 +60,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T02:04:23.649Z: [claude] Done on dispatch/task-125 (448c3f90): `license = "MIT OR Apache-2.0"` in [workspace.package] (matches LICENSE-MIT/LICENSE-APACHE and the README), `license.workspace = true` in core, app and cli right after edition. cargo metadata shows all three licensed; lockfile untouched; make check and make precheck (7/7) pass. For row 52: the lints/rust-version lines go in the same [workspace.package] section and each crate's [package], so expect a trivial adjacent-line conflict. For row 56: crates are no longer unlicensed, so cargo-deny's allow list only needs to cover registry crates. Nothing left unwired.
+- 2026-10-18T02:06:55.654Z: Landed on release/0.40.0

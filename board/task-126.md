@@ -26,7 +26,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/speech/mod.rs
   - crates/hotline-core/src/websearch/mod.rs
   - crates/hotline-core/src/wire/mod.rs
-updatedAt: "2026-10-18T00:14:44.186Z"
+updatedAt: "2026-10-18T02:06:57.568Z"
 contract:
   status: ready
   validation:
@@ -47,7 +47,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:14:44.049Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 39764
+    at: "2026-10-18T02:06:57.568Z"
 assignee: claude
 ---
 

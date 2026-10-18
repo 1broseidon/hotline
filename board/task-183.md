@@ -9,6 +9,11 @@ tags:
   - remote
 parentId: epic-14
 createdAt: "2026-10-18T23:40:54.765Z"
+relatedFiles:
+  - crates/hotline-core/src/remote/link.rs
+  - crates/hotline-core/src/remote/v2.rs
+  - crates/hotline-core/src/remote/tests/link.rs
+updatedAt: "2026-10-18T23:53:17.995Z"
 ---
 
 ## Description

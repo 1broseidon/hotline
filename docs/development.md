@@ -107,9 +107,12 @@ instance. The shell generates a one-launch token, binds the door on
 `127.0.0.1` with an ephemeral port, and sets `window.__hotlineDesk` to
 `{platform, origin, token, version, dataDir}` before the page loads.
 
-`make check` is, in order: `bun install --frozen-lockfile`, `bun run
-typecheck`, `bun run lint` (Biome, lint only) and `bun run test` in `ui/`; the speech engine fetched and
-checked against its pinned hash; the Python tests under `scripts/` and
+`make check` is, in order: `bun install --frozen-lockfile`; a contract
+preflight that stops in one line when `ui/src/generated/contract.ts` is
+partial (a filtered `cargo test` wrote it); `bun run typecheck`, `bun run
+lint` (Biome, lint only), `bun run knip` (no unused export, file or
+dependency; `ui/knip.json` and the Makefile say what is exempt and why) and
+`bun run test` in `ui/`; the speech engine fetched and checked against its pinned hash; the Python tests under `scripts/` and
 `site/tests/`; `cargo fmt --all --check`; `cargo clippy --workspace
 --all-targets -- -D warnings`; `cargo test --workspace`. A window that
 does not compile is a broken build however green the Rust is.
@@ -154,7 +157,7 @@ rustup, and announced first.
 | `contract` | every ts-rs export test, writing `contract.ts` from nothing | a committed contract that is stale, or that a filtered run truncated; the file you have is put back |
 | `clippy` | `cargo clippy --workspace --all-targets --locked -- -D warnings` | the host's lints |
 | `windows` | the same clippy for `x86_64-pc-windows-msvc`, through `cargo xwin` | Windows-only code, and code only Unix uses that is dead on Windows |
-| `ui` | `bun run typecheck` and `bun run lint`, then `bun test ./<file>` for each file alone, then `bun run test` | a test file that passes only after another has set up a global for it |
+| `ui` | `bun run typecheck`, `bun run lint` and `bun run knip`, then `bun test ./<file>` for each file alone, then `bun run test` | a test file that passes only after another has set up a global for it |
 | `linux` (full) | clippy and `cargo test --workspace --locked` in Ubuntu 24.04 | Linux-only code and its tests |
 | `bare-path` (full) | the integration tests with PATH `/usr/bin:/bin:/usr/sbin:/sbin` and the toolchain | a test that needs a tool this shell put first (mise, uv, Homebrew's python) |
 | `shuffle` (full) | every test in a random order, `--shuffle` | a test that passes only after another: a shared temp path, a global |

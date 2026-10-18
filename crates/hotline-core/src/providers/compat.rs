@@ -237,7 +237,7 @@ pub(crate) fn repair_event(
         return;
     }
     if let Some(number) = event.get("sequence_number").and_then(Value::as_u64) {
-        *next = number + 1
+        *next = number + 1;
     } else {
         event.insert("sequence_number".into(), (*next).into());
         *next += 1;

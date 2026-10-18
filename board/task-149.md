@@ -1,7 +1,7 @@
 ---
 id: task-149
 title: "P2-40 (D): By-hand lints and reasoned invariants"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - crates/hotline-core/src/
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
-updatedAt: "2026-10-18T08:43:43.190Z"
+updatedAt: "2026-10-18T09:31:17.958Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - "! git grep -nE 'unreachable!\\(\\)' -- 'crates/*/src'"
@@ -25,6 +25,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T08:43:43.190Z"
     reworkCount: 1
+    deliveredAt: "2026-10-18T09:31:17.958Z"
+    duration: 2855
 dependsOn:
   - task-148
 dispatch:

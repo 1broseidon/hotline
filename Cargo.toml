@@ -5,9 +5,12 @@ members = ["crates/hotline-core", "crates/hotline-app", "crates/hotline-cli"]
 [workspace.package]
 version = "0.39.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-rig = "0.42.0"
+# Without `derive`: nothing here uses Rig's derive macros, and they bring a
+# proc-macro crate into every build.
+rig = { version = "0.42.0", default-features = false, features = ["agent", "reqwest", "rustls"] }
 serde = { version = "1", features = ["derive"] }
 # `preserve_order`: an event read from a tape and written back keeps the key
 # order it was written with, so a compaction never rewrites a line into
@@ -48,3 +51,11 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.symphonia-codec-aac]
 opt-level = 3
+
+# sherpa-onnx-sys 1.13.8 as released builds with ZIP 2, which three extraction
+# advisories (RUSTSEC-2026-0367, 0368, 0369) cover and only ZIP 9 fixes. This
+# upstream commit is that release with ZIP 9 and no other change to the crate,
+# so it links the same v1.13.8 archives `scripts/speech-engine.sha256` pins.
+# Drop it for the first crates.io release that carries the change (k2-fsa/sherpa-onnx#4059).
+[patch.crates-io]
+sherpa-onnx-sys = { git = "https://github.com/k2-fsa/sherpa-onnx", rev = "1a9d234ab95567eba8c2e89873a87d70b79633e2" }

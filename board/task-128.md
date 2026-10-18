@@ -1,7 +1,7 @@
 ---
 id: task-128
 title: "P2-16 (C): `contract` becomes a leaf"
-column: todo
+column: in-progress
 position: 17
 priority: high
 tags:
@@ -16,9 +16,9 @@ relatedFiles:
   - crates/hotline-core/src/linked.rs
   - crates/hotline-core/src/imagegen.rs
   - crates/hotline-core/src/spending.rs
-updatedAt: "2026-10-18T02:42:19.691Z"
+updatedAt: "2026-10-18T02:42:31.207Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - "! grep -n 'crate::' crates/hotline-core/src/contract.rs | grep -v 'crate::contract'"
@@ -27,6 +27,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T02:42:31.207Z"
+    reworkCount: 0
 dependsOn:
   - task-127
 dispatch:

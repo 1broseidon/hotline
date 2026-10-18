@@ -30,7 +30,7 @@ async fn served_running(agents: bool, relay: bool) -> (tempfile::TempDir, Arc<Re
     let remote =
         Remote::open_served_with_store(root.path(), agents, store, options.clone()).unwrap();
     remote.restore().await;
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(ANSWER, async {
         while !remote.status().enabled {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -73,7 +73,7 @@ async fn pair_relay(h: &Harness, relay: &Remote) -> client::PairedRelay {
 }
 
 async fn standing(h: &Harness) -> String {
-    tokio::time::timeout(Duration::from_secs(10), async {
+    tokio::time::timeout(ANSWER, async {
         loop {
             if let Some(url) = h.remote.status().relay.and_then(|relay| relay.url) {
                 return url;
@@ -87,7 +87,7 @@ async fn standing(h: &Harness) -> String {
 
 async fn hello(session: &mut client::Session) -> Value {
     serde_json::from_str(
-        &tokio::time::timeout(Duration::from_secs(15), session.incoming.recv())
+        &tokio::time::timeout(ANSWER, session.incoming.recv())
             .await
             .unwrap()
             .unwrap(),
@@ -96,7 +96,7 @@ async fn hello(session: &mut client::Session) -> Value {
 }
 
 async fn control_notice(control: &mut client::Connection) -> Value {
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(ANSWER, async {
         loop {
             let Some(Ok(Message::Text(text))) = control.next().await else {
                 panic!("the relay closed its control socket");
@@ -165,7 +165,7 @@ async fn closed<S>(socket: &mut WebSocketStream<S>)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let next = tokio::time::timeout(Duration::from_secs(3), socket.next())
+    let next = tokio::time::timeout(PROMPTLY, socket.next())
         .await
         .expect("the cancelled relay wire remained open");
     assert!(matches!(
@@ -175,7 +175,7 @@ where
 }
 
 async fn control_closed(control: &mut client::Connection) {
-    let next = tokio::time::timeout(Duration::from_secs(3), control.next())
+    let next = tokio::time::timeout(ANSWER, control.next())
         .await
         .expect("the old relay generation remained open");
     assert!(matches!(
@@ -186,18 +186,15 @@ async fn control_closed(control: &mut client::Connection) {
 
 async fn callback_refused(client: &client::Client, desk: &client::PairedDesk, capability: &str) {
     assert!(
-        tokio::time::timeout(
-            Duration::from_secs(3),
-            client.accept_relay(desk, capability)
-        )
-        .await
-        .expect("a refused relay callback did not close")
-        .is_err()
+        tokio::time::timeout(PROMPTLY, client.accept_relay(desk, capability))
+            .await
+            .expect("a refused relay callback did not close")
+            .is_err()
     );
 }
 
 async fn hub_counts(relay: &Remote, expected: (usize, usize)) {
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(PROMPTLY, async {
         while relay.relay.counts() != expected {
             tokio::task::yield_now().await;
         }
@@ -257,7 +254,7 @@ async fn a_phone_pairs_and_talks_to_a_desk_through_its_relay() {
 
     // Turning Remote off takes the desk off the relay, and visitors with it.
     h.remote.configure(false, network::ALL).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(10), async {
+    tokio::time::timeout(ANSWER, async {
         while relay.relay.counts().0 != 0 {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -276,7 +273,7 @@ async fn a_companion_never_stands_in_and_nobody_stands_in_for_an_unknown_desk() 
     h.remote
         .relay_through(Some(server.desk_id.clone()))
         .unwrap();
-    tokio::time::timeout(Duration::from_secs(10), async {
+    tokio::time::timeout(ANSWER, async {
         while h.remote.status().relay.unwrap().error.is_none() {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -361,7 +358,7 @@ async fn a_relay_callback_proves_the_hosting_device_before_switching_to_sealed_r
         .await
         .unwrap();
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(3), callback.next())
+        tokio::time::timeout(ANSWER, callback.next())
             .await
             .unwrap()
             .unwrap()
@@ -373,7 +370,7 @@ async fn a_relay_callback_proves_the_hosting_device_before_switching_to_sealed_r
         .await
         .unwrap();
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(3), visitor.next())
+        tokio::time::timeout(ANSWER, visitor.next())
             .await
             .unwrap()
             .unwrap()
@@ -455,7 +452,7 @@ async fn restarting_remote_invalidates_a_pending_relay_callback() {
     closed(&mut visitor).await;
     hub_counts(&relay, (0, 0)).await;
     relay.configure(true, &relay.status().host).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(ANSWER, async {
         while !relay.status().enabled {
             tokio::task::yield_now().await;
         }
@@ -485,7 +482,7 @@ async fn restarting_the_desktop_cancels_a_claimed_callback_before_its_inner_hand
     standing(&h).await;
     let path = format!("/relay/{}/v2", h.remote.status_desktop_id());
     let mut old = relay_socket(&relay, &public_url, &path).await;
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(ANSWER, async {
         while relay.relay.counts() != (1, 0)
             || relay.relay.active_visits() != 1
             || h.remote.relayed.available_permits() != 31
@@ -507,7 +504,7 @@ async fn restarting_the_desktop_cancels_a_claimed_callback_before_its_inner_hand
     let size = noise.write_message(&[], &mut buffer).unwrap();
     assert!(
         tokio::time::timeout(
-            Duration::from_secs(3),
+            ANSWER,
             old.send(Message::Binary(buffer[..size].to_vec().into()))
         )
         .await
@@ -515,7 +512,7 @@ async fn restarting_the_desktop_cancels_a_claimed_callback_before_its_inner_hand
         .is_err(),
         "a callback from before Remote restarted accepted an inner handshake"
     );
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(PROMPTLY, async {
         while relay.relay.active_visits() != 0 || h.remote.relayed.available_permits() != 32 {
             tokio::task::yield_now().await;
         }
@@ -533,9 +530,7 @@ async fn restarting_the_desktop_cancels_a_claimed_callback_before_its_inner_hand
         .await
         .unwrap();
     let Some(Ok(Message::Binary(answer))) =
-        tokio::time::timeout(Duration::from_secs(3), fresh.next())
-            .await
-            .unwrap()
+        tokio::time::timeout(ANSWER, fresh.next()).await.unwrap()
     else {
         panic!("a new callback did not finish its inner handshake");
     };
@@ -612,7 +607,7 @@ async fn revoking_a_relay_host_releases_a_joined_visit_while_its_peer_is_not_rea
             progress.fetch_add(1, Ordering::SeqCst);
         }
     });
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(ANSWER, async {
         loop {
             let before = sent.load(Ordering::SeqCst);
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -630,7 +625,7 @@ async fn revoking_a_relay_host_releases_a_joined_visit_while_its_peer_is_not_rea
     assert_eq!(relay.relay.active_visits(), 1);
 
     relay.revoke(&device_id).unwrap();
-    tokio::time::timeout(Duration::from_secs(12), async {
+    tokio::time::timeout(ANSWER, async {
         while relay.relay.active_visits() != 0 {
             tokio::task::yield_now().await;
         }
@@ -721,7 +716,7 @@ async fn sealed_answer(
         .send(Message::Binary(buffer[..size].to_vec().into()))
         .await
         .unwrap();
-    let answer = tokio::time::timeout(Duration::from_secs(15), socket.next())
+    let answer = tokio::time::timeout(ANSWER, socket.next())
         .await
         .expect("the desk never answered");
     let Some(Ok(Message::Binary(bytes))) = answer else {
@@ -831,7 +826,7 @@ async fn a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door() {
         .unwrap()
         .id;
     relay.revoke(&standing_id).unwrap();
-    tokio::time::timeout(Duration::from_secs(10), async {
+    tokio::time::timeout(ANSWER, async {
         while relay.relay.counts().0 != 0 {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -1116,7 +1111,7 @@ async fn a_reader_from_before_the_relay_role_loads_relay_grants_and_trusts_none(
 /// Reads frames until the answer to command 1, or none when the socket ends
 /// first: a move ends the caller's sessions, which may cut its answer off.
 async fn answer_to_one(wire: &mut client::Connection) -> Option<Value> {
-    tokio::time::timeout(Duration::from_secs(5), async {
+    tokio::time::timeout(ANSWER, async {
         while let Some(Ok(message)) = wire.next().await {
             if let Message::Text(text) = message {
                 let frame: Value = serde_json::from_str(&text).unwrap();
@@ -1205,7 +1200,7 @@ async fn an_owner_moves_its_own_grant_to_relay_in_place_and_keeps_standing_in() 
     assert!(owner.become_relay(&server).await.is_err());
 
     // The desk stands in again under the relay role: the phone gets through.
-    tokio::time::timeout(Duration::from_secs(15), async {
+    tokio::time::timeout(ANSWER, async {
         loop {
             if let Ok(mut wire) = phone.open(&desk, None).await
                 && let Some(Ok(Message::Text(_))) = wire.next().await

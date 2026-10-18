@@ -256,7 +256,7 @@ announces each subagent on the parent session with `subagent_spawned`,
 sends the subagent's work on a session of its own, and ends it with
 `subagent_state_update`. These are the draft updates from
 agent-client-protocol#1992 that Claude's and Codex's adapters send. The
-Rust SDK does not carry them yet, so `driver/acp.rs` reads `session/update`
+Rust SDK does not carry them yet, so `driver/acp/session.rs` reads `session/update`
 raw: announcements, then updates on a known child session, then everything
 else as before. Each child is reported to the room as a `SubagentReport`
 (`Driver::subscribe_subagents`). `Room::watch_subagents` writes it as a run
@@ -328,7 +328,7 @@ Hotline Agent parks whenever its jobs are all it has left
 ([Hotline Agent](#hotline-agent)). An ACP agent parks when it closes a cycle
 with a usage report that carries the cycle's cost while one of its subagents
 is open and its last words were a message (`park_for_subagents` in
-`driver/acp.rs`). That report is the only sign an ACP agent gives that a
+`driver/acp/live.rs`). That report is the only sign an ACP agent gives that a
 message is whole. Claude's adapter sends one at the end of every cycle. An
 agent with no subagent open is about to answer the prompt, and one whose last
 output was a tool call or a thought is still working, so neither parks. Codex's

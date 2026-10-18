@@ -187,7 +187,7 @@ async fn files(socket: &mut ViewerSocket, mut request: Value) -> Value {
         .send(Message::text(request.to_string()))
         .await
         .unwrap();
-    let response = tokio::time::timeout(Duration::from_secs(10), socket.next())
+    let response = tokio::time::timeout(ANSWER, socket.next())
         .await
         .unwrap()
         .unwrap()
@@ -202,7 +202,7 @@ async fn files(socket: &mut ViewerSocket, mut request: Value) -> Value {
     response
 }
 async fn wait_for_cleanup(root: &std::path::Path) {
-    tokio::time::timeout(Duration::from_secs(5), async {
+    tokio::time::timeout(ANSWER, async {
         while std::fs::read_dir(root).is_ok_and(|mut entries| entries.next().is_some()) {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -391,9 +391,7 @@ async fn sealed_viewer_files_are_chunked_private_and_connection_scoped() {
     h.remote.revoke(&h.remote.devices()[0].id).unwrap();
     wait_for_cleanup(&staged).await;
     assert!(!matches!(
-        tokio::time::timeout(Duration::from_secs(5), socket.next())
-            .await
-            .unwrap(),
+        tokio::time::timeout(ANSWER, socket.next()).await.unwrap(),
         Some(Ok(Message::Text(_) | Message::Binary(_)))
     ));
     h.remote.configure(false, network::ALL).await.unwrap();
@@ -450,7 +448,7 @@ async fn sealed_viewer_files_reject_legacy_overwrite_and_keep_controls_responsiv
         .await
         .unwrap();
     assert_eq!(
-        tokio::time::timeout(Duration::from_secs(2), socket.next())
+        tokio::time::timeout(ANSWER, socket.next())
             .await
             .unwrap()
             .unwrap()

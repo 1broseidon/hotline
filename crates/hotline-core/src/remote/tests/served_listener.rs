@@ -25,7 +25,7 @@ async fn served_listener_waits_for_exact_socket_and_has_no_legacy_routes() {
     )
     .unwrap();
     assert!(!remote.status().enabled);
-    tokio::time::timeout(Duration::from_secs(2), remote.restore())
+    tokio::time::timeout(ANSWER, remote.restore())
         .await
         .unwrap();
     assert!(!remote.status().enabled);
@@ -33,7 +33,7 @@ async fn served_listener_waits_for_exact_socket_and_has_no_legacy_routes() {
     assert!(remote.configure(true, "0.0.0.0").await.is_err());
     assert!(remote.pairing_v2(DeviceRole::Owner).is_err());
     drop(occupied);
-    tokio::time::timeout(Duration::from_secs(4), async {
+    tokio::time::timeout(ANSWER, async {
         while !remote.status().enabled {
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
@@ -142,7 +142,7 @@ async fn served_listener_uses_supplied_pem_certificate_and_key() {
     )
     .unwrap();
     remote.restore().await;
-    tokio::time::timeout(Duration::from_secs(3), async {
+    tokio::time::timeout(ANSWER, async {
         while !remote.status().enabled {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

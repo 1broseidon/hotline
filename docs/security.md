@@ -70,7 +70,7 @@ computer counts as `machine` reach for collaboration.
   not opened. The confined shell gets the same list: Seatbelt `subpath`
   rules with or without `file-write*`, and bubblewrap `--ro-bind`/`--bind`
   before the workspace. Every handle carries the session's lease. The ACP
-  callback workspace (`driver/acp.rs` `callback_workspace`) is built with the
+  callback workspace (`driver/acp/session.rs` `callback_workspace`) is built with the
   same folders. Windows offers no shell under workspace reach, as before;
   its file tools are held to the folders.
 - **Revocation:** `folders` is a reattaching key, so a change invalidates
@@ -550,7 +550,7 @@ question the change must answer in its PR description.
    let a request borrow the authority of the process it happens to run in.
 3. **Choose the default and the migration.** The default grants nothing
    beyond the workspace. Decide explicitly what an existing record without
-   the field means, and write it down beside the field in `contract.rs`;
+   the field means, and write it down beside the field in `contract`;
    "missing means off" is the house answer, and old implicit access is not
    translated into an explicit grant.
 4. **Enforce outside the model, at every entry.** The check is a

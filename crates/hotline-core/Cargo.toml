@@ -3,6 +3,7 @@ name = "hotline-core"
 description = "Hotline's core: the log, the room, sessions and their drivers, tools, and the wire. No Tauri dependency by design."
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 rig.workspace = true

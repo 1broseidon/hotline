@@ -30,7 +30,7 @@ beforeEach(async () => {
 	({ teardown } = installDom());
 	asked = [];
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
-		asked.push(cmd === "computer.cookies.preview" ? `${cmd} ${String(params.browserId)}` : cmd);
+		asked.push(cmd === "computer.cookies.preview" ? `${cmd} ${String(params["browserId"])}` : cmd);
 		if (cmd === "computer.browsers.list") return browsers;
 		if (cmd === "computer.cookies.preview") return [];
 		throw new Error(`Unexpected command ${cmd}`);

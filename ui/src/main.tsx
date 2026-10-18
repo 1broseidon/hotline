@@ -5,7 +5,7 @@ import { platform } from "./native";
 import { startTheme } from "./theme";
 import "./index.css";
 
-document.documentElement.dataset.platform = platform();
+document.documentElement.dataset["platform"] = platform();
 startTheme();
 
 // A key pressed with a pointer does not keep the focus, the way a desktop

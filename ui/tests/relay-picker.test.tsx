@@ -60,11 +60,11 @@ beforeEach(async () => {
 		invoke: async (cmd: string, args: Record<string, unknown>) => {
 			shell.push({ cmd, params: args });
 			if (cmd === "desk_pair_link") { relays = [...relays, muskox]; return muskox.deskId; }
-			if (cmd === "relay_forget") { relays = relays.filter((one) => one.deskId !== args.deskId); return null; }
+			if (cmd === "relay_forget") { relays = relays.filter((one) => one.deskId !== args["deskId"]); return null; }
 			// The shell says so by sending the list again.
-			if (cmd === "desk_decline_relay") { replaceDesks([local, remoteDesk(String(args.deskId), { relayDeclined: true })]); return null; }
+			if (cmd === "desk_decline_relay") { replaceDesks([local, remoteDesk(String(args["deskId"]), { relayDeclined: true })]); return null; }
 			if (cmd === "desk_move_to_relay") {
-				const moved = { ...muskox, deskId: String(args.deskId), name: "Grizzly" };
+				const moved = { ...muskox, deskId: String(args["deskId"]), name: "Grizzly" };
 				relays = [...relays, moved];
 				replaceDesks([local]);
 				return moved;
@@ -89,7 +89,7 @@ async function settle(action: () => unknown = () => {}) { await act(async () => 
 function core(cmd: string, params: Record<string, unknown>) {
 	calls.push({ cmd, params });
 	if (cmd === "remote.relays") return relays;
-	if (cmd === "remote.relay") chosen = typeof params.deskId === "string" ? params.deskId : null;
+	if (cmd === "remote.relay") chosen = typeof params["deskId"] === "string" ? params["deskId"] : null;
 	if (cmd === "remote.status" || cmd === "remote.relay") return statusNow();
 	if (cmd === "desks.links") return [];
 	throw new Error(`Unexpected command ${cmd}`);
@@ -121,14 +121,14 @@ function offer() { return container.querySelector('[aria-label="Relay only"]'); 
 async function serverSays(serves: string[] | undefined, roster: unknown[]) {
 	const socket = FakeSocket.all.at(-1)!;
 	await settle(() => socket.onopen?.());
-	const hello = socket.sent.find((frame) => frame.cmd === "client.hello")!;
+	const hello = socket.sent.find((frame) => frame["cmd"] === "client.hello")!;
 	await settle(() => {
 		socket.say(serves === undefined ? { type: "hello" } : { type: "hello", serves });
-		socket.say({ id: hello.id, ok: true, result: { capabilities: ["threads2"] } });
+		socket.say({ id: hello["id"], ok: true, result: { capabilities: ["threads2"] } });
 	});
-	const sub = socket.sent.find((frame) => (frame.sub as { view?: string } | undefined)?.view === "roster")!;
-	await settle(() => socket.say({ sub: sub.id, snapshot: roster }));
-	return { socket, sub: sub.id as number };
+	const sub = socket.sent.find((frame) => (frame["sub"] as { view?: string } | undefined)?.view === "roster")!;
+	await settle(() => socket.say({ sub: sub["id"], snapshot: roster }));
+	return { socket, sub: sub["id"] as number };
 }
 
 describe("the Relay picker", () => {

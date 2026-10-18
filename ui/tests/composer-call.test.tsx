@@ -40,7 +40,7 @@ describe("the call key in the composer", () => {
 		// A soundwave in a plain circle, the same for every teammate, and at rest.
 		expect(call?.querySelector("svg")).not.toBeNull();
 		expect(call?.getAttribute("style")).toBeNull();
-		expect(call?.dataset.call).toBeUndefined();
+		expect(call?.dataset["call"]).toBeUndefined();
 		// No Send waits behind it with nothing to send.
 		expect(container.querySelector('[aria-label="Send"]')).toBeNull();
 		await act(async () => call?.click());

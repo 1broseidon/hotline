@@ -70,8 +70,8 @@ export function BackendPicker({
 		const next = rows[(from + step + rows.length) % rows.length];
 		if (next === undefined) return;
 		next.focus();
-		if (next.dataset.off === undefined && next.dataset.backendId !== undefined) {
-			onSelect(next.dataset.backendId);
+		if (next.dataset["off"] === undefined && next.dataset["backendId"] !== undefined) {
+			onSelect(next.dataset["backendId"]);
 		}
 	};
 

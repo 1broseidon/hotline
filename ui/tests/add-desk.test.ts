@@ -53,7 +53,7 @@ class FakeSocket {
 		if (cmd === "client.hello") return answer({ capabilities: ["threads2"] });
 		if (!this.url.startsWith(`${local.origin}/`)) return queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, ok: false, error: `${cmd} is this computer's` }) }));
 		if (cmd === "remote.relays") return answer(relays);
-		if (cmd === "remote.relay") chosen = typeof params.deskId === "string" ? params.deskId : null;
+		if (cmd === "remote.relay") chosen = typeof params["deskId"] === "string" ? params["deskId"] : null;
 		answer({ ...status, relay: chosen === null ? null : { deskId: chosen, name: chosen, url: "https://relay.example", error: null } });
 	}
 	close() { this.readyState = 3; }

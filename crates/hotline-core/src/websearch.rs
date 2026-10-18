@@ -237,7 +237,7 @@ impl std::fmt::Display for Failure {
 const RATE_LIMIT_COOLDOWN: Duration = Duration::from_secs(60);
 const SLOW_COOLDOWN: Duration = Duration::from_secs(20);
 /// No provider is left alone longer than this, whatever it asks.
-const LONGEST_COOLDOWN: Duration = Duration::from_secs(15 * 60);
+const LONGEST_COOLDOWN: Duration = Duration::from_mins(15);
 
 /// `text` cut to at most `max` characters, ending in an ellipsis when it was cut.
 pub(crate) fn bounded(text: &str, max: usize) -> String {
@@ -435,7 +435,7 @@ pub struct Answered {
 }
 
 /// How long a fused answer is kept for the same question.
-const CACHE_TTL: Duration = Duration::from_secs(5 * 60);
+const CACHE_TTL: Duration = Duration::from_mins(5);
 /// How many answers are kept.
 const CACHE_ENTRIES: usize = 100;
 

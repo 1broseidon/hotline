@@ -32,7 +32,7 @@ const MAX_ENDPOINT_LEN: usize = 64;
 /// How long a turn waits for the model list it fetches for itself.
 const ENSURE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How soon a login whose list could not be fetched is tried again.
-const ENSURE_RETRY: Duration = Duration::from_secs(5 * 60);
+const ENSURE_RETRY: Duration = Duration::from_mins(5);
 
 // The identity Rig 0.42 presents to Copilot. Copilot refuses a request
 // that does not look like an editor's, so the transport here says the same.

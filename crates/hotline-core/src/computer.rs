@@ -88,7 +88,7 @@ const PICK_FOR_STATUS: Duration = Duration::from_secs(30);
 /// How long the list of installed runtimes is trusted. Probing runs each CLI,
 /// and the settings pane that asks is not worth that every time it opens.
 const RUNTIMES_CACHE: Duration = Duration::from_secs(30);
-const PULL_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const PULL_TIMEOUT: Duration = Duration::from_mins(10);
 const STOP_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// One step of an image pull, as the runtime's own output tells it: how

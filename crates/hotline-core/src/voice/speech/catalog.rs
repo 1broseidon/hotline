@@ -23,7 +23,7 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long a provider that could not be asked is left alone. The pickers ask
 /// every time settings opens, and an offline provider would otherwise cost the
 /// whole fetch timeout each time.
-const RETRY_AFTER: Duration = Duration::from_secs(10 * 60);
+const RETRY_AFTER: Duration = Duration::from_mins(10);
 /// A model list is a few hundred kilobytes at most.
 const LIST_LIMIT: usize = 8 << 20;
 

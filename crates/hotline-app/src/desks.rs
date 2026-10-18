@@ -882,7 +882,7 @@ mod tests {
     fn retries_back_off_to_thirty_seconds() {
         assert_eq!(retry_after(0), Duration::from_millis(250));
         assert_eq!(retry_after(1), Duration::from_millis(500));
-        assert_eq!(retry_after(6), Duration::from_millis(16_000));
+        assert_eq!(retry_after(6), Duration::from_secs(16));
         assert_eq!(retry_after(7), Duration::from_secs(30));
         assert_eq!(retry_after(40), Duration::from_secs(30));
     }

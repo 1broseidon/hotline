@@ -683,7 +683,7 @@ fn a_rate_limit_rests_a_provider_a_minute_or_what_it_asked_and_a_timeout_a_littl
     assert_eq!(asked.cooldown(), Some(Duration::from_secs(90)));
     // Firecrawl says it in the body, and no one is left alone for a day.
     let body = Failure::status("firecrawl", 429, r#"{"retry_after_seconds":76207}"#, false);
-    assert_eq!(body.cooldown(), Some(Duration::from_secs(15 * 60)));
+    assert_eq!(body.cooldown(), Some(Duration::from_mins(15)));
     assert_eq!(
         Failure::status("exa", 503, "", false).cooldown(),
         Some(Duration::from_secs(20))

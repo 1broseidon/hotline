@@ -734,7 +734,7 @@ impl RoomHandle for Desk {
             let result = tokio::select! {
                 biased;
                 () = cancel.cancelled() => Err("Sign-in cancelled.".to_string()),
-                result = tokio::time::timeout(Duration::from_secs(10 * 60), authorize) =>
+                result = tokio::time::timeout(Duration::from_mins(10), authorize) =>
                     result.unwrap_or_else(|_| Err("Sign-in timed out. Try again.".to_string())),
             };
             let recorded = record_login(vault, logins, task_id, provider_id, label, result);

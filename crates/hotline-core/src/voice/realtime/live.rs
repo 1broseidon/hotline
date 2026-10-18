@@ -88,8 +88,8 @@ const REJOINS: u32 = 3;
 const START_WAIT: Duration = Duration::from_secs(5);
 /// A replacement call is placed this long into a session, or five minutes
 /// before the end the server gives, whichever is sooner.
-const RENEW_AFTER: Duration = Duration::from_secs(55 * 60);
-const RENEW_EARLY: Duration = Duration::from_secs(5 * 60);
+const RENEW_AFTER: Duration = Duration::from_mins(55);
+const RENEW_EARLY: Duration = Duration::from_mins(5);
 /// A replacement waits for the model to finish speaking, this long at most.
 const SWITCH_WAIT: Duration = Duration::from_secs(30);
 /// A replacement that could not be placed is tried again after this.

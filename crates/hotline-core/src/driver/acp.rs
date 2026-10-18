@@ -101,7 +101,7 @@ const UNPROMPTED_QUIET: Duration = Duration::from_secs(300);
 /// How long a permission card may wait for a person before the agent is told
 /// nobody answered. A live request cannot wait on an absent human forever;
 /// the agent gets its turn back and the card says it expired.
-const PERMISSION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const PERMISSION_TIMEOUT: Duration = Duration::from_mins(10);
 
 /// How long an agent's command has to answer `initialize` and open its
 /// session, from the moment it is spawned.
@@ -131,7 +131,7 @@ impl Default for StartBounds {
     fn default() -> Self {
         Self {
             known: Duration::from_secs(60),
-            first: Duration::from_secs(5 * 60),
+            first: Duration::from_mins(5),
         }
     }
 }

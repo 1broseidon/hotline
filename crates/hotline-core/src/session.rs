@@ -131,7 +131,7 @@ const BUSY_RECHECK_MS: i64 = 10 * 60_000;
 
 /// How long a `request_human` card waits for the person. Tests pass a
 /// shorter deadline; the tool uses this.
-pub const HUMAN_DEADLINE: Duration = Duration::from_secs(10 * 60);
+pub const HUMAN_DEADLINE: Duration = Duration::from_mins(10);
 
 /// How long a `request_human` card that delivers stays up unanswered before
 /// it is expired and the teammate told.

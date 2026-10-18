@@ -311,7 +311,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
             .map_err(|error| Problem::failed(CHECK_FAILED, error))?;
         if let Some(update) = &mut found {
             validate_update(update, state.target.as_deref().unwrap())?;
-            update.timeout = Some(Duration::from_secs(15 * 60));
+            update.timeout = Some(Duration::from_mins(15));
         }
         Ok(found)
     }

@@ -1,7 +1,7 @@
 ---
 id: task-161
 title: "P2-D-1 (E): wire.md matches the code"
-column: todo
+column: in-progress
 position: 50
 priority: high
 tags:
@@ -11,14 +11,16 @@ parentId: epic-13
 createdAt: "2026-10-17T22:41:07.403Z"
 relatedFiles:
   - docs/wire.md
-updatedAt: "2026-10-18T05:06:53.894Z"
+updatedAt: "2026-10-18T05:07:01.570Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T05:07:01.570Z"
+    reworkCount: 0
 dependsOn:
   - task-138
   - task-139

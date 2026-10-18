@@ -11,7 +11,7 @@ parentId: epic-13
 createdAt: "2026-10-17T22:40:58.554Z"
 relatedFiles:
   - crates/hotline-core/src/providers/discovery.rs
-updatedAt: "2026-10-18T00:15:04.402Z"
+updatedAt: "2026-10-18T02:27:32.580Z"
 contract:
   status: ready
   validation:
@@ -28,7 +28,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:04.262Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 39764
+    at: "2026-10-18T02:27:32.580Z"
 assignee: claude
 ---
 

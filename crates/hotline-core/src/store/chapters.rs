@@ -170,12 +170,12 @@ mod tests {
         assert_eq!(previous_chapter(std::slice::from_ref(&second)), None);
         assert_eq!(previous_chapter(std::slice::from_ref(&first)), Some(&first));
         assert_eq!(
-            previous_chapter(&[first.clone(), second.clone(), hello.clone()]),
+            previous_chapter(&[first.clone(), second, hello.clone()]),
             Some(&first)
         );
 
         assert_eq!(last_activity(&[]), None);
-        assert_eq!(last_activity(&[hello.clone(), tool.clone()]), Some(310));
+        assert_eq!(last_activity(&[hello, tool]), Some(310));
     }
 
     #[test]

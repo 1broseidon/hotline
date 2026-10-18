@@ -939,7 +939,10 @@ mod tests {
         let (root, database) = index("or");
         message(&database, "ada", "m1", "user", "the harbour is quiet");
 
-        assert!(hits(&search(&root, "ada", "harbour zeppelin", None).unwrap()).len() == 1);
+        assert_eq!(
+            hits(&search(&root, "ada", "harbour zeppelin", None).unwrap()).len(),
+            1
+        );
         // One term that matches nothing has nothing to fall back to.
         assert_eq!(
             hits(&search(&root, "ada", "zeppelin", None).unwrap()).as_slice(),

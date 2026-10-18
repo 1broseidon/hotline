@@ -218,7 +218,10 @@ impl Hub {
         }
         let generation = host.generation.clone();
         let notify = host.notify.clone();
-        let budget = hosts.budgets.get_mut(desk).unwrap();
+        let budget = hosts
+            .budgets
+            .get_mut(desk)
+            .expect("a registered desk's budget is made with it and kept while it is active");
         budget.refill(tokio::time::Instant::now());
         if budget.tokens < 1.0 {
             return Visit::RateLimited;

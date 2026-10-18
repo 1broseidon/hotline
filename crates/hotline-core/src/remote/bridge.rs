@@ -266,7 +266,7 @@ async fn serve(
                 Err(()) => Err(http::Response::builder()
                     .status(403)
                     .body(Some("Forbidden".into()))
-                    .unwrap()),
+                    .expect("a fixed status and no headers make a valid response")),
             }
         };
     let config = WebSocketConfig::default()

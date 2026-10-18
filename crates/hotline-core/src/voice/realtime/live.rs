@@ -557,7 +557,7 @@ impl Mic {
     fn push(&mut self, pcm: &[u8]) {
         for pair in pcm.as_chunks::<2>().0 {
             let sample = i16::from_le_bytes(*pair);
-            let between = ((i32::from(self.last) + i32::from(sample)) / 2) as i16;
+            let between = i32::midpoint(i32::from(self.last), i32::from(sample)) as i16;
             self.samples.push_back(between);
             self.samples.push_back(sample);
             self.last = sample;
@@ -819,7 +819,7 @@ impl Driver {
                 read = sideband.next() => Next::Read(read),
                 () = failed.notified() => Next::PeerFailed,
                 () = sleep_until(self.renew_at), if !renewing => Next::Renew,
-                placed = async { self.placing.as_mut().expect("guarded").await }, if self.placing.is_some() => {
+                placed = async { self.placing.as_mut().expect("the branch runs only while placing is Some").await }, if self.placing.is_some() => {
                     self.placing = None;
                     Next::Placed(placed.unwrap_or(Err(SpeechError::Cancelled)))
                 }

@@ -492,7 +492,8 @@ impl ProcessGroup {
     #[cfg(unix)]
     fn terminate(&self) -> std::io::Result<()> {
         let Some(id) = self.id else { return Ok(()) };
-        // The id is captured from the child we spawned in its own group.
+        // SAFETY: killpg takes no memory, and the id is captured from the
+        // child we spawned in its own group.
         if unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) } == 0 {
             return Ok(());
         }

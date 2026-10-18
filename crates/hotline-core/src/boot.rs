@@ -61,12 +61,13 @@ pub async fn boot(
         Backend::Native => Arc::new(NativeStore),
     };
     let agents = served.as_ref().is_none_or(|served| served.agents);
-    let desk = match agents {
-        true => Some(Arc::new(
+    let desk = if agents {
+        Some(Arc::new(
             Desk::open_with_store(root, store.clone())
                 .map_err(|error| format!("the desk did not open: {error}"))?,
-        )),
-        false => None,
+        ))
+    } else {
+        None
     };
     let room = desk.as_ref().map(|desk| Agents {
         log: desk.log.clone(),

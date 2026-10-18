@@ -869,7 +869,7 @@ mod tests {
             parked,
             "the sender's copy does not stay live"
         );
-        assert_eq!(state_on("bob"), [(live.id.clone(), ThreadState::Parked)]);
+        assert_eq!(state_on("bob"), [(live.id, ThreadState::Parked)]);
         assert_eq!(
             stored(&room, side.stream().unwrap())
                 .iter()

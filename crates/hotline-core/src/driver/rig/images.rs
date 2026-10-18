@@ -138,11 +138,9 @@ impl From<Message> for Input {
 
 impl Input {
     pub(super) async fn prepare(self, stop: &Stop) -> Message {
-        let Self::Attachments(text, attachments) = self else {
-            let Self::Prepared(message) = self else {
-                unreachable!()
-            };
-            return message;
+        let (text, attachments) = match self {
+            Self::Prepared(message) => return message,
+            Self::Attachments(text, attachments) => (text, attachments),
         };
         let fallback = || {
             Message::user(paths(

@@ -351,7 +351,10 @@ impl Remote {
         s.devices.insert(device.id.clone(), cancel);
         // Persistence and consumption share this lock. A concurrent claimant
         // can never observe a successful grant without a consumed invitation.
-        let window = s.sealed_pairing.as_mut().unwrap();
+        let window = s
+            .sealed_pairing
+            .as_mut()
+            .expect("the window was checked open above, under this same lock");
         window.result = Some(device);
         window.secret.clear();
         Ok(Claimed::Granted(role))

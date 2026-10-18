@@ -244,6 +244,7 @@ async fn running_process_a_server_started_on_a_call_leaves_the_call_listening() 
             "the front was given a line"
         );
     }
+    // SAFETY: signal 0 only asks whether the captured pid exists.
     assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the server is still up");
 
     let job_id = {
@@ -268,6 +269,7 @@ async fn running_process_a_server_started_on_a_call_leaves_the_call_listening() 
     assert_eq!(stopped["ok"], true, "{stopped}");
     common::until(
         "the server is stopped",
+        // SAFETY: as above.
         || unsafe { libc::kill(pid, 0) } != 0,
     )
     .await;

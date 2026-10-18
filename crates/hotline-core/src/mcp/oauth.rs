@@ -1611,7 +1611,7 @@ mod tests {
 
     fn mcp_challenge(state: &MockOAuthState) -> Response {
         let metadata = format!("{}/.well-known/oauth-protected-resource", state.base);
-        let value = format!(r##"Bearer resource_metadata="{metadata}", scope="mcp""##);
+        let value = format!(r#"Bearer resource_metadata="{metadata}", scope="mcp""#);
         Response::builder()
             .status(StatusCode::UNAUTHORIZED)
             .header(WWW_AUTHENTICATE, value)

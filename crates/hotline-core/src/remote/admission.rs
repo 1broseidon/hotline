@@ -54,7 +54,7 @@ impl Admission {
     pub async fn accept(self: &Arc<Self>, ip: IpAddr, accepted: Instant) -> Arc<Permit> {
         let ip = match ip {
             IpAddr::V6(ip) => ip.to_ipv4_mapped().map_or(IpAddr::V6(ip), IpAddr::V4),
-            ip => ip,
+            ip @ IpAddr::V4(_) => ip,
         };
         loop {
             let (released, ready) = {
@@ -171,7 +171,10 @@ impl Permit {
         if !has_seat(&connections, device) {
             return false;
         }
-        let connection = connections.iter_mut().find(|c| c.id == self.id).unwrap();
+        let connection = connections
+            .iter_mut()
+            .find(|c| c.id == self.id)
+            .expect("a live permit's entry stays until its drop removes it, under this lock");
         if connection.device.is_some() {
             return false;
         }

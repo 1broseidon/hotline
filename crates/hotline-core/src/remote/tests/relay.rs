@@ -743,7 +743,7 @@ async fn claim(
 
 #[tokio::test]
 async fn a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door() {
-    let (_relay_root, relay, public_url) = served().await;
+    let (relay_root, relay, public_url) = served().await;
     let h = Harness::new().await;
     // A desk's claim on a relay's invitation is refused before it is spent.
     let invitation = relay.pairing_v2(DeviceRole::Relay).unwrap();
@@ -827,7 +827,7 @@ async fn a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door() {
     .await
     .expect("a revoked relay grant kept standing in");
     let saved: Value =
-        serde_json::from_slice(&fs::read(_relay_root.path().join("remote.json")).unwrap()).unwrap();
+        serde_json::from_slice(&fs::read(relay_root.path().join("remote.json")).unwrap()).unwrap();
     assert_eq!(saved["grants"], json!([]));
     assert_eq!(saved["relayGrants"].as_array().unwrap().len(), 1);
     h.remote.configure(false, network::ALL).await.unwrap();

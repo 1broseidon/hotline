@@ -31,7 +31,7 @@ fn owned(handle: HANDLE) -> io::Result<OwnedHandle> {
     if handle.is_null() || handle == INVALID_HANDLE_VALUE {
         return Err(io::Error::last_os_error());
     }
-    // Win32 returned a new owned handle; OwnedHandle closes it on every exit.
+    // SAFETY: Win32 returned a new owned handle; OwnedHandle closes it on every exit.
     Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
 }
 
@@ -39,7 +39,7 @@ pub(crate) struct Job(OwnedHandle);
 
 impl Job {
     pub(crate) fn terminate(&self) -> io::Result<()> {
-        // This handle names only the process job created for this child.
+        // SAFETY: this handle names only the process job created for this child.
         if unsafe { TerminateJobObject(self.0.as_raw_handle(), 1) } == 0 {
             Err(io::Error::last_os_error())
         } else {
@@ -51,7 +51,7 @@ impl Job {
         let id = id.ok_or_else(|| {
             io::Error::other("The child exited before its process job was established.")
         })?;
-        // The child is suspended and its caller still owns the process. No
+        // SAFETY: the child is suspended and its caller still owns the process. No
         // descendant can race assignment. Failure leaves it stopped; the
         // caller's kill_on_drop and our job both clean up their owned process.
         unsafe {
@@ -110,6 +110,8 @@ mod tests {
         // reports the ones that fit.
         let mut buffer = [0usize; 64];
         let mut returned = 0u32;
+        // SAFETY: Win32 writes at most the buffer's size into it, and reads
+        // back only the ids it says it wrote, capped to the buffer.
         unsafe {
             QueryInformationJobObject(
                 job.0.as_raw_handle(),
@@ -147,6 +149,7 @@ mod tests {
         })
         .await
         .expect("the resumed child never started a descendant inside the job");
+        // SAFETY: OpenProcess takes no memory; owned() checks the handle.
         let handle = owned(unsafe {
             OpenProcess(
                 PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
@@ -157,6 +160,7 @@ mod tests {
         .unwrap();
         drop(job);
         assert_eq!(
+            // SAFETY: the handle is the live one owned above.
             unsafe { WaitForSingleObject(handle.as_raw_handle(), 5000) },
             WAIT_OBJECT_0
         );

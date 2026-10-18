@@ -575,7 +575,9 @@ async fn command(
                             Command::AgentAuthCancel { .. } => room
                                 .agent_auth_cancel(persona_id, attempt_id)
                                 .map(|()| Value::Null),
-                            _ => unreachable!(),
+                            _ => unreachable!(
+                                "the arm above matched only the three sign-in commands"
+                            ),
                         }
                     }
                 }

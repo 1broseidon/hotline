@@ -29,10 +29,10 @@ const CLICK_EVENT: &str = "hotline://notification";
 
 /// Whether this process is an app the center will post for.
 fn bundled() -> bool {
-    NSBundle::mainBundle()
-        .bundlePath()
-        .to_string()
-        .ends_with(".app")
+    let path = NSBundle::mainBundle().bundlePath().to_string();
+    std::path::Path::new(&path)
+        .extension()
+        .is_some_and(|extension| extension == "app")
 }
 
 define_class!(
@@ -91,10 +91,12 @@ pub fn install(app: &AppHandle) {
         return;
     }
     let delegate = ToastDelegate::alloc().set_ivars(app.clone());
+    // SAFETY: the delegate was just allocated with its ivars set, and
+    // NSObject's init takes nothing and returns that same object.
     let delegate: Retained<ToastDelegate> = unsafe { msg_send![super(delegate), init] };
     UNUserNotificationCenter::currentNotificationCenter()
         .setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-    std::mem::forget(delegate);
+    let _never_released = Retained::into_raw(delegate);
 }
 
 /// Post one toast for a teammate. The first ever asks the person's leave,
@@ -105,6 +107,8 @@ pub fn notify(persona_id: String, title: String, body: String) -> bool {
     if !bundled() {
         return false;
     }
+    // SAFETY: userInfo is typed as a dictionary of any objects, and one of
+    // NSString to NSString is such a dictionary.
     let request = unsafe {
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(&title));

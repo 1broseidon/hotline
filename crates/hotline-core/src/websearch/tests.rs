@@ -908,7 +908,7 @@ async fn every_provider_is_asked_and_their_lists_are_fused() {
     ]);
     let answered = search.run(&Query::parse("subject"), 5).await.unwrap();
     let mut who = asked.lock().unwrap().clone();
-    who.sort();
+    who.sort_unstable();
     assert_eq!(who, vec!["exa", "keenable", "parallel"]);
     let titles: Vec<&str> = answered.hits.iter().map(|h| h.title.as_str()).collect();
     assert_eq!(titles[0], "beta", "found by two providers: {titles:?}");

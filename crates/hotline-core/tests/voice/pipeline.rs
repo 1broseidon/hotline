@@ -52,7 +52,7 @@ async fn an_mp4_header_cannot_reduce_its_stt_reservation() {
 }
 
 fn mp4(duration: u32, size: usize) -> Vec<u8> {
-    fn atom(kind: &[u8; 4], body: Vec<u8>) -> Vec<u8> {
+    fn atom(kind: [u8; 4], body: Vec<u8>) -> Vec<u8> {
         let mut bytes = ((body.len() + 8) as u32).to_be_bytes().to_vec();
         bytes.extend(kind);
         bytes.extend(body);
@@ -61,12 +61,12 @@ fn mp4(duration: u32, size: usize) -> Vec<u8> {
     let mut mdhd = vec![0; 12];
     mdhd.extend(1000u32.to_be_bytes());
     mdhd.extend(duration.to_be_bytes());
-    let mut bytes = atom(b"ftyp", b"M4A ".to_vec());
+    let mut bytes = atom(*b"ftyp", b"M4A ".to_vec());
     bytes.extend(atom(
-        b"moov",
-        atom(b"trak", atom(b"mdia", atom(b"mdhd", mdhd))),
+        *b"moov",
+        atom(*b"trak", atom(*b"mdia", atom(*b"mdhd", mdhd))),
     ));
-    bytes.extend(atom(b"mdat", vec![0; size - bytes.len() - 8]));
+    bytes.extend(atom(*b"mdat", vec![0; size - bytes.len() - 8]));
     bytes
 }
 

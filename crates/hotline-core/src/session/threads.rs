@@ -487,7 +487,7 @@ mod tests {
             format!("pair:{key}"),
             "dm:bob".to_string(),
         ];
-        let mut found = ids.clone();
+        let mut found = ids;
         expected.sort();
         found.sort();
         assert_eq!(found, expected, "each stream once, the pair not twice");

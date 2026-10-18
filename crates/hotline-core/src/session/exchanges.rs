@@ -1253,7 +1253,11 @@ impl Room {
                     })
                 })
                 .ok_or("This desk sent no such request.")?;
-            let request = pair.requests.iter_mut().find(|r| r.id == id).unwrap();
+            let request = pair
+                .requests
+                .iter_mut()
+                .find(|r| r.id == id)
+                .expect("the pair was found by this request, under the exchange lock");
             if !matches!(request.phase, Phase::Queued | Phase::Running) {
                 return Ok(());
             }

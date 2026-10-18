@@ -937,6 +937,10 @@ mod present_option {
         Option::<T>::deserialize(deserializer).map(Some)
     }
 
+    #[expect(
+        clippy::ref_option,
+        reason = "serde's serialize_with hands over the field by reference"
+    )]
     pub fn serialize<S, T>(value: &Option<Option<T>>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

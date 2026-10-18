@@ -446,6 +446,10 @@ impl Vault {
                 continue;
             }
             let file_name = entry.file_name();
+            #[expect(
+                clippy::case_sensitive_file_extension_comparisons,
+                reason = "`.about` is the vault's own lowercase suffix, not an extension a person chose"
+            )]
             let Some(name) = file_name
                 .to_str()
                 .and_then(|file_name| file_name.strip_suffix(".json"))
@@ -693,7 +697,7 @@ mod tests {
                     sites: vec![
                         "https://GitHub.com/".to_owned(),
                         " http://localhost:8123 ".to_owned(),
-                        "".to_owned(),
+                        String::new(),
                     ],
                     username: " george ".to_owned(),
                     password: "correct horse battery".to_owned(),
@@ -863,7 +867,7 @@ mod tests {
             ..
         } = passkey("github.com")
         else {
-            unreachable!()
+            unreachable!("passkey() builds a passkey")
         };
         let keyless = StoredSecret::Passkey {
             rp_id,

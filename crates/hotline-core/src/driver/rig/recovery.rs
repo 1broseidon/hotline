@@ -91,7 +91,7 @@ pub(super) fn fresh(history: &[Message], output_dir: &Path) -> Vec<Message> {
     }
     let facts = facts.join("\n");
     let shown = if facts.len() <= Budget::BUILT_IN.bytes() {
-        facts.clone()
+        facts
     } else {
         let path = output_dir.join(format!("continuation-{}.txt", uuid::Uuid::new_v4()));
         match std::fs::create_dir_all(output_dir).and_then(|()| std::fs::write(&path, &facts)) {

@@ -753,7 +753,7 @@ mod tests {
         append(&log, &persona_event(&bob));
 
         // A rename is the same id again, and keeps the place it arrived in.
-        let mut renamed = ada.clone();
+        let mut renamed = ada;
         renamed.name = "Ada Lovelace".to_string();
         renamed.updated_at = 1_700_000_001_000;
         append(&log, &persona_event(&renamed));
@@ -1127,7 +1127,7 @@ mod tests {
         }
         assert_eq!(
             teammate_schedules(&log, "ada").unwrap(),
-            Some(vec![sweep.clone(), once.clone()])
+            Some(vec![sweep.clone(), once])
         );
         assert_eq!(teammate_schedules(&log, "bob").unwrap(), Some(vec![theirs]));
 

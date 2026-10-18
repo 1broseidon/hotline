@@ -408,8 +408,7 @@ impl Sides {
             .cloned()
             .collect();
         let starting = inner.starting.get(persona_id).copied().unwrap_or(0);
-        let mut freed = None;
-        if live.len() + starting >= MAX_LIVE {
+        let freed = if live.len() + starting >= MAX_LIVE {
             let idlest = live
                 .iter()
                 .filter(|side| !side.working())
@@ -421,8 +420,10 @@ impl Sides {
                     )
                 })?;
             inner.live.remove(&idlest.id);
-            freed = Some(idlest);
-        }
+            Some(idlest)
+        } else {
+            None
+        };
         *inner.starting.entry(persona_id.to_string()).or_default() += 1;
         Ok(freed)
     }
@@ -823,7 +824,7 @@ impl Room {
             },
         );
         if launch.fresh {
-            self.end_side(side, Ending::Close(End::Failed, Some(reason.clone())));
+            self.end_side(side, Ending::Close(End::Failed, Some(reason)));
         } else {
             self.end_side(side, Ending::Park);
         }

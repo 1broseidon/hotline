@@ -177,9 +177,10 @@ impl Frames {
         };
         let mut fixed = BTreeSet::new();
         repair_event(&mut event, &mut self.next, &mut fixed);
-        let repaired = match fixed.is_empty() {
-            true => None,
-            false => Some(serde_json::to_vec(&event).ok()?),
+        let repaired = if fixed.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_vec(&event).ok()?)
         };
         let kind = event
             .get("type")
@@ -246,7 +247,8 @@ pub(crate) fn repair_event(
     let done = event
         .get("type")
         .and_then(Value::as_str)
-        .is_some_and(|kind| kind.ends_with(".done"));
+        .and_then(|kind| kind.rsplit_once('.'))
+        .is_some_and(|(_, stage)| stage == "done");
     let fallback = event
         .get("item_id")
         .and_then(Value::as_str)
@@ -409,7 +411,7 @@ mod tests {
 
     fn repaired(event: Value) -> Value {
         let Value::Object(mut event) = event else {
-            unreachable!()
+            unreachable!("every test event is an object literal")
         };
         repair_event(&mut event, &mut 0, &mut BTreeSet::new());
         Value::Object(event)
@@ -469,7 +471,7 @@ mod tests {
             json!({"type":"response.output_text.delta"}),
         ] {
             let Value::Object(mut event) = event else {
-                unreachable!()
+                unreachable!("every event above is an object literal")
             };
             repair_event(&mut event, &mut next, &mut fixed);
             seen.push(event["sequence_number"].clone());

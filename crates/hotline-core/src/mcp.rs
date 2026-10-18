@@ -758,7 +758,7 @@ fn parse_server(value: &Value) -> Option<McpServer> {
     let object = value.as_object()?;
     let id = object.get("id")?.as_str()?.to_string();
     let name = object.get("name")?.as_str()?.to_string();
-    let transport = if let Some("http") = object.get("type").and_then(Value::as_str) {
+    let transport = if object.get("type").and_then(Value::as_str) == Some("http") {
         let url = object.get("url")?.as_str()?.to_string();
         let auth = match object
             .get("auth")
@@ -847,7 +847,7 @@ fn parse_server(value: &Value) -> Option<McpServer> {
         McpTransport::Http { url, .. } => {
             validate_http_url(url).err().map(|error| error.to_string())
         }
-        _ => None,
+        McpTransport::Stdio { .. } => None,
     };
     Some(McpServer {
         id,

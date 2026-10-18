@@ -96,7 +96,9 @@ impl Failure {
                 .and_then(Value::as_str)
                 .is_some_and(|param| {
                     param.starts_with("input[")
-                        && (param.ends_with(".id") || param.ends_with(".encrypted_content"))
+                        && param
+                            .rsplit_once('.')
+                            .is_some_and(|(_, field)| field == "id" || field == "encrypted_content")
                 });
         let kind = if contains(&[
             "insufficient_quota",

@@ -409,6 +409,7 @@ async fn fetch(port: u16) -> Option<String> {
 
 /// Whether any process is left in the group `leader` made. Signal 0 only asks.
 fn group_alive(leader: i32) -> bool {
+    // SAFETY: killpg takes no memory.
     unsafe { libc::killpg(leader, 0) == 0 }
 }
 
@@ -574,6 +575,7 @@ fn read_pid(path: &Path) -> Option<i32> {
 
 /// Whether the process we started is still there. Signal 0 only asks.
 fn alive(pid: i32) -> bool {
+    // SAFETY: kill takes no memory.
     unsafe { libc::kill(pid, 0) == 0 }
 }
 

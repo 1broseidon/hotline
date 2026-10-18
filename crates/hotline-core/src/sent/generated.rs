@@ -48,7 +48,7 @@ pub(crate) fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
                 ImageFormat::Png => "png",
                 ImageFormat::Jpeg => "jpg",
                 ImageFormat::WebP => "webp",
-                _ => unreachable!(),
+                _ => unreachable!("the if-let above admits only PNG, JPEG and WebP"),
             };
             (bytes, format.to_mime_type(), extension, dimensions)
         } else {

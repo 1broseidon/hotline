@@ -976,7 +976,7 @@ mod tests {
 
     #[test]
     fn settling_moves_a_reservation_to_the_actual_cost_both_ways() {
-        let (_root, ledger) = ledger();
+        let (root, ledger) = ledger();
         let today = date(2026, 9, 30);
         ledger.charge_on(today, Kind::Tts, 0.25);
         let reservation = ledger.charge_on(today, Kind::Dispatcher, 1.0).unwrap();
@@ -988,7 +988,7 @@ mod tests {
         close(spent(&ledger, today), (0.56, 0.56));
 
         // Settled from disk too, not just in memory.
-        close(spent(&Ledger::open(_root.path()), today), (0.56, 0.56));
+        close(spent(&Ledger::open(root.path()), today), (0.56, 0.56));
     }
 
     #[test]

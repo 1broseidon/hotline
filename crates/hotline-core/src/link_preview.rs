@@ -138,13 +138,10 @@ pub fn fetchable(url: &Url) -> bool {
     match url.host() {
         Some(url::Host::Domain(host)) => {
             let host = host.to_ascii_lowercase();
+            let private = [".localhost", ".local", ".internal", ".lan", ".home.arpa"];
             host.contains('.')
-                && !(host == "localhost"
-                    || host.ends_with(".localhost")
-                    || host.ends_with(".local")
-                    || host.ends_with(".internal")
-                    || host.ends_with(".lan")
-                    || host.ends_with(".home.arpa"))
+                && host != "localhost"
+                && !private.iter().any(|suffix| host.ends_with(suffix))
         }
         Some(url::Host::Ipv4(ip)) => public(IpAddr::V4(ip)),
         Some(url::Host::Ipv6(ip)) => public(IpAddr::V6(ip)),
@@ -193,11 +190,13 @@ fn public(ip: IpAddr) -> bool {
     }
 }
 
-static META: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<meta\b[^>]*>").unwrap());
+static META: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<meta\b[^>]*>").expect("a fixed pattern"));
 static TITLE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?is)<title[^>]*>(.*?)</title>").unwrap());
+    LazyLock::new(|| Regex::new(r"(?is)<title[^>]*>(.*?)</title>").expect("a fixed pattern"));
 static ATTR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?is)\b([a-z:_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#).unwrap()
+    Regex::new(r#"(?is)\b([a-z:_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#)
+        .expect("a fixed pattern")
 });
 
 /// The value of each `<meta>` in the head, by property or name, first one winning.
@@ -228,8 +227,9 @@ fn metas(head: &str) -> HashMap<String, String> {
 }
 
 fn decode(value: &str) -> String {
-    static ENTITY: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?i)&(#x[0-9a-f]+|#\d+|[a-z]+\d*);").unwrap());
+    static ENTITY: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)&(#x[0-9a-f]+|#\d+|[a-z]+\d*);").expect("a fixed pattern")
+    });
     let decoded = ENTITY.replace_all(value, |caps: &regex::Captures| {
         let name = caps[1].to_ascii_lowercase();
         let named = match name.as_str() {

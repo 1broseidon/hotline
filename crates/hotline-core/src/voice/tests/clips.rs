@@ -113,7 +113,7 @@ async fn clips_are_sent_in_sentence_order_and_sequences_cannot_replay() {
     {
         let said = event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
         let VoiceEvent::Said { id, text: actual } = said else {
-            unreachable!()
+            unreachable!("event() waited for a Said")
         };
         assert_eq!(actual, text);
         let line = line.get_or_insert(id.clone());
@@ -323,7 +323,9 @@ async fn idle_replacement_and_disconnect_end_only_the_named_call() {
         .iter_mut()
         .find(|c| c.id == second)
         .unwrap()
-        .activity = Instant::now() - Duration::from_millis(crate::thread::QUIET_MS as u64);
+        .activity = Instant::now()
+        .checked_sub(Duration::from_millis(crate::thread::QUIET_MS as u64))
+        .expect("the machine has been up for longer than a call stays quiet");
     for (call, quiet) in calls.quiet() {
         if quiet >= crate::thread::QUIET_MS {
             calls.end_quiet(&call);
@@ -389,7 +391,7 @@ fn audio_limits_use_actual_wav_samples() {
 
 #[test]
 fn mp4_duration_cannot_be_hidden_behind_a_short_client_claim() {
-    fn atom(kind: &[u8; 4], payload: Vec<u8>) -> Vec<u8> {
+    fn atom(kind: [u8; 4], payload: Vec<u8>) -> Vec<u8> {
         let mut bytes = ((payload.len() + 8) as u32).to_be_bytes().to_vec();
         bytes.extend(kind);
         bytes.extend(payload);
@@ -399,10 +401,10 @@ fn mp4_duration_cannot_be_hidden_behind_a_short_client_claim() {
         let mut mdhd = vec![0u8; 12];
         mdhd.extend(1000u32.to_be_bytes());
         mdhd.extend(milliseconds.to_be_bytes());
-        let mut bytes = atom(b"ftyp", b"M4A ".to_vec());
+        let mut bytes = atom(*b"ftyp", b"M4A ".to_vec());
         bytes.extend(atom(
-            b"moov",
-            atom(b"trak", atom(b"mdia", atom(b"mdhd", mdhd))),
+            *b"moov",
+            atom(*b"trak", atom(*b"mdia", atom(*b"mdhd", mdhd))),
         ));
         bytes
     }

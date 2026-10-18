@@ -1065,7 +1065,6 @@ pub(crate) fn profile(
         agent,
         model: session
             .current_model_id
-            .clone()
             .or_else(|| persona.model_id.clone()),
         effort,
         capabilities: Capabilities {
@@ -1551,7 +1550,7 @@ mod tests {
             .keys()
             .map(String::as_str)
             .collect();
-        fields.sort();
+        fields.sort_unstable();
         assert_eq!(
             fields,
             [

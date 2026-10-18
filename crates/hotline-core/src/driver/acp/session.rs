@@ -402,7 +402,7 @@ impl ChildAgent {
                             "Authorization",
                             format!("Bearer {token}"),
                         )]),
-                        _ => http,
+                        HttpAuth::None => http,
                     })
                 }
             });

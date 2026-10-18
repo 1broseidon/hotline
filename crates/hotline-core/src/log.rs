@@ -169,10 +169,10 @@ impl Log {
                         "The room stream contains an unreadable event.",
                     )
                 })?;
-                if !event
+                if event
                     .get("id")
                     .and_then(Value::as_str)
-                    .is_some_and(|id| !id.is_empty())
+                    .is_none_or(|id| id.is_empty())
                     || event.get("kind").and_then(Value::as_str).is_none()
                 {
                     return Err(io::Error::new(
@@ -859,6 +859,10 @@ mod tests {
         let log = scratch("clone");
         let mut listener = log.subscribe(&StreamId::Room);
         let event = json!({"kind": "setting", "id": "defaultBackendId", "value": "hotline"});
+        #[expect(
+            clippy::redundant_clone,
+            reason = "the test is that a clone appends to the log it was cloned from"
+        )]
         log.clone().append(&StreamId::Room, &event).unwrap();
         assert_eq!(listener.try_recv().unwrap(), event);
     }

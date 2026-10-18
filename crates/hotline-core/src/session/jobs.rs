@@ -364,7 +364,7 @@ impl Jobs {
         })
         .abort_handle();
         self.entries.insert(
-            id.clone(),
+            id,
             Job {
                 snapshot: snapshot.clone(),
                 cancel,

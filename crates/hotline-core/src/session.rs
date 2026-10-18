@@ -1257,7 +1257,7 @@ impl Room {
     /// with the computer or without it, and a download that is still going is
     /// the DM's to watch.
     pub(crate) fn computer_in_a_thread(&self, persona_id: &str) -> String {
-        let enabled = self.persona(persona_id).ok().is_some_and(|persona| {
+        let enabled = self.persona(persona_id).is_ok_and(|persona| {
             persona
                 .computer
                 .as_ref()
@@ -1288,7 +1288,7 @@ impl Room {
     /// What `computer_status` answers: where this teammate's computer is,
     /// waiting up to `wait` for a download in progress to finish.
     pub(crate) async fn computer_setup_status(&self, persona_id: &str, wait: Duration) -> Value {
-        let enabled = self.persona(persona_id).ok().is_some_and(|persona| {
+        let enabled = self.persona(persona_id).is_ok_and(|persona| {
             persona
                 .computer
                 .as_ref()
@@ -2643,7 +2643,9 @@ impl Room {
     /// Hands the driver a line: on the turn in flight if there is one, on a
     /// new turn if there is not.
     fn dispatch(self: &Arc<Self>, session: Arc<Session>, wire: Wired) {
-        let working = self.lease().expect("dispatch caller holds a work lease");
+        let working = self
+            .lease()
+            .expect("a dispatch caller holds a read lease, so restart cannot hold the write lease");
         // Joining the queue and claiming an idle driver are one decision under
         // one lock, so a line can never be filed behind a turn that has
         // already stopped coming back for it.

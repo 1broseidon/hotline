@@ -1,7 +1,7 @@
 ---
 id: task-144
 title: "P2-35 (D): Discovery client is fallible"
-column: in-progress
+column: review
 position: 33
 priority: high
 tags:
@@ -11,9 +11,9 @@ parentId: epic-13
 createdAt: "2026-10-17T22:40:58.554Z"
 relatedFiles:
   - crates/hotline-core/src/providers/discovery.rs
-updatedAt: "2026-10-18T02:27:44.367Z"
+updatedAt: "2026-10-18T02:40:18.272Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - make precheck
@@ -22,6 +22,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T02:27:44.367Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T02:40:18.272Z"
+    duration: 754
 dependsOn:
   - task-126
 dispatch:

@@ -1,7 +1,7 @@
 ---
 id: task-153
 title: "P2-44 (D): Honest tests"
-column: todo
+column: in-progress
 position: 42
 priority: high
 tags:
@@ -16,15 +16,17 @@ relatedFiles:
   - crates/hotline-core/tests/processes.rs
   - crates/hotline-core/tests/voice.rs
   - crates/hotline-core/src/tools/shell/macos.rs
-updatedAt: "2026-10-18T05:37:10.369Z"
+updatedAt: "2026-10-18T05:37:24.300Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make precheck
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T05:37:24.300Z"
+    reworkCount: 0
 dependsOn:
   - task-141
 dispatch:

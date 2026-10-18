@@ -1,8 +1,6 @@
 ---
 id: task-13
 title: Harden the public tunnel and served desk
-column: backlog
-position: 1
 priority: high
 tags:
   - bro-167
@@ -23,7 +21,8 @@ description: |-
   Migrated from Linear BRO-167: https://linear.app/1broseidon/issue/BRO-167/harden-the-public-tunnel-and-served-desk (2026-10-11).
 
   Closed 2026-10-18 (backlog triage): Code shipped in 0.30. What's left is a Cloudflare dashboard rule for the grizzly tunnel, and grizzly is being decommissioned.
-updatedAt: "2026-10-18T23:41:05.127Z"
+updatedAt: "2026-10-18T23:41:05.656Z"
+completedAt: "2026-10-18T23:41:05.656Z"
 ---
 
 ## Log

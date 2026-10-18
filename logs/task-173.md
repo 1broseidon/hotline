@@ -30,7 +30,7 @@ contract:
     reworkCount: 2
     deliveredAt: "2026-10-18T01:12:12.437Z"
     duration: 340
-updatedAt: "2026-10-18T01:15:59.674Z"
+updatedAt: "2026-10-18T01:17:24.465Z"
 dependsOn:
   - task-122
 dispatch:
@@ -65,3 +65,4 @@ End with `make precheck` and `make ui-check` (the hooks are on; never --no-verif
 - 2026-10-18T01:11:45.378Z: Not landed: Claude Code is still working on task-173
 - 2026-10-18T01:12:11.970Z: [claude] The precheck failure was not in the code. The macOS sherpa-onnx prebuilt in this worktree's target/ was only partly extracted (no sherpa-onnx-c-api), and a second session ran `cargo test -p hotline-core` here while the contract leg ran, so both wrote contract.ts at once. I deleted the partial prebuilt and reran with nothing else running: `make precheck` passes all 7 legs and `make ui-check` passes. The branch dispatch/task-173 is unchanged at a4c8c49f (folds in transcriptFolds.ts; leaf renderers under components/transcript/, re-exported from Transcript.tsx). Nothing is left unwired. For later tasks: never run precheck in a worktree where another session is running cargo test.
 - 2026-10-18T01:15:59.204Z: Landed on release/0.40.0
+- 2026-10-18T01:17:24.465Z: Not landed: task-173 has no worktree to merge

@@ -23,7 +23,13 @@ tauri-plugin-clipboard-manager = "=2.3.3"
 tauri-plugin-dialog = "=2.7.3"
 tauri-plugin-opener = "=2.5.5"
 tauri-plugin-window-state = "=2.4.1"
-tauri-plugin-updater = "=2.11.0"
+# Without the plugin's `zip` feature. It unpacks a Windows `.zip` with ZIP 4,
+# whose extraction carries RUSTSEC-2026-0367/0368/0369 (fixed only in ZIP 9,
+# which no updater release takes), and a Linux `.AppImage.tar.gz`. Hotline
+# publishes neither: Windows gets the bare NSIS installer, Linux the bare
+# AppImage, and the macOS `.app.tar.gz` reader is not behind the feature. An
+# archive offered anyway is refused as an unknown installer.
+tauri-plugin-updater = { version = "=2.11.0", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-global-shortcut = "=2.3.1"
 serde.workspace = true
 semver = "1"

@@ -155,7 +155,6 @@ function draw(source: string, palette: Palette): Promise<string> {
 			startOnLoad: false,
 			securityLevel: "strict",
 			htmlLabels: false,
-			flowchart: { htmlLabels: false },
 			theme: palette === "dark" ? "dark" : "neutral",
 			themeVariables: { fontFamily: FONT, background: "transparent" },
 			fontFamily: FONT,

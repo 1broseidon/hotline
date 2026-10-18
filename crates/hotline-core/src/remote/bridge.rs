@@ -10,9 +10,11 @@ use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::net::{TcpListener, TcpStream};
+// Tokio's clock, so a test can pause it and let a token expire at once.
+use tokio::time::Instant;
 use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{

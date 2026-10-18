@@ -176,6 +176,7 @@ rustup, and announced first.
 | `fmt` | `cargo fmt --all --check` | unformatted Rust |
 | `lockfile` | `cargo metadata --locked`, `bun install --frozen-lockfile` | a `Cargo.lock` or `bun.lock` that CI's `--locked` refuses |
 | `actionlint` | `actionlint` (with shellcheck) | a workflow that reads what is not there, a `run:` script shellcheck faults |
+| `citations` | `scripts/security-citations` | a test `docs/security.md` cites that is renamed or moved without its row |
 | `contract` | every ts-rs export test, writing `contract.ts` from nothing | a committed contract that is stale, or that a filtered run truncated; the file you have is put back |
 | `clippy` | `cargo clippy --workspace --all-targets --locked -- -D warnings` | the host's lints |
 | `windows` | the same clippy for `x86_64-pc-windows-msvc`, through `cargo xwin` | Windows-only code, and code only Unix uses that is dead on Windows |

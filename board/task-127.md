@@ -14,7 +14,7 @@ relatedFiles:
   - crates/hotline-core/src/imagegen/chatgpt_tests.rs
   - crates/hotline-core/src/driver/acp/auth_tests.rs
   - crates/hotline-core/src/remote/tests/
-updatedAt: "2026-10-18T00:14:45.305Z"
+updatedAt: "2026-10-18T02:23:33.590Z"
 contract:
   status: ready
   validation:
@@ -34,7 +34,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:14:45.167Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 39764
+    at: "2026-10-18T02:23:33.590Z"
 assignee: claude
 ---
 

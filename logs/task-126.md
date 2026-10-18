@@ -1,8 +1,6 @@
 ---
 id: task-126
 title: "P2-14 (C): `foo.rs` + `foo/`"
-column: review
-position: 15
 priority: high
 tags:
   - phase2
@@ -26,7 +24,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/speech/mod.rs
   - crates/hotline-core/src/websearch/mod.rs
   - crates/hotline-core/src/wire/mod.rs
-updatedAt: "2026-10-18T02:17:58.894Z"
+updatedAt: "2026-10-18T02:23:32.466Z"
 contract:
   status: delivered
   validation:
@@ -57,7 +55,10 @@ dispatch:
     runner: cli
     pid: 39764
     at: "2026-10-18T02:06:57.568Z"
+    ended: "2026-10-18T02:23:32.465Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T02:23:32.092Z"
 ---
 
 ## Description
@@ -74,3 +75,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T02:18:03.004Z: [claude] Done on dispatch/task-126, in two commits. Commit 1: `git mv` of all 16 src/**/mod.rs to foo.rs. 13 are at 100% similarity. imagegen.rs, skills.rs and voice.rs are at 99%, because six include_bytes!/include_str! paths resolve from the file's own directory and had to change ("imagegen/house-avatar.jpg", "../skills/hotline-room/SKILL.md", "voice/assets/*.wav"), and rustfmt then re-wrapped two voice.rs calls. A 100% move would not compile, so the path fixes went into the same commit to keep every commit building. Commit 2: docs (sessions, security, wire, voice, computer, development) now point at foo.rs. adr/0001 still says session/mod.rs, because it is history. tests/common/mod.rs was kept: it is the integration-test idiom and outside src/, so not one of the 16. Contract validation passes: no src mod.rs left, contract.ts unchanged, make check and make precheck (7/7) pass. For later rows: plan rows that cite `X/mod.rs` (23, 28, 42, the session/mod.rs splits) now mean `X.rs`. Nothing left unwired.
+- 2026-10-18T02:23:31.722Z: Landed on release/0.40.0

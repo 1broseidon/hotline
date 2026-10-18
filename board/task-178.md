@@ -1,8 +1,8 @@
 ---
 id: task-178
 title: Call keys appear on a fresh desk as soon as calls are ready, not after the first exchange
-column: todo
-position: 1
+column: in-progress
+position: 0
 priority: medium
 tags:
   - voice
@@ -10,7 +10,7 @@ tags:
   - qa
 createdAt: "2026-10-18T21:49:01.284Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T21:49:29.213Z"
+updatedAt: "2026-10-18T21:49:38.245Z"
 dispatch:
   agent: claude
   model: opus

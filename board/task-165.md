@@ -1,7 +1,7 @@
 ---
 id: task-165
 title: "P2-D-5 (E): One module map,"
-column: todo
+column: in-progress
 position: 54
 priority: high
 tags:
@@ -12,15 +12,17 @@ createdAt: "2026-10-17T22:41:09.515Z"
 relatedFiles:
   - docs/development.md
   - docs/design.md
-updatedAt: "2026-10-18T06:27:44.860Z"
+updatedAt: "2026-10-18T06:27:54.228Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - "! grep -n 'defined once in contract.rs' docs/development.md docs/design.md"
       - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T06:27:54.228Z"
+    reworkCount: 0
 dependsOn:
   - task-164
   - task-129

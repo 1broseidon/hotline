@@ -13,8 +13,9 @@ code implements them, are [wire.md](wire.md), [log.md](log.md) and
 - The [Tauri CLI](https://v2.tauri.app/) as a cargo subcommand:
   `cargo install tauri-cli --version ^2`.
 - Python 3, for release manifest validation in `make check`.
-- cargo-deny 0.20.2, for the license gate in `make check`:
-  `cargo install --locked cargo-deny@0.20.2`.
+- cargo-machete 0.9.2 and cargo-deny 0.20.2, for the dependency gates in
+  `make check`: `cargo install --locked cargo-machete@0.9.2 cargo-deny@0.20.2`.
+  Another version stops `make check` with that line; the Makefile says why.
 - [Bun](https://bun.sh), for the window's install, typecheck, Vite, and
   production build.
 - On macOS, Xcode or its Command Line Tools: `build.rs` compiles the
@@ -86,6 +87,7 @@ crates/hotline-core/src/
   import/                    the previous edition's roster and records, read-only
   log_file.rs                where the app's own lines go when nobody reads its output
   process_windows.rs         a Windows child's kill-on-close job
+  test_support.rs            what the unit tests of more than one module share
   bin/hotline-import.rs      the importer as a binary
   bin/hotline-mcp-echo.rs    a one-tool stdio server the MCP harnesses spawn
   bin/hotline-models-sync.rs rewrites models.json from models.dev
@@ -109,7 +111,7 @@ before anything is served.
 
 ```bash
 make dev        # the Tauri shell, Vite with hot reload, on .hotline-dev
-make check      # the window's typecheck, lint and tests, the Python tests, cargo fmt, clippy -D warnings, cargo test
+make check      # the window's typecheck, lint and tests, the dependency gates, the Python tests, cargo fmt, clippy -D warnings, cargo test
 make verify     # the headless harnesses, driving the real core over the wire
 make precheck   # what CI's runners would fail, caught here; see Before pushing
 make build      # a release bundle under target/release/bundle (unsigned)
@@ -136,9 +138,15 @@ preflight that stops in one line when `ui/src/generated/contract.ts` is
 partial (a filtered `cargo test` wrote it); `bun run typecheck`, `bun run
 lint` (Biome, lint only), `bun run knip` (no unused export, file or
 dependency; `ui/knip.json` and the Makefile say what is exempt and why) and
-`bun run test` in `ui/`; the license gate, `make licenses` (a crate or a
-window package under a license nobody reviewed fails; `deny.toml` and
-[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) say what was reviewed); the speech engine fetched and checked against its pinned hash; the Python tests under `scripts/` and
+`bun run test` in `ui/`; the dependency gates, `make deps`: `cargo machete
+--with-metadata` (no unused Cargo dependency), `cargo deny --locked check
+advisories licenses` (no advisory against `Cargo.lock` that `deny.toml`
+does not list with its review condition, and no crate under a license
+nobody reviewed), `scripts/window_licenses.py` (the same for the window's
+packages; [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) says what was
+reviewed) and `bun audit` in `ui/` (no advisory at all); the speech engine fetched and checked against its pinned hash;
+`scripts/security-citations` (every test `docs/security.md` cites is a `fn` in
+the file its row names); the Python tests under `scripts/` and
 `site/tests/`; `cargo fmt --all --check`; `cargo clippy --workspace
 --all-targets -- -D warnings`; `cargo test --workspace`. A window that
 does not compile is a broken build however green the Rust is.

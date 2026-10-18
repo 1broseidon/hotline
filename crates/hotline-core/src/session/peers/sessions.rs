@@ -375,7 +375,7 @@ impl Room {
                 })?;
         }
         let flip = thread_participants(key).is_some_and(|(user_side, _)| user_side != caller.id);
-        let driving = crate::session::Driving::new(
+        let driving = crate::session::computer::Driving::new(
             format!("pair:{key}"),
             format!("a request from {}", crate::session::links::shown(&caller)),
             &target_capability,

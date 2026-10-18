@@ -5,7 +5,7 @@
 //! join their neighbour. The length of the reply is the prompt's job, not a
 //! fold's.
 //!
-//! The split lives in the funnel ([`super::event_of`]) so both kinds of agent
+//! The split lives in the funnel ([`super::prompt::event_of`]) so both kinds of agent
 //! and a peer thread get it for free. History rejoins consecutive agent events
 //! with a blank line, because the model said one thing.
 

@@ -29,11 +29,12 @@
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
 
+use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
 use super::{
-    Glance, PendingTool, Room, Session, Wired, call_origin, escalation, lock, mark, new_id, now_ms,
-    quiet, schedule, timed,
+    Glance, Room, Session, Wired, call_origin, escalation, lock, mark, new_id, now_ms, quiet,
+    schedule, timed,
 };
 use crate::contract::{Reach, Receipt, ScheduledRun, SessionState, TranscriptEvent};
 use crate::contract::{ThreadId, ThreadKind};

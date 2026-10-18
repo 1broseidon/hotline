@@ -36,7 +36,8 @@
 //! `peers.answer_permission` (owner seat) answers it while the turn is still
 //! behind it. A card left open when the turn ends is expired.
 
-use super::{Room, fold_said, lock, timed};
+use super::prompt::fold_said;
+use super::{Room, lock, timed};
 use crate::contract::ThreadId;
 use crate::contract::{
     DeliveryCause, DeliveryFrom, HumanActionStatus, PeerPreview, PeerRole, PeerStatus,

@@ -106,6 +106,37 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo test --workspace native_store_roundtrip --locked -- --ignored
 
+  # The dependency gates `make check` runs (deny.toml says the policy). They
+  # read manifests and lockfiles, never compile, and answer the same on every
+  # operating system, so they run once, on GitHub's runner: the advisory
+  # databases are fetched either way.
+  dependencies:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The same versions the Makefile pins.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete@0.9.2,cargo-deny@0.20.2
+
+      - name: Check for unused Cargo dependencies
+        run: cargo machete --with-metadata
+
+      - name: Check Cargo.lock against the advisory database and the reviewed licenses
+        run: cargo deny --locked check advisories licenses
+
+      - name: Check the window's lockfile against the advisory database
+        working-directory: ui
+        run: bun audit
+
   # macOS-only code (the keychain, notifications, the Finder PATH test) is
   # compiled nowhere else before a tag, and the release only builds: a slip
   # there would cost a whole release run (0.28.0's did). So its clippy, its

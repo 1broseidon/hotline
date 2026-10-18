@@ -24,10 +24,12 @@
 //! offers are taken before it starts. A peer session (`peer_session`) is still
 //! built on its own, and moves onto this when its phase lands.
 
-use super::{
-    COMPUTER_DOWNLOADING, ComputerAtStart, Driving, Room, chapters, computer_failed_note,
-    computer_unavailable, now_ms, said, with_note, without_computer,
+use super::computer::{
+    COMPUTER_DOWNLOADING, ComputerAtStart, Driving, computer_failed_note, computer_unavailable,
+    with_note, without_computer,
 };
+use super::prompt::said;
+use super::{Room, chapters, now_ms};
 use crate::contract::{Persona, Reach, SessionCheckpoint, SharedSecret};
 use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::{

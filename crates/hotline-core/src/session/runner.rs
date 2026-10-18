@@ -41,11 +41,10 @@
 //! never hold more than its parent did.
 
 use super::agent::{Opening, lease_of};
+use super::preamble::{folders_sentence, reach_sentence, skills_index};
+use super::prompt::{PendingTool, event_of};
 use super::turns::{Line, Seat};
-use super::{
-    CLOCK, PendingTool, Room, event_of, folders_sentence, narration, new_id, now_ms,
-    reach_sentence, skills_index, timed,
-};
+use super::{CLOCK, Room, narration, new_id, now_ms, timed};
 use crate::contract::{End, ThreadId, ThreadKind};
 use crate::contract::{
     NoticeLevel, Persona, Reach, RunningSubagent, SessionInfo, SubagentStatus, ToolStatus,

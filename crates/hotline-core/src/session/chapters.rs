@@ -24,10 +24,17 @@
 //! The instructions and the note's shape are the previous edition's, unchanged,
 //! so a tape written here reads the same as one written there.
 
-use crate::contract::{ChapterClose, ChapterStatus, TranscriptEvent};
+use super::{BUSY_RECHECK_MS, FIRST_SWEEP, Room, SWEEP_EVERY, lock, new_id, now_ms};
+use crate::contract::{ChapterClose, ChapterStatus, ChapterSummary, Persona, TranscriptEvent};
+use crate::driver::HOTLINE_BACKEND_ID;
+use crate::room;
+use crate::store::chapters as chapter_view;
 use crate::store::chapters::{is_message, open_chapter, previous_chapter};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde_json::{Map, Value, json};
+use std::collections::HashMap;
+use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 /// How long the summariser may take before the chapter closes without a note.
 pub(super) const ANSWER_MS: u64 = 90_000;
@@ -600,6 +607,431 @@ fn tool_output(event: &Value) -> String {
                 .join(" ")
         })
         .unwrap_or_default()
+}
+
+impl Room {
+    /// Closes the teammate's open chapter now and answers with what it became.
+    ///
+    /// Nothing else happens here. The session that belonged to the chapter
+    /// keeps running until there is something to say to it, and the swap is
+    /// [`Room::prompt`]'s: an agent that asks for a fresh chapter is mid-turn
+    /// when it asks, and its own turn is the one that has to finish answering.
+    pub async fn start_fresh_chapter(
+        self: &Arc<Self>,
+        persona_id: &str,
+        by: ChapterClose,
+    ) -> Result<ChapterSummary, String> {
+        self.close_chapter(persona_id, by)
+            .await
+            .ok_or_else(|| "That teammate has no open chapter to close.".to_string())
+    }
+
+    /// Reopens the previous chapter's full context in place of the current one.
+    ///
+    /// Only the chapter immediately before the open one is offered: a context
+    /// from three weeks ago brings back sludge. The current chapter closes as
+    /// "Back to: …" without asking a model for a note — it is a turning point,
+    /// not a stretch of work — and a new marker opens carrying that earlier
+    /// chapter's note under `resumedFrom`. The session is stopped and started
+    /// again: Hotline Agent is seeded from the previous chapter's tape slice,
+    /// an ACP child from the checkpoint the marker still names. The user
+    /// lines said in the meantime arrive as a [`Room::nudge`], Hotline's words,
+    /// never a line of the tape. If the restore itself fails, the new session
+    /// still starts and reads the note the wake block already carries.
+    pub async fn resume_chapter(
+        self: &Arc<Self>,
+        persona_id: &str,
+    ) -> Result<ChapterSummary, String> {
+        let _working = self.working()?;
+        let persona = self.persona(persona_id)?;
+        let events = self.tape(persona_id);
+        let previous = chapter_view::previous_chapter(&events)
+            .cloned()
+            .ok_or_else(|| "There is no previous chapter to reopen.".to_string())?;
+        if previous.get("closedBy").and_then(Value::as_str) == Some("resume") {
+            return Err("There is no previous chapter to reopen.".to_string());
+        }
+        if previous.get("backendId").and_then(Value::as_str) != Some(persona.backend_id.as_str()) {
+            return Err(
+                "The previous chapter ran on a different agent; its context cannot be reopened here."
+                    .to_string(),
+            );
+        }
+        let open = chapter_view::open_chapter(&events).cloned();
+        let interim: Vec<String> = open
+            .as_ref()
+            .map(|open| {
+                chapter_view::slice_of(&events, open)
+                    .iter()
+                    .filter(|event| event.get("kind").and_then(Value::as_str) == Some("user"))
+                    .filter_map(|event| {
+                        let text = event.get("text")?.as_str()?.trim();
+                        (!text.is_empty()).then(|| text.to_string())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let title = previous
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .unwrap_or("the previous chapter");
+
+        self.stop_session(persona_id);
+        if let Some(open) = open {
+            self.close_marker(
+                persona_id,
+                &open,
+                now_ms(),
+                Closing::Titled {
+                    title: format!("Back to: {title}"),
+                    note: None,
+                },
+                ChapterClose::Resume,
+            );
+        }
+        // Point the persona's checkpoint back at the previous chapter's
+        // session, which is what an ACP child will try to resume. Hotline Agent
+        // has no checkpoint; its restore is the tape slice `said` will seed.
+        {
+            let policy_updates = self.policy_update_lock();
+            let _held = policy_updates.lock().await;
+            if let Some(session_id) = previous.get("sessionId").and_then(Value::as_str) {
+                if let Err(error) =
+                    room::checkpoint_session(&self.log, persona_id, &persona.backend_id, session_id)
+                {
+                    eprintln!(
+                        "{}'s checkpoint was not pointed back at the previous chapter: {error}",
+                        persona.name
+                    );
+                }
+            } else if persona.backend_id != HOTLINE_BACKEND_ID
+                && let Err(error) =
+                    room::clear_checkpoint(&self.log, persona_id, &persona.backend_id)
+            {
+                eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
+            }
+        }
+
+        let id = new_id();
+        let opened = reopened(&persona.backend_id, id.clone(), now_ms(), &previous)
+            .ok_or_else(|| "There is no previous chapter to reopen.".to_string())?;
+        self.write(persona_id, &opened);
+
+        match self.start(persona_id).await {
+            Ok(info) => {
+                // The new session still reads the note the wake block carries,
+                // so the conversation goes on; the gap is the log's business.
+                if persona.backend_id != HOTLINE_BACKEND_ID && !info.context_restored {
+                    eprintln!(
+                        "{}: the previous chapter's context could not be reopened",
+                        persona.name
+                    );
+                }
+            }
+            // The refusal goes back to whoever asked, and says why there.
+            Err(error) => return Err(error),
+        }
+        if let Err(error) = self.nudge(persona_id, &resume_nudge(&interim)) {
+            eprintln!(
+                "{} was not told what was said in the meantime: {error}",
+                persona.name
+            );
+        }
+        self.chapter_summary(persona_id, &json!({ "id": id }))
+            .ok_or_else(|| "The reopened chapter could not be read back.".to_string())
+    }
+
+    /// Opens a chapter, unless one is already open.
+    pub(super) fn begin_chapter(&self, persona_id: &str, backend_id: &str) {
+        if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
+            return;
+        }
+        self.write(persona_id, &opened(backend_id, new_id(), now_ms()));
+    }
+
+    /// Closes the open chapter and writes the note the next one wakes on.
+    ///
+    /// The note is a model call, so it is not waited for: the marker closes at
+    /// once under the first message's title, and the note supersedes it in
+    /// place when it comes back, after a short grace for a fast answer.
+    /// A chapter in which nothing was said never asks — there is nothing to
+    /// write a note about — and closes untitled.
+    pub(super) async fn close_chapter(
+        self: &Arc<Self>,
+        persona_id: &str,
+        by: ChapterClose,
+    ) -> Option<ChapterSummary> {
+        let _working = self.working().ok()?;
+        let events = self.tape(persona_id);
+        let open = chapter_view::open_chapter(&events)?.clone();
+        // A chapter replacement is a session boundary for collaboration
+        // authority even when the existing driver remains alive until the
+        // next user line reaches it. Peer sessions are dropped with the
+        // chapter so an active or cached conversation cannot keep using the
+        // old chapter's temporary authority.
+        {
+            let _lifecycle = lock(&self.lifecycle);
+            self.peers.advance_generation(persona_id);
+            self.drop_peer_sessions(persona_id);
+        }
+        self.settle_collaboration(persona_id);
+        let persona = self.persona(persona_id).ok()?;
+        let slice = chapter_view::slice_of(&events, &open).to_vec();
+        // An idle close ends the chapter when the conversation stopped, not
+        // when the sweep noticed — the two can be a night apart, or longer if
+        // Hotline was closed — so "ended nine hours ago" on wake means what it
+        // says.
+        let ended_at = match by {
+            ChapterClose::Idle => chapter_view::last_activity(&slice)
+                .or_else(|| open.get("ts").and_then(Value::as_i64))
+                .unwrap_or_else(now_ms),
+            _ => now_ms(),
+        };
+        // Closing a chapter lets go of the agent's own memory of it: the next
+        // message starts a context that has never seen it and reads the note
+        // instead. The session is not touched; the promise to reopen it is.
+        {
+            let policy_updates = self.policy_update_lock();
+            let _held = policy_updates.lock().await;
+            if let Err(error) = room::clear_checkpoint(&self.log, persona_id, &persona.backend_id) {
+                eprintln!("{}'s checkpoint was not withdrawn: {error}", persona.name);
+            }
+        }
+        let spoken_in = slice
+            .iter()
+            .any(chapter_view::is_message)
+            .then(|| fallback_title(&slice));
+        let Some(title) = spoken_in else {
+            self.close_marker(persona_id, &open, ended_at, Closing::Empty, by);
+            return self.chapter_summary(persona_id, &open);
+        };
+
+        // The close is written now, titled from the first message, and the
+        // note rewrites it by id when the summariser answers. A message
+        // waiting behind the start gate, or a person who asked for a fresh
+        // chapter, never waits on a model for the privilege.
+        self.close_marker(
+            persona_id,
+            &open,
+            ended_at,
+            Closing::Titled { title, note: None },
+            by,
+        );
+        let room = Arc::clone(self);
+        let owner = persona_id.to_string();
+        let marker = open.clone();
+        let mut noting = tokio::spawn(async move {
+            room.write_note(&owner, &persona, &marker, &slice, ended_at, by)
+                .await;
+        });
+        // A summariser that is already answering finishes inside the grace and
+        // lands in the summary this returns; a slow one does not hold anyone.
+        let _ = tokio::time::timeout(Duration::from_millis(NOTE_GRACE_MS), &mut noting).await;
+        self.chapter_summary(persona_id, &open)
+    }
+
+    /// Asks for the handoff note and supersedes the close marker with it.
+    ///
+    /// The marker is only rewritten while it is still the close this note was
+    /// written for: one that already carries a note is left as it is.
+    async fn write_note(
+        &self,
+        persona_id: &str,
+        persona: &Persona,
+        open: &Value,
+        slice: &[Value],
+        ended_at: i64,
+        by: ChapterClose,
+    ) {
+        let Some(note) = self.note(persona, slice).await else {
+            // The chapter closed either way; the next one starts from the
+            // tape rather than a handoff. Nothing for the conversation to say.
+            eprintln!("{persona_id}: a chapter closed without a handoff note: no model answered");
+            return;
+        };
+        let id = open.get("id");
+        let still_closed = self.tape(persona_id).iter().any(|event| {
+            event.get("kind").and_then(Value::as_str) == Some("chapter")
+                && event.get("id") == id
+                && event.get("endedAt").is_some_and(|ended| !ended.is_null())
+                && event.get("note").is_none_or(Value::is_null)
+        });
+        if still_closed {
+            self.close_marker(
+                persona_id,
+                open,
+                ended_at,
+                Closing::Titled {
+                    title: note.title.clone(),
+                    note: Some(note),
+                },
+                by,
+            );
+        }
+    }
+
+    fn close_marker(
+        &self,
+        persona_id: &str,
+        open: &Value,
+        ended_at: i64,
+        closing: Closing,
+        by: ChapterClose,
+    ) {
+        if let Some(closed) = closed(open, ended_at, closing, by) {
+            self.write(persona_id, &closed);
+        }
+    }
+
+    /// The chapter as the drawer would list it, read back off the tape it was
+    /// just written to.
+    fn chapter_summary(&self, persona_id: &str, chapter: &Value) -> Option<ChapterSummary> {
+        let id = chapter.get("id")?;
+        chapter_view::summarize(&self.tape(persona_id))
+            .into_iter()
+            .find(|summary| summary.get("id") == Some(id))
+            .and_then(|summary| serde_json::from_value(summary).ok())
+    }
+
+    /// The chapter's note, asked of a model with no tools and no memory.
+    ///
+    /// `None` is every way this can fail to produce one — no key on the desk,
+    /// a provider that refused, an answer that was not the JSON asked for, or
+    /// one that never came — because the chapter closes the same way in all of
+    /// them.
+    pub(super) async fn note(&self, persona: &Persona, slice: &[Value]) -> Option<Note> {
+        let model_id = self.note_model(persona)?;
+        let prompt = format!(
+            "Here is the chapter, oldest first.\n{}\nWrite the JSON note now.",
+            crate::fence::fenced("hotline_chapter_transcript", &serialize_chapter(slice))
+        );
+        let answer = tokio::time::timeout(
+            Duration::from_millis(ANSWER_MS),
+            self.agents.complete(&model_id, INSTRUCTIONS, &prompt),
+        )
+        .await;
+        match answer {
+            Ok(Ok(answer)) => parse_note(&answer),
+            Ok(Err(error)) => {
+                eprintln!(
+                    "the note for {}'s chapter was refused: {error}",
+                    persona.name
+                );
+                None
+            }
+            Err(_) => {
+                eprintln!(
+                    "the note for {}'s chapter did not arrive in time",
+                    persona.name
+                );
+                None
+            }
+        }
+    }
+
+    /// The teammate's own model when the desk holds its key, and otherwise the
+    /// first model the desk can reach — so a chapter written by a teammate on
+    /// a provider nobody has a key for still gets a note.
+    fn note_model(&self, persona: &Persona) -> Option<String> {
+        let keys = self.keys.provider_auth();
+        persona
+            .model_id
+            .clone()
+            .filter(|id| keys.contains_key(id.split('/').next().unwrap_or_default()))
+            .or_else(|| {
+                crate::models::choices(
+                    &keys,
+                    &self.keys.enabled_models(),
+                    &self.keys.account_models(),
+                    &self.keys.model_metadata(),
+                )
+                .first()
+                .map(|model| model.id.clone())
+            })
+    }
+
+    /// Closes every chapter that has gone quiet for longer than the room
+    /// allows. `looked_again` carries the teammates whose chapter was stale
+    /// while a turn was running, and when to look at them next.
+    pub(super) async fn sweep_chapters(self: &Arc<Self>, looked_again: &mut HashMap<String, i64>) {
+        for persona in room::roster(&self.log) {
+            let now = now_ms();
+            if looked_again
+                .get(&persona.id)
+                .is_some_and(|until| now < *until)
+            {
+                continue;
+            }
+            // Behind the start gate, the one a message takes to be written:
+            // a message arriving now holds it and closes the stale chapter
+            // itself before its line goes down, and one that arrived already
+            // is recent activity the check below sees. Without the gate the
+            // close reads the chapter, waits on the note, and writes the close
+            // over a line said in the meantime.
+            let gate = self.start_gate(&persona.id);
+            let Ok(_held) = gate.try_lock() else {
+                continue;
+            };
+            if !self.went_quiet(&persona.id, now) {
+                continue;
+            }
+            // A chapter is closed between turns: the note is written from the
+            // slice, and a turn still running is still adding to it.
+            if self.mid_turn(&persona.id) {
+                looked_again.insert(persona.id.clone(), now + BUSY_RECHECK_MS);
+                continue;
+            }
+            looked_again.remove(&persona.id);
+            self.close_chapter(&persona.id, ChapterClose::Idle).await;
+        }
+    }
+
+    /// Whether the teammate's open chapter has been quiet for longer than the
+    /// room allows, counted from the last thing said in it.
+    pub(super) fn went_quiet(&self, persona_id: &str, now: i64) -> bool {
+        let idle_ms = idle_ms(&room::settings(&self.log));
+        let events = self.tape(persona_id);
+        let Some(open) = chapter_view::open_chapter(&events) else {
+            return false;
+        };
+        let last = chapter_view::last_activity(chapter_view::slice_of(&events, open))
+            .or_else(|| open.get("ts").and_then(Value::as_i64))
+            .unwrap_or(now);
+        now - last >= idle_ms
+    }
+}
+
+/// The idle clock, for the whole room at once.
+///
+/// One task rather than a timer per teammate: the tape already knows when each
+/// chapter last heard anything, so there is nothing to arm when a message
+/// lands, nothing to cancel when a teammate is deleted, and nothing to rebuild
+/// when the setting changes. The first look is a few seconds after the room
+/// opens, which is where a chapter that went stale while Hotline was closed is
+/// closed — nobody is waiting, so the note is written before anyone comes back
+/// to read it. The task holds the room weakly, so it is the last thing the
+/// room's own end stops.
+pub(super) fn sweep_idle_chapters(room: Weak<Room>) {
+    tokio::spawn(async move {
+        tokio::time::sleep(FIRST_SWEEP).await;
+        if let Some(room) = room.upgrade() {
+            room.recover_exchanges().await;
+        }
+        let mut looked_again: HashMap<String, i64> = HashMap::new();
+        loop {
+            match room.upgrade() {
+                Some(room) => {
+                    room.sweep(now_ms(), &mut looked_again).await;
+                    room.expire_stale_asks(now_ms());
+                    room.sweep_computers().await;
+                }
+                None => return,
+            }
+            tokio::time::sleep(SWEEP_EVERY).await;
+        }
+    });
 }
 
 #[cfg(test)]

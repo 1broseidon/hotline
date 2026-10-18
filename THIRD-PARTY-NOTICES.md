@@ -12,10 +12,10 @@ license. It is not a legal opinion. The app bundle does not carry it yet.
 
 ## The gate
 
-`make check` runs `make licenses`, which fails on:
+`make check` runs the dependency gates, `make deps`, whose license half fails on:
 
 - a crate under a license outside the allow list in `deny.toml`
-  (`cargo deny --locked check licenses`, every target);
+  (`cargo deny --locked check advisories licenses`, every target);
 - a window package, anywhere in what `ui/package.json`'s `dependencies`
   reach, under a license outside `REVIEWED` in
   `scripts/window_licenses.py`. Development dependencies are build tools

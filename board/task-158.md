@@ -1,7 +1,7 @@
 ---
 id: task-158
 title: "P2-49 (D): Window plumbing"
-column: todo
+column: in-progress
 position: 47
 priority: high
 tags:
@@ -16,9 +16,9 @@ relatedFiles:
   - ui/tests/dom.ts
   - ui/tests/
   - ui/tsconfig.json
-updatedAt: "2026-10-18T02:20:30.003Z"
+updatedAt: "2026-10-18T02:20:48.246Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - grep -q noImplicitReturns ui/tsconfig.json
@@ -29,6 +29,8 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T02:20:48.246Z"
+    reworkCount: 0
 dependsOn:
   - task-157
 dispatch:

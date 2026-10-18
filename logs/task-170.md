@@ -1,8 +1,6 @@
 ---
 id: task-170
 title: "P2-55 (F): The dependency gates"
-column: review
-position: 0
 priority: high
 tags:
   - phase2
@@ -13,7 +11,7 @@ relatedFiles:
   - deny.toml
   - Makefile
   - .github/workflows/ci.yml
-updatedAt: "2026-10-18T03:50:36.499Z"
+updatedAt: "2026-10-18T04:43:43.216Z"
 contract:
   status: in_progress
   validation:
@@ -46,6 +44,7 @@ dispatch:
     ended: "2026-10-18T03:50:36.007Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-18T04:43:43.216Z"
 ---
 
 ## Description

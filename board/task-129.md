@@ -54,3 +54,6 @@ Phase 2 group C (Move-only renames and splits), plan row 17 in docs/audits/0.40/
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T04:17:05.908Z: [claude] Done on dispatch/task-129 (27d4fbb9, bc5b2562): contract.rs is now the module root with nine submodules re-exported by `pub use` (command, computer, credentials, payloads, persona, replies, session, transcript, views), plus contract/tests.rs. Every crate::contract path still works and contract.ts is byte-identical. make check and make precheck (7/7) pass. One validation check still fails, the same one task-128 hit: the grep matches views.rs:273, the ThreadId rustdoc link "[`crate::paths::thread_key`]". That is a doc link, not an import. ts-rs copies it into contract.ts, so rewording it would break byte-identity, and George reverted that reword when landing 128. I kept it as it is. If the line should change, that needs a task that is allowed to change contract.ts, or a grep that skips `///` lines. Nothing is left unwired.

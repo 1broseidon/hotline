@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:52.292Z"
 relatedFiles:
   - crates/hotline-core/src/session/tests.rs
   - crates/hotline-core/src/session/tests/
-updatedAt: "2026-10-18T05:43:41.948Z"
+updatedAt: "2026-10-18T05:43:43.018Z"
 contract:
   status: delivered
   validation:
@@ -34,16 +34,9 @@ dispatch:
   agent: claude
   model: opus
   by: cli
-  at: "2026-10-18T00:14:50.788Z"
+  at: "2026-10-18T05:43:42.878Z"
   until: done
   tries: 2
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 35147
-    at: "2026-10-18T05:27:48.463Z"
-    ended: "2026-10-18T05:37:14.495Z"
-    outcome: review
 assignee: claude
 ---
 

@@ -1,8 +1,6 @@
 ---
 id: task-172
 title: "P2-33b (C): Window split, move-only: Settings.tsx → components/settings/"
-column: review
-position: 61
 description: |-
   Phase 2 group C, plan row 33 (second landing) in docs/audits/0.40/README.md on release/0.40.0. Read that row, window.md F2/F3 tasks 9–12 and the Standards first.
 
@@ -32,7 +30,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-18T00:31:56.345Z"
     duration: 393
-updatedAt: "2026-10-18T00:31:56.345Z"
+updatedAt: "2026-10-18T00:33:32.958Z"
 dependsOn:
   - task-122
 dispatch:
@@ -48,6 +46,7 @@ dispatch:
     pid: 50333
     at: "2026-10-18T00:24:48.545Z"
 assignee: claude
+completedAt: "2026-10-18T00:33:32.958Z"
 ---
 
 ## Description
@@ -59,3 +58,4 @@ End with `make precheck` and `make ui-check` (the hooks are on; never --no-verif
 
 ## Log
 - 2026-10-18T00:31:59.543Z: [claude] Done on dispatch/task-172 (e0eefcf1), move-only: Settings.tsx (2068→255 lines) keeps SettingsRail, RailFooter, the Settings router and ServerRemoteNote; sections moved to components/settings/{General (with AppearanceSection, idle-hour bounds), Computer, Providers, Tools (MCP pages + WebSearch), Import}.tsx. The only edits: `export` on the five section functions, and `export { McpOAuthControls } from "./settings/Tools"` in Settings.tsx, so App.tsx and the tests import unchanged (a sorted-line diff against the old file shows nothing else). Nothing left unwired. For P2-48: the useExhaustiveDependencies hits window.md cites in Settings.tsx (:731, :1548, :1637) now live in settings/Providers.tsx and settings/Tools.tsx. make ui-check (420 pass) and make precheck (7 legs) pass.
+- 2026-10-18T00:33:31.837Z: Landed on release/0.40.0

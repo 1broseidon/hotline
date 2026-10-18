@@ -16,7 +16,7 @@ relatedFiles:
   - crates/hotline-core/src/linked.rs
   - crates/hotline-core/src/imagegen.rs
   - crates/hotline-core/src/spending.rs
-updatedAt: "2026-10-18T03:12:45.855Z"
+updatedAt: "2026-10-18T03:13:30.672Z"
 contract:
   status: delivered
   validation:
@@ -45,6 +45,8 @@ dispatch:
     runner: cli
     pid: 39764
     at: "2026-10-18T02:42:19.691Z"
+    ended: "2026-10-18T03:13:30.128Z"
+    outcome: review
 assignee: claude
 ---
 
@@ -63,3 +65,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 ## Log
 - 2026-10-18T03:01:58.175Z: [claude] Done on dispatch/task-128 (commit 8e118ba9). Moved into contract.rs, with no re-export at the old path: ThreadKind, ThreadId, End (thread); BudgetLimits, SpendingSettings plus its custom Deserialize, SpendingSummary (spending); ImageSettings (imagegen); LinkedTeammate, WorkingOn, Profile, Capabilities (LinkedTeammate needs those three), LinkedDelivery (linked); DeviceRole (remote). They sit in four new sections just above "The wire". Inherent impls that do work (ThreadId::stream, Display, ThreadKind::name/parse, DeviceRole::seated, BudgetLimits/SpendingSettings::validate, ImageSettings::is_off) stayed in their own modules, because they reach log/WireRole/OFF. Every caller now imports crate::contract::X, including thread/{link,policy}.rs, remote/client.rs and the cli tests (hotline_core::contract::DeviceRole). The three contract tests that read store output (tape, chapters and preview, search hits) moved to the new store/tests.rs, because they reach log/paths/store. contract.rs keeps the pure wire-shape tests. contract.ts is byte-identical. VALIDATION CONFLICT: the grep check still matches one line, contract.rs:2424 "/// (see [`crate::paths::thread_key`])", a rustdoc link on ThreadId and not a use. ts-rs copies that doc into contract.ts, so rewording it breaks byte-identity. I kept the doc unchanged. Rewording ThreadId's doc in both files needs a task that may change contract.ts. Task 17 (split) should know: the moved types are in sections Threads / Spending and images / Linked desks / Paired devices. make check and make precheck (7/7) pass.
 - 2026-10-18T03:12:45.599Z: Landing sent back (1 of 1): with release/0.40.0 brought in, `! grep -n 'crate::' crates/hotline-core/src/contract.rs | grep -v 'crate::contract'` failed: 2424:/// (see [`crate::paths::thread_key`]) for a pair.. Fix it on this branch, commit, and run the checks again.
+- 2026-10-18T03:13:30.672Z: Not landed: Nothing was merged: `! grep -n 'crate::' crates/hotline-core/src/contract.rs | grep -v 'crate::contract'` failed. It was sent back once already: settle it, or send it back with a note.

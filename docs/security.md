@@ -577,7 +577,7 @@ genuinely needed, that is a design decision recorded in
 
 ## Grant lifecycle
 
-Authority is a `CapabilityLease` (`driver/mod.rs`), a snapshot of a
+Authority is a `CapabilityLease` (`driver.rs`), a snapshot of a
 teammate's `CapabilityEpoch` generation. Every handle a session hands a
 driver — tool closures, the workspace directory, cloned MCP tools, ACP
 callbacks, the OAuth proxy — clones the same lease and calls `check()`
@@ -667,7 +667,7 @@ extend; when a change adds a boundary, it adds a row.
 | The desk's speech models are installed only when an owner or the desk asks: a companion can neither list, fetch, cancel, remove nor transcribe; an archive that is not the pinned one is deleted before it is unpacked; only a model's own files are taken, whatever paths and links the archive holds; a cancelled download leaves nothing; an installed model is offered and chosen for hearing, a removed one is not; a damaged model is refused before the engine loads it | `wire/tests.rs` `the_desks_speech_models_are_the_owners_through_the_real_handler`; `tests/local_speech.rs` `a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`; `voice/speech/local/tests.rs` `a_damaged_model_is_refused_before_the_engine_could_throw_on_it`, `a_model_is_installed_only_whole_and_under_its_own_name` | — |
 | Running processes: a command still running when the teammate replies ends the turn at once and outlives it; a later turn is told of it and stops it; one that ends on its own wakes the teammate once, and on a live call the front says that turn's reply; a session stop and a grant change kill it; a fifth command is refused naming the four; a process is never waited on and a stop asked for wakes nobody, taking its whole process group; a call goes listening at the reply and is given no progress line while a process runs | `tests/processes.rs` `running_process_a_server_left_running_ends_the_turn_and_a_later_turn_stops_it`, `running_process_that_ends_on_its_own_wakes_the_teammate_once`, `running_process_dies_with_its_stopped_session`, `running_process_dies_when_its_grant_is_revoked`; `running_process_serve_open_and_stop_end_to_end`; `tests/voice.rs` `running_process_that_ends_during_a_call_is_said_on_the_call`, `running_process_a_server_started_on_a_call_leaves_the_call_listening`; `session/jobs.rs` `running_process_a_fifth_command_is_refused_naming_the_four`, `running_process_is_inspected_and_cancelled_later_but_never_waited_on`, `running_process_that_ends_before_its_route_moves_still_wakes_once`; `tests/processes.rs` `process_chip_a_process_is_on_the_session_until_the_person_stops_it`, `process_chip_stop_is_refused_for_a_teammate_that_does_not_hold_it`, `process_chip_output_is_the_latest_of_what_it_wrote`; `wire/tests.rs` `process_chip_only_the_desk_and_the_owner_reach_a_process` | Unix |
 | Workspace reach keeps another project's `.env` out of the read tool and the shell, over the wire, and the ledger says what is offered | `tests/desk.rs` `workspace_reach_keeps_another_projects_env_out_of_the_tools` | Linux with bubblewrap |
-| Extra folders: granted and checked over the real wire, every refusal leaving the record as it was; in a real Hotline Agent turn a read-only folder is read and not changed, a writable one is changed, a path outside every grant and a link out of a folder are refused, and the confined shell is held the same way; narrowing or removing them over the wire is in force at the next tool call; a teammate without the field reaches none; a folder swapped for a link after it was granted opens nothing; a revoked handle refuses its folders; Seatbelt and bubblewrap grant each folder with its mode; Hotline's ACP callbacks honour the grants and a harness that takes `additionalDirectories` is handed them; a computer mounts them `:ro` unless writable, cannot have them covered by a declared mount, and is made again when the set changes; the preamble names them and who enforces them | `tests/folders.rs` `granted_folders_hold_the_real_tools_and_a_change_takes_them_back`, `a_folder_that_cannot_be_granted_is_refused_and_changes_nothing`; `tools/workspace.rs` `a_granted_folder_is_read_by_absolute_path_and_changed_only_when_writable`, `a_path_outside_every_grant_or_out_through_a_link_is_refused`, `a_folder_swapped_for_a_link_or_never_granted_opens_nothing`, `a_revoked_handle_refuses_its_folders_too`, `whole_machine_reach_keeps_no_folder_wall`; `tools/shell/macos.rs` `granted_folders_are_in_the_profile_with_their_modes`, `granted_folders_are_open_to_the_shell_as_granted`; `tools/shell/linux.rs` `granted_folders_are_bound_with_their_modes_before_the_workspace`, `granted_folders_are_open_to_the_shell_as_granted`; `driver/acp.rs` `acp_callbacks_honour_granted_folders`, `session_new_hands_the_granted_folders_to_a_harness_that_takes_them`; `computer/mod.rs` `granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered`, `a_computer_made_with_other_folders_is_made_again`; `session/tests.rs` `the_preamble_names_the_granted_folders_and_who_enforces_them` | the shell rows: a Mac, or Linux with bubblewrap |
+| Extra folders: granted and checked over the real wire, every refusal leaving the record as it was; in a real Hotline Agent turn a read-only folder is read and not changed, a writable one is changed, a path outside every grant and a link out of a folder are refused, and the confined shell is held the same way; narrowing or removing them over the wire is in force at the next tool call; a teammate without the field reaches none; a folder swapped for a link after it was granted opens nothing; a revoked handle refuses its folders; Seatbelt and bubblewrap grant each folder with its mode; Hotline's ACP callbacks honour the grants and a harness that takes `additionalDirectories` is handed them; a computer mounts them `:ro` unless writable, cannot have them covered by a declared mount, and is made again when the set changes; the preamble names them and who enforces them | `tests/folders.rs` `granted_folders_hold_the_real_tools_and_a_change_takes_them_back`, `a_folder_that_cannot_be_granted_is_refused_and_changes_nothing`; `tools/workspace.rs` `a_granted_folder_is_read_by_absolute_path_and_changed_only_when_writable`, `a_path_outside_every_grant_or_out_through_a_link_is_refused`, `a_folder_swapped_for_a_link_or_never_granted_opens_nothing`, `a_revoked_handle_refuses_its_folders_too`, `whole_machine_reach_keeps_no_folder_wall`; `tools/shell/macos.rs` `granted_folders_are_in_the_profile_with_their_modes`, `granted_folders_are_open_to_the_shell_as_granted`; `tools/shell/linux.rs` `granted_folders_are_bound_with_their_modes_before_the_workspace`, `granted_folders_are_open_to_the_shell_as_granted`; `driver/acp.rs` `acp_callbacks_honour_granted_folders`, `session_new_hands_the_granted_folders_to_a_harness_that_takes_them`; `computer.rs` `granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered`, `a_computer_made_with_other_folders_is_made_again`; `session/tests.rs` `the_preamble_names_the_granted_folders_and_who_enforces_them` | the shell rows: a Mac, or Linux with bubblewrap |
 | Workspace tools refuse parent paths and a path outside the wall; machine reach resolves them; the overflow directory is the one read outside | `tools/workspace.rs` `parent_paths_are_rejected`, `reaching_the_machine_resolves_absolute_paths_and_parents`, `workspace_reach_can_read_the_teammates_overflow_directory`, `machine_reach_ignores_the_overflow_root` | — |
 | A revoked workspace handle refuses reads and writes | `tools/workspace.rs` `a_revoked_workspace_handle_refuses_reads_and_writes` | — |
 | Confined shell: writes inside, refuses writes and reads outside including from child processes, private `/tmp`, private persistent home, no host environment, a home symlink cannot escape, synthetic parents read-only | `tools/shell.rs` `workspace_reach_*`, `workspace_shell_*`, `a_private_home_symlink_cannot_create_files_outside`, `synthetic_parent_directories_are_read_only` | Linux with bubblewrap |
@@ -675,7 +675,7 @@ extend; when a change adds a boundary, it adds a row.
 | macOS: availability requires real enforcement; aliases, symlinks and children cannot reach host data; no host environment or signals; hostile setup symlinks; helper services and control sockets denied; runtime exceptions exclude credentials and neighbours | `tools/shell/macos.rs` `availability_requires_real_enforcement`, `aliases_symlinks_and_children_cannot_access_host_data`, `host_process_environment_and_signals_are_not_available`, `private_scratch_and_hostile_setup_symlinks`, `host_helper_services_and_unix_control_sockets_are_denied`, `home_runtime_exceptions_do_not_include_credentials_or_neighbors`, `redirected_installations_never_grant_the_target` | a real Mac; these fail, not skip, without Seatbelt |
 | macOS network stays available and package downloads land in private caches | `tools/shell/macos.rs` `ip_networking_still_works`, `public_dns_and_https_remain_available`, `package_downloads_use_private_caches` | a Mac and public registries; `--ignored` |
 | Cancellation reaches the sandbox and everything it started; a deadline takes the whole tree | `tools/shell.rs` `cancellation_reaches_a_started_sandbox_and_its_children`, `a_deadline_takes_the_command_and_everything_it_started` | Linux with bubblewrap |
-| A new teammate gets no gateway server even with machine reach; grant changes rebuild the live tools; a revoked MCP tool refuses before calling its server | `tests/mcp.rs` `a_new_teammate_gets_no_gateway_tools_even_with_machine_reach`, `gateway_access_is_explicit_and_changes_rebuild_the_live_tools`; `mcp/mod.rs` `a_revoked_mcp_tool_refuses_before_calling_its_server` | — |
+| A new teammate gets no gateway server even with machine reach; grant changes rebuild the live tools; a revoked MCP tool refuses before calling its server | `tests/mcp.rs` `a_new_teammate_gets_no_gateway_tools_even_with_machine_reach`, `gateway_access_is_explicit_and_changes_rebuild_the_live_tools`; `mcp.rs` `a_revoked_mcp_tool_refuses_before_calling_its_server` | — |
 | Secrets never enter settings: OAuth client secrets and non-string env values are refused before the write; legacy plaintext is hidden and repaired | `tests/mcp.rs` `oauth_client_secrets_are_removed_before_mcp_settings_are_written`, `a_non_string_env_value_is_rejected_before_settings_are_written`; `tests/desk.rs` `legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history` | — |
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
@@ -904,7 +904,7 @@ it lets a colleague use another's tools.
   cannot name them at all. There is no legacy record: this is a new command,
   not a new field.
 - **Grant source:** the phone seat's allowlist in `Seat::permits`
-  (`wire/mod.rs`) now names `Command::MobilePersonaCreate` and
+  (`wire.rs`) now names `Command::MobilePersonaCreate` and
   `Command::BackendsList`. `mobile.persona_create` is confined in core —
   `wire/commands.rs`'s `mobile_persona_create` builds a `PersonaDraft` that
   never sets `reach`, `cwd` or `computer` — rather than by the phone's form
@@ -940,7 +940,7 @@ it lets a colleague use another's tools.
 - **Default and old records:** nothing new is stored. `session.retry`
   queues the line already on the tape as a retry and writes no new message.
 - **Grant source:** the local desk and owners, as every command; the phone
-  seat's allowlist in `Seat::permits` (`wire/mod.rs`) names
+  seat's allowlist in `Seat::permits` (`wire.rs`) names
   `Command::SessionRetry`, so a companion may retry too, and the hello lists
   `turnRetry`. It can only resend a line the tape already holds, which any
   paired phone could have sent.
@@ -963,7 +963,7 @@ it lets a colleague use another's tools.
   writes the same persona record `persona.update` does, with only `name` and
   `goal` changed; `persona.delete` writes the same tombstone.
 - **Grant source:** the phone seat's allowlist in `Seat::permits`
-  (`wire/mod.rs`) now names `Command::MobilePersonaUpdate` and
+  (`wire.rs`) now names `Command::MobilePersonaUpdate` and
   `Command::PersonaDelete`, and the hello lists `personaEdit`.
   `mobile.persona_update` is confined by its shape: the command has fields
   for a name and a goal and nowhere to carry anything else, and
@@ -1073,7 +1073,7 @@ it lets a colleague use another's tools.
   writes, through the same persona record. `session.set_mode` now also keeps
   the chosen `modeId`, so a harness teammate comes back in it after a restart
   instead of on the harness default.
-- **Grant source:** `Seat::permits` (`wire/mod.rs`) lets `Seat::Owner`, and
+- **Grant source:** `Seat::permits` (`wire.rs`) lets `Seat::Owner`, and
   not `Seat::Phone`, send `Command::MobilePersonaAccess` .
   The command has fields for a reach, a mode and background work and nowhere
   to carry a path, a server, a skill or a computer; `persona.update` and
@@ -1515,7 +1515,7 @@ separate measurement; fake-provider test timings are not a production guarantee.
   that kind. A socket reads the newer shapes (`link`, `thread_delta`) only after
   it says so with `client.hello`; one that never does is sent what it always was.
 - **Grant source:** `phone_thread_command` and `phone_may_read`
-  (`wire/mod.rs`), beside `Seat::permits` and `permits_sub`. The desk and an
+  (`wire.rs`), beside `Seat::permits` and `permits_sub`. The desk and an
   owner run everything. A companion:
 
   | verb | companion may | because |

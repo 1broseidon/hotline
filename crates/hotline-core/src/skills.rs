@@ -59,7 +59,7 @@ pub fn builtin() -> Vec<Skill> {
 
 const BUILTIN: &[(&str, &str)] = &[(
     "hotline-room",
-    include_str!("../../skills/hotline-room/SKILL.md"),
+    include_str!("../skills/hotline-room/SKILL.md"),
 )];
 
 /// Parses one `SKILL.md`, given the name of the directory it sits in, and

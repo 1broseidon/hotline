@@ -16,7 +16,7 @@ under Settings → Computer is pressed. That page also offers every published
 release from the floor up as the room's image, with Newest the default; a
 picked release is written as the full image reference and is a pin like any
 other. `COMPUTER_VERSION` in
-`crates/hotline-core/src/computer/mod.rs` is the floor — the release this desk
+`crates/hotline-core/src/computer.rs` is the floor — the release this desk
 was tested with, what a computer is created on offline, and the line under
 which nothing is offered — and never `latest`. A pinned image, the
 teammate's or the room's, is used as written and never looked up. The desk

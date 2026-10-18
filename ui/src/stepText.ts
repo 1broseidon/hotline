@@ -60,11 +60,11 @@ function shellPrinted(text: string): string | undefined {
 	}
 	if (value === null || typeof value !== "object") return undefined;
 	const result = value as Record<string, unknown>;
-	if (typeof result.stdout !== "string" && typeof result.stderr !== "string") return undefined;
-	const parts = [result.stdout, result.stderr].flatMap((one) => (typeof one === "string" && plainText(one) !== "" ? [plainText(one)] : []));
-	const code = result.exit_code ?? result.exitCode;
+	if (typeof result["stdout"] !== "string" && typeof result["stderr"] !== "string") return undefined;
+	const parts = [result["stdout"], result["stderr"]].flatMap((one) => (typeof one === "string" && plainText(one) !== "" ? [plainText(one)] : []));
+	const code = result["exit_code"] ?? result["exitCode"];
 	if (typeof code === "number" && code !== 0) parts.push(`exit ${code}`);
-	if (parts.length === 0) return typeof result.status === "string" ? result.status : "";
+	if (parts.length === 0) return typeof result["status"] === "string" ? result["status"] : "";
 	return parts.join("\n");
 }
 

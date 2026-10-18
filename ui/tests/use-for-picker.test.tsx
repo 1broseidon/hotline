@@ -1,18 +1,9 @@
 import { expect, spyOn, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { CapabilityOptions } from "../src/generated/contract";
+import { installDom } from "./dom";
 
 test("ChatGPT images require a picker selection, Automatic clears it, and with nothing to hear you Voice points at the free models", async () => {
-	const dom = new Window();
-	const restores: (() => void)[] = [];
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		});
-	}
+	const { teardown } = installDom();
 	// React probes event support at module load; install the DOM before loading it.
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
@@ -63,7 +54,6 @@ test("ChatGPT images require a picker selection, Automatic clears it, and with n
 	} finally {
 		await act(async () => { root.unmount(); });
 		command.mockRestore();
-		for (const restore of restores.reverse()) restore();
-		await dom.happyDOM.close();
+		await teardown();
 	}
 });

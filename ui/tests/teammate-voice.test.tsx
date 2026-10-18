@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
 import type { Persona, SessionInfo } from "../src/generated/contract";
+import { installDom } from "./dom";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
@@ -36,17 +36,12 @@ const legacy = { capabilities: [], available: true, budget: { spentDayUsd: 0, sp
 let act: typeof import("react").act;
 let root: Root;
 let container: HTMLDivElement;
-let dom: Window;
 let restores: (() => void)[];
+let teardown: () => Promise<void>;
 
 beforeEach(async () => {
-	dom = new Window();
 	restores = [];
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: NoResize })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => descriptor ? Object.defineProperty(globalThis, key, descriptor) : Reflect.deleteProperty(globalThis, key));
-	}
+	({ teardown } = installDom({ ResizeObserver: NoResize }));
 	// A desk with no endpoint: the room's wire never opens, so the pane reads no settings.
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	calls = [];
@@ -72,7 +67,7 @@ afterEach(async () => {
 	await act(async () => root.unmount());
 	replaceDesks([]);
 	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 
 async function mount(who: Persona, info: SessionInfo) {

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Window } from "happy-dom";
+import type { Window } from "happy-dom";
 import { act, createElement } from "react";
 import type { Root } from "react-dom/client";
 import { activeDeskId, allDesks, replaceDesks, setActiveDesk, type Desk } from "../src/desks";
 import { wire } from "../src/wire";
+import { installDom } from "./dom";
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { AddDesk, sshTarget } = await import("../src/components/AddDesk");
 
@@ -52,7 +53,7 @@ class FakeSocket {
 		if (cmd === "client.hello") return answer({ capabilities: ["threads2"] });
 		if (!this.url.startsWith(`${local.origin}/`)) return queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, ok: false, error: `${cmd} is this computer's` }) }));
 		if (cmd === "remote.relays") return answer(relays);
-		if (cmd === "remote.relay") chosen = typeof params.deskId === "string" ? params.deskId : null;
+		if (cmd === "remote.relay") chosen = typeof params["deskId"] === "string" ? params["deskId"] : null;
 		answer({ ...status, relay: chosen === null ? null : { deskId: chosen, name: chosen, url: "https://relay.example", error: null } });
 	}
 	close() { this.readyState = 3; }
@@ -64,16 +65,10 @@ function core(desk: Desk) { return FakeSocket.all.find((socket) => socket.url.st
 let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
-let restores: (() => void)[];
+let teardown: () => Promise<void>;
 
 beforeEach(async () => {
-	restores = [];
-	dom = new Window();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, WebSocket: FakeSocket, ResizeObserver: NoResize, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); });
-	}
+	({ dom, teardown } = installDom({ WebSocket: FakeSocket, ResizeObserver: NoResize }));
 	FakeSocket.all = [];
 	relays = [];
 	chosen = null;
@@ -95,8 +90,7 @@ beforeEach(async () => {
 afterEach(async () => {
 	await act(async () => { root?.unmount(); root = null; });
 	replaceDesks([]);
-	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 
 /** Opens a window on `desks`, every desk's core connected, then pastes `link` into Add a server and pairs. */
@@ -108,7 +102,7 @@ async function pairFrom(desks: Desk[], link: string) {
 	const field = container.querySelector("#desk-link") as HTMLTextAreaElement;
 	await act(async () => {
 		Object.getOwnPropertyDescriptor(dom.HTMLTextAreaElement.prototype, "value")!.set!.call(field, link);
-		field.dispatchEvent(new dom.Event("input", { bubbles: true }));
+		field.dispatchEvent(new window.Event("input", { bubbles: true }));
 	});
 	const pair = [...container.querySelectorAll("button")].find((node) => node.textContent === "Pair")!;
 	await act(async () => {

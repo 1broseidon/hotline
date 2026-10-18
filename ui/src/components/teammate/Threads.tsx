@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { PeerThreadSummary } from "../../generated/contract";
 import { firstLine } from "../../room";
+import { storedNumbers, storeNumbers } from "../../storage";
 import { wire } from "../../wire";
 import type { ThreadRef } from "../Transcript";
 import { FoldRow, NESTED, RowText } from "./rows";
@@ -15,7 +16,7 @@ const THREAD_SEEN_KEY = "hotline.threads.seen";
  */
 export function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: ThreadRef): void }) {
 	const [threads, setThreads] = useState<PeerThreadSummary[] | undefined>(undefined);
-	const [seen, setSeen] = useState(loadThreadSeen);
+	const [seen, setSeen] = useState(() => storedNumbers(THREAD_SEEN_KEY));
 	const [open, setOpen] = useState(false);
 
 	useEffect(() => {
@@ -46,7 +47,7 @@ export function Threads({ personaId, onOpen }: { personaId: string; onOpen(threa
 				}
 			}
 			if (!changed) return current;
-			saveThreadSeen(next);
+			storeNumbers(THREAD_SEEN_KEY, next);
 			return next;
 		});
 	}, [threads]);
@@ -60,7 +61,7 @@ export function Threads({ personaId, onOpen }: { personaId: string; onOpen(threa
 	const openThread = (thread: PeerThreadSummary) => {
 		setSeen((current) => {
 			const next = { ...current, [thread.threadKey]: thread.lastAt };
-			saveThreadSeen(next);
+			storeNumbers(THREAD_SEEN_KEY, next);
 			return next;
 		});
 		onOpen({ thread: { kind: "pair", key: thread.threadKey }, withName: thread.withName });
@@ -110,30 +111,6 @@ export function Threads({ personaId, onOpen }: { personaId: string; onOpen(threa
 			</div>
 		</section>
 	);
-}
-
-function loadThreadSeen(): Record<string, number> {
-	try {
-		const raw = localStorage.getItem(THREAD_SEEN_KEY);
-		if (!raw) return {};
-		const parsed: unknown = JSON.parse(raw);
-		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
-		const seen: Record<string, number> = {};
-		for (const [key, ts] of Object.entries(parsed)) {
-			if (typeof ts === "number" && Number.isFinite(ts)) seen[key] = ts;
-		}
-		return seen;
-	} catch {
-		return {};
-	}
-}
-
-function saveThreadSeen(seen: Record<string, number>): void {
-	try {
-		localStorage.setItem(THREAD_SEEN_KEY, JSON.stringify(seen));
-	} catch {
-		// Quota, private mode.
-	}
 }
 
 const threadClock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });

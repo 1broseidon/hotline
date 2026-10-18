@@ -19,7 +19,7 @@ relatedFiles:
   - ui/src/stepText.ts
   - ui/src/voice/call.ts
   - ui/src/voice/dictation.ts
-updatedAt: "2026-10-18T01:17:34.077Z"
+updatedAt: "2026-10-18T01:18:11.261Z"
 contract:
   status: in_progress
   validation:
@@ -28,8 +28,8 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-    pickedUpAt: "2026-10-18T01:17:34.077Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-18T01:18:11.261Z"
+    reworkCount: 1
 dependsOn:
   - task-142
   - task-172

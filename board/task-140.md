@@ -1,7 +1,7 @@
 ---
 id: task-140
 title: "P2-31 (C): The six other over-budget files"
-column: in-progress
+column: review
 position: 2
 priority: high
 tags:
@@ -16,9 +16,9 @@ relatedFiles:
   - crates/hotline-core/src/computer.rs
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/driver/rig/turn.rs
-updatedAt: "2026-10-18T05:52:23.903Z"
+updatedAt: "2026-10-18T06:00:33.646Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - for f in session/peers.rs tools/workspace.rs session/sides.rs computer.rs driver/rig.rs driver/rig/turn.rs; do test $(wc -l < crates/hotline-core/src/$f) -le 1500 || exit 1; done
@@ -29,6 +29,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T04:23:59.384Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T06:00:33.646Z"
+    duration: 5794
 dependsOn:
   - task-128
 dispatch:

@@ -111,6 +111,7 @@ function Browser({ browsing }: { browsing: Browsing }) {
 	const choosing = browsing.mode === "folder";
 
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: a press on the backdrop is the pointer's way out; the keyboard's is Escape or Close.
 		<div className="server-files-scrim" onMouseDown={(event) => event.target === event.currentTarget && endBrowsing(null)}>
 			<div ref={panel} tabIndex={-1} className="server-files" role="dialog" aria-label={browsing.title}>
 				<div className="flex items-center gap-2 p-3 pb-2">
@@ -190,6 +191,7 @@ function Browser({ browsing }: { browsing: Browsing }) {
 								data-naming
 								aria-label="New folder name"
 								placeholder="Folder name"
+								// biome-ignore lint/a11y/noAutofocus: the field takes the place of the New folder button just pressed, so focus goes where that button was.
 								autoFocus
 								value={naming}
 								onChange={(event) => setNaming(event.target.value)}

@@ -298,13 +298,13 @@ export function RemoteSection() {
 				</Fold>}
 			</div>
 			{relay?.error && status?.enabled && <p className="group-hint">{relay.name}: {relay.error}</p>}
-			{offered && relayDesk && <div className="nt-card mt-3" role="group" aria-label="Relay only">
+			{offered && relayDesk && <fieldset className="nt-card mt-3 min-w-0" aria-label="Relay only">
 				<p className="text-sm text-ink-2">Use {relayDesk.name} only as your relay? Your desktop will no longer be able to run or read anything on it.</p>
 				<div className="flex flex-wrap gap-2">
 					<button type="button" className="control btn-primary" disabled={busy} onClick={() => void moveToRelay(relayDesk.id)}>Use only as relay</button>
 					<button type="button" className="control btn" disabled={busy} onClick={() => void run(() => declineRelay(relayDesk.id))}>Keep as desk</button>
 				</div>
-			</div>}
+			</fieldset>}
 			<p className="group-hint">Turning Remote off disconnects every phone.</p>
 		</section>
 		{status?.enabled && <section aria-label="Mobile pairing">

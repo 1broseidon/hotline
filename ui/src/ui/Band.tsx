@@ -11,7 +11,7 @@ import { toggleMaximize } from "../native";
 export function Band({ children }: { children: ReactNode }) {
 	return (
 		<div className="band">
-			<div data-tauri-drag-region className="band-drag" onDoubleClick={() => void toggleMaximize()} />
+			<div data-tauri-drag-region aria-hidden="true" className="band-drag" onDoubleClick={() => void toggleMaximize()} />
 			<div className="band-row">{children}</div>
 		</div>
 	);

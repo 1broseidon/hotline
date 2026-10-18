@@ -1,4 +1,8 @@
-/** A short set of choices in a row, one on: the theme, a server's type, how it signs in. */
+/**
+ * A short set of choices in a row, one on: the theme, a server's type, how it
+ * signs in. Each is a button that shows itself pressed, so the keyboard moves
+ * through them with Tab the way it moves through every other row of buttons.
+ */
 export function Chips<T extends string>({
 	value,
 	choices,
@@ -13,13 +17,12 @@ export function Chips<T extends string>({
 	onChange(id: T): void;
 }) {
 	return (
-		<div className="chips" role="radiogroup" aria-label={label}>
+		<fieldset className="chips min-w-0" aria-label={label}>
 			{choices.map((one) => (
 				<button
 					key={one.id}
 					type="button"
-					role="radio"
-					aria-checked={value === one.id}
+					aria-pressed={value === one.id}
 					className="nt-chip"
 					data-on={value === one.id ? "" : undefined}
 					title={one.title}
@@ -29,6 +32,6 @@ export function Chips<T extends string>({
 					{one.name}
 				</button>
 			))}
-		</div>
+		</fieldset>
 	);
 }

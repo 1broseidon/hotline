@@ -252,6 +252,7 @@ function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 					id="job-prompt"
 					className="field"
 					rows={2}
+					// biome-ignore lint/a11y/noAutofocus: the form opens on a press of Add a schedule, and what to say is the one thing it needs.
 					autoFocus
 					placeholder="What to ask when it fires."
 					value={prompt}

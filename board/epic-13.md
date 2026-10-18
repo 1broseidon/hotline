@@ -11,7 +11,7 @@ tags:
   - phase2
 createdAt: "2026-10-17T22:40:41.476Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T01:47:22.616Z"
+updatedAt: "2026-10-18T01:48:50.691Z"
 assignee: claude
 dispatch:
   agent: claude
@@ -22,9 +22,9 @@ dispatch:
   role: lead
   claim:
     host: Georges-Mac-Studio
-    runner: cli
-    pid: 39764
-    at: "2026-10-18T01:47:22.616Z"
+    runner: desktop
+    pid: 50333
+    at: "2026-10-18T01:48:50.691Z"
 ---
 
 ## Description

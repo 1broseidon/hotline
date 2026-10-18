@@ -14,7 +14,7 @@ relatedFiles:
   - Cargo.lock
   - crates/hotline-core/src/driver/acp/install.rs
   - docs/security.md
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:14:36.151Z"
 contract:
   status: ready
   validation:
@@ -26,6 +26,14 @@ contract:
 dependsOn:
   - task-113
   - task-114
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:14:36.022Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

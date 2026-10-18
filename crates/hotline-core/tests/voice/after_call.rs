@@ -35,7 +35,7 @@ async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing(
     .await;
     assert_eq!(started["ok"], true, "{started}");
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
     common::until("the front is opened", || {
         desk.front.config.lock().unwrap().is_some()
     })
@@ -51,7 +51,7 @@ async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing(
         .send(Ok(RealtimeEvent::Saying("Let me think, the".into())))
         .await
         .unwrap();
-    until(socket, |f| f["sub"] == 2 && f["event"]["type"] == "heard").await;
+    frame_where(socket, |f| f["sub"] == 2 && f["event"]["type"] == "heard").await;
     let ended = answer(
         socket,
         3,
@@ -152,7 +152,7 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         true
     );
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
     common::until("the front is opened", || {
         desk.front.config.lock().unwrap().is_some()
     })
@@ -184,7 +184,7 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         .send(Ok(RealtimeEvent::ResponseDone))
         .await
         .unwrap();
-    until(socket, |f| {
+    frame_where(socket, |f| {
         f["event"]["type"] == "said" && f["event"]["text"] == answered
     })
     .await;

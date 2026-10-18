@@ -101,14 +101,11 @@ async fn running_process_that_ends_during_a_call_is_said_on_the_call() {
     .await;
     assert_eq!(started["ok"], true, "{started}");
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while desk.front.config.lock().unwrap().is_none() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    common::until("the front is opened", || {
+        desk.front.config.lock().unwrap().is_some()
     })
-    .await
-    .expect("the front was opened");
+    .await;
 
     let words = "run the build";
     desk.events
@@ -193,14 +190,11 @@ async fn running_process_a_server_started_on_a_call_leaves_the_call_listening() 
     .await;
     assert_eq!(started["ok"], true, "{started}");
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while desk.front.config.lock().unwrap().is_none() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    common::until("the front is opened", || {
+        desk.front.config.lock().unwrap().is_some()
     })
-    .await
-    .expect("the front was opened");
+    .await;
 
     let words = "make me a chart page and open it";
     desk.events
@@ -217,23 +211,17 @@ async fn running_process_a_server_started_on_a_call_leaves_the_call_listening() 
         .unwrap();
     assert_eq!(next_said(&mut desk.asked).await, "The chart is open.");
     let socket = &mut desk.socket;
-    until(socket, |f| {
+    frame_where(socket, |f| {
         f["sub"] == 2 && f["event"]["state"] == "listening"
     })
     .await;
-    let pid: i32 = tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            if let Some(pid) = std::fs::read_to_string(root.join("server.pid"))
-                .ok()
-                .and_then(|pid| pid.trim().parse().ok())
-            {
-                return pid;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the server wrote its pid");
+    let pid = || -> Option<i32> {
+        std::fs::read_to_string(root.join("server.pid"))
+            .ok()
+            .and_then(|pid| pid.trim().parse().ok())
+    };
+    common::until("the server writes its pid", || pid().is_some()).await;
+    let pid = pid().unwrap();
     assert!(
         std::fs::read_to_string(opened)
             .unwrap_or_default()
@@ -278,13 +266,11 @@ async fn running_process_a_server_started_on_a_call_leaves_the_call_listening() 
     )
     .await;
     assert_eq!(stopped["ok"], true, "{stopped}");
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while unsafe { libc::kill(pid, 0) } == 0 {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the server was stopped");
+    common::until(
+        "the server is stopped",
+        || unsafe { libc::kill(pid, 0) } != 0,
+    )
+    .await;
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert_eq!(
         requests.lock().unwrap().len(),

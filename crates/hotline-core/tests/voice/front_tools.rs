@@ -269,7 +269,7 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
     .await;
     assert_eq!(started["ok"], true, "{started}");
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
     common::until("the front is opened", || {
         desk.front.config.lock().unwrap().is_some()
     })
@@ -306,7 +306,7 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
             .send(Ok(RealtimeEvent::ResponseDone))
             .await
             .unwrap();
-        until(socket, |f| {
+        frame_where(socket, |f| {
             f["event"]["type"] == "said" && f["event"]["text"] == said
         })
         .await;
@@ -399,7 +399,7 @@ async fn one_call_proves_the_whole_front() {
     let started = answer(socket, 1, json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}})).await;
     assert_eq!(started["ok"], true, "{started}");
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
     common::until("the front is opened", || {
         desk.front.config.lock().unwrap().is_some()
     })
@@ -480,7 +480,7 @@ async fn one_call_proves_the_whole_front() {
     };
     assert_eq!(output, "Posted to the chat.");
 
-    until(socket, |f| {
+    frame_where(socket, |f| {
         f["event"]["type"] == "said" && f["event"]["text"] == "On it."
     })
     .await;

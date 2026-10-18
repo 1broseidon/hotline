@@ -675,6 +675,14 @@ pub struct Room {
 }
 
 impl Room {
+    /// The room on the agents this desk can really run, with no vault: what
+    /// tests build. The desk itself builds its room with
+    /// [`Room::new_with_mcp`].
+    ///
+    /// The constructors telescope rather than take an options struct because
+    /// each one names the single seam its callers replace, and every one has
+    /// callers; an options struct would lengthen each of them by the seams
+    /// it leaves alone.
     pub fn new(log: Log, keys: Arc<dyn ProviderKeys>) -> Arc<Self> {
         let agents = Arc::new(DeskAgents {
             keys: keys.clone(),

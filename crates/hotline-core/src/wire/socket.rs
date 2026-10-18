@@ -1,6 +1,6 @@
 //! One seated socket: its outbox, its lanes and the commands it answers.
 
-use super::phone::{PHONE_WINDOW, effort_config, phone_budget};
+use super::phone::{effort_config, phone_budget};
 use super::seat::{PLAIN_REASONS, PRIVATE_REASON, Seat};
 use super::subscribe::subscribe;
 use super::{RoomHandle, commands, files, threads};
@@ -393,15 +393,10 @@ pub(super) async fn answer(
         command(id, frame, seat, log, room, sender, phone).await;
         return;
     }
-    if let Some(target) = frame.get("sub") {
+    if frame.get("sub").is_some() {
         // A subscription that opened answered itself, on its way past the
         // acknowledgement; only a refusal is left to say here.
-        let window = frame
-            .get("window")
-            .and_then(Value::as_u64)
-            .map(|window| (window as usize).clamp(1, PHONE_WINDOW));
-        if let Err(refused) = subscribe(target, window, seat, log, room, sender, subscriptions, id)
-        {
+        if let Err(refused) = subscribe(id, frame, seat, log, room, sender, subscriptions) {
             decline(sender, id, refused);
         }
         return;

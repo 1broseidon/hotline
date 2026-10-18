@@ -15,6 +15,16 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+/// What a call is started with: whom it is to, how it hears and speaks, and
+/// whether it asks for a front, with the rate the microphone sends that front.
+pub struct CallRequest {
+    pub target: Option<String>,
+    pub stream_audio: bool,
+    pub input_mode: VoiceInputMode,
+    pub mode: VoiceCallMode,
+    pub mic_rate: Option<u32>,
+}
+
 impl Calls {
     pub fn start(
         self: &Arc<Self>,
@@ -42,31 +52,32 @@ impl Calls {
         input_mode: VoiceInputMode,
         room: Arc<dyn RoomHandle>,
     ) -> Result<VoiceCall, String> {
-        self.start_call(
-            id,
+        let request = CallRequest {
             target,
             stream_audio,
             input_mode,
-            VoiceCallMode::Pipeline,
-            None,
-            room,
-        )
+            mode: VoiceCallMode::Pipeline,
+            mic_rate: None,
+        };
+        self.start_call(id, request, room)
     }
 
     /// Starts a call, or answers for one already started. A front is a
     /// request: the answer says whether the call got one, and a call that
     /// did not runs on the pipeline.
-    #[allow(clippy::too_many_arguments)]
     pub fn start_call(
         self: &Arc<Self>,
         id: &str,
-        target: Option<String>,
-        stream_audio: bool,
-        input_mode: VoiceInputMode,
-        mode: VoiceCallMode,
-        mic_rate: Option<u32>,
+        request: CallRequest,
         room: Arc<dyn RoomHandle>,
     ) -> Result<VoiceCall, String> {
+        let CallRequest {
+            target,
+            stream_audio,
+            input_mode,
+            mode,
+            mic_rate,
+        } = request;
         if self.settings().calls_off {
             return Err(CALLS_OFF.into());
         }

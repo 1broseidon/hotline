@@ -9,6 +9,10 @@ tags:
   - performance
 parentId: epic-14
 createdAt: "2026-10-18T23:40:56.843Z"
+relatedFiles:
+  - crates/hotline-core/src/wire/socket.rs
+  - crates/hotline-core/src/wire/tests.rs
+updatedAt: "2026-10-18T23:53:19.124Z"
 ---
 
 ## Description

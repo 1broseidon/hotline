@@ -9,6 +9,9 @@ tags:
   - performance
 parentId: epic-14
 createdAt: "2026-10-18T23:40:56.313Z"
+relatedFiles:
+  - crates/hotline-app/src/desks.rs
+updatedAt: "2026-10-18T23:53:18.848Z"
 ---
 
 ## Description

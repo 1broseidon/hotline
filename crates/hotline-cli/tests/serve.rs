@@ -2,7 +2,8 @@
 //! session bus: it serves, keeps its room to itself, keeps a key in the file
 //! store across a restart, and stops cleanly on SIGTERM. Served as a relay
 //! only, it opens no room and still carries a desktop's visitors; served
-//! again in another mode, every pairing keeps its role.
+//! again in another mode, every pairing keeps its role. A room it cannot
+//! read is refused with an unsuccessful exit, and left as it was.
 #![cfg(unix)]
 
 use hotline_core::credentials::{FileStore, SecretStore};
@@ -155,6 +156,31 @@ fn a_served_desk_keeps_its_room_its_keys_and_stops_cleanly() {
         .unwrap();
     assert_eq!(native.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&native.stderr).contains("file store"));
+}
+
+/// A boot that cannot read the room's Remote settings ends unsuccessfully,
+/// says which step failed, advertises no Door, and keeps the file it could
+/// not read rather than starting over without the person's pairings.
+#[test]
+fn a_room_whose_remote_settings_cannot_be_read_is_not_served() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("room");
+    std::fs::create_dir_all(&root).unwrap();
+    let broken = br#"{"enabled": tr"#;
+    std::fs::write(root.join("remote.json"), broken).unwrap();
+
+    let refused = hotline(&root, &["serve", "--store", "file"])
+        .output()
+        .unwrap();
+    assert_eq!(refused.status.code(), Some(1), "{refused:?}");
+    let said = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        said.contains("remote access settings did not open"),
+        "{said}"
+    );
+    assert!(!said.contains("panicked"), "{said}");
+    assert!(!root.join("door.json").exists());
+    assert_eq!(std::fs::read(root.join("remote.json")).unwrap(), broken);
 }
 
 fn walk(root: &Path) -> Vec<std::path::PathBuf> {

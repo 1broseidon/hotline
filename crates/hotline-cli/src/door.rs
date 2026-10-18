@@ -166,11 +166,13 @@ pub async fn ask(door: &DoorFile, cmd: &str, params: Value) -> Result<Value, Str
     }
 }
 
-pub(crate) fn runtime() -> tokio::runtime::Runtime {
+/// A runtime for one client command. The OS can refuse one (no threads or
+/// descriptors left), and that is the command's failure, said in a sentence.
+pub(crate) fn runtime() -> Result<tokio::runtime::Runtime, String> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .expect("a runtime starts")
+        .map_err(|error| format!("the async runtime did not start: {error}"))
 }
 
 pub fn status(room: &Room) -> ExitCode {
@@ -196,7 +198,7 @@ pub fn status(room: &Room) -> ExitCode {
     if !door.capabilities.is_empty() && !door.capabilities.iter().any(|name| name == "agents") {
         return relay_status(&door);
     }
-    match runtime().block_on(ask(&door, "welcome", json!({}))) {
+    match runtime().and_then(|runtime| runtime.block_on(ask(&door, "welcome", json!({})))) {
         Ok(welcome) => {
             let providers = welcome["providers"]
                 .as_array()
@@ -234,7 +236,7 @@ pub fn status(room: &Room) -> ExitCode {
 /// A relay-only server has no teammates or models to report: where it is
 /// reached, and how many desktops may stand in on it.
 fn relay_status(door: &DoorFile) -> ExitCode {
-    match runtime().block_on(ask(door, "remote.status", json!({}))) {
+    match runtime().and_then(|runtime| runtime.block_on(ask(door, "remote.status", json!({})))) {
         Ok(status) => {
             println!(
                 "  address {}",
@@ -290,7 +292,7 @@ pub fn wire(room: &Room, cmd: &str) -> ExitCode {
             }
         }
     };
-    match runtime().block_on(ask(&door, cmd, params)) {
+    match runtime().and_then(|runtime| runtime.block_on(ask(&door, cmd, params))) {
         Ok(result) => {
             println!(
                 "{}",

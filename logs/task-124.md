@@ -1,8 +1,6 @@
 ---
 id: task-124
 title: "P2-12 (B): Deduplicate `@tauri-apps/api`"
-column: review
-position: 13
 priority: high
 tags:
   - phase2
@@ -12,7 +10,7 @@ createdAt: "2026-10-17T22:40:48.155Z"
 relatedFiles:
   - ui/bun.lock
   - ui/package.json
-updatedAt: "2026-10-18T00:32:02.332Z"
+updatedAt: "2026-10-18T00:34:35.704Z"
 contract:
   status: delivered
   validation:
@@ -40,6 +38,7 @@ dispatch:
     pid: 50333
     at: "2026-10-18T00:26:27.218Z"
 assignee: claude
+completedAt: "2026-10-18T00:34:35.704Z"
 ---
 
 ## Description
@@ -56,3 +55,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T00:32:01.902Z: [claude] Deleted the nested "@tauri-apps/plugin-global-shortcut/@tauri-apps/api" 2.12.1 entry from ui/bun.lock (its ^2.8.0 range now resolves to the direct 2.11.1 pin). No package.json, plugin or override change. bun install --frozen-lockfile, a fresh install from scratch, and a plain bun install all leave the lockfile alone ("no changes"), and there is no nested node_modules under the plugin. make ui-check (420 tests, hotkeys included), vite build and make precheck (7/7) pass. Desktop shortcuts were not checked by hand in the running app. Nothing left unwired. Rows 6/7 lockfile collisions: only this one line changes, so it merges cleanly over task-119. Commit b9387a8d on dispatch/task-124.
+- 2026-10-18T00:34:34.480Z: Landed on release/0.40.0

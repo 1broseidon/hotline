@@ -163,6 +163,7 @@ fn terminal_blocking(
         .ok_or("The sign-in terminal could not be started.")?;
     // SAFETY: pair.master owns this descriptor until the loop and cleanup end.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    // SAFETY: the same descriptor, still owned by pair.master.
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         return Err("The sign-in terminal could not be started.".into());
     }
@@ -381,6 +382,7 @@ mod tests {
             fn drop(&mut self) {
                 self.attempt.cancel.cancel();
                 if let Some(pid) = self.descendant {
+                    // SAFETY: kill takes no memory; the pid is the one the fixture captured.
                     unsafe {
                         libc::kill(pid, libc::SIGKILL);
                     }
@@ -428,6 +430,7 @@ mod tests {
                         if let [leader, descendant] = pids.as_slice() {
                             fixture.descendant = Some(*descendant);
                             // Wait until the child has actually changed groups.
+                            // SAFETY: getpgid only reads the pid it is given.
                             if unsafe { libc::getpgid(*descendant) } == *descendant {
                                 break (*leader, *descendant);
                             }
@@ -438,7 +441,9 @@ mod tests {
                 .await
                 .expect("fixture reported its captured child PIDs");
                 assert_ne!(leader, descendant);
+                // SAFETY: getpgid and getsid only read the pid they are given.
                 assert_eq!(unsafe { libc::getpgid(leader) }, leader);
+                // SAFETY: as above.
                 assert_eq!(unsafe { libc::getsid(descendant) }, leader);
                 if fill_input {
                     let input = "x".repeat(INPUT_LIMIT);
@@ -472,11 +477,13 @@ mod tests {
                 assert_eq!(attempt.poll().output, "");
                 assert!(attempt.input("after cancel").is_err());
                 assert_eq!(
+                    // SAFETY: signal 0 only checks that the captured pid exists.
                     unsafe { libc::kill(leader, 0) },
                     -1,
                     "direct child was reaped"
                 );
                 assert_eq!(
+                    // SAFETY: signal 0 only checks that the captured pid exists.
                     unsafe { libc::kill(descendant, 0) },
                     0,
                     "escaped slave holder was still alive when cancellation settled"

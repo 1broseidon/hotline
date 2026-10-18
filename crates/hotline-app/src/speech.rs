@@ -192,6 +192,7 @@ mod apple {
         // it exactly once; `text` is null or a C string live for this call.
         let sender = unsafe { Box::from_raw(context.cast::<oneshot::Sender<Answer>>()) };
         let text = (!text.is_null()).then(|| {
+            // SAFETY: not null, so a C string live for this call.
             unsafe { CStr::from_ptr(text) }
                 .to_string_lossy()
                 .into_owned()
@@ -226,6 +227,7 @@ mod apple {
     }
 
     pub(super) async fn capability() -> Capability {
+        // SAFETY: Swift calls `done` once with this context, which `answered` frees.
         let answer = ask(|context, done| unsafe { hotline_speech_capability(context, done) }).await;
         answer
             .text
@@ -236,6 +238,7 @@ mod apple {
     }
 
     pub(super) async fn permit() -> bool {
+        // SAFETY: Swift calls `done` once with this context, which `answered` frees.
         ask(|context, done| unsafe { hotline_speech_permit(context, done) })
             .await
             .ok
@@ -246,6 +249,8 @@ mod apple {
             return Ok(false);
         };
         APP.get_or_init(|| app);
+        // SAFETY: `id` outlives the call and Swift copies it; `done` is called
+        // once with this context, which `answered` frees.
         let answer =
             ask(|context, done| unsafe { hotline_speech_start(id.as_ptr(), heard, context, done) })
                 .await;
@@ -263,6 +268,8 @@ mod apple {
         let Ok(id) = CString::new(session_id) else {
             return Ok(String::new());
         };
+        // SAFETY: `id` outlives the call and Swift copies it; `done` is called
+        // once with this context, which `answered` frees.
         let answer =
             ask(|context, done| unsafe { hotline_speech_stop(id.as_ptr(), context, done) }).await;
         let text = answer.text.unwrap_or_default();
@@ -273,6 +280,8 @@ mod apple {
         let Ok(id) = CString::new(session_id) else {
             return;
         };
+        // SAFETY: `id` outlives the call and Swift copies it; `done` is called
+        // once with this context, which `answered` frees.
         ask(|context, done| unsafe { hotline_speech_cancel(id.as_ptr(), context, done) }).await;
     }
 }

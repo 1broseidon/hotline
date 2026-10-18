@@ -1,8 +1,6 @@
 ---
 id: task-151
 title: "P2-42 (D): `result_large_err`: all 13 become `#[expect(…, reason)]`"
-column: review
-position: 1
 priority: high
 tags:
   - phase2
@@ -14,7 +12,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/wire/
   - crates/hotline-core/src/remote/bridge.rs
-updatedAt: "2026-10-18T10:02:29.337Z"
+updatedAt: "2026-10-18T10:04:01.036Z"
 contract:
   status: delivered
   validation:
@@ -43,7 +41,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T09:58:23.698Z"
+    ended: "2026-10-18T10:04:01.036Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T10:04:00.640Z"
 ---
 
 ## Description
@@ -62,3 +63,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 - 2026-10-18T09:58:16.901Z: [claude] All 17 result_large_err allows are now #[expect(…, reason)], up from the plan's 13 because the task-31 split added turn.rs sites: 9 rig Failure sites (rig.rs run; turn.rs reserve, run, run_inner, stream_response, recover, retry, dispatch_calls, execute) and 8 tungstenite-callback sites (wire/door.rs, remote/bridge.rs, remote/tests.rs, voice realtime socket tests ×3, xai tests ×2). Every expectation fires under clippy --all-targets. Failure is not boxed (C6). No allow(clippy::result_large_err) is left for task 52's lint table. make check and make precheck pass. Commit 6ebd702a is on dispatch/task-151.
 - 2026-10-18T09:58:23.181Z: Landing sent back (1 of 1): with release/0.40.0 brought in, `test $(git grep -n 'expect(clippy::result_large_err' -- crates | wc -l) -ge 13` failed: exit 1. Fix it on this branch, commit, and run the checks again.
 - 2026-10-18T10:02:29.006Z: [claude] Landing fix: rustfmt split each #[expect(clippy::result_large_err, reason = …)] over four lines (attr_fn_like_width 70), so the one-line grep counted 0. Reasons are now short enough to stay on one line ("Failure is the whole diagnosis" ×9, "tungstenite fixes this error type" ×8), and Failure's doc comment says once why it is not boxed. All 17 match the grep; no allow left; make check and make precheck pass. On dispatch/task-151. Nothing left unwired.
+- 2026-10-18T10:04:00.261Z: Landed on release/0.40.0

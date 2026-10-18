@@ -13,16 +13,12 @@
 //! what the Bun main emits for the same value, field for field. That is why
 //! an optional field carries `skip_serializing_if` — absent means ABSENT, and
 //! a `null` where Bun wrote nothing is a different value to the window — and
-//! why the tests at the bottom feed the store's own output through these
-//! types and back out again.
+//! why the store's tests (`store/tests.rs`) feed its own output through
+//! these types and back out again.
 
-use crate::thread::{ThreadId, ThreadKind};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use ts_rs::TS;
-
-pub use crate::imagegen::ImageSettings;
-pub use crate::spending::{BudgetLimits, SpendingSettings, SpendingSummary};
 
 // ---------------------------------------------------------------------------
 // Avatars
@@ -1485,7 +1481,7 @@ pub enum TranscriptEvent {
         state: LinkState,
         /// Once closed: how it ended.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        end: Option<crate::thread::End>,
+        end: Option<End>,
         /// Once closed: what the thread came to, in a line.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         outcome: Option<String>,
@@ -2399,6 +2395,290 @@ pub struct SkillEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Threads
+// ---------------------------------------------------------------------------
+
+/// What kind of conversation a thread is. The kind picks its [`Policy`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum ThreadKind {
+    /// The person and a teammate: the teammate's tape.
+    Dm,
+    /// A work thread: a second, parallel conversation with a teammate, with
+    /// its own context and the teammate's full tools. The person opens one
+    /// beside the DM (a side thread), and a teammate opens one on another by
+    /// handing it work. "Side" is the name it is stored and sent under.
+    Side,
+    /// Two teammates talking to each other: an ask. A handoff is a work thread
+    /// on the teammate it was handed to.
+    Pair,
+    /// A voice call with a teammate, kept in `calls/<id>.jsonl`.
+    Call,
+    /// A subagent's run of one task.
+    Run,
+}
+
+/// Which thread: its kind and the key its stream is named by. A teammate's id
+/// for a DM, the minted id for a side thread, run or call, and the pair key
+/// (see [`crate::paths::thread_key`]) for a pair.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "contract.ts")]
+pub struct ThreadId {
+    pub kind: ThreadKind,
+    pub key: String,
+}
+
+/// How a closed thread ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts", rename = "ThreadEnd")]
+pub enum End {
+    /// The person ended it.
+    Person,
+    /// The teammate said it was done.
+    Agent,
+    /// Nobody spoke in it for long enough.
+    Idle,
+    /// Its teammate was stopped, changed or removed, or the desk restarted.
+    Stopped,
+    /// A run finished its task.
+    Done,
+    /// A run could not finish.
+    Failed,
+    /// A run was stopped.
+    Cancelled,
+}
+
+// ---------------------------------------------------------------------------
+// Spending and images
+// ---------------------------------------------------------------------------
+
+/// One budget's limits. An absent limit is no limit; zero turns that
+/// budget's paid use off.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct BudgetLimits {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub day_usd: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub month_usd: Option<f64>,
+}
+
+/// The room's `spending` setting: a budget each for chat (teammates and the
+/// call assistant), voice (transcription and speech) and images, each with
+/// optional daily and monthly limits. A room that set none has no limits.
+///
+/// ```json
+/// {"chat": {"dayUsd": 5, "monthUsd": 50}, "voice": {"dayUsd": 10}, "images": {}}
+/// ```
+///
+/// The shared limits earlier versions wrote, `{"dayUsd": 10, "monthUsd": 20}`,
+/// still read: as the voice and the images limits, with chat unlimited,
+/// since those were the two they covered. Writes are always the new shape.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SpendingSettings {
+    pub chat: BudgetLimits,
+    pub voice: BudgetLimits,
+    pub images: BudgetLimits,
+}
+
+impl<'de> Deserialize<'de> for SpendingSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Stored {
+            #[serde(default)]
+            chat: Option<BudgetLimits>,
+            #[serde(default)]
+            voice: Option<BudgetLimits>,
+            #[serde(default)]
+            images: Option<BudgetLimits>,
+            #[serde(default)]
+            day_usd: Option<f64>,
+            #[serde(default)]
+            month_usd: Option<f64>,
+        }
+        let stored = Stored::deserialize(deserializer)?;
+        let budgets = stored.chat.is_some() || stored.voice.is_some() || stored.images.is_some();
+        let shared = stored.day_usd.is_some() || stored.month_usd.is_some();
+        if budgets && shared {
+            return Err(serde::de::Error::custom(
+                "spending mixes shared limits with per-budget ones",
+            ));
+        }
+        if shared {
+            let limits = BudgetLimits::new(stored.day_usd, stored.month_usd);
+            return Ok(Self {
+                chat: BudgetLimits::default(),
+                voice: limits,
+                images: limits,
+            });
+        }
+        Ok(Self {
+            chat: stored.chat.unwrap_or_default(),
+            voice: stored.voice.unwrap_or_default(),
+            images: stored.images.unwrap_or_default(),
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct SpendingSummary {
+    pub day_usd: f64,
+    pub month_usd: f64,
+}
+
+/// The owner's choice, from `settings.images`. Both keys are optional: none
+/// means the first connected provider that can draw, on its default model.
+/// The provider `off` (see [`OFF`]) means no images at all.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts", optional_fields)]
+pub struct ImageSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Linked desks
+// ---------------------------------------------------------------------------
+
+/// What a linked desk publishes about one of its teammates: exactly what
+/// `list_teammates` shows of a local one, and nothing more. No workspace
+/// path, tool list, server address, message or secret has a field here to
+/// travel in.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct LinkedTeammate {
+    pub persona_id: String,
+    pub name: String,
+    /// idle, working, waiting or stopped.
+    pub state: String,
+    /// The tool or task it is doing right now, while it is working.
+    #[serde(default)]
+    pub activity: Option<String>,
+    pub working_on: WorkingOn,
+    #[serde(flatten)]
+    pub profile: Profile,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct WorkingOn {
+    pub title: String,
+    #[serde(default)]
+    pub last_turn_at: Option<String>,
+}
+
+/// Who a teammate is and what it can do here, as its colleagues see it:
+/// the goal the person gave it, the agent and model it runs, and its
+/// capabilities as words and switches. Every field defaults, because a desk
+/// from before these were published sends none of them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct Profile {
+    #[serde(default)]
+    pub goal: String,
+    /// The agent behind it, by the name a person knows: Hotline Agent,
+    /// Claude Code, Codex.
+    #[serde(default)]
+    pub agent: String,
+    /// The model id, when the teammate or its session names one.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// The model's effort, when one is set.
+    #[serde(default)]
+    pub effort: Option<String>,
+    #[serde(default)]
+    pub capabilities: Capabilities,
+}
+
+/// What a teammate can do here, never how: no path, address or tool list.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct Capabilities {
+    /// none, attached, or in use (its session is running with it now).
+    #[serde(default)]
+    pub computer: String,
+    #[serde(default)]
+    pub web_search: bool,
+    #[serde(default)]
+    pub image_generation: bool,
+    /// Whether it may schedule its own wake-ups.
+    #[serde(default)]
+    pub background_work: bool,
+    /// How it messages a colleague: directly, or after the person's
+    /// approval on first contact.
+    #[serde(default)]
+    pub message_teammates: String,
+    /// workspace or whole machine.
+    #[serde(default)]
+    pub reach: String,
+    /// The names of the MCP servers it is granted.
+    #[serde(default)]
+    pub mcp_servers: Vec<String>,
+}
+
+/// What crosses a link for the exchange queue: a teammate's message for one
+/// of the other desk's, or the answer to one.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+#[ts(export, export_to = "contract.ts")]
+pub enum LinkedDelivery {
+    /// `fromPersonaId` is the sender on its own desk, which has published it
+    /// on its roster; `to` is the recipient's id on the desk receiving this.
+    /// The request id is the sender desk's, and the same id sent again is the
+    /// same request.
+    Request {
+        request_id: String,
+        from_persona_id: String,
+        to: String,
+        message: String,
+        /// ask or handoff.
+        intent: String,
+    },
+    /// The answer to a request this desk sent, by its id.
+    Result {
+        request_id: String,
+        reply: String,
+        failed: bool,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// Paired devices
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum DeviceRole {
+    /// Keyed grants with missing roles retain the full owner command set.
+    #[default]
+    Owner,
+    Companion,
+    /// May stand in on this server's relay and carry visits, and nothing
+    /// else: no seat on the wire, the computer or the link (ADR 0006).
+    Relay,
+}
+
+// ---------------------------------------------------------------------------
 // The wire
 // ---------------------------------------------------------------------------
 
@@ -3071,7 +3351,7 @@ pub enum Command {
     #[serde(rename = "remote.pairing")]
     RemotePairing {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        role: Option<crate::remote::DeviceRole>,
+        role: Option<DeviceRole>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         #[serde(default)]
@@ -3103,15 +3383,11 @@ pub enum Command {
     /// linked desk's seat sends the `federation.*` commands, and they are
     /// all it may send.
     #[serde(rename = "federation.roster")]
-    FederationRoster {
-        teammates: Vec<crate::linked::LinkedTeammate>,
-    },
+    FederationRoster { teammates: Vec<LinkedTeammate> },
     /// Federation: a message for one of this desk's teammates, or the answer
     /// to one of theirs, for the exchange queue.
     #[serde(rename = "federation.deliver")]
-    FederationDeliver {
-        delivery: crate::linked::LinkedDelivery,
-    },
+    FederationDeliver { delivery: LinkedDelivery },
     /// Federation: the other desk ended the link.
     #[serde(rename = "federation.unlink")]
     FederationUnlink {},
@@ -3323,7 +3599,7 @@ pub enum Command {
     LinkPreview { url: String },
     /// Nothing but proof the link is alive both ways: answered `null`. A
     /// phone that named `lean` sends one every so often, and a lean socket
-    /// that has heard nothing at all for [`crate::wire`]'s idle limit is
+    /// that has heard nothing at all for the wire's idle limit is
     /// closed as gone.
     #[serde(rename = "ping")]
     Ping {},
@@ -3908,7 +4184,7 @@ pub struct ThreadSummary {
     pub state: LinkState,
     /// How a closed thread ended.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end: Option<crate::thread::End>,
+    pub end: Option<End>,
     /// The teammate that opened it, when one did: "from Mack" on the row.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub opener: Option<SideOpener>,
@@ -4117,24 +4393,11 @@ mod present_option {
 
 #[cfg(test)]
 mod tests {
-    //! What the readers already answer, run through these types and back out.
-    //!
-    //! The tape, chapter, preview and search readers build their JSON key by
-    //! key, and they stay that way until a later task hands them these
-    //! structs. So the way to prove the structs are the same contract is to
-    //! take what those readers emit, parse it, write it again, and find
-    //! nothing changed. A field spelled differently here, or dropped, or
-    //! written as `null` where the reader wrote nothing at all, fails here.
-    //! The persona's proof is `room::roster`'s, because the room stream is
-    //! where a teammate is written down.
+    //! The wire shapes that grow by adding: a reader of the old shape still
+    //! reads the new one, and the new one still reads the old.
 
     use super::*;
-    use crate::log::{Log, StreamId};
-    use crate::paths::transcript_segments_dir;
-    use crate::store::search::fixture::{chapter, index, message};
-    use crate::store::{chapters, previews, search};
-    use serde_json::{Value, json};
-    use std::path::{Path, PathBuf};
+    use serde_json::json;
 
     #[test]
     fn voice_input_mode_is_additive_and_legacy_calls_keep_audio() {
@@ -4209,140 +4472,5 @@ mod tests {
         let value = json!({"cmd": "images.status", "params": {}});
         assert_eq!(serde_json::to_value(&command).unwrap(), value);
         assert_eq!(serde_json::from_value::<Command>(value).unwrap(), command);
-    }
-
-    fn scratch(name: &str) -> (PathBuf, Log) {
-        let dir = std::env::temp_dir().join(format!(
-            "hotline-core-contract-{name}-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("transcripts")).unwrap();
-        let log = Log::open(&dir);
-        (dir, log)
-    }
-
-    /// Parse `value` as `T` and write it back out. Anything but the value that
-    /// went in is a contract that has drifted from the reader.
-    fn round_trip<T>(value: &Value) -> Value
-    where
-        T: Serialize + serde::de::DeserializeOwned,
-    {
-        let parsed: T = serde_json::from_value(value.clone())
-            .unwrap_or_else(|error| panic!("{value} does not read as this type: {error}"));
-        serde_json::to_value(parsed).unwrap()
-    }
-
-    fn write_tape(root: &Path, persona_id: &str, events: &[Value]) {
-        let dir = transcript_segments_dir(root, persona_id);
-        std::fs::create_dir_all(&dir).unwrap();
-        let lines: Vec<String> = events.iter().map(ToString::to_string).collect();
-        std::fs::write(dir.join("1.jsonl"), lines.join("\n")).unwrap();
-    }
-
-    /// A tape holding one line of every kind, each carrying every optional
-    /// field it can — and, alongside them, the barest legal spelling of the
-    /// kinds whose optional fields are worth seeing omitted.
-    fn every_kind() -> Vec<Value> {
-        vec![
-            json!({
-                "kind": "user", "id": "u1", "ts": 1, "text": "hi",
-                "attachments": [{ "kind": "image", "name": "shot.png", "path": "/tmp/shot.png", "mimeType": "image/png", "size": 12 }],
-                "reactions": ["🐸"], "replyTo": "a0",
-                "scheduled": { "jobId": "j1", "kind": "loop", "name": "daily", "operatorCreated": false, "quiet": true },
-                "ring": "attention", "receipt": "read",
-            }),
-            json!({ "kind": "user", "id": "u2", "ts": 2, "text": "bare" }),
-            json!({
-                "kind": "agent", "id": "a1", "ts": 3, "text": "hello",
-                "reactions": ["👍"], "ring": "problem", "receipt": "sent",
-            }),
-            json!({ "kind": "thought", "id": "th1", "ts": 4, "text": "still thinking" }),
-            json!({
-                "kind": "tool", "id": "t1", "ts": 5, "toolCallId": "call-1", "title": "Edit",
-                "toolKind": "edit", "status": "in_progress", "locations": ["/tmp/a"],
-                "output": [
-                    { "type": "text", "text": "done" },
-                    { "type": "diff", "path": "/tmp/a", "oldText": null, "newText": "next" },
-                    { "type": "diff", "path": "/tmp/b", "oldText": "was", "newText": "next" },
-                ],
-            }),
-            json!({ "kind": "tool", "id": "t2", "ts": 6, "toolCallId": "call-2", "title": "Read", "status": "completed" }),
-            json!({
-                "kind": "permission", "id": "p1", "ts": 7, "requestId": "r1", "title": "Write?",
-                "options": [{ "optionId": "yes", "name": "Allow", "kind": "allow_once" }],
-                "decision": "yes", "decidedOptionName": "Allow",
-            }),
-            json!({ "kind": "plan", "id": "pl1", "ts": 8, "entries": [{ "content": "ship it", "status": "pending", "priority": "high" }] }),
-            json!({ "kind": "notice", "id": "n1", "ts": 9, "level": "warn", "text": "careful" }),
-            json!({ "kind": "computer_frame", "id": "cf1", "ts": 10, "dataUrl": "data:image/png;base64,AA" }),
-            json!({ "kind": "human_action", "id": "ha1", "ts": 11, "actionId": "act-1", "reason": "log in", "status": "pending" }),
-            json!({
-                "kind": "peer", "id": "pe1", "ts": 12, "threadKey": "ada|bob", "withPersonaId": "bob",
-                "withName": "Boris", "role": "caller", "exchanges": 2, "status": "waiting", "seat": "client",
-            }),
-            json!({ "kind": "turn", "id": "tu1", "ts": 13, "stopReason": "end_turn", "usage": { "inputTokens": 1, "outputTokens": 2, "totalTokens": 3 } }),
-            json!({
-                "kind": "chapter", "id": "c1", "ts": 14, "backendId": "hotline", "sessionId": "s1",
-                "endedAt": 20, "title": "First", "note": "did the thing", "status": "done",
-                "tags": ["harbour"], "closedBy": "idle", "resumedFrom": "c0",
-            }),
-            json!({ "kind": "chapter", "id": "c2", "ts": 21, "backendId": "hotline" }),
-        ]
-    }
-
-    #[test]
-    fn every_line_the_tape_holds_reads_back_as_the_transcript_event_it_was() {
-        let (root, log) = scratch("contract-transcript");
-        write_tape(&root, "ada", &every_kind());
-
-        let loaded = log.load(&StreamId::Tape("ada".into()));
-        assert_eq!(loaded.len(), every_kind().len());
-        for event in &loaded {
-            assert_eq!(&round_trip::<TranscriptEvent>(event), event);
-        }
-    }
-
-    #[test]
-    fn the_drawers_chapters_and_the_rosters_preview_read_back_unchanged() {
-        let (root, log) = scratch("contract-views");
-        write_tape(&root, "ada", &every_kind());
-
-        let listed = chapters::list(&log, "ada");
-        assert_eq!(listed.len(), 2);
-        for summary in &listed {
-            assert_eq!(&round_trip::<ChapterSummary>(summary), summary);
-        }
-
-        let preview = previews::preview(&root, "ada").unwrap();
-        assert_eq!(round_trip::<Preview>(&preview), preview);
-    }
-
-    #[test]
-    fn both_search_hits_read_back_as_the_hit_the_index_answered() {
-        let (root, database) = index("contract-hits");
-        message(&database, "ada", "m1", "user", "the harbour crane");
-        message(&database, "bob", "m2", "agent", "the harbour again");
-        chapter(
-            &database,
-            "bob",
-            "c1",
-            "Harbour week",
-            "we fixed the harbour",
-        );
-
-        let thread = search::search(&root, "ada", "harbour", None).unwrap();
-        let thread_hits = thread["hits"].as_array().unwrap();
-        assert_eq!(thread_hits.len(), 1);
-        for hit in thread_hits {
-            assert_eq!(&round_trip::<ThreadSearchHit>(hit), hit);
-        }
-
-        let everyone = search::search_all(&root, "harbour", None).unwrap();
-        let global_hits = everyone["hits"].as_array().unwrap();
-        assert_eq!(global_hits.len(), 3);
-        for hit in global_hits {
-            assert_eq!(&round_trip::<GlobalSearchHit>(hit), hit);
-        }
     }
 }

@@ -26,8 +26,9 @@
 
 use super::sides::{Ending, TITLE_CHARS, cut, outcome_line};
 use super::{Room, lock, now_ms};
+use crate::contract::{End, ThreadId, ThreadKind};
 use crate::log::StreamId;
-use crate::thread::{End, Idle, Link, Policy, Restart, ThreadId, ThreadKind, ThreadState};
+use crate::thread::{Idle, Link, Policy, Restart, ThreadState};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -473,10 +474,11 @@ impl Room {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::End;
     use crate::contract::{RunningSubagent, SideEnd};
     use crate::driver::{MessageKind, Update};
     use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
-    use crate::thread::{End, Opener, SIDE_IDLE_MS, ThreadStore};
+    use crate::thread::{Opener, SIDE_IDLE_MS, ThreadStore};
     use serde_json::json;
     use std::time::Duration;
 

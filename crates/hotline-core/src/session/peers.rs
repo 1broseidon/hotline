@@ -37,6 +37,7 @@
 //! behind it. A card left open when the turn ends is expired.
 
 use super::{Room, fold_said, lock, new_id, now_ms, timed};
+use crate::contract::ThreadId;
 use crate::contract::{
     DeliveryCause, DeliveryFrom, HumanActionStatus, PeerPreview, PeerRole, PeerStatus,
     PeerThreadSummary, PermissionOption, Persona, Reach, Receipt, TranscriptEvent,
@@ -49,7 +50,6 @@ use crate::mcp::server::TeammateTools;
 use crate::paths::{thread_key, thread_participants};
 use crate::room;
 use crate::store::chapters as chapter_view;
-use crate::thread::ThreadId;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};

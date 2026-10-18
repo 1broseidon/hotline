@@ -36,9 +36,9 @@ use super::{
     quiet, schedule, timed,
 };
 use crate::contract::{Reach, Receipt, ScheduledRun, SessionState, TranscriptEvent};
+use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::{MessageKind, Update};
 use crate::room;
-use crate::thread::{ThreadId, ThreadKind};
 use crate::voice::spoken::versions;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

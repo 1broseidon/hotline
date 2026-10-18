@@ -14,6 +14,7 @@
 //! and gone when the link is, plus the last names it had, kept on the record
 //! so a message can be addressed and queued while the other desk is away.
 
+use crate::contract::{Capabilities, LinkedTeammate, Profile, WorkingOn};
 use crate::log::{Log, StreamId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -175,86 +176,6 @@ pub(crate) fn is_linked(id: &str) -> bool {
     split(id).is_some()
 }
 
-/// What a linked desk publishes about one of its teammates: exactly what
-/// `list_teammates` shows of a local one, and nothing more. No workspace
-/// path, tool list, server address, message or secret has a field here to
-/// travel in.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct LinkedTeammate {
-    pub persona_id: String,
-    pub name: String,
-    /// idle, working, waiting or stopped.
-    pub state: String,
-    /// The tool or task it is doing right now, while it is working.
-    #[serde(default)]
-    pub activity: Option<String>,
-    pub working_on: WorkingOn,
-    #[serde(flatten)]
-    pub profile: Profile,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct WorkingOn {
-    pub title: String,
-    #[serde(default)]
-    pub last_turn_at: Option<String>,
-}
-
-/// Who a teammate is and what it can do here, as its colleagues see it:
-/// the goal the person gave it, the agent and model it runs, and its
-/// capabilities as words and switches. Every field defaults, because a desk
-/// from before these were published sends none of them.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct Profile {
-    #[serde(default)]
-    pub goal: String,
-    /// The agent behind it, by the name a person knows: Hotline Agent,
-    /// Claude Code, Codex.
-    #[serde(default)]
-    pub agent: String,
-    /// The model id, when the teammate or its session names one.
-    #[serde(default)]
-    pub model: Option<String>,
-    /// The model's effort, when one is set.
-    #[serde(default)]
-    pub effort: Option<String>,
-    #[serde(default)]
-    pub capabilities: Capabilities,
-}
-
-/// What a teammate can do here, never how: no path, address or tool list.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct Capabilities {
-    /// none, attached, or in use (its session is running with it now).
-    #[serde(default)]
-    pub computer: String,
-    #[serde(default)]
-    pub web_search: bool,
-    #[serde(default)]
-    pub image_generation: bool,
-    /// Whether it may schedule its own wake-ups.
-    #[serde(default)]
-    pub background_work: bool,
-    /// How it messages a colleague: directly, or after the person's
-    /// approval on first contact.
-    #[serde(default)]
-    pub message_teammates: String,
-    /// workspace or whole machine.
-    #[serde(default)]
-    pub reach: String,
-    /// The names of the MCP servers it is granted.
-    #[serde(default)]
-    pub mcp_servers: Vec<String>,
-}
-
 /// The most MCP server names one linked teammate may carry.
 const MCP_SERVERS_MAX: usize = 50;
 
@@ -345,36 +266,6 @@ fn plausible_profile(profile: Profile) -> Profile {
                 .collect(),
         },
     }
-}
-
-/// What crosses a link for the exchange queue: a teammate's message for one
-/// of the other desk's, or the answer to one.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(
-    tag = "kind",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
-#[ts(export, export_to = "contract.ts")]
-pub enum LinkedDelivery {
-    /// `fromPersonaId` is the sender on its own desk, which has published it
-    /// on its roster; `to` is the recipient's id on the desk receiving this.
-    /// The request id is the sender desk's, and the same id sent again is the
-    /// same request.
-    Request {
-        request_id: String,
-        from_persona_id: String,
-        to: String,
-        message: String,
-        /// ask or handoff.
-        intent: String,
-    },
-    /// The answer to a request this desk sent, by its id.
-    Result {
-        request_id: String,
-        reply: String,
-        failed: bool,
-    },
 }
 
 /// How a link is doing, as the Desks section shows it.

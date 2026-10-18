@@ -29,14 +29,13 @@ use super::{
     computer_unavailable, now_ms, said, with_note, without_computer,
 };
 use crate::contract::{Persona, Reach, SessionCheckpoint, SharedSecret};
+use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::{
     CapabilityEpoch, CapabilityLease, Driver, DriverInfo, HOTLINE_BACKEND_ID, SubagentReport,
     Update, acp,
 };
 use crate::mcp::server::TeammateTools;
-use crate::thread::{
-    AgentBinding, Computer, Lease, Opener, Policy, Resume, ThreadId, ThreadKind, ThreadStore, Tools,
-};
+use crate::thread::{AgentBinding, Computer, Lease, Opener, Policy, Resume, ThreadStore, Tools};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};

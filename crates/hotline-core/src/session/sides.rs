@@ -66,9 +66,10 @@ use crate::contract::{
     Attachment, DeliveryCause, DeliveryFrom, NoticeLevel, PermissionOption, Persona, Receipt,
     RunningSide, SharedSecret, SideEnd, SideStatus, SideThreadSummary, TranscriptEvent,
 };
+use crate::contract::{End, ThreadId, ThreadKind};
 use crate::driver::{CapabilityLease, Driver};
 use crate::log::StreamId;
-use crate::thread::{AgentBinding, End, Link, Opener, ThreadId, ThreadKind, ThreadState};
+use crate::thread::{AgentBinding, Link, Opener, ThreadState};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -2113,11 +2113,11 @@ async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
 
     // A closed call reads back as a thread.
     let thread = crate::thread::ThreadStore::new(&desk.log)
-        .load(&crate::thread::ThreadId::call(&id))
+        .load(&crate::contract::ThreadId::call(&id))
         .unwrap();
     assert_eq!(
         thread.state,
-        crate::thread::ThreadState::Closed(crate::thread::End::Person)
+        crate::thread::ThreadState::Closed(crate::contract::End::Person)
     );
     assert_eq!(
         thread.participants,
@@ -2865,7 +2865,7 @@ fn a_direct_calls_turn_names_its_call_thread_and_a_desk_calls_does_not() {
         ended: false,
     };
     let from = direct.from().unwrap();
-    assert_eq!(from.kind, crate::thread::ThreadKind::Call);
+    assert_eq!(from.kind, crate::contract::ThreadKind::Call);
     assert_eq!(from.thread, direct.call_id);
     assert_eq!(from.request.as_deref(), Some("3"));
     assert_eq!(Origin::from_delivery(&from), Some(direct));
@@ -2880,7 +2880,8 @@ fn a_direct_calls_turn_names_its_call_thread_and_a_desk_calls_does_not() {
         }
     };
     assert_eq!(desk.from(), None, "a desk call is no thread");
-    let pair = crate::contract::DeliveryFrom::new(&crate::thread::ThreadId::pair("a\u{1f}b"), None);
+    let pair =
+        crate::contract::DeliveryFrom::new(&crate::contract::ThreadId::pair("a\u{1f}b"), None);
     assert_eq!(Origin::from_delivery(&pair), None);
 }
 

@@ -30,9 +30,10 @@ use crate::contract::{
     SessionConfigCategory, SessionInfo, SessionState, StreamDelta, Target, ToolStatus,
     TranscriptEvent, ViewName,
 };
+use crate::contract::{ThreadId, ThreadKind};
 use crate::log::{Log, StreamId};
 use crate::store::previews;
-use crate::thread::{Link, ThreadId, ThreadKind};
+use crate::thread::Link;
 use async_trait::async_trait;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use serde_json::{Value, json};
@@ -115,14 +116,14 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
     /// This desk's teammates as a linked desk is shown them: the rows
     /// `list_teammates` gives a local colleague, and nothing more.
-    fn federation_roster_entries(&self) -> Vec<crate::linked::LinkedTeammate> {
+    fn federation_roster_entries(&self) -> Vec<crate::contract::LinkedTeammate> {
         Vec::new()
     }
     /// A linked desk published its teammates.
     fn federation_roster(
         &self,
         _desk_id: &str,
-        _teammates: Vec<crate::linked::LinkedTeammate>,
+        _teammates: Vec<crate::contract::LinkedTeammate>,
     ) -> Result<(), String> {
         Err(NOT_LINKED.into())
     }
@@ -131,7 +132,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn federation_deliver(
         &self,
         _desk_id: &str,
-        _delivery: crate::linked::LinkedDelivery,
+        _delivery: crate::contract::LinkedDelivery,
     ) -> Result<Value, String> {
         Err(NOT_LINKED.into())
     }
@@ -888,7 +889,7 @@ fn phone_thread_command(command: &Command) -> bool {
 /// Whether a companion may read this thread: the way it reads a tape, a pair,
 /// a work thread and a run, but never the voice dispatcher's tape, and never a
 /// call, which is a voice surface it is not seated on.
-fn phone_may_read(thread: &crate::thread::ThreadId) -> bool {
+fn phone_may_read(thread: &crate::contract::ThreadId) -> bool {
     match thread.kind {
         ThreadKind::Dm => thread.key != crate::voice::TAPE_ID,
         ThreadKind::Call => false,

@@ -24,11 +24,11 @@
 //! cycle nothing ever breaks. Not a trait, because a seam with one
 //! implementation and one caller is a layer that buys nothing.
 
+use crate::contract::{Capabilities, LinkedTeammate, Profile, WorkingOn};
 use crate::contract::{
     ChapterClose, ScheduleKind, ScheduledJob, SessionInfo, SessionState, ToolSourceKind,
 };
 use crate::driver::CapabilityLease;
-use crate::linked::{Capabilities, LinkedTeammate, Profile, WorkingOn};
 use crate::session::files::Source;
 use crate::session::jobs::Delegate;
 use crate::session::runner::Subagents;

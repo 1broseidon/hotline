@@ -2,13 +2,14 @@
 //! from the same connections the resolvers read. Nothing here is a new key or
 //! a new connection: a provider is offered only if it is already connected.
 
+use crate::contract::ImageSettings;
 use crate::contract::{
     BudgetKind, CapabilityJob, CapabilityModel, CapabilityOptions, CapabilityPick,
     CapabilityProvider, CapabilitySpending, SpendingBudget, SpendingKind, SpendingLine,
 };
-use crate::imagegen::{self, ImageSettings};
+use crate::contract::{SpendingSettings, SpendingSummary};
+use crate::imagegen;
 use crate::log::Log;
-use crate::spending::{SpendingSettings, SpendingSummary};
 use crate::vault::Vault;
 use crate::voice::dispatcher::{ProviderDispatcher, is_chat};
 use crate::voice::metering::Budget;

@@ -20,9 +20,10 @@
 
 use super::{Room, now_ms};
 use crate::contract::PermissionOption;
+use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::Driver;
 use crate::paths::thread_participants;
-use crate::thread::{Answer, Policy, ThreadId, ThreadKind};
+use crate::thread::{Answer, Policy};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -238,12 +239,13 @@ impl Room {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::End;
     use crate::contract::SideEnd;
     use crate::driver::{MessageKind, Update};
     use crate::log::StreamId;
     use crate::session::runner::{RunEnd, RunSpec};
     use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
-    use crate::thread::{AgentBinding, End, Participant, ThreadLink, ThreadState, ThreadStore};
+    use crate::thread::{AgentBinding, Participant, ThreadLink, ThreadState, ThreadStore};
     use serde_json::json;
     use std::sync::Arc;
     use std::time::Duration;

@@ -5,3 +5,6 @@
 pub mod chapters;
 pub mod previews;
 pub mod search;
+
+#[cfg(test)]
+mod tests;

@@ -46,6 +46,7 @@ use super::{
     CLOCK, PendingTool, Room, event_of, folders_sentence, narration, new_id, now_ms,
     reach_sentence, skills_index, timed,
 };
+use crate::contract::{End, ThreadId, ThreadKind};
 use crate::contract::{
     NoticeLevel, Persona, Reach, RunningSubagent, SessionInfo, SubagentStatus, ToolStatus,
     TranscriptEvent,
@@ -54,7 +55,7 @@ use crate::driver::{
     CapabilityLease, Driver, HOTLINE_BACKEND_ID, MessageKind, SubagentReport, Update,
 };
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
-use crate::thread::{End, Link, ThreadId, ThreadKind, ThreadState};
+use crate::thread::{Link, ThreadState};
 use crate::voice::spoken::Shown;
 use futures_util::future::BoxFuture;
 use std::collections::HashMap;

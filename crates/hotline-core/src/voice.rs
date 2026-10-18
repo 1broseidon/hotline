@@ -229,7 +229,7 @@ impl Origin {
     pub(crate) fn from(&self) -> Option<crate::contract::DeliveryFrom> {
         self.direct.then(|| {
             crate::contract::DeliveryFrom::new(
-                &crate::thread::ThreadId::call(&self.call_id),
+                &crate::contract::ThreadId::call(&self.call_id),
                 Some(self.seq.to_string()),
             )
         })
@@ -247,7 +247,7 @@ impl Origin {
     /// the call thread, and the turn of it. Only a direct call is a thread, so
     /// a call said in this way is one.
     pub(crate) fn from_delivery(from: &crate::contract::DeliveryFrom) -> Option<Self> {
-        if from.kind != crate::thread::ThreadKind::Call {
+        if from.kind != crate::contract::ThreadKind::Call {
             return None;
         }
         Some(Self {

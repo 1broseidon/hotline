@@ -24,9 +24,10 @@
 //! marker is rewritten as a link under its own id the next time its thread
 //! changes, so it is replaced in place and never doubled.
 
-use super::{AgentBinding, End, ThreadId, ThreadKind, ThreadState};
+use super::{AgentBinding, ThreadState};
 use crate::contract::{
-    CallStatus, SideEnd, SideOpener, SideStatus, SubagentStatus, TranscriptEvent,
+    CallStatus, End, SideEnd, SideOpener, SideStatus, SubagentStatus, ThreadId, ThreadKind,
+    TranscriptEvent,
 };
 use serde_json::{Value, json};
 

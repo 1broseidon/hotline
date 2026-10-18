@@ -64,6 +64,7 @@ pub use peers::TEAMMATE_MESSAGE_MAX;
 pub use schedule::{parse_duration, parse_when};
 
 use crate::computer::Computer;
+use crate::contract::ThreadId;
 use crate::contract::{
     Attachment, ChapterClose, ChapterSummary, Client, ComputerStatus, ConfigChoice, CookieSite,
     DeliveryCause, DeliveryFrom, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel,
@@ -85,7 +86,6 @@ use crate::mcp::server::TeammateTools;
 use crate::room;
 use crate::store::chapters as chapter_view;
 use crate::store::search::Indexer;
-use crate::thread::ThreadId;
 use crate::vault::Vault;
 use async_trait::async_trait;
 use chrono::{Local, TimeZone};

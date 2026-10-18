@@ -1,8 +1,8 @@
 ---
 id: task-140
 title: "P2-31 (C): The six other over-budget files"
-column: in-progress
-position: 29
+column: review
+position: 2
 priority: high
 tags:
   - phase2
@@ -16,7 +16,7 @@ relatedFiles:
   - crates/hotline-core/src/computer.rs
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/driver/rig/turn.rs
-updatedAt: "2026-10-18T04:23:59.384Z"
+updatedAt: "2026-10-18T05:29:15.423Z"
 contract:
   status: in_progress
   validation:
@@ -43,6 +43,8 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T04:23:44.606Z"
+    ended: "2026-10-18T05:29:14.209Z"
+    outcome: review
 assignee: claude
 ---
 
@@ -57,3 +59,6 @@ Phase 2 group C (Move-only renames and splits), plan row 31 in docs/audits/0.40/
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T05:29:15.423Z: Not landed: Another landing in this repository is still going (pid 35147 on Georges-Mac-Studio, since 2026-10-18T05:27:51.048Z): nothing was merged, try again once it is done

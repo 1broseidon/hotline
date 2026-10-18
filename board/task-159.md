@@ -1,7 +1,7 @@
 ---
 id: task-159
 title: "P2-50 (D): a11y pass:"
-column: todo
+column: in-progress
 position: 48
 priority: high
 tags:
@@ -12,15 +12,17 @@ createdAt: "2026-10-17T22:41:06.356Z"
 relatedFiles:
   - ui/src/components/
   - ui/src/App.tsx
-updatedAt: "2026-10-18T03:12:55.940Z"
+updatedAt: "2026-10-18T03:14:09.273Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make ui-check
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T03:14:09.273Z"
+    reworkCount: 0
 dependsOn:
   - task-156
   - task-158

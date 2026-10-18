@@ -1131,9 +1131,9 @@ mod tests {
 
     #[tokio::test]
     async fn the_estimate_is_a_third_of_the_request_bytes_and_the_whole_output_ceiling() {
-        let (_root, _desk, vault, _) = gateways(&["fast-mini"], &["other-large"]);
+        let (_root, desk, vault, _) = gateways(&["fast-mini"], &["other-large"]);
         let meter = Meter {
-            ledger: Arc::new(Budget::open(_desk.log.clone())),
+            ledger: Arc::new(Budget::open(desk.log.clone())),
             price: ModelCost {
                 input: 0.1,
                 output: 0.5,

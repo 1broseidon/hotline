@@ -1,7 +1,7 @@
 ---
 id: task-146
 title: "P2-37 (D): One `ANSWER` for the remote tests,"
-column: todo
+column: in-progress
 position: 35
 priority: high
 tags:
@@ -12,15 +12,17 @@ createdAt: "2026-10-17T22:40:59.590Z"
 relatedFiles:
   - crates/hotline-core/src/remote/tests.rs
   - crates/hotline-core/src/remote/tests/
-updatedAt: "2026-10-18T04:59:15.620Z"
+updatedAt: "2026-10-18T04:59:23.667Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make precheck
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T04:59:23.667Z"
+    reworkCount: 0
 dependsOn:
   - task-134
 dispatch:

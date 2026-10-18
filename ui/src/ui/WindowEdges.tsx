@@ -13,11 +13,11 @@ const EDGES = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
 
 export function WindowEdges() {
 	return (
-		<div aria-hidden="true">
+		<>
 			{EDGES.map((edge) => (
 				// A press here starts a resize, not a text selection.
-				<div key={edge} className={`window-edge window-edge-${edge}`} onMouseDown={(event) => event.preventDefault()} />
+				<div key={edge} aria-hidden="true" className={`window-edge window-edge-${edge}`} onMouseDown={(event) => event.preventDefault()} />
 			))}
-		</div>
+		</>
 	);
 }

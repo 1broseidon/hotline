@@ -132,10 +132,11 @@ function SignInAttempt({ personaId, methodId, onDone, onClose }: {
 		};
 	}, [personaId, methodId]);
 
-	return <div aria-label="Harness sign-in" className="rounded border border-line p-2">
+	return <section aria-label="Harness sign-in" className="rounded border border-line p-2">
 		<p className="mb-2 text-xs text-ink-3">Complete the harness’s sign-in here or in the browser it opens. This is not sent to the conversation.</p>
 		{error && <p role="alert" className="mb-2 text-sm text-danger">{error}</p>}
+		{/* biome-ignore lint/a11y/noStaticElementInteractions: the terminal inside takes the keys; this only keeps the window's shortcuts from firing as they pass. */}
 		<div ref={host} data-private-terminal onKeyDown={(event) => event.stopPropagation()} className="max-w-full overflow-x-auto" />
 		<button className="control btn mt-2" onClick={() => callbacks.current.onClose()}>{running ? "Cancel sign-in" : "Close"}</button>
-	</div>;
+	</section>;
 }

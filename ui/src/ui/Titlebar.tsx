@@ -53,7 +53,7 @@ export function Titlebar({
 	}, [frame]);
 	return (
 		<header className="titlebar">
-			<div data-tauri-drag-region className="titlebar-drag" onDoubleClick={() => void toggleMaximize()} />
+			<div data-tauri-drag-region aria-hidden="true" className="titlebar-drag" onDoubleClick={() => void toggleMaximize()} />
 			<div className="titlebar-lead">
 				{rail !== undefined && !bare && (
 					<button

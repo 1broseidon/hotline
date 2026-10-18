@@ -178,6 +178,7 @@ function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list
 		"|" +
 		(entry?.subagents ?? []).map((run) => run.runId).join(",") +
 		(entry?.waiting === true ? "|waiting" : "");
+	// biome-ignore lint/correctness/useExhaustiveDependencies: signature and revision are what say the threads changed.
 	useEffect(() => {
 		if (personaId === undefined) return;
 		let cancelled = false;

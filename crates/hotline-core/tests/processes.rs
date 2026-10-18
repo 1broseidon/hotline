@@ -35,7 +35,7 @@ async fn running_process_a_server_left_running_ends_the_turn_and_a_later_turn_st
     assert_eq!(ended["event"]["stopReason"], "end_turn");
     let card = desk
         .client
-        .next_where(Duration::from_secs(15), |frame| {
+        .next_where(common::ANSWER, |frame| {
             frame["event"]["kind"] == "tool"
                 && frame["event"]["toolKind"] == "shell"
                 && frame["event"]["status"] == "completed"
@@ -101,7 +101,7 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     assert!(said.contains("succeeded"), "{said}");
     assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
     desk.client
-        .next_where(Duration::from_secs(15), |frame| {
+        .next_where(common::ANSWER, |frame| {
             frame["event"]["kind"] == "agent"
                 && frame["event"]["text"] == "The build finished: done."
         })
@@ -151,7 +151,7 @@ async fn session_where(desk: &mut Desk, wanted: impl Fn(&Value) -> bool) -> Valu
     let persona = desk.persona.clone();
     let row = desk
         .client
-        .next_where(Duration::from_secs(15), |frame| {
+        .next_where(common::ANSWER, |frame| {
             frame["event"]["persona"]["id"] == persona.as_str()
                 && frame["event"]["session"].is_object()
                 && wanted(&frame["event"]["session"])
@@ -253,7 +253,7 @@ async fn process_chip_output_is_the_latest_of_what_it_wrote() {
     let mut desk = Desk::open().await;
     let command = "echo $$ > sleeper.pid; for i in $(seq 1 3000); do echo line $i; done; echo oops >&2; exec sleep 300";
     let (pid, job_id) = desk.leave_running_as(command).await;
-    let output = tokio::time::timeout(Duration::from_secs(15), async {
+    let output = tokio::time::timeout(common::ANSWER, async {
         loop {
             let read = desk
                 .call(
@@ -517,7 +517,7 @@ impl Desk {
     }
 
     async fn request(&mut self) -> Value {
-        tokio::time::timeout(Duration::from_secs(15), self.requests.recv())
+        tokio::time::timeout(common::ANSWER, self.requests.recv())
             .await
             .expect("the model was asked nothing")
             .unwrap()
@@ -525,9 +525,7 @@ impl Desk {
 
     async fn turn_end(&mut self) -> Value {
         self.client
-            .next_where(Duration::from_secs(15), |frame| {
-                frame["event"]["kind"] == "turn"
-            })
+            .next_where(common::ANSWER, |frame| frame["event"]["kind"] == "turn")
             .await
     }
 
@@ -542,16 +540,8 @@ impl Desk {
     /// The pid a command wrote to `file` in the workspace, once it has.
     async fn pid(&self, file: &str) -> i32 {
         let path = self.workspace.join(file);
-        tokio::time::timeout(Duration::from_secs(15), async {
-            loop {
-                if let Some(pid) = read_pid(&path) {
-                    return pid;
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("the command wrote its pid")
+        common::until("the command writes its pid", || read_pid(&path).is_some()).await;
+        read_pid(&path).unwrap()
     }
 
     /// A turn that leaves a long sleep running and replies; its pid.
@@ -588,13 +578,7 @@ fn alive(pid: i32) -> bool {
 }
 
 async fn until_dead(pid: i32) {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while alive(pid) {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the process was killed");
+    common::until("the process is killed", || !alive(pid)).await;
 }
 
 /// The job id a launch receipt in this request names.

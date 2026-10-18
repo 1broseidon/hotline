@@ -62,7 +62,9 @@ description: |-
   Unrestricted host-root commands, NOPASSWD: ALL, elevating the whole Hotline application, reusable blanket root sessions, and VM provisioning. Split platform implementation into follow-up subissues as needed; this task captures the common architecture and expected parity.
 
   Migrated from Linear BRO-133: https://linear.app/1broseidon/issue/BRO-133/add-controlled-privileged-service-api-for-linux-macos-and-windows (2026-10-11).
-updatedAt: "2026-10-12T20:52:36.436Z"
+
+  Closed 2026-10-18 (backlog triage): Won't do (2026-10-11 review, unchanged).
+updatedAt: "2026-10-18T23:41:03.740Z"
 ---
 
 ## Log

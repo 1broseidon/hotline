@@ -1,7 +1,7 @@
 ---
 id: task-136
 title: "P2-27 (C): `driver/acp.rs` code"
-column: in-progress
+column: review
 position: 25
 priority: high
 tags:
@@ -15,9 +15,9 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp/live.rs
   - crates/hotline-core/src/driver/acp/translate.rs
   - crates/hotline-core/src/driver/acp/session.rs
-updatedAt: "2026-10-18T04:36:14.227Z"
+updatedAt: "2026-10-18T04:54:58.827Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - test $(wc -l < crates/hotline-core/src/driver/acp.rs) -le 1500
@@ -28,6 +28,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T04:36:14.227Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T04:54:58.827Z"
+    duration: 1125
 dependsOn:
   - task-135
 dispatch:

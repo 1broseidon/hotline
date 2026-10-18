@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/tests.rs
   - crates/hotline-core/tests/voice.rs
   - crates/hotline-core/tests/desk.rs
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:01.025Z"
 contract:
   status: ready
   validation:
@@ -26,6 +26,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-137
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:00.890Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

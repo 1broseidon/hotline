@@ -715,24 +715,19 @@ impl Workspace {
             Some(MAX_SEARCH_FILE_BYTES),
             args.include_hidden.unwrap_or(false),
         ) {
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(_) => continue,
-            };
+            let Ok(entry) = entry else { continue };
             if !entry.file_type().is_some_and(|kind| kind.is_file()) {
                 continue;
             }
-            let relative = match entry.path().strip_prefix(&root) {
-                Ok(path) => path,
-                Err(_) => continue,
+            let Ok(relative) = entry.path().strip_prefix(&root) else {
+                continue;
             };
             if !glob_matches(&glob, relative) {
                 continue;
             }
 
-            let file = match dir.open(relative) {
-                Ok(file) => file,
-                Err(_) => continue,
+            let Ok(file) = dir.open(relative) else {
+                continue;
             };
             let shown_path = self.shown(&root, relative);
             let mut searcher = SearcherBuilder::new()
@@ -786,10 +781,7 @@ impl Workspace {
         let mut results = Vec::new();
         let mut truncated = false;
         for entry in walk(&start, None, args.include_hidden.unwrap_or(false)) {
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(_) => continue,
-            };
+            let Ok(entry) = entry else { continue };
             let relative = match entry.path().strip_prefix(&root) {
                 Ok(path) if !path.as_os_str().is_empty() => path,
                 _ => continue,

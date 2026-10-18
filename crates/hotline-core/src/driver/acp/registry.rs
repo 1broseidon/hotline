@@ -520,9 +520,8 @@ fn platform() -> Option<String> {
         "windows" => "windows",
         _ => return None,
     };
-    let arch = match std::env::consts::ARCH {
-        arch @ ("x86_64" | "aarch64") => arch,
-        _ => return None,
+    let arch @ ("x86_64" | "aarch64") = std::env::consts::ARCH else {
+        return None;
     };
     Some(format!("{os}-{arch}"))
 }

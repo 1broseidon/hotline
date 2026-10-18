@@ -45,9 +45,8 @@ async fn an_unreadable_identity_is_replaced_but_a_locked_store_is_reported() {
     atomic_write(&path, &serde_json::to_vec(&saved).unwrap()).unwrap();
 
     let locked = h.reopen(Arc::new(LockedStore));
-    let refused = match locked.configure(true, network::ALL).await {
-        Ok(_) => panic!("a locked store must not be replaced"),
-        Err(refused) => refused,
+    let Err(refused) = locked.configure(true, network::ALL).await else {
+        panic!("a locked store must not be replaced")
     };
     assert!(refused.contains("store locked"), "{refused}");
     assert!(!locked.status().enabled);

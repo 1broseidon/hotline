@@ -231,9 +231,7 @@ impl GptLive {
     async fn place(&self, config: &RealtimeConfig, carry: &Carry) -> Result<Placed, SpeechError> {
         let who = self.identity().await?;
         let peer = Peer::new().await.map_err(|()| self.unreachable())?;
-        let offer = if let Ok(offer) = peer.offer().await {
-            offer
-        } else {
+        let Ok(offer) = peer.offer().await else {
             peer.close().await;
             return Err(self.unreachable());
         };

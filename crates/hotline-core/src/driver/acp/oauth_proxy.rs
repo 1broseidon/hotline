@@ -158,9 +158,8 @@ pub(super) async fn oauth_proxy_request(
     let method = request_method(&request);
     let headers = request_headers(&request);
     let query = request.uri().query().map(str::to_string);
-    let body = match axum::body::to_bytes(request.into_body(), 16 * 1024 * 1024).await {
-        Ok(body) => body,
-        Err(_) => return proxy_error(StatusCode::BAD_REQUEST, "MCP request body was too large"),
+    let Ok(body) = axum::body::to_bytes(request.into_body(), 16 * 1024 * 1024).await else {
+        return proxy_error(StatusCode::BAD_REQUEST, "MCP request body was too large");
     };
     let (presented, oauth_token) = match &state.credential {
         ProxyCredential::Fixed(presented) => (presented.clone(), None),
@@ -191,7 +190,7 @@ pub(super) async fn oauth_proxy_request(
     {
         return proxy_error(StatusCode::FORBIDDEN, "MCP access was revoked");
     }
-    let mut response = match send_proxy_request(
+    let Ok(mut response) = send_proxy_request(
         &state,
         method.clone(),
         headers.clone(),
@@ -200,9 +199,8 @@ pub(super) async fn oauth_proxy_request(
         &presented,
     )
     .await
-    {
-        Ok(response) => response,
-        Err(_) => return proxy_error(StatusCode::BAD_GATEWAY, "MCP OAuth proxy request failed"),
+    else {
+        return proxy_error(StatusCode::BAD_GATEWAY, "MCP OAuth proxy request failed");
     };
     // A pasted token has nothing to refresh; a 401 on it is the answer.
     if response.status() == reqwest::StatusCode::UNAUTHORIZED

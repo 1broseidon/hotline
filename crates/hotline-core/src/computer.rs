@@ -567,20 +567,18 @@ impl Computer {
         let name = container_name(persona_id);
         let known = self.lock().containers.get(persona_id).cloned();
         if let Some(live) = known {
-            let inspection =
-                match inspect_within(&live.cmd, live.runtime, &name, STATUS_TIMEOUT).await {
-                    Ok(seen) => seen,
-                    Err(_) => {
-                        return Ok(ComputerStatus {
-                            state: ComputerState::Absent,
-                            url: None,
-                            viewer: None,
-                            release: None,
-                            available: None,
-                            update_failed: None,
-                        });
-                    }
-                };
+            let Ok(inspection) =
+                inspect_within(&live.cmd, live.runtime, &name, STATUS_TIMEOUT).await
+            else {
+                return Ok(ComputerStatus {
+                    state: ComputerState::Absent,
+                    url: None,
+                    viewer: None,
+                    release: None,
+                    available: None,
+                    update_failed: None,
+                });
+            };
             let mut status = status_of(inspection, Some((live.mcp_port, &live.token)));
             status.release.clone_from(&live.release);
             return Ok(status);
@@ -595,18 +593,15 @@ impl Computer {
                 update_failed: None,
             });
         };
-        let inspection = match inspect_within(&cmd, runtime, &name, STATUS_TIMEOUT).await {
-            Ok(seen) => seen,
-            Err(_) => {
-                return Ok(ComputerStatus {
-                    state: ComputerState::Absent,
-                    url: None,
-                    viewer: None,
-                    release: None,
-                    available: None,
-                    update_failed: None,
-                });
-            }
+        let Ok(inspection) = inspect_within(&cmd, runtime, &name, STATUS_TIMEOUT).await else {
+            return Ok(ComputerStatus {
+                state: ComputerState::Absent,
+                url: None,
+                viewer: None,
+                release: None,
+                available: None,
+                update_failed: None,
+            });
         };
         Ok(status_of(inspection, None))
     }

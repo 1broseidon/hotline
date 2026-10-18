@@ -320,9 +320,8 @@ impl Log {
             let lines: Vec<String> = before
                 .lines()
                 .map(|line| {
-                    let mut event = match serde_json::from_str::<Value>(line) {
-                        Ok(event) => event,
-                        Err(_) => return line.to_string(),
+                    let Ok(mut event) = serde_json::from_str::<Value>(line) else {
+                        return line.to_string();
                     };
                     if rename_backend(&mut event) {
                         changed = true;

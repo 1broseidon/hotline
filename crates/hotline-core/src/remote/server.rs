@@ -61,9 +61,7 @@ pub(super) fn run(
     Box::pin(async move {
         loop {
             let accepted = tokio::select! { biased; () = cancel.cancelled() => break, accepted = listener.accept() => accepted };
-            let (socket, peer) = if let Ok(v) = accepted {
-                v
-            } else {
+            let Ok((socket, peer)) = accepted else {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 continue;
             };

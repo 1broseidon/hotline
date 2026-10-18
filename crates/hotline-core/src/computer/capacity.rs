@@ -155,8 +155,8 @@ fn host_memory() -> Option<u64> {
     let result = unsafe {
         libc::sysctlbyname(
             c"hw.memsize".as_ptr(),
-            (&mut bytes as *mut u64).cast(),
-            &mut len,
+            (&raw mut bytes).cast(),
+            &raw mut len,
             std::ptr::null_mut(),
             0,
         )

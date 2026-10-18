@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
   - crates/hotline-cli/tests/
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:08.863Z"
 contract:
   status: ready
   validation:
@@ -42,6 +42,14 @@ dependsOn:
   - task-153
   - task-155
   - task-175
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:08.731Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

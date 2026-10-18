@@ -20,7 +20,7 @@ relatedFiles:
   - crates/hotline-cli/tests/
 parentId: epic-13
 createdAt: "2026-10-17T22:45:36.667Z"
-updatedAt: "2026-10-18T00:15:36.870Z"
+updatedAt: "2026-10-18T06:43:44.165Z"
 contract:
   status: ready
   validation:
@@ -39,7 +39,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:36.738Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T06:43:44.165Z"
 assignee: claude
 ---
 

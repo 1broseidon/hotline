@@ -1,15 +1,13 @@
 ---
 id: task-154
 title: "P2-45a (D): Shared test plumbing: one bounded test Client in tests/common"
-column: review
-position: 43
 priority: high
 tags:
   - phase2
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:03.758Z"
-updatedAt: "2026-10-18T06:39:35.371Z"
+updatedAt: "2026-10-18T06:43:40.423Z"
 relatedFiles:
   - crates/hotline-core/tests/common/mod.rs
   - crates/hotline-core/tests/
@@ -47,7 +45,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T06:18:53.191Z"
+    ended: "2026-10-18T06:43:40.423Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T06:43:40.031Z"
 ---
 
 ## Description
@@ -59,3 +60,4 @@ End with `make precheck` and `make verify` (the hooks are on; never --no-verify)
 
 ## Log
 - 2026-10-18T06:39:34.996Z: [claude] Done on dispatch/task-154 (006de269), 12 commits. crates/hotline-core/tests/common/mod.rs now has the one Client. `call(cmd, params)` gets its reply within `common::ANSWER` (60 s) or the test panics. `send` plus `reply(id, patience)` is for tests where the wait itself is the proof: acp_startup's QUICK calls, and real_agents' two real-ACP session.start calls, which wait StartBounds::default().first + ANSWER. `subscribe` waits for and asserts ok, `next_where` names the last 12 inbox frames when it times out (taken from threads.rs), and `replied` is kept. stalled.rs lost its Client. desk, folders, steering, processes, threads, mcp and schedule each moved over in their own commit. local_speech.rs was an eighth copy the audit missed; it moved too (ask→call, models_until is now a free fn). New crates/hotline-cli/tests/common/mod.rs: hotline() (picks a free loopback --listen for serve), serve(root, extra), stop, wire(root, cmd, params), said, free_address, listen_args, top, desktop. serve.rs, relay.rs (a local serve_at wrapper) and pair.rs (hotline, free_address, a wire wrapper) each moved in their own commit. Every common allow is #[allow(dead_code, reason)]. make check, make precheck (7/7) and make verify pass; contract.ts unchanged. Not wired, for task-175 and later: tests/voice.rs keeps its own socket `until` (15 s, drops frames it doesn't match), and its seven inline Door::bind sites aren't converted to Client. No desk-and-door helper, no shared fake model server, and the per-file TOKEN consts stay (T14). The CLI's `invite`/`hello` differ between serve.rs and relay.rs, so each kept its own. Child processes still use the free_address reserve-and-drop race (task-147's note).
+- 2026-10-18T06:43:39.656Z: Landed on release/0.40.0

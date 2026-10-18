@@ -10,7 +10,7 @@ createdAt: "2026-10-17T22:40:48.155Z"
 relatedFiles:
   - ui/bun.lock
   - ui/package.json
-updatedAt: "2026-10-18T00:34:35.704Z"
+updatedAt: "2026-10-18T00:34:38.564Z"
 contract:
   status: delivered
   validation:
@@ -37,6 +37,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-18T00:26:27.218Z"
+    ended: "2026-10-18T00:34:38.564Z"
+    outcome: done
 assignee: claude
 completedAt: "2026-10-18T00:34:35.704Z"
 ---

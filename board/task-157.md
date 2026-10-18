@@ -19,7 +19,7 @@ relatedFiles:
   - ui/src/stepText.ts
   - ui/src/voice/call.ts
   - ui/src/voice/dictation.ts
-updatedAt: "2026-10-18T01:32:50.360Z"
+updatedAt: "2026-10-18T01:32:55.706Z"
 contract:
   status: delivered
   validation:
@@ -49,6 +49,8 @@ dispatch:
     runner: cli
     pid: 59932
     at: "2026-10-18T01:31:24.773Z"
+    ended: "2026-10-18T01:32:54.599Z"
+    outcome: review
 assignee: claude
 ---
 
@@ -72,3 +74,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 - 2026-10-18T01:29:48.078Z: The claim on task-157 (cli on Georges-Mac-Studio, pid 59932) was not given back as review: task-157 is claimed by desktop (pid 50333) on Georges-Mac-Studio
 - 2026-10-18T01:29:49.590Z: Not landed: Claude Code is still working on task-157
 - 2026-10-18T01:32:52.320Z: [claude] Re-verified on dispatch/task-157 at 3bfa851d, unchanged, tree clean. make ui-check passes 421 tests. make precheck passes all 7 legs. My earlier note still holds for P2-53/task-168. Before that run, a precheck failed on contract and ui because ui/src/generated/contract.ts was first written with duplicate types and then emptied. Another session's `cargo test --lib export_bindings` (pid 29925) was running at the same time. Restoring the file and rerunning passed.
+- 2026-10-18T01:32:55.706Z: Not landed: Claude Code is still working on task-157

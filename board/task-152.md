@@ -15,7 +15,7 @@ relatedFiles:
   - Cargo.lock
   - crates/hotline-core/src/remote/tests/viewer_token.rs
   - crates/hotline-core/src/voice/speech/xai/tests.rs
-updatedAt: "2026-10-18T00:15:13.388Z"
+updatedAt: "2026-10-18T05:21:29.942Z"
 contract:
   status: ready
   validation:
@@ -33,7 +33,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:13.251Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T05:21:29.942Z"
 assignee: claude
 ---
 

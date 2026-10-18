@@ -34,7 +34,7 @@ async fn the_skills_catalog_lists_builtins_the_gateway_and_a_teammates_own() {
     )
     .unwrap();
 
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     // The person's own folder is the machine's; this room reads an empty one.
     let nowhere = root.join("no-home-skills");
     std::fs::create_dir_all(&nowhere).unwrap();
@@ -231,7 +231,7 @@ async fn the_persons_own_skills_are_offered_by_switch_and_granted_like_the_gatew
     let workspace = root.join("ws");
     std::fs::create_dir_all(&workspace).unwrap();
 
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     // The room names the folder; unset, it is the machine's own standard one.
     let pointed = client
         .call(

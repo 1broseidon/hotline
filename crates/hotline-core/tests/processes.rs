@@ -8,7 +8,7 @@
 mod common;
 
 use axum::{Router, body::Bytes, routing::post};
-use futures_util::{SinkExt, StreamExt};
+use common::Client;
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -18,7 +18,6 @@ use std::{
     time::Duration,
 };
 use tokio::net::TcpStream;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 
 const TOKEN: &str = "disposable-processes-test";
 
@@ -462,7 +461,7 @@ impl Desk {
         let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
         let port = door.port();
         tokio::spawn(door.run());
-        let mut client = Client::connect(port).await;
+        let mut client = Client::connect(port, TOKEN).await;
         let saved = client
             .call(
                 "credential.custom_save",
@@ -624,88 +623,4 @@ fn tool_call(name: &str, arguments: Value, call_id: &str) -> Vec<Value> {
         json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":call_id,"type":"function","function":{"name":name,"arguments":arguments.to_string()}}]},"finish_reason":null}]}),
         json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}),
     ]
-}
-
-/// The window's half of the wire, as the harness plays it.
-struct Client {
-    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    next_id: i64,
-    /// Frames that arrived while waiting for something else.
-    inbox: VecDeque<Value>,
-}
-
-impl Client {
-    async fn connect(port: u16) -> Client {
-        let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token={TOKEN}"))
-            .await
-            .unwrap();
-        Client {
-            socket,
-            next_id: 1,
-            inbox: VecDeque::new(),
-        }
-    }
-
-    async fn read(&mut self) -> Value {
-        loop {
-            match self.socket.next().await.expect("the door closed") {
-                Ok(Message::Text(text)) => return serde_json::from_str(&text).unwrap(),
-                Ok(_) => continue,
-                Err(error) => panic!("the socket failed: {error}"),
-            }
-        }
-    }
-
-    async fn call(&mut self, cmd: &str, params: Value) -> Value {
-        let id = self.next_id;
-        self.next_id += 1;
-        let frame = json!({ "id": id, "cmd": cmd, "params": params });
-        self.socket
-            .send(Message::text(frame.to_string()))
-            .await
-            .unwrap();
-        loop {
-            let frame = self.read().await;
-            if frame.get("id").and_then(Value::as_i64) == Some(id) {
-                return frame;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
-
-    async fn subscribe(&mut self, target: Value) {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.socket
-            .send(Message::text(
-                json!({ "id": id, "sub": target }).to_string(),
-            ))
-            .await
-            .unwrap();
-        loop {
-            let frame = self.read().await;
-            if frame.get("id").and_then(Value::as_i64) == Some(id) {
-                assert_eq!(frame["ok"], true, "{frame}");
-                return;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
-
-    /// The next frame that satisfies `wanted`, from the inbox first.
-    async fn next_where(&mut self, patience: Duration, wanted: impl Fn(&Value) -> bool) -> Value {
-        if let Some(at) = self.inbox.iter().position(&wanted) {
-            return self.inbox.remove(at).unwrap();
-        }
-        let deadline = tokio::time::Instant::now() + patience;
-        loop {
-            let frame = tokio::time::timeout_at(deadline, self.read())
-                .await
-                .unwrap_or_else(|_| panic!("nothing wanted arrived within {patience:?}"));
-            if wanted(&frame) {
-                return frame;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
 }

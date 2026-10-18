@@ -19,7 +19,7 @@ async fn workspace_reach_keeps_another_projects_env_out_of_the_tools() {
     let secret = other.join(".env");
     std::fs::write(&secret, "OTHER_PROJECT_TOKEN=outside-canary").unwrap();
     std::os::unix::fs::symlink("../other-project/.env", workspace.join("escape")).unwrap();
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let credential = client
         .call(
             "credential.custom_save",

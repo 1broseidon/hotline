@@ -1,8 +1,8 @@
 ---
 id: task-131
 title: "P2-22a (C): `Room` constructors:"
-column: in-progress
-position: 20
+column: review
+position: 3
 priority: high
 tags:
   - phase2
@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:51.759Z"
 relatedFiles:
   - crates/hotline-core/src/session.rs
   - crates/hotline-core/src/session/start.rs
-updatedAt: "2026-10-18T04:49:50.592Z"
+updatedAt: "2026-10-18T05:21:07.551Z"
 contract:
   status: in_progress
   validation:
@@ -39,6 +39,8 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T04:49:43.725Z"
+    ended: "2026-10-18T05:21:07.004Z"
+    outcome: review
 assignee: claude
 ---
 
@@ -53,3 +55,6 @@ Phase 2 group C (Move-only renames and splits), plan row 22a in docs/audits/0.40
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T05:21:07.551Z: Not landed: Another landing in this repository is still going (pid 35147 on Georges-Mac-Studio, since 2026-10-18T05:15:15.705Z): nothing was merged, try again once it is done

@@ -13,7 +13,7 @@ relatedFiles:
   - Cargo.toml
   - crates/hotline-core/Cargo.toml
   - Cargo.lock
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:14:40.723Z"
 contract:
   status: ready
   validation:
@@ -25,6 +25,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-117
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:14:40.587Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

@@ -1,7 +1,7 @@
 ---
 id: task-133
 title: "P2-24 (C): `wire/tests.rs`"
-column: in-progress
+column: review
 position: 22
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:40:52.807Z"
 relatedFiles:
   - crates/hotline-core/src/wire/tests.rs
   - crates/hotline-core/src/wire/tests/
-updatedAt: "2026-10-18T03:50:52.207Z"
+updatedAt: "2026-10-18T04:03:01.563Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - test $(wc -l < crates/hotline-core/src/wire/tests.rs) -le 2000
@@ -25,6 +25,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T03:50:52.207Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T04:03:01.563Z"
+    duration: 729
 dependsOn:
   - task-128
 dispatch:

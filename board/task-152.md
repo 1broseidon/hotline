@@ -1,7 +1,7 @@
 ---
 id: task-152
 title: "P2-43 (D): Paused clock"
-column: todo
+column: in-progress
 position: 41
 priority: high
 tags:
@@ -15,9 +15,9 @@ relatedFiles:
   - Cargo.lock
   - crates/hotline-core/src/remote/tests/viewer_token.rs
   - crates/hotline-core/src/voice/speech/xai/tests.rs
-updatedAt: "2026-10-18T05:21:29.942Z"
+updatedAt: "2026-10-18T05:22:15.658Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - grep -q 'test-util' crates/hotline-core/Cargo.toml
@@ -25,6 +25,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T05:22:15.658Z"
+    reworkCount: 0
 dependsOn:
   - task-146
 dispatch:

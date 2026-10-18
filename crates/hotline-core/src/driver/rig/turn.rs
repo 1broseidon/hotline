@@ -577,23 +577,61 @@ impl Activity<'_> {
         })
     }
 
-    /// A failed round, started again when [`recover`] says it may be, or the
+    /// Whether a failed round may start again. Retrying happens before
+    /// accepting another response, so no tool dispatch is replayed.
+    #[allow(clippy::result_large_err)]
+    async fn recover(&mut self, failure: &Failure, revision: u64) -> Result<bool, Failure> {
+        if self.turn.stop.raised.load(Ordering::SeqCst) {
+            return Ok(true);
+        }
+        if let Some(capability) = &self.turn.capability {
+            capability.check()?;
+        }
+        if matches!(failure.kind, Kind::Replay | Kind::Context) && !self.repaired {
+            self.history.append(&mut self.job_results);
+            self.history = recovery::fresh(&self.history, &self.turn.output_dir);
+            *self.turn.history.lock().await = self.history.clone();
+            self.repaired = true;
+            if failure.kind == Kind::Context {
+                let (boundary, ready) = super::super::ChapterBoundary::new();
+                send(self.sender, Update::Chapter { boundary }).await;
+                tokio::select! {
+                    biased;
+                    () = self.turn.stop.raised() => return Ok(true),
+                    note = ready => if let Ok(Some(note)) = note { self.history.insert(0, Message::user(note)); },
+                }
+                *self.turn.history.lock().await = self.history.clone();
+            }
+            let reason = if failure.kind == Kind::Context {
+                "The provider's context limit was reached."
+            } else {
+                "The provider refused its saved response state."
+            };
+            eprintln!("[hotline agent] {reason} Continuing fresh from committed execution facts.");
+            return Ok(true);
+        }
+        let Some(delay) = failure.retry_delay(self.retries) else {
+            return Ok(false);
+        };
+        self.retries += 1;
+        let deadline = tokio::time::sleep(delay);
+        tokio::pin!(deadline);
+        loop {
+            tokio::select! {
+                biased;
+                () = self.turn.stop.raised() => return Ok(true),
+                () = self.turn.steering.changed(revision) => return Ok(true),
+                job = self.jobs.next(), if self.jobs.active() => self.job_results.push(publish_job(self.turn, self.sender, job?).await),
+                () = &mut deadline => return Ok(true),
+            }
+        }
+    }
+
+    /// A failed round, started again when [`Self::recover`] says it may be, or the
     /// failure that ends the activity.
     #[allow(clippy::result_large_err)]
     async fn retry(&mut self, failure: Failure, revision: u64) -> Result<Streamed, Failure> {
-        if recover(
-            &failure,
-            &mut self.retries,
-            &mut self.repaired,
-            &mut self.history,
-            self.turn,
-            self.sender,
-            self.jobs,
-            &mut self.job_results,
-            revision,
-        )
-        .await?
-        {
+        if self.recover(&failure, revision).await? {
             if matches!(failure.kind, Kind::Context | Kind::Replay) {
                 self.context_tokens = 0;
             }
@@ -782,65 +820,6 @@ async fn keep_spoken(history: &mut Vec<Message>, spoken: &mut String, turn: &Tur
     history.push(Message::assistant(text));
     history.push(Message::user(KEPT));
     *turn.history.lock().await = history.clone();
-}
-
-// Retrying happens before accepting another response, so no tool dispatch is replayed.
-#[allow(clippy::too_many_arguments, clippy::result_large_err)]
-async fn recover(
-    failure: &Failure,
-    retries: &mut u32,
-    repaired: &mut bool,
-    history: &mut Vec<Message>,
-    turn: &Turn,
-    sender: &mpsc::Sender<Update>,
-    jobs: &mut Jobs,
-    results: &mut Vec<Message>,
-    revision: u64,
-) -> Result<bool, Failure> {
-    if turn.stop.raised.load(Ordering::SeqCst) {
-        return Ok(true);
-    }
-    if let Some(capability) = &turn.capability {
-        capability.check()?;
-    }
-    if matches!(failure.kind, Kind::Replay | Kind::Context) && !*repaired {
-        history.append(results);
-        *history = recovery::fresh(history, &turn.output_dir);
-        *turn.history.lock().await = history.clone();
-        *repaired = true;
-        if failure.kind == Kind::Context {
-            let (boundary, ready) = super::super::ChapterBoundary::new();
-            send(sender, Update::Chapter { boundary }).await;
-            tokio::select! {
-                biased;
-                () = turn.stop.raised() => return Ok(true),
-                note = ready => if let Ok(Some(note)) = note { history.insert(0, Message::user(note)); },
-            }
-            *turn.history.lock().await = history.clone();
-        }
-        let reason = if failure.kind == Kind::Context {
-            "The provider's context limit was reached."
-        } else {
-            "The provider refused its saved response state."
-        };
-        eprintln!("[hotline agent] {reason} Continuing fresh from committed execution facts.");
-        return Ok(true);
-    }
-    let Some(delay) = failure.retry_delay(*retries) else {
-        return Ok(false);
-    };
-    *retries += 1;
-    let deadline = tokio::time::sleep(delay);
-    tokio::pin!(deadline);
-    loop {
-        tokio::select! {
-            biased;
-            () = turn.stop.raised() => return Ok(true),
-            () = turn.steering.changed(revision) => return Ok(true),
-            job = jobs.next(), if jobs.active() => results.push(publish_job(turn, sender, job?).await),
-            () = &mut deadline => return Ok(true),
-        }
-    }
 }
 
 fn job_result(result: Result<Value, String>) -> ToolResult {

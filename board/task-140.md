@@ -1,7 +1,7 @@
 ---
 id: task-140
 title: "P2-31 (C): The six other over-budget files"
-column: review
+column: in-progress
 position: 2
 priority: high
 tags:
@@ -16,7 +16,7 @@ relatedFiles:
   - crates/hotline-core/src/computer.rs
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/driver/rig/turn.rs
-updatedAt: "2026-10-18T05:51:59.780Z"
+updatedAt: "2026-10-18T05:52:23.903Z"
 contract:
   status: in_progress
   validation:

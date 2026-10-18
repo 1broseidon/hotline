@@ -14,7 +14,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/wire/
   - crates/hotline-core/src/remote/bridge.rs
-updatedAt: "2026-10-18T09:58:17.380Z"
+updatedAt: "2026-10-18T09:58:23.698Z"
 contract:
   status: delivered
   validation:
@@ -37,12 +37,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:12.125Z"
   until: done
-  tries: 1
+  tries: 2
   claim:
     host: Georges-Mac-Studio
     runner: cli
     pid: 35147
-    at: "2026-10-18T09:48:55.338Z"
+    at: "2026-10-18T09:58:23.698Z"
 assignee: claude
 ---
 
@@ -60,3 +60,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T09:58:16.901Z: [claude] All 17 result_large_err allows are now #[expect(…, reason)], up from the plan's 13 because the task-31 split added turn.rs sites: 9 rig Failure sites (rig.rs run; turn.rs reserve, run, run_inner, stream_response, recover, retry, dispatch_calls, execute) and 8 tungstenite-callback sites (wire/door.rs, remote/bridge.rs, remote/tests.rs, voice realtime socket tests ×3, xai tests ×2). Every expectation fires under clippy --all-targets. Failure is not boxed (C6). No allow(clippy::result_large_err) is left for task 52's lint table. make check and make precheck pass. Commit 6ebd702a is on dispatch/task-151.
+- 2026-10-18T09:58:23.181Z: Landing sent back (1 of 1): with release/0.40.0 brought in, `test $(git grep -n 'expect(clippy::result_large_err' -- crates | wc -l) -ge 13` failed: exit 1. Fix it on this branch, commit, and run the checks again.

@@ -1,7 +1,7 @@
 ---
 id: task-150
 title: "P2-41 (D): Argument groups"
-column: todo
+column: in-progress
 position: 39
 priority: high
 tags:
@@ -17,9 +17,9 @@ relatedFiles:
   - crates/hotline-core/src/session/exchanges.rs
   - crates/hotline-core/src/remote.rs
   - crates/hotline-core/src/driver/rig/turn.rs
-updatedAt: "2026-10-18T09:32:58.086Z"
+updatedAt: "2026-10-18T09:33:09.304Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - "! git grep -n 'too_many_arguments' -- crates"
@@ -28,6 +28,8 @@ contract:
       - make verify
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T09:33:09.304Z"
+    reworkCount: 0
 dependsOn:
   - task-149
 dispatch:

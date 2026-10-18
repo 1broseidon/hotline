@@ -951,7 +951,7 @@ fn request(context: &Context, text: &str) -> String {
     format!(
         "{}\nSpoken request: {}",
         untrusted(&json!({"roster":roster,"recentConversationNewestFirst":history})),
-        serde_json::to_string(text).expect("text")
+        serde_json::to_string(text).expect("a string always serializes")
     )
 }
 

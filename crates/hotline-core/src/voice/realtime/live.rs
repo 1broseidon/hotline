@@ -819,7 +819,7 @@ impl Driver {
                 read = sideband.next() => Next::Read(read),
                 () = failed.notified() => Next::PeerFailed,
                 () = sleep_until(self.renew_at), if !renewing => Next::Renew,
-                placed = async { self.placing.as_mut().expect("guarded").await }, if self.placing.is_some() => {
+                placed = async { self.placing.as_mut().expect("the branch runs only while placing is Some").await }, if self.placing.is_some() => {
                     self.placing = None;
                     Next::Placed(placed.unwrap_or(Err(SpeechError::Cancelled)))
                 }

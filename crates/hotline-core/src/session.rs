@@ -2643,7 +2643,9 @@ impl Room {
     /// Hands the driver a line: on the turn in flight if there is one, on a
     /// new turn if there is not.
     fn dispatch(self: &Arc<Self>, session: Arc<Session>, wire: Wired) {
-        let working = self.lease().expect("dispatch caller holds a work lease");
+        let working = self
+            .lease()
+            .expect("a dispatch caller holds a read lease, so restart cannot hold the write lease");
         // Joining the queue and claiming an idle driver are one decision under
         // one lock, so a line can never be filed behind a turn that has
         // already stopped coming back for it.

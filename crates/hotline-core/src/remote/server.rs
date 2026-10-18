@@ -47,7 +47,7 @@ fn response(status: StatusCode, value: Value) -> Response<Full<Bytes>> {
         .header("content-type", "application/json")
         .header("cache-control", "no-store")
         .body(Full::new(Bytes::from(value.to_string())))
-        .unwrap()
+        .expect("a typed status and fixed valid headers make a valid response")
 }
 fn error(status: StatusCode, code: &str) -> Response<Full<Bytes>> {
     response(status, json!({"error": code}))
@@ -477,7 +477,8 @@ pub(super) async fn sealed_session<S>(
         }
         Purpose::Relay => {
             if let Some(desk) = desk {
-                super::relay::host(remote, socket, phone, desk, seat.take().unwrap()).await;
+                let seat = seat.take().expect("the seat is taken once, here");
+                super::relay::host(remote, socket, phone, desk, seat).await;
             }
         }
         Purpose::RelayAccept | Purpose::Link => {}

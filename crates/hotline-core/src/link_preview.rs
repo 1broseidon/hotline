@@ -190,11 +190,13 @@ fn public(ip: IpAddr) -> bool {
     }
 }
 
-static META: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<meta\b[^>]*>").unwrap());
+static META: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?is)<meta\b[^>]*>").expect("a fixed pattern"));
 static TITLE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?is)<title[^>]*>(.*?)</title>").unwrap());
+    LazyLock::new(|| Regex::new(r"(?is)<title[^>]*>(.*?)</title>").expect("a fixed pattern"));
 static ATTR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?is)\b([a-z:_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#).unwrap()
+    Regex::new(r#"(?is)\b([a-z:_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#)
+        .expect("a fixed pattern")
 });
 
 /// The value of each `<meta>` in the head, by property or name, first one winning.
@@ -225,8 +227,9 @@ fn metas(head: &str) -> HashMap<String, String> {
 }
 
 fn decode(value: &str) -> String {
-    static ENTITY: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?i)&(#x[0-9a-f]+|#\d+|[a-z]+\d*);").unwrap());
+    static ENTITY: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)&(#x[0-9a-f]+|#\d+|[a-z]+\d*);").expect("a fixed pattern")
+    });
     let decoded = ENTITY.replace_all(value, |caps: &regex::Captures| {
         let name = caps[1].to_ascii_lowercase();
         let named = match name.as_str() {

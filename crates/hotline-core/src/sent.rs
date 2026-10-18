@@ -326,7 +326,9 @@ fn retain_user_image(
         return Err(invalid());
     }
     let path = user_image_path(root, persona_id, event_id, index).ok_or_else(invalid)?;
-    let dir = path.parent().unwrap();
+    let dir = path
+        .parent()
+        .expect("an image's path is joined under its message's directory");
     fs::create_dir_all(dir)?;
     // Publish only complete copies, and never replace one already published.
     let mut copy = tempfile::NamedTempFile::new_in(dir)?;

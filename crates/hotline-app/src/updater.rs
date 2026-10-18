@@ -296,9 +296,10 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
         status.error = None;
     });
     let result: Result<Option<Update>, Problem> = async {
+        let target = state.target.as_deref().ok_or("Unsupported installation.")?;
         let updater = app
             .updater_builder()
-            .target(state.target.as_ref().ok_or("Unsupported installation.")?)
+            .target(target)
             .timeout(Duration::from_secs(30))
             .version_comparator(|current, release| {
                 newer(&current.to_string(), &release.version.to_string())
@@ -310,7 +311,7 @@ async fn check<R: Runtime>(app: &AppHandle<R>, state: &Updates) -> Result<Option
             .await
             .map_err(|error| Problem::failed(CHECK_FAILED, error))?;
         if let Some(update) = &mut found {
-            validate_update(update, state.target.as_deref().unwrap())?;
+            validate_update(update, target)?;
             update.timeout = Some(Duration::from_mins(15));
         }
         Ok(found)

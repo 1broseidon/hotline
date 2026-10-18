@@ -171,7 +171,10 @@ impl Permit {
         if !has_seat(&connections, device) {
             return false;
         }
-        let connection = connections.iter_mut().find(|c| c.id == self.id).unwrap();
+        let connection = connections
+            .iter_mut()
+            .find(|c| c.id == self.id)
+            .expect("a live permit's entry stays until its drop removes it, under this lock");
         if connection.device.is_some() {
             return false;
         }

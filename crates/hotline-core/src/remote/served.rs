@@ -94,7 +94,12 @@ impl Remote {
     }
 
     pub(super) async fn restore_served(self: &Arc<Self>) {
-        let host = self.served.as_ref().unwrap().listen.to_string();
+        let host = self
+            .served
+            .as_ref()
+            .expect("restore calls this only on a served remote")
+            .listen
+            .to_string();
         if let Err(error) = self.configure_served(true, &host).await {
             lock(&self.state).error = Some(error);
         }
@@ -156,7 +161,11 @@ impl Remote {
         enabled: bool,
         host: &str,
     ) -> Result<RemoteStatus, String> {
-        let options = self.served.as_ref().unwrap().clone();
+        let options = self
+            .served
+            .as_ref()
+            .expect("configure and restore_served call this only on a served remote")
+            .clone();
         if host != options.listen.to_string() {
             return Err("The served listen address is fixed by its startup options.".into());
         }

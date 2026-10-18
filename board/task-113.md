@@ -1,7 +1,7 @@
 ---
 id: task-113
 title: "P2-1 (A): security.md proves what it cites"
-column: in-progress
+column: review
 position: 2
 priority: high
 tags:
@@ -9,13 +9,13 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:42.496Z"
-updatedAt: "2026-10-18T00:16:08.203Z"
+updatedAt: "2026-10-18T00:27:43.945Z"
 relatedFiles:
   - docs/security.md
   - crates/hotline-core/src/session/tests.rs
   - crates/hotline-core/src/voice/mod.rs
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - "! grep -nE 'chatgpt_images_status_requires_owner_selection_without_checking_entitlement|a_computer_from_before_secrets_is_named_only_when_something_was_granted|only_the_reply_to_a_voice_handoff_gets_a_summarised_push|teammate_discovery_never_derives_public_fields_from_private_instructions' docs/security.md"
@@ -25,6 +25,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T00:16:08.203Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T00:27:43.945Z"
+    duration: 696
 dependsOn:
   - task-112
 dispatch:

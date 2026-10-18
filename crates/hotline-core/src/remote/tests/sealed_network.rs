@@ -344,7 +344,7 @@ async fn sealed_wire_rejects_plaintext_tampering_and_replay() {
             "oversize" => {
                 let _ = socket.send(Message::Binary(vec![0u8; 65536].into())).await;
             }
-            _ => unreachable!(),
+            _ => unreachable!("the loop runs only the four attacks above"),
         }
         closed(&mut socket).await;
     }

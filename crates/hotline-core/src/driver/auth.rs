@@ -348,7 +348,7 @@ mod tests {
                     "success" => attempt.input("yes\n").unwrap(),
                     "cancel" => attempt.cancel.cancel(),
                     "disconnect" => attempt.owner.cancel(),
-                    _ => unreachable!(),
+                    _ => unreachable!("the test's outcomes are success, cancel and disconnect"),
                 }
             }
             let result = tokio::time::timeout(Duration::from_secs(5), running)

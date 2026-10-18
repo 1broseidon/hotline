@@ -113,7 +113,7 @@ async fn clips_are_sent_in_sentence_order_and_sequences_cannot_replay() {
     {
         let said = event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;
         let VoiceEvent::Said { id, text: actual } = said else {
-            unreachable!()
+            unreachable!("event() waited for a Said")
         };
         assert_eq!(actual, text);
         let line = line.get_or_insert(id.clone());

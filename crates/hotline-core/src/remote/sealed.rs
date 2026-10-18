@@ -459,7 +459,7 @@ mod tests {
                 }
                 3 => ciphertext.clear(),
                 4 => ciphertext.resize(MAX_CIPHERTEXT + 1, 0),
-                _ => unreachable!(),
+                _ => unreachable!("the loop runs which over 0..5"),
             }
             let mut decoder = Decoder::new(usize::MAX);
             assert!(decoder.decode(&mut r, &ciphertext).is_err());

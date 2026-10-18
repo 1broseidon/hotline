@@ -188,7 +188,7 @@ async fn auth_failure_cancel_disconnect_and_revocation_settle_without_raw_errors
                 "cancel" => driver.auth_cancel(&id).unwrap(),
                 "disconnect" => owner.cancel(),
                 "revoke" => driver.invalidate(),
-                _ => unreachable!(),
+                _ => unreachable!("the test's cases finish by fail, cancel, disconnect or revoke"),
             }
         }
         let status = finished(&driver, &id).await;

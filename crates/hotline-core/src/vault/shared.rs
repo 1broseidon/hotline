@@ -867,7 +867,7 @@ mod tests {
             ..
         } = passkey("github.com")
         else {
-            unreachable!()
+            unreachable!("passkey() builds a passkey")
         };
         let keyless = StoredSecret::Passkey {
             rp_id,

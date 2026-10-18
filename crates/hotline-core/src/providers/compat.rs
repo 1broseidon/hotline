@@ -411,7 +411,7 @@ mod tests {
 
     fn repaired(event: Value) -> Value {
         let Value::Object(mut event) = event else {
-            unreachable!()
+            unreachable!("every test event is an object literal")
         };
         repair_event(&mut event, &mut 0, &mut BTreeSet::new());
         Value::Object(event)
@@ -471,7 +471,7 @@ mod tests {
             json!({"type":"response.output_text.delta"}),
         ] {
             let Value::Object(mut event) = event else {
-                unreachable!()
+                unreachable!("every event above is an object literal")
             };
             repair_event(&mut event, &mut next, &mut fixed);
             seen.push(event["sequence_number"].clone());

@@ -7,8 +7,12 @@ priority: low
 tags:
   - remote
 createdAt: "2026-10-14T19:29:48.338Z"
-updatedAt: "2026-10-18T23:40:47.707Z"
+updatedAt: "2026-10-18T23:53:19.958Z"
 parentId: epic-14
+relatedFiles:
+  - crates/hotline-core/src/wire/socket.rs
+  - crates/hotline-core/src/wire/phone.rs
+  - crates/hotline-core/src/remote/v2.rs
 ---
 
 ## Description

@@ -32,6 +32,9 @@ pub(crate) enum Kind {
     Unknown,
 }
 
+/// The whole structured diagnosis of a failed turn. It is large, and the rig
+/// driver returns it by value anyway: a turn returns it at most once, so
+/// boxing it buys nothing, and each `result_large_err` there says so.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Failure {

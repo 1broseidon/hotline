@@ -26,10 +26,7 @@ async fn listen() -> (TcpListener, String) {
 }
 
 // Tungstenite requires its HTTP response as this callback's error type.
-#[expect(
-    clippy::result_large_err,
-    reason = "tungstenite fixes the handshake callback's error type"
-)]
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 async fn accept(listener: &TcpListener) -> (Fixture, Seen) {
     let (socket, _) = listener.accept().await.unwrap();
     let seen = Arc::new(Mutex::new(Seen::default()));
@@ -342,10 +339,7 @@ async fn a_rejected_config_fails_open_without_the_providers_words() {
 }
 
 // Tungstenite requires its HTTP response as this callback's error type.
-#[expect(
-    clippy::result_large_err,
-    reason = "tungstenite fixes the handshake callback's error type"
-)]
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 #[tokio::test]
 async fn a_refused_handshake_is_a_status_without_its_body() {
     let (listener, url) = listen().await;
@@ -487,10 +481,7 @@ async fn a_lost_provider_is_retried_then_reported_unreachable() {
 }
 
 // Tungstenite requires its HTTP response as this callback's error type.
-#[expect(
-    clippy::result_large_err,
-    reason = "tungstenite fixes the handshake callback's error type"
-)]
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 #[tokio::test]
 async fn the_grok_login_refreshes_once_when_the_handshake_rejects_it() {
     let dir = tempfile::tempdir().unwrap();

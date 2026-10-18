@@ -239,10 +239,7 @@ fn authorize(
     })
 }
 
-#[expect(
-    clippy::result_large_err,
-    reason = "tungstenite fixes the handshake callback's error type"
-)]
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 async fn serve(
     stream: TcpStream,
     client: Client,

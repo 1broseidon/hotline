@@ -1,7 +1,7 @@
 ---
 id: task-171
 title: "P2-56 (F): The license gate"
-column: todo
+column: in-progress
 position: 60
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - deny.toml
   - Makefile
   - THIRD-PARTY-NOTICES.md
-updatedAt: "2026-10-18T05:12:12.571Z"
+updatedAt: "2026-10-18T05:12:20.604Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - grep -q '^\[licenses\]' deny.toml
@@ -23,6 +23,8 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T05:12:20.604Z"
+    reworkCount: 0
 dependsOn:
   - task-170
 dispatch:

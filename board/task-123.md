@@ -1,7 +1,7 @@
 ---
 id: task-123
 title: "P2-11 (B): Dependency surface"
-column: todo
+column: in-progress
 position: 12
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - Cargo.toml
   - crates/hotline-core/Cargo.toml
   - Cargo.lock
-updatedAt: "2026-10-18T01:38:37.725Z"
+updatedAt: "2026-10-18T01:39:22.104Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - "! git grep -n 'Win32_System_Memory' -- crates/hotline-core/Cargo.toml"
@@ -23,6 +23,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T01:39:22.104Z"
+    reworkCount: 0
 dependsOn:
   - task-117
 dispatch:

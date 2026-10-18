@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/remote/relay.rs
   - crates/hotline-core/src/remote/bridge.rs
   - crates/hotline-app/src/transfer.rs
-updatedAt: "2026-10-18T00:15:05.528Z"
+updatedAt: "2026-10-18T04:38:57.284Z"
 contract:
   status: ready
   validation:
@@ -33,7 +33,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:05.391Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T04:38:57.284Z"
 assignee: claude
 ---
 

@@ -1,7 +1,7 @@
 ---
 id: task-157
 title: "P2-48 (D): Window fixes that Biome needs first"
-column: review
+column: in-progress
 position: 0
 priority: high
 tags:
@@ -19,17 +19,17 @@ relatedFiles:
   - ui/src/stepText.ts
   - ui/src/voice/call.ts
   - ui/src/voice/dictation.ts
-updatedAt: "2026-10-18T01:31:24.773Z"
+updatedAt: "2026-10-18T01:32:06.707Z"
 contract:
-  status: delivered
+  status: in_progress
   validation:
     commands:
       - make ui-check
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-    pickedUpAt: "2026-10-18T01:18:11.261Z"
-    reworkCount: 1
+    pickedUpAt: "2026-10-18T01:32:06.707Z"
+    reworkCount: 2
     deliveredAt: "2026-10-18T01:28:56.844Z"
     duration: 646
 dependsOn:

@@ -4,6 +4,7 @@ use crate::driver::rig::Said;
 use crate::driver::{MessageKind, Update};
 use crate::mcp::server::TeammateTools;
 use crate::session::tests::{Fake, Scripted, enrol, persona, scratch};
+use crate::test_support::until;
 use crate::thread::SIDE_IDLE_MS;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -75,13 +76,17 @@ fn kinds(events: &[Value]) -> Vec<String> {
 }
 
 async fn settled(room: &Arc<Room>, side_id: &str) {
-    for _ in 0..500 {
-        if room.sides.get(side_id).is_none_or(|side| !side.working()) {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    panic!("the side thread never finished its turn");
+    until("the side thread finishes its turn", || {
+        room.sides.get(side_id).is_none_or(|side| !side.working())
+    })
+    .await;
+}
+
+/// Waits until the room's millisecond clock has moved on, so what happens
+/// next has a later timestamp than what happened before.
+async fn a_millisecond_passes() {
+    let before = now_ms();
+    until("the clock moves on", || now_ms() > before).await;
 }
 
 /// A handoff is read along: the person cannot type into it, live or
@@ -236,12 +241,10 @@ async fn the_person_can_talk_in_a_side_thread_and_what_they_say_queues_behind_a_
         .await
         .unwrap();
     gate.add_permits(10);
-    for _ in 0..500 {
-        if agents.prompts().len() == 2 && !room.sides("ada")[0].working {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    until("the second prompt is heard and answered", || {
+        agents.prompts().len() == 2 && !room.sides("ada")[0].working
+    })
+    .await;
     let stream = side_stream(&room, &id);
     let said: Vec<&str> = stream
         .iter()
@@ -367,12 +370,7 @@ async fn the_teammate_can_say_it_is_done_and_its_last_words_land_first() {
         .await
         .unwrap();
     assert!(said.contains("Archiving"), "{said}");
-    for _ in 0..500 {
-        if room.sides("ada").is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    until("ada has no side threads", || room.sides("ada").is_empty()).await;
     assert!(room.sides("ada").is_empty());
     let stream = side_stream(&room, &id);
     assert!(stream.iter().any(|event| event["text"] == "All done."));
@@ -420,16 +418,16 @@ async fn the_limit_counts_running_agents_and_lets_go_of_the_idlest_for_a_new_one
     let room = room("side-limit", agents);
     let first = room.start_side("ada", "One").await.unwrap();
     settled(&room, &first.side_id).await;
-    tokio::time::sleep(Duration::from_millis(5)).await;
+    a_millisecond_passes().await;
     let second = room.start_side("ada", "Two").await.unwrap();
     settled(&room, &second.side_id).await;
-    tokio::time::sleep(Duration::from_millis(5)).await;
+    a_millisecond_passes().await;
     let third = room.start_side("ada", "Three").await.unwrap();
     settled(&room, &third.side_id).await;
     assert_eq!(room.sides("ada").len(), MAX_LIVE);
 
     // One more parks the one that has waited longest; nothing is lost.
-    tokio::time::sleep(Duration::from_millis(5)).await;
+    a_millisecond_passes().await;
     let fourth = room.start_side("ada", "Four").await.unwrap();
     settled(&room, &fourth.side_id).await;
     let live: Vec<String> = room
@@ -776,12 +774,10 @@ async fn a_closing_note_is_written_on_archive_and_found_by_search() {
     let id = summary.side_id;
     settled(&room, &id).await;
     room.archive_side(&id, SideEnd::Person, None).unwrap();
-    for _ in 0..500 {
-        if tape(&room)[0].get("note").is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    until("the tape's marker has its note", || {
+        tape(&room)[0].get("note").is_some()
+    })
+    .await;
     let marker = tape(&room)[0].clone();
     let note = marker["note"].as_str().unwrap();
     assert!(note.contains("Goal: Get the crane moving"), "{note}");
@@ -819,12 +815,10 @@ async fn what_the_teammate_wrote_as_the_result_survives_the_note() {
         Some("Badge fixed.".into()),
     )
     .unwrap();
-    for _ in 0..500 {
-        if tape(&room)[0].get("note").is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    until("the tape's marker has its note", || {
+        tape(&room)[0].get("note").is_some()
+    })
+    .await;
     assert_eq!(tape(&room)[0]["result"], "Badge fixed.");
     assert_eq!(tape(&room)[0]["title"], "Badge work");
 }
@@ -898,15 +892,12 @@ async fn a_permission_card_in_a_thread_is_answered_by_side_id() {
     agents.awaiting("r1");
     let room = room("side-permission", agents);
     let summary = room.start_side("ada", "Task").await.unwrap();
-    for _ in 0..500 {
-        if side_stream(&room, &summary.side_id)
+    until("a permission card on the side's stream", || {
+        side_stream(&room, &summary.side_id)
             .iter()
             .any(|event| event["kind"] == "permission")
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    })
+    .await;
     assert!(
         room.side_threads("ada")[0].waiting,
         "the list says it is stopped on a card"
@@ -936,13 +927,10 @@ async fn a_permission_card_in_a_thread_is_answered_by_side_id() {
 
 /// Waits until the room's agents have heard `count` lines.
 async fn heard(agents: &Fake, count: usize) {
-    for _ in 0..500 {
-        if agents.prompts().len() >= count {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    panic!("the agent never heard {count} lines");
+    until(&format!("the agent hears {count} lines"), || {
+        agents.prompts().len() >= count
+    })
+    .await;
 }
 
 #[tokio::test]
@@ -991,12 +979,7 @@ async fn an_agent_that_cannot_start_says_so_in_the_thread_and_the_thread_is_put_
         Fake::new(Scripted::new(vec![turn()]).failing_to_start("the harness is not installed"));
     let room = room("side-failed-start", agents.clone());
     let summary = room.start_side("ada", "Task").await.unwrap();
-    for _ in 0..500 {
-        if room.sides("ada").is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    until("ada has no side threads", || room.sides("ada").is_empty()).await;
     assert!(room.sides("ada").is_empty(), "no agent is left behind");
     assert!(agents.prompts().is_empty());
 
@@ -1060,7 +1043,7 @@ async fn cancelling_stops_the_turn_and_keeps_the_thread() {
     let agents = Fake::new(script);
     let room = room("side-cancel", agents.clone());
     let summary = room.start_side("ada", "Task").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(30)).await;
+    until("the turn starts", || agents.prompts().len() == 1).await;
     room.cancel_side(&summary.side_id).unwrap();
     settled(&room, &summary.side_id).await;
     assert_eq!(room.sides("ada").len(), 1);

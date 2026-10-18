@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:40:44.032Z"
 relatedFiles:
   - crates/hotline-app/Cargo.toml
   - Cargo.lock
-updatedAt: "2026-10-18T01:11:02.107Z"
+updatedAt: "2026-10-18T01:18:31.604Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - make precheck
@@ -23,6 +23,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T01:09:20.398Z"
     reworkCount: 1
+    deliveredAt: "2026-10-18T01:18:31.604Z"
+    duration: 551
 dependsOn:
   - task-115
 dispatch:

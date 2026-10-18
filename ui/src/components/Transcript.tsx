@@ -237,6 +237,7 @@ export function Transcript({
 	const loadEarlierRef = useRef(loadEarlier);
 	loadEarlierRef.current = loadEarlier;
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the scroller mounts and unmounts with empty, and the listeners move with it.
 	useEffect(() => {
 		const el = scroller.current;
 		if (!el) return;

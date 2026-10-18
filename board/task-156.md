@@ -1,7 +1,7 @@
 ---
 id: task-156
 title: "P2-47 (D): Updater and settings errors use Refusal details"
-column: todo
+column: in-progress
 position: 45
 priority: high
 tags:
@@ -17,9 +17,9 @@ relatedFiles:
   - ui/src/components/Secrets.tsx
   - ui/src/components/ErrorCard.tsx
   - ui/src/wire.ts
-updatedAt: "2026-10-18T02:40:38.014Z"
+updatedAt: "2026-10-18T02:40:55.650Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make ui-check
@@ -27,6 +27,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T02:40:55.650Z"
+    reworkCount: 0
 dependsOn:
   - task-126
   - task-157

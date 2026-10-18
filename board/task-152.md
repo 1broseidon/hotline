@@ -55,3 +55,6 @@ Phase 2 group D (Fixes in the moved files), plan row 43 in docs/audits/0.40/READ
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T05:37:21.374Z: [claude] Done on dispatch/task-152 (6c22df76). tokio test-util is now a hotline-core dev-dependency. The viewer-token expiry reads tokio::time::Instant (bridge.rs) so the paused clock moves it. Neither test uses start_paused, because a clock paused from the start let time jump during real loopback reads: the xAI test failed 2 runs in 5 with connect finishing at virtual 10 s. Instead, viewer_token calls pause() just before its 30 s sleep and resume() right after it. The xAI deadline test pauses only after the server gets a pong from the client's readiness wait, so the connection is up when it pauses (20/20 runs pass). The core lib binary went from 36 s to about 16 s, not below 10 s. Its floor is the 11 s relay revocation test (real kernel buffer, kept on purpose by the audit), then pause 8 s, admission eviction 6.3 s, rig 'every line' 6.2 s, and the 5.2-5.5 s pre-auth/recovery expiry tests. Those are the next candidates if someone wants the binary faster. make check and make precheck pass.

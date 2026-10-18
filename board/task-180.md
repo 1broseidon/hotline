@@ -11,7 +11,7 @@ tags:
   - bug
 createdAt: "2026-10-18T21:59:36.514Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T23:53:55.552Z"
+updatedAt: "2026-10-18T23:54:15.052Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/session.rs
@@ -41,6 +41,14 @@ contract:
     - A tool change follows docs/security.md
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-18T23:54:14.920Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

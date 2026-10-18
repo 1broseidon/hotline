@@ -1,7 +1,7 @@
 ---
 id: task-148
 title: "P2-39 (D): Lint autofix slice"
-column: in-progress
+column: review
 position: 37
 priority: high
 tags:
@@ -15,9 +15,9 @@ relatedFiles:
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
   - crates/hotline-cli/tests/
-updatedAt: "2026-10-18T07:18:24.603Z"
+updatedAt: "2026-10-18T08:16:18.260Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - make precheck
@@ -26,6 +26,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T07:18:24.603Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T08:16:18.260Z"
+    duration: 3474
 dependsOn:
   - task-129
   - task-131

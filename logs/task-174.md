@@ -28,7 +28,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-18T00:38:51.243Z"
     duration: 357
-updatedAt: "2026-10-18T00:46:12.272Z"
+updatedAt: "2026-10-18T00:46:59.010Z"
 dependsOn:
   - task-122
 dispatch:
@@ -43,6 +43,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-18T00:32:29.166Z"
+    ended: "2026-10-18T00:46:59.010Z"
+    outcome: review
 assignee: claude
 completedAt: "2026-10-18T00:46:12.272Z"
 ---

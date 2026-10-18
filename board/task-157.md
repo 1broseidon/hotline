@@ -19,7 +19,7 @@ relatedFiles:
   - ui/src/stepText.ts
   - ui/src/voice/call.ts
   - ui/src/voice/dictation.ts
-updatedAt: "2026-10-18T01:18:11.261Z"
+updatedAt: "2026-10-18T01:22:32.843Z"
 contract:
   status: in_progress
   validation:
@@ -61,3 +61,6 @@ Phase 2 group D (Fixes in the moved files), plan row 48 in docs/audits/0.40/READ
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T01:22:32.843Z: The claim on task-157 (desktop on Georges-Mac-Studio, pid 50333) was not given back as review: task-157 is claimed by cli (pid 59932) on Georges-Mac-Studio

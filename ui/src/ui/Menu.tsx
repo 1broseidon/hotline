@@ -271,7 +271,9 @@ export function Picker({
 				aria-haspopup="menu"
 				aria-expanded={open}
 				disabled={disabled}
-				title={current?.name ?? text}
+				// The tooltip names the choice while the menu is shut; open, it
+				// would sit over the menu's first item and hide it.
+				title={open ? undefined : (current?.name ?? text)}
 				onClick={() => setOpen((was) => !was)}
 			>
 				<span className="picker-label" style={current === undefined && value === "" ? { color: "var(--ink-3)" } : undefined}>
@@ -311,7 +313,7 @@ export function MenuButton({
 				type="button"
 				className={className}
 				aria-label={label}
-				title={title ?? label}
+				title={open ? undefined : (title ?? label)}
 				aria-haspopup="menu"
 				aria-expanded={open}
 				onClick={() => setOpen((was) => !was)}

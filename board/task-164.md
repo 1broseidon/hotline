@@ -1,7 +1,7 @@
 ---
 id: task-164
 title: "P2-D-4 (E): Present-tense wording and what `make check` runs"
-column: in-progress
+column: review
 position: 53
 priority: high
 tags:
@@ -15,9 +15,9 @@ relatedFiles:
   - docs/design.md
   - docs/development.md
   - AGENTS.md
-updatedAt: "2026-10-18T02:56:13.058Z"
+updatedAt: "2026-10-18T03:02:23.900Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - grep -q HOTLINE_EXTRA_DESKS docs/development.md
@@ -27,6 +27,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T02:56:13.058Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T03:02:23.900Z"
+    duration: 371
 dependsOn:
   - task-121
   - task-126

@@ -1,8 +1,8 @@
 ---
 id: task-89
 title: "macOS shell sandbox: /usr/bin developer shims (python3, git, make) may hang when xcode-select points at Xcode"
-column: backlog
-position: 43
+column: todo
+position: 6
 priority: medium
 tags:
   - sandbox
@@ -10,7 +10,7 @@ tags:
   - shell
 createdAt: "2026-10-16T22:26:28.277Z"
 parentId: epic-14
-updatedAt: "2026-10-18T23:40:51.332Z"
+updatedAt: "2026-10-18T23:40:51.846Z"
 ---
 
 ## Description

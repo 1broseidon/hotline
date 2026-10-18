@@ -1,7 +1,7 @@
 ---
 id: task-127
 title: "P2-15 (C): One test-file naming style"
-column: in-progress
+column: review
 position: 16
 priority: high
 tags:
@@ -14,9 +14,9 @@ relatedFiles:
   - crates/hotline-core/src/imagegen/chatgpt_tests.rs
   - crates/hotline-core/src/driver/acp/auth_tests.rs
   - crates/hotline-core/src/remote/tests/
-updatedAt: "2026-10-18T02:24:00.165Z"
+updatedAt: "2026-10-18T02:39:56.489Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - "! git ls-files crates | grep -E '_tests\\.rs$'"
@@ -28,6 +28,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T02:24:00.165Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T02:39:56.489Z"
+    duration: 956
 dependsOn:
   - task-126
 dispatch:

@@ -950,7 +950,7 @@ it lets a colleague use another's tools.
   with the reach the teammate has now, not the reach it had when it failed.
 - **Tests:** `session/tests.rs`
   `a_failed_turn_is_retried_on_the_same_line_without_writing_it_again`,
-  `driver/rig.rs`
+  `driver/rig/tests.rs`
   `a_failed_turn_keeps_the_users_line_so_a_retry_still_has_the_question`, and
   `wire/tests.rs` `the_phone_seat_may_try_a_failed_turn_again`.
 - **Residual risk:** a failed turn may already have run tools before it

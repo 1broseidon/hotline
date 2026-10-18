@@ -75,7 +75,7 @@ async fn a_free_call_is_never_ended_by_a_spent_budget() {
 #[tokio::test]
 async fn a_paid_call_is_refused_naming_the_budget_that_is_spent() {
     let fake = Arc::new(Fake::default());
-    let (_root, desk, calls) = desk(with_fake(fake.clone()));
+    let (_root, desk, calls) = desk(with_fake(fake));
     spending(
         &desk,
         json!({"voice": {"dayUsd": 1}, "chat": {"monthUsd": 1}}),
@@ -90,9 +90,7 @@ async fn a_paid_call_is_refused_naming_the_budget_that_is_spent() {
     );
     spending(&desk, json!({"chat": {"monthUsd": 1}}));
     calls.ledger.charge(Kind::Dispatcher, 1.0);
-    let error = calls
-        .start(&Uuid::new_v4().to_string(), desk.clone())
-        .unwrap_err();
+    let error = calls.start(&Uuid::new_v4().to_string(), desk).unwrap_err();
     assert_eq!(
         error,
         "The Chat budget for this month is spent. Raise it in Settings › Budgets."
@@ -110,7 +108,7 @@ async fn free_speech_with_a_paid_assistant_is_refused_by_chat() {
     spending(&desk, json!({"chat": {"dayUsd": 0}}));
     assert!(
         calls
-            .start(&Uuid::new_v4().to_string(), desk.clone())
+            .start(&Uuid::new_v4().to_string(), desk)
             .unwrap_err()
             .starts_with("The Chat budget is set to zero")
     );

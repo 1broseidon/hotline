@@ -823,7 +823,7 @@ impl Room {
             },
         );
         if launch.fresh {
-            self.end_side(side, Ending::Close(End::Failed, Some(reason.clone())));
+            self.end_side(side, Ending::Close(End::Failed, Some(reason)));
         } else {
             self.end_side(side, Ending::Park);
         }

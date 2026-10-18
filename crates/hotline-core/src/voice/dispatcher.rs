@@ -988,7 +988,7 @@ fn tools(context: Context) -> Vec<DynamicTool> {
                 let result = context
                     .execute(command)
                     .await
-                    .map_err(|e| ToolExecutionError::other(e.to_string()))?;
+                    .map_err(ToolExecutionError::other)?;
                 Ok(ToolOutput::text(untrusted(&result)))
             })
         },

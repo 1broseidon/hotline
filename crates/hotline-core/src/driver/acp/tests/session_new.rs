@@ -330,7 +330,7 @@ fn acp_callbacks_stay_in_workspace_for_legacy_machine_personas() {
     let mut ada = persona(&root.to_string_lossy(), Vec::new());
     ada.reach = Some(Reach::Machine);
     let workspace = ChildAgent::callback_workspace(&ada, None).unwrap();
-    let allowed = ReadTextFileRequest::new(SessionId::new("s"), inside_file.clone()).limit(1);
+    let allowed = ReadTextFileRequest::new(SessionId::new("s"), inside_file).limit(1);
     assert_eq!(read_text_file(&workspace, &allowed).unwrap(), "inside");
 
     let outside_request = ReadTextFileRequest::new(SessionId::new("s"), outside_file.clone());

@@ -586,7 +586,7 @@ async fn the_call_listens_while_the_teammate_works_and_speaking_over_it_cuts_it_
     // A desk call thinks with the floor.
     let (_root, desk, calls) = desk(services());
     let id = Uuid::new_v4().to_string();
-    calls.start(&id, desk.clone()).unwrap();
+    calls.start(&id, desk).unwrap();
     calls
         .change(&id, |call| {
             call.answering = Some(1);

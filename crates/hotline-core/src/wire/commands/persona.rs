@@ -62,7 +62,7 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
     let folders = checked_folders(draft.folders, &cwd, log.root())?;
     let persona = Persona {
         node: None,
-        id: id.clone(),
+        id,
         name: given(Some(draft.name)).unwrap_or_else(|| "Untitled".to_string()),
         goal: given(draft.goal).unwrap_or_default(),
         avatar: None,

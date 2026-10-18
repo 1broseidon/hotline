@@ -1065,7 +1065,6 @@ pub(crate) fn profile(
         agent,
         model: session
             .current_model_id
-            .clone()
             .or_else(|| persona.model_id.clone()),
         effort,
         capabilities: Capabilities {

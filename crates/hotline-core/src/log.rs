@@ -859,6 +859,10 @@ mod tests {
         let log = scratch("clone");
         let mut listener = log.subscribe(&StreamId::Room);
         let event = json!({"kind": "setting", "id": "defaultBackendId", "value": "hotline"});
+        #[expect(
+            clippy::redundant_clone,
+            reason = "the test is that a clone appends to the log it was cloned from"
+        )]
         log.clone().append(&StreamId::Room, &event).unwrap();
         assert_eq!(listener.try_recv().unwrap(), event);
     }

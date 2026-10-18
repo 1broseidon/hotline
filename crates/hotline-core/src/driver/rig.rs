@@ -284,7 +284,7 @@ impl InProcess {
             escalation: Mutex::new(None),
             capability: None,
             mcp_vault: None,
-            processes: crate::session::jobs::Processes::new(output_dir.clone()),
+            processes: crate::session::jobs::Processes::new(output_dir),
         }
     }
 

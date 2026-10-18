@@ -359,7 +359,7 @@ fn start() -> Result<(), String> {
     });
     // Paired desks' bridges are local listeners, so they are up before the
     // window is and the first list it reads is already complete.
-    let desks = desks::Host::open(&root, format!("http://127.0.0.1:{port}"), token.clone());
+    let desks = desks::Host::open(&root, format!("http://127.0.0.1:{port}"), token);
     tauri::async_runtime::block_on(desks.start_all());
     let listed = desks.listed();
     let script = format!("window.__hotlineDesk = {injected};\nwindow.__hotlineDesks = {listed};");

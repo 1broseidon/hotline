@@ -159,7 +159,7 @@ impl Calls {
             self.thinking_again(id, cancel.clone());
             let this = self.clone();
             let id = id.to_string();
-            let context = Context::new(self.log.clone(), room, cancel.clone());
+            let context = Context::new(self.log.clone(), room, cancel);
             // What the person says on this call carries the app they called from.
             let client = crate::wire::commands::prompt_client();
             tokio::spawn(async move {

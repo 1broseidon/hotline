@@ -107,9 +107,7 @@ fn the_phone_seat_may_watch_and_stop_a_computer_but_not_remove_it() {
     assert!(Seat::Phone.permits(&Command::ComputerStop {
         persona_id: persona_id.clone()
     }));
-    assert!(!Seat::Phone.permits(&Command::ComputerRemove {
-        persona_id: persona_id.clone()
-    }));
+    assert!(!Seat::Phone.permits(&Command::ComputerRemove { persona_id }));
     assert!(!Seat::Phone.permits(&Command::ComputerRuntimes {}));
 }
 

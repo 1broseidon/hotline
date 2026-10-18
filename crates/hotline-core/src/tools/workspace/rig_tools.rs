@@ -28,7 +28,6 @@ impl Tool for ListDirectory {
             "List files and directories at a path. Directories end with a slash. {}",
             self.workspace.paths_reach()
         )
-        .to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -144,7 +143,6 @@ impl Tool for SearchFiles {
             "Search text files under a directory with a regular expression or literal string. Respects ignore files and returns path, line number, and matching line. {}",
             self.workspace.paths_reach()
         )
-            .to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -217,7 +215,6 @@ impl Tool for FindFiles {
             "Find files and directories by glob under a directory. Respects ignore files and does not follow directory symlinks. {}",
             self.workspace.paths_reach()
         )
-            .to_string()
     }
 
     fn parameters(&self) -> serde_json::Value {

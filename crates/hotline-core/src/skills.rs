@@ -911,7 +911,7 @@ mod tests {
         // Nothing of the person's own is a grant until it is offered, even
         // under all; the catalog says what is offered and what is wrong.
         let none = Offering {
-            gateway: gateway.clone(),
+            gateway,
             home: Some(home.clone()),
             offered: Vec::new(),
         };

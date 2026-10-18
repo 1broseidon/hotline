@@ -14,7 +14,7 @@ relatedFiles:
   - scripts/fetch-speech-engine
   - scripts/speech-engine.sha256
   - Cargo.lock
-updatedAt: "2026-10-18T01:27:41.000Z"
+updatedAt: "2026-10-18T01:27:48.754Z"
 contract:
   status: in_progress
   validation:
@@ -59,3 +59,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T01:27:03.196Z: [claude] A second session (opus, not the dispatch claim) stepped back without changing anything: at 01:26Z the claimed worker (PID 25177) was already editing this worktree and running make check. Research agrees with its approach. No sherpa-onnx-sys release after 1.13.8 exists. 1.13.7 and later need zip ^2, used only for the iOS xcframework.zip. Downgrading to 1.13.6 would bring back the Moonshine silent-audio hallucination that 1.13.8 fixed. Upstream commit 1a9d234ab9 (#4059, 2026-10-17) changes only the sys crate's zip line, from 2 to 9, so a [patch.crates-io] pin to it keeps the v1.13.8 archives and their pinned hashes.
+- 2026-10-18T01:27:48.754Z: Not landed: Claude Code is still working on task-117

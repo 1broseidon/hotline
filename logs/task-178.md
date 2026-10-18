@@ -1,8 +1,6 @@
 ---
 id: task-178
 title: Call keys appear on a fresh desk as soon as calls are ready, not after the first exchange
-column: review
-position: 0
 priority: medium
 tags:
   - voice
@@ -10,7 +8,7 @@ tags:
   - qa
 createdAt: "2026-10-18T21:49:01.284Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T21:53:14.543Z"
+updatedAt: "2026-10-18T21:53:21.084Z"
 dispatch:
   agent: claude
   model: opus
@@ -23,7 +21,10 @@ dispatch:
     runner: cli
     pid: 95396
     at: "2026-10-18T21:49:29.213Z"
+    ended: "2026-10-18T21:53:21.084Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T21:53:20.661Z"
 ---
 
 ## Description
@@ -31,3 +32,4 @@ Found in 0.40 QA (2026-10-18, Linux, fresh room, xAI SuperGrok signed in during 
 
 ## Log
 - 2026-10-18T21:53:14.188Z: [claude] Cause: the core computes voice.status fresh each time, but the window only asked it again on focus, on a voice-setting change, or when Settings › Providers called recheckVoiceSupport. Onboarding's sign-in did none of these. Fix: useVoiceSupport now also asks again on the room's modelsRevision, which goes up on every credential or models event, so a sign-in from anywhere counts. I deleted recheckVoiceSupport because it is now redundant. New wire test connecting_a_voice_provider_readies_calls_without_a_turn (tests/voice/direct.rs): adding an xAI key sends a credential event on the room, and voice.status is ready, with the Grok front, with no turn in between. make ui-check passes. Committed on dispatch/task-178 (1d07b525).
+- 2026-10-18T21:53:19.978Z: Landed on release/0.40.0

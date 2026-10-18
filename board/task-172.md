@@ -28,9 +28,17 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:33.499Z"
 dependsOn:
   - task-122
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:33.366Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

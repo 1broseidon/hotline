@@ -10,6 +10,12 @@ tags:
   - bugfix
 parentId: epic-14
 createdAt: "2026-10-18T23:40:53.687Z"
+relatedFiles:
+  - crates/hotline-core/src/driver/acp/registry.rs
+  - crates/hotline-core/src/desk.rs
+  - crates/hotline-core/src/wire/room_handle.rs
+  - crates/hotline-core/src/driver/failure.rs
+updatedAt: "2026-10-18T23:53:17.440Z"
 ---
 
 ## Description

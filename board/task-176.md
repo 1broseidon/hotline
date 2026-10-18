@@ -1,7 +1,7 @@
 ---
 id: task-176
 title: "Phase 2 holds together: precheck-full, verify, and every gate in make check"
-column: todo
+column: in-progress
 position: 65
 description: |-
   The epic's closing check, last of all, on release/0.40.0 with every other child of epic-13 landed. The epic is done when every child has landed, `make precheck-full` passes, and the gates in F are in `make check`.
@@ -28,7 +28,7 @@ relatedFiles:
 parentId: epic-13
 createdAt: "2026-10-17T22:45:36.945Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make precheck-full
@@ -36,7 +36,9 @@ contract:
       - make verify
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-updatedAt: "2026-10-18T11:19:52.038Z"
+    pickedUpAt: "2026-10-18T11:19:59.825Z"
+    reworkCount: 0
+updatedAt: "2026-10-18T11:19:59.825Z"
 dependsOn:
   - task-161
   - task-162

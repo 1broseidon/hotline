@@ -1,7 +1,7 @@
 ---
 id: task-166
 title: "P2-D-6 (E): `docs/standards.md`"
-column: in-progress
+column: review
 position: 55
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:41:10.035Z"
 relatedFiles:
   - docs/standards.md
   - AGENTS.md
-updatedAt: "2026-10-18T06:35:43.939Z"
+updatedAt: "2026-10-18T06:41:31.751Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - test -s docs/standards.md
@@ -23,6 +23,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T06:35:43.939Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T06:41:31.751Z"
+    duration: 348
 dependsOn:
   - task-165
 dispatch:

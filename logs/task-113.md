@@ -1,15 +1,13 @@
 ---
 id: task-113
 title: "P2-1 (A): security.md proves what it cites"
-column: review
-position: 2
 priority: high
 tags:
   - phase2
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:42.496Z"
-updatedAt: "2026-10-18T00:29:40.497Z"
+updatedAt: "2026-10-18T00:30:07.715Z"
 relatedFiles:
   - docs/security.md
   - crates/hotline-core/src/session/tests.rs
@@ -42,6 +40,7 @@ dispatch:
     pid: 50333
     at: "2026-10-18T00:14:36.590Z"
 assignee: claude
+completedAt: "2026-10-18T00:30:07.715Z"
 ---
 
 ## Description

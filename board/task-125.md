@@ -1,7 +1,7 @@
 ---
 id: task-125
 title: "P2-13 (B): Declare crate licenses"
-column: in-progress
+column: review
 position: 14
 priority: high
 tags:
@@ -14,9 +14,9 @@ relatedFiles:
   - crates/hotline-core/Cargo.toml
   - crates/hotline-app/Cargo.toml
   - crates/hotline-cli/Cargo.toml
-updatedAt: "2026-10-18T01:55:13.979Z"
+updatedAt: "2026-10-18T02:04:23.966Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - cargo metadata --no-deps --format-version 1 | python3 -c "import json,sys; sys.exit(0 if all(p['license'] for p in json.load(sys.stdin)['packages']) else 1)"
@@ -26,6 +26,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T01:55:13.979Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T02:04:23.966Z"
+    duration: 550
 dependsOn:
   - task-123
 dispatch:

@@ -1,8 +1,6 @@
 ---
 id: task-133
 title: "P2-24 (C): `wire/tests.rs`"
-column: review
-position: 22
 priority: high
 tags:
   - phase2
@@ -12,7 +10,7 @@ createdAt: "2026-10-17T22:40:52.807Z"
 relatedFiles:
   - crates/hotline-core/src/wire/tests.rs
   - crates/hotline-core/src/wire/tests/
-updatedAt: "2026-10-18T04:03:01.563Z"
+updatedAt: "2026-10-18T04:05:15.881Z"
 contract:
   status: delivered
   validation:
@@ -41,7 +39,10 @@ dispatch:
     runner: cli
     pid: 39764
     at: "2026-10-18T03:50:41.767Z"
+    ended: "2026-10-18T04:05:15.881Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T04:05:14.675Z"
 ---
 
 ## Description
@@ -58,3 +59,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T04:03:01.074Z: [claude] Done on dispatch/task-133 (43e3b49b): wire/tests.rs keeps the fixtures (1,040 lines), and the 126 tests sit in 15 files under wire/tests/ using structure F6's ranges (door, roster, personas, deltas, seats, files, schedules, models, settings, mobile_computer, owner_handler, capabilities, threads, windows, linked). Count checked before and after. One change from F6: the two web_search tests (6678–6806) went into settings.rs, so linked.rs holds only the linked-desk test. Two helpers that more than one topic uses moved up into the fixtures: hello_threads2 and remote_control_answer. The only edit that isn't a pure move: schedules.rs calls `crate::wire::schedules::view`, because the topic module's own name hides `schedules::`. contract.ts is unchanged; make check and make precheck pass. For 37 and 45: the test plumbing they touch is now in wire/tests.rs plus the topic files. Nothing is left unwired.
+- 2026-10-18T04:05:13.319Z: Landed on release/0.40.0

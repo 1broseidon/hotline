@@ -54,3 +54,6 @@ Phase 2 group B (Delete dead code), plan row 13 in docs/audits/0.40/README.md on
 - Size: XS
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T02:04:23.649Z: [claude] Done on dispatch/task-125 (448c3f90): `license = "MIT OR Apache-2.0"` in [workspace.package] (matches LICENSE-MIT/LICENSE-APACHE and the README), `license.workspace = true` in core, app and cli right after edition. cargo metadata shows all three licensed; lockfile untouched; make check and make precheck (7/7) pass. For row 52: the lints/rust-version lines go in the same [workspace.package] section and each crate's [package], so expect a trivial adjacent-line conflict. For row 56: crates are no longer unlicensed, so cargo-deny's allow list only needs to cover registry crates. Nothing left unwired.

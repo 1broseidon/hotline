@@ -285,7 +285,7 @@ pub trait Dispatcher: Send + Sync {
         output: mpsc::Sender<String>,
     ) -> Result<(), String> {
         let answer = self.answer(context, text, ledger).await?;
-        for sentence in super::sentences(&answer) {
+        for sentence in super::synthesis::sentences(&answer) {
             output
                 .send(sentence)
                 .await
@@ -387,7 +387,7 @@ impl ProviderDispatcher {
                 return Err("The dispatcher revised its answer; please repeat the request.".into());
             }
             completed |= matches!(item, MultiTurnStreamItem::FinalResponse(_));
-            for sentence in super::take_sentences(&mut pending, finish) {
+            for sentence in super::synthesis::take_sentences(&mut pending, finish) {
                 output
                     .send(sentence)
                     .await

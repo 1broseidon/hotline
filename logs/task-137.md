@@ -1,8 +1,6 @@
 ---
 id: task-137
 title: "P2-28 (C): `voice/mod.rs`"
-column: review
-position: 26
 priority: high
 tags:
   - phase2
@@ -15,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/input.rs
   - crates/hotline-core/src/voice/turn.rs
   - crates/hotline-core/src/voice/synthesis.rs
-updatedAt: "2026-10-18T04:43:30.519Z"
+updatedAt: "2026-10-18T04:43:31.492Z"
 contract:
   status: delivered
   validation:
@@ -44,7 +42,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T04:14:28.326Z"
+    ended: "2026-10-18T04:43:31.492Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T04:43:31.007Z"
 ---
 
 ## Description

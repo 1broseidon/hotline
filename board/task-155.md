@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:41:04.277Z"
 relatedFiles:
   - crates/hotline-core/src/websearch.rs
   - crates/hotline-core/src/websearch/
-updatedAt: "2026-10-18T00:15:16.743Z"
+updatedAt: "2026-10-18T02:40:12.004Z"
 contract:
   status: ready
   validation:
@@ -29,7 +29,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:16.610Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 39764
+    at: "2026-10-18T02:40:12.004Z"
 assignee: claude
 ---
 

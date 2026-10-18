@@ -56,3 +56,6 @@ Phase 2 group E (Docs), plan row D-4 in docs/audits/0.40/README.md on release/0.
 - Size: XS
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T03:02:23.414Z: [claude] Done on dispatch/task-164, commit 5aa6ca0d. lib.rs header now says what the core holds instead of naming phases; Makefile verify comment no longer says "Phase 0 adds the first"; design.md Phases intro is labelled history and in past tense (design.md:137 "until Phase 1 replaces it" was outside the row's three sentences and is left for D-5 or later). development.md: make check list now matches the Makefile (bun run test, speech engine, both Python suites), test counts gone from "Running it" and "The harness" (desk.rs is described without numbers), HOTLINE_EXTRA_DESKS and HOTLINE_DEV_SIGN_IDENTITY documented after make verify. AGENTS.md:55 and development.md's make check one-liner match. make precheck: 7/7 pass. D-5 (same file) can proceed; the live-test switches from D11 (HOTLINE_LIVE_XAI_KEY etc.) are still undocumented, out of this row's scope.

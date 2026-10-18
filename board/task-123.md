@@ -13,7 +13,7 @@ relatedFiles:
   - Cargo.toml
   - crates/hotline-core/Cargo.toml
   - Cargo.lock
-updatedAt: "2026-10-18T01:42:48.694Z"
+updatedAt: "2026-10-18T01:43:18.131Z"
 contract:
   status: in_progress
   validation:
@@ -23,8 +23,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-    pickedUpAt: "2026-10-18T01:39:22.104Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-18T01:43:18.131Z"
+    reworkCount: 1
 dependsOn:
   - task-117
 dispatch:

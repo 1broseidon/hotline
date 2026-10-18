@@ -9,7 +9,7 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:42.496Z"
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:14:35.080Z"
 relatedFiles:
   - docs/security.md
   - crates/hotline-core/src/session/tests.rs
@@ -25,6 +25,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-112
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:14:34.954Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

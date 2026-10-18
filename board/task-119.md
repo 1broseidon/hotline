@@ -13,7 +13,7 @@ relatedFiles:
   - ui/package.json
   - ui/bun.lock
   - ui/src/components/Mermaid.tsx
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:14:39.597Z"
 contract:
   status: ready
   validation:
@@ -24,6 +24,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-118
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:14:39.463Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

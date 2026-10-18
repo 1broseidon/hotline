@@ -11,7 +11,7 @@ tags:
   - triage
 createdAt: "2026-10-18T23:40:44.455Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T23:51:14.157Z"
+updatedAt: "2026-10-18T23:51:16.037Z"
 dispatch:
   agent: claude
   model: opus
@@ -19,6 +19,11 @@ dispatch:
   at: "2026-10-18T23:51:14.029Z"
   until: done
   role: lead
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 59290
+    at: "2026-10-18T23:51:16.037Z"
 assignee: claude
 ---
 

@@ -1,7 +1,7 @@
 ---
 id: task-124
 title: "P2-12 (B): Deduplicate `@tauri-apps/api`"
-column: todo
+column: in-progress
 position: 13
 priority: high
 tags:
@@ -12,15 +12,17 @@ createdAt: "2026-10-17T22:40:48.155Z"
 relatedFiles:
   - ui/bun.lock
   - ui/package.json
-updatedAt: "2026-10-18T00:26:27.218Z"
+updatedAt: "2026-10-18T00:26:43.455Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make ui-check
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T00:26:43.455Z"
+    reworkCount: 0
 dependsOn:
   - task-119
 dispatch:

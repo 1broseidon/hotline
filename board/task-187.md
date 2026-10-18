@@ -1,7 +1,7 @@
 ---
 id: task-187
 title: Run read-only global commands without blocking the socket
-column: todo
+column: in-progress
 position: 13
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-18T23:40:56.843Z"
 relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/tests.rs
-updatedAt: "2026-10-18T23:54:20.975Z"
+updatedAt: "2026-10-18T23:54:34.013Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: test
       path: crates/hotline-core/src/wire/tests.rs
@@ -27,6 +27,8 @@ contract:
       - git diff --exit-code ui/src/generated/contract.ts
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+    pickedUpAt: "2026-10-18T23:54:34.013Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

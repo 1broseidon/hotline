@@ -1,7 +1,7 @@
 ---
 id: task-165
 title: "P2-D-5 (E): One module map,"
-column: in-progress
+column: review
 position: 54
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:41:09.515Z"
 relatedFiles:
   - docs/development.md
   - docs/design.md
-updatedAt: "2026-10-18T06:27:54.228Z"
+updatedAt: "2026-10-18T06:34:59.771Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - "! grep -n 'defined once in contract.rs' docs/development.md docs/design.md"
@@ -23,6 +23,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T06:27:54.228Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T06:34:59.771Z"
+    duration: 426
 dependsOn:
   - task-164
   - task-129

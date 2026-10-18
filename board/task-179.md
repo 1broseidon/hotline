@@ -9,7 +9,7 @@ tags:
   - qa
 createdAt: "2026-10-18T21:49:01.853Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T21:50:16.490Z"
+updatedAt: "2026-10-18T21:50:20.947Z"
 dispatch:
   agent: claude
   model: opus
@@ -30,3 +30,4 @@ Found in 0.40 QA (2026-10-18). In Settings > Providers, opening the Images or Li
 
 ## Log
 - 2026-10-18T21:50:16.175Z: [claude] Picker and MenuButton (ui/src/ui/Menu.tsx) drop their title while the menu is open, so every dropdown's tooltip stops covering the first item; ui/tests/menu.test.tsx proves it for both. Committed 94fa2ade on dispatch/task-179. UI typecheck, lint and all 430 UI tests pass.
+- 2026-10-18T21:50:20.947Z: Landed on release/0.40.0

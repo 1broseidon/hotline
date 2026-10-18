@@ -1,6 +1,5 @@
 use super::*;
 
-#[cfg(unix)]
 /// A chat-completions fixture that answers each request with the next of
 /// `answers`, a list of stream chunks, and keeps every request.
 async fn provider_scripted(
@@ -42,7 +41,6 @@ async fn provider_scripted(
     (url, seen)
 }
 
-#[cfg(unix)]
 fn reply_chunks(text: &str) -> Vec<Value> {
     vec![
         json!({"id":"voice_fixture","object":"chat.completion.chunk","created":1,"model":"test","choices":[{"index":0,"delta":{"role":"assistant","content":text},"finish_reason":null}]}),
@@ -50,7 +48,6 @@ fn reply_chunks(text: &str) -> Vec<Value> {
     ]
 }
 
-#[cfg(unix)]
 fn shell_chunks(command: &str) -> Vec<Value> {
     let arguments = json!({ "command": command }).to_string();
     vec![
@@ -59,7 +56,6 @@ fn shell_chunks(command: &str) -> Vec<Value> {
     ]
 }
 
-#[cfg(unix)]
 /// The next line the front is given to say.
 async fn next_said(asked: &mut tokio::sync::mpsc::Receiver<Asked>) -> String {
     loop {
@@ -72,7 +68,6 @@ async fn next_said(asked: &mut tokio::sync::mpsc::Receiver<Asked>) -> String {
 /// On a call to the teammate, a command it left running that ends on its own
 /// wakes a turn, and the front is given that turn's reply to say: the person
 /// hears that the build finished without asking again.
-#[cfg(unix)]
 #[tokio::test]
 async fn running_process_that_ends_during_a_call_is_said_on_the_call() {
     let mut desk = front_desk(true, 64).await;
@@ -141,7 +136,6 @@ async fn running_process_that_ends_during_a_call_is_said_on_the_call() {
     assert!(woke.contains("done"), "{woke}");
 }
 
-#[cfg(unix)]
 fn tool_chunks(name: &str, arguments: Value) -> Vec<Value> {
     let arguments = arguments.to_string();
     vec![
@@ -154,7 +148,6 @@ fn tool_chunks(name: &str, arguments: Value) -> Vec<Value> {
 /// answered: the call goes Listening at the reply, so while the server runs
 /// the call is not thinking and the front is given no progress line, and
 /// stopping the server from the desk says nothing on the call.
-#[cfg(unix)]
 #[tokio::test]
 async fn running_process_a_server_started_on_a_call_leaves_the_call_listening() {
     let opened = common::browser();

@@ -298,5 +298,6 @@ mod voice {
     mod front;
     mod front_tools;
     mod pipeline;
+    #[cfg(unix)]
     mod processes;
 }

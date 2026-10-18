@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp.rs
   - crates/hotline-core/src/driver/acp/tests.rs
   - crates/hotline-core/src/driver/acp/tests/
-updatedAt: "2026-10-18T04:11:54.816Z"
+updatedAt: "2026-10-18T04:13:06.077Z"
 contract:
   status: in_progress
   validation:
@@ -24,8 +24,8 @@ contract:
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-    pickedUpAt: "2026-10-18T04:03:35.101Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-18T04:13:06.077Z"
+    reworkCount: 1
 dependsOn:
   - task-128
   - task-115

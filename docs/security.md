@@ -684,6 +684,7 @@ extend; when a change adds a boundary, it adds a row.
 | A colleague sees a teammate's roster state, goal, agent, model and effort, and capabilities as switches, words and granted MCP servers' names; never its workspace path, `mcpPolicy`, a server's address, login header or environment, an ungranted server, `node` or `backendId`; no computer reads `none`; a linked desk's row is cut to the same fields and words | `mcp/server.rs` `a_colleague_sees_a_teammates_goal_agent_model_and_capabilities_and_no_more`, `a_teammate_without_a_computer_or_grants_shows_none_of_them`, `list_teammates_never_carries_a_colleagues_message_text`; `linked.rs` `a_published_roster_is_cut_down_to_what_a_roster_row_holds`; `session/links/tests.rs` `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
 | Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued line is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_scheduled_line_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
 | ACP callbacks stay in the workspace for legacy `machine` personas; a symlinked root alias is accepted; `AGENTS.md` refuses external and dangling symlinks; runtime mode is separate from effort and other configs stay hidden | `driver/acp.rs` `acp_callbacks_stay_in_workspace_for_legacy_machine_personas`, `callback_workspace_accepts_the_selected_symlinked_root_alias`, `agents_md_refuses_external_and_dangling_symlinks`, `disposition_separates_runtime_mode_from_effort_and_hides_other_configs` | — |
+| An agent from the ACP registry is unpacked only whole: a link, an entry out of its folder, or a set-id or world-writable mode installs nothing and leaves no scratch, in zip and tar; a checksum mismatch is never unpacked; ordinary archives and bare binaries still install | `driver/acp/install.rs` `a_symlink_out_of_the_scratch_folder_is_refused`, `a_write_through_a_symlink_lands_nowhere`, `an_entry_that_climbs_out_of_its_folder_is_refused`, `a_set_id_or_world_writable_mode_is_refused`, `a_checksum_mismatch_installs_nothing`, `a_zip_without_modes_still_starts`, `a_tarball_is_unpacked_into_place_and_its_command_made_runnable` | — |
 | Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only `search_thread` and `list_chapters`, starts no runs of its own and never reopens the teammate's session or computer; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests.rs` `runs::a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `runs::a_run_is_on_its_teammates_live_model_with_no_computer_and_no_session_to_reopen`, `runs::a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `runs::a_cancelled_run_stops_its_agent_and_its_line_says_so`, `runs::a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
 | A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
@@ -1022,6 +1023,45 @@ it lets a colleague use another's tools.
   deferred because Claude's remote method is a TUI, not a structured device-code
   interface; no unsupported terminal parser or alternate token path is used.
 
+
+### An agent installed from the ACP registry
+
+- **Default:** an agent the ACP registry ships as a prebuilt archive is
+  downloaded only when a session starts it and its command is not on disk
+  yet (`driver::acp::registry::install`). It is unpacked into a scratch
+  folder beside its install folder and renamed into place, so an install
+  that exists is whole.
+- **Grant source:** the person's choice of that ACP backend for a teammate.
+  The archive's URL and optional SHA-256 come from the registry; when the
+  registry publishes a digest, a download that does not match it is never
+  unpacked.
+- **Enforcement:** in `driver::acp::install::unpack`, outside the model, for
+  zip and tar alike. Every entry is admitted before it is written: a link of
+  any kind, an entry whose path leaves the folder, and a set-id or
+  world-writable mode are each refused, and the refusal drops the scratch
+  folder with whatever was already written into it. The zip reader is
+  version 9, the first with RUSTSEC-2026-0367..0369 fixed, and it clears
+  set-id bits itself. The command must then be a regular file inside the
+  install folder.
+- **Tests:** `driver::acp::install::tests` refuses
+  `a_symlink_out_of_the_scratch_folder_is_refused`,
+  `a_write_through_a_symlink_lands_nowhere`,
+  `an_entry_that_climbs_out_of_its_folder_is_refused` and
+  `a_set_id_or_world_writable_mode_is_refused`, each installing nothing and
+  leaving no scratch, and still installs
+  `a_tarball_is_unpacked_into_place_and_its_command_made_runnable`,
+  `a_zip_without_modes_still_starts`,
+  `a_bare_binary_is_put_where_the_command_says` and
+  `an_archive_is_known_by_its_extension_in_any_case`.
+  `a_checksum_mismatch_installs_nothing` proves the digest.
+- **Revocability:** an install is a file on disk, not a lease. Choosing
+  another backend removes the reason to run it, and a new release removes the
+  older ones beside it.
+- **Residual risk:** with no published digest the archive is trusted as
+  served. An archive that needs a link inside itself does not install. The
+  installed agent runs with the host's permissions, the accepted risk of any
+  ACP harness. The updater's and the speech engine build's copies of ZIP are
+  older versions, behind their own signature and pinned hash.
 
 ## The owner phone changes a teammate's access (BRO-140, part)
 

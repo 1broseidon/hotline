@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:50.735Z"
 relatedFiles:
   - crates/hotline-core/src/contract.rs
   - crates/hotline-core/src/contract/
-updatedAt: "2026-10-18T04:22:24.424Z"
+updatedAt: "2026-10-18T04:29:19.904Z"
 contract:
   status: delivered
   validation:
@@ -42,6 +42,8 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T04:21:36.800Z"
+    ended: "2026-10-18T04:29:19.328Z"
+    outcome: review
 assignee: claude
 ---
 
@@ -61,3 +63,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 - 2026-10-18T04:17:05.908Z: [claude] Done on dispatch/task-129 (27d4fbb9, bc5b2562): contract.rs is now the module root with nine submodules re-exported by `pub use` (command, computer, credentials, payloads, persona, replies, session, transcript, views), plus contract/tests.rs. Every crate::contract path still works and contract.ts is byte-identical. make check and make precheck (7/7) pass. One validation check still fails, the same one task-128 hit: the grep matches views.rs:273, the ThreadId rustdoc link "[`crate::paths::thread_key`]". That is a doc link, not an import. ts-rs copies it into contract.ts, so rewording it would break byte-identity, and George reverted that reword when landing 128. I kept it as it is. If the line should change, that needs a task that is allowed to change contract.ts, or a grep that skips `///` lines. Nothing is left unwired.
 - 2026-10-18T04:21:36.105Z: Landing sent back (1 of 1): with release/0.40.0 brought in, `! grep -rn 'crate::' crates/hotline-core/src/contract.rs crates/hotline-core/src/contract/ | grep -v 'crate::contract'` failed: crates/hotline-core/src/contract/views.rs:273:/// (see [`crate::paths::thread_key`]) for a pair.. Fix it on this branch, commit, and run the checks again.
 - 2026-10-18T04:22:23.940Z: [claude] Sent back again, unchanged by choice: the branch already contains release/0.40.0 (2bb5e2cb), and nothing is left to merge. Four of five validations pass: the dir exists, contract.ts is byte-identical, and make check and precheck passed on 27d4fbb9/bc5b2562. Nothing has changed since. The grep fails only on views.rs:273, the ThreadId doc link "[`crate::paths::thread_key`]". That same line landed in release/0.40.0's contract.rs through task-128. The grep and the byte-identical check cannot both pass. ts-rs copies the doc into contract.ts, so any Rust source that produces that text must either contain "crate::" or encode it, for example "crate\u{3a}:" in a #[doc] string. Encoding it would only hide the line from the grep. The doc link would still point at paths, so I did not do it. To settle it, do one of these: (a) land it the way 128 was landed; (b) change the grep to skip doc lines, e.g. `grep -rn 'crate::' … | grep -v '///' | grep -v 'crate::contract'`; or (c) give a later task leave to reword ThreadId's doc in both contract.rs and contract.ts. Nothing is left unwired.
+- 2026-10-18T04:29:19.904Z: Not landed: Nothing was merged: `! grep -rn 'crate::' crates/hotline-core/src/contract.rs crates/hotline-core/src/contract/ | grep -v 'crate::contract'` failed. It was sent back once already: settle it, or send it back with a note.

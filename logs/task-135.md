@@ -1,8 +1,6 @@
 ---
 id: task-135
 title: "P2-26 (C): `driver/acp.rs` tests"
-column: in-progress
-position: 24
 priority: high
 tags:
   - phase2
@@ -13,7 +11,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/acp.rs
   - crates/hotline-core/src/driver/acp/tests.rs
   - crates/hotline-core/src/driver/acp/tests/
-updatedAt: "2026-10-18T04:13:06.077Z"
+updatedAt: "2026-10-18T04:29:17.025Z"
 contract:
   status: in_progress
   validation:
@@ -41,7 +39,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T04:11:54.816Z"
+    ended: "2026-10-18T04:29:17.025Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T04:29:16.569Z"
 ---
 
 ## Description
@@ -55,3 +56,6 @@ Phase 2 group C (Move-only renames and splits), plan row 26 in docs/audits/0.40/
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T04:29:16.020Z: Landed on release/0.40.0

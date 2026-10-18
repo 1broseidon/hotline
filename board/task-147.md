@@ -1,7 +1,7 @@
 ---
 id: task-147
 title: "P2-38 (D): The remote harness connects over loopback"
-column: todo
+column: in-progress
 position: 36
 priority: high
 tags:
@@ -17,9 +17,9 @@ relatedFiles:
   - crates/hotline-cli/tests/serve.rs
   - crates/hotline-cli/tests/relay.rs
   - crates/hotline-cli/tests/pair.rs
-updatedAt: "2026-10-18T05:21:26.528Z"
+updatedAt: "2026-10-18T05:21:52.050Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make precheck
@@ -27,6 +27,8 @@ contract:
       - make verify
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T05:21:52.050Z"
+    reworkCount: 0
 dependsOn:
   - task-146
 dispatch:

@@ -843,6 +843,7 @@
 	.menu-rule {
 		height: var(--hairline);
 		margin: 4px 6px;
+		border: 0;
 		background: var(--line);
 	}
 	.menu-shortcut {
@@ -2629,6 +2630,7 @@
 	 * closes them off from the list. */
 	.rail-pins {
 		display: grid;
+		min-width: 0;
 		grid-template-columns: repeat(3, minmax(0, 1fr));
 		gap: 2px;
 		margin-bottom: 6px;

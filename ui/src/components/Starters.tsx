@@ -35,7 +35,7 @@ export function Starters({ persona, onPick }: { persona: Persona; onPick(text: s
 				"What would you change first in this project, and why?",
 			];
 	return (
-		<div className="mx-auto mb-3 w-full max-w-[46rem]" role="group" aria-label="Things to try">
+		<fieldset className="mx-auto mb-3 w-full min-w-0 max-w-[46rem]" aria-label="Things to try">
 			<div className="grouped">
 				<div className="group-row">
 					<p className="group-row-text text-sm text-ink-3" style={{ whiteSpace: "normal" }}>
@@ -50,7 +50,7 @@ export function Starters({ persona, onPick }: { persona: Persona; onPick(text: s
 					</button>
 				))}
 			</div>
-		</div>
+		</fieldset>
 	);
 }
 

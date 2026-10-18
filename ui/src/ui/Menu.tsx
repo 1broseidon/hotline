@@ -175,7 +175,7 @@ function Menu({
 			onMouseLeave={() => setActive(-1)}
 		>
 			{entries.map((entry, at) => {
-				if (entry.kind === "rule") return <div key={`rule-${at}`} className="menu-rule" role="separator" />;
+				if (entry.kind === "rule") return <hr key={`rule-${at}`} className="menu-rule" />;
 				if (entry.kind === "heading") {
 					return (
 						<div key={`heading-${at}`} className="menu-heading" role="presentation">

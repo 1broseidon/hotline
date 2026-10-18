@@ -120,7 +120,7 @@ export function Rail({
 				) : (
 					<>
 						{pinned.length > 0 && (
-							<div className={compact ? "rail-pins rail-pins-stacked" : "rail-pins"} role="group" aria-label="Pinned">
+							<fieldset className={compact ? "rail-pins rail-pins-stacked" : "rail-pins"} aria-label="Pinned">
 								{pinned.map((row, index) => {
 									const { entry } = row;
 									// A pin's slot is on its own desk's row of pins.
@@ -161,7 +161,7 @@ export function Rail({
 										/>
 									);
 								})}
-							</div>
+							</fieldset>
 						)}
 						{rest.map((row, index) => {
 							const { entry } = row;
@@ -574,6 +574,7 @@ export function RailEdge({ size, onSize }: { size: RailSize; onSize(next: RailSi
 		return () => document.documentElement.removeAttribute("data-resizing");
 	}, [dragging]);
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: a handle that takes focus and arrow keys is ARIA's window splitter, which an <hr> cannot be.
 		<div
 			role="separator"
 			aria-orientation="vertical"

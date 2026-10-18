@@ -53,8 +53,8 @@ pub(super) async fn prompt(
         ThreadKind::Dm => {
             room.prompt(&thread.key, text, reply_to, attachments)
                 .await?;
-            if let Ok(persona) = super::commands::living(log, &thread.key) {
-                super::commands::remember_model(log, room, &persona).await?;
+            if let Ok(persona) = super::commands::persona::living(log, &thread.key) {
+                super::commands::models::remember_model(log, room, &persona).await?;
             }
             Ok(Value::Null)
         }
@@ -207,7 +207,7 @@ pub(super) fn page(
     through: Option<&str>,
 ) -> Result<Value, String> {
     if thread.kind == ThreadKind::Dm {
-        super::commands::living(log, &thread.key)?;
+        super::commands::persona::living(log, &thread.key)?;
     }
     let stream = thread.stream().ok_or("That thread has no lines.")?;
     Ok(super::subscribe::thread_page(

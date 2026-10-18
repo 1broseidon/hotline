@@ -713,7 +713,8 @@ fn handed_words(arguments: &str) -> String {
 /// writing: a question, or a request of a few words, and never a goodbye.
 pub(super) fn worth_following_up(words: &str) -> bool {
     let words = words.trim();
-    !super::goodbye(words) && (words.ends_with('?') || words.split_whitespace().count() >= 4)
+    !super::synthesis::goodbye(words)
+        && (words.ends_with('?') || words.split_whitespace().count() >= 4)
 }
 
 /// Why a front stopped carrying its call.

@@ -1,8 +1,6 @@
 ---
 id: task-150
 title: "P2-41 (D): Argument groups"
-column: in-progress
-position: 39
 priority: high
 tags:
   - phase2
@@ -17,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/session/exchanges.rs
   - crates/hotline-core/src/remote.rs
   - crates/hotline-core/src/driver/rig/turn.rs
-updatedAt: "2026-10-18T09:33:09.304Z"
+updatedAt: "2026-10-18T09:48:54.187Z"
 contract:
   status: in_progress
   validation:
@@ -44,7 +42,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T09:32:58.086Z"
+    ended: "2026-10-18T09:48:54.186Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T09:48:53.799Z"
 ---
 
 ## Description
@@ -58,3 +59,6 @@ Phase 2 group D (Fixes in the moved files), plan row 41 in docs/audits/0.40/READ
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T09:48:53.421Z: Landed on release/0.40.0

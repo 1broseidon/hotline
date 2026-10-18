@@ -14,7 +14,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/wire/
   - crates/hotline-core/src/remote/bridge.rs
-updatedAt: "2026-10-18T00:15:12.264Z"
+updatedAt: "2026-10-18T09:48:55.338Z"
 contract:
   status: ready
   validation:
@@ -33,7 +33,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:12.125Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T09:48:55.338Z"
 assignee: claude
 ---
 

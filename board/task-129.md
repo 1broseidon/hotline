@@ -1,7 +1,7 @@
 ---
 id: task-129
 title: "P2-17 (C): Split `contract.rs`"
-column: in-progress
+column: review
 position: 18
 priority: high
 tags:
@@ -12,9 +12,9 @@ createdAt: "2026-10-17T22:40:50.735Z"
 relatedFiles:
   - crates/hotline-core/src/contract.rs
   - crates/hotline-core/src/contract/
-updatedAt: "2026-10-18T04:22:13.350Z"
+updatedAt: "2026-10-18T04:22:24.424Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - test -d crates/hotline-core/src/contract
@@ -26,8 +26,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T04:22:13.350Z"
     reworkCount: 1
-    deliveredAt: "2026-10-18T04:17:06.270Z"
-    duration: 1572
+    deliveredAt: "2026-10-18T04:22:24.424Z"
+    duration: 11
 dependsOn:
   - task-128
 dispatch:

@@ -698,8 +698,6 @@ export type ThreadRef = {
 	handoff?: Extract<DeliveryCause, { kind: "handoff" }>;
 };
 
-export type { Step };
-
 /**
  * A line nobody typed: a schedule fired. One row naming the job, with the
  * whole prompt behind a press, because debugging a schedule means reading

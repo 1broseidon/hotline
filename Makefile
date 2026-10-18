@@ -41,8 +41,22 @@ speech-engine:
 # is already satisfied. Biome lints and never formats: the tree has one
 # style already, and a formatter would reflow it for no invariant. A rule the
 # tree does not pass yet is at warn in ui/biome.json until it is fixed.
+#
+# A filtered `cargo test session` writes only the types it matched into
+# contract.ts, and the typecheck that follows is a page of "has no exported
+# member" naming everything but the cause; any error that mentions the
+# generated file means it is partial, so it is said in one line first.
+#
+# Knip fails on a window export, file or dependency nothing uses. Its Vite
+# plugin reads both HTML entries for their scripts but not the stylesheet
+# computer.html links, so computerViewer.css is exempt. contract.ts is the
+# whole Rust contract, not only what the window reads, and cadence.ts,
+# pacing.ts and reveal.ts export what Hotline Mobile copies.
 ui-check:
-	cd ui && bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run test
+	cd ui && bun install --frozen-lockfile
+	@cd ui && if node_modules/.bin/tsc --noEmit | grep -q generated/contract; then \
+		echo "ui/src/generated/contract.ts is partial: run cargo test -p hotline-core, unfiltered, to write it whole"; exit 1; fi
+	cd ui && bun run typecheck && bun run lint && bun run knip && bun run test
 
 # The Tauri CLI is a cargo subcommand (`cargo install tauri-cli --version ^2`).
 # It runs from the shell crate, where tauri.conf.json is, and starts Vite for

@@ -1,0 +1,9 @@
+{
+	"$schema": "https://unpkg.com/knip@6.41.0/schema.json",
+	"entry": ["tests/**/*.{ts,tsx}"],
+	"ignoreIssues": {
+		"src/generated/contract.ts": ["exports", "types"],
+		"src/{cadence,pacing,reveal}.ts": ["exports", "types"]
+	},
+	"ignoreFiles": ["src/computerViewer.css"]
+}

@@ -5,17 +5,16 @@
 //! It reaches the core the way a catalogue agent shipped as an archive does.
 //! The catalogue is written before the core starts, with the command already
 //! where the archive would have unpacked it, so nothing is downloaded.
-#![allow(dead_code)]
+#![allow(
+    dead_code,
+    reason = "each stalled-agent test uses a different part of it"
+)]
 
-use futures_util::{SinkExt, StreamExt};
-use serde_json::{Value, json};
+use serde_json::json;
 use sha2::Digest;
-use std::collections::VecDeque;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use tokio::net::TcpStream;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 
 pub const BACKEND: &str = "stalled-agent";
 pub const NAME: &str = "Stalled Agent";
@@ -140,103 +139,4 @@ pub async fn model_endpoint(reply: &'static str) -> (String, tokio::task::JoinHa
     let base = format!("http://{}/v1", listener.local_addr().unwrap());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     (base, server)
-}
-
-pub struct Client {
-    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    next_id: i64,
-    /// Frames that arrived while waiting for something else.
-    pub inbox: VecDeque<Value>,
-}
-
-impl Client {
-    pub async fn connect(port: u16, token: &str) -> Client {
-        let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token={token}"))
-            .await
-            .unwrap();
-        Client {
-            socket,
-            next_id: 1,
-            inbox: VecDeque::new(),
-        }
-    }
-
-    async fn read(&mut self) -> Value {
-        loop {
-            match self.socket.next().await.expect("the door closed") {
-                Ok(Message::Text(text)) => return serde_json::from_str(&text).unwrap(),
-                Ok(_) => continue,
-                Err(error) => panic!("the socket failed: {error}"),
-            }
-        }
-    }
-
-    /// Sends a command and answers its id without waiting for the reply.
-    pub async fn send(&mut self, cmd: &str, params: Value) -> i64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        let frame = json!({ "id": id, "cmd": cmd, "params": params });
-        self.socket
-            .send(Message::text(frame.to_string()))
-            .await
-            .unwrap();
-        id
-    }
-
-    /// A command, answered within `patience`.
-    pub async fn call(&mut self, cmd: &str, params: Value, patience: Duration) -> Value {
-        let id = self.send(cmd, params).await;
-        self.reply(id, patience).await
-    }
-
-    pub async fn reply(&mut self, id: i64, patience: Duration) -> Value {
-        self.next_where(patience, |frame| {
-            frame.get("id").and_then(Value::as_i64) == Some(id) && frame.get("sub").is_none()
-        })
-        .await
-    }
-
-    pub async fn subscribe(&mut self, target: Value) -> i64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.socket
-            .send(Message::text(
-                json!({ "id": id, "sub": target }).to_string(),
-            ))
-            .await
-            .unwrap();
-        id
-    }
-
-    /// The next frame that satisfies `wanted`, from the inbox first and then
-    /// the socket, within `patience`.
-    pub async fn next_where(
-        &mut self,
-        patience: Duration,
-        wanted: impl Fn(&Value) -> bool,
-    ) -> Value {
-        if let Some(at) = self.inbox.iter().position(&wanted) {
-            return self.inbox.remove(at).unwrap();
-        }
-        let deadline = tokio::time::Instant::now() + patience;
-        loop {
-            let frame = tokio::time::timeout_at(deadline, self.read())
-                .await
-                .unwrap_or_else(|_| panic!("nothing wanted arrived within {patience:?}"));
-            if wanted(&frame) {
-                return frame;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
-
-    /// Whether a reply to `id` has arrived, without waiting for one.
-    pub async fn replied(&mut self, id: i64) -> bool {
-        while let Ok(frame) = tokio::time::timeout(Duration::from_millis(50), self.read()).await {
-            self.inbox.push_back(frame);
-        }
-        self.inbox
-            .iter()
-            .any(|frame| frame.get("id").and_then(Value::as_i64) == Some(id))
-    }
 }

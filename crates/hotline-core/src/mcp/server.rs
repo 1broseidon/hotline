@@ -1034,7 +1034,7 @@ pub(crate) fn profile(
         .and_then(|config| config.current_id.clone())
         .or_else(|| persona.effort_id.clone());
     // Whole-machine reach is Hotline Agent's alone: a harness's callbacks
-    // stay in its workspace whatever its record says (`driver/acp.rs`), and
+    // stay in its workspace whatever its record says (`driver/acp/session.rs`), and
     // only such a teammate on this desk collaborates without the person's
     // first-contact approval (`session/peers.rs`).
     let whole_machine =

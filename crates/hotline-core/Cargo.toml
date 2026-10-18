@@ -108,6 +108,11 @@ sherpa-onnx = { version = "=1.13.8", default-features = false, features = ["stat
 # A phone's utterance is AAC in MP4; the local engine needs its samples.
 symphonia = { version = "0.6", default-features = false, features = ["aac", "isomp4"] }
 
+# `test-util`: a test whose time the code controls runs on a paused clock, so
+# waiting out a 30 s token lifetime or a 10 s deadline costs nothing.
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.
 [target.'cfg(unix)'.dependencies]

@@ -1,4 +1,6 @@
+use super::lock;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+use std::sync::Mutex;
 
 pub(super) const ALL: &str = "all";
 /// The port a fresh install asks for before falling back to an available one.
@@ -94,6 +96,31 @@ async fn bind_once(
         Ok(listener) => Ok(listener),
         Err(error) if addresses.iter().any(|host| host.contains(':')) => Err(error),
         Err(_) => tokio::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, port)).await,
+    }
+}
+
+/// A socket the caller bound for a Remote, so a test reaches its desk over
+/// loopback and never races another test for a free port. The first start
+/// serves on it; a start after a stop binds its address again, because a
+/// stopped Remote must refuse connections and only a closed socket does.
+pub(super) struct Bound {
+    pub(super) address: SocketAddr,
+    first: Mutex<Option<std::net::TcpListener>>,
+}
+impl Bound {
+    pub(super) fn new(listener: std::net::TcpListener) -> std::io::Result<Self> {
+        listener.set_nonblocking(true)?;
+        Ok(Self {
+            address: listener.local_addr()?,
+            first: Mutex::new(Some(listener)),
+        })
+    }
+    pub(super) async fn listen(&self) -> std::io::Result<tokio::net::TcpListener> {
+        let first = lock(&self.first).take();
+        match first {
+            Some(listener) => tokio::net::TcpListener::from_std(listener),
+            None => tokio::net::TcpListener::bind(self.address).await,
+        }
     }
 }
 

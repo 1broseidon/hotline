@@ -2,12 +2,12 @@ use super::*;
 
 #[tokio::test]
 async fn all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls() {
-    let h = Harness::new().await;
+    let h = Harness::on_interfaces().await;
     let status = h.remote.status();
     assert_eq!(status.host, network::ALL);
     assert!(status.enabled);
     assert_eq!(status.endpoints.len(), status.addresses.len());
-    let mut answered = 0;
+    let mut answered = Vec::new();
     for endpoint in &status.endpoints {
         let sent = h
             .http
@@ -24,9 +24,9 @@ async fn all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls() 
             sent => sent.unwrap(),
         };
         assert_eq!(response.status(), 404);
-        answered += 1;
+        answered.push(endpoint);
     }
-    assert!(answered > 0, "no advertised address answered");
+    assert!(!answered.is_empty(), "no advertised address answered");
     let pairing = h.remote.pairing_v2(DeviceRole::Owner).unwrap();
     let (noise_public, _) = sealed_network::invitation(&pairing);
     let pairing_url = url::Url::parse(&pairing.url).unwrap();
@@ -49,7 +49,11 @@ async fn all_interfaces_are_the_default_and_every_advertised_ip_has_valid_tls() 
     assert_eq!(narrowed.endpoints, vec![status.endpoint.clone().unwrap()]);
     assert!(h.remote.authenticate_v2(&grant.public).is_some());
     assert_eq!(h.remote.noise_keys().unwrap().1, noise_public);
-    for other in status.endpoints.iter().skip(1) {
+    // Only an address that answered can show the narrowed listener refusing.
+    for other in answered
+        .into_iter()
+        .filter(|endpoint| **endpoint != narrowed.endpoints[0])
+    {
         let result = h
             .http
             .get(format!("{other}/missing"))
@@ -214,7 +218,7 @@ async fn rust_client_pairs_and_connects_through_the_public_address_when_its_own_
     assert_eq!(desk.desk_id, h.remote.status_desktop_id());
     assert_eq!(desk.public, payload.public);
     let mut session = client.connect(&desk);
-    let hello = tokio::time::timeout(Duration::from_secs(15), session.incoming.recv())
+    let hello = tokio::time::timeout(ANSWER, session.incoming.recv())
         .await
         .unwrap()
         .unwrap();
@@ -228,7 +232,7 @@ async fn rust_client_pairs_and_connects_through_the_public_address_when_its_own_
 
 #[tokio::test]
 async fn a_saved_loopback_selection_migrates_to_all_host_ips() {
-    let h = Harness::new().await;
+    let h = Harness::on_interfaces().await;
     h.remote.configure(false, network::ALL).await.unwrap();
     let path = h.root.path().join("remote.json");
     let mut saved: Saved = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
@@ -317,7 +321,7 @@ async fn sealed_via(h: &Harness, base: &str, private: &[u8; 32]) -> PhoneSocket 
 /// which desk it reached, which endpoint is public, and which grant is its own.
 #[tokio::test]
 async fn a_phone_away_from_home_pairs_through_the_public_address_and_sees_itself_and_the_desk() {
-    let h = Harness::new().await;
+    let h = Harness::on_interfaces().await;
     // A phone paired at home, so the mark has a grant to leave off.
     let home = h.pair().await;
     // On all host IPs the hint names localhost, and a tunnel pointed there

@@ -5,6 +5,7 @@ on:
     paths:
       - 'crates/hotline-core/src/tools/**'
       - 'crates/hotline-core/tests/desk.rs'
+      - 'crates/hotline-core/tests/desk/workspace.rs'
       - '.github/workflows/workspace-isolation.yml'
   workflow_dispatch:
 

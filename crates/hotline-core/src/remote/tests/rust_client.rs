@@ -15,7 +15,7 @@ async fn rust_client_pairs_pins_and_recovers_subscriptions_without_replaying_com
     let mut session = client.connect(&desk);
     async fn receive(session: &mut client::Session) -> Value {
         serde_json::from_str(
-            &tokio::time::timeout(Duration::from_secs(15), session.incoming.recv())
+            &tokio::time::timeout(ANSWER, session.incoming.recv())
                 .await
                 .unwrap()
                 .unwrap(),
@@ -41,7 +41,7 @@ async fn rust_client_pairs_pins_and_recovers_subscriptions_without_replaying_com
     }
     h.remote.configure(false, network::ALL).await.unwrap();
     tokio::time::timeout(
-        Duration::from_secs(15),
+        ANSWER,
         session
             .state
             .wait_for(|state| *state == client::State::Unreachable),
@@ -107,7 +107,7 @@ async fn rust_client_and_bridge_learn_and_clear_a_relay_from_an_authenticated_he
     let relay = format!("https://relay.example/room/relay/{}", desk.desk_id);
     h.remote.state.lock().unwrap().relay.url = Some(relay.clone());
     let mut session = client.connect(&desk);
-    tokio::time::timeout(Duration::from_secs(5), session.relay.changed())
+    tokio::time::timeout(ANSWER, session.relay.changed())
         .await
         .unwrap()
         .unwrap();
@@ -127,7 +127,7 @@ async fn rust_client_and_bridge_learn_and_clear_a_relay_from_an_authenticated_he
     ))
     .await
     .unwrap();
-    tokio::time::timeout(Duration::from_secs(5), bridge.relay.changed())
+    tokio::time::timeout(ANSWER, bridge.relay.changed())
         .await
         .unwrap()
         .unwrap();
@@ -141,7 +141,7 @@ async fn rust_client_and_bridge_learn_and_clear_a_relay_from_an_authenticated_he
     let mut previous = desk.clone();
     previous.relay = Some(relay);
     let mut session = client.connect(&previous);
-    tokio::time::timeout(Duration::from_secs(5), session.relay.changed())
+    tokio::time::timeout(ANSWER, session.relay.changed())
         .await
         .unwrap()
         .unwrap();
@@ -153,7 +153,7 @@ async fn rust_client_and_bridge_learn_and_clear_a_relay_from_an_authenticated_he
     ))
     .await
     .unwrap();
-    tokio::time::timeout(Duration::from_secs(5), bridge.relay.changed())
+    tokio::time::timeout(ANSWER, bridge.relay.changed())
         .await
         .unwrap()
         .unwrap();
@@ -180,7 +180,7 @@ async fn rust_client_and_bridge_preserve_a_known_relay_when_authenticated_endpoi
     // hello has a malformed endpoint list. That is not a relay removal.
     h.remote.state.lock().unwrap().endpoints = vec!["http://invalid.example".into()];
     let mut session = client.connect(&desk);
-    let hello = tokio::time::timeout(Duration::from_secs(5), session.incoming.recv())
+    let hello = tokio::time::timeout(ANSWER, session.incoming.recv())
         .await
         .unwrap()
         .unwrap();
@@ -201,7 +201,7 @@ async fn rust_client_and_bridge_preserve_a_known_relay_when_authenticated_endpoi
     ))
     .await
     .unwrap();
-    let hello = tokio::time::timeout(Duration::from_secs(5), local.next())
+    let hello = tokio::time::timeout(ANSWER, local.next())
         .await
         .unwrap()
         .unwrap()
@@ -298,7 +298,7 @@ async fn rust_client_reports_revoked_only_after_a_pinned_authenticated_rejection
         .unwrap();
     let mut session = client.connect(&desk);
     tokio::time::timeout(
-        Duration::from_secs(5),
+        ANSWER,
         session.state.wait_for(|s| *s == client::State::Open),
     )
     .await
@@ -314,23 +314,20 @@ async fn rust_client_reports_revoked_only_after_a_pinned_authenticated_rejection
     ))
     .await
     .unwrap();
-    tokio::time::timeout(
-        Duration::from_secs(5),
-        bridge.state.wait_for(|s| *s == client::State::Open),
-    )
-    .await
-    .unwrap()
-    .unwrap();
+    tokio::time::timeout(ANSWER, bridge.state.wait_for(|s| *s == client::State::Open))
+        .await
+        .unwrap()
+        .unwrap();
     h.remote.revoke(&h.remote.devices()[0].id).unwrap();
     tokio::time::timeout(
-        Duration::from_secs(5),
+        ANSWER,
         session.state.wait_for(|s| *s == client::State::Revoked),
     )
     .await
     .unwrap()
     .unwrap();
     tokio::time::timeout(
-        Duration::from_secs(5),
+        ANSWER,
         bridge.state.wait_for(|s| *s == client::State::Revoked),
     )
     .await
@@ -339,7 +336,7 @@ async fn rust_client_reports_revoked_only_after_a_pinned_authenticated_rejection
     drop(local);
     drop(bridge);
     // Revocation is terminal; a new client session also recognizes an offline revoke.
-    tokio::time::timeout(Duration::from_secs(1), async {
+    tokio::time::timeout(ANSWER, async {
         while session.state.changed().await.is_ok() {}
     })
     .await
@@ -347,7 +344,7 @@ async fn rust_client_reports_revoked_only_after_a_pinned_authenticated_rejection
     assert_eq!(*session.state.borrow(), client::State::Revoked);
     let mut fresh = client.connect(&desk);
     tokio::time::timeout(
-        Duration::from_secs(5),
+        ANSWER,
         fresh.state.wait_for(|s| *s == client::State::Revoked),
     )
     .await
@@ -367,7 +364,7 @@ async fn rust_client_reports_revoked_only_after_a_pinned_authenticated_rejection
     wrong_desk.desk_key = wrong.desk_key;
     let mut session = client.connect(&wrong_desk);
     tokio::time::timeout(
-        Duration::from_secs(5),
+        ANSWER,
         session.state.wait_for(|s| *s == client::State::Unreachable),
     )
     .await
@@ -423,7 +420,7 @@ async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
         });
         let mut session = client.connect(&target);
         tokio::time::timeout(
-            Duration::from_secs(5),
+            ANSWER,
             session.state.wait_for(|s| *s == client::State::Unreachable),
         )
         .await
@@ -433,10 +430,7 @@ async fn rust_client_does_not_trust_a_close_or_an_unsealed_rejection() {
         assert!(!session.relay.has_changed().unwrap());
         assert!(session.discovery.borrow().is_none());
         assert!(!session.discovery.has_changed().unwrap());
-        tokio::time::timeout(Duration::from_secs(5), fake)
-            .await
-            .unwrap()
-            .unwrap();
+        tokio::time::timeout(ANSWER, fake).await.unwrap().unwrap();
         assert!(
             tokio::time::timeout(
                 Duration::from_millis(600),

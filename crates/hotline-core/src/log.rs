@@ -169,10 +169,10 @@ impl Log {
                         "The room stream contains an unreadable event.",
                     )
                 })?;
-                if !event
+                if event
                     .get("id")
                     .and_then(Value::as_str)
-                    .is_some_and(|id| !id.is_empty())
+                    .is_none_or(|id| id.is_empty())
                     || event.get("kind").and_then(Value::as_str).is_none()
                 {
                     return Err(io::Error::new(

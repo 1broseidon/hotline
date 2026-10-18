@@ -199,9 +199,9 @@ impl Host {
         relay: Option<String>,
     ) -> Result<(), String> {
         let bridges = self.lock_bridges();
-        if !bridges
+        if bridges
             .get(desk_id)
-            .is_some_and(|live| live.generation == generation)
+            .is_none_or(|live| live.generation != generation)
         {
             return Ok(());
         }

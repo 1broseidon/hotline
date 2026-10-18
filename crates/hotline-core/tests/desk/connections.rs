@@ -42,7 +42,7 @@ async fn ollama_local_discovers_custom_models_and_runs_through_rig() {
         axum::serve(listener, app).await.unwrap();
     });
     let (root, port) = open("ollama-local").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let providers = client.call("providers.list", json!({})).await;
     let providers = providers["result"].as_array().unwrap();
     assert_eq!(
@@ -192,7 +192,7 @@ async fn custom_connections_keep_models_keys_and_edits_separate() {
         axum::serve(listener, app).await.unwrap();
     });
     let (root, port) = open("custom-connections").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     for url in [
         "ftp://localhost/v1",
         "http://user:password@localhost/v1",
@@ -352,7 +352,7 @@ async fn custom_connections_roundtrip_tools_through_both_native_rig_apis() {
             axum::serve(listener, app).await.unwrap();
         });
         let (root, port) = open(&format!("custom-stream-{api}-{}", !secret.is_empty())).await;
-        let mut client = Client::connect(port).await;
+        let mut client = Client::connect(port, TOKEN).await;
         let made = client.call("credential.custom_save", json!({"draft":{"name":api,"baseUrl":url,"api":api,"secret":secret,"models":["vendor/coder"]}})).await;
         assert_eq!(made["ok"], true, "{made}");
         let workspace = root.join("workspace");
@@ -556,7 +556,7 @@ async fn custom_responses_connections_read_loosely_shaped_streams() {
         axum::serve(listener, app).await.unwrap();
     });
     let (root, port) = open("custom-loose-responses").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let made = client.call("credential.custom_save", json!({"draft":{"name":"Loose","baseUrl":url,"api":"responses","secret":"","models":["vendor/coder"]}})).await;
     assert_eq!(made["ok"], true, "{made}");
     let workspace = root.join("workspace");
@@ -614,7 +614,7 @@ async fn discovery_and_manual_ids_preserve_filters_selections_and_offline_data_o
         axum::serve(listener, app).await.unwrap();
     });
     let (root, port) = open("manual-discovery").await;
-    let mut wire = Client::connect(port).await;
+    let mut wire = Client::connect(port, TOKEN).await;
     let credential = wire
         .call("credential.connect_local", json!({"baseUrl":url}))
         .await;
@@ -790,7 +790,7 @@ async fn native_connection_metadata_and_account_restrictions_survive_reopening_o
     )
     .unwrap();
     drop(vault);
-    let mut wire = Client::connect(open_at(&root)).await;
+    let mut wire = Client::connect(open_at(&root), TOKEN).await;
     let providers = wire.call("providers.list", json!({})).await;
     for provider in providers["result"].as_array().unwrap() {
         let supported = [

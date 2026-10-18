@@ -3,7 +3,7 @@ use super::*;
 #[tokio::test(flavor = "multi_thread")]
 async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() {
     let (_root, port) = open("dry").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
 
     let roster = client.subscribe(json!({ "view": "roster" })).await;
     let empty = client
@@ -119,7 +119,7 @@ async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_welcome_state_derives_from_a_fresh_room_to_a_first_teammate() {
     let (_root, port) = open("welcome").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
 
     let fresh = client.call("welcome", json!({})).await;
     assert_eq!(fresh["ok"], true, "{fresh}");
@@ -282,7 +282,7 @@ async fn a_peer_thread_is_listed_streamed_and_marked_read_over_the_wire() {
     )
     .unwrap();
 
-    let mut client = Client::connect(open_at(&root)).await;
+    let mut client = Client::connect(open_at(&root), TOKEN).await;
     let thread = client.subscribe(json!({ "thread": "ada~bob" })).await;
     let snapshot = client
         .next_where(Duration::from_secs(5), |frame| {
@@ -347,7 +347,7 @@ async fn the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data() 
     let door = Door::bind(desk.log.clone(), TOKEN.into(), desk.clone()).unwrap();
     let port = door.port();
     let door_task = tokio::spawn(door.run());
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let made = client
         .call("persona.create", json!({"draft":{"name":"Update tester"}}))
         .await;
@@ -381,7 +381,7 @@ async fn the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data() 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_draft_carrying_access_choices_lands_them_on_the_teammate() {
     let (root, port) = open("access-draft").await;
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
 
     let created = client
         .call(
@@ -455,7 +455,7 @@ async fn user_images_read_back_by_original_index_without_reopening_the_source() 
     log.append(&StreamId::Room, &json!({"kind":"persona", "id":"legacy", "name":"Legacy", "goal":"", "backendId":"hotline", "cwd":root.path(), "mcpPolicy":{"mode":"none","serverIds":[]}, "sessionCheckpoints":[], "createdAt":1, "updatedAt":1})).unwrap();
     drop(log);
     let port = open_at(root.path());
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     // A disposable local provider is enough to start a real session. No
     // model response is needed to persist the user's line or read it back.
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

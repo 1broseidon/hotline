@@ -1,4 +1,11 @@
 use super::*;
+use hotline_core::driver::acp::StartBounds;
+
+/// How long a real harness's start may take: the core's own bound for a
+/// first start, which may install the harness, and a reply's time after it.
+fn first_start() -> Duration {
+    StartBounds::default().first + common::ANSWER
+}
 
 /// A real turn, with a real key: the agent reads a file in its workspace with
 /// a tool and answers from it, and every step reaches the tape and the wire.
@@ -12,7 +19,7 @@ async fn a_turn_with_a_real_key_reads_a_file_and_answers_from_it() {
     std::fs::create_dir_all(&workspace).unwrap();
     std::fs::write(workspace.join("note.txt"), "the harbour is open\n").unwrap();
 
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let keyed = client
         .call(
             "credential.create",
@@ -133,7 +140,7 @@ async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
     )
     .unwrap();
 
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let created = client
         .call(
             "persona.create",
@@ -157,8 +164,9 @@ async fn a_turn_on_a_real_acp_harness_reaches_the_tape() {
     let tape = client.subscribe(json!({ "tape": persona_id })).await;
 
     let started = client
-        .call("session.start", json!({ "personaId": persona_id }))
+        .send("session.start", json!({ "personaId": persona_id }))
         .await;
+    let started = client.reply(started, first_start()).await;
     assert_eq!(started["ok"], true, "{started}");
     assert_eq!(started["result"]["state"], "ready");
     assert!(
@@ -275,7 +283,7 @@ async fn a_line_sent_mid_turn_reaches_a_real_acp_harness() {
     let (root, port) = open("acp-steer").await;
     let workspace = root.join("workspace");
     std::fs::create_dir_all(&workspace).unwrap();
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let created = client
         .call(
             "persona.create",
@@ -291,8 +299,9 @@ async fn a_line_sent_mid_turn_reaches_a_real_acp_harness() {
     let persona_id = created["result"]["id"].as_str().unwrap().to_string();
     let tape = client.subscribe(json!({ "tape": persona_id })).await;
     let started = client
-        .call("session.start", json!({ "personaId": persona_id }))
+        .send("session.start", json!({ "personaId": persona_id }))
         .await;
+    let started = client.reply(started, first_start()).await;
     assert_eq!(started["ok"], true, "{started}");
     let steerable = started["result"]["capabilities"]["activeInput"] == true;
 

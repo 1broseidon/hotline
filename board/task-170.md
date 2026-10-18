@@ -13,7 +13,7 @@ relatedFiles:
   - deny.toml
   - Makefile
   - .github/workflows/ci.yml
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:31.263Z"
 contract:
   status: ready
   validation:
@@ -29,6 +29,14 @@ contract:
 dependsOn:
   - task-169
   - task-124
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:31.127Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

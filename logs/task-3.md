@@ -1,8 +1,6 @@
 ---
 id: task-3
 title: A curated list of MCP servers people can connect
-column: backlog
-position: 10
 priority: medium
 tags:
   - bro-9
@@ -28,7 +26,8 @@ description: |-
   Settings › Tools has only a manual Add server form (ui/src/components/Settings.tsx ~1168-1240). Description still says "Toad"; decide whether runprism is one of the curated entries. (This came over from the old phone board too.)
 
   Closed 2026-10-18 (backlog triage): Won't do (2026-10-11 review, unchanged): a curated MCP catalogue belongs in runprism.
-updatedAt: "2026-10-18T23:40:59.608Z"
+updatedAt: "2026-10-18T23:41:00.142Z"
+completedAt: "2026-10-18T23:41:00.142Z"
 ---
 
 ## Log

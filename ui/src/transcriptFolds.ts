@@ -108,12 +108,13 @@ export function stepsSummary(items: Step[]): string {
 export function retryForNotice(events: TranscriptEvent[], noticeId: string,
     refill: (message: Extract<TranscriptEvent, { kind: "user" }>) => void): (() => void) | undefined {
     const index = events.findIndex((event) => event.id === noticeId);
-    if (index < 0 || events.slice(index + 1).some((event) => ["user", "delivery", "chapter"].includes(event.kind))) return;
+    if (index < 0 || events.slice(index + 1).some((event) => ["user", "delivery", "chapter"].includes(event.kind))) return undefined;
     for (let at = index - 1; at >= 0; at--) {
         const event = events[at]!;
         if (event.kind === "user") return event.scheduled === undefined ? () => refill(event) : undefined;
-        if (["delivery", "chapter", "turn"].includes(event.kind)) return;
+        if (["delivery", "chapter", "turn"].includes(event.kind)) return undefined;
     }
+    return undefined;
 }
 
 type DeliveryEvent = Extract<TranscriptEvent, { kind: "delivery" }>;

@@ -298,7 +298,7 @@ release. These are rollout checks, not claims that this rule is already live.
 
 ### Validate admission before rollout
 
-Run `cargo test -p hotline-core remote::tests::admission_tests --locked` for
+Run `cargo test -p hotline-core remote::tests::admission --locked` for
 isolated tests using fresh device keys, temporary state and a local
 TLS-terminating proxy. The tests exercise shared proxy-IP saturation,
 reconnects, existing sessions and HTTP keepalive expiry without touching a

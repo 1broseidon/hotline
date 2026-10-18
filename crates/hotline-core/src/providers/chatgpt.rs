@@ -100,7 +100,7 @@ async fn list_models_at(
     let request = request
         .body(Bytes::new())
         .map_err(|_| discovery::failed())?;
-    let body = discovery::fetch(DiscoveryHttp::default().send::<Bytes, Vec<u8>>(request)).await?;
+    let body = discovery::fetch(DiscoveryHttp::new()?.send::<Bytes, Vec<u8>>(request)).await?;
     listing(&body)
 }
 

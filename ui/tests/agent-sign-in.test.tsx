@@ -36,11 +36,12 @@ describe("Harness sign-in", () => {
 	test("retry is an explicit review of the original message, including files", () => {
 		const message: Extract<TranscriptEvent, { kind: "user" }> = { kind: "user", id: "u", ts: 1, text: "Try this", attachments: [] };
 		const failed: TranscriptEvent = { kind: "notice", id: "n", ts: 2, text: notice(), level: "error" };
-		let reviewed: typeof message | null = null;
-		const retry = retryForNotice([message, failed], "n", (one) => { reviewed = one; });
-		expect(reviewed).toBeNull();
+		const reviewed: (typeof message)[] = [];
+		const retry = retryForNotice([message, failed], "n", (one) => { reviewed.push(one); });
+		expect(reviewed).toEqual([]);
 		retry?.();
-		expect(reviewed).toBe(message);
+		expect(reviewed).toHaveLength(1);
+		expect(reviewed[0]).toBe(message);
 		expect(retryForNotice([message, failed, { ...message, id: "later" }], "n", () => {})).toBeUndefined();
 		expect(retryForNotice([message, { kind: "agent", id: "a", ts: 2, text: "I will check" }, failed], "n", () => {})).toBeFunction();
 		expect(retryForNotice([message, failed], "missing", () => {})).toBeUndefined();

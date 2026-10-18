@@ -35,8 +35,9 @@ mod speech;
 mod transfer;
 mod updater;
 
+// Public so `tests/shell_path.rs` can run `restore` in a fresh process.
 #[cfg(unix)]
-mod shell_path;
+pub mod shell_path;
 
 use hotline_core::boot::boot;
 use hotline_core::credentials::Backend;

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { RosterEntry } from "../src/wire";
 import { shownTeam, teamOrder } from "../src/pins";
+import { installDom } from "./dom";
 
 const entry = (id: string, more: { pin?: number; latest?: number; waiting?: boolean } = {}) =>
 	({
@@ -42,12 +42,7 @@ test("the filter narrows the team to one desk, and the desk on screen reads its 
 });
 
 test("one rail lists every desk's teammates with their desk, dims an unreachable one, and opens a teammate on its own desk", async () => {
-	const dom = new Window();
-	const originals = new Map<string, PropertyDescriptor | undefined>();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, localStorage: dom.localStorage, IS_REACT_ACT_ENVIRONMENT: true })) {
-		originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-	}
+	const { teardown } = installDom();
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
 	const { Rail } = await import("../src/components/Rail");
@@ -76,12 +71,12 @@ test("one rail lists every desk's teammates with their desk, dims an unreachable
 				seen={{ clementine: 10 }}
 				connection="open"
 				onSelect={(id, deskId) => picked.push([id, deskId])}
-				onNew={() => {}}
-				onSettings={() => {}}
 				onEdit={() => {}}
 				onDelete={() => {}}
 				onPin={() => {}}
-				onHelp={() => {}}
+				onAddDesk={() => {}}
+				search={null}
+				deskKey={null}
 			/>,
 		);
 	const labels = () => [...container.querySelectorAll("[data-teammate-row]")].map((row) => row.getAttribute("aria-label"));
@@ -108,10 +103,6 @@ test("one rail lists every desk's teammates with their desk, dims an unreachable
 		});
 		setDeskFilter(null);
 		replaceDesks([]);
-		await dom.happyDOM.close();
-		for (const [key, descriptor] of originals) {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		}
+		await teardown();
 	}
 });

@@ -1,7 +1,7 @@
 ---
 id: task-174
 title: "P2-33d (C): Window split, move-only: Teammate.tsx"
-column: todo
+column: in-progress
 position: 63
 description: |-
   Phase 2 group C, plan row 33 (fourth landing) in docs/audits/0.40/README.md on release/0.40.0. Read that row, window.md F2/F3 tasks 9–12 and the Standards first.
@@ -19,14 +19,16 @@ relatedFiles:
 parentId: epic-13
 createdAt: "2026-10-17T22:45:36.391Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make ui-check
       - make precheck
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
-updatedAt: "2026-10-18T00:32:29.166Z"
+    pickedUpAt: "2026-10-18T00:32:54.141Z"
+    reworkCount: 0
+updatedAt: "2026-10-18T00:32:54.141Z"
 dependsOn:
   - task-122
 dispatch:

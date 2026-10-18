@@ -1,7 +1,7 @@
 ---
 id: task-145
 title: "P2-36 (D): Lock recovery"
-column: todo
+column: in-progress
 position: 34
 priority: high
 tags:
@@ -15,9 +15,9 @@ relatedFiles:
   - crates/hotline-core/src/remote/relay.rs
   - crates/hotline-core/src/remote/bridge.rs
   - crates/hotline-app/src/transfer.rs
-updatedAt: "2026-10-18T04:38:57.284Z"
+updatedAt: "2026-10-18T04:39:03.255Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make precheck
@@ -25,6 +25,8 @@ contract:
       - make verify
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T04:39:03.255Z"
+    reworkCount: 0
 dependsOn:
   - task-128
 dispatch:

@@ -26,7 +26,9 @@ description: |-
   ## Status (2026-10-11 review)
 
   Settings › Tools has only a manual Add server form (ui/src/components/Settings.tsx ~1168-1240). Description still says "Toad"; decide whether runprism is one of the curated entries. (This came over from the old phone board too.)
-updatedAt: "2026-10-12T20:52:36.439Z"
+
+  Closed 2026-10-18 (backlog triage): Won't do (2026-10-11 review, unchanged): a curated MCP catalogue belongs in runprism.
+updatedAt: "2026-10-18T23:40:59.608Z"
 ---
 
 ## Log

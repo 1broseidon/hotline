@@ -19,9 +19,9 @@ relatedFiles:
   - ui/src/stepText.ts
   - ui/src/voice/call.ts
   - ui/src/voice/dictation.ts
-updatedAt: "2026-10-18T01:23:03.279Z"
+updatedAt: "2026-10-18T01:28:56.844Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - make ui-check
@@ -30,6 +30,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T01:18:11.261Z"
     reworkCount: 1
+    deliveredAt: "2026-10-18T01:28:56.844Z"
+    duration: 646
 dependsOn:
   - task-142
   - task-172

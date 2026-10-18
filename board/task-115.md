@@ -14,7 +14,7 @@ relatedFiles:
   - Cargo.lock
   - crates/hotline-core/src/driver/acp/install.rs
   - docs/security.md
-updatedAt: "2026-10-18T00:50:40.610Z"
+updatedAt: "2026-10-18T01:05:44.206Z"
 contract:
   status: delivered
   validation:
@@ -39,9 +39,9 @@ dispatch:
   tries: 1
   claim:
     host: Georges-Mac-Studio
-    runner: desktop
-    pid: 50333
-    at: "2026-10-18T00:32:05.196Z"
+    runner: cli
+    pid: 59932
+    at: "2026-10-18T01:05:44.206Z"
 assignee: claude
 ---
 

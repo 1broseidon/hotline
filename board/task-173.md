@@ -30,7 +30,7 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T00:31:04.589Z"
     reworkCount: 0
-updatedAt: "2026-10-18T00:46:56.867Z"
+updatedAt: "2026-10-18T01:06:05.806Z"
 dependsOn:
   - task-122
 dispatch:
@@ -42,9 +42,9 @@ dispatch:
   tries: 2
   claim:
     host: Georges-Mac-Studio
-    runner: desktop
-    pid: 50333
-    at: "2026-10-18T00:46:56.867Z"
+    runner: cli
+    pid: 59932
+    at: "2026-10-18T01:06:05.806Z"
 assignee: claude
 ---
 

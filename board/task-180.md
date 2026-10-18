@@ -1,7 +1,7 @@
 ---
 id: task-180
 title: "A 'needs you' card a teammate no longer needs goes away: withdraw your own request, and a shorter default lifetime"
-column: todo
+column: in-progress
 position: 0
 priority: high
 tags:
@@ -11,7 +11,7 @@ tags:
   - bug
 createdAt: "2026-10-18T21:59:36.514Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T23:54:18.613Z"
+updatedAt: "2026-10-18T23:54:30.048Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/session.rs
@@ -23,7 +23,7 @@ relatedFiles:
   - crates/hotline-core/src/session/tests/cards.rs
   - ui/src/generated/contract.ts
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: test
       path: crates/hotline-core/tests
@@ -41,6 +41,8 @@ contract:
     - A tool change follows docs/security.md
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+    pickedUpAt: "2026-10-18T23:54:30.048Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

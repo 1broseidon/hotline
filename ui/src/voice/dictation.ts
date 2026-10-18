@@ -546,7 +546,11 @@ export function takeDictationRequests(handle: (edge: KeyEdge, at: number) => voi
 	waiting = [];
 	// After the mount has settled: React may take a fresh mount down and up
 	// once more (StrictMode), and that would let a dictation begun here go.
-	if (fresh.length > 0) queueMicrotask(() => fresh.forEach((one) => handle(one.edge, one.at)));
+	if (fresh.length > 0) {
+		queueMicrotask(() => {
+			for (const one of fresh) handle(one.edge, one.at);
+		});
+	}
 	return () => {
 		if (target === handle) target = null;
 	};

@@ -202,7 +202,7 @@ mod tests {
     }
 
     fn chat(units: &[&str]) -> Vec<String> {
-        units.iter().map(|unit| unit.to_string()).collect()
+        units.iter().map(ToString::to_string).collect()
     }
 
     #[test]

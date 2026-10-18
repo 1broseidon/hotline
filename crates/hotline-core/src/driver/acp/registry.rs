@@ -878,7 +878,7 @@ mod tests {
                 native
                     .args
                     .iter()
-                    .map(|a| a.to_string())
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
             );
         }

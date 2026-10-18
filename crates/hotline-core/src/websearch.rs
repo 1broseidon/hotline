@@ -464,7 +464,10 @@ impl State {
 
     /// Why a provider is resting, if it is.
     fn resting(&self, provider: WebSearchProvider) -> Option<&'static str> {
-        let mut cooling = self.cooling.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cooling = self
+            .cooling
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match cooling.get(&provider) {
             Some((until, why)) if *until > Instant::now() => Some(*why),
             Some(_) => {
@@ -478,12 +481,15 @@ impl State {
     fn rest(&self, provider: WebSearchProvider, wait: Duration, why: &'static str) {
         self.cooling
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(provider, (Instant::now() + wait, why));
     }
 
     fn recall(&self, key: &str) -> Option<Answered> {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match cache.get(key) {
             Some((at, answered)) if at.elapsed() < self.ttl => Some(answered.clone()),
             Some(_) => {
@@ -495,7 +501,10 @@ impl State {
     }
 
     fn remember(&self, key: String, answered: &Answered) {
-        let mut cache = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self
+            .cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let ttl = self.ttl;
         cache.retain(|_, (at, _)| at.elapsed() < ttl);
         while cache.len() >= CACHE_ENTRIES {

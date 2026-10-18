@@ -975,7 +975,7 @@ impl Workspace {
         let permissions = parent_dir
             .symlink_metadata(file_name)
             .ok()
-            .filter(|metadata| metadata.is_file())
+            .filter(cap_std::fs::Metadata::is_file)
             .map(|metadata| metadata.permissions());
 
         let mut temporary = None;
@@ -1145,7 +1145,7 @@ fn walk(start: &Path, max_filesize: Option<u64>, include_hidden: bool) -> ignore
         .parents(false)
         .follow_links(false)
         .max_filesize(max_filesize)
-        .sort_by_file_path(|left, right| left.cmp(right));
+        .sort_by_file_path(Ord::cmp);
     builder.build()
 }
 

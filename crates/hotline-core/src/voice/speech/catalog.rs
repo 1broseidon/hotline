@@ -343,7 +343,7 @@ fn parse_openai_shape(provider_id: &str, body: &Value) -> (Vec<Heard>, Vec<Spoke
         } else if speaks {
             let voices = curated_voices(provider_id, &id)
                 .iter()
-                .map(|voice| voice.to_string())
+                .map(ToString::to_string)
                 .collect();
             speak.push(Spoken {
                 id,
@@ -421,7 +421,7 @@ fn parse_google(body: &Value) -> (Vec<Heard>, Vec<Spoken>) {
         if id.contains("-tts") {
             let voices = curated_voices("google", &id)
                 .iter()
-                .map(|voice| voice.to_string())
+                .map(ToString::to_string)
                 .collect();
             speak.push(Spoken { id, label, voices });
         } else if id.starts_with("gemini-")

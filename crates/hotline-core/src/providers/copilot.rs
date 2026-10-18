@@ -400,7 +400,7 @@ fn responses_client(
         .base_url(&session.api_base)
         .http_client(Transport::new(token_dir)?)
         .build()
-        .map(|client| client.with_system_instructions_as_messages())
+        .map(rig::client::Client::with_system_instructions_as_messages)
         .map_err(|_| "Could not prepare the GitHub Copilot connection.".to_string())
 }
 

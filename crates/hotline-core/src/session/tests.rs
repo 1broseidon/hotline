@@ -291,7 +291,7 @@ impl Driver for Scripted {
     fn subscribe_info(&self) -> Option<watch::Receiver<DriverInfo>> {
         self.info_changes
             .as_ref()
-            .map(|changes| changes.subscribe())
+            .map(tokio::sync::watch::Sender::subscribe)
     }
 
     fn subscribe_unprompted(&self) -> Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>> {

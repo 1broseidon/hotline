@@ -1694,7 +1694,7 @@ mod tests {
                         name: name.into(),
                         base_url: "http://127.0.0.1:9/v1".into(),
                         api: crate::contract::OpenAiApi::ChatCompletions,
-                        models: models.iter().map(|model| model.to_string()).collect(),
+                        models: models.iter().map(ToString::to_string).collect(),
                         // A key, so the fixture bills per token as a paid provider does.
                         secret: Some("fixture-key".into()),
                     },

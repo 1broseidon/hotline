@@ -189,7 +189,7 @@ fn read_model(dir: &Path) -> Option<Installed> {
         let recorded = manifest.files.iter().find(|one| one.name == *file);
         let size = std::fs::metadata(dir.join(file))
             .ok()
-            .filter(|meta| meta.is_file());
+            .filter(std::fs::Metadata::is_file);
         matches!((recorded, size), (Some(recorded), Some(size)) if recorded.bytes == size.len())
     });
     (named && whole).then(|| Installed {

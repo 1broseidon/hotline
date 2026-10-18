@@ -993,7 +993,7 @@ mod linux {
 mod tests {
     use super::*;
     fn options(args: &[&str]) -> Result<Options> {
-        Options::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        Options::parse(&args.iter().map(ToString::to_string).collect::<Vec<_>>())
     }
     #[test]
     fn strict_update_options() {

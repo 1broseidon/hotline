@@ -187,11 +187,7 @@ impl Calls {
             provider_id: provider.key().into(),
             model_id: realtime.id().model_id,
             voice: self.front_voice(None),
-            voices: provider
-                .voices()
-                .iter()
-                .map(|voice| voice.to_string())
-                .collect(),
+            voices: provider.voices().iter().map(ToString::to_string).collect(),
         })
     }
 

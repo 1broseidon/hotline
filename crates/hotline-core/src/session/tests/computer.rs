@@ -16,7 +16,7 @@ fn passkey_cards(room: &Room, persona_id: &str) -> Vec<Value> {
 fn grant_secrets(room: &Room, names: &[&str]) {
     let mut ada = room.persona("ada").unwrap();
     let computer = ada.computer.as_mut().unwrap();
-    computer.secrets = Some(names.iter().map(|name| name.to_string()).collect());
+    computer.secrets = Some(names.iter().map(ToString::to_string).collect());
     enrol(&room.log, &ada);
 }
 

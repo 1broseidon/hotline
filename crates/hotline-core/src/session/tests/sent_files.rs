@@ -48,7 +48,7 @@ fn files_on(room: &Room) -> Vec<Value> {
 
 fn kept(room: &Room) -> usize {
     std::fs::read_dir(room.log.root().join("files").join("ada"))
-        .map(|entries| entries.count())
+        .map(Iterator::count)
         .unwrap_or(0)
 }
 

@@ -368,7 +368,7 @@ fn options_from(
                     _ => vec![CapabilityModel {
                         id: default.to_string(),
                         label: None,
-                        voices: Some(voices.iter().map(|voice| voice.to_string()).collect()),
+                        voices: Some(voices.iter().map(ToString::to_string).collect()),
                         efforts: None,
                     }],
                 };
@@ -854,7 +854,7 @@ mod tests {
             name: "Cloudflare".to_string(),
             base_url: "https://gateway.example/v1/openai".to_string(),
             key: None,
-            models: models.iter().map(|model| model.to_string()).collect(),
+            models: models.iter().map(ToString::to_string).collect(),
             login: None,
             root: None,
         }
@@ -1453,7 +1453,7 @@ mod tests {
                 .map(|(id, voices)| catalog::Spoken {
                     id: id.to_string(),
                     label: Some(format!("Label of {id}")),
-                    voices: voices.iter().map(|voice| voice.to_string()).collect(),
+                    voices: voices.iter().map(ToString::to_string).collect(),
                 })
                 .collect(),
         }

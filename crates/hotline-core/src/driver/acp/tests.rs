@@ -5,6 +5,9 @@ mod steering;
 mod turns;
 mod unprompted;
 
+use super::oauth_proxy::{OAuthProxyState, ProxyCredential, oauth_proxy_request};
+use super::session::{Disposition, RawInitialize};
+use super::translate::{SUBAGENT_LAUNCH, finished, tool_kind, translate};
 use super::*;
 use crate::contract::{McpPolicy, PolicyMode, SessionCheckpoint};
 use agent_client_protocol::schema::v1::SessionNotification;

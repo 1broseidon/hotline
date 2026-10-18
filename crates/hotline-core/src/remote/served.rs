@@ -70,7 +70,7 @@ impl Remote {
     pub(super) async fn restore_served(self: &Arc<Self>) {
         let host = self.served.as_ref().unwrap().listen.to_string();
         if let Err(error) = self.configure_served(true, &host).await {
-            self.state.lock().unwrap().error = Some(error);
+            lock(&self.state).error = Some(error);
         }
     }
 
@@ -136,7 +136,7 @@ impl Remote {
         }
         let _held = self.lifecycle.lock().await;
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             if enabled && s.saved.enabled && !s.cancel.is_cancelled() {
                 drop(s);
                 return Ok(self.status());
@@ -159,7 +159,7 @@ impl Remote {
         let tls = self.served_tls(&options)?;
         let cancel = CancellationToken::new();
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             s.saved.enabled = true;
             self.save(&s.saved)?;
             s.cancel = cancel.clone();
@@ -176,7 +176,7 @@ impl Remote {
                 match result {
                     Ok(listener) => {
                         {
-                            let mut s = remote.state.lock().unwrap();
+                            let mut s = lock(&remote.state);
                             if cancel.is_cancelled() {
                                 return;
                             }
@@ -197,7 +197,7 @@ impl Remote {
                         return;
                     }
                     Err(error) => {
-                        remote.state.lock().unwrap().error =
+                        lock(&remote.state).error =
                             Some(format!("Waiting for {}: {error}", options.listen))
                     }
                 }

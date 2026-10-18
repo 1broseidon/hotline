@@ -98,7 +98,7 @@ impl Remote {
     pub(super) fn noise_keys(&self) -> Result<([u8; 32], [u8; 32]), String> {
         // Serialize first-use creation with grant changes. Never replace an
         // unreadable identity: that could make an existing pairing trust a new desk.
-        let s = self.state.lock().unwrap();
+        let s = lock(&self.state);
         if let Some(bytes) = self.noise_identity.read().map_err(message)? {
             let keys: Keys = serde_json::from_slice(&bytes).map_err(message)?;
             return Ok((keys.private, keys.public));
@@ -117,9 +117,7 @@ impl Remote {
     }
 
     pub fn devices(&self) -> Vec<RemoteDevice> {
-        self.state
-            .lock()
-            .unwrap()
+        lock(&self.state)
             .saved
             .all_grants()
             .map(|g| g.device.clone())
@@ -172,7 +170,7 @@ impl Remote {
             return Err("This server runs only a relay, so it pairs a desktop to relay through it and nothing else: phones pair with a server that runs agents.".into());
         }
         let (_, public) = self.noise_keys()?;
-        let mut s = self.state.lock().unwrap();
+        let mut s = lock(&self.state);
         let endpoint = s.endpoints.first().ok_or("Enable remote access first.")?;
         let relay = s.relay.url.clone();
         // A served desk's only address is already its public one.
@@ -240,7 +238,7 @@ impl Remote {
     }
 
     pub fn pairing_result(&self, id: &str) -> Result<Option<RemoteDevice>, String> {
-        let s = self.state.lock().unwrap();
+        let s = lock(&self.state);
         let window = s
             .sealed_pairing
             .as_ref()
@@ -256,7 +254,7 @@ impl Remote {
     }
 
     pub fn cancel_pairing(&self, id: &str) -> Result<(), String> {
-        let mut s = self.state.lock().unwrap();
+        let mut s = lock(&self.state);
         if s.sealed_pairing.as_ref().is_some_and(|w| w.id == id) {
             s.sealed_pairing = None;
         }
@@ -264,7 +262,7 @@ impl Remote {
     }
 
     pub(super) fn pairing_open(&self) -> bool {
-        let s = self.state.lock().unwrap();
+        let s = lock(&self.state);
         !s.endpoints.is_empty()
             && s.sealed_pairing
                 .as_ref()
@@ -276,7 +274,7 @@ impl Remote {
         if public.len() != 32 || claim.name.trim().is_empty() || claim.name.len() > 80 {
             return Err("Invalid pairing claim.".into());
         }
-        let mut s = self.state.lock().unwrap();
+        let mut s = lock(&self.state);
         Self::throttle(&mut s)?;
         let window = s.sealed_pairing.as_ref().ok_or("Pairing is closed.")?;
         if s.endpoints.is_empty()
@@ -360,7 +358,7 @@ impl Remote {
     }
 
     pub(super) fn authenticate_v2(self: &Arc<Self>, public: &[u8]) -> Option<Phone> {
-        let s = self.state.lock().unwrap();
+        let s = lock(&self.state);
         if s.endpoints.is_empty() || public.len() != 32 {
             return None;
         }

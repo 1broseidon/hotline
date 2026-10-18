@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/tests.rs
   - crates/hotline-core/tests/voice.rs
   - crates/hotline-core/tests/desk.rs
-updatedAt: "2026-10-18T00:15:01.025Z"
+updatedAt: "2026-10-18T04:55:09.935Z"
 contract:
   status: ready
   validation:
@@ -32,7 +32,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:15:00.890Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 35147
+    at: "2026-10-18T04:55:09.935Z"
 assignee: claude
 ---
 

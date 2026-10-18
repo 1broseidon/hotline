@@ -116,7 +116,7 @@ impl Room {
             image,
             spent_usd,
             subscription,
-        } = self.draw(&request, &capability).await?;
+        } = self.draw(&request, capability.as_ref()).await?;
         if let Some(capability) = &capability {
             capability.check()?;
         }
@@ -176,7 +176,7 @@ impl Room {
     pub(crate) async fn draw(
         &self,
         request: &ImageRequest,
-        capability: &Option<CapabilityLease>,
+        capability: Option<&CapabilityLease>,
     ) -> Result<Drawn, String> {
         let generators = self.image_generators()?;
         let mut spent_usd = 0.0;
@@ -188,7 +188,7 @@ impl Room {
                 break;
             }
             on_plan = subscription;
-            if let Some(capability) = &capability {
+            if let Some(capability) = capability {
                 capability.check()?;
             }
             if request.references.len() > generator.max_references() {
@@ -220,11 +220,11 @@ impl Room {
                         .map_err(|_| "The image's spending could not be reserved.".to_string())??,
                 )
             };
-            if let Some(capability) = &capability {
+            if let Some(capability) = capability {
                 capability.check()?;
             }
             let before_send = || {
-                if let Some(capability) = &capability {
+                if let Some(capability) = capability {
                     capability.check().map_err(|_| ImageError::Revoked)?;
                 }
                 Ok(())

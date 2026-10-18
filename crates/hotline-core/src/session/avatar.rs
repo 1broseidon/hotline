@@ -149,7 +149,7 @@ impl Room {
             transparent: false,
             references: styled.references,
         };
-        let drawn = self.draw(&request, &None).await?;
+        let drawn = self.draw(&request, None).await?;
         let permit = DECODERS
             .acquire()
             .await

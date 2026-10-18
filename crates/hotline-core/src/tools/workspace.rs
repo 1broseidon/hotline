@@ -722,7 +722,7 @@ impl Workspace {
             let Ok(relative) = entry.path().strip_prefix(&root) else {
                 continue;
             };
-            if !glob_matches(&glob, relative) {
+            if !glob_matches(glob.as_ref(), relative) {
                 continue;
             }
 
@@ -1154,9 +1154,8 @@ fn build_glob_set(pattern: Option<&str>) -> Result<Option<GlobSet>, ToolError> {
         .map_err(|error| ToolError::new(format!("Invalid glob pattern: {error}")))
 }
 
-fn glob_matches(glob: &Option<GlobSet>, relative: &Path) -> bool {
-    glob.as_ref()
-        .is_none_or(|matcher| matcher.is_match(display_relative(relative)))
+fn glob_matches(glob: Option<&GlobSet>, relative: &Path) -> bool {
+    glob.is_none_or(|matcher| matcher.is_match(display_relative(relative)))
 }
 
 fn validate_pattern(pattern: &str) -> Result<(), ToolError> {

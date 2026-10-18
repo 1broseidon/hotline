@@ -1,8 +1,8 @@
 ---
 id: task-170
 title: "P2-55 (F): The dependency gates"
-column: in-progress
-position: 59
+column: review
+position: 0
 priority: high
 tags:
   - phase2
@@ -13,7 +13,7 @@ relatedFiles:
   - deny.toml
   - Makefile
   - .github/workflows/ci.yml
-updatedAt: "2026-10-18T03:45:57.426Z"
+updatedAt: "2026-10-18T03:50:36.499Z"
 contract:
   status: in_progress
   validation:
@@ -43,6 +43,8 @@ dispatch:
     runner: cli
     pid: 39764
     at: "2026-10-18T03:45:13.239Z"
+    ended: "2026-10-18T03:50:36.007Z"
+    outcome: review
 assignee: claude
 ---
 
@@ -57,3 +59,6 @@ Phase 2 group F (Gates), plan row 55 in docs/audits/0.40/README.md on release/0.
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T03:50:36.499Z: Not landed: 6 files are not committed in the worktree: send it back, or commit in your editor

@@ -54,6 +54,7 @@ function useRelayOffer(desk: Desk | undefined): boolean {
 	const declined = desk?.relayDeclined === true;
 	// A new endpoint is a new connection, and its hello is the one to read.
 	const endpoint = desk === undefined ? "" : `${desk.origin} ${desk.token}`;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new endpoint is a new connection to read.
 	useEffect(() => {
 		setOffer(false);
 		if (deskId === undefined || declined) return;

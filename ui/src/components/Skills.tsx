@@ -53,6 +53,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 	}, []);
 
 	// The folder may change under the list, so a new folder lists again.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new folder is what lists again.
 	useEffect(() => {
 		refresh();
 	}, [refresh, skillsHome]);

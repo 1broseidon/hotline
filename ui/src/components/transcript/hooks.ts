@@ -48,6 +48,7 @@ export function useSleep(personaId: string, activity: Activity | null): { activi
 	const [sleeping, setSleeping] = useState(false);
 	const off = activity === null;
 	const going = off && (sleeping || awake.current);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new teammate is what starts it again.
 	useEffect(() => {
 		awake.current = false;
 		setSleeping(false);
@@ -80,6 +81,7 @@ export function useLanding(personaId: string, activity: Activity | null): Activi
 	const [landing, setLanding] = useState(false);
 	const phase = activity?.phase ?? null;
 	const ended = phase === null && (landing || last.current === "writing");
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new teammate is what starts it again.
 	useEffect(() => {
 		last.current = null;
 		setLanding(false);
@@ -106,6 +108,7 @@ export function useLanding(personaId: string, activity: Activity | null): Activi
 export function useCadence(personaId: string, blocks: Block[]): ReadonlySet<string> {
 	const cadence = useRef<Cadence>(REST);
 	const [, wake] = useReducer((n: number) => n + 1, 0);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new teammate is what starts it again.
 	useEffect(() => {
 		cadence.current = REST;
 	}, [personaId]);
@@ -118,6 +121,7 @@ export function useCadence(personaId: string, blocks: Block[]): ReadonlySet<stri
 	const next = step(cadence.current, bubbles, Date.now());
 	cadence.current = next.cadence;
 	const dueIn = next.dueIn;
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a bubble shown is what sets the next wake.
 	useEffect(() => {
 		if (dueIn === null) return;
 		const timer = window.setTimeout(wake, dueIn);

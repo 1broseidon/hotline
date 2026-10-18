@@ -70,6 +70,7 @@ export function ConnectProvider({
 	};
 
 	// A provider with one way in, and that way a sign-in, starts it at once.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a sign-in starts once, when the form opens.
 	useEffect(() => {
 		if (initial === "oauth") void signIn();
 		return () => {
@@ -77,6 +78,7 @@ export function ConnectProvider({
 		};
 	}, []);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: one poll per login, since restarting it cancels the sign-in; the handlers it calls hold only setters and keyed props.
 	useEffect(() => {
 		if (login === null) return;
 		let cancelled = false;

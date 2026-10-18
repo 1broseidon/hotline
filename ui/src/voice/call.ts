@@ -153,7 +153,7 @@ function afterRecognizedPrefix(text: string, prefix: string): string {
  * mouth wide open through a whole sentence.
  */
 function speechLevel(rms: number): number {
-	return Math.min(1, Math.pow(rms * 5, 0.65));
+	return Math.min(1, (rms * 5) ** 0.65);
 }
 
 /** Whether the desk can put a voice front on a call: it says so in `voice.status`. */
@@ -683,7 +683,7 @@ export class Call {
 			const frame = this.frontSamples.splice(0, FRONT_FRAME_SAMPLES);
 			const bytes = new Uint8Array(frame.length * 2);
 			const view = new DataView(bytes.buffer);
-			frame.forEach((sample, i) => view.setInt16(i * 2, sample, true));
+			for (const [i, sample] of frame.entries()) view.setInt16(i * 2, sample, true);
 			void this.transport.command("voice.front_audio", { callId: this.id, seq: this.frontSeq++, data: toBase64(bytes) }).catch(() => {});
 		}
 	}
@@ -935,7 +935,7 @@ export class Call {
 		let target = 0;
 		// The reply on the phone's curve; your voice on a perceptual curve, as Spark drew it.
 		if (this.snapshot.phase === "speaking") target = speechLevel(this.audio.outputLevel());
-		else if (this.snapshot.phase === "listening" || this.snapshot.phase === "hearing" || (this.front !== null && this.snapshot.phase === "thinking")) target = Math.min(1, Math.pow(this.level * 9, 0.6));
+		else if (this.snapshot.phase === "listening" || this.snapshot.phase === "hearing" || (this.front !== null && this.snapshot.phase === "thinking")) target = Math.min(1, (this.level * 9) ** 0.6);
 		// Fast attack and slow release.
 		this.shown += (target - this.shown) * (target > this.shown ? 0.5 : 0.12);
 		for (const listener of this.levels) listener(this.shown);
@@ -1104,6 +1104,7 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 			window.removeEventListener("focus", again);
 		};
 	}, []);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: asked and voiceSettings are what ask again.
 	useEffect(() => {
 		if (connection !== "open") { setSupport({ available: false, directCalls: false }); return; }
 		let current = true;

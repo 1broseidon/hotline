@@ -62,6 +62,7 @@ export function ProvidersSection({
 
 	// A connection coming or going, or any of the settings the block writes,
 	// changes what it shows.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: these settings and modelsRevision are what change the answer; reloadCapabilities reads only a setter.
 	useEffect(() => {
 		void reloadCapabilities();
 	}, [modelsRevision, JSON.stringify([images, voice, spending])]);
@@ -78,6 +79,7 @@ export function ProvidersSection({
 				setRefusal(error.message);
 			});
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: read once, on open; reload reads only setters.
 	useEffect(() => {
 		void reload();
 		wire
@@ -282,6 +284,7 @@ function ProviderPage({
 		});
 	};
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the catalog is read once per provider, and applyCatalog reads that render's filter.
 	useEffect(() => {
 		if (credential.revoked) {
 			setCatalog([]);

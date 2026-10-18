@@ -52,6 +52,7 @@ export function Schedules({
 		heading.current?.focus();
 	}, [focus]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new teammate is what closes the form.
 	useEffect(() => {
 		setAdding(false);
 	}, [personaId]);

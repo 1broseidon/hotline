@@ -89,9 +89,12 @@ export function Budgets({ spending, onChanged }: { spending: Spending; onChanged
 	);
 }
 
+function shown(amount: number | null): string {
+	return amount === null ? "" : amount.toFixed(2);
+}
+
 /** A limit typed in, saved on Enter or when you leave it. Empty is no limit; 0 turns paid use off. */
 function Cap({ label, value, unit, onCommit }: { label: string; value: number | null; unit: string; onCommit(usd: number | null): void }) {
-	const shown = (amount: number | null) => (amount === null ? "" : amount.toFixed(2));
 	const [text, setText] = useState(shown(value));
 
 	useEffect(() => {

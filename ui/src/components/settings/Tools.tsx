@@ -341,6 +341,7 @@ export function McpOAuthControls({ server }: { server: Extract<McpServer, { type
 		}
 	};
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh reads only server.id, which is what restarts the poll.
 	useEffect(() => {
 		void refresh();
 		const timer = window.setInterval(() => void refresh(), 2_000);
@@ -430,6 +431,7 @@ function McpTokenControls({ server }: { server: Extract<McpServer, { type: "http
 		}
 	};
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh reads only server.id, which is what restarts the poll.
 	useEffect(() => {
 		void refresh();
 		const timer = window.setInterval(() => void refresh(), 2_000);

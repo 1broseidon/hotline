@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:41:06.356Z"
 relatedFiles:
   - ui/src/components/
   - ui/src/App.tsx
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:21.174Z"
 contract:
   status: ready
   validation:
@@ -24,6 +24,14 @@ contract:
 dependsOn:
   - task-156
   - task-158
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:21.041Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

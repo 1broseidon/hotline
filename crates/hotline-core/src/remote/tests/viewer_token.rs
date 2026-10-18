@@ -169,7 +169,11 @@ async fn viewer_tokens_expire_thirty_seconds_after_minting() {
         .unwrap();
     let bridge = bridge::Bridge::with_client(&desk, client).await.unwrap();
     let token = bridge.viewer_token("ada");
+    // Only the token's lifetime runs on a paused clock: the requests around it
+    // read real sockets, and a paused clock would jump their timeouts.
+    tokio::time::pause();
     tokio::time::sleep(Duration::from_secs(30)).await;
+    tokio::time::resume();
     refused(request(&bridge, "/computer/ada/ws", Some(&token))).await;
     // Expiry of a viewer capability must not expire the owner's bridge.
     let (socket, _) = tokio_tungstenite::connect_async(request(

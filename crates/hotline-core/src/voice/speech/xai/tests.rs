@@ -817,18 +817,30 @@ async fn cancelling_live_transcription_closes_the_socket_without_a_detached_work
 
 #[tokio::test]
 async fn a_provider_that_never_becomes_ready_hits_the_connection_deadline() {
+    let (waiting_tx, waiting_rx) = oneshot::channel();
     let (url, _, _server) = websocket(move |mut socket| async move {
+        // A pong comes from inside the wait for readiness, so the connection
+        // is up and only the deadline is left to run.
+        socket.send(Message::Ping(vec![].into())).await.unwrap();
+        assert!(matches!(socket.next().await, Some(Ok(Message::Pong(_)))));
+        waiting_tx.send(()).unwrap();
         let _ = socket.next().await;
     })
     .await;
     let (_tx, rx) = mpsc::channel(1);
-    assert_eq!(
-        timeout(
-            CONNECT_TIMEOUT + Duration::from_secs(2),
-            listener(&url).transcribe_live(rx, INPUT_RATE)
-        )
+    let task = tokio::spawn(async move { listener(&url).transcribe_live(rx, INPUT_RATE).await });
+    timeout(Duration::from_secs(15), waiting_rx)
         .await
-        .unwrap(),
+        .unwrap()
+        .unwrap();
+    // Paused only now: under a paused clock the handshake's loopback reads
+    // would let time jump past the deadlines before the socket was up.
+    tokio::time::pause();
+    assert_eq!(
+        timeout(CONNECT_TIMEOUT + Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap(),
         Err(SpeechError::Unreachable {
             provider_id: PROVIDER_ID.into()
         })

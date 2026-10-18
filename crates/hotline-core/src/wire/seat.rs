@@ -90,7 +90,7 @@ impl Seat {
                     | Command::MobilePushRegister { .. }
                     // A narrow create, confined in core rather than by
                     // leaving fields out of the phone's form: see
-                    // `mobile_persona_create` in `wire/commands.rs`.
+                    // `mobile_persona_create` in `wire/commands/persona.rs`.
                     | Command::MobilePersonaCreate { .. }
                     // Name and goal only, confined by the command's shape.
                     | Command::MobilePersonaUpdate { .. }

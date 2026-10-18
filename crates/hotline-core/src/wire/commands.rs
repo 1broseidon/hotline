@@ -17,8 +17,9 @@ use crate::store::{chapters, search};
 use crate::{paths, room};
 use models::{remember_model, set_config, set_model, welcome};
 use persona::{
-    apply_persona_update, create_persona, delete_persona, living, mobile_persona_access,
-    mobile_persona_computer, mobile_persona_create, mobile_persona_patch, pin_persona, set_mode,
+    MobileDraft, apply_persona_update, create_persona, delete_persona, living,
+    mobile_persona_access, mobile_persona_computer, mobile_persona_create, mobile_persona_patch,
+    pin_persona, set_mode,
 };
 use serde_json::{Map, Value, json};
 use settings::{update_settings, web_search_status};
@@ -232,17 +233,14 @@ pub(crate) async fn run(
             model_id,
             effort_id,
         } => {
-            mobile_persona_create(
-                log,
-                room,
-                &request_id,
+            let asked = MobileDraft {
                 name,
                 goal,
                 backend_id,
                 model_id,
                 effort_id,
-            )
-            .await
+            };
+            mobile_persona_create(log, room, &request_id, asked).await
         }
         Command::MobilePersonaUpdate { id, name, goal } => {
             let patch = mobile_persona_patch(name, goal)?;

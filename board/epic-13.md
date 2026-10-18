@@ -11,7 +11,7 @@ tags:
   - phase2
 createdAt: "2026-10-17T22:40:41.476Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T04:05:25.432Z"
+updatedAt: "2026-10-18T04:11:39.780Z"
 assignee: claude
 dispatch:
   agent: claude
@@ -25,7 +25,6 @@ dispatch:
     runner: cli
     pid: 39764
     at: "2026-10-18T02:23:42.986Z"
-  paused: "2026-10-18T04:05:25.430Z"
 ---
 
 ## Description

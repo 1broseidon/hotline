@@ -3,6 +3,7 @@
 use super::sides::{HandoffStart, Start};
 use super::turns::HandoffLine;
 use super::{Room, lock, new_id, now_ms, peers};
+use crate::contract::ThreadId;
 use crate::contract::{
     DeliveryCause, DeliveryFrom, ExchangePauseStatus, HumanActionStatus, PeerStatus, SideEnd,
     TranscriptEvent,
@@ -11,7 +12,7 @@ use crate::driver::CapabilityLease;
 use crate::linked;
 use crate::log::{StreamId, thread};
 use crate::paths::{thread_key, thread_participants};
-use crate::thread::{Opener, ThreadId};
+use crate::thread::Opener;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;

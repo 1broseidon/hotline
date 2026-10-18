@@ -17,7 +17,8 @@
 use super::client::{Client, OpenError};
 use super::server::Seat;
 use super::*;
-use crate::linked::{self, Call, CallError, DeskLink, LinkedTeammate, Record};
+use crate::contract::LinkedTeammate;
+use crate::linked::{self, Call, CallError, DeskLink, Record};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;

@@ -5242,7 +5242,7 @@ async fn capabilities_options_report_each_budget_from_its_own_tally() {
     use crate::spending::SpendLedger;
     let root = tempfile::tempdir().unwrap();
     SpendLedger::new(root.path().to_path_buf())
-        .reserve(&crate::spending::BudgetLimits::default(), 0.25)
+        .reserve(&crate::contract::BudgetLimits::default(), 0.25)
         .unwrap()
         .charge(0.125)
         .unwrap();
@@ -5561,7 +5561,7 @@ async fn images_status_reports_recorded_spending_without_creating_or_writing_a_l
     {
         let ledger = SpendLedger::new(root.path().to_path_buf());
         ledger
-            .reserve(&crate::spending::BudgetLimits::default(), 0.25)
+            .reserve(&crate::contract::BudgetLimits::default(), 0.25)
             .unwrap()
             .charge(0.125)
             .unwrap();
@@ -5708,7 +5708,7 @@ async fn images_status_refuses_malformed_saved_selections_and_marks_invalid_caps
     assert!(answer["result"].get("spending").is_none());
     assert!(answer["result"]["spendingUnavailable"].is_string());
     assert_eq!(crate::room::settings(&desk.log)["spending"], spending);
-    assert!(serde_json::from_value::<crate::spending::SpendingSettings>(spending).is_err());
+    assert!(serde_json::from_value::<crate::contract::SpendingSettings>(spending).is_err());
 }
 
 #[tokio::test]

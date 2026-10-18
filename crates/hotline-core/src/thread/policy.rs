@@ -4,7 +4,7 @@
 //! the write path and the agent builder read the row. Only the decisions they
 //! make are here; each later phase adds the ones it needs.
 
-use super::{End, ThreadKind};
+use crate::contract::{End, ThreadKind};
 
 /// Who may answer a card raised in the thread.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

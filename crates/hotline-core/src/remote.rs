@@ -16,10 +16,9 @@ mod viewer_files;
 pub use served::ServeOptions;
 pub use v2::{PairingPayload, SealedPairing};
 
-use crate::contract::MobileAttachmentChunk;
+use crate::contract::{DeviceRole, MobileAttachmentChunk, ThreadId, ThreadKind};
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore, atomic_write};
 use crate::log::Log;
-use crate::thread::{ThreadId, ThreadKind};
 use crate::wire::RoomHandle;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -47,18 +46,6 @@ fn hash(value: &str) -> String {
 }
 fn message(error: impl std::fmt::Display) -> String {
     error.to_string()
-}
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum DeviceRole {
-    /// Keyed grants with missing roles retain the full owner command set.
-    #[default]
-    Owner,
-    Companion,
-    /// May stand in on this server's relay and carry visits, and nothing
-    /// else: no seat on the wire, the computer or the link (ADR 0006).
-    Relay,
 }
 impl DeviceRole {
     /// The seat this role is given on the wire, if any. A relay grant has

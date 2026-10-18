@@ -1,9 +1,10 @@
 use super::{Room, files::Source};
+use crate::contract::ImageSettings;
 use crate::contract::Reach;
+use crate::contract::SpendingSettings;
 use crate::driver::CapabilityLease;
-use crate::imagegen::{self, Aspect, ImageError, ImageRequest, ImageSet, ImageSettings, Reference};
+use crate::imagegen::{self, Aspect, ImageError, ImageRequest, ImageSet, Reference};
 use crate::sent;
-use crate::spending::SpendingSettings;
 use crate::tools::Workspace;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -45,7 +46,7 @@ pub(crate) fn images_off_in(settings: &serde_json::Map<String, Value>) -> bool {
 }
 
 impl Room {
-    pub(crate) fn spending_summary(&self) -> Result<crate::spending::SpendingSummary, String> {
+    pub(crate) fn spending_summary(&self) -> Result<crate::contract::SpendingSummary, String> {
         self.spending.summary()
     }
 

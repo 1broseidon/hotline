@@ -807,7 +807,7 @@ it lets a colleague use another's tools.
 - **Grant source:** none to give: the person's own choices for a teammate
   are what the row reports, read from its record, the room's settings and
   its live session at each call.
-- **Enforcement points:** the row is the type `linked::LinkedTeammate`,
+- **Enforcement points:** the row is the type `contract::LinkedTeammate`,
   built only by `mcp::server::roster_row` and `profile`, which take names,
   switches and words and never a path, a server's transport or a policy's
   ids; `linked::plausible` cuts what a linked desk publishes to the same

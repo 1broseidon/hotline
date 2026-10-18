@@ -25,31 +25,9 @@ pub use policy::{Answer, Computer, Idle, Lease, Policy, Restart, Resume, Tools};
 pub(crate) use policy::{QUIET_MS, SIDE_IDLE_MS};
 pub use store::ThreadStore;
 
+use crate::contract::{End, ThreadId, ThreadKind};
 use crate::log::StreamId;
-use serde::{Deserialize, Serialize};
 use std::fmt;
-use ts_rs::TS;
-
-/// What kind of conversation a thread is. The kind picks its [`Policy`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum ThreadKind {
-    /// The person and a teammate: the teammate's tape.
-    Dm,
-    /// A work thread: a second, parallel conversation with a teammate, with
-    /// its own context and the teammate's full tools. The person opens one
-    /// beside the DM (a side thread), and a teammate opens one on another by
-    /// handing it work. "Side" is the name it is stored and sent under.
-    Side,
-    /// Two teammates talking to each other: an ask. A handoff is a work thread
-    /// on the teammate it was handed to.
-    Pair,
-    /// A voice call with a teammate, kept in `calls/<id>.jsonl`.
-    Call,
-    /// A subagent's run of one task.
-    Run,
-}
 
 impl ThreadKind {
     /// The kind as it is written in a link and in a log line.
@@ -68,16 +46,6 @@ impl ThreadKind {
             .into_iter()
             .find(|kind| kind.name() == name)
     }
-}
-
-/// Which thread: its kind and the key its stream is named by. A teammate's id
-/// for a DM, the minted id for a side thread, run or call, and the pair key
-/// (see [`crate::paths::thread_key`]) for a pair.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "contract.ts")]
-pub struct ThreadId {
-    pub kind: ThreadKind,
-    pub key: String,
 }
 
 impl ThreadId {
@@ -154,27 +122,6 @@ pub enum ThreadState {
     Parked,
     /// Over, and read-only until it is continued.
     Closed(End),
-}
-
-/// How a closed thread ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts", rename = "ThreadEnd")]
-pub enum End {
-    /// The person ended it.
-    Person,
-    /// The teammate said it was done.
-    Agent,
-    /// Nobody spoke in it for long enough.
-    Idle,
-    /// Its teammate was stopped, changed or removed, or the desk restarted.
-    Stopped,
-    /// A run finished its task.
-    Done,
-    /// A run could not finish.
-    Failed,
-    /// A run was stopped.
-    Cancelled,
 }
 
 /// A thread's place under another: the parent, and the line on it the child

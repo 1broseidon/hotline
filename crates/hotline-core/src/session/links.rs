@@ -16,7 +16,8 @@
 use super::exchanges::Intent;
 use super::{Room, TEAMMATE_MESSAGE_MAX, lock};
 use crate::contract::Persona;
-use crate::linked::{self, CallError, Known, LinkedDelivery, LinkedTeammate, Profile, Record};
+use crate::contract::{LinkedDelivery, LinkedTeammate, Profile};
+use crate::linked::{self, CallError, Known, Record};
 use crate::room;
 use serde_json::{Value, json};
 use std::sync::Arc;

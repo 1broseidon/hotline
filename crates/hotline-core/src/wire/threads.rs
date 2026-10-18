@@ -18,12 +18,11 @@ use super::RoomHandle;
 use crate::contract::{
     Attachment, LinkState, Persona, SessionState, SideOpener, ThreadAnswer, ThreadSummary,
 };
+use crate::contract::{ThreadId, ThreadKind};
 use crate::log::Log;
 use crate::paths::thread_participants;
 use crate::store::previews;
-use crate::thread::{
-    Answer, Link, Participant, Policy, Thread, ThreadId, ThreadKind, ThreadState, ThreadStore,
-};
+use crate::thread::{Answer, Link, Participant, Policy, Thread, ThreadState, ThreadStore};
 use serde_json::{Value, json};
 use std::sync::Arc;
 

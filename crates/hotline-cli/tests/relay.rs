@@ -7,10 +7,11 @@
 #![cfg(unix)]
 
 use futures_util::{SinkExt, StreamExt};
+use hotline_core::contract::DeviceRole;
 use hotline_core::credentials::{FileStore, SecretStore};
 use hotline_core::desk::Desk;
 use hotline_core::remote::client::{Client, PairedDesk, PairedRelay};
-use hotline_core::remote::{DeviceRole, PairingPayload, Remote};
+use hotline_core::remote::{PairingPayload, Remote};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::net::SocketAddr;

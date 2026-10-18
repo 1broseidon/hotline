@@ -215,7 +215,7 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
             .unwrap()
     };
     let payload = hotline_core::remote::PairingPayload::from_link(&line).unwrap();
-    assert_eq!(payload.role, hotline_core::remote::DeviceRole::Relay);
+    assert_eq!(payload.role, hotline_core::contract::DeviceRole::Relay);
     let client_root = tempfile::tempdir().unwrap();
     let client = hotline_core::remote::client::Client::new(std::sync::Arc::new(
         hotline_core::credentials::FileStore::open(client_root.path()).unwrap(),
@@ -293,7 +293,7 @@ fn a_relay_only_server_refuses_a_phones_claim_and_keeps_its_window() {
             .unwrap()
     };
     let invitation: hotline_core::remote::PairingPayload = serde_json::from_str(&line).unwrap();
-    assert_eq!(invitation.role, hotline_core::remote::DeviceRole::Relay);
+    assert_eq!(invitation.role, hotline_core::contract::DeviceRole::Relay);
 
     // An old phone ignores `r` and claims as a device would: read as an
     // owner invitation, the client sends no `purpose`, so only the server's
@@ -304,7 +304,7 @@ fn a_relay_only_server_refuses_a_phones_claim_and_keeps_its_window() {
         hotline_core::credentials::FileStore::open(phone_root.path()).unwrap(),
     ));
     let mut old_phone_reading = invitation.clone();
-    old_phone_reading.role = hotline_core::remote::DeviceRole::Owner;
+    old_phone_reading.role = hotline_core::contract::DeviceRole::Owner;
     let refused = runtime
         .block_on(phone.pair(&old_phone_reading, "Old phone"))
         .unwrap_err();

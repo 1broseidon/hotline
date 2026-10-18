@@ -359,14 +359,14 @@ impl RoomHandle for Desk {
         Some(self.room.links())
     }
 
-    fn federation_roster_entries(&self) -> Vec<crate::linked::LinkedTeammate> {
+    fn federation_roster_entries(&self) -> Vec<crate::contract::LinkedTeammate> {
         self.room.federation_roster_entries()
     }
 
     fn federation_roster(
         &self,
         desk_id: &str,
-        teammates: Vec<crate::linked::LinkedTeammate>,
+        teammates: Vec<crate::contract::LinkedTeammate>,
     ) -> Result<(), String> {
         self.room.federation_roster(desk_id, teammates)
     }
@@ -374,7 +374,7 @@ impl RoomHandle for Desk {
     async fn federation_deliver(
         &self,
         desk_id: &str,
-        delivery: crate::linked::LinkedDelivery,
+        delivery: crate::contract::LinkedDelivery,
     ) -> Result<serde_json::Value, String> {
         self.room.federation_deliver(desk_id, delivery)
     }

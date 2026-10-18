@@ -19,10 +19,11 @@
 //! is [`Indexer`], and there is one of those, in the process that owns the
 //! tapes.
 
+use crate::contract::{ThreadId, ThreadKind};
 use crate::log::{Log, StreamId, open_epoch};
 use crate::paths::{index_path, transcript_path, transcript_segment_path};
 use crate::store::chapters::{chapters_of, open_chapter, slice_of};
-use crate::thread::{Link, ThreadId, ThreadKind, ThreadState};
+use crate::thread::{Link, ThreadState};
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row};
 use serde_json::{Map, Value, json};

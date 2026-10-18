@@ -27,6 +27,7 @@ pub(crate) use providers::NOTHING_DRAWS;
 pub use providers::{describe, draws, model, options, resolve};
 pub use xai::Grok;
 
+use crate::contract::ImageSettings;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -268,19 +269,6 @@ impl Model {
         }
         Ok(())
     }
-}
-
-/// The owner's choice, from `settings.images`. Both keys are optional: none
-/// means the first connected provider that can draw, on its default model.
-/// The provider `off` (see [`OFF`]) means no images at all.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts", optional_fields)]
-pub struct ImageSettings {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
 }
 
 /// The `settings.images` provider that turns image generation off. Stored as

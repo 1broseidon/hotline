@@ -15,9 +15,9 @@
 //! heard and the voice's are what the front said; the teammate's tape holds
 //! only what was handed to it and what it answered.
 
+use crate::contract::End;
 use crate::contract::VoiceEndReason;
 use crate::session::{Room, now_ms};
-use crate::thread::End;
 use serde_json::{Value, json};
 use std::sync::Weak;
 use tokio::sync::mpsc;

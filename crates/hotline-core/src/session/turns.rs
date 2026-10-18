@@ -16,9 +16,9 @@
 use super::runner::{Driven, Witness, Words, drive_updates};
 use super::threads::Threads;
 use super::{Room, Wired, lock};
+use crate::contract::ThreadId;
 use crate::contract::{Attachment, DeliveryFrom, DeltaKind, Reach, StreamDelta, TranscriptEvent};
 use crate::driver::{Driver, MessageKind, Update};
-use crate::thread::ThreadId;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex};

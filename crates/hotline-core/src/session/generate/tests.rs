@@ -209,7 +209,7 @@ async fn subscription_images_report_unknown_cost_without_touching_dollar_spendin
     provider.cost = None;
     install(&room, fake, None);
     room.spending
-        .reserve(&crate::spending::BudgetLimits::default(), 1.0)
+        .reserve(&crate::contract::BudgetLimits::default(), 1.0)
         .unwrap()
         .charge(1.0)
         .unwrap();

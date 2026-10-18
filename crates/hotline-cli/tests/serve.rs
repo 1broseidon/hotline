@@ -345,7 +345,7 @@ async fn a_relay_only_server_opens_no_room_and_carries_a_desktops_visitors() {
     // `hotline pair` makes the only grant there is: relay. A desktop claims
     // it and stands in.
     let (pairing, invitation) = invite(&root, &[]);
-    assert_eq!(invitation.role, hotline_core::remote::DeviceRole::Relay);
+    assert_eq!(invitation.role, hotline_core::contract::DeviceRole::Relay);
     let (_desk, laptop, _) = desktop(&dir.path().join("laptop")).await;
     let laptop_store = dir.path().join("laptop");
     let pi = claim_relay(&laptop_store, &invitation, "Laptop").await;
@@ -368,7 +368,7 @@ async fn a_relay_only_server_opens_no_room_and_carries_a_desktops_visitors() {
     // A phone that cannot reach the laptop's own address visits it through
     // the relay, and the laptop answers.
     let invitation = laptop
-        .pairing_v2(hotline_core::remote::DeviceRole::Owner)
+        .pairing_v2(hotline_core::contract::DeviceRole::Owner)
         .unwrap()
         .payload;
     assert_eq!(invitation.relay.as_deref(), Some(url.as_str()));

@@ -4,24 +4,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use chrono::{Datelike, Utc};
+
+use crate::contract::{BudgetLimits, SpendingSettings, SpendingSummary};
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
 
 const MAX_LEDGER_BYTES: u64 = 4096;
 const STORAGE_ERROR: &str =
     "The spending ledger could not be safely read or saved. Spending is blocked.";
-
-/// One budget's limits. An absent limit is no limit; zero turns that
-/// budget's paid use off.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts", optional_fields)]
-pub struct BudgetLimits {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub day_usd: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub month_usd: Option<f64>,
-}
 
 impl BudgetLimits {
     pub fn new(day_usd: Option<f64>, month_usd: Option<f64>) -> Self {
@@ -46,80 +35,12 @@ impl BudgetLimits {
     }
 }
 
-/// The room's `spending` setting: a budget each for chat (teammates and the
-/// call assistant), voice (transcription and speech) and images, each with
-/// optional daily and monthly limits. A room that set none has no limits.
-///
-/// ```json
-/// {"chat": {"dayUsd": 5, "monthUsd": 50}, "voice": {"dayUsd": 10}, "images": {}}
-/// ```
-///
-/// The shared limits earlier versions wrote, `{"dayUsd": 10, "monthUsd": 20}`,
-/// still read: as the voice and the images limits, with chat unlimited,
-/// since those were the two they covered. Writes are always the new shape.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct SpendingSettings {
-    pub chat: BudgetLimits,
-    pub voice: BudgetLimits,
-    pub images: BudgetLimits,
-}
-
-impl<'de> Deserialize<'de> for SpendingSettings {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Stored {
-            #[serde(default)]
-            chat: Option<BudgetLimits>,
-            #[serde(default)]
-            voice: Option<BudgetLimits>,
-            #[serde(default)]
-            images: Option<BudgetLimits>,
-            #[serde(default)]
-            day_usd: Option<f64>,
-            #[serde(default)]
-            month_usd: Option<f64>,
-        }
-        let stored = Stored::deserialize(deserializer)?;
-        let budgets = stored.chat.is_some() || stored.voice.is_some() || stored.images.is_some();
-        let shared = stored.day_usd.is_some() || stored.month_usd.is_some();
-        if budgets && shared {
-            return Err(serde::de::Error::custom(
-                "spending mixes shared limits with per-budget ones",
-            ));
-        }
-        if shared {
-            let limits = BudgetLimits::new(stored.day_usd, stored.month_usd);
-            return Ok(Self {
-                chat: BudgetLimits::default(),
-                voice: limits,
-                images: limits,
-            });
-        }
-        Ok(Self {
-            chat: stored.chat.unwrap_or_default(),
-            voice: stored.voice.unwrap_or_default(),
-            images: stored.images.unwrap_or_default(),
-        })
-    }
-}
-
 impl SpendingSettings {
     pub fn validate(&self) -> Result<(), String> {
         self.chat.validate()?;
         self.voice.validate()?;
         self.images.validate()
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct SpendingSummary {
-    pub day_usd: f64,
-    pub month_usd: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -392,6 +313,7 @@ fn valid_amount(amount: f64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ts_rs::TS;
 
     fn read_totals(root: &std::path::Path) -> Totals {
         serde_json::from_slice(&fs::read(root.join("spending.json")).unwrap()).unwrap()

@@ -7,6 +7,7 @@
 //! things to reimplement behind a door.
 
 use super::{RoomHandle, threads};
+use crate::contract::ThreadId;
 use crate::contract::{
     Command, FolderGrant, McpPolicy, Persona, PersonaComputer, PersonaDraft, PolicyMode, Reach,
     SessionInfo, SessionState, ThreadAnswer,
@@ -14,7 +15,6 @@ use crate::contract::{
 use crate::driver::HOTLINE_BACKEND_ID;
 use crate::log::{Log, StreamId};
 use crate::store::{chapters, search};
-use crate::thread::ThreadId;
 use crate::{paths, room};
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};

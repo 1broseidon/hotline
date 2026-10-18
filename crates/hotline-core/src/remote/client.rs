@@ -111,7 +111,7 @@ impl Client {
         payload: &PairingPayload,
         device_name: &str,
     ) -> Result<PairedDesk, String> {
-        if payload.role == super::DeviceRole::Relay {
+        if payload.role == crate::contract::DeviceRole::Relay {
             return Err("This invitation is for using the server as a relay.".into());
         }
         match self.claim(payload, device_name).await? {
@@ -126,7 +126,7 @@ impl Client {
         payload: &PairingPayload,
         device_name: &str,
     ) -> Result<PairedRelay, String> {
-        if payload.role != super::DeviceRole::Relay {
+        if payload.role != crate::contract::DeviceRole::Relay {
             return Err("This invitation is not for a relay.".into());
         }
         match self.claim(payload, device_name).await? {
@@ -178,7 +178,7 @@ impl Client {
         let mut claim = json!({"secret":payload.secret,"name":device_name.trim()});
         // Only a relay invitation is answered with a purpose: an older server
         // never issues one, and refuses a claim with a field it does not know.
-        if payload.role == super::DeviceRole::Relay {
+        if payload.role == crate::contract::DeviceRole::Relay {
             claim["purpose"] = json!("relay");
         }
         let claim = claim.to_string();
@@ -205,7 +205,7 @@ impl Client {
             return Err("The desk granted a different pairing role.".into());
         }
         let name = reply["deskName"].as_str().unwrap_or(&payload.name).into();
-        if payload.role == super::DeviceRole::Relay {
+        if payload.role == crate::contract::DeviceRole::Relay {
             return Ok(Paired::Relay(PairedRelay {
                 desk_id: desk_id.into(),
                 name,

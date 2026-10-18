@@ -1,7 +1,7 @@
 ---
 id: task-137
 title: "P2-28 (C): `voice/mod.rs`"
-column: in-progress
+column: review
 position: 26
 priority: high
 tags:
@@ -15,9 +15,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/input.rs
   - crates/hotline-core/src/voice/turn.rs
   - crates/hotline-core/src/voice/synthesis.rs
-updatedAt: "2026-10-18T04:14:43.476Z"
+updatedAt: "2026-10-18T04:35:56.010Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - test $(wc -l < crates/hotline-core/src/voice.rs) -le 1500
@@ -28,6 +28,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T04:14:43.476Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T04:35:56.010Z"
+    duration: 1273
 dependsOn:
   - task-128
 dispatch:

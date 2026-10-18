@@ -210,7 +210,7 @@ pub(super) fn page(
         super::commands::living(log, &thread.key)?;
     }
     let stream = thread.stream().ok_or("That thread has no lines.")?;
-    Ok(super::thread_page(
+    Ok(super::subscribe::thread_page(
         log,
         &stream,
         before,
@@ -239,7 +239,8 @@ pub(super) fn list(
     let mut summaries: Vec<ThreadSummary> = threads
         .iter()
         .filter(|thread| {
-            !companion || (thread.kind() != ThreadKind::Pair && super::phone_may_read(&thread.id))
+            !companion
+                || (thread.kind() != ThreadKind::Pair && super::seat::phone_may_read(&thread.id))
         })
         .map(|thread| summarize(log, room, thread, &roster))
         .collect();

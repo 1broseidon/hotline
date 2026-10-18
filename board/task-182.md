@@ -10,6 +10,9 @@ tags:
   - security
 parentId: epic-14
 createdAt: "2026-10-18T23:40:54.225Z"
+relatedFiles:
+  - crates/hotline-core/src/mcp/oauth.rs
+updatedAt: "2026-10-18T23:53:17.716Z"
 ---
 
 ## Description

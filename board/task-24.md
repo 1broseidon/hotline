@@ -20,7 +20,9 @@ description: |-
   ## Status (2026-10-11 review)
 
   Needs a native phone build too.
-updatedAt: "2026-10-12T20:52:36.438Z"
+
+  Closed 2026-10-18 (backlog triage): Won't do until something shows the phone link is bandwidth-bound.
+updatedAt: "2026-10-18T23:41:06.514Z"
 ---
 
 ## Log

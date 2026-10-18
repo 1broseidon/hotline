@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:41:04.277Z"
 relatedFiles:
   - crates/hotline-core/src/websearch.rs
   - crates/hotline-core/src/websearch/
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:16.743Z"
 contract:
   status: ready
   validation:
@@ -23,6 +23,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-126
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:16.610Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

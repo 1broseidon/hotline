@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:53.318Z"
 relatedFiles:
   - crates/hotline-core/src/remote/tests.rs
   - crates/hotline-core/src/remote/tests/
-updatedAt: "2026-10-18T04:11:51.377Z"
+updatedAt: "2026-10-18T04:14:16.191Z"
 contract:
   status: in_progress
   validation:
@@ -39,6 +39,8 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T04:11:51.377Z"
+    ended: "2026-10-18T04:14:16.191Z"
+    outcome: review
 assignee: claude
 ---
 

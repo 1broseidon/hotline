@@ -112,7 +112,7 @@ leg_windows() {
 leg_ui() {
   need_brew bun oven-sh/bun/bun || return 1
   cd ui || return 1
-  bun install --frozen-lockfile && bun run typecheck || return 1
+  bun install --frozen-lockfile && bun run typecheck && bun run lint || return 1
   local failed=()
   for file in tests/*.test.*; do
     echo "== bun test ./$file"

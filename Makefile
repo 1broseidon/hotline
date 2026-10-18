@@ -38,9 +38,11 @@ speech-engine:
 
 # The window is TypeScript, and a window that does not compile is a broken
 # build however green the Rust is. `bun install` is a no-op when the lockfile
-# is already satisfied.
+# is already satisfied. Biome lints and never formats: the tree has one
+# style already, and a formatter would reflow it for no invariant. A rule the
+# tree does not pass yet is at warn in ui/biome.json until it is fixed.
 ui-check:
-	cd ui && bun install --frozen-lockfile && bun run typecheck && bun run test
+	cd ui && bun install --frozen-lockfile && bun run typecheck && bun run lint && bun run test
 
 # The Tauri CLI is a cargo subcommand (`cargo install tauri-cli --version ^2`).
 # It runs from the shell crate, where tauri.conf.json is, and starts Vite for

@@ -1,7 +1,7 @@
 ---
 id: task-166
 title: "P2-D-6 (E): `docs/standards.md`"
-column: todo
+column: in-progress
 position: 55
 priority: high
 tags:
@@ -12,15 +12,17 @@ createdAt: "2026-10-17T22:41:10.035Z"
 relatedFiles:
   - docs/standards.md
   - AGENTS.md
-updatedAt: "2026-10-18T06:35:23.419Z"
+updatedAt: "2026-10-18T06:35:43.939Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - test -s docs/standards.md
       - git diff --quiet $(git merge-base HEAD release/0.40.0) -- crates ui
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T06:35:43.939Z"
+    reworkCount: 0
 dependsOn:
   - task-165
 dispatch:

@@ -1,7 +1,7 @@
 ---
 id: task-143
 title: "P2-34 (D): One boot that returns errors"
-column: in-progress
+column: review
 position: 32
 priority: high
 tags:
@@ -14,9 +14,9 @@ relatedFiles:
   - crates/hotline-cli/src/serve.rs
   - crates/hotline-core/src/door.rs
   - crates/hotline-core/src/desk.rs
-updatedAt: "2026-10-18T02:24:05.170Z"
+updatedAt: "2026-10-18T02:42:02.117Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - make precheck
@@ -26,6 +26,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T02:24:05.170Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T02:42:02.117Z"
+    duration: 1077
 dependsOn:
   - task-126
 dispatch:

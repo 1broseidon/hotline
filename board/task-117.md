@@ -14,9 +14,9 @@ relatedFiles:
   - scripts/fetch-speech-engine
   - scripts/speech-engine.sha256
   - Cargo.lock
-updatedAt: "2026-10-18T01:27:48.754Z"
+updatedAt: "2026-10-18T01:35:14.482Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - python3 scripts/fetch-speech-engine
@@ -26,6 +26,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T01:25:22.099Z"
     reworkCount: 1
+    deliveredAt: "2026-10-18T01:35:14.482Z"
+    duration: 592
 dependsOn:
   - task-116
 dispatch:

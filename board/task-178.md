@@ -10,14 +10,19 @@ tags:
   - qa
 createdAt: "2026-10-18T21:49:01.284Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T21:49:24.115Z"
+updatedAt: "2026-10-18T21:49:29.213Z"
 dispatch:
   agent: claude
   model: opus
   by: cli
   at: "2026-10-18T21:49:23.983Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 95396
+    at: "2026-10-18T21:49:29.213Z"
 assignee: claude
 ---
 

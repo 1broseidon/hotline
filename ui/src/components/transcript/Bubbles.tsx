@@ -51,6 +51,7 @@ export function AgentSay({
 	return (
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
 			{event.spoken !== undefined && event.spoken.trim() !== "" && <SaidAloud text={event.spoken} />}
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: the bubble is text; focus is there so R replies and the menu key opens its menu. */}
 			<div
 				className={`speech said-them ${runClass(run)}`}
 				tabIndex={onReply === undefined ? undefined : 0}
@@ -156,6 +157,7 @@ export function UserBubble({
 					Said on the call
 				</span>
 			)}
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: the menu is the pointer's way to the copy and reply in the row beside the bubble. */}
 			<div className={`speech said-me ${runClass(run)}`} onContextMenu={(click) => bubbleMenu(click, actions)}>
 				{quote !== undefined && answered !== undefined && (
 					<button type="button" className="quote" title="Go to the message" onClick={() => onJump(answered)}>

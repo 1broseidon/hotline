@@ -380,7 +380,7 @@ function ThreadView({
 	// The link is the thread's own line in the conversation that holds it; here the thread is the page.
 	const lines = useMemo(() => events.filter((event) => event.kind !== "link"), [events]);
 	const [refused, setRefused] = useState<string | null>(null);
-	const root = useRef<HTMLDivElement>(null);
+	const root = useRef<HTMLElement>(null);
 	// The composer is where this page is for; a closed one has Continue.
 	useFocusOnOpen(root, "textarea, [data-autofocus]");
 
@@ -415,7 +415,7 @@ function ThreadView({
 	const asked = opener === undefined ? undefined : lines.find((event): event is Extract<typeof event, { kind: "human_action" }> => event.kind === "human_action" && event.status === "pending");
 
 	return (
-		<div ref={root} className="dock-page" role="region" aria-label={`Thread with ${self.name}: ${title}`}>
+		<section ref={root} className="dock-page" aria-label={`Thread with ${self.name}: ${title}`}>
 			<Band>
 				<button type="button" className="control btn-icon -ml-1" title="Back to threads" aria-label="Back to threads" onClick={onBack}>
 					<ArrowLeftIcon />
@@ -491,7 +491,7 @@ function ThreadView({
 			) : (
 				closed && row?.outcome !== undefined && row.outcome !== "" && <p className="dock-note selectable">{row.outcome}</p>
 			)}
-		</div>
+		</section>
 	);
 }
 
@@ -577,6 +577,7 @@ function DockEdge({ width, onWidth }: { width: number; onWidth(width: number): v
 		return () => document.documentElement.removeAttribute("data-resizing");
 	}, [dragging]);
 	return (
+		// biome-ignore lint/a11y/useSemanticElements: a handle that takes focus and arrow keys is ARIA's window splitter, which an <hr> cannot be.
 		<div
 			role="separator"
 			aria-orientation="vertical"

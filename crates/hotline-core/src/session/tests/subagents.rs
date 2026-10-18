@@ -5,13 +5,10 @@ use super::*;
 /// Waits for the teammate's session to say whether its turn is open only
 /// for subagents.
 async fn until_awaiting(room: &Room, persona_id: &str, want: bool) {
-    for _ in 0..200 {
-        if room.info(persona_id).awaiting_subagents == want {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("awaiting_subagents never became {want}");
+    until(&format!("awaiting_subagents becomes {want}"), || {
+        room.info(persona_id).awaiting_subagents == want
+    })
+    .await;
 }
 
 /// A turn whose agent has said its reply and is open only for a subagent it

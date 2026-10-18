@@ -677,6 +677,12 @@ A harness that wants state in a stream asks the core over the wire, or
 writes the file before the core starts. The core is the only process that
 appends to a stream.
 
+A test waits on the thing it is waiting for, never on a sleep it hopes is
+long enough: `common::until(what, cond)` in a harness, and
+`test_support::until(what, cond)` in a unit test, each giving up after one
+generous minute with `what` in the failure. A loaded runner only makes them
+slower, so a test asserts what happened and in what order, never how fast.
+
 ## hotline-import
 
 ```bash

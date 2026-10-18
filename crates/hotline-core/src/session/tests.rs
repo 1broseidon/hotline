@@ -12,6 +12,7 @@ use crate::contract::{
 };
 use crate::driver::{DriverInfo, Escalate};
 use crate::mcp::server::TeammateTools;
+use crate::test_support::until;
 use async_trait::async_trait;
 use serde_json::json;
 use std::collections::HashMap;
@@ -569,17 +570,17 @@ fn kinds(events: &[Value]) -> Vec<String> {
 /// what a turn writes should not have to count the room's bookkeeping. The
 /// tests that are about chapters read [`markers`] instead.
 async fn settled(room: &Room, persona_id: &str, count: usize) -> Vec<Value> {
-    for _ in 0..200 {
-        let events: Vec<Value> = tape(room, persona_id)
+    let events = || -> Vec<Value> {
+        tape(room, persona_id)
             .into_iter()
             .filter(|event| event["kind"] != "chapter")
-            .collect();
-        if events.len() >= count {
-            return events;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("the tape never reached {count} events");
+            .collect()
+    };
+    until(&format!("the tape reaches {count} events"), || {
+        events().len() >= count
+    })
+    .await;
+    events()
 }
 
 fn spoken_turn() -> Vec<Update> {
@@ -646,14 +647,11 @@ fn saying(tag: &str, text: &str) -> Vec<Update> {
 /// Waits for the driver to have been handed `count` lines, so a test never
 /// races the task the turn runs on.
 async fn heard(prompts: &Arc<Mutex<Vec<String>>>, count: usize) -> Vec<String> {
-    for _ in 0..200 {
-        let given = lock(prompts).clone();
-        if given.len() >= count {
-            return given;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("the driver was never handed {count} lines");
+    until(&format!("the driver is handed {count} lines"), || {
+        lock(prompts).len() >= count
+    })
+    .await;
+    lock(prompts).clone()
 }
 
 /// A tape event, for a test that needs a conversation older than this run.
@@ -669,13 +667,10 @@ fn write_tape(log: &Log, persona_id: &str, events: &[Value]) {
 }
 
 async fn until_state(room: &Room, persona_id: &str, want: SessionState) {
-    for _ in 0..200 {
-        if room.info(persona_id).state == want {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("the session never reached {want:?}");
+    until(&format!("the session reaches {want:?}"), || {
+        room.info(persona_id).state == want
+    })
+    .await;
 }
 
 /// A teammate on a computer, the way one is started in a test: a scripted

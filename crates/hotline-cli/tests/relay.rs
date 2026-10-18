@@ -7,12 +7,14 @@
 #![cfg(unix)]
 mod common;
 
-use common::{desktop, free_address, hotline, listen_args, said, serve, stop, top, wire};
+use common::{
+    PATIENCE, desktop, free_address, hotline, listen_args, said, serve, standing, stop, top, wire,
+};
 use futures_util::{SinkExt, StreamExt};
 use hotline_core::contract::DeviceRole;
 use hotline_core::credentials::{FileStore, SecretStore};
+use hotline_core::remote::PairingPayload;
 use hotline_core::remote::client::{Client, PairedDesk, PairedRelay};
-use hotline_core::remote::{PairingPayload, Remote};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
 use std::net::SocketAddr;
@@ -93,22 +95,6 @@ impl SecretStore for Keeping {
     }
     fn delete(&self, key: &str) -> std::io::Result<()> {
         self.store.delete(key)
-    }
-}
-
-/// Waits until the desktop stands in on its chosen relay, and says where.
-async fn standing(remote: &Remote) -> String {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if let Some(url) = remote.status().relay.and_then(|relay| relay.url) {
-            return url;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "never stood in: {:?}",
-            remote.status().relay.and_then(|relay| relay.error)
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
@@ -350,7 +336,7 @@ async fn a_relay_only_server_relays_for_a_desktop_that_can_do_nothing_else_there
     assert!(status.contains("runs    agents, relay"), "{status}");
     let devices_again = hotline(&root, &["devices"]).output().unwrap();
     assert_eq!(String::from_utf8_lossy(&devices_again.stdout), devices);
-    let deadline = Instant::now() + Duration::from_secs(60);
+    let deadline = Instant::now() + PATIENCE;
     let said_hello = loop {
         if let Some(said) = hello(&phone, &away, Duration::from_secs(5)).await {
             break said;

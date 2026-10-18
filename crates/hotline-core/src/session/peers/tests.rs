@@ -11,6 +11,7 @@ use crate::driver::{MessageKind, Update};
 use crate::mcp::server::TeammateTools;
 use crate::session::now_ms;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
+use crate::test_support::until;
 use serde_json::json;
 
 /// A room with Ada and Bob enrolled, neither of them running.
@@ -39,19 +40,20 @@ fn workspace_room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
 }
 
 async fn collaboration_card(room: &Room, persona_id: &str) -> Value {
-    for _ in 0..100 {
-        if let Some(card) = room.tape(persona_id).into_iter().find(|event| {
+    let card = || {
+        room.tape(persona_id).into_iter().find(|event| {
             kind_of(event) == "permission"
                 && event["requestId"]
                     .as_str()
                     .is_some_and(|id| id.starts_with(COLLAB_REQUEST_PREFIX))
                 && event.get("decision").is_none()
-        }) {
-            return card;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    panic!("the collaboration card did not reach the tape")
+        })
+    };
+    until("the collaboration card reaches the tape", || {
+        card().is_some()
+    })
+    .await;
+    card().unwrap()
 }
 
 #[tokio::test]

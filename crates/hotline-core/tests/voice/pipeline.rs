@@ -155,7 +155,10 @@ async fn check_clip(
             json!({"id":10,"cmd":"settings.update","params":{"patch":{"voice":{"dayUsd":cap}}}}),
         )
         .await;
-        assert_eq!(until(&mut socket, |f| f["id"] == 10).await["ok"], true);
+        assert_eq!(
+            frame_where(&mut socket, |f| f["id"] == 10).await["ok"],
+            true
+        );
     }
     let call = Uuid::new_v4().to_string();
     send(
@@ -163,12 +166,12 @@ async fn check_clip(
         json!({"id":1,"cmd":"voice.call_start","params":{"callId":call}}),
     )
     .await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 1).await["ok"], true);
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 1).await["ok"], true);
     send(&mut socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(&mut socket, |f| f["snapshot"].is_array()).await;
+    frame_where(&mut socket, |f| f["snapshot"].is_array()).await;
     send(&mut socket, json!({"id":3,"cmd":"voice.utterance","params":{"callId":call,"seq":0,"mimeType":mime,"data":STANDARD.encode(bytes),"durationMs":duration}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 3).await["ok"], true);
-    let state = until(&mut socket, |f| {
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 3).await["ok"], true);
+    let state = frame_where(&mut socket, |f| {
         matches!(f["event"]["state"].as_str(), Some("listening" | "ended"))
     })
     .await;
@@ -229,9 +232,12 @@ async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) 
     // the same session.start/session.prompt commands the window uses.
     let provider = provider(reply).await;
     send(&mut socket, json!({"id":90,"cmd":"credential.custom_save","params":{"draft":{"name":"Voice fixture","baseUrl":provider,"api":"chat_completions","models":["test"]}}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 90).await["ok"], true);
+    assert_eq!(
+        frame_where(&mut socket, |f| f["id"] == 90).await["ok"],
+        true
+    );
     send(&mut socket, json!({"id":91,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
-    let mack = until(&mut socket, |f| f["id"] == 91).await["result"]["id"]
+    let mack = frame_where(&mut socket, |f| f["id"] == 91).await["result"]["id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -242,31 +248,32 @@ async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) 
     )
     .await;
     assert_eq!(
-        until(&mut socket, |f| f["id"] == 1).await["result"]["callId"],
+        frame_where(&mut socket, |f| f["id"] == 1).await["result"]["callId"],
         call
     );
     send(&mut socket, json!({"id":2,"sub":{"call":call}})).await;
     assert_eq!(
-        until(&mut socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await["snapshot"][0]["state"],
+        frame_where(&mut socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await["snapshot"]
+            [0]["state"],
         "listening"
     );
     send(&mut socket, json!({"id":3,"cmd":"voice.utterance","params":{"callId":call,"seq":0,"mimeType":"audio/wav","data":STANDARD.encode(wav()),"durationMs":2390}})).await;
-    let heard = until(&mut socket, |f| f["event"]["type"] == "heard").await;
+    let heard = frame_where(&mut socket, |f| f["event"]["type"] == "heard").await;
     assert_eq!(heard["event"]["seq"], 0);
-    let said = until(&mut socket, |f| f["event"]["type"] == "said").await;
-    let clip = until(&mut socket, |f| f["event"]["type"] == "clip").await;
+    let said = frame_where(&mut socket, |f| f["event"]["type"] == "said").await;
+    let clip = frame_where(&mut socket, |f| f["event"]["type"] == "clip").await;
     // No bundled acknowledgement: the first words are the dispatcher's own.
     assert_ne!(said["event"]["text"], "");
     assert_eq!(clip["event"]["id"], said["event"]["id"]);
     // The answer is one line: an empty final clip closes it once it is over.
-    let closing = until(&mut socket, |f| {
+    let closing = frame_where(&mut socket, |f| {
         f["event"]["type"] == "clip" && f["event"]["final"] == true
     })
     .await;
     assert_eq!(closing["event"]["id"], said["event"]["id"]);
     assert_eq!(closing["event"]["data"], "");
-    let delivery = until(&mut socket, |f| f["event"]["type"] == "delivery").await;
-    let narrated = until(&mut socket, |f| f["event"]["type"] == "said").await;
+    let delivery = frame_where(&mut socket, |f| f["event"]["type"] == "delivery").await;
+    let narrated = frame_where(&mut socket, |f| f["event"]["type"] == "said").await;
     assert_eq!(delivery["event"]["personaId"], mack);
     assert_eq!(
         delivery["event"]["text"],
@@ -281,7 +288,7 @@ async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) 
     );
     assert_eq!(narrated["event"]["text"], delivery["event"]["text"]);
     loop {
-        let frame = until(&mut socket, |f| f["event"].is_object()).await;
+        let frame = frame_where(&mut socket, |f| f["event"].is_object()).await;
         assert_ne!(frame["event"]["type"], "delivery", "one delivery per reply");
         if frame["event"]["type"] == "clip" {
             assert_eq!(frame["event"]["id"], narrated["event"]["id"]);
@@ -323,14 +330,14 @@ async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) 
         json!({"id":4,"cmd":"voice.call_start","params":{"callId":call}}),
     )
     .await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 4).await["ok"], true);
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 4).await["ok"], true);
     send(
         &mut socket,
         json!({"id":5,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string()}}),
     )
     .await;
     assert_eq!(
-        until(&mut socket, |f| f["event"]["state"] == "ended").await["event"]["reason"],
+        frame_where(&mut socket, |f| f["event"]["state"] == "ended").await["event"]["reason"],
         "replaced"
     );
     socket.close(None).await.unwrap();

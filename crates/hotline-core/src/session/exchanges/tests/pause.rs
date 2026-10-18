@@ -111,7 +111,10 @@ async fn every_pause_is_a_new_decision_on_both_tapes_and_stop_settles_the_queue(
             assert_eq!(room.exchange_pair("ada~bob").unwrap().exchanges, 2);
         } else {
             room.resume_exchange("ada", "bob").unwrap();
-            until(|| lock(&room.exchange_workers).is_empty()).await;
+            until("no exchange worker is left", || {
+                lock(&room.exchange_workers).is_empty()
+            })
+            .await;
             let pair = room.exchange_pair("ada~bob").unwrap();
             let stopped = pair.requests.iter().find(|r| r.id == queued).unwrap();
             assert_eq!(stopped.phase, Phase::Stopped);

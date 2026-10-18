@@ -18,8 +18,10 @@ async fn send(socket: &mut Socket, frame: Value) {
     socket.send(Message::text(frame.to_string())).await.unwrap();
 }
 
-async fn until(socket: &mut Socket, matches: impl Fn(&Value) -> bool) -> Value {
-    tokio::time::timeout(Duration::from_secs(15), async {
+/// The next frame that `matches`, within `common::ANSWER`; the frames before
+/// it are dropped.
+async fn frame_where(socket: &mut Socket, matches: impl Fn(&Value) -> bool) -> Value {
+    tokio::time::timeout(common::ANSWER, async {
         loop {
             let message = socket.next().await.unwrap().unwrap();
             let frame: Value = serde_json::from_str(message.to_text().unwrap()).unwrap();
@@ -277,7 +279,7 @@ async fn answer(socket: &mut Socket, id: u32, command: Value) -> Value {
     let mut frame = command;
     frame["id"] = json!(id);
     send(socket, frame).await;
-    until(socket, |f| f["id"] == id).await
+    frame_where(socket, |f| f["id"] == id).await
 }
 
 async fn next_asked(asked: &mut tokio::sync::mpsc::Receiver<Asked>) -> Asked {

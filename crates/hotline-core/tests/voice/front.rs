@@ -26,7 +26,7 @@ async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
     );
     // The front is told what the desk sends and takes: 24 kHz both ways.
     send(socket, json!({"id":3,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 3 && f["snapshot"].is_array()).await;
+    frame_where(socket, |f| f["sub"] == 3 && f["snapshot"].is_array()).await;
 
     // Microphone PCM at 16 kHz reaches the front at 24 kHz.
     for _ in 0..50 {
@@ -59,9 +59,9 @@ async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
         .await
         .unwrap();
     // The call is speaking before the first frame arrives.
-    let speaking = until(socket, |f| f["event"]["type"] == "state").await;
+    let speaking = frame_where(socket, |f| f["event"]["type"] == "state").await;
     assert_eq!(speaking["event"]["state"], "speaking");
-    let first = until(socket, |f| f["event"]["type"] == "frontAudio").await;
+    let first = frame_where(socket, |f| f["event"]["type"] == "frontAudio").await;
     assert_eq!(first["event"]["seq"], 0);
     assert_eq!(
         STANDARD
@@ -70,7 +70,7 @@ async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
             .len(),
         4_800
     );
-    let third = until(socket, |f| {
+    let third = frame_where(socket, |f| {
         f["event"]["type"] == "frontAudio" && f["event"]["seq"] == 2
     })
     .await;
@@ -88,8 +88,8 @@ async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
         .send(Ok(RealtimeEvent::SpeechStarted))
         .await
         .unwrap();
-    until(socket, |f| f["event"]["type"] == "frontStop").await;
-    let listening = until(socket, |f| f["event"]["type"] == "state").await;
+    frame_where(socket, |f| f["event"]["type"] == "frontStop").await;
+    let listening = frame_where(socket, |f| f["event"]["type"] == "state").await;
     assert_eq!(listening["event"]["state"], "listening");
     let barged = answer(
         socket,
@@ -109,7 +109,7 @@ async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
         .await
         .unwrap();
     assert_eq!(
-        until(socket, |f| f["event"]["type"] == "heard").await["event"]["text"],
+        frame_where(socket, |f| f["event"]["type"] == "heard").await["event"]["text"],
         "check the PR"
     );
     desk.events
@@ -121,7 +121,7 @@ async fn a_front_call_carries_pcm_both_ways_and_truncates_on_barge_in() {
         .await
         .unwrap();
     assert_eq!(
-        until(socket, |f| f["event"]["type"] == "said").await["event"]["text"],
+        frame_where(socket, |f| f["event"]["type"] == "said").await["event"]["text"],
         "On it."
     );
 
@@ -300,19 +300,14 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     .await;
     assert_eq!(started["result"]["front"]["outputRate"], 24000, "{started}");
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
 
     // The front opens as the teammate's voice, with the bridge's tools.
-    let config = tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            if let Some(config) = desk.front.config.lock().unwrap().clone() {
-                return config;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    common::until("the front is opened", || {
+        desk.front.config.lock().unwrap().is_some()
     })
-    .await
-    .expect("the front was opened");
+    .await;
+    let config = desk.front.config.lock().unwrap().clone().unwrap();
     assert!(config.instructions.contains("You are Mack."));
     assert!(config.instructions.contains("first person"));
     let tools: Vec<&str> = config.tools.iter().map(|tool| tool.name.as_str()).collect();
@@ -337,7 +332,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
         .send(Ok(RealtimeEvent::Heard(words.into())))
         .await
         .unwrap();
-    until(socket, |f| f["event"]["type"] == "heard").await;
+    frame_where(socket, |f| f["event"]["type"] == "heard").await;
     desk.events
         .send(Ok(RealtimeEvent::ToolCall {
             call_id: "c1".into(),
@@ -429,7 +424,7 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
         .send(Ok(RealtimeEvent::ResponseDone))
         .await
         .unwrap();
-    let line = until(socket, |f| {
+    let line = frame_where(socket, |f| {
         f["event"]["type"] == "said" && f["event"]["id"] == "front-0"
     })
     .await;
@@ -461,17 +456,14 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
     .await;
     assert_eq!(ended["ok"], true);
     let log = &desk.log;
-    let record = tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            let lines = log.load(&hotline_core::log::StreamId::Call(call.clone()));
-            if lines.iter().any(|v| v["text"] == "The checks passed.") {
-                return lines;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    let record = hotline_core::log::StreamId::Call(call.clone());
+    common::until("the front's line reaches the call's record", || {
+        log.load(&record)
+            .iter()
+            .any(|v| v["text"] == "The checks passed.")
     })
-    .await
-    .expect("the front's line reached the call's record");
+    .await;
+    let record = log.load(&record);
     let texts: Vec<&str> = record.iter().filter_map(|v| v["text"].as_str()).collect();
     assert_eq!(
         texts.iter().filter(|text| **text == words).count(),
@@ -667,7 +659,7 @@ async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
         json!({"inputRate":16000,"outputRate":24000})
     );
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
     let mut seq = 0;
     for attempt in 0..100 {
         let sent = answer(socket, 3, json!({"cmd":"voice.front_audio","params":{"callId":call,"seq":seq,"data":STANDARD.encode([0u8; 320])}})).await;
@@ -694,7 +686,7 @@ async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
     let mut said = Vec::new();
     let relayed = tokio::time::timeout(Duration::from_secs(60), async {
         loop {
-            let frame = until(socket, |f| f["event"].is_object()).await;
+            let frame = frame_where(socket, |f| f["event"].is_object()).await;
             let event = &frame["event"];
             match event["type"].as_str().unwrap() {
                 "heard" => heard = Some(event["text"].as_str().unwrap().to_string()),
@@ -736,7 +728,7 @@ async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
 
     // The person talks over the front: it stops and yields the floor.
     speak_into(socket, &call, &mut seq, &speech).await;
-    until(socket, |f| f["event"]["type"] == "frontStop").await;
+    frame_where(socket, |f| f["event"]["type"] == "frontStop").await;
     let ended = answer(
         socket,
         5,

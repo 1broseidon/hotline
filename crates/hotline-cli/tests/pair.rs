@@ -2,11 +2,11 @@
 #![cfg(unix)]
 mod common;
 
-use common::{free_address, hotline};
+use common::{free_address, hotline, until};
 use std::{
     path::Path,
     process::{Child, Stdio},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 struct OwnedChild(Child);
@@ -14,13 +14,6 @@ impl Drop for OwnedChild {
     fn drop(&mut self) {
         let _ = self.0.kill();
         let _ = self.0.wait();
-    }
-}
-fn eventually(mut condition: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while !condition() {
-        assert!(Instant::now() < deadline, "condition did not become true");
-        std::thread::sleep(Duration::from_millis(50));
     }
 }
 /// A wire command with no params, which must succeed, and its reply.
@@ -57,14 +50,14 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
         .spawn()
         .unwrap(),
     );
-    eventually(|| {
+    until("the desk writes door.json", || {
         assert!(
             desk.0.try_wait().unwrap().is_none(),
             "desk exited before startup"
         );
         root.path().join("door.json").exists()
     });
-    eventually(|| {
+    until("the desk has an endpoint", || {
         !wire(root.path(), "remote.status")["endpoints"]
             .as_array()
             .unwrap()
@@ -105,7 +98,7 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
                 .spawn()
                 .unwrap(),
         );
-        eventually(|| {
+        until("the pairing window opens", || {
             assert!(
                 pair.0.try_wait().unwrap().is_none(),
                 "pair command exited early"
@@ -114,8 +107,10 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
         });
         // SAFETY: only the pid captured when this test spawned the CLI.
         assert_eq!(unsafe { libc::kill(pair.0.id() as libc::pid_t, signal) }, 0);
-        eventually(|| pair.0.try_wait().unwrap().is_some());
-        eventually(|| status("/v2/pair") == 404);
+        until("the pair command exits", || {
+            pair.0.try_wait().unwrap().is_some()
+        });
+        until("the pairing window closes", || status("/v2/pair") == 404);
     }
     assert!(
         wire(root.path(), "remote.devices")
@@ -142,7 +137,7 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
                 .unwrap();
             send.send(line).unwrap();
         });
-        let line = receive.recv_timeout(Duration::from_secs(10)).unwrap();
+        let line = receive.recv_timeout(common::PATIENCE).unwrap();
         let payload: hotline_core::remote::PairingPayload = if flag == "--json" {
             serde_json::from_str(&line).unwrap()
         } else {
@@ -162,7 +157,9 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
             .block_on(client.pair(&payload, "CLI test laptop"))
             .unwrap();
         assert_eq!(desk.url, endpoint);
-        eventually(|| pair.0.try_wait().unwrap().is_some());
+        until("the pair command exits", || {
+            pair.0.try_wait().unwrap().is_some()
+        });
         assert!(pair.0.wait().unwrap().success());
         assert!(
             runtime
@@ -201,7 +198,9 @@ fn the_pair_cli_opens_a_window_only_while_its_socket_lives() {
     runtime
         .block_on(client.pair_relay(&payload, "Relay laptop"))
         .unwrap();
-    eventually(|| pair.0.try_wait().unwrap().is_some());
+    until("the pair command exits", || {
+        pair.0.try_wait().unwrap().is_some()
+    });
     let devices = hotline(root.path(), &["devices"]).output().unwrap();
     let devices = String::from_utf8_lossy(&devices.stdout);
     assert!(
@@ -240,7 +239,7 @@ fn a_relay_only_server_refuses_a_phones_claim_and_keeps_its_window() {
         .spawn()
         .unwrap(),
     );
-    eventually(|| {
+    until("the server writes door.json", || {
         assert!(
             server.0.try_wait().unwrap().is_none(),
             "server exited before startup"
@@ -307,7 +306,9 @@ fn a_relay_only_server_refuses_a_phones_claim_and_keeps_its_window() {
     runtime
         .block_on(desktop.pair_relay(&invitation, "Laptop"))
         .unwrap();
-    eventually(|| pair.0.try_wait().unwrap().is_some());
+    until("the pair command exits", || {
+        pair.0.try_wait().unwrap().is_some()
+    });
     let devices = wire(root.path(), "remote.devices");
     let roles: Vec<&str> = devices
         .as_array()

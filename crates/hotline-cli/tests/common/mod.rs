@@ -47,26 +47,33 @@ pub fn serve(root: &Path, extra: &[&str]) -> Child {
         .spawn()
         .unwrap();
     let door = root.join("door.json");
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while !door.exists() {
-        assert!(
-            Instant::now() < deadline,
-            "the server never wrote door.json"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    until("the server writes door.json", || door.exists());
     child
+}
+
+/// How long a harness waits for something before calling it lost: a
+/// generous minute, because a loaded runner is slow and a passing test never
+/// waits it out.
+pub const PATIENCE: Duration = Duration::from_secs(60);
+
+/// Waits until `condition` holds, and fails the test with `what` if it does
+/// not within `PATIENCE`. This blocks its thread, so it is for a test whose
+/// server is a child process, not one serving on this test's runtime.
+pub fn until(what: &str, mut condition: impl FnMut() -> bool) {
+    let deadline = Instant::now() + PATIENCE;
+    while !condition() {
+        assert!(Instant::now() < deadline, "never: {what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 /// Stops a child by the pid captured when it was spawned, and only that.
 pub fn stop(mut child: Child) -> Output {
     // SAFETY: a signal to our own child.
     unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
-    let deadline = Instant::now() + Duration::from_secs(40);
-    while child.try_wait().unwrap().is_none() {
-        assert!(Instant::now() < deadline, "the child ignored SIGTERM");
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    until("the child exits on SIGTERM", || {
+        child.try_wait().unwrap().is_some()
+    });
     child.wait_with_output().unwrap()
 }
 
@@ -125,6 +132,23 @@ pub fn top(root: &Path) -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+/// Waits until the desktop stands in on its chosen relay, and says where.
+/// The desktop runs on this test's runtime, so this waits without blocking it.
+pub async fn standing(remote: &Remote) -> String {
+    let deadline = Instant::now() + PATIENCE;
+    loop {
+        if let Some(url) = remote.status().relay.and_then(|relay| relay.url) {
+            return url;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "never stood in: {:?}",
+            remote.status().relay.and_then(|relay| relay.error)
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 /// A person's desktop, in this process: a room, and Remote on.

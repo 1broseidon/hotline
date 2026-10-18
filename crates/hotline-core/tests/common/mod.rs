@@ -95,6 +95,18 @@ pub fn browser() -> &'static Path {
 #[allow(dead_code, reason = "each test binary uses a different part of common")]
 pub const ANSWER: Duration = Duration::from_secs(60);
 
+/// Waits until `condition` holds, and fails the test with `what` if it does
+/// not within `ANSWER`. A harness waits on the signal itself this way, never
+/// on a sleep it hopes is long enough.
+#[allow(dead_code, reason = "each test binary uses a different part of common")]
+pub async fn until(what: &str, mut condition: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + ANSWER;
+    while !condition() {
+        assert!(tokio::time::Instant::now() < deadline, "never: {what}");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 /// The window's half of the wire, as a harness plays it. Every wait is
 /// bounded.
 #[allow(dead_code, reason = "each test binary uses a different part of common")]

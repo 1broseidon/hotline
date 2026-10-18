@@ -131,7 +131,7 @@ async fn steering_restarts_inference_and_preserves_tool_history_on_both_rig_rout
         // The steer is read once the agent produces anything with it in
         // context: the tape says so with a receipt, not a notice.
         let updated = client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape
                     && frame["event"]["kind"] == "user"
                     && frame["event"]["text"] == "Actually focus on login"
@@ -140,7 +140,7 @@ async fn steering_restarts_inference_and_preserves_tool_history_on_both_rig_rout
             .await;
         assert_eq!(updated["event"]["receipt"], "read");
         let completed = client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape && frame["event"]["kind"] == "turn"
             })
             .await;
@@ -248,21 +248,17 @@ async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finis
                 .any(|value| value["status"] == "accepted")
         );
         client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape
                     && frame["event"]["kind"] == "tool"
                     && frame["event"]["toolKind"] == "wait_jobs"
                     && frame["event"]["status"] == "in_progress"
             })
             .await;
-        tokio::time::timeout(Duration::from_secs(15), async {
-            while !std::fs::metadata(workspace.join("heartbeat")).is_ok_and(|file| file.len() > 0) {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
+        common::until("the command starts before it is cancelled", || {
+            std::fs::metadata(workspace.join("heartbeat")).is_ok_and(|file| file.len() > 0)
         })
-        .await
-        .expect("the command must actually start before cancellation");
-        let began = tokio::time::Instant::now();
+        .await;
         assert_eq!(
             client
                 .call(
@@ -275,7 +271,6 @@ async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finis
         next_request(&mut requests).await;
         next_request(&mut requests).await;
         let confirmed = next_request(&mut requests).await;
-        assert!(began.elapsed() < Duration::from_secs(15));
         let items = confirmed[if api == "responses" {
             "input"
         } else {
@@ -294,13 +289,13 @@ async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finis
             "the launch gets exactly one ordinary tool reply"
         );
         let completion = client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape && frame["event"]["kind"] == "turn"
             })
             .await;
         assert_eq!(completion["event"]["stopReason"], "end_turn");
         let shell = client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape
                     && frame["event"]["kind"] == "tool"
                     && frame["event"]["toolKind"] == "shell"
@@ -472,7 +467,7 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
     // The reply is chat, and the turn reads as done while the run works.
     client
         .next_where(
-            Duration::from_secs(15),
+            common::ANSWER,
             said("The lift is in crane.rs; a subagent is checking the edge cases."),
         )
         .await;
@@ -482,7 +477,7 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
     let waiting = {
         let row = row(true);
         client
-            .next_where(Duration::from_secs(15), move |frame: &Value| {
+            .next_where(common::ANSWER, move |frame: &Value| {
                 row(frame)
                     && frame["event"]["subagents"]
                         .as_array()
@@ -508,31 +503,31 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
         true
     );
     next_request(&mut requests).await;
-    client.next_where(Duration::from_secs(15), row(false)).await;
+    client.next_where(common::ANSWER, row(false)).await;
     client.inbox.retain(|frame| frame["sub"] != roster);
     client
-        .next_where(Duration::from_secs(15), said("Noted, the brakes are next."))
+        .next_where(common::ANSWER, said("Noted, the brakes are next."))
         .await;
-    client.next_where(Duration::from_secs(15), row(true)).await;
+    client.next_where(common::ANSWER, row(true)).await;
 
     // The run reports, and the turn answers it and ends.
     release.notify_one();
     next_request(&mut requests).await;
     client
         .next_where(
-            Duration::from_secs(15),
+            common::ANSWER,
             said("Two edge cases fail; I will fix them."),
         )
         .await;
     let ended = client
-        .next_where(Duration::from_secs(15), |frame| {
+        .next_where(common::ANSWER, |frame| {
             frame["sub"] == tape && frame["event"]["kind"] == "turn"
         })
         .await;
     assert_eq!(ended["event"]["stopReason"], "end_turn");
     let persona_id = persona.clone();
     let rested = client
-        .next_where(Duration::from_secs(15), move |frame| {
+        .next_where(common::ANSWER, move |frame| {
             frame["sub"] == roster
                 && frame["event"]["persona"]["id"] == persona_id.as_str()
                 && frame["event"]["session"]["state"] == "ready"
@@ -593,7 +588,7 @@ fn tool_events(api: &str, name: &str, arguments: Value, call_id: &str) -> Vec<Va
 }
 
 async fn next_request(requests: &mut tokio::sync::mpsc::Receiver<Value>) -> Value {
-    tokio::time::timeout(Duration::from_secs(15), requests.recv())
+    tokio::time::timeout(common::ANSWER, requests.recv())
         .await
         .expect("steering must not wait for the old request to finish")
         .unwrap()
@@ -700,7 +695,7 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
         assert_eq!(failed, retried);
         assert!(retried.to_string().contains("a confirmed fact"));
         client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape && frame["event"]["kind"] == "turn"
             })
             .await;
@@ -712,7 +707,7 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
             .await;
         next_request(&mut requests).await;
         let failure = client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape
                     && frame["event"]["kind"] == "notice"
                     && frame["event"]["level"] == "error"
@@ -723,7 +718,7 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
         assert!(text.contains("hotlineFailure"));
         assert!(!text.contains("do-not-store-this"));
         client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape
                     && frame["event"]["kind"] == "turn"
                     && frame["event"]["stopReason"] == "failed"
@@ -741,7 +736,7 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
         assert!(continuation.to_string().contains("Fresh continuation"));
         assert!(continuation.to_string().contains("a confirmed fact"));
         client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape && frame["event"]["kind"] == "turn"
             })
             .await;

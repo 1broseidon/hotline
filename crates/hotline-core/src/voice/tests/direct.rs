@@ -24,7 +24,7 @@ async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
         |e| matches!(e, VoiceEvent::Said { text, .. } if text == "What's on your mind?"),
     )
     .await;
-    until_written("the call's lines", || said_on(&desk, &id).len() == 3).await;
+    until("the call's lines", || said_on(&desk, &id).len() == 3).await;
 
     assert_eq!(
         said_on(&desk, &id),
@@ -35,7 +35,7 @@ async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
         ]
     );
     // The DM shows the call, once, and the call stream heads with the same line.
-    until_written("the link", || call_link(&desk, &persona).is_some()).await;
+    until("the link", || call_link(&desk, &persona).is_some()).await;
     let link = call_link(&desk, &persona).unwrap();
     assert_eq!(link["thread"], id.as_str());
     assert_eq!(link["state"], "live");
@@ -50,7 +50,7 @@ async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
     assert_eq!(heard["hits"][0]["thread"], format!("call:{id}"));
 
     calls.end(&id).unwrap();
-    until_written("the closing link", || {
+    until("the closing link", || {
         call_link(&desk, &persona).is_some_and(|link| link["state"] == "closed")
     })
     .await;
@@ -134,7 +134,7 @@ async fn a_streamed_reply_says_its_spoken_version_as_one_line() {
             "It's the flaky config test again."
         ]
     );
-    until_written("the reply", || said_on(&desk, &id).len() == 1).await;
+    until("the reply", || said_on(&desk, &id).len() == 1).await;
     assert_eq!(
         said_on(&desk, &id),
         [("agent".to_string(), spoken.to_string())]
@@ -295,11 +295,11 @@ async fn a_reply_without_a_spoken_version_is_rewritten_said_and_kept() {
     // The session writes the reply after handing it over; the rewrite waits
     // for it, and is kept beside it as what was said.
     write_reply(&desk, &persona, "reply-1", UNTAGGED);
-    until_written("the rewrite", || {
+    until("the rewrite", || {
         kept_spoken(&desk, &persona, "reply-1").as_deref() == Some(rewrite)
     })
     .await;
-    until_written("the call's thread", || {
+    until("the call's thread", || {
         said_on(&desk, &id).last().map(|(_, text)| text.as_str()) == Some(rewrite)
     })
     .await;

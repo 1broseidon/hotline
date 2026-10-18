@@ -28,17 +28,13 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
     let typed = answer(socket, 93, json!({"cmd":"session.prompt","params":{"personaId":persona,"text":"we fixed the zebracrossing scheduler bug"}})).await;
     assert_eq!(typed["ok"], true, "{typed}");
     let tape = hotline_core::log::StreamId::Tape(persona.clone());
-    for _ in 0..500 {
-        if desk
-            .log
+    common::until("the teammate's turn ends", || {
+        desk.log
             .load(&tape)
             .iter()
-            .any(|event| event["kind"] == "agent")
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+            .any(|event| event["kind"] == "turn")
+    })
+    .await;
     let call = Uuid::new_v4().to_string();
     let started = answer(
         socket,
@@ -47,14 +43,10 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
     )
     .await;
     assert_eq!(started["ok"], true, "{started}");
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while desk.front.config.lock().unwrap().is_none() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    common::until("the front is opened", || {
+        desk.front.config.lock().unwrap().is_some()
     })
-    .await
-    .expect("the front was opened");
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    .await;
     let turns = desk.log.load(&tape).len();
 
     let tool_result = |call_id: &'static str, name: &'static str, arguments: Value| {
@@ -165,17 +157,13 @@ async fn a_delegating_fronts_lookup_is_answered_desk_side_and_work_is_handed_on(
     let typed = answer(socket, 93, json!({"cmd":"session.prompt","params":{"personaId":persona,"text":"we fixed the zebracrossing scheduler bug"}})).await;
     assert_eq!(typed["ok"], true, "{typed}");
     let tape = hotline_core::log::StreamId::Tape(persona.clone());
-    for _ in 0..500 {
-        if desk
-            .log
+    common::until("the teammate's turn ends", || {
+        desk.log
             .load(&tape)
             .iter()
-            .any(|event| event["kind"] == "agent")
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+            .any(|event| event["kind"] == "turn")
+    })
+    .await;
     let call = Uuid::new_v4().to_string();
     let started = answer(
         socket,
@@ -184,14 +172,10 @@ async fn a_delegating_fronts_lookup_is_answered_desk_side_and_work_is_handed_on(
     )
     .await;
     assert_eq!(started["ok"], true, "{started}");
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while desk.front.config.lock().unwrap().is_none() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    common::until("the front is opened", || {
+        desk.front.config.lock().unwrap().is_some()
     })
-    .await
-    .expect("the front was opened");
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    .await;
     let declared: Vec<String> = desk
         .front
         .config
@@ -285,14 +269,11 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
     .await;
     assert_eq!(started["ok"], true, "{started}");
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while desk.front.config.lock().unwrap().is_none() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    common::until("the front is opened", || {
+        desk.front.config.lock().unwrap().is_some()
     })
-    .await
-    .expect("the front was opened");
+    .await;
 
     let handoff = "check the failing PR from monday";
     for (heard, said) in [
@@ -325,23 +306,19 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
             .send(Ok(RealtimeEvent::ResponseDone))
             .await
             .unwrap();
-        until(socket, |f| {
+        frame_where(socket, |f| {
             f["event"]["type"] == "said" && f["event"]["text"] == said
         })
         .await;
     }
     let tape = hotline_core::log::StreamId::Tape(persona.clone());
-    for _ in 0..500 {
-        if desk
-            .log
+    common::until("the teammate's turn ends", || {
+        desk.log
             .load(&tape)
             .iter()
-            .any(|event| event["kind"] == "agent")
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+            .any(|event| event["kind"] == "turn")
+    })
+    .await;
     assert_eq!(
         answer(
             socket,
@@ -351,14 +328,11 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
         .await["ok"],
         true
     );
-    let mut dm = Vec::new();
-    for _ in 0..500 {
-        dm = desk.log.load(&tape);
-        if dm.iter().any(is_call_post) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    common::until("the call posts to the conversation", || {
+        desk.log.load(&tape).iter().any(is_call_post)
+    })
+    .await;
+    let dm = desk.log.load(&tape);
     let users: Vec<&Value> = dm.iter().filter(|v| v["kind"] == "user").collect();
     assert_eq!(users.len(), 1, "only the hand-off is a turn: {dm:?}");
     assert_eq!(users[0]["text"], handoff);
@@ -406,12 +380,10 @@ async fn one_call_proves_the_whole_front() {
     .await;
     answer(socket, 93, json!({"cmd":"session.prompt","params":{"personaId":persona,"text":"we fixed the zebracrossing scheduler bug"}})).await;
     let tape = hotline_core::log::StreamId::Tape(persona.clone());
-    for _ in 0..500 {
-        if desk.log.load(&tape).iter().any(|e| e["kind"] == "agent") {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    common::until("the teammate's turn ends", || {
+        desk.log.load(&tape).iter().any(|e| e["kind"] == "turn")
+    })
+    .await;
     let front =
         answer(socket, 94, json!({"cmd":"voice.status","params":{}})).await["result"]["front"]
             .clone();
@@ -427,17 +399,12 @@ async fn one_call_proves_the_whole_front() {
     let started = answer(socket, 1, json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}})).await;
     assert_eq!(started["ok"], true, "{started}");
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
-    let config = tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            if let Some(config) = desk.front.config.lock().unwrap().clone() {
-                return config;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    common::until("the front is opened", || {
+        desk.front.config.lock().unwrap().is_some()
     })
-    .await
-    .expect("the front was opened");
+    .await;
+    let config = desk.front.config.lock().unwrap().clone().unwrap();
     assert_eq!(config.voice, "rex", "the front follows the card's voice");
     let declared: Vec<&str> = config.tools.iter().map(|t| t.name.as_str()).collect();
     for tool in ["send_to_teammate", "search_thread", "post_to_chat"] {
@@ -513,7 +480,7 @@ async fn one_call_proves_the_whole_front() {
     };
     assert_eq!(output, "Posted to the chat.");
 
-    until(socket, |f| {
+    frame_where(socket, |f| {
         f["event"]["type"] == "said" && f["event"]["text"] == "On it."
     })
     .await;
@@ -526,14 +493,12 @@ async fn one_call_proves_the_whole_front() {
         .await["ok"],
         true
     );
-    let mut added = Vec::new();
-    for _ in 0..500 {
-        added = desk.log.load(&tape).split_off(turns);
-        if added.iter().filter(|v| is_call_post(v)).count() >= 2 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    common::until("the post and the call's summary", || {
+        let added = desk.log.load(&tape).split_off(turns);
+        added.iter().filter(|v| is_call_post(v)).count() >= 2
+    })
+    .await;
+    let added = desk.log.load(&tape).split_off(turns);
     let users: Vec<&Value> = added.iter().filter(|v| v["kind"] == "user").collect();
     assert_eq!(users.len(), 1, "only the hand-off is a turn: {added:?}");
     assert_eq!(users[0]["text"], handoff);
@@ -561,15 +526,11 @@ async fn one_call_proves_the_whole_front() {
         json!({"cmd":"session.prompt","params":{"personaId":persona,"text":"and the release?"}}),
     )
     .await;
-    for _ in 0..500 {
-        let told = requests.lock().unwrap().iter().any(|request| {
+    common::until("the follow-up turn is told what the call said", || {
+        requests.lock().unwrap().iter().any(|request| {
             let body = request.to_string();
             body.contains("and the release?") && body.contains(answered)
-        });
-        if told {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    panic!("the follow-up turn was not told what the call said");
+        })
+    })
+    .await;
 }

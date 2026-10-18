@@ -14,7 +14,6 @@ use serde_json::json;
 use sha2::Digest;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 pub const BACKEND: &str = "stalled-agent";
 pub const NAME: &str = "Stalled Agent";
@@ -71,22 +70,16 @@ pub fn install(root: &Path) -> PathBuf {
 /// The launcher's pid, which is its process group, and its grandchild's, once
 /// the script has written them.
 pub async fn spawned(pids: &Path) -> (i32, i32) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    loop {
-        let written = std::fs::read_to_string(pids).unwrap_or_default();
-        let ids: Vec<i32> = written
+    let written = || -> Vec<i32> {
+        std::fs::read_to_string(pids)
+            .unwrap_or_default()
             .lines()
             .filter_map(|line| line.parse().ok())
-            .collect();
-        if let [group, grandchild] = ids[..] {
-            return (group, grandchild);
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the agent's command never ran"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+            .collect()
+    };
+    super::until("the agent's command runs", || written().len() == 2).await;
+    let ids = written();
+    (ids[0], ids[1])
 }
 
 /// Whether anything in this process group is still running.
@@ -95,31 +88,12 @@ pub fn group_alive(group: i32) -> bool {
     unsafe { libc::killpg(group, 0) == 0 }
 }
 
-/// Waits for the group to be gone, reaped included.
-pub async fn group_gone(group: i32) -> bool {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    while tokio::time::Instant::now() < deadline {
-        if !group_alive(group) {
-            return true;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    false
-}
-
-/// Waits for one process to be gone. A killed process whose parent died with
-/// it lingers as a zombie until pid 1 reaps it, and a zombie still answers
-/// signal 0, so this asks again until it does not.
-pub async fn process_gone(pid: i32) -> bool {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    while tokio::time::Instant::now() < deadline {
-        // Safety: signal 0 only asks whether the process exists.
-        if unsafe { libc::kill(pid, 0) } != 0 {
-            return true;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    false
+/// Whether one process is still there. A killed process whose parent died
+/// with it lingers as a zombie until pid 1 reaps it, and a zombie still
+/// answers signal 0, so a test waits for this to turn false.
+pub fn process_alive(pid: i32) -> bool {
+    // Safety: signal 0 only asks whether the process exists.
+    unsafe { libc::kill(pid, 0) == 0 }
 }
 
 /// A model endpoint that answers every streamed request with one line.

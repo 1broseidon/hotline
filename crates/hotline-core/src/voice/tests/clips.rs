@@ -169,8 +169,6 @@ async fn interrupt_cancels_audio_without_ending_the_call() {
     let (_root, desk, calls) = desk(with_fake(fake.clone()));
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk).unwrap();
-    // Let the worker start before delaying normal speech.
-    tokio::time::sleep(Duration::from_millis(30)).await;
     *lock(&fake.delay) = Duration::from_secs(1);
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     utterance(&calls, &id, 1).unwrap();
@@ -201,7 +199,6 @@ async fn budget_failure_speaks_the_bundled_line_and_stops_without_a_model() {
     spending(&desk, json!({"chat": {"dayUsd": 2}}));
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk).unwrap();
-    tokio::time::sleep(Duration::from_millis(30)).await;
     calls.ledger.charge(Kind::Dispatcher, 3.0);
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     utterance(&calls, &id, 1).unwrap();

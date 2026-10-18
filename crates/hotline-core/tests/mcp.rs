@@ -731,13 +731,11 @@ async fn a_stdio_servers_own_children_die_with_the_connection() {
     assert!(alive(&child), "the wrapper's own child is running");
 
     drop(connected);
-    for _ in 0..300 {
-        if !alive(&child) {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    panic!("the server's own child outlived the connection that started it");
+    common::until(
+        "the server's own child ends with the connection that started it",
+        || !alive(&child),
+    )
+    .await;
 }
 
 /// Whether that process is still there. Signal 0 asks and does nothing else.

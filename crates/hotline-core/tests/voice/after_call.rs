@@ -34,13 +34,12 @@ async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing(
     )
     .await;
     assert_eq!(started["ok"], true, "{started}");
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while desk.front.config.lock().unwrap().is_none() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    send(socket, json!({"id":2,"sub":{"call":call}})).await;
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    common::until("the front is opened", || {
+        desk.front.config.lock().unwrap().is_some()
     })
-    .await
-    .expect("the front was opened");
+    .await;
 
     // The person asks; the front starts to answer itself and is cut off by the hang-up.
     let words = "what's left on the release checklist?";
@@ -52,7 +51,7 @@ async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing(
         .send(Ok(RealtimeEvent::Saying("Let me think, the".into())))
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    frame_where(socket, |f| f["sub"] == 2 && f["event"]["type"] == "heard").await;
     let ended = answer(
         socket,
         3,
@@ -61,21 +60,18 @@ async fn a_question_the_call_ended_on_goes_to_the_teammate_to_answer_in_writing(
     .await;
     assert_eq!(ended["ok"], true);
 
-    let log = desk.log.clone();
-    let tape = tokio::time::timeout(Duration::from_secs(15), async {
-        loop {
-            let tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
-            if tape
+    let tape = hotline_core::log::StreamId::Tape(persona.clone());
+    common::until(
+        "the teammate answers the question the call ended on",
+        || {
+            desk.log
+                .load(&tape)
                 .iter()
                 .any(|v| v["kind"] == "agent" && !is_call_post(v))
-            {
-                return tape;
-            }
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the teammate answered the question the call ended on");
+        },
+    )
+    .await;
+    let tape = desk.log.load(&tape);
     let users: Vec<&Value> = tape.iter().filter(|v| v["kind"] == "user").collect();
     assert_eq!(users.len(), 1, "{tape:?}");
     assert_eq!(users[0]["text"], words, "the person's words, unrephrased");
@@ -143,31 +139,24 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         true
     );
     let tape = hotline_core::log::StreamId::Tape(persona.clone());
-    for _ in 0..500 {
-        if desk
-            .log
+    common::until("the teammate's turn ends", || {
+        desk.log
             .load(&tape)
             .iter()
-            .any(|event| event["kind"] == "agent")
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+            .any(|event| event["kind"] == "turn")
+    })
+    .await;
     let call = Uuid::new_v4().to_string();
     assert_eq!(
         answer(socket, 1, json!({"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"mode":"front"}})).await["ok"],
         true
     );
     send(socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while desk.front.config.lock().unwrap().is_none() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
+    frame_where(socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    common::until("the front is opened", || {
+        desk.front.config.lock().unwrap().is_some()
     })
-    .await
-    .expect("the front was opened");
+    .await;
 
     desk.events
         .send(Ok(RealtimeEvent::Heard(
@@ -195,7 +184,7 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         .send(Ok(RealtimeEvent::ResponseDone))
         .await
         .unwrap();
-    until(socket, |f| {
+    frame_where(socket, |f| {
         f["event"]["type"] == "said" && f["event"]["text"] == answered
     })
     .await;
@@ -208,19 +197,16 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         .await["ok"],
         true
     );
-    let mut summaries = Vec::new();
-    for _ in 0..500 {
-        summaries = desk
-            .log
-            .load(&tape)
-            .into_iter()
-            .filter(is_call_post)
-            .collect();
-        if !summaries.is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    common::until("the call's summary is posted", || {
+        desk.log.load(&tape).iter().any(is_call_post)
+    })
+    .await;
+    let summaries: Vec<Value> = desk
+        .log
+        .load(&tape)
+        .into_iter()
+        .filter(is_call_post)
+        .collect();
     assert_eq!(summaries.len(), 1, "{summaries:?}");
     let text = summaries[0]["text"].as_str().unwrap();
     assert!(text.starts_with("From the call:"), "{text}");
@@ -241,15 +227,11 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         .await["ok"],
         true
     );
-    for _ in 0..500 {
-        let told = requests.lock().unwrap().iter().any(|request| {
+    common::until("the follow-up turn is told what the call said", || {
+        requests.lock().unwrap().iter().any(|request| {
             let body = request.to_string();
             body.contains("and the release?") && body.contains(answered)
-        });
-        if told {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    panic!("the follow-up turn was not told what the call said");
+        })
+    })
+    .await;
 }

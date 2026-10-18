@@ -137,11 +137,11 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
     );
 
     // The whole process group is gone, the grandchild with it.
-    assert!(stalled::group_gone(group).await, "the launcher was killed");
-    assert!(
-        stalled::process_gone(grandchild).await,
-        "and what it started"
-    );
+    common::until("the launcher is killed", || !stalled::group_alive(group)).await;
+    common::until("and what it started", || {
+        !stalled::process_alive(grandchild)
+    })
+    .await;
 
     // A message to Pork Chop now is written before anything waits on the
     // agent, and the start it retries fails as the turn.
@@ -168,10 +168,10 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
         })
         .await;
     assert_eq!(failed["event"]["stopReason"], "failed", "{failed}");
-    assert!(
-        stalled::group_gone(retried).await,
-        "the retry's launcher was killed"
-    );
+    common::until("the retry's launcher is killed", || {
+        !stalled::group_alive(retried)
+    })
+    .await;
 
     drop(client);
     door_task.abort();

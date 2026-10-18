@@ -76,9 +76,12 @@ async fn direct_call_uses_existing_conversation(
     let (provider, requests) = provider_seeing(reply).await;
     // A key, so the teammate's turns are billed per token.
     send(&mut socket, json!({"id":90,"cmd":"credential.custom_save","params":{"draft":{"name":"Direct fixture","baseUrl":provider,"api":"chat_completions","models":["test"],"secret":"fixture-key"}}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 90).await["ok"], true);
+    assert_eq!(
+        frame_where(&mut socket, |f| f["id"] == 90).await["ok"],
+        true
+    );
     send(&mut socket, json!({"id":91,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
-    let persona = until(&mut socket, |f| f["id"] == 91).await["result"]["id"]
+    let persona = frame_where(&mut socket, |f| f["id"] == 91).await["result"]["id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -87,14 +90,17 @@ async fn direct_call_uses_existing_conversation(
         json!({"id":92,"cmd":"session.start","params":{"personaId":persona}}),
     )
     .await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 92).await["ok"], true);
+    assert_eq!(
+        frame_where(&mut socket, |f| f["id"] == 92).await["ok"],
+        true
+    );
     send(
         &mut socket,
         json!({"id":93,"cmd":"voice.status","params":{}}),
     )
     .await;
     assert!(
-        until(&mut socket, |f| f["id"] == 93).await["result"]["capabilities"]
+        frame_where(&mut socket, |f| f["id"] == 93).await["result"]["capabilities"]
             .as_array()
             .unwrap()
             .iter()
@@ -110,7 +116,7 @@ async fn direct_call_uses_existing_conversation(
         json!({"id":1,"cmd":"voice.call_start","params":params}),
     )
     .await;
-    let started = until(&mut socket, |f| f["id"] == 1).await;
+    let started = frame_where(&mut socket, |f| f["id"] == 1).await;
     assert_eq!(started["result"]["personaId"], persona);
     assert_eq!(
         started["result"]["inputMode"],
@@ -120,21 +126,21 @@ async fn direct_call_uses_existing_conversation(
         assert_eq!(started["result"]["input"], json!(["text/plain"]));
     }
     send(&mut socket, json!({"id":2,"sub":{"call":call}})).await;
-    until(&mut socket, |f| f["snapshot"].is_array()).await;
+    frame_where(&mut socket, |f| f["snapshot"].is_array()).await;
     let input = if device_text {
         json!({"id":3,"cmd":"voice.text","params":{"callId":call,"seq":1,"text":"ask Mack to check the failing PR"}})
     } else {
         json!({"id":3,"cmd":"voice.utterance","params":{"callId":call,"seq":1,"mimeType":"audio/wav","data":STANDARD.encode(wav()),"durationMs":2390}})
     };
     send(&mut socket, input.clone()).await;
-    let heard = until(&mut socket, |f| f["event"]["type"] == "heard").await;
+    let heard = frame_where(&mut socket, |f| f["event"]["type"] == "heard").await;
     // The reply is one line: its spoken part, said in clips under its id and
     // closed by an empty final clip. The teammate is the voice, so there is no
     // `delivery` naming it.
     let mut said = Vec::new();
     let mut clips = Vec::new();
     loop {
-        let frame = until(&mut socket, |f| f["event"].is_object()).await;
+        let frame = frame_where(&mut socket, |f| f["event"].is_object()).await;
         let event = &frame["event"];
         assert_ne!(event["type"], "delivery", "the teammate speaks for itself");
         match event["type"].as_str() {
@@ -163,11 +169,14 @@ async fn direct_call_uses_existing_conversation(
     assert_eq!(last["data"], "");
     assert_eq!(last["index"], clips.len() - 1);
     // Its turn over, the call listens.
-    until(&mut socket, |f| f["event"]["state"] == "listening").await;
+    frame_where(&mut socket, |f| f["event"]["state"] == "listening").await;
     let mut replay = input;
     replay["id"] = json!(7);
     send(&mut socket, replay).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 7).await["ok"], false);
+    assert_eq!(
+        frame_where(&mut socket, |f| f["id"] == 7).await["ok"],
+        false
+    );
 
     // The agent heard the words, then the contract.
     let words = heard["event"]["text"].as_str().unwrap().to_string();
@@ -188,15 +197,15 @@ async fn direct_call_uses_existing_conversation(
 
     // What was said is kept beside the reply as soon as the reply is
     // written, which for a rewrite may be just after it is said.
-    let mut tape = Vec::new();
-    for _ in 0..200 {
-        tape = log.load(&hotline_core::log::StreamId::Tape(persona.clone()));
-        let first = tape.iter().find(|v| v["kind"] == "agent");
-        if first.is_some_and(|reply| reply["spoken"].as_str() == kept) {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
+    let tape = hotline_core::log::StreamId::Tape(persona.clone());
+    common::until("what was said is kept beside the reply", || {
+        log.load(&tape)
+            .iter()
+            .find(|v| v["kind"] == "agent")
+            .is_some_and(|reply| reply["spoken"].as_str() == kept)
+    })
+    .await;
+    let tape = log.load(&tape);
     assert_eq!(
         tape.iter().filter(|v| v["kind"] == "chapter").count(),
         1,
@@ -266,7 +275,7 @@ async fn direct_call_uses_existing_conversation(
         json!({"id":8,"cmd":"voice.status","params":{}}),
     )
     .await;
-    let replies = until(&mut socket, |f| f["id"] == 8).await["result"]["replies"].clone();
+    let replies = frame_where(&mut socket, |f| f["id"] == 8).await["result"]["replies"].clone();
     assert_eq!(replies.as_array().map(Vec::len), Some(1), "{replies}");
     let model = replies[0]["model"].as_str().unwrap();
     assert!(
@@ -283,19 +292,22 @@ async fn direct_call_uses_existing_conversation(
     )
     .await;
     assert_eq!(
-        until(&mut socket, |f| f["id"] == 4).await["ok"],
+        frame_where(&mut socket, |f| f["id"] == 4).await["ok"],
         false,
         "a live target cannot silently change to desk"
     );
     send(&mut socket, json!({"id":5,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string(),"personaId":"missing"}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 5).await["ok"], false);
+    assert_eq!(
+        frame_where(&mut socket, |f| f["id"] == 5).await["ok"],
+        false
+    );
     send(
         &mut socket,
         json!({"id":6,"cmd":"voice.hold","params":{"callId":call,"hold":true}}),
     )
     .await;
     assert_eq!(
-        until(&mut socket, |f| f["id"] == 6).await["ok"],
+        frame_where(&mut socket, |f| f["id"] == 6).await["ok"],
         true,
         "invalid target did not replace the existing call"
     );
@@ -315,11 +327,11 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
         .await
         .unwrap();
     send(&mut socket, json!({"id":1,"cmd":"credential.create","params":{"providerId":"openai","label":"Speech fixture","secret":"unused-test-key"}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 1).await["ok"], true);
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 1).await["ok"], true);
     send(&mut socket, json!({"id":2,"cmd":"settings.update","params":{"patch":{"voice":{"dispatcher":{"provider":"not-connected"}}}}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 2).await["ok"], true);
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 2).await["ok"], true);
     send(&mut socket, json!({"id":3,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
-    let persona = until(&mut socket, |f| f["id"] == 3).await["result"]["id"]
+    let persona = frame_where(&mut socket, |f| f["id"] == 3).await["result"]["id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -328,7 +340,7 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
         json!({"id":4,"cmd":"voice.status","params":{}}),
     )
     .await;
-    let status = until(&mut socket, |f| f["id"] == 4).await;
+    let status = frame_where(&mut socket, |f| f["id"] == 4).await;
     assert_eq!(status["result"]["available"], false);
     assert_eq!(status["result"]["directAvailable"], true);
     send(
@@ -336,10 +348,13 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
         json!({"id":5,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string()}}),
     )
     .await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 5).await["ok"], false);
+    assert_eq!(
+        frame_where(&mut socket, |f| f["id"] == 5).await["ok"],
+        false
+    );
     let call = Uuid::new_v4().to_string();
     send(&mut socket, json!({"id":6,"cmd":"voice.call_start","params":{"callId":call,"personaId":persona,"streamAudio":true}})).await;
-    let started = until(&mut socket, |f| f["id"] == 6).await;
+    let started = frame_where(&mut socket, |f| f["id"] == 6).await;
     assert_eq!(started["ok"], true);
     assert_eq!(started["result"]["personaId"], persona);
     send(
@@ -347,15 +362,15 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
         json!({"id":7,"cmd":"voice.call_end","params":{"callId":call}}),
     )
     .await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 7).await["ok"], true);
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 7).await["ok"], true);
     send(&mut socket, json!({"id":8,"cmd":"settings.update","params":{"patch":{"voice":{"dispatcher":{"provider":"not-connected"},"stt":{"provider":"not-connected"}}}}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 8).await["ok"], true);
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 8).await["ok"], true);
     send(
         &mut socket,
         json!({"id":9,"cmd":"voice.status","params":{"inputMode":"text"}}),
     )
     .await;
-    let status = until(&mut socket, |f| f["id"] == 9).await;
+    let status = frame_where(&mut socket, |f| f["id"] == 9).await;
     assert_eq!(status["result"]["available"], false);
     assert_eq!(status["result"]["directAvailable"], true);
     assert!(status["result"].get("stt").is_none());
@@ -364,10 +379,13 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
         json!({"id":10,"cmd":"voice.call_start","params":{"callId":Uuid::new_v4().to_string(),"inputMode":"text"}}),
     )
     .await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 10).await["ok"], false);
+    assert_eq!(
+        frame_where(&mut socket, |f| f["id"] == 10).await["ok"],
+        false
+    );
     let text_call = Uuid::new_v4().to_string();
     send(&mut socket, json!({"id":11,"cmd":"voice.call_start","params":{"callId":text_call,"personaId":persona,"inputMode":"text","streamAudio":true}})).await;
-    let started = until(&mut socket, |f| f["id"] == 11).await;
+    let started = frame_where(&mut socket, |f| f["id"] == 11).await;
     assert_eq!(started["ok"], true);
     assert_eq!(started["result"]["personaId"], persona);
     assert_eq!(started["result"]["inputMode"], "text");
@@ -377,7 +395,10 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
         json!({"id":12,"cmd":"voice.call_end","params":{"callId":text_call}}),
     )
     .await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 12).await["ok"], true);
+    assert_eq!(
+        frame_where(&mut socket, |f| f["id"] == 12).await["ok"],
+        true
+    );
     socket.close(None).await.unwrap();
     server.abort();
 }
@@ -396,9 +417,9 @@ async fn calls_off_refuses_a_call_and_says_why() {
         .await
         .unwrap();
     send(&mut socket, json!({"id":1,"cmd":"credential.create","params":{"providerId":"openai","label":"Speech fixture","secret":"unused-test-key"}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 1).await["ok"], true);
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 1).await["ok"], true);
     send(&mut socket, json!({"id":2,"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Check the PR.","cwd":root.path().to_str().unwrap()}}})).await;
-    let persona = until(&mut socket, |f| f["id"] == 2).await["result"]["id"]
+    let persona = frame_where(&mut socket, |f| f["id"] == 2).await["result"]["id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -407,17 +428,17 @@ async fn calls_off_refuses_a_call_and_says_why() {
         json!({"id":3,"cmd":"voice.status","params":{}}),
     )
     .await;
-    let status = until(&mut socket, |f| f["id"] == 3).await;
+    let status = frame_where(&mut socket, |f| f["id"] == 3).await;
     assert_eq!(status["result"]["directAvailable"], true);
 
     send(&mut socket, json!({"id":4,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"off"}}}}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 4).await["ok"], true);
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 4).await["ok"], true);
     send(
         &mut socket,
         json!({"id":5,"cmd":"voice.status","params":{}}),
     )
     .await;
-    let status = until(&mut socket, |f| f["id"] == 5).await;
+    let status = frame_where(&mut socket, |f| f["id"] == 5).await;
     assert_eq!(status["result"]["available"], false);
     assert_eq!(status["result"]["directAvailable"], false);
     assert_eq!(status["result"]["unavailable"], "Calls are off in Settings");
@@ -433,7 +454,7 @@ async fn calls_off_refuses_a_call_and_says_why() {
             json!({"id":id,"cmd":"voice.call_start","params":params}),
         )
         .await;
-        let refused = until(&mut socket, |f| f["id"] == id).await;
+        let refused = frame_where(&mut socket, |f| f["id"] == id).await;
         assert_eq!(refused["ok"], false, "{refused}");
         assert!(
             refused.to_string().contains("Calls are off in Settings"),
@@ -442,13 +463,13 @@ async fn calls_off_refuses_a_call_and_says_why() {
     }
 
     send(&mut socket, json!({"id":8,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"legacy"}}}}})).await;
-    assert_eq!(until(&mut socket, |f| f["id"] == 8).await["ok"], true);
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 8).await["ok"], true);
     send(
         &mut socket,
         json!({"id":9,"cmd":"voice.status","params":{}}),
     )
     .await;
-    let status = until(&mut socket, |f| f["id"] == 9).await;
+    let status = frame_where(&mut socket, |f| f["id"] == 9).await;
     assert_eq!(
         status["result"]["directAvailable"], true,
         "Legacy voice still calls"

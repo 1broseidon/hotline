@@ -12,7 +12,9 @@
 //! server its network and whether it runs agents at all. A server that runs
 //! only a relay opens Remote and a Door that administers it, and no room.
 
-use crate::credentials::{Backend, FileStore, NativeStore, SecretStore, claim_backend};
+#[cfg(unix)]
+use crate::credentials::FileStore;
+use crate::credentials::{Backend, NativeStore, SecretStore, claim_backend};
 use crate::desk::Desk;
 use crate::remote::{Agents, Remote, ServeOptions};
 use crate::room_lock::RoomLock;
@@ -48,10 +50,14 @@ pub async fn boot(
 ) -> Result<Booted, String> {
     claim_backend(root, backend).map_err(|error| error.to_string())?;
     let store: Arc<dyn SecretStore> = match backend {
+        #[cfg(unix)]
         Backend::File => Arc::new(
             FileStore::open(root)
                 .map_err(|error| format!("the file store did not open: {error}"))?,
         ),
+        // The file store is the headless desk's, and that is Unix only.
+        #[cfg(not(unix))]
+        Backend::File => return Err("the file store is only on Linux and macOS".into()),
         Backend::Native => Arc::new(NativeStore),
     };
     let agents = served.as_ref().is_none_or(|served| served.agents);
@@ -105,7 +111,8 @@ fn token() -> Result<String, getrandom::Error> {
     Ok(hex::encode(bytes))
 }
 
-#[cfg(test)]
+// On the file store, which keeps a test off the machine's own keychain.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

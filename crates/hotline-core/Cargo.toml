@@ -39,7 +39,9 @@ reqwest = { version = "0.13.4", default-features = false, features = ["json", "m
 url = "2.5.8"
 # Agents the ACP registry ships as prebuilt archives: zip, tar.gz and tar.bz2
 # are what it publishes, unpacked in Rust so no unzip or tar has to be installed.
-zip = { version = "4", default-features = false, features = ["deflate"] }
+# ZIP 9 is the first with RUSTSEC-2026-0367..0369 fixed (symlink and set-id
+# extraction), and only extracting needs a decoder, so zopfli stays out.
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 tar = "0.4"
 flate2 = "1"
 bzip2 = "0.6"

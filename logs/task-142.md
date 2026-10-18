@@ -12,7 +12,7 @@ relatedFiles:
   - ui/src/useNavigation.ts
   - ui/src/useSeen.ts
   - ui/src/useWindowHotkeys.ts
-updatedAt: "2026-10-18T00:26:57.992Z"
+updatedAt: "2026-10-18T00:27:09.212Z"
 contract:
   status: delivered
   validation:
@@ -39,6 +39,8 @@ dispatch:
     runner: desktop
     pid: 50333
     at: "2026-10-18T00:15:18.984Z"
+    ended: "2026-10-18T00:27:09.212Z"
+    outcome: done
 assignee: claude
 completedAt: "2026-10-18T00:26:57.992Z"
 ---

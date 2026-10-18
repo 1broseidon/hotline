@@ -215,7 +215,7 @@ async fn relay_door(
         Visit::RateLimited => return error(StatusCode::TOO_MANY_REQUESTS, "desk_busy"),
         Visit::Admitted(notify, permit) => (notify, permit),
     };
-    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let cancel = lock(&remote.state).cancel.clone();
     let upgraded = hyper::upgrade::on(&mut request);
     let Ok(reply) = create_response(&request.map(|_| ())) else {
         return error(StatusCode::BAD_REQUEST, "invalid_upgrade");
@@ -347,7 +347,7 @@ pub(super) async fn sealed_session<S>(
         desk_id: Option<String>,
     }
 
-    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let cancel = lock(&remote.state).cancel.clone();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     // The same deadline covers TCP acceptance through both Noise messages.
     let handshake = async {
@@ -494,7 +494,7 @@ pub(super) async fn sealed_session<S>(
             let Ok(Agents { log, room }) = remote.agents() else {
                 return;
             };
-            let desktop_id = remote.state.lock().unwrap().saved.desktop_id.clone();
+            let desktop_id = lock(&remote.state).saved.desktop_id.clone();
             let _ = crate::wire::seated_phone_v2(
                 socket,
                 log.clone(),

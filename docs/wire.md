@@ -1,7 +1,7 @@
 # The wire
 
 One WebSocket per client, carrying commands and subscriptions. Frames are
-JSON text. Types are defined in `crates/hotline-core/src/contract.rs`; the
+JSON text. Types are defined in `crates/hotline-core/src/contract/`; the
 door that reads them is `crates/hotline-core/src/wire/`.
 
 The door binds `127.0.0.1` on an ephemeral port. `Door::run` serves until
@@ -88,23 +88,35 @@ Anything else with an id is refused: `"A frame is a command, a subscription or a
 ## Commands
 
 `cmd` is the enum tag, `params` the content. Field names on the wire are
-camelCase. The table is the `Command` enum in `contract.rs` and what
-`wire/commands.rs` returns.
+camelCase. The table is the `Command` enum in `contract/command.rs` and what
+`wire/commands.rs` returns, or `wire/socket.rs` for a command the socket
+answers itself (a phone's, a sign-in's, an upload's).
 
 | cmd | params | result |
 | --- | --- | --- |
 | `persona.create` | `{draft}` | the created `Persona` |
 | `mobile.persona_create` | `{requestId, name, goal?, backendId?, modelId?, effortId?}` | the created `Persona`, with workspace reach, this desk's default workspace, no computer and no background work — the fields the phone cannot name; a repeated `requestId` answers the same teammate unchanged |
 | `mobile.persona_update` | `{id, name?, goal?}` | the teammate with its new name, goal or both — nothing else a patch could carry; an empty goal clears it, a blank name or an edit naming neither is refused |
+| `mobile.persona_access` | `{id, reach?, modeId?, backgroundWork?}` | the teammate after the change: a Hotline Agent teammate's reach, a harness teammate's mode, and whether it may keep background work; at least one is named, a reach for a harness or a mode for Hotline Agent is refused. Reach and background work restart a live session as `persona.update` does; a mode switches live and is kept for the next start. Owner phone or local desk; advertised by the owner's `personaAccess` |
+| `mobile.prompt` | `{operationId, personaId, text, attachmentIds?, replyTo?, thread?}` | `{state: "accepted"\|"unknown"}`; the phone's `session.prompt`, which brings the teammate up first. `operationId` is the phone's own id for the message, so a retry is answered from its receipt and never runs twice; `unknown` means the desk could not record whether it ran. `attachmentIds` name files this phone uploaded with `mobile.attachment`; `thread` says it in one of the teammate's work threads instead. A paired phone only |
+| `mobile.attachment` | `{upload: {id, name, mimeType?, size, offset, data}}` | `{offset, complete}`; one base64 chunk of at most 32 KiB, in order from offset zero, of a file of at most 10 MB, kept for this phone alone (256 MB in all) until a `mobile.prompt` names its `id`. A paired phone only |
+| `mobile.push_register` | `{token, platform}` | none; where to notify this phone: an Expo push token, for `ios` or `android` ([Pushes](#pushes)). A paired phone only |
 | `persona.update` | `{id, patch}` | the teammate after the patch |
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
 | `settings.update` | `{patch}` | every setting, defaults included |
 | `images.status` | `{}` | `ImagesStatus` `{available, unavailable?, provider?, model?, spending?, spendingUnavailable?}`; owner or local desk only |
+| `websearch.status` | `{}` | `WebSearchStatus` `{providers: [{provider, name, enabled, hasKey}]}` — each web search provider, whether the desk has it on and whether a key is saved, never the key; owner or local desk only |
+| `websearch.set_enabled` | `{provider, enabled}` | `WebSearchStatus`; one provider on or off for the whole desk; owner or local desk only |
+| `websearch.set_key` | `{provider, key?}` | `WebSearchStatus`; saves the provider's key in the vault, or forgets it when `key` is absent or blank. A keyed provider is tried before the keyless ones; owner or local desk only |
 | `capabilities.options` | `{}` | `CapabilityOptions` `{images, stt, tts, dispatcher, spending}`; owner or local desk only. Each job is `{selected?, automatic?, unavailable?, options}`: `selected` is the owner's pick (absent means automatic), `automatic` is what automatic resolves to now, `unavailable` is a sentence when no connected provider can do the job, and `options` is `[{providerId, providerName, models: [{id, label?, voices?}]}]` from connected providers only. `spending` is `{dayUsd, monthUsd, spentDayUsd, spentMonthUsd, unavailable?}` |
 | `credential.create` | `{providerId, label, secret}` | the `Credential` (no secret) |
 | `credential.login` | `{providerId}` | `LoginPrompt` `{loginId, userCode, verificationUri}` |
 | `credential.login_status` | `{loginId}` | `LoginStatus` `{state, credential?, error?}` |
+| `credential.login_cancel` | `{loginId}` | none; stops a pending sign-in, as `credential.login` below describes |
+| `credential.connect_local` | `{baseUrl}` | the `Credential`, a `local` one for an Ollama server |
+| `credential.custom_save` | `{id?, draft}` | the `Credential`, a custom connection made or edited |
+| `credential.custom_models` | `{id?, baseUrl, secret?}` | model ids, sorted, nothing saved |
 | `credential.refresh_models` | `{providerId}` | `CatalogModel[]` that provider's catalogue after a re-fetch |
 | `credential.revoke` | `{id}` | none |
 | `credential.delete` | `{id}` | none |
@@ -122,6 +134,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `models.list` | `{}` | `ConfigChoice[]` the desk's keys can reach |
 | `models.catalog` | `{providerId}` | `CatalogModel[]` that provider's catalogue, newest first |
 | `models.efforts` | `{modelId}` | `EffortChoices` — `choices` that model's effort levels, empty when it has none, and `defaultId` the one a teammate with none stored runs at |
+| `models.manual_set` | `{providerId, modelIds}` | `CatalogModel[]`, that provider's catalogue with its manual ids replaced |
 | `session.start` | `{personaId}` | `SessionInfo` |
 | `session.stop` | `{personaId}` | none |
 | `session.retry` | `{personaId}` | none; runs the last turn again when it failed and nothing was said after it, without writing the person's message again; otherwise refused |
@@ -129,11 +142,19 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `session.cancel` | `{personaId}` | none |
 | `session.set_model` | `{personaId, modelId}` | `SessionInfo` |
 | `session.set_mode` | `{personaId, modeId}` | `SessionInfo` |
-| `session.set_config` | `{personaId, configId, value}` | `SessionInfo` |
+| `session.set_config` | `{personaId, configId, value}` | `SessionInfo`. A companion phone may set only a config the live session reports as an effort; any other is refused with "Change that on your desktop." |
 | `session.answer_permission` | `{personaId, requestId, optionId}` | none; `collab:` request ids are room-owned collaboration cards |
+| `agent.auth.start` | `{personaId, methodId}` | `{id}`; starts signing a harness teammate's agent in, by one of the methods its session offers. The attempt is this socket's: another socket naming its id is refused, and it ends when this socket closes |
+| `agent.auth.poll` | `{personaId, id}` | `{state: "running"\|"succeeded"\|"failed", output, error?}`, what the sign-in has printed so far |
+| `agent.auth.input` | `{personaId, id, input}` | none; a line typed into the sign-in |
+| `agent.auth.cancel` | `{personaId, id}` | none |
+| `process.output` | `{personaId, id}` | `ProcessOutput` `{command, tail}`: a command the teammate left running, whole, and the latest of its output ([sessions.md](sessions.md#running-processes)) |
+| `process.stop` | `{personaId, id}` | none; stops that command, without waking the teammate on its end |
 | `human.answer` | `{personaId, actionId, status: "done"|"declined", note?}` | none |
-| `file.read` | `{personaId, eventId, offset}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64; `next` is where the next part starts, absent at the end |
-| `avatar.read` | `{personaId, hash, offset?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash`; anything else, or a picture the desk does not keep, is refused in a sentence. Every seat may read one |
+| `file.read` | `{personaId, eventId, index?, offset?, size?}` | `FileChunk` `{name, mimeType, size, offset, data, next?}` — at most 512 KiB of the file that message carries, as base64, from `offset` (0 when absent); `next` is where the next part starts, absent at the end. `index` is which of the message's attachments, the first when absent. `size` asks for a picture at most that many px on its longer side (48 to 1600), as a JPEG the desk makes once and keeps, rather than the file itself; a file that is not a picture is refused |
+| `avatar.read` | `{personaId, hash, offset?, size?}` | `FileChunk`, as `file.read` answers — a teammate's kept picture, a square PNG; with `size`, a copy at most that many px wide, still a PNG. `hash` is the 64 lowercase hex digits from the teammate's `avatar.hash`; anything else, or a picture the desk does not keep, is refused in a sentence. The desk, owner and phone seats may all read one |
+| `avatar.generate` | `{personaId}` | none, once the drawing has started; the picture is drawn from the teammate's name and goal by the room's image provider, within the Images budget, and the roster carries it when it lands (`drawing` until then). Refused at once when no provider can draw or the person chose the current picture |
+| `link.preview` | `{url}` | `LinkPreview` `{url, title, site, image?}`, the card for a link written in a message, read by the desk; JSON `null` when the page has none or is not one the desk will read. Answered off the read loop, so it holds up nothing behind it |
 | `search.thread` | `{personaId, query, limit?}` | `{hits, truncated}` |
 | `search.all` | `{query, limit?}` | `{hits, truncated}` |
 | `chapter.list` | `{personaId}` | chapter summaries, newest first |
@@ -141,13 +162,19 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `chapter.start_fresh` | `{personaId}` | the chapter that closed, with its note |
 | `chapter.resume` | `{personaId}` | the chapter that reopened, with the earlier note |
 | `teammate.tools` | `{personaId}` | a `TeammateToolLedger`, or JSON `null` |
+| `skills.list` | `{personaId?}` | `SkillEntry[]` `{source, name, description, path, invalid?, offered?, version?}`: the built-in skills, the gateway folder's entries, valid or not, the person's own (`home`) ones with whether each is `offered`, and, given a teammate, the skills in its workspace ([sessions.md](sessions.md)) |
+| `skills.add` | `{path}` | the `SkillEntry`; copies the skill folder at `path` into the gateway under its own name. Refused when it is not a skill or the gateway has one of that name |
+| `skills.remove` | `{name}` | none; removes a gateway skill. A teammate granted it loses it at its next start |
+| `skills.offer` | `{name, offered}` | the `SkillEntry`; offers one of the person's own skills to teammates, or withdraws it. Nothing is copied: the skill is read from the person's folder at every start |
 | `schedule.create` | `{personaId, kind, when?, every?, prompt, quiet?}` | the created `ScheduledJob` |
 | `schedule.list` | `{}` | `ScheduledJob[]`, soonest first |
 | `schedule.cancel` | `{id}` | none |
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
-| `peers.answer_permission` | `{key, requestId, optionId}` | none; answers a card raised in a peer turn while that turn waits on it. Owner seat only |
+| `peers.answer_permission` | `{key, requestId, optionId}` | none; answers a card raised in a peer turn while that turn waits on it. Owner or local desk only |
+| `teammates.exchange_resume` | `{a, b}` | none; answers a pair's `exchange_paused` card with Keep going (below) |
+| `teammates.exchange_stop` | `{a, b}` | none; answers it with Stop exchange (below) |
 | `side.start` | `{personaId, text}` | the new `SideThreadSummary`, returned at once with the task already written to the thread: its agent starts on its own task and the first turn begins when it is up, so the summary is `working` until then. A line said meanwhile waits behind it, and an agent that cannot start says so in the thread, which is then archived as failed; past three running agents the idlest thread is parked, and it is refused only while all are mid-turn |
 | `side.prompt` | `{sideId, text, attachments?}` | none; returns at once, the answer is on the `{"side": id}` subscription; a parked thread is brought back first, an archived one is refused until it is continued |
 | `side.cancel` | `{sideId}` | none; stops the turn in flight, the thread stays live |
@@ -155,7 +182,7 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `side.continue` | `{sideId}` | the `SideThreadSummary`, live again; brings back a parked or archived thread, resuming its saved session when the harness can |
 | `side.list` | `{personaId}` | `SideThreadSummary[]`: live first, then parked, then archived, each newest first; each carries a one-line `preview` of the newest thing said |
 | `side.answer_permission` | `{sideId, requestId, optionId}` | none |
-| `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads); any seat; an unknown name is ignored |
+| `client.hello` | `{capabilities}` | `{capabilities}`: what this core can do for the seat. Names this socket as reading `threads2`, see [Threads](#threads), and a remote one as `lean` ([the phone seat](#the-phone-seat)); the desk, owner and phone seats; an unknown name is ignored |
 | `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
@@ -165,7 +192,8 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
-| `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only for every seat |
+| `tape.page` | `{personaId, before, limit?, through?}` | `{events, more}`: the `limit` lines of a tape before the line `before` (400 by default, at most 2,000), oldest first, or, with `through`, every line from 40 above `through` up to `before`, so a search hit or a quoted reply can be scrolled to. `more` is whether older lines are left. A `before` the tape does not hold is an empty page. A phone's page is cut as its snapshot is |
+| `computer.capacity` | `{}` | `{runtime: "docker"\|"podman"\|"container"\|null, cpus, memoryBytes, source: "runtime"\|"host"\|"default"}`; read-only, for the desk, owner and phone seats |
 | `mobile.persona_computer` | `{id, enabled?, memory?, cpus?: number\|null}` | updated `Persona`; owner phone or desk only |
 | `computer.runtimes` | `{}` | `RuntimeReport[]`: detection, rootless-available first; Apple's container only in a macOS build |
 | `computer.releases` | `{}` | `ComputerReleases`: `floor`, `repository`, `newest?`, `releases` (floor up, newest first), `checkedAt?`, `error?` |
@@ -173,9 +201,11 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `computer.status` | `{personaId}` | `{state, url?, viewer?}` — a peek, never a wake |
 | `computer.stop` | `{personaId}` | none |
 | `computer.remove` | `{personaId}` | none |
+| `computer.update` | `{personaId}` | none; recreates the teammate's computer on the release it would be created on now, keeping its volumes, and starts the teammate again if it was running ([computer.md](computer.md)) |
 | `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}], blocked}]` — the host browsers cookies could come from; names only. `blocked` marks one that is installed but whose data the host refuses the desk (macOS without Full Disk Access), listed with no profiles so the window can say what to allow |
 | `computer.cookies.preview` | `{browserId, profileId}` | `[{domain, cookies}]` — the sites in that profile and their counts, never a value |
 | `computer.cookies.import` | `{personaId, browserId, profileId, domains}` | `[{domain, cookies}]` — the sites actually imported |
+| `computer.cookies.push` | `{personaId, transfer: {sourceId, browserId, profileId, domains, cookies}}` | `[{domain, cookies}]`; the cookies a window read from its own computer's browser, for a desk on a server ([serve.md](serve.md)) |
 | `computer.cookies.list` | `{personaId}` | `CookieImport[]` `{browserId, browserName, profileId, profileName, importedAt, sites: [{domain, cookies}]}` — what was brought over to that teammate's computer, by browser and profile; names and counts, never a value |
 | `computer.cookies.forget` | `{personaId, browserId, profileId, domain?}` | `CookieImport[]` — what is left, after the computer's browser dropped every cookie for that site or, without `domain`, for every site brought over from that browser and profile |
 | `secrets.list` | `{}` | `SharedSecret[]` `{name, updatedAt, kind, sites?, username?, totp?, rpId?, userName?}` — names, kinds and what each is for, never a value |
@@ -186,6 +216,13 @@ camelCase. The table is the `Command` enum in `contract.rs` and what
 | `secrets.passkey.registration` | `{personaId}` | `PasskeyRegistration` `{state: "idle" \| "armed" \| "asked" \| "approved" \| "stored", name?, rpId?, expiresAt?, ask?, secret?}` — where the making stands; `asked` and `approved` carry the site's request `{id, rpId, origin, rpName?, userName?, userDisplayName?, askedAt}`, which waits for the card on the teammate's tape; the room watches the arming itself and stores the passkey the moment it is made, and this answers `stored` with the record, once |
 | `secrets.passkey.answer` | `{personaId, askId, approved}` | `PasskeyRegistration` — the person's answer to the passkey card: approved, the browser makes it (`approved`, then `stored` once the room has it); denied, the arming ends (`idle`). Refused when no such request is waiting. The phone may send this one |
 | `secrets.passkey.cancel` | `{personaId}` | none — ends the arming with nothing stored; a card nobody answered expires |
+| `files.browse` | `{path}` | `{path, parent, entries}`: a directory on the desk's own machine, by absolute path; the owner's file browser ([serve.md](serve.md)) |
+| `files.mkdir` | `{path}` | `{path}`, the directory made |
+| `files.download` | `{path, offset}` | `{name, mimeType, size, offset, data, next}`: at most 512 KiB of the file, as base64, with `next` JSON `null` at the end |
+| `files.upload_start` | `{path}` or `{name}` | `{uploadId, offset, path}`; a new file at `path`, or one staged under the data directory by its plain `name`. An upload belongs to the socket that started it, at most eight at once, and closing the socket removes what is unfinished |
+| `files.upload_chunk` | `{uploadId, offset, data}` | `{offset}`, where the next chunk starts; at most 512 KiB decoded |
+| `files.upload_finish` | `{uploadId}` | `{path, size}`; never replaces a file already there |
+| `files.upload_cancel` | `{uploadId}` | none |
 
 `computer.browsers.list`, `computer.cookies.preview`, `computer.cookies.import`,
 `computer.cookies.list` and `computer.cookies.forget` are the operator's cookie
@@ -252,7 +289,11 @@ knows of but cannot, with the reason. Hotline Agent (`id` `"hotline"`) is always
 first. `unavailable` is absent when the row can be started here and a
 sentence naming what is missing when it cannot. It carries only `id`, `name`,
 `description` and `unavailable`, nothing that needs a credential to read, so
-the phone seat may ask it too.
+the phone seat may ask it too. A reason can still name the machine's accounts
+and folders, so a companion is sent `"Not available on this desk. Its owner can
+see why."` in its place, unless it is one that names nothing of the kind (`Not
+installed`, `is not published for this computer`: `PLAIN_REASONS` in
+`crates/hotline-core/src/wire/seat.rs`).
 
 `mobile.persona_create` is the phone's own narrow `persona.create`: it names
 a teammate and, optionally, a goal, a harness, a model and an effort, and
@@ -512,7 +553,10 @@ it writes `effortId` (or `null` when `value` is empty) first and
 switches a live session second. A value the teammate's effective model
 does not list is refused; when no model is known yet, the value is
 accepted. An ACP teammate goes only to the live session — idle is "That
-teammate is not running." `models.efforts` is the idle picker's list for
+teammate is not running." A companion phone may set a config only when the
+live session reports it in the effort category, whatever the harness named
+it, because a harness may serve anything as a config, a permission posture
+included. `models.efforts` is the idle picker's list for
 one catalogue id, each choice labelled (`low` → "Low", `xhigh` →
 "Extra high"), with `defaultId` naming the level a teammate with no
 stored effort runs at. That is `high` whenever the model lists it, so a
@@ -707,20 +751,36 @@ not subscribe to that."` Both seat refusals carry `"code": "forbidden"`.
 
 `sub` is a `Target`: `"room"`, `{"tape": "<personaId>"}`,
 `{"thread": "<key>"}`, `{"threadId": {"kind", "key"}}`, `{"run": "<runId>"}`,
-`{"side": "<sideId>"}`, `{"view": "roster"}`, or `{"schedules": "<personaId>"}`.
+`{"side": "<sideId>"}`, `{"call": "<callId>"}`, `{"view": "roster"}`, or
+`{"schedules": "<personaId>"}`.
 
 | target | snapshot | then |
 | --- | --- | --- |
 | `"room"` | the room stream's fold | each room event as it lands |
-| `{"tape": id}` | that tape's fold | each tape event; `ephemeral` for streaming deltas |
+| `{"tape": id}` | that tape's last 400 lines, or further back to the last thing said when those are all steps | each tape event; `ephemeral` for streaming deltas |
 | `{"thread": key}` | that pair's fold | each thread event |
 | `{"threadId": {kind, key}}` | that thread's fold, whatever its kind: the teammate's tape for a `dm`, and the stream of that name for a `side`, `pair`, `run` or `call` | each event; `ephemeral` for streaming deltas |
 | `{"side": id}` | that side thread's fold, headed by its `side` marker | each event; `ephemeral` for its streaming deltas |
+| `{"call": id}` | the call's `state` event, alone | each call event ([Voice calls](#voice-calls)) |
 | `{"view": "roster"}` | every living teammate's row | `event` for a changed row, `removed` for a tombstone |
 | `{"schedules": id}` | that teammate's jobs and loops | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
 
 An `agent` event on a tape may carry `spoken`, what was said on a call for
 it ([Voice calls](#voice-calls)).
+
+A tape opens on its last lines because a busy teammate's runs to thousands
+of lines and megabytes; the rest is `tape.page`, a page at a time. A phone is
+sent less: every stream's snapshot is its last 200 lines (a tape's reaching
+back to the last thing said, as above), then cut to 512 KiB of JSON, newest
+kept, with long text shortened, a computer frame made phone-sized or dropped,
+a tool's output left out and `mobileTruncated: true` on what was cut. Its
+events are cut the same way, and so is a page. The same is sent to any
+remote socket that declared `lean` ([the phone seat](#the-phone-seat)). Such
+a socket may name a smaller window with the subscription,
+`{"id": n, "sub": {"tape": "<personaId>"}, "window": 50}`, from 1 to 200; the
+desk ignores `window` on any other socket. A companion phone may hold at most
+eight subscriptions open at once: a ninth is refused with `"A phone can open
+at most eight subscriptions."`
 
 A tape subscription also forwards `StreamDelta`s for that teammate, never
 written down:
@@ -730,7 +790,11 @@ written down:
 ```
 
 `type` is `agent_delta` or `thought_delta`. A delta for another teammate
-is ignored. A side subscription forwards `side_agent_delta` /
+is ignored. A tape also carries `computer_pull`
+`{type, personaId, layersDone, layersTotal, status: "pulling"|"done"|"failed"}`, how far the teammate's
+computer image has downloaded, which the window draws as a ring on the
+computer's button; it goes to the desk and owner seats only, never to a phone
+or a `lean` socket. A side subscription forwards `side_agent_delta` /
 `side_thought_delta` carrying `sideId` instead of `personaId`, for that side
 alone; a tape never receives them. A closed delta channel is not recovered: the durable line
 carries the characters anyway. A socket that declared `threads2` is sent
@@ -790,9 +854,11 @@ written down. The room broadcasts only that; the older four are what the door
 turns it into for a socket that did not declare.
 
 **`ThreadSummary`**, one shape for every kind: `{thread, personaId,
-withPersonaId?, title?, state, end?, opener?, startedAt, updatedAt, working,
-waiting, preview?, outcome?}`. `personaId` is the teammate whose thread it is
-(a pair is listed with the first of its two, and `withPersonaId` is the other);
+withPersonaId?, withName?, title?, state, end?, opener?, startedAt, updatedAt,
+working, waiting, preview?, outcome?}`. `personaId` is the teammate whose thread it is
+(a pair is listed with the first of its two, and `withPersonaId` is the other;
+`withName` is what to call the other when it is on a linked desk, in no roster
+here, [Linked desks](#linked-desks));
 `updatedAt` is the newest line, which is what a client counts unread against;
 `working` is a turn running now; `waiting` is a card in it unanswered;
 `preview` is the teammate's last words, else the person's last line. A work
@@ -815,9 +881,9 @@ refused in a sentence, never silently:
 may run each verb exactly as it could under the old name, so the rule is by
 kind: `thread.prompt` only in a work thread (it speaks to a teammate with
 `mobile.prompt`, as before), `thread.answer` in anything but a pair
-(`peers.answer_permission` is the owner's), `thread.page` and `{"threadId": …}`
+(`peers.answer_permission` is the owner's and the desk's), `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
-pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is every seat's. A refusal is
+pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
 `forbidden`, as ever. [security.md](security.md) has the table and its tests.
 
 A call is `voice.*`'s, a run's lifetime is its teammate's, and nobody answers a
@@ -846,6 +912,8 @@ and the live sessions. Each row is a `RosterEntry`:
   "preview": {"from": "me", "text": "morning", "at": 5},
   "latest": 5,
   "activity": "read note.txt",
+  "waiting": false,
+  "drawing": false,
   "pin": 0,
   "session": { "personaId": "…", "state": "thinking", … }
 }
@@ -856,14 +924,22 @@ for a user line and `"them"` for an agent line; only those two kinds
 count. `latest` is that line's `at`, kept beside it so the window can count
 unread without opening every tape. `activity` is the title of the tool
 still running, only while the session is thinking — absent, not null, when
-there is none. `pin` is the teammate's 0-based slot among the desk's pinned
+there is none. `waiting` is true while a card on the tape waits on the
+person — a permission with no decision, or a `request_human` or passkey card
+still pending — so a phone can say who needs the person from one roster; it is
+always written, so `false` is told apart from a desk that predates it.
+`drawing` is true while `avatar.generate` draws the teammate's picture. `pin` is the teammate's 0-based slot among the desk's pinned
 teammates, absent when it is not pinned; the affected rows are sent again when
 the `pinnedTeammates` setting changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 `ready`, `thinking`, `error`, or `stopped`). While a turn is `thinking`,
 `awaitingSubagents: true` says it is open only for subagents it started and
 reads as done: the reply is in the conversation and the composer is as it is
 between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
-`subagents` lists the runs still going, oldest first. A persona tombstone on the
+`subagents` lists the runs still going, oldest first, and `sides` the work
+threads live, `{sideId, title, startedAt, working}`, oldest first; each is
+absent when there are none. A phone that declared `lean` is sent each row
+without a Hotline Agent session's model list (it has `models.list`), slash
+commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
 itself after its teammate was deleted is not put back. If the view falls
 behind on the room stream it reloads every row; a lagged burst of
@@ -932,17 +1008,23 @@ What a client can tell apart, and where each comes from:
 
 A seat is what a socket may do: a set, not a routing table. A remote socket's
 seat comes from the device grant authenticated by Noise. The local desk and paired owner seats
-may run every command and subscribe to every target. This includes existing
-phone owners; companion grants retain the smaller set below.
+may run every command but the `federation.*` ones, which only a linked desk
+sends, and subscribe to every target. This includes existing phone owners;
+companion grants retain the smaller set below. There are four seats in all:
+the desk, an owner, a companion phone, and a linked desk's link seat, which is
+never seated on this wire and may run only `ping` and `federation.*`
+([Linked desks](#linked-desks)). "The desk, owner and phone seats" is every
+seat a socket here can hold.
 
 ### The phone seat
 
 A paired companion's socket is the phone seat: a smaller fixed set of commands
 (`Seat::permits` in `crates/hotline-core/src/wire/seat.rs` lists them) and
-four kinds of subscription — a tape, a thread (a pair's `{"thread": key}`, or
-any thread but a call by `{"threadId": …}`), the roster, and a teammate's
-schedules. It never opens the room stream or a run, and it can
-neither make, cancel nor quiet a job. It reads a file a teammate sent with
+these subscriptions: a tape, a pair's `{"thread": key}`, a subagent's
+`{"run": id}`, a work thread's `{"side": id}`, any thread but a call by
+`{"threadId": …}`, the roster, and a teammate's schedules. It never opens the
+room stream, a call or the voice dispatcher's tape, it holds at most eight
+subscriptions at once, and it can neither make, cancel nor quiet a job. It reads a file a teammate sent with
 `file.read` and a teammate's picture with `avatar.read`, because the file is part of the conversation it already
 reads. It may add a teammate through `mobile.persona_create`, a narrow
 create confined in core rather than by what the phone's form leaves out,
@@ -950,14 +1032,19 @@ and read `backends.list` to know which harness to offer; the full
 `persona.create` — reach, path and computer included — is still refused.
 It may rename a teammate or change its goal through `mobile.persona_update`,
 and remove one with `persona.delete`; `persona.update`, which can reach a
-teammate's grants, is refused.
+teammate's grants, is refused. It may set a teammate's model, and its effort
+but no other config (`session.set_config`). It reads `backends.list` with each
+private reason replaced ([Commands](#commands)), and `computer.status` without
+the `viewer` address, which carries the computer's bearer and is left out for
+every paired device.
 Anything else is refused with `"code": "forbidden"`.
 
 The phone's socket opens with a hello before any answer:
 
 ```json
 {"type": "hello", "protocolVersion": 2, "desktopId": "…", "mode": "team",
- "capabilities": ["personaCreate", "personaEdit", "schedules", "threads", "runs", "threads2"]}
+ "capabilities": ["personaCreate", "personaEdit", "schedules", "threads", "runs", "threads2",
+                  "lean", "thumbnails", "turnRetry"]}
 ```
 
 `capabilities` names the optional features this desk supports, so a phone
@@ -967,7 +1054,16 @@ asks only for what the desk it reached understands. `personaCreate` is
 again on a failed turn only where the desk can run it; `schedules` is the schedules view; `threads` is
 reading a thread between two teammates the way a tape is read; `threads2` is
 the `thread.*` commands, `{"threadId": …}`, and, once the phone says it reads
-them with `client.hello`, `link` events and `thread_delta` ([Threads](#threads)). A desk from
+them with `client.hello`, `link` events and `thread_delta` ([Threads](#threads));
+`lean` is phone-sized frames for a phone that names it in `client.hello`,
+whatever its role: snapshots, events, pages and roster rows cut as a
+companion's are, a subscription `window` ([Subscriptions](#subscriptions)),
+and a link taken as dead after 90 seconds in which the phone said nothing, so
+a lean phone pings; `thumbnails` is `size` on `file.read` and `avatar.read`.
+An owner's hello adds `personaAccess` (`mobile.persona_access`) and
+`personaComputer` (`mobile.persona_computer`), and, when the desk can take
+calls, the voice capabilities ([Voice calls](#voice-calls)). `client.hello`
+answers the same list for its seat. A desk from
 before one of these sends it absent, and a phone reads that as "not on this
 desk", never as "nothing there"; asked anyway, such a desk refuses the
 command as forbidden or the subscription as one it cannot read.
@@ -1159,6 +1255,7 @@ Remote controls require an owner or local desk seat, used by the window and CLI:
 | `remote.pairing` | `{id}` | paired device, or explicit JSON `null` while waiting |
 | `remote.pairing` | `{id, cancel: true}` | none; ends only the matching invitation |
 | `remote.relays` | `{}` | `PairedRelay[]`: the servers this desktop is paired with only as a relay, each with the `serves` it last said; `remote.relay` chooses one as it does a desk |
+| `remote.relay` | `{deskId?}` | `RemoteStatus`; stands in on the named paired relay so visitors reach this desk through it, kept and used whenever Remote is on; with no `deskId`, stops |
 | `remote.become_relay` | `{}` | `{role:"relay", deskName, deskId, serves}`; sent by a paired owner device to a served desk that runs a relay. It moves the caller's own grant, from its handshake, from `grants` to `relayGrants` with the same id, key, name and pairing time, then ends the device's sessions as a revocation does, which may cut this answer off. It names no device, and nothing moves a grant back |
 
 The socket creating a sealed invitation owns its disconnect cleanup. A new
@@ -1250,7 +1347,9 @@ Voice commands and `{"call":"<callId>"}` subscriptions are available to the
 local desk and paired owners. Companions receive `code: "forbidden"`.
 An owner hello advertises `voice`, `voiceDirectCalls` and
 `voiceListenWhileThinking` when speech and the budget permit an audio or text
-direct call, and `voiceTextInput` when text is ready. `VoiceStatus.available` reports desk readiness for the requested mode,
+direct call, `voiceTextInput` when text is ready, and `voiceFront` when a
+realtime provider can put a voice front on a call ([voice-calls.md](voice-calls.md)); `client.hello`
+answers the same for the desk's own socket. `VoiceStatus.available` reports desk readiness for the requested mode,
 including the dispatcher; additive `directAvailable` reports readiness without
 that dispatcher. A direct call can work while desk routing is misconfigured:
 it has no dispatcher, since the teammate's own session answers it.
@@ -1266,7 +1365,7 @@ No extra speech credential is created.
 | Command | Params | Result |
 | --- | --- | --- |
 | `voice.status` | `{inputMode?:"audio"\|"text"}` | `VoiceStatus`: desk/direct availability for the mode, provider/model selections and `budget`, the Voice budget's limits (`dayUsd`, `monthUsd`, absent when none) and what transcription and speech spent; optional `replies`, how teammates' replies on calls were said, by model |
-| `voice.call_start` | `{callId,personaId?,streamAudio?,inputMode?:"audio"\|"text"}` | `VoiceCall`: call id, accepted input formats, primary output format, echoed `inputMode`, and optional echoed `personaId` |
+| `voice.call_start` | `{callId,personaId?,streamAudio?,inputMode?:"audio"\|"text",mode?:"pipeline"\|"front",inputRate?}` | `VoiceCall`: call id, accepted input formats, primary output format, echoed `inputMode`, optional echoed `personaId`, and `front: {inputRate, outputRate}` when `mode: "front"` was asked for and the call has one. `inputRate` is the front call's microphone rate, 16000 or 24000 |
 | `voice.text` | `{callId,seq,text}` | void; one finalized device transcript on a negotiated text call |
 | `voice.audio` | `{callId,seq,index,data,final}` | void; negotiated mono PCM16 at 16 kHz |
 | `voice.utterance` | `{callId,seq,mimeType,data,durationMs}` | void |

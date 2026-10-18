@@ -6,7 +6,7 @@
 //!
 //! The archives here are small fakes served on localhost, which no test lets
 //! the engine load. `HOTLINE_TEST_SPEECH_MODEL`, naming a directory with a
-//! real sherpa-onnx Parakeet model in it, also runs
+//! real sherpa-onnx Parakeet model in it, with `--ignored`, also runs
 //! `a_real_model_installs_and_hears_what_was_said`, which hears the speech
 //! fixtures through `voice.transcribe`.
 mod common;
@@ -424,11 +424,10 @@ async fn a_whisper_archive_gives_its_prefixed_files_under_the_desks_own_names() 
 }
 
 #[tokio::test]
+#[ignore = "needs a Parakeet model directory in HOTLINE_TEST_SPEECH_MODEL"]
 async fn a_real_model_installs_and_hears_what_was_said() {
-    let Some(source) = std::env::var_os("HOTLINE_TEST_SPEECH_MODEL") else {
-        eprintln!("HOTLINE_TEST_SPEECH_MODEL is not set; the model itself is not run.");
-        return;
-    };
+    let source = std::env::var_os("HOTLINE_TEST_SPEECH_MODEL")
+        .expect("set HOTLINE_TEST_SPEECH_MODEL to a sherpa-onnx Parakeet model directory");
     let source = Path::new(&source);
     let bodies: Vec<Vec<u8>> = FILES
         .iter()

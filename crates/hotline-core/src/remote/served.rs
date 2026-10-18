@@ -57,20 +57,46 @@ impl Remote {
         root: &Path,
         agents: Option<Agents>,
         store: Arc<dyn SecretStore>,
+        options: ServeOptions,
+    ) -> io::Result<Arc<Self>> {
+        Self::open_served(root, agents, store, options, None)
+    }
+    /// A served desk on `listener`, which the caller bound at
+    /// `options.listen`: a test's socket, so no other test can take its port.
+    pub fn open_served_on(
+        listener: std::net::TcpListener,
+        root: &Path,
+        agents: Option<Agents>,
+        store: Arc<dyn SecretStore>,
+        options: ServeOptions,
+    ) -> io::Result<Arc<Self>> {
+        let bound = network::Bound::new(listener)?;
+        if bound.address != options.listen {
+            return Err(io::Error::other(
+                "The listener is not bound at the listen address.",
+            ));
+        }
+        Self::open_served(root, agents, store, options, Some(bound))
+    }
+    fn open_served(
+        root: &Path,
+        agents: Option<Agents>,
+        store: Arc<dyn SecretStore>,
         mut options: ServeOptions,
+        bound: Option<network::Bound>,
     ) -> io::Result<Arc<Self>> {
         options.validate().map_err(io::Error::other)?;
         if agents.is_none() && !options.relay {
             return Err(io::Error::other("A server runs agents, a relay, or both."));
         }
         options.public_url = options.public_url.trim_end_matches('/').into();
-        Self::open_options(root, agents, store, Some(options))
+        Self::open_options(root, agents, store, Some(options), bound)
     }
 
     pub(super) async fn restore_served(self: &Arc<Self>) {
         let host = self.served.as_ref().unwrap().listen.to_string();
         if let Err(error) = self.configure_served(true, &host).await {
-            self.state.lock().unwrap().error = Some(error);
+            lock(&self.state).error = Some(error);
         }
     }
 
@@ -136,7 +162,7 @@ impl Remote {
         }
         let _held = self.lifecycle.lock().await;
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             if enabled && s.saved.enabled && !s.cancel.is_cancelled() {
                 drop(s);
                 return Ok(self.status());
@@ -159,7 +185,7 @@ impl Remote {
         let tls = self.served_tls(&options)?;
         let cancel = CancellationToken::new();
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             s.saved.enabled = true;
             self.save(&s.saved)?;
             s.cancel = cancel.clone();
@@ -171,12 +197,12 @@ impl Remote {
                 let result = tokio::select! {
                     biased;
                     _ = cancel.cancelled() => return,
-                    result = tokio::net::TcpListener::bind(options.listen) => result,
+                    result = remote.listen_served(options.listen) => result,
                 };
                 match result {
                     Ok(listener) => {
                         {
-                            let mut s = remote.state.lock().unwrap();
+                            let mut s = lock(&remote.state);
                             if cancel.is_cancelled() {
                                 return;
                             }
@@ -197,7 +223,7 @@ impl Remote {
                         return;
                     }
                     Err(error) => {
-                        remote.state.lock().unwrap().error =
+                        lock(&remote.state).error =
                             Some(format!("Waiting for {}: {error}", options.listen))
                     }
                 }
@@ -205,6 +231,13 @@ impl Remote {
             }
         }));
         Ok(self.status())
+    }
+
+    async fn listen_served(&self, listen: SocketAddr) -> io::Result<tokio::net::TcpListener> {
+        match &self.bound {
+            Some(bound) => bound.listen().await,
+            None => tokio::net::TcpListener::bind(listen).await,
+        }
     }
 
     pub(super) fn route_path<'a>(&self, path: &'a str) -> Option<&'a str> {

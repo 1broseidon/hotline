@@ -791,18 +791,32 @@ pub(crate) mod tests {
             "a list on file is not fetched again"
         );
 
-        let unreachable = seeded_login("ensure-down", "http://127.0.0.1:9");
-        ensure_endpoints(&unreachable).await;
-        assert!(!wants_responses(&unreachable, "grok-4.6"));
-        let started = Instant::now();
-        ensure_endpoints(&unreachable).await;
-        assert!(
-            started.elapsed() < Duration::from_millis(50),
+        let failures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = failures.clone();
+        let failing = Router::new().route(
+            "/models",
+            get(move || {
+                let counted = counted.clone();
+                async move {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR
+                }
+            }),
+        );
+        let (failing_url, failing_server) = serve(failing).await;
+        let down = seeded_login("ensure-down", &failing_url);
+        ensure_endpoints(&down).await;
+        assert!(!wants_responses(&down, "grok-4.6"));
+        ensure_endpoints(&down).await;
+        assert_eq!(
+            failures.load(std::sync::atomic::Ordering::SeqCst),
+            1,
             "a failed login is not retried at once"
         );
         server.abort();
+        failing_server.abort();
         let _ = std::fs::remove_dir_all(&dir);
-        let _ = std::fs::remove_dir_all(&unreachable);
+        let _ = std::fs::remove_dir_all(&down);
     }
 
     #[tokio::test]

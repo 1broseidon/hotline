@@ -1,8 +1,6 @@
 ---
 id: task-142
 title: "P2-33a (C): Window split, move-only: App() → useNavigation, useSeen, useWindowHotkeys"
-column: review
-position: 31
 priority: high
 tags:
   - phase2
@@ -14,7 +12,7 @@ relatedFiles:
   - ui/src/useNavigation.ts
   - ui/src/useSeen.ts
   - ui/src/useWindowHotkeys.ts
-updatedAt: "2026-10-18T00:26:55.864Z"
+updatedAt: "2026-10-18T00:26:57.992Z"
 contract:
   status: delivered
   validation:
@@ -42,6 +40,7 @@ dispatch:
     pid: 50333
     at: "2026-10-18T00:15:18.984Z"
 assignee: claude
+completedAt: "2026-10-18T00:26:57.992Z"
 ---
 
 ## Description

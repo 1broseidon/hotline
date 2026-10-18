@@ -14,7 +14,7 @@ relatedFiles:
   - crates/hotline-core/Cargo.toml
   - crates/hotline-app/Cargo.toml
   - crates/hotline-cli/Cargo.toml
-updatedAt: "2026-10-18T00:14:43.052Z"
+updatedAt: "2026-10-18T01:54:01.588Z"
 contract:
   status: ready
   validation:
@@ -32,7 +32,12 @@ dispatch:
   by: cli
   at: "2026-10-18T00:14:42.917Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 39764
+    at: "2026-10-18T01:54:01.588Z"
 assignee: claude
 ---
 

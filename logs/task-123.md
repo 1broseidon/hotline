@@ -1,8 +1,6 @@
 ---
 id: task-123
 title: "P2-11 (B): Dependency surface"
-column: review
-position: 12
 priority: high
 tags:
   - phase2
@@ -13,7 +11,7 @@ relatedFiles:
   - Cargo.toml
   - crates/hotline-core/Cargo.toml
   - Cargo.lock
-updatedAt: "2026-10-18T01:51:28.212Z"
+updatedAt: "2026-10-18T01:54:00.448Z"
 contract:
   status: delivered
   validation:
@@ -41,7 +39,10 @@ dispatch:
     runner: cli
     pid: 39764
     at: "2026-10-18T01:42:48.694Z"
+    ended: "2026-10-18T01:54:00.448Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T01:54:00.069Z"
 ---
 
 ## Description
@@ -58,3 +59,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T01:51:30.508Z: [claude] Done on dispatch/task-123 (7e2226cc). Root Cargo.toml: rig = 0.42.0 with default-features = false, features agent/reqwest/rustls (identical to rig's defaults minus derive; rig-core defaults are reqwest/derive/rustls, so derive drops at both levels). Lockfile loses rig-derive and convert_case 0.11.0 only. Core Cargo.toml: Win32_System_Memory removed from windows-sys; the Windows leg of precheck builds clean without it. make check and make precheck pass (7/7). Nothing left unwired; the lockfile still collides with rows 2–5 if they land after this.
+- 2026-10-18T01:53:59.697Z: Landed on release/0.40.0

@@ -1,7 +1,7 @@
 ---
 id: task-160
 title: "P2-51 (D): Audit lenses, with no table entry"
-column: todo
+column: in-progress
 position: 49
 priority: high
 tags:
@@ -13,15 +13,17 @@ relatedFiles:
   - crates/hotline-core/src/
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
-updatedAt: "2026-10-18T10:04:02.211Z"
+updatedAt: "2026-10-18T10:04:10.837Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make precheck
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T10:04:10.837Z"
+    reworkCount: 0
 dependsOn:
   - task-151
   - task-145

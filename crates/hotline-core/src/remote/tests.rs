@@ -47,50 +47,70 @@ struct Harness {
     http: reqwest::Client,
     tls: TlsConnector,
 }
+/// A socket for a desk under test: loopback, so it is reached with no
+/// network, and bound here, so no other test can take its port first.
+fn loopback() -> std::net::TcpListener {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap()
+}
 impl Harness {
     async fn new() -> Self {
-        Self::around(|desk| desk).await
+        Self::around(|desk| desk, Some(loopback())).await
+    }
+    /// A desk on this computer's own interfaces, for the tests about them.
+    async fn on_interfaces() -> Self {
+        Self::around(|desk| desk, None).await
     }
     /// A desk that reports a computer it does not have, for the door to open.
     async fn with_computer() -> (Self, Arc<Computered>) {
         let mut handle = None;
-        let harness = Self::around(|desk| {
-            let room = Arc::new(Computered {
-                desk,
-                viewer: std::sync::Mutex::new(None),
-                pending_stop: std::sync::Mutex::new(None),
-                infos: broadcast::channel(16).0,
-                deltas: broadcast::channel(16).0,
-            });
-            handle = Some(room.clone());
-            room
-        })
+        let harness = Self::around(
+            |desk| {
+                let room = Arc::new(Computered {
+                    desk,
+                    viewer: std::sync::Mutex::new(None),
+                    pending_stop: std::sync::Mutex::new(None),
+                    infos: broadcast::channel(16).0,
+                    deltas: broadcast::channel(16).0,
+                });
+                handle = Some(room.clone());
+                room
+            },
+            Some(loopback()),
+        )
         .await;
         (harness, handle.unwrap())
     }
-    async fn around(room_of: impl FnOnce(Arc<Desk>) -> Arc<dyn RoomHandle>) -> Self {
+    /// A desk on `listener`, or on every interface when there is none.
+    async fn around(
+        room_of: impl FnOnce(Arc<Desk>) -> Arc<dyn RoomHandle>,
+        listener: Option<std::net::TcpListener>,
+    ) -> Self {
         let root = tempfile::tempdir().unwrap();
-        // Harnesses run side by side; none may claim the install default port
-        // another one's re-enable expects to get back.
-        let port = std::net::TcpListener::bind("[::]:0")
-            .or_else(|_| std::net::TcpListener::bind("0.0.0.0:0"))
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-        fs::write(
-            root.path().join("remote.json"),
-            json!({"desktopId": Uuid::new_v4(), "host": network::ALL, "port": port, "enabled": false, "grants": []}).to_string(),
-        )
-        .unwrap();
         let store = Arc::new(MemoryStore::default());
         let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
-        let remote = Remote::open_with_store(
-            root.path(),
-            desk.log.clone(),
-            room_of(desk.clone()),
-            store.clone(),
-        )
+        let room = room_of(desk.clone());
+        let remote = match listener {
+            Some(listener) => {
+                Remote::open_on(listener, root.path(), desk.log.clone(), room, store.clone())
+            }
+            None => {
+                // On every interface the desk binds a port itself, and one it
+                // is given here is never the install default: harnesses run
+                // side by side, and each re-enable expects its own back.
+                let port = std::net::TcpListener::bind("[::]:0")
+                    .or_else(|_| std::net::TcpListener::bind("0.0.0.0:0"))
+                    .unwrap()
+                    .local_addr()
+                    .unwrap()
+                    .port();
+                fs::write(
+                    root.path().join("remote.json"),
+                    json!({"desktopId": Uuid::new_v4(), "host": network::ALL, "port": port, "enabled": false, "grants": []}).to_string(),
+                )
+                .unwrap();
+                Remote::open_with_store(root.path(), desk.log.clone(), room, store.clone())
+            }
+        }
         .unwrap();
         assert!(!remote.status().enabled);
         remote.configure(true, network::ALL).await.unwrap();
@@ -125,6 +145,17 @@ impl Harness {
     }
     fn endpoint(&self) -> String {
         self.remote.status().endpoint.unwrap()
+    }
+    /// This desk's Remote as it opens again after a restart, with `store`.
+    fn reopen(&self, store: Arc<dyn SecretStore>) -> Arc<Remote> {
+        Remote::open_on(
+            loopback(),
+            self.root.path(),
+            self.desk.log.clone(),
+            self.desk.clone(),
+            store,
+        )
+        .unwrap()
     }
     async fn pair(&self) -> TestPhone {
         self.pair_role(DeviceRole::Owner).await

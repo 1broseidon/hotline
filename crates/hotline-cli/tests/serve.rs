@@ -287,37 +287,22 @@ fn said(output: &Output) -> String {
 /// A person's desktop, in this process: a room, and Remote on.
 async fn desktop(root: &Path) -> (Arc<Desk>, Arc<Remote>, Arc<dyn SecretStore>) {
     std::fs::create_dir_all(root).unwrap();
-    // A port of its own, not the install default another test may hold.
-    let port = free_address().port();
-    std::fs::write(
-        root.join("remote.json"),
-        json!({"desktopId": uuid(), "host": "all", "port": port, "enabled": false, "grants": []})
-            .to_string(),
-    )
-    .unwrap();
     let store: Arc<dyn SecretStore> = Arc::new(FileStore::open(root).unwrap());
     let desk = Arc::new(Desk::open_with_store(root, store.clone()).unwrap());
-    let remote =
-        Remote::open_with_store(root, desk.log.clone(), desk.clone(), store.clone()).unwrap();
+    // On loopback, on a socket bound here: no network needed, and no other
+    // test can take its port first.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let remote = Remote::open_on(
+        listener,
+        root,
+        desk.log.clone(),
+        desk.clone(),
+        store.clone(),
+    )
+    .unwrap();
     desk.set_remote(&remote);
     remote.configure(true, "all").await.unwrap();
     (desk, remote, store)
-}
-
-fn uuid() -> String {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).unwrap();
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        &hex[..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..]
-    )
 }
 
 /// The entries at the top of a data directory, sorted.

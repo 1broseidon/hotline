@@ -488,7 +488,7 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
 
     // Revoked, the phone's socket closes and cannot be opened again.
     h.remote.revoke(&grant.id).unwrap();
-    let closed = tokio::time::timeout(Duration::from_secs(3), phone.socket.next())
+    let closed = tokio::time::timeout(ANSWER, phone.socket.next())
         .await
         .unwrap();
     assert!(

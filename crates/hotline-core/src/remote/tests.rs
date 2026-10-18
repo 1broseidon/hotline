@@ -18,6 +18,17 @@ use tokio_tungstenite::{
     tungstenite::{Message, client::IntoClientRequest},
 };
 
+// How long something that must arrive may take: a sealed answer, a close, a
+// state the desk settles into. A debug build doing TLS and Noise while the
+// whole suite runs can miss a few seconds; a hang still fails, only later.
+const ANSWER: Duration = Duration::from_secs(15);
+
+// How long something may take that a timer in the code would also bring
+// about: the 5 s pre-authentication lifetime, the relay's 10 s accept and
+// I/O deadlines. Shorter than both, so a pass means the code acted on the
+// event the test is about, and not that the timer fired.
+const PROMPTLY: Duration = Duration::from_secs(3);
+
 type Socket = WebSocketStream<TlsStream<TcpStream>>;
 struct TestPhone {
     id: String,

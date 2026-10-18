@@ -214,7 +214,7 @@ async fn rust_client_pairs_and_connects_through_the_public_address_when_its_own_
     assert_eq!(desk.desk_id, h.remote.status_desktop_id());
     assert_eq!(desk.public, payload.public);
     let mut session = client.connect(&desk);
-    let hello = tokio::time::timeout(Duration::from_secs(15), session.incoming.recv())
+    let hello = tokio::time::timeout(ANSWER, session.incoming.recv())
         .await
         .unwrap()
         .unwrap();

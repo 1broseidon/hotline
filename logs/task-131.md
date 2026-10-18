@@ -1,8 +1,6 @@
 ---
 id: task-131
 title: "P2-22a (C): `Room` constructors:"
-column: review
-position: 3
 priority: high
 tags:
   - phase2
@@ -12,7 +10,7 @@ createdAt: "2026-10-17T22:40:51.759Z"
 relatedFiles:
   - crates/hotline-core/src/session.rs
   - crates/hotline-core/src/session/start.rs
-updatedAt: "2026-10-18T05:21:07.551Z"
+updatedAt: "2026-10-18T06:27:42.301Z"
 contract:
   status: in_progress
   validation:
@@ -42,6 +40,7 @@ dispatch:
     ended: "2026-10-18T05:21:07.004Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-18T06:27:42.301Z"
 ---
 
 ## Description
@@ -58,3 +57,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T05:21:07.551Z: Not landed: Another landing in this repository is still going (pid 35147 on Georges-Mac-Studio, since 2026-10-18T05:15:15.705Z): nothing was merged, try again once it is done
+- 2026-10-18T06:27:41.875Z: Landed on release/0.40.0

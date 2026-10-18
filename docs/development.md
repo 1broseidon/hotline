@@ -46,7 +46,7 @@ Rust that needs Tauri lives.
 
 ```
 crates/hotline-core/src/
-  contract.rs            the wire's types (serde + ts-rs)
+  contract/              the wire's types (serde + ts-rs), a file per concern
   paths.rs               the data directory's layout
   log/                   streams: append, fold, segments, subscribe
   store/                 FTS5 index, chapter list, roster previews
@@ -526,8 +526,8 @@ scratch or the store.
 
 ## The generated contract
 
-Types are defined once in `crates/hotline-core/src/contract.rs` (serde +
-ts-rs). `cargo test -p hotline-core` runs the export tests and writes
+Types are defined once in `crates/hotline-core/src/contract/` (serde +
+ts-rs), a file per concern, each re-exported from `contract`. `cargo test -p hotline-core` runs the export tests and writes
 `ui/src/generated/contract.ts`. `.cargo/config.toml` points ts-rs at that
 directory and tells it a 64-bit integer is a JavaScript `number`, because
 every number on this wire arrives as `JSON.parse` produces it.

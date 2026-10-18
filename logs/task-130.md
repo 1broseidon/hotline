@@ -1,8 +1,6 @@
 ---
 id: task-130
 title: "P2-18–22 (C): `session/mod.rs` in five parts:"
-column: review
-position: 1
 priority: high
 tags:
   - phase2
@@ -19,7 +17,7 @@ relatedFiles:
   - crates/hotline-core/src/session/driver_info.rs
   - crates/hotline-core/src/session/start.rs
   - crates/hotline-core/src/session/chapters.rs
-updatedAt: "2026-10-18T04:00:18.636Z"
+updatedAt: "2026-10-18T04:43:42.274Z"
 contract:
   status: in_progress
   validation:
@@ -49,6 +47,7 @@ dispatch:
     ended: "2026-10-18T04:00:16.979Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-18T04:43:42.274Z"
 ---
 
 ## Description

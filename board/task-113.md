@@ -9,7 +9,7 @@ tags:
   - security
 parentId: epic-13
 createdAt: "2026-10-17T22:40:42.496Z"
-updatedAt: "2026-10-18T00:27:43.945Z"
+updatedAt: "2026-10-18T00:29:40.497Z"
 relatedFiles:
   - docs/security.md
   - crates/hotline-core/src/session/tests.rs
@@ -59,3 +59,4 @@ End with `make precheck` and `cargo test -p hotline-core` unfiltered (the hooks 
 
 ## Log
 - 2026-10-18T00:27:43.608Z: [claude] Done on branch dispatch/task-113 (41ecbc4e). security.md :330 now cites chatgpt_images_status_is_automatic_without_checking_entitlement (automatic once signed in, companion denied); :703 row says a release from before secrets is told apart and the conversation says nothing, citing a_computer_from_before_secrets_leaves_the_conversation_alone; voice section (:1450) states and cites the new session::tests::a_long_reply_is_summarised_for_its_push_only_when_a_voice_handoff_asked_for_it (typed/voice/typed with a three-sentence reply: only the voice push is narrated, narrations==1; mutation of `!from_voice` fails it) plus short_voice_handoff_replies_keep_their_text_without_an_extra_model. :684 colleague row from task-112 checked: reads right, all seven cited tests exist; not redone. make check, cargo test -p hotline-core unfiltered and make precheck (7/7) pass; contract grep clean. For task-132 (session/tests.rs split): the new test sits just above a_direct_call_speaks_committed_acknowledgements_and_hangup_keeps_work_running, beside its short-reply twin; move them together. Nothing left unwired.
+- 2026-10-18T00:29:40.497Z: Landed on release/0.40.0

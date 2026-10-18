@@ -1,11 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNarrow } from "./narrow";
 import { shownState } from "./activity";
 import type { ConfigChoice } from "./generated/contract";
 import { Conversation } from "./components/Conversation";
 import { NewTeammate } from "./components/NewTeammate";
 import { Rail, RAIL_FACES, RAIL_MIN, RailEdge, unreadOf, useRailSize } from "./components/Rail";
-import type { SettingsSection } from "./components/Settings";
 import { Dock, type DockState } from "./components/Dock";
 import { clampDock, dockOverlays, loadDockWidth, saveDockWidth } from "./dock";
 import { Titlebar } from "./ui/Titlebar";
@@ -28,45 +27,18 @@ import { useModelsRevision, useRoomJobs } from "./room";
 import { Band } from "./ui/Band";
 import { wire, type Connection, type RosterEntry } from "./wire";
 import { shownTeam, teamOrder } from "./pins";
-import { activeDeskId, allDesks, deskFilter, deskKey, LOCAL_DESK, setActiveDesk, useActiveDesk, useDesks, wireFor } from "./desks";
+import { activeDeskId, allDesks, deskFilter, deskKey, useActiveDesk, useDesks, wireFor } from "./desks";
 import { cachedRoster, keepRoster, syncWatches, useBackgroundRosters, useBackgroundUnread } from "./deskWatch";
 import { AddDesk } from "./components/AddDesk";
 import { ServerFiles } from "./components/ServerFiles";
 import { useSaved } from "./useSaved";
+import { openOnDesk, useNavigation } from "./useNavigation";
 
 
 /* Settings is opened now and then, not at launch: it loads on first open,
  * which keeps its nine sections out of the startup bundle. */
 const Settings = lazy(() => import("./components/Settings").then((module) => ({ default: module.Settings })));
 const SettingsRail = lazy(() => import("./components/Settings").then((module) => ({ default: module.SettingsRail })));
-
-/** What stands in the conversation's place: a room-wide pane, or nothing. */
-type Pane = "settings" | "new-teammate" | "add-desk" | null;
-
-/**
- * What the window opens on when it next shows a desk: the pane, and whether
- * the teammate's own pane is open beside it. Set by `openOnDesk` just
- * before the window remounts on another desk, and spent by that mount.
- */
-let arriving: { pane: Pane; inspector: boolean; section?: SettingsSection } = { pane: null, inspector: false };
-
-/**
- * Opens something on another desk: a teammate picked in the rail, its pane,
- * or the new-teammate pane there. The rail lists every desk's teammates
- * (BRO-178), and the screen follows the teammate: its desk becomes the one
- * the window talks to, and nothing needs switching by hand.
- */
-function openOnDesk(deskId: string, open: { personaId?: string; pane?: Pane; inspector?: boolean; section?: SettingsSection }) {
-	if (open.personaId !== undefined) {
-		try {
-			localStorage.setItem(deskKey(SELECTED_KEY, deskId), open.personaId);
-		} catch {
-			// Private mode: the desk opens on whoever it had open.
-		}
-	}
-	arriving = { pane: open.pane ?? null, inspector: open.inspector ?? false, ...(open.section === undefined ? {} : { section: open.section }) };
-	setActiveDesk(deskId);
-}
 
 /**
  * The window for the active desk: the desk of the teammate on screen.
@@ -99,36 +71,23 @@ export function App() {
 	}, [roster, rosterLoaded]);
 	const [seen, setSeen] = useState<Record<string, number>>(loadSeen);
 	const [models, setModels] = useState<ConfigChoice[]>([]);
-	const [selectedId, setSelectedId] = useState<string | null>(loadSelected);
-	/* What each teammate's screen has open beside the conversation: its
-	 * threads pane and the thread in it, or its own pane. Like the work card
-	 * below it belongs to them, so leaving a teammate and coming back finds
-	 * their screen as it was, and another teammate's as theirs was. */
-	const [spaces, setSpaces] = useState<Record<string, Space>>(() => {
-		const id = loadSelected();
-		return arriving.inspector && id !== null ? { [id]: { ...NO_SPACE, inspector: true } } : {};
-	});
-	const selectedRef = useRef(selectedId);
-	selectedRef.current = selectedId;
-	const shapeSpace = useCallback((change: (was: Space) => Partial<Space>) => {
-		const personaId = selectedRef.current;
-		if (personaId === null) return;
-		setSpaces((all) => {
-			const was = all[personaId] ?? NO_SPACE;
-			return { ...all, [personaId]: { ...was, ...change(was) } };
-		});
-	}, []);
-	const space = (selectedId !== null ? spaces[selectedId] : undefined) ?? NO_SPACE;
-	const dock = space.dock;
-	const inspector = space.inspector;
-	const setDock = useCallback(
-		(next: SetStateAction<DockState | null>) => shapeSpace((was) => ({ dock: typeof next === "function" ? next(was.dock) : next })),
-		[shapeSpace],
-	);
-	const setInspector = useCallback(
-		(next: SetStateAction<boolean>) => shapeSpace((was) => ({ inspector: typeof next === "function" ? next(was.inspector) : next })),
-		[shapeSpace],
-	);
+	const {
+		selectedId,
+		setSelectedId,
+		setSpaces,
+		dock,
+		setDock,
+		inspector,
+		setInspector,
+		pane,
+		setPane,
+		settingsSection,
+		setSettingsSection,
+		select,
+		closePane,
+		togglePane,
+		newTeammate,
+	} = useNavigation();
 	/* The work card each teammate has open, by persona: it belongs to them,
 	 * so it goes when you leave them and is there again when you come back. */
 	const [works, setWorks] = useState<Record<string, OpenWork>>({});
@@ -139,11 +98,6 @@ export function App() {
 			return rest;
 		});
 	}, []);
-	const [pane, setPane] = useState<Pane>(() => arriving.pane);
-	useEffect(() => {
-		arriving = { pane: null, inspector: false };
-	}, []);
-	const [settingsSection, setSettingsSection] = useState<SettingsSection>(() => arriving.section ?? "general");
 	/* The right-hand pane: this teammate's threads, beside the
 	 * conversation or over it in a window too narrow. */
 	const [dockWidth, setDockWidthState] = useState(loadDockWidth);
@@ -291,7 +245,6 @@ export function App() {
 	 * about the one that just left, and the inspector was editing them. */
 	useEffect(() => {
 		setFocusSchedules(false);
-		saveSelected(selectedId);
 	}, [selectedId]);
 
 	useEffect(() => {
@@ -299,17 +252,6 @@ export function App() {
 			setSelectedId(null);
 		}
 	}, [roster, selectedId]);
-
-	/* A teammate on another desk opens there: the window follows it. */
-	const select = useCallback((personaId: string, deskId?: string) => {
-		if (deskId !== undefined && deskId !== activeDeskId()) {
-			openOnDesk(deskId, { personaId });
-			return;
-		}
-		selectedRef.current = personaId;
-		setSelectedId(personaId);
-		setPane(null);
-	}, []);
 
 	// A clicked toast is a teammate asking to be looked at; the shell has
 	// already raised the window.
@@ -323,30 +265,6 @@ export function App() {
 		[select],
 	);
 
-	const closePane = useCallback(() => {
-		setPane(null);
-	}, []);
-	const togglePane = useCallback(
-		(id: Exclude<Pane, null>) => {
-			if (pane === id) {
-				closePane();
-				return;
-			}
-			setPane(id);
-		},
-		[pane, closePane],
-	);
-	/* A new teammate is asked which desk it lives on when the window holds
-	 * more than one: the pane opens on the desk the rail is narrowed to, or
-	 * else on this computer's, and its own picker moves it to another. */
-	const newTeammate = useCallback(() => {
-		const wanted = deskFilter() ?? (allDesks().some((one) => one.id === LOCAL_DESK) ? LOCAL_DESK : null);
-		if (pane !== "new-teammate" && wanted !== null && wanted !== activeDeskId()) {
-			openOnDesk(wanted, { pane: "new-teammate" });
-			return;
-		}
-		togglePane("new-teammate");
-	}, [pane, togglePane]);
 	const toggleInspector = useCallback(
 		(schedules = false) => {
 			if (selectedId === null) return;
@@ -877,32 +795,11 @@ function takeChord(): boolean {
 	return true;
 }
 
-/** The open teammate survives a reload, which is what makes the tape
- * subscribe able to race wire.connect() — see watchWhenOpen in tape.ts. */
-const SELECTED_KEY = "hotline.rail.selected";
 /** The width of the window's main column below which a work card docks. */
 const WORK_DOCK_BELOW = 960;
 
 function perDesk(key: string): string {
 	return deskKey(key);
-}
-
-function loadSelected(): string | null {
-	try {
-		const id = localStorage.getItem(perDesk(SELECTED_KEY));
-		return id !== null && id !== "" ? id : null;
-	} catch {
-		return null;
-	}
-}
-
-function saveSelected(id: string | null): void {
-	try {
-		if (id === null) localStorage.removeItem(perDesk(SELECTED_KEY));
-		else localStorage.setItem(perDesk(SELECTED_KEY), id);
-	} catch {
-		// Quota, private mode.
-	}
 }
 
 /** Where this window last stood in each tape. Private mode or a full disk
@@ -961,7 +858,3 @@ function DeskBand({ onAddDesk }: { onAddDesk(): void }) {
 		</p>
 	);
 }
-
-/** What a teammate's screen has open beside its conversation. */
-type Space = { dock: DockState | null; inspector: boolean };
-const NO_SPACE: Space = { dock: null, inspector: false };

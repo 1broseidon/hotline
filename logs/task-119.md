@@ -1,8 +1,6 @@
 ---
 id: task-119
 title: "P2-7 (A): Ship a Mermaid bundle with KaTeX fixed"
-column: review
-position: 8
 priority: high
 tags:
   - phase2
@@ -13,7 +11,7 @@ relatedFiles:
   - ui/package.json
   - ui/bun.lock
   - ui/src/components/Mermaid.tsx
-updatedAt: "2026-10-18T00:24:16.761Z"
+updatedAt: "2026-10-18T00:25:32.184Z"
 contract:
   status: delivered
   validation:
@@ -41,6 +39,7 @@ dispatch:
     pid: 50333
     at: "2026-10-18T00:14:42.053Z"
 assignee: claude
+completedAt: "2026-10-18T00:25:32.184Z"
 ---
 
 ## Description
@@ -57,3 +56,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T00:24:16.279Z: [claude] Mermaid ^11 → ^12.2.0 (first release whose bundle has KaTeX ≥0.18.2; 11.17.2 is the last 11.x and still embeds 0.16.47). Checked the asset itself: node_modules mermaid.min.js and the built dist/assets/mermaid.min-*.js both contain KaTeX's version constant "0.18.11" and no 0.16.47; bun audit is clean (no vulnerabilities). Still a classic script that sets globalThis.mermaid. The only API change: 12 deprecates flowchart.htmlLabels in favour of the root htmlLabels (which takes precedence), so Mermaid.tsx drops the redundant key and keeps strict mode and htmlLabels:false. Rendered flowchart, sequence and class diagrams with our config in a macOS WKWebView: no script or foreignObject, and bad source is rejected. Only $$math$$ labels produce a foreignObject, as 11.17.2 did, and the SVG is still shown as an inert <img>. Not checked on WebKitGTK (Linux). Lockfile: mermaid 12 brings in elkjs, @mermaid-js/parser 2, chevrotain 13 and katex 0.18.11 (commander 15). source-map-js stays at 1.2.2, so row 12 resolves a lockfile conflict by keeping both. The lazy Mermaid script grew from 3.57 MB to 5.49 MB uncompressed; it is still loaded only when a diagram is on screen. make ui-check and make precheck pass (7/7). Commit 035d0ead on dispatch/task-119.
+- 2026-10-18T00:25:31.217Z: Landed on release/0.40.0

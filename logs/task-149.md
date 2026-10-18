@@ -1,8 +1,6 @@
 ---
 id: task-149
 title: "P2-40 (D): By-hand lints and reasoned invariants"
-column: review
-position: 0
 priority: high
 tags:
   - phase2
@@ -13,7 +11,7 @@ relatedFiles:
   - crates/hotline-core/src/
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
-updatedAt: "2026-10-18T09:31:17.958Z"
+updatedAt: "2026-10-18T09:32:56.928Z"
 contract:
   status: delivered
   validation:
@@ -41,7 +39,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T08:43:37.552Z"
+    ended: "2026-10-18T09:32:56.928Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T09:32:56.538Z"
 ---
 
 ## Description
@@ -81,3 +82,4 @@ LEFT ON PURPOSE, for row 52 not to set to warn:
 - unneeded_field_pattern: oauth.rs names the ignored field so a new one breaks the match.
 
 The lints were checked on macOS only; Linux- and Windows-only code was only compiled by precheck. Nothing left unwired.
+- 2026-10-18T09:32:56.153Z: Landed on release/0.40.0

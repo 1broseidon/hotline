@@ -1,7 +1,7 @@
 ---
 id: task-168
 title: "P2-53 (F): Biome for lint only"
-column: in-progress
+column: review
 position: 57
 priority: high
 tags:
@@ -14,9 +14,9 @@ relatedFiles:
   - ui/package.json
   - ui/bun.lock
   - Makefile
-updatedAt: "2026-10-18T03:26:47.562Z"
+updatedAt: "2026-10-18T03:32:33.656Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - test -f ui/biome.json
@@ -27,6 +27,8 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T03:26:47.562Z"
     reworkCount: 0
+    deliveredAt: "2026-10-18T03:32:33.656Z"
+    duration: 346
 dependsOn:
   - task-159
 dispatch:

@@ -1,8 +1,8 @@
 ---
 id: task-116
 title: "P2-4 (A): Tauri updater ZIP path"
-column: in-progress
-position: 5
+column: review
+position: 0
 priority: high
 tags:
   - phase2
@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:44.032Z"
 relatedFiles:
   - crates/hotline-app/Cargo.toml
   - Cargo.lock
-updatedAt: "2026-10-18T01:09:20.398Z"
+updatedAt: "2026-10-18T01:10:59.770Z"
 contract:
   status: in_progress
   validation:
@@ -51,3 +51,6 @@ Phase 2 group A (Security), plan row 4 in docs/audits/0.40/README.md on release/
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T01:10:58.757Z: The claim on task-116 (desktop on Georges-Mac-Studio, pid 50333) was not given back as review: task-116 is claimed by cli (pid 59932) on Georges-Mac-Studio

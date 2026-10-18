@@ -11,6 +11,7 @@ import type { ToolOutput } from "./generated/contract";
 const CONTEXT = 2;
 
 const HOME = /(?:\/home|\/Users)\/[^/\s"']+(?=\/|\s|$)/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: the escape and bell bytes are what a terminal colour code is made of, and this strips them.
 const ANSI = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
 
 /** A home directory as `~`, the way a shell prompt shows it. */

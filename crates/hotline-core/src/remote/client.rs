@@ -158,9 +158,7 @@ impl Client {
             // SecretStore exposes individual operations, not compare-and-set.
             // Keep concurrent first claims in this client process on one key.
             static FIRST_KEY: std::sync::Mutex<()> = std::sync::Mutex::new(());
-            let _guard = FIRST_KEY
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let _guard = super::lock(&FIRST_KEY);
             match self.store.get(&slot).map_err(storage)? {
                 Some(bytes) => read_identity(&bytes, &desk)?,
                 None => {

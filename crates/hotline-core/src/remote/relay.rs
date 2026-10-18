@@ -56,6 +56,10 @@ const BUDGETS_MAX: usize = 1024;
 const RATE_BURST: f64 = 10.0;
 const RATE_PER_SECOND: f64 = 0.5;
 
+/// Every write to `hosts` cancels a generation before dropping it, and
+/// inserts a desk's budget before the desk, so a panic between any two of
+/// them leaves no live desk without a budget and no waiting socket for a
+/// generation that is gone. A poisoned registry is therefore recovered.
 pub(super) struct Hub {
     hosts: Mutex<Hosts>,
     visits: Arc<Semaphore>,
@@ -126,7 +130,7 @@ impl Hub {
         notify: mpsc::Sender<String>,
         cancel: CancellationToken,
     ) -> Option<Uuid> {
-        let mut hosts = self.hosts.lock().unwrap();
+        let mut hosts = lock(&self.hosts);
         if hosts.desks.len() >= HOSTS_MAX && !hosts.desks.contains_key(desk) {
             return None;
         }
@@ -176,7 +180,7 @@ impl Hub {
     /// A replacement may retire its predecessor even when every control
     /// slot is occupied. Its pending TCP permit bounds the wait for cleanup.
     fn retire(&self, desk: &str) -> bool {
-        let mut hosts = self.hosts.lock().unwrap();
+        let mut hosts = lock(&self.hosts);
         let Some(host) = hosts.desks.get(desk) else {
             return false;
         };
@@ -189,7 +193,7 @@ impl Hub {
     }
 
     fn unregister(&self, desk: &str, id: Uuid) {
-        let mut hosts = self.hosts.lock().unwrap();
+        let mut hosts = lock(&self.hosts);
         if hosts
             .desks
             .get(desk)
@@ -205,7 +209,7 @@ impl Hub {
     }
 
     pub(super) fn visit(&self, desk: &str) -> Visit {
-        let mut hosts = self.hosts.lock().unwrap();
+        let mut hosts = lock(&self.hosts);
         let Some(host) = hosts.desks.get(desk) else {
             return Visit::Offline;
         };
@@ -248,7 +252,7 @@ impl Hub {
         let capability = super::secret();
         let expires_at = tokio::time::Instant::now() + ACCEPT_WITHIN;
         {
-            let mut hosts = self.hosts.lock().unwrap();
+            let mut hosts = lock(&self.hosts);
             if !Self::current(&hosts, &ticket) {
                 return None;
             }
@@ -266,14 +270,14 @@ impl Hub {
         tokio::spawn(async move {
             tokio::time::sleep_until(expires_at).await;
             if let Some(hub) = hub.upgrade() {
-                hub.hosts.lock().unwrap().waiting.remove(&unclaimed);
+                lock(&hub.hosts).waiting.remove(&unclaimed);
             }
         });
         Some(capability)
     }
 
     fn claim(&self, capability: &str, device: &str) -> Option<Waiting> {
-        let mut hosts = self.hosts.lock().unwrap();
+        let mut hosts = lock(&self.hosts);
         let waiting = hosts.waiting.get(capability)?;
         if tokio::time::Instant::now() >= waiting.expires_at
             || !Self::current(&hosts, &waiting.ticket)
@@ -289,9 +293,7 @@ impl Hub {
 
     #[cfg(test)]
     pub(super) fn expire_capability(&self, capability: &str) {
-        self.hosts
-            .lock()
-            .unwrap()
+        lock(&self.hosts)
             .waiting
             .get_mut(capability)
             .unwrap()
@@ -305,7 +307,7 @@ impl Hub {
 
     #[cfg(test)]
     pub(super) fn counts(&self) -> (usize, usize) {
-        let hosts = self.hosts.lock().unwrap();
+        let hosts = lock(&self.hosts);
         (hosts.desks.len(), hosts.waiting.len())
     }
 }
@@ -354,7 +356,7 @@ pub(super) async fn arrive(
     };
     let notice = json!({"type": "visit", "id": capability, "path": path}).to_string();
     if notify.try_send(notice).is_err() {
-        hub.hosts.lock().unwrap().waiting.remove(&capability);
+        lock(&hub.hosts).waiting.remove(&capability);
     }
 }
 
@@ -370,7 +372,7 @@ where
         purpose: String,
         capability: String,
     }
-    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let cancel = lock(&remote.state).cancel.clone();
     let deadline = tokio::time::Instant::now() + ACCEPT_WITHIN;
     let claimed = async {
         let (private, _) = remote.noise_keys().ok()?;
@@ -631,7 +633,7 @@ impl Remote {
             return Err("Pair with that desk first.".into());
         }
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             s.saved.relay = desk_id;
             self.save(&s.saved)?;
         }
@@ -658,7 +660,7 @@ impl Remote {
     /// is on. Called after either changes.
     pub(super) fn stand(self: &Arc<Self>) {
         let (desk, cancel) = {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             if let Some(cancel) = s.relay.cancel.take() {
                 cancel.cancel();
             }
@@ -722,7 +724,7 @@ impl Remote {
     }
 
     fn stood_down(&self, cancel: &CancellationToken, error: Option<String>) {
-        let mut s = self.state.lock().unwrap();
+        let mut s = lock(&self.state);
         if cancel.is_cancelled() {
             return;
         }
@@ -770,7 +772,7 @@ impl Remote {
             match notice.r#type.as_str() {
                 "ready" => {
                     let url = notice.url.ok_or("The relay did not say where it is.")?;
-                    let mut s = self.state.lock().unwrap();
+                    let mut s = lock(&self.state);
                     if cancel.is_cancelled() {
                         return Ok(());
                     }
@@ -832,6 +834,7 @@ impl Remote {
 #[cfg(test)]
 mod budget_tests {
     use super::*;
+    use crate::remote::poison;
 
     fn register(hub: &Hub, desk: &str) -> Uuid {
         let (notify, _) = mpsc::channel(VISITS_PER_DESK);
@@ -839,7 +842,7 @@ mod budget_tests {
             .unwrap()
     }
     fn replenish(hub: &Hub, desk: &str) {
-        let mut hosts = hub.hosts.lock().unwrap();
+        let mut hosts = lock(&hub.hosts);
         hosts.budgets.get_mut(desk).unwrap().updated -= Duration::from_secs(20);
     }
     fn ticket(hub: &Hub, desk: &str) -> Ticket {
@@ -877,6 +880,22 @@ mod budget_tests {
     }
 
     #[test]
+    fn a_poisoned_registry_still_ends_generations_and_refuses_their_visitors() {
+        let hub = Hub::default();
+        let id = register(&hub, "desk");
+        let visit = ticket(&hub, "desk");
+        poison(&hub.hosts);
+        hub.unregister("desk", id);
+        assert!(visit.generation.cancel.is_cancelled());
+        assert!(matches!(hub.visit("desk"), Visit::Offline));
+        let fresh = register(&hub, "desk");
+        assert!(hub.retire("desk"));
+        assert!(matches!(hub.visit("desk"), Visit::Offline));
+        hub.unregister("desk", fresh);
+        assert_eq!(hub.counts(), (0, 0));
+    }
+
+    #[test]
     fn reregistration_keeps_live_permits_and_invalidates_the_old_generation() {
         let hub = Hub::default();
         let old = register(&hub, "desk");
@@ -888,12 +907,12 @@ mod budget_tests {
         register(&hub, "desk");
         replenish(&hub, "desk");
         assert!(matches!(hub.visit("desk"), Visit::Busy));
-        assert!(!Hub::current(&hub.hosts.lock().unwrap(), &visits[0]));
+        assert!(!Hub::current(&lock(&hub.hosts), &visits[0]));
         hub.unregister("desk", old);
         assert_eq!(hub.counts().0, 1);
         visits.pop();
         let resumed = ticket(&hub, "desk");
-        assert!(Hub::current(&hub.hosts.lock().unwrap(), &resumed));
+        assert!(Hub::current(&lock(&hub.hosts), &resumed));
     }
 
     #[test]

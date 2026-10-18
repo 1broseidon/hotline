@@ -361,7 +361,8 @@ pub(super) async fn sealed_session<S>(
         let public = noise.get_remote_static()?.to_vec();
         let mut desk = None;
         let (phone, answer) = if matches!(purpose, Purpose::Pair) {
-            let answer = match remote.claim_v2(&public, &payload[..size]).ok()? {
+            let claimed = remote.claim_v2(&public, &payload[..size]).ok()?;
+            let answer = match claimed {
                 super::v2::Claimed::Granted(role) => json!({
                     "role": role,
                     "deskName": desktop_name(),

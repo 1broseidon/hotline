@@ -682,7 +682,8 @@ impl Remote {
             s.error = None;
             self.save(&s.saved)?;
         }
-        if let Some(task) = self.server.lock().await.take() {
+        let task = self.server.lock().await.take();
+        if let Some(task) = task {
             let _ = task.await;
         }
         if !enabled {

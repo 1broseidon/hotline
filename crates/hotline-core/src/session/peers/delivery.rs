@@ -8,7 +8,8 @@ use crate::session::{new_id, now_ms};
 
 impl Room {
     pub(in crate::session) fn cancel_peer_exchange(&self, from: &str, to: &str) {
-        if let Some(session) = lock(&self.peers.sessions).remove(&(from.into(), to.into())) {
+        let session = lock(&self.peers.sessions).remove(&(from.into(), to.into()));
+        if let Some(session) = session {
             session.caller_capability.revoke();
             session.target_capability.revoke();
             session.driver.invalidate();

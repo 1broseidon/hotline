@@ -152,9 +152,12 @@ static GROUPS: Mutex<Vec<libc::pid_t>> = Mutex::new(Vec::new());
 /// is nothing to do there.
 pub fn end_every_agent() {
     #[cfg(unix)]
-    for group in std::mem::take(&mut *lock(&GROUPS)) {
-        // Safety: each group is one this process made for its own child.
-        unsafe { libc::killpg(group, libc::SIGKILL) };
+    {
+        let groups = std::mem::take(&mut *lock(&GROUPS));
+        for group in groups {
+            // Safety: each group is one this process made for its own child.
+            unsafe { libc::killpg(group, libc::SIGKILL) };
+        }
     }
 }
 
@@ -498,7 +501,8 @@ impl ChildAgent {
     }
 
     fn kill_child(&self) {
-        if let Some(task) = lock(&self.live.connection_task).take() {
+        let task = lock(&self.live.connection_task).take();
+        if let Some(task) = task {
             task.abort();
         }
         let child = lock(&self.child).take();
@@ -709,7 +713,8 @@ impl Driver for ChildAgent {
                 ))
             });
             if live.cancelled.load(Ordering::SeqCst) {
-                if let Some(lane) = lock(&live.steering).take() {
+                let lane = lock(&live.steering).take();
+                if let Some(lane) = lane {
                     lane.stop();
                 }
                 let _ = connection.send_notification(CancelNotification::new(session_id));
@@ -792,7 +797,8 @@ impl Driver for ChildAgent {
 
     fn cancel(&self) {
         self.live.cancelled.store(true, Ordering::SeqCst);
-        if let Some(lane) = lock(&self.live.steering).take() {
+        let lane = lock(&self.live.steering).take();
+        if let Some(lane) = lane {
             lane.stop();
         }
         self.live.settle_permissions();

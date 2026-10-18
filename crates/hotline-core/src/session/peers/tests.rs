@@ -844,6 +844,51 @@ async fn a_peer_session_that_has_gone_quiet_is_stopped_and_a_deleted_teammate_ta
     assert!(lock(&room.peers.sessions).is_empty());
 }
 
+/// A session revoked while another start for the same pair was on its way is
+/// found stale when that start goes to keep its own, and is replaced. A lock
+/// the start never lets go of would wedge the runtime's workers and its clock,
+/// so the deadline is kept on this thread and the runtime is let go of in the
+/// background rather than waited for: the test fails instead of hanging.
+#[test]
+fn a_start_that_finds_a_revoked_session_in_its_place_replaces_it() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let agents = Fake::new(Scripted::turns(vec![
+        answers("a1", "first"),
+        answers("a2", "second"),
+    ]));
+    let room = runtime.block_on(async {
+        let room = room("stale-in-place", agents.clone());
+        room.deliver("ada", "bob", "first question").await.unwrap();
+        room
+    });
+    let pair = (String::from("ada"), String::from("bob"));
+    let stale = lock(&room.peers.sessions)
+        .remove(&pair)
+        .expect("the first peer session is cached");
+    stale.caller_capability.revoke();
+    let sessions = room.clone();
+    let put_back = pair.clone();
+    agents.when_building(move || {
+        lock(&sessions.peers.sessions).insert(put_back, stale);
+    });
+
+    let (done, second) = std::sync::mpsc::channel();
+    let starter = room.clone();
+    runtime.spawn(async move {
+        let _ = done.send(starter.deliver("ada", "bob", "second question").await);
+    });
+    let finished = second.recv_timeout(std::time::Duration::from_secs(10));
+    runtime.shutdown_background();
+    finished
+        .expect("the second start lets go of the session map")
+        .unwrap();
+    let kept = lock(&room.peers.sessions)
+        .get(&pair)
+        .cloned()
+        .expect("the second peer session is cached");
+    assert!(kept.valid());
+}
+
 /// A peer-only session has two authorities: the caller is allowed to ask, and
 /// the target is allowed to answer. Dropping either side removes the cached
 /// driver and revokes the handles cloned into it, while a fresh lease remains

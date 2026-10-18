@@ -1907,7 +1907,8 @@ impl Room {
 
     /// Lets an arming go, expiring the card it raised if nobody answered.
     fn drop_passkey_arming(&self, persona_id: &str) {
-        if let Some(arming) = lock(&self.passkey_armings).remove(persona_id) {
+        let arming = lock(&self.passkey_armings).remove(persona_id);
+        if let Some(arming) = arming {
             self.expire_passkey_card(persona_id, &arming);
         }
     }

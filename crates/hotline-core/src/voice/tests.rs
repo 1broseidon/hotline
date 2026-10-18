@@ -138,7 +138,8 @@ impl Dispatcher for Fake {
         if let Some(gate) = gate {
             gate.acquire().await.unwrap().forget();
         }
-        if let Some(result) = lock(&self.narration).clone() {
+        let result = lock(&self.narration).clone();
+        if let Some(result) = result {
             return result;
         }
         Ok(format!("{name} says: {text}"))

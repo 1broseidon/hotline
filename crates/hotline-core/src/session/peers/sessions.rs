@@ -440,7 +440,8 @@ impl Room {
         {
             return Err("That collaboration approval expired before work started.".to_string());
         }
-        if let Some(existing) = lock(&self.peers.sessions).get(&pair).cloned() {
+        let existing = lock(&self.peers.sessions).get(&pair).cloned();
+        if let Some(existing) = existing {
             if existing.valid() {
                 live.caller_capability.revoke();
                 live.target_capability.revoke();

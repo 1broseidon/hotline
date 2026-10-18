@@ -302,7 +302,8 @@ impl ChapterBoundary {
         (Self(Arc::new(Mutex::new(Some(send)))), receive)
     }
     pub(crate) fn finish(&self, note: Option<String>) {
-        if let Some(sender) = self.0.lock().unwrap_or_else(PoisonError::into_inner).take() {
+        let sender = self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(sender) = sender {
             let _ = sender.send(note);
         }
     }

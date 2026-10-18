@@ -693,7 +693,7 @@ mod tests {
                     sites: vec![
                         "https://GitHub.com/".to_owned(),
                         " http://localhost:8123 ".to_owned(),
-                        "".to_owned(),
+                        String::new(),
                     ],
                     username: " george ".to_owned(),
                     password: "correct horse battery".to_owned(),

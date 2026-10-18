@@ -36,9 +36,9 @@ fn kept_under(files: &Path, path: &str) -> Result<PathBuf, String> {
 /// Whether the system may be asked to open this: a PDF named `.pdf`, or a
 /// JPEG named `.jpg` or `.jpeg`, which is every picture the desk keeps.
 pub(crate) fn openable(path: &Path) -> bool {
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_ascii_lowercase())
+    let extension = path
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     let mut head = [0u8; 5];
     if std::fs::File::open(path)
@@ -47,8 +47,11 @@ pub(crate) fn openable(path: &Path) -> bool {
     {
         return false;
     }
-    (name.ends_with(".pdf") && &head == b"%PDF-")
-        || ((name.ends_with(".jpg") || name.ends_with(".jpeg")) && head[..3] == [0xFF, 0xD8, 0xFF])
+    match extension.as_str() {
+        "pdf" => &head == b"%PDF-",
+        "jpg" | "jpeg" => head[..3] == [0xFF, 0xD8, 0xFF],
+        _ => false,
+    }
 }
 
 /// Opens a PDF or a picture a teammate sent in the system's own viewer.

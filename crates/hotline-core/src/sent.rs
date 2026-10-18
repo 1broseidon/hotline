@@ -187,20 +187,28 @@ fn shortened(name: &str) -> String {
     format!("{}{extension}", stem.chars().take(keep).collect::<String>())
 }
 
+/// Whether a file name ends in one of these extensions, in any case.
+fn has_extension(name: &str, extensions: &[&str]) -> bool {
+    Path::new(name).extension().is_some_and(|extension| {
+        extensions
+            .iter()
+            .any(|wanted| extension.eq_ignore_ascii_case(wanted))
+    })
+}
+
 /// The name an image is kept under once it is a JPEG.
 /// A PDF's name ends in `.pdf`, whatever it was called. The system picks
 /// the program that opens a file by its name, and the desk offers to open a
 /// PDF, so a PDF called anything else would be opened as that.
 fn as_pdf(name: &str) -> String {
-    if name.to_ascii_lowercase().ends_with(".pdf") {
+    if has_extension(name, &["pdf"]) {
         return name.to_string();
     }
     shortened(&format!("{name}.pdf"))
 }
 
 fn as_jpeg(name: &str) -> String {
-    let lower = name.to_ascii_lowercase();
-    if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+    if has_extension(name, &["jpg", "jpeg"]) {
         return name.to_string();
     }
     let stem = match name.rfind('.') {

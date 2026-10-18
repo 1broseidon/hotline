@@ -29,10 +29,10 @@ const CLICK_EVENT: &str = "hotline://notification";
 
 /// Whether this process is an app the center will post for.
 fn bundled() -> bool {
-    NSBundle::mainBundle()
-        .bundlePath()
-        .to_string()
-        .ends_with(".app")
+    let path = NSBundle::mainBundle().bundlePath().to_string();
+    std::path::Path::new(&path)
+        .extension()
+        .is_some_and(|extension| extension == "app")
 }
 
 define_class!(

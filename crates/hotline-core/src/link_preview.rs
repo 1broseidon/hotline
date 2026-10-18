@@ -138,13 +138,10 @@ pub fn fetchable(url: &Url) -> bool {
     match url.host() {
         Some(url::Host::Domain(host)) => {
             let host = host.to_ascii_lowercase();
+            let private = [".localhost", ".local", ".internal", ".lan", ".home.arpa"];
             host.contains('.')
-                && !(host == "localhost"
-                    || host.ends_with(".localhost")
-                    || host.ends_with(".local")
-                    || host.ends_with(".internal")
-                    || host.ends_with(".lan")
-                    || host.ends_with(".home.arpa"))
+                && host != "localhost"
+                && !private.iter().any(|suffix| host.ends_with(suffix))
         }
         Some(url::Host::Ipv4(ip)) => public(IpAddr::V4(ip)),
         Some(url::Host::Ipv6(ip)) => public(IpAddr::V6(ip)),

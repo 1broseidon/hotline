@@ -446,6 +446,10 @@ impl Vault {
                 continue;
             }
             let file_name = entry.file_name();
+            #[expect(
+                clippy::case_sensitive_file_extension_comparisons,
+                reason = "`.about` is the vault's own lowercase suffix, not an extension a person chose"
+            )]
             let Some(name) = file_name
                 .to_str()
                 .and_then(|file_name| file_name.strip_suffix(".json"))

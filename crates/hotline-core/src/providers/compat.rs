@@ -246,7 +246,8 @@ pub(crate) fn repair_event(
     let done = event
         .get("type")
         .and_then(Value::as_str)
-        .is_some_and(|kind| kind.ends_with(".done"));
+        .and_then(|kind| kind.rsplit_once('.'))
+        .is_some_and(|(_, stage)| stage == "done");
     let fallback = event
         .get("item_id")
         .and_then(Value::as_str)

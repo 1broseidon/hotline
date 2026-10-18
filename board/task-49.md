@@ -1,8 +1,8 @@
 ---
 id: task-49
 title: "Window: render long conversations progressively with stable scroll anchoring"
-column: backlog
-position: 32
+column: todo
+position: 5
 priority: medium
 tags:
   - performance
@@ -13,7 +13,7 @@ relatedFiles:
   - ui/src/index.css
 parentId: epic-14
 createdAt: "2026-10-12T04:20:52.535Z"
-updatedAt: "2026-10-18T23:40:49.942Z"
+updatedAt: "2026-10-18T23:40:50.464Z"
 ---
 
 ## Description

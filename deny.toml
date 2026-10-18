@@ -1,0 +1,35 @@
+# cargo-deny's policy for Cargo.lock. `make check` runs its license check;
+# every target's dependencies are checked, not only the host's.
+#
+# A crate under a license outside this list fails, and so does one whose
+# license cargo-deny cannot read with confidence. Each entry was read for
+# what it obliges, and THIRD-PARTY-NOTICES.md says what that is and which
+# crates bring it. A crate offering a choice passes when any one of its
+# licenses is here: r-efi's LGPL-2.1-or-later is an alternative to MIT and
+# Apache-2.0, never the one taken.
+
+[licenses]
+allow = [
+    # Permissive, with the copyright and license kept beside a copy.
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "bzip2-1.0.6",
+    # Public domain or its equivalent: nothing to keep.
+    "0BSD",
+    "CC0-1.0",
+    "Unlicense",
+    # The Mozilla root certificates in webpki-roots, as data.
+    "CDLA-Permissive-2.0",
+    # File-level copyleft: a changed MPL file is published with its source.
+    # Hotline changes none (cssparser, selectors and symphonia among them).
+    "MPL-2.0",
+]

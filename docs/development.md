@@ -13,6 +13,8 @@ code implements them, are [wire.md](wire.md), [log.md](log.md) and
 - The [Tauri CLI](https://v2.tauri.app/) as a cargo subcommand:
   `cargo install tauri-cli --version ^2`.
 - Python 3, for release manifest validation in `make check`.
+- cargo-deny 0.20.2, for the license gate in `make check`:
+  `cargo install --locked cargo-deny@0.20.2`.
 - [Bun](https://bun.sh), for the window's install, typecheck, Vite, and
   production build.
 - On macOS, Xcode or its Command Line Tools: `build.rs` compiles the
@@ -112,7 +114,9 @@ preflight that stops in one line when `ui/src/generated/contract.ts` is
 partial (a filtered `cargo test` wrote it); `bun run typecheck`, `bun run
 lint` (Biome, lint only), `bun run knip` (no unused export, file or
 dependency; `ui/knip.json` and the Makefile say what is exempt and why) and
-`bun run test` in `ui/`; the speech engine fetched and checked against its pinned hash; the Python tests under `scripts/` and
+`bun run test` in `ui/`; the license gate, `make licenses` (a crate or a
+window package under a license nobody reviewed fails; `deny.toml` and
+[THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) say what was reviewed); the speech engine fetched and checked against its pinned hash; the Python tests under `scripts/` and
 `site/tests/`; `cargo fmt --all --check`; `cargo clippy --workspace
 --all-targets -- -D warnings`; `cargo test --workspace`. A window that
 does not compile is a broken build however green the Rust is.

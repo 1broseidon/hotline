@@ -9,7 +9,7 @@ const run = (id: string, jobId: string, ts = 1): Block => ({
 		id,
 		ts,
 		text: `prompt ${id}`,
-		scheduled: { jobId, kind: "recurring", name: `job ${jobId}`, operatorCreated: true },
+		scheduled: { jobId, kind: "schedule", name: `job ${jobId}`, operatorCreated: true },
 	} as TranscriptEvent as Extract<TranscriptEvent, { kind: "user" }>,
 });
 const event = (kind: string, id: string, extra: object = {}): Block =>

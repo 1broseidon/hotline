@@ -338,7 +338,7 @@ export type UpdateStatus = {
  * pretends that version is out: the corner card and Settings › Updates show
  * it, with notes in the changelog's shape. Installing it fails, as it should.
  */
-export const PREVIEW_UPDATE = import.meta.env.DEV ? (import.meta.env.VITE_PREVIEW_UPDATE as string | undefined) : undefined;
+export const PREVIEW_UPDATE = import.meta.env.DEV ? (import.meta.env["VITE_PREVIEW_UPDATE"] as string | undefined) : undefined;
 const PREVIEW_NOTES = `### Added
 
 - When a new version is out, a small card in the window's corner says so.

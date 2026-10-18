@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { RosterEntry } from "../src/wire";
 import { nudged, railOrder } from "../src/pins";
+import { installDom } from "./dom";
 
 const entry = (id: string, pin?: number) =>
 	({
@@ -33,12 +33,7 @@ test("a nudge stops at either end of the row", () => {
 });
 
 test("the rail shows pinned faces first, and a drop on a face asks for that slot", async () => {
-	const dom = new Window();
-	const originals = new Map<string, PropertyDescriptor | undefined>();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, localStorage: dom.localStorage, IS_REACT_ACT_ENVIRONMENT: true })) {
-		originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-	}
+	const { teardown } = installDom();
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
 	const { Rail } = await import("../src/components/Rail");
@@ -55,12 +50,12 @@ test("the rail shows pinned faces first, and a drop on a face asks for that slot
 					seen={{}}
 					connection="open"
 					onSelect={() => {}}
-					onNew={() => {}}
-					onSettings={() => {}}
 					onEdit={() => {}}
 					onDelete={() => {}}
 					onPin={(id, slot) => pins.push([id, slot])}
-					onHelp={() => {}}
+					onAddDesk={() => {}}
+					search={null}
+					deskKey={null}
 				/>,
 			);
 		});
@@ -73,7 +68,7 @@ test("the rail shows pinned faces first, and a drop on a face asks for that slot
 		const data = { setData: (type: string, value: string) => transfer.set(type, value), getData: (type: string) => transfer.get(type) ?? "", effectAllowed: "", dropEffect: "" };
 		const fire = async (target: Element, type: string) =>
 			act(async () => {
-				const event = new dom.Event(type, { bubbles: true, cancelable: true });
+				const event = new window.Event(type, { bubbles: true, cancelable: true });
 				Object.defineProperty(event, "dataTransfer", { value: data });
 				target.dispatchEvent(event);
 			});
@@ -83,10 +78,6 @@ test("the rail shows pinned faces first, and a drop on a face asks for that slot
 		expect(pins).toEqual([["b", 0]]);
 	} finally {
 		await act(async () => { root.unmount(); });
-		await dom.happyDOM.close();
-		for (const [key, descriptor] of originals) {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		}
+		await teardown();
 	}
 });

@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { callWorking } from "../src/components/CallStage";
+import type { SessionInfo } from "../src/generated/contract";
 
 describe("whether the teammate on the call is working", () => {
 	const row = (id: string, state: "ready" | "thinking" | "starting" | "idle", working = false) => ({
 		persona: { id } as never,
-		session: { personaId: id, state },
+		session: { personaId: id, state } as SessionInfo,
 		sides: working ? [{ sideId: "s", title: "t", startedAt: 0, working: true }] : [],
 	});
 

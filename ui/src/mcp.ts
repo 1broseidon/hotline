@@ -69,34 +69,34 @@ export function mcpServersFrom(value: unknown): McpServer[] {
 function readServer(value: unknown): McpServer | null {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
 	const raw = value as Record<string, unknown>;
-	const id = typeof raw.id === "string" && raw.id ? raw.id : null;
-	const name = typeof raw.name === "string" ? raw.name.trim() : "";
+	const id = typeof raw["id"] === "string" && raw["id"] ? raw["id"] : null;
+	const name = typeof raw["name"] === "string" ? raw["name"].trim() : "";
 	if (!id || !name) return null;
 
-	if (raw.type === "http") {
-		const url = typeof raw.url === "string" ? raw.url.trim() : "";
-		if (!url && raw.urlNeedsRepair !== true) return null;
-		return { id, type: "http", name, url, auth: readAuth(raw.auth),
-			...(raw.urlNeedsRepair === true ? { urlNeedsRepair: true } : {}) };
+	if (raw["type"] === "http") {
+		const url = typeof raw["url"] === "string" ? raw["url"].trim() : "";
+		if (!url && raw["urlNeedsRepair"] !== true) return null;
+		return { id, type: "http", name, url, auth: readAuth(raw["auth"]),
+			...(raw["urlNeedsRepair"] === true ? { urlNeedsRepair: true } : {}) };
 	}
 
-	if (raw.type !== "stdio" && raw.type !== undefined) return null;
-	const command = typeof raw.command === "string" ? raw.command.trim() : "";
+	if (raw["type"] !== "stdio" && raw["type"] !== undefined) return null;
+	const command = typeof raw["command"] === "string" ? raw["command"].trim() : "";
 	if (!command) return null;
-	const args = Array.isArray(raw.args)
-		? raw.args.filter((arg): arg is string => typeof arg === "string")
+	const args = Array.isArray(raw["args"])
+		? raw["args"].filter((arg): arg is string => typeof arg === "string")
 		: [];
-	const env = isStringMap(raw.env) ? raw.env : undefined;
+	const env = isStringMap(raw["env"]) ? raw["env"] : undefined;
 	return { id, type: "stdio", name, command, args, ...(env ? { env } : {}),
-		...(typeof raw.credentialRef === "string" ? { credentialRef: raw.credentialRef } : {}),
-		...(raw.launchValuesPending === true ? { launchValuesPending: true } : {}) };
+		...(typeof raw["credentialRef"] === "string" ? { credentialRef: raw["credentialRef"] } : {}),
+		...(raw["launchValuesPending"] === true ? { launchValuesPending: true } : {}) };
 }
 
 function readAuth(value: unknown): McpHttpAuth {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return { mode: "none" };
 	const raw = value as Record<string, unknown>;
-	if (raw.mode === "none") return { mode: "none" };
-	if (typeof raw.mode === "string") return raw as McpHttpAuth;
+	if (raw["mode"] === "none") return { mode: "none" };
+	if (typeof raw["mode"] === "string") return raw as McpHttpAuth;
 	return { mode: "none" };
 }
 

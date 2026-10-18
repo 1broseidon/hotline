@@ -339,7 +339,7 @@ describe("a call with the desk", () => {
 		const target = { personaId: "mack", name: "Mack", avatarHash: "face" };
 		const r = rig({ deskId: "desk-a", target }, { input: ["audio/wav"], personaId: "mack" });
 		await r.call.start();
-		expect(r.sent.find((one) => one.cmd === "voice.call_start")!.params.personaId).toBe("mack");
+		expect(r.sent.find((one) => one.cmd === "voice.call_start")!.params["personaId"]).toBe("mack");
 		expect(r.call.redial().target).toEqual(target);
 		expect(r.call.redial().deskId).toBe("desk-a");
 		r.call.hangUp();
@@ -351,17 +351,17 @@ describe("a call with the desk", () => {
 		r.speak(0.3, 1_000, 1_600);
 		await tick();
 		expect(r.sent.some((one) => one.cmd === "voice.audio")).toBe(true);
-		expect(r.sent.filter((one) => one.cmd === "voice.audio").every((one) => one.params.final === false)).toBe(true);
+		expect(r.sent.filter((one) => one.cmd === "voice.audio").every((one) => one.params["final"] === false)).toBe(true);
 		r.speak(0, 1_650, 2_400); // A 900ms pause still belongs to this turn.
 		expect(r.call.current.phase).toBe("hearing");
 		r.speak(0.3, 2_450, 2_800);
 		r.speak(0, 2_850, 4_200);
 		await tick();
 		const chunks = r.sent.filter((one) => one.cmd === "voice.audio");
-		expect(chunks.map((one) => one.params.index)).toEqual(chunks.map((_, index) => index));
-		expect(new Set(chunks.map((one) => one.params.seq))).toEqual(new Set([1]));
-		expect(chunks.filter((one) => one.params.final === true)).toHaveLength(1);
-		expect(chunks.at(-1)!.params.final).toBe(true);
+		expect(chunks.map((one) => one.params["index"])).toEqual(chunks.map((_, index) => index));
+		expect(new Set(chunks.map((one) => one.params["seq"]))).toEqual(new Set([1]));
+		expect(chunks.filter((one) => one.params["final"] === true)).toHaveLength(1);
+		expect(chunks.at(-1)!.params["final"]).toBe(true);
 		expect(r.sent.some((one) => one.cmd === "voice.utterance")).toBe(false);
 		expect(r.call.current.phase).toBe("thinking");
 		r.call.hangUp();
@@ -377,7 +377,7 @@ describe("a call with the desk", () => {
 		r.ackAudio();
 		await tick();
 		expect(r.sent.filter((one) => one.cmd === "voice.audio")).toHaveLength(1);
-		expect(r.sent.some((one) => one.params.final === true)).toBe(false);
+		expect(r.sent.some((one) => one.params["final"] === true)).toBe(false);
 		expect(r.call.current.phase).toBe("held");
 		await r.call.hold(false);
 		expect(r.call.current.phase).toBe("listening");
@@ -467,7 +467,7 @@ describe("a call while the teammate works", () => {
 		r.desk(WORKING);
 		expect(r.call.current.phase).toBe("hearing");
 		r.speak(0, 4_650, 6_000);
-		expect(r.sent.filter((one) => one.cmd === "voice.utterance").map((one) => one.params.seq)).toEqual([1, 2]);
+		expect(r.sent.filter((one) => one.cmd === "voice.utterance").map((one) => one.params["seq"])).toEqual([1, 2]);
 		expect(r.call.current.phase).toBe("thinking");
 		// A thinking that listens, said again before the desk took the words, does not open the mic.
 		r.desk(WORKING);
@@ -633,7 +633,7 @@ describe("a call heard by this Mac", () => {
 	test("runs as text when the desk, this Mac and the person all allow it, and leaves the webview mic shut", async () => {
 		const r = textRig();
 		await r.call.start();
-		expect(r.sent.find((one) => one.cmd === "voice.call_start")?.params.inputMode).toBe("text");
+		expect(r.sent.find((one) => one.cmd === "voice.call_start")?.params["inputMode"]).toBe("text");
 		expect(r.speech.counts.permits).toBe(1);
 		expect(r.mic.opened).toBe(0);
 		expect(r.call.current.phase).toBe("listening");
@@ -654,7 +654,7 @@ describe("a call heard by this Mac", () => {
 		r.speech.finalize("Can you hear me?");
 		r.levels(-74, 2_350, 3_800);
 		await tick();
-		expect(r.sentText().map((one) => one.text)).toEqual(["Can you hear me?"]);
+		expect(r.sentText().map((one) => one["text"])).toEqual(["Can you hear me?"]);
 	});
 
 	test("a finished utterance is stopped for its whole text and sent with a rising seq", async () => {
@@ -683,7 +683,7 @@ describe("a call heard by this Mac", () => {
 		r.levels(-20, 3_000, 3_300);
 		r.levels(-74, 3_350, 4_600);
 		await tick();
-		expect(r.sentText().map((one) => one.seq)).toEqual([1, 2]);
+		expect(r.sentText().map((one) => one["seq"])).toEqual([1, 2]);
 	});
 
 	test("words the room said before the speaker's onset are not sent", async () => {
@@ -698,7 +698,7 @@ describe("a call heard by this Mac", () => {
 		r.speech.finalize("The radio says call Mack.");
 		r.levels(-74, 2_350, 3_600);
 		await tick();
-		expect(r.sentText().map((one) => one.text)).toEqual(["call Mack."]);
+		expect(r.sentText().map((one) => one["text"])).toEqual(["call Mack."]);
 	});
 
 	test("a cough with no words sends nothing and listens again", async () => {
@@ -771,7 +771,7 @@ describe("a call heard by this Mac", () => {
 		r.speech.finalize("about the build.");
 		r.levels(-74, 1_450, 2_700);
 		await tick();
-		expect(r.sentText().map((one) => one.text)).toEqual(["Call Mack about the build."]);
+		expect(r.sentText().map((one) => one["text"])).toEqual(["Call Mack about the build."]);
 	});
 
 	for (const [why, capabilities, speech] of [
@@ -783,7 +783,7 @@ describe("a call heard by this Mac", () => {
 			const r = textRig(speech, { input: ["audio/wav"] }, [...capabilities]);
 			await r.call.start();
 			const start = r.sent.find((one) => one.cmd === "voice.call_start");
-			expect(start?.params.inputMode).toBeUndefined();
+			expect(start?.params["inputMode"]).toBeUndefined();
 			expect(r.mic.opened).toBe(1);
 			expect(speech.counts.starts).toBe(0);
 			r.speak(0.3, 1_000, 1_600);
@@ -816,7 +816,7 @@ describe("a call heard by this Mac", () => {
 			const r = textRig(speech, { input: ["audio/wav"] });
 			await r.call.start();
 			expect(r.sent.find((one) => one.cmd === "voice.status")?.params).toEqual({});
-			expect(r.sent.find((one) => one.cmd === "voice.call_start")?.params.inputMode).toBeUndefined();
+			expect(r.sent.find((one) => one.cmd === "voice.call_start")?.params["inputMode"]).toBeUndefined();
 			expect(speech.counts.permits).toBe(0);
 			expect(r.mic.opened).toBe(1);
 		} finally {
@@ -853,7 +853,7 @@ describe("a call through a voice front", () => {
 		r.speak(0, 1_000, 1_200);
 		const frames = r.sent.filter((one) => one.cmd === "voice.front_audio");
 		expect(frames.length).toBeGreaterThan(0);
-		expect(frames.map((one) => one.params.seq)).toEqual(frames.map((_, i) => i));
+		expect(frames.map((one) => one.params["seq"])).toEqual(frames.map((_, i) => i));
 		expect(r.sent.filter((one) => one.cmd === "voice.utterance" || one.cmd === "voice.audio")).toHaveLength(0);
 		r.desk({ type: "frontAudio", seq: 0, data: "AAAA" });
 		expect(r.pcm).toEqual([{ data: "AAAA", rate: 24_000 }]);

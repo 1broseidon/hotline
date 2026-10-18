@@ -1,8 +1,6 @@
 ---
 id: task-147
 title: "P2-38 (D): The remote harness connects over loopback"
-column: review
-position: 36
 priority: high
 tags:
   - phase2
@@ -17,7 +15,7 @@ relatedFiles:
   - crates/hotline-cli/tests/serve.rs
   - crates/hotline-cli/tests/relay.rs
   - crates/hotline-cli/tests/pair.rs
-updatedAt: "2026-10-18T05:43:30.611Z"
+updatedAt: "2026-10-18T05:51:40.159Z"
 contract:
   status: delivered
   validation:
@@ -45,7 +43,10 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T05:21:26.528Z"
+    ended: "2026-10-18T05:51:40.159Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T05:51:39.721Z"
 ---
 
 ## Description
@@ -62,3 +63,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T05:43:30.109Z: [claude] Done on dispatch/task-147 (1c3ebc92). New public constructors Remote::open_on(listener, …) and Remote::open_served_on(listener, …, options). Each stores a network::Bound: the first start serves on the socket the caller bound, and a start after a stop binds the same address again, because a stopped Remote has to refuse connections and only a closed socket does. A desktop opened on a listener advertises only that listener's address, and its cert is made for that address. Harness::new()/with_computer() now use a 127.0.0.1 socket the test binds itself, and Harness::reopen(store) replaces the reopen sites (legacy, identity x2, sealed_network). link.rs desks, the relay/admission served desks, the PEM served_listener test, and the in-process desktop() helpers in hotline-cli tests/serve.rs and tests/relay.rs all take a bound listener now. Only three tests still use real interfaces, through Harness::on_interfaces(): all_interfaces_…, a_saved_loopback_selection_…, a_phone_away_from_home_…. I checked this by making addresses() return nothing: exactly those three failed. The interface test now checks the narrowed listener refuses only addresses that answered earlier. Left unwired: the CLI's `hotline serve` child processes (serve.rs free_address/hotline(), pair.rs reservations, relay.rs:323) still reserve a loopback port and drop it, because a bound socket cannot be passed to a child process without inheriting the fd. The served_listener test that waits for an occupied socket keeps its real bind, since that wait is what it tests. tests/processes.rs:387 and tests/voice.rs:2818 (T11, outside this row) are untouched. make check, make verify and make precheck pass.
+- 2026-10-18T05:51:39.276Z: Landed on release/0.40.0

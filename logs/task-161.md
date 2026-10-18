@@ -1,8 +1,6 @@
 ---
 id: task-161
 title: "P2-D-1 (E): wire.md matches the code"
-column: review
-position: 2
 priority: high
 tags:
   - phase2
@@ -11,7 +9,7 @@ parentId: epic-13
 createdAt: "2026-10-17T22:41:07.403Z"
 relatedFiles:
   - docs/wire.md
-updatedAt: "2026-10-18T05:15:08.768Z"
+updatedAt: "2026-10-18T05:51:42.540Z"
 contract:
   status: in_progress
   validation:
@@ -39,6 +37,7 @@ dispatch:
     ended: "2026-10-18T05:15:08.227Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-18T05:51:42.540Z"
 ---
 
 ## Description
@@ -55,3 +54,4 @@ End with `make precheck` (the hooks are on; never --no-verify). Follow the epic'
 
 ## Log
 - 2026-10-18T05:15:08.768Z: Not landed: 1 file is not committed in the worktree: send it back, or commit in your editor
+- 2026-10-18T05:51:42.082Z: Landed on release/0.40.0

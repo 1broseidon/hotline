@@ -1646,15 +1646,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "convert_case"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "affbf0190ed2caf063e3def54ff444b449371d55c58e513a95ab98eca50adb49"
-dependencies = [
- "unicode-segmentation",
-]
-
-[[package]]
 name = "cookie"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2899,7 +2890,7 @@ version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
 dependencies = [
- "convert_case 0.10.0",
+ "convert_case",
  "proc-macro2",
  "quote",
  "rustc_version",
@@ -8225,7 +8216,6 @@ checksum = "b989f4060e5f3c1ea4b8b6999f6759949d820704286cc6976b7a688cc0133029"
 dependencies = [
  "rig-agent",
  "rig-core",
- "rig-derive",
  "rig-fastembed",
  "rig-helixdb",
  "rig-lancedb",
@@ -8244,7 +8234,6 @@ dependencies = [
  "http",
  "indexmap 2.14.1",
  "rig-core",
- "rig-derive",
  "schemars 1.2.2",
  "serde",
  "serde_json",
@@ -8276,7 +8265,6 @@ dependencies = [
  "ordered-float",
  "pin-project-lite",
  "reqwest 0.13.4",
- "rig-derive",
  "schemars 1.2.2",
  "serde",
  "serde_json",
@@ -8287,19 +8275,6 @@ dependencies = [
  "tracing",
  "tracing-futures",
  "url",
-]
-
-[[package]]
-name = "rig-derive"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de0a33f1bac45f16e50146c248bcbbfaa44518c7252d274e972c7f4ad71aaba7"
-dependencies = [
- "convert_case 0.11.0",
- "proc-macro-crate 3.5.0",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]

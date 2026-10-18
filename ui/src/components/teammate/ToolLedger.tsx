@@ -26,12 +26,14 @@ export function ToolLedger({
 	const [ledger, setLedger] = useState<TeammateToolLedger | null | undefined>(undefined);
 	const [open, setOpen] = useState(false);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new teammate is what blanks the ledger.
 	useEffect(() => {
 		setLedger(undefined);
 		setOpen(false);
 	}, [personaId]);
 
 	// The answer replaces what is shown; it never blanks it first.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a change of session state can change the tools.
 	useEffect(() => {
 		let cancelled = false;
 		void wire

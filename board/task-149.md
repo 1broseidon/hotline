@@ -1,8 +1,8 @@
 ---
 id: task-149
 title: "P2-40 (D): By-hand lints and reasoned invariants"
-column: in-progress
-position: 38
+column: review
+position: 0
 priority: high
 tags:
   - phase2
@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/
   - crates/hotline-app/src/
   - crates/hotline-cli/src/
-updatedAt: "2026-10-18T08:18:11.643Z"
+updatedAt: "2026-10-18T08:39:54.251Z"
 contract:
   status: in_progress
   validation:
@@ -39,6 +39,8 @@ dispatch:
     runner: cli
     pid: 35147
     at: "2026-10-18T08:17:56.468Z"
+    ended: "2026-10-18T08:39:53.499Z"
+    outcome: review
 assignee: claude
 ---
 
@@ -53,3 +55,6 @@ Phase 2 group D (Fixes in the moved files), plan row 40 in docs/audits/0.40/READ
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T08:39:54.251Z: Not landed: 1 file is not committed in the worktree: send it back, or commit in your editor

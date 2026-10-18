@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/remote/relay.rs
   - crates/hotline-core/src/remote/bridge.rs
   - crates/hotline-app/src/transfer.rs
-updatedAt: "2026-10-17T22:48:38.570Z"
+updatedAt: "2026-10-18T00:15:05.528Z"
 contract:
   status: ready
   validation:
@@ -27,6 +27,14 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
 dependsOn:
   - task-128
+dispatch:
+  agent: claude
+  model: opus
+  by: cli
+  at: "2026-10-18T00:15:05.391Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

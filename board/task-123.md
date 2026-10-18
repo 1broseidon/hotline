@@ -55,3 +55,6 @@ Phase 2 group B (Delete dead code), plan row 11 in docs/audits/0.40/README.md on
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T01:51:30.508Z: [claude] Done on dispatch/task-123 (7e2226cc). Root Cargo.toml: rig = 0.42.0 with default-features = false, features agent/reqwest/rustls (identical to rig's defaults minus derive; rig-core defaults are reqwest/derive/rustls, so derive drops at both levels). Lockfile loses rig-derive and convert_case 0.11.0 only. Core Cargo.toml: Win32_System_Memory removed from windows-sys; the Windows leg of precheck builds clean without it. make check and make precheck pass (7/7). Nothing left unwired; the lockfile still collides with rows 2–5 if they land after this.

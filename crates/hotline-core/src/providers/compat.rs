@@ -429,7 +429,7 @@ mod tests {
         let mut instructions = response();
         instructions["instructions"] = json!([{"type":"message","role":"developer","content":[]}]);
         let mut float_time = response();
-        float_time["created_at"] = json!(1791871040.5);
+        float_time["created_at"] = json!(1_791_871_040.5);
         let mut empty_error = response();
         empty_error["error"] = json!({});
         let mut empty_details = response();

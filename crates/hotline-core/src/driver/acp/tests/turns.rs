@@ -579,7 +579,7 @@ fn holding_agent(
                                 serde_json::json!({
                                     "sessionUpdate": "usage_update",
                                     "used": 1000,
-                                    "size": 200000,
+                                    "size": 200_000,
                                     "cost": { "amount": 0.01, "currency": "USD" },
                                 })
                             };

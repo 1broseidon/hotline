@@ -1000,10 +1000,10 @@ fn mcp_path_component(id: &str) -> String {
     if readable.is_empty() {
         readable.push_str("server");
     }
-    let mut hash = 0xcbf29ce484222325u64;
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     for byte in id.as_bytes() {
         hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
     }
     format!("{readable}-{hash:016x}")
 }

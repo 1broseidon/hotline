@@ -657,9 +657,7 @@ async fn a_call_that_thinks_says_so_again() {
         })
         .unwrap();
     event(&mut rx, |e| matches!(e, VoiceEvent::State { .. })).await;
-    // Nothing else changes the call, so a second Thinking can only be the
-    // repeat. How soon it comes is not asserted: a loaded test run delays
-    // the timer well past its tenth of a second.
+    // Nothing else says Thinking twice, so the second one is the timer's.
     assert_eq!(
         event(&mut rx, |e| matches!(e, VoiceEvent::State { .. })).await,
         VoiceEvent::State {

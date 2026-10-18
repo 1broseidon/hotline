@@ -907,8 +907,8 @@ and 150 ms.
 
 The tests in `voice/speech/` use mock servers on localhost and never reach the
 network. `tests/local_speech.rs` serves small fake archives on localhost, and
-runs a real model only when `HOTLINE_TEST_SPEECH_MODEL` names a directory
-holding one.
+runs a real model only with `--ignored` and `HOTLINE_TEST_SPEECH_MODEL`
+naming a directory holding one.
 
 ## The voice front setting
 

@@ -3,22 +3,14 @@ use super::*;
 /// The reach selected over the real wire governs the real tools. No model is
 /// needed to choose an attack command, and a provider cannot skip the probe.
 #[tokio::test(flavor = "multi_thread")]
+#[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
 async fn workspace_reach_keeps_another_projects_env_out_of_the_tools() {
     use hotline_core::contract::Persona;
     use hotline_core::tools::{ReadFile, RunCommand, Workspace};
     use rig::tool::{Tool, ToolContext};
 
-    #[cfg(target_os = "linux")]
-    {
-        let probe = std::process::Command::new("bwrap")
-            .args(["--ro-bind", "/", "/", "--unshare-pid", "/bin/true"])
-            .output();
-        if !probe.is_ok_and(|output| output.status.success()) {
-            eprintln!("skipped: this machine cannot run bubblewrap");
-            return;
-        }
-    }
-    hotline_core::tools::shell_available(hotline_core::contract::Reach::Workspace).unwrap();
+    hotline_core::tools::shell_available(hotline_core::contract::Reach::Workspace)
+        .expect("needs bubblewrap on Linux, Seatbelt on macOS");
     let (root, port) = open("workspace-reach").await;
     let workspace = root.join("project");
     let other = root.join("other-project");

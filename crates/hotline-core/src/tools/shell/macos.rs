@@ -469,6 +469,13 @@ mod tests {
         // delegate work to an unsandboxed listener.
         let inside = std::os::unix::net::UnixListener::bind(work.join("inside.sock")).unwrap();
         inside.set_nonblocking(true).unwrap();
+        // The python3 line below must fail for the sandbox, not for want of
+        // python3, so first prove it runs here.
+        let python = output(&work, "python3 -c 'import socket'").await;
+        assert!(
+            python.status.success(),
+            "needs python3 in the sandbox: {python:?}"
+        );
         for script in [
             "/usr/bin/open -a Terminal".to_string(),
             "/usr/bin/osascript -e 'tell application \"System Events\" to get name'".to_string(),

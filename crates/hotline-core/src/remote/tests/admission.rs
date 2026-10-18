@@ -126,13 +126,13 @@ async fn remote_counts(remote: &Remote, expected: (usize, usize)) {
 
 async fn relay_server() -> (tempfile::TempDir, Arc<Remote>, String) {
     let root = tempfile::tempdir().unwrap();
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let listen = reserved.local_addr().unwrap();
-    drop(reserved);
+    let listener = loopback();
+    let listen = listener.local_addr().unwrap();
     let store = Arc::new(MemoryStore::default());
     let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
     let public_url = format!("https://{listen}/room");
-    let remote = Remote::open_served_with_store(
+    let remote = Remote::open_served_on(
+        listener,
         root.path(),
         Some(Agents {
             log: desk.log.clone(),

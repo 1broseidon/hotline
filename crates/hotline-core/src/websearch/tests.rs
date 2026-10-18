@@ -920,24 +920,44 @@ async fn every_provider_is_asked_and_their_lists_are_fused() {
     );
 }
 
+/// A provider that answers only once every provider sharing its barrier has
+/// been asked, so it answers at all only if they are in flight together.
+struct Together {
+    title: &'static str,
+    barrier: Arc<tokio::sync::Barrier>,
+}
+
+#[async_trait]
+impl Searcher for Together {
+    async fn search(&self, _request: &Request) -> Result<Vec<Hit>, Failure> {
+        self.barrier.wait().await;
+        Ok(vec![hit(self.title)])
+    }
+}
+
 #[tokio::test]
 async fn providers_run_at_once_not_one_after_another() {
-    let asked = Asked::default();
-    let slow = Duration::from_millis(150);
-    let search = ask(vec![
-        scripted(P::Parallel, Ok(vec![hit("a")]), slow, &asked),
-        scripted(P::Exa, Ok(vec![hit("b")]), slow, &asked),
-        scripted(P::Keenable, Ok(vec![hit("c")]), slow, &asked),
-        scripted(P::Firecrawl, Ok(vec![hit("d")]), slow, &asked),
-    ]);
-    let started = Instant::now();
+    let providers = [
+        (P::Parallel, "a"),
+        (P::Exa, "b"),
+        (P::Keenable, "c"),
+        (P::Firecrawl, "d"),
+    ];
+    let barrier = Arc::new(tokio::sync::Barrier::new(providers.len()));
+    let search = ask(providers
+        .into_iter()
+        .map(|(provider, title)| Attempt {
+            provider,
+            searcher: Box::new(Together {
+                title,
+                barrier: barrier.clone(),
+            }),
+            key: None,
+        })
+        .collect())
+    .with_bounds(Duration::from_secs(30), Duration::from_secs(30));
     let answered = search.run(&Query::parse("subject"), 5).await.unwrap();
-    assert!(
-        started.elapsed() < Duration::from_millis(400),
-        "{:?}",
-        started.elapsed()
-    );
-    assert_eq!(answered.hits.len(), 4);
+    assert_eq!(answered.hits.len(), 4, "{:?}", answered.failed);
 }
 
 #[tokio::test]
@@ -976,15 +996,17 @@ async fn the_total_budget_cuts_the_wait_and_uses_what_arrived() {
         scripted(
             P::Exa,
             Ok(vec![hit("late")]),
-            Duration::from_secs(5),
+            Duration::from_secs(120),
             &asked,
         ),
     ])
-    .with_bounds(Duration::from_secs(5), Duration::from_millis(120));
+    .with_bounds(Duration::from_secs(120), Duration::from_millis(120));
     let started = Instant::now();
     let answered = search.run(&Query::parse("subject"), 5).await.unwrap();
+    // The late provider would take two minutes; a budget kept returns in
+    // a fraction of one, however loaded the machine.
     assert!(
-        started.elapsed() < Duration::from_millis(600),
+        started.elapsed() < Duration::from_secs(60),
         "{:?}",
         started.elapsed()
     );

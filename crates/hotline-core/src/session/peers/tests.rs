@@ -9,6 +9,7 @@ use crate::contract::{ChapterClose, NoticeLevel, ToolStatus};
 use crate::driver::rig::Said;
 use crate::driver::{MessageKind, Update};
 use crate::mcp::server::TeammateTools;
+use crate::session::now_ms;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
 use serde_json::json;
 

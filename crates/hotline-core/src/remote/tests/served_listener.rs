@@ -114,9 +114,8 @@ fn served_listen_validation_never_permits_wildcard_or_implicit_tls() {
 #[tokio::test]
 async fn served_listener_uses_supplied_pem_certificate_and_key() {
     let root = tempfile::tempdir().unwrap();
-    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let listen = reserved.local_addr().unwrap();
-    drop(reserved);
+    let listener = loopback();
+    let listen = listener.local_addr().unwrap();
     let cert = rcgen::generate_simple_self_signed(vec!["127.0.0.1".into()]).unwrap();
     let cert_path = root.path().join("cert.pem");
     let key_path = root.path().join("key.pem");
@@ -131,7 +130,8 @@ async fn served_listener_uses_supplied_pem_certificate_and_key() {
         tls_key: Some(key_path),
         relay: true,
     };
-    let remote = Remote::open_served_with_store(
+    let remote = Remote::open_served_on(
+        listener,
         root.path(),
         Some(Agents {
             log: desk.log.clone(),

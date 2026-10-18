@@ -78,3 +78,8 @@ jobs:
           for tool in python3 node npm go rustc; do command -v "$tool" || true; done
       - name: Check core, desktop, window and isolation
         run: make check
+      # The sandbox tests are ignored on Linux unless asked for, since a
+      # machine may lack bubblewrap; this runner has it.
+      - name: Check the bubblewrap sandbox
+        if: runner.os == 'Linux'
+        run: cargo test -p hotline-core --locked -- --ignored tools::shell workspace_reach_keeps_another_projects_env_out_of_the_tools

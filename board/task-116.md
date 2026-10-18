@@ -1,7 +1,7 @@
 ---
 id: task-116
 title: "P2-4 (A): Tauri updater ZIP path"
-column: todo
+column: in-progress
 position: 5
 priority: high
 tags:
@@ -12,15 +12,17 @@ createdAt: "2026-10-17T22:40:44.032Z"
 relatedFiles:
   - crates/hotline-app/Cargo.toml
   - Cargo.lock
-updatedAt: "2026-10-18T01:08:55.025Z"
+updatedAt: "2026-10-18T01:09:01.846Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make precheck
       - make check
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T01:09:01.846Z"
+    reworkCount: 0
 dependsOn:
   - task-115
 dispatch:

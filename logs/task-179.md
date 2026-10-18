@@ -1,15 +1,13 @@
 ---
 id: task-179
 title: A dropdown's own tooltip covers the first item of its open menu
-column: review
-position: 0
 priority: medium
 tags:
   - ui
   - qa
 createdAt: "2026-10-18T21:49:01.853Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T21:50:20.947Z"
+updatedAt: "2026-10-18T21:50:22.162Z"
 dispatch:
   agent: claude
   model: opus
@@ -22,7 +20,10 @@ dispatch:
     runner: cli
     pid: 95396
     at: "2026-10-18T21:49:31.180Z"
+    ended: "2026-10-18T21:50:22.162Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T21:50:21.709Z"
 ---
 
 ## Description

@@ -298,26 +298,106 @@ impl Phone {
         }
         devices
     }
+    /// The operation, who it is to, what is said and where: one message,
+    /// accepted once however often the phone retries it.
     pub(crate) async fn prompt(
         &self,
-        operation_id: &str,
-        persona_id: &str,
+        operation: &str,
+        persona: &str,
         text: &str,
         attachment_ids: &[String],
         reply_to: Option<&str>,
         thread: Option<&ThreadId>,
     ) -> Result<Value, String> {
-        self.remote
-            .prompt(
-                self,
-                operation_id,
-                persona_id,
+        // The main conversation, named or not, or one of the teammate's work threads.
+        let side = match thread {
+            None => None,
+            Some(id) if id.kind == ThreadKind::Dm && id.key == persona => None,
+            Some(id) if id.kind == ThreadKind::Side && !id.key.is_empty() => Some(id.key.as_str()),
+            Some(_) => return Err("A phone speaks in the conversation or a work thread.".into()),
+        };
+        if Uuid::parse_str(operation).is_err()
+            || (text.trim().is_empty() && attachment_ids.is_empty())
+            || text.len() > 32_768
+            || attachment_ids.len() > 4
+            || reply_to.is_some_and(|id| id.is_empty() || id.len() > 128)
+        {
+            return Err("Supply a message and a valid operation id (maximum 32 KiB).".into());
+        }
+        let room = &self.remote.agents()?.room;
+        let _held = self.remote.prompts.lock().await;
+        if self.cancel.is_cancelled() {
+            return Err("This phone has been disconnected.".into());
+        }
+        let dir = self.remote.root.join("remote-receipts").join(&self.id);
+        let path = dir.join(format!(
+            "{}.json",
+            Uuid::parse_str(operation).map_err(message)?
+        ));
+        // Keep text-only receipts compatible with phones already paired: a
+        // field joins the digest only when the message carries it.
+        let digest = hash(
+            &match (attachment_ids.is_empty(), reply_to, side) {
+                (true, None, None) => json!([persona, text]),
+                (false, None, None) => json!([persona, text, attachment_ids]),
+                (_, Some(answered), None) => json!([persona, text, attachment_ids, answered]),
+                (_, answered, Some(side)) => {
+                    json!([persona, text, attachment_ids, answered, side])
+                }
+            }
+            .to_string(),
+        );
+        match fs::read(&path) {
+            Ok(bytes) => {
+                let receipt: Receipt = serde_json::from_slice(&bytes).map_err(message)?;
+                if receipt.digest != digest {
+                    return Err("This operation id already belongs to another message.".into());
+                }
+                return match receipt.result {
+                    Some(Ok(())) => Ok(json!({"state":"accepted"})),
+                    Some(Err(e)) => Err(e),
+                    None => Ok(json!({"state":"unknown"})),
+                };
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(_) => return Err("Could not read message acceptance.".into()),
+        }
+        let attachments = attachments::resolve(&self.remote.root, &self.id, attachment_ids)?;
+        fs::create_dir_all(&dir).map_err(message)?;
+        let mut receipt = Receipt {
+            digest,
+            result: None,
+        };
+        atomic_write(&path, &serde_json::to_vec(&receipt).map_err(message)?).map_err(message)?;
+        // The desktop opens a session when its conversation pane mounts. A
+        // phone may be the first client to speak to a teammate after restart.
+        let result = async {
+            if let Some(side) = side {
+                // A work thread brings its own agent up; the main session is not started for it.
+                return room
+                    .side_prompt(side, text, reply_to.map(str::to_owned), Some(attachments))
+                    .await;
+            }
+            room.start(persona).await?;
+            if self.cancel.is_cancelled() {
+                return Err("This phone has been disconnected.".into());
+            }
+            room.prompt(
+                persona,
                 text,
-                attachment_ids,
-                reply_to,
-                thread,
+                reply_to.map(str::to_owned),
+                Some(attachments),
             )
             .await
+        }
+        .await;
+        receipt.result = Some(result.clone());
+        if atomic_write(&path, &serde_json::to_vec(&receipt).map_err(message)?).is_err() {
+            // The command may already have reached the core. A refusal would
+            // wrongly tell the composer it is safe to issue a new operation.
+            return Ok(json!({"state":"unknown"}));
+        }
+        result.map(|()| json!({"state":"accepted"}))
     }
 
     /// Remembers where to notify this phone. An Expo push token, which is
@@ -758,108 +838,6 @@ impl Remote {
             return Err("rate_limited");
         }
         Ok(())
-    }
-    // The operation, who it is to, what is said and where: one message, field by field.
-    #[allow(clippy::too_many_arguments)]
-    async fn prompt(
-        &self,
-        phone: &Phone,
-        operation: &str,
-        persona: &str,
-        text: &str,
-        attachment_ids: &[String],
-        reply_to: Option<&str>,
-        thread: Option<&ThreadId>,
-    ) -> Result<Value, String> {
-        // The main conversation, named or not, or one of the teammate's work threads.
-        let side = match thread {
-            None => None,
-            Some(id) if id.kind == ThreadKind::Dm && id.key == persona => None,
-            Some(id) if id.kind == ThreadKind::Side && !id.key.is_empty() => Some(id.key.as_str()),
-            Some(_) => return Err("A phone speaks in the conversation or a work thread.".into()),
-        };
-        if Uuid::parse_str(operation).is_err()
-            || (text.trim().is_empty() && attachment_ids.is_empty())
-            || text.len() > 32_768
-            || attachment_ids.len() > 4
-            || reply_to.is_some_and(|id| id.is_empty() || id.len() > 128)
-        {
-            return Err("Supply a message and a valid operation id (maximum 32 KiB).".into());
-        }
-        let room = &self.agents()?.room;
-        let _held = self.prompts.lock().await;
-        if phone.cancel.is_cancelled() {
-            return Err("This phone has been disconnected.".into());
-        }
-        let dir = self.root.join("remote-receipts").join(&phone.id);
-        let path = dir.join(format!(
-            "{}.json",
-            Uuid::parse_str(operation).map_err(message)?
-        ));
-        // Keep text-only receipts compatible with phones already paired: a
-        // field joins the digest only when the message carries it.
-        let digest = hash(
-            &match (attachment_ids.is_empty(), reply_to, side) {
-                (true, None, None) => json!([persona, text]),
-                (false, None, None) => json!([persona, text, attachment_ids]),
-                (_, Some(answered), None) => json!([persona, text, attachment_ids, answered]),
-                (_, answered, Some(side)) => {
-                    json!([persona, text, attachment_ids, answered, side])
-                }
-            }
-            .to_string(),
-        );
-        match fs::read(&path) {
-            Ok(bytes) => {
-                let receipt: Receipt = serde_json::from_slice(&bytes).map_err(message)?;
-                if receipt.digest != digest {
-                    return Err("This operation id already belongs to another message.".into());
-                }
-                return match receipt.result {
-                    Some(Ok(())) => Ok(json!({"state":"accepted"})),
-                    Some(Err(e)) => Err(e),
-                    None => Ok(json!({"state":"unknown"})),
-                };
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(_) => return Err("Could not read message acceptance.".into()),
-        }
-        let attachments = attachments::resolve(&self.root, &phone.id, attachment_ids)?;
-        fs::create_dir_all(&dir).map_err(message)?;
-        let mut receipt = Receipt {
-            digest,
-            result: None,
-        };
-        atomic_write(&path, &serde_json::to_vec(&receipt).map_err(message)?).map_err(message)?;
-        // The desktop opens a session when its conversation pane mounts. A
-        // phone may be the first client to speak to a teammate after restart.
-        let result = async {
-            if let Some(side) = side {
-                // A work thread brings its own agent up; the main session is not started for it.
-                return room
-                    .side_prompt(side, text, reply_to.map(str::to_owned), Some(attachments))
-                    .await;
-            }
-            room.start(persona).await?;
-            if phone.cancel.is_cancelled() {
-                return Err("This phone has been disconnected.".into());
-            }
-            room.prompt(
-                persona,
-                text,
-                reply_to.map(str::to_owned),
-                Some(attachments),
-            )
-            .await
-        }
-        .await;
-        receipt.result = Some(result.clone());
-        if atomic_write(&path, &serde_json::to_vec(&receipt).map_err(message)?).is_err() {
-            // The command may already have reached the core. A refusal would
-            // wrongly tell the composer it is safe to issue a new operation.
-            return Ok(json!({"state":"unknown"}));
-        }
-        result.map(|()| json!({"state":"accepted"}))
     }
 }
 

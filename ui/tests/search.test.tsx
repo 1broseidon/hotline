@@ -32,9 +32,9 @@ async function withSearch(run: (helpers: {
 			act,
 			type: async (text) => {
 				await act(async () => {
-					input.dispatchEvent(new dom.FocusEvent("focusin", { bubbles: true }));
+					input.dispatchEvent(new window.FocusEvent("focusin", { bubbles: true }));
 					Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(input, text);
-					input.dispatchEvent(new dom.Event("input", { bubbles: true }));
+					input.dispatchEvent(new window.Event("input", { bubbles: true }));
 				});
 			},
 			settle: async () => {

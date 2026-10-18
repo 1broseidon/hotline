@@ -78,7 +78,7 @@ function button(label: string) {
 async function paste(value: string) {
 	await act(async () => {
 		Object.getOwnPropertyDescriptor(dom.HTMLTextAreaElement.prototype, "value")!.set!.call(field()!, value);
-		field()!.dispatchEvent(new dom.Event("input", { bubbles: true }));
+		field()!.dispatchEvent(new window.Event("input", { bubbles: true }));
 	});
 }
 async function click(label: string) {

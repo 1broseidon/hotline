@@ -35,7 +35,7 @@ describe("streamed microphone audio", () => {
 		await committed;
 		expect(sent.map((chunk) => chunk.final)).toEqual([false, true]);
 		expect(sent.map((chunk) => fromBase64(chunk.data).length)).toEqual([6_400, 19_200]);
-		const actual = Uint8Array.from(sent.flatMap((chunk) => Array.from(fromBase64(chunk.data))));
+		const actual: Uint8Array = Uint8Array.from(sent.flatMap((chunk) => Array.from(fromBase64(chunk.data))));
 		expect(actual).toEqual(encodeWav(input).subarray(44));
 		expect(errors).toEqual([]);
 		expect(sent.every((chunk) => fromBase64(chunk.data).length <= 32_768)).toBe(true);

@@ -71,12 +71,12 @@ test("one rail lists every desk's teammates with their desk, dims an unreachable
 				seen={{ clementine: 10 }}
 				connection="open"
 				onSelect={(id, deskId) => picked.push([id, deskId])}
-				onNew={() => {}}
-				onSettings={() => {}}
 				onEdit={() => {}}
 				onDelete={() => {}}
 				onPin={() => {}}
-				onHelp={() => {}}
+				onAddDesk={() => {}}
+				search={null}
+				deskKey={null}
 			/>,
 		);
 	const labels = () => [...container.querySelectorAll("[data-teammate-row]")].map((row) => row.getAttribute("aria-label"));

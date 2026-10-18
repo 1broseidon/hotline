@@ -102,7 +102,7 @@ async function pairFrom(desks: Desk[], link: string) {
 	const field = container.querySelector("#desk-link") as HTMLTextAreaElement;
 	await act(async () => {
 		Object.getOwnPropertyDescriptor(dom.HTMLTextAreaElement.prototype, "value")!.set!.call(field, link);
-		field.dispatchEvent(new dom.Event("input", { bubbles: true }));
+		field.dispatchEvent(new window.Event("input", { bubbles: true }));
 	});
 	const pair = [...container.querySelectorAll("button")].find((node) => node.textContent === "Pair")!;
 	await act(async () => {

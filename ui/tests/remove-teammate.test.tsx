@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import type { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
 import { installDom } from "./dom";
 
@@ -102,14 +101,13 @@ class FakeCore {
 let act: typeof import("react").act;
 let root: Root | null;
 let container: HTMLDivElement;
-let dom: Window;
 let teardown: () => Promise<void>;
 
 beforeEach(async () => {
 	FakeCore.all = [];
 	FakeCore.answerDelete = null;
 	menu = null;
-	({ dom, teardown } = installDom({ ResizeObserver: NoResize, WebSocket: FakeCore }));
+	({ teardown } = installDom({ ResizeObserver: NoResize, WebSocket: FakeCore }));
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "ws://core", token: "t" }]);
 	act = (await import("react")).act;
 	const { createRoot } = await import("react-dom/client");
@@ -152,7 +150,7 @@ test("a teammate picked while another's removal is on its way stays open", async
 
 	// Remove A from the rail's menu, and pick B before the core answers.
 	await act(async () => {
-		row("A").dispatchEvent(new dom.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+		row("A").dispatchEvent(new window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
 	});
 	await act(async () => {
 		menu!.onDelete();

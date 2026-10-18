@@ -158,7 +158,11 @@ test("a model is downloaded only when asked, followed until it lands, and remove
 		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
 		expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("50");
 		expect(refreshed).toBe(0);
-		models = models.map((one) => (one.state === "downloading" ? { ...one, state: "installed", receivedBytes: undefined } : one));
+		models = models.map((one) => {
+			if (one.state !== "downloading") return one;
+			const { receivedBytes: _, ...installed } = one;
+			return { ...installed, state: "installed" };
+		});
 		await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
 		expect(container.querySelector('[role="progressbar"]')).toBeNull();
 		expect(container.textContent).toContain("136 MB on the desk");
@@ -214,7 +218,7 @@ test("Words to listen for is one fold under the desk's models, and saving writes
 		expect(button("Save")!.disabled).toBe(true);
 		await act(async () => {
 			Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(field, "Ophelia, Groq, ophelia");
-			field.dispatchEvent(new dom.Event("input", { bubbles: true }));
+			field.dispatchEvent(new window.Event("input", { bubbles: true }));
 		});
 		await act(async () => { button("Save")!.click(); });
 		await settle();

@@ -160,7 +160,7 @@ describe("the Relay picker", () => {
 		const input = container.querySelector('[aria-label="Relay link"]') as HTMLInputElement;
 		await settle(() => {
 			Object.getOwnPropertyDescriptor(dom.HTMLInputElement.prototype, "value")!.set!.call(input, "hotline://pair?p=relay");
-			input.dispatchEvent(new dom.Event("input", { bubbles: true }));
+			input.dispatchEvent(new window.Event("input", { bubbles: true }));
 		});
 		await click("Pair");
 		expect(shell).toEqual([{ cmd: "desk_pair_link", params: { link: "hotline://pair?p=relay" } }]);

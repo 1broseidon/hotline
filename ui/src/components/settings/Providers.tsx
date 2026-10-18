@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import type { CapabilityOptions, CatalogModel, Credential, Provider } from "../../generated/contract";
 import { ChevronRightIcon, PlusIcon } from "../../icons";
 import { useModelsRevision, useRawSetting } from "../../room";
-import { recheckVoiceSupport } from "../../voice/call";
 import { BackKey, Band } from "../../ui/Band";
 import { Chips } from "../../ui/Chips";
 import { Fold } from "../../ui/Fold";
@@ -70,10 +69,7 @@ export function ProvidersSection({
 	const reload = () =>
 		wire
 			.command("credential.list", {})
-			.then((credentials) => {
-				setHeld(credentials);
-				recheckVoiceSupport();
-			})
+			.then(setHeld)
 			.catch((error: Error) => {
 				setHeld([]);
 				setRefusal(error.message);

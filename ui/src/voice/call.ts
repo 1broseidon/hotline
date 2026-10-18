@@ -9,7 +9,7 @@ import { type DeviceTranscription, type TranscriptionEvent, deviceTranscription,
 import { hearOnThisMac, subscribeHearing } from "./hearing";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 import { PcmResampler, PcmTurn } from "./stream";
-import { useRawSetting } from "../room";
+import { useModelsRevision, useRawSetting } from "../room";
 
 /**
  * A call belongs to its chosen desk and optional teammate. It lives outside
@@ -1071,40 +1071,29 @@ export function useCallSnapshot(call: Call | null): CallSnapshot {
 	);
 }
 
-const supportChecks = new Set<() => void>();
-
-/**
- * Ask every open voice check to look again. Connecting or removing a
- * provider changes whether the desk can take a call, and the desk does not
- * announce it, so whoever changed one says so.
- */
-export function recheckVoiceSupport(): void {
-	for (const check of supportChecks) check();
-}
-
 /**
  * Whether the open desk can take a call: it answers `voice.status` with a
  * speech provider it can use. A desk from before voice refuses the command,
- * and that is a no, not an error. Asked again when a provider changes here,
- * when the voice settings change, and when the window comes back, which is
- * when a change made from the phone shows.
+ * and that is a no, not an error. Asked again when the room says a
+ * connection came, went or found its models (a sign-in during onboarding
+ * included, so the call keys show before the first turn), when the voice
+ * settings change, and when the window comes back.
  */
 export function useVoiceSupport(connection: string): { available: boolean; directCalls: boolean } {
 	const [support, setSupport] = useState({ available: false, directCalls: false });
 	const [asked, setAsked] = useState(0);
 	const voiceSettings = useRawSetting("voice");
+	const modelsRevision = useModelsRevision();
 	useEffect(() => {
 		const again = () => setAsked((n) => n + 1);
-		supportChecks.add(again);
 		const unhear = subscribeHearing(again);
 		window.addEventListener("focus", again);
 		return () => {
-			supportChecks.delete(again);
 			unhear();
 			window.removeEventListener("focus", again);
 		};
 	}, []);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: asked and voiceSettings are what ask again.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: asked, voiceSettings and modelsRevision are what ask again.
 	useEffect(() => {
 		if (connection !== "open") { setSupport({ available: false, directCalls: false }); return; }
 		let current = true;
@@ -1120,6 +1109,6 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 		return () => {
 			current = false;
 		};
-	}, [connection, asked, voiceSettings]);
+	}, [connection, asked, voiceSettings, modelsRevision]);
 	return support;
 }

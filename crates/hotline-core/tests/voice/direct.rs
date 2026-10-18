@@ -477,3 +477,50 @@ async fn calls_off_refuses_a_call_and_says_why() {
     socket.close(None).await.unwrap();
     server.abort();
 }
+
+/// A desk that cannot call yet becomes one that can the moment a voice
+/// provider is connected, with no turn between: the room announces the new
+/// connection, which is what the window asks `voice.status` again on, and
+/// the answer is already ready, the Grok front included.
+#[tokio::test]
+async fn connecting_a_voice_provider_readies_calls_without_a_turn() {
+    let root = tempfile::tempdir().unwrap();
+    let desk =
+        Arc::new(hotline_core::desk::Desk::open_with_store(root.path(), common::store()).unwrap());
+    let door = Door::bind(desk.log.clone(), "fresh-desk-test".into(), desk).unwrap();
+    let port = door.port();
+    let server = tokio::spawn(door.run());
+    let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=fresh-desk-test"))
+        .await
+        .unwrap();
+    send(&mut socket, json!({"id":1,"cmd":"settings.update","params":{"patch":{"voice":{"front":{"provider":"grok"}}}}})).await;
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 1).await["ok"], true);
+    send(&mut socket, json!({"id":2,"sub":"room"})).await;
+    frame_where(&mut socket, |f| f["sub"] == 2 && f["snapshot"].is_array()).await;
+    send(
+        &mut socket,
+        json!({"id":3,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    let status = frame_where(&mut socket, |f| f["id"] == 3).await;
+    assert_eq!(status["result"]["available"], false, "{status}");
+    assert_eq!(status["result"]["directAvailable"], false, "{status}");
+    assert!(status["result"]["front"].is_null(), "{status}");
+
+    send(&mut socket, json!({"id":4,"cmd":"credential.create","params":{"providerId":"xai","label":"Grok","secret":"unused-test-key"}})).await;
+    assert_eq!(frame_where(&mut socket, |f| f["id"] == 4).await["ok"], true);
+    frame_where(&mut socket, |f| {
+        f["sub"] == 2 && f["event"]["kind"] == "credential" && f["event"]["providerId"] == "xai"
+    })
+    .await;
+    send(
+        &mut socket,
+        json!({"id":5,"cmd":"voice.status","params":{}}),
+    )
+    .await;
+    let status = frame_where(&mut socket, |f| f["id"] == 5).await;
+    assert_eq!(status["result"]["directAvailable"], true, "{status}");
+    assert_eq!(status["result"]["front"]["providerId"], "grok", "{status}");
+    socket.close(None).await.unwrap();
+    server.abort();
+}

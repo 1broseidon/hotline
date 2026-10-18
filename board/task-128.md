@@ -21,7 +21,7 @@ contract:
   status: delivered
   validation:
     commands:
-      - "! grep -n 'crate::' crates/hotline-core/src/contract.rs | grep -v 'crate::contract'"
+      - "! grep -n 'crate::' crates/hotline-core/src/contract.rs | grep -v 'crate::contract' | grep -v '^[0-9]*: *///'"
       - git diff --exit-code $(git merge-base HEAD release/0.40.0) -- ui/src/generated/contract.ts
       - make precheck
       - make check

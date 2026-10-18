@@ -12,7 +12,7 @@ createdAt: "2026-10-17T22:40:52.292Z"
 relatedFiles:
   - crates/hotline-core/src/session/tests.rs
   - crates/hotline-core/src/session/tests/
-updatedAt: "2026-10-18T05:37:15.268Z"
+updatedAt: "2026-10-18T05:43:41.948Z"
 contract:
   status: delivered
   validation:
@@ -58,6 +58,16 @@ Phase 2 group C (Move-only renames and splits), plan row 23 in docs/audits/0.40/
 - Size: M
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+Related Files:
+  - crates/hotline-core/src/session/tests.rs
+  - crates/hotline-core/src/session/tests/
+
+Settle note (Pork Chop, 2026-10-18 00:45): landing conflicts with release/0.40.0 in two places, both from moves meeting.
+- docs/security.md: release re-pointed voice rows to tests/voice/direct.rs and voice/tests/{text,budgets}.rs (P2-32), while this branch re-points session rows to session/tests/<topic>.rs. Keep both sets of paths.
+- crates/hotline-core/src/voice/tests.rs: release split it into voice/tests/*.rs. Re-apply your flake fix for a_call_that_thinks_says_so_again in the file that now holds it, and drop your edit to the old voice/tests.rs.
+
+Merge release/0.40.0 in, resolve, run make precheck, commit through the hooks.
 
 ## Log
 - 2026-10-18T05:11:55.254Z: [claude] Done on branch dispatch/task-132 (fb6631eb). session/tests.rs (7,247 lines) is now 735 lines of fixtures (Scripted, Fake, DeskKeys and the helpers) plus session/tests/{turns,preamble,chat,subagents,computer,scheduled,chapters,cards,runs,sent_files,voice}.rs, following structure F6's ranges at today's line numbers. There are 132 tests before and after, not 131, because task-113 added one; it sits in voice.rs beside its short-reply twin. The path crate::session::tests is unchanged, so the other modules' imports still work. Helpers shared across topics moved up into the fixtures: saying, heard, spoken, write_tape, until_state, ComputerRoom, computer_room, TWO_RELEASES, notices. computer.rs is gated once with #[cfg(unix)] mod computer; in place of the per-item attributes, so Windows has no unused import. The section-divider comments became //! module docs. docs/security.md now cites the new files (rows :670 :682 :688 :691 :695 :704 :708 :709, :951 and :1501), and the runs:: and sent_files:: prefixes are gone; every cited name was checked against its file. make check and make precheck (7/7, Windows included) pass, and contract.ts is unchanged. For task 45 and the others after this one: new session tests go in the topic file, not tests.rs. Nothing left unwired.

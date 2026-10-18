@@ -3,6 +3,7 @@ name = "hotline-app"
 description = "Hotline's desktop shell on Tauri 2: one window onto the core, which runs in this process."
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [lib]
 name = "hotline_app_lib"

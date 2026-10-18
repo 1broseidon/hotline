@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { Window } from "happy-dom";
+import type { Window } from "happy-dom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { DesksSection } from "../src/components/DesksSection";
 import { RemoteSection } from "../src/components/RemoteSection";
 import { replaceDesks, wireFor, type Desk } from "../src/desks";
+import { installDom } from "./dom";
 
 // The desktop's own core answers at its own wire's `command`; the shell answers at
 // Tauri's invoke; a paired server's bridge is a socket the test speaks for.
@@ -34,6 +35,7 @@ let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
 let restores: (() => void)[];
+let teardown: () => Promise<void>;
 const spied = new WeakSet<object>();
 
 function remoteDesk(id: string, extra: Partial<Desk> = {}): Desk {
@@ -46,12 +48,7 @@ function statusNow() {
 
 beforeEach(async () => {
 	restores = [];
-	dom = new Window();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, WebSocket: FakeSocket, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); });
-	}
+	({ dom, teardown } = installDom({ WebSocket: FakeSocket }));
 	FakeSocket.all = [];
 	const schedule = spyOn(globalThis, "setInterval").mockImplementation((() => 0) as unknown as typeof setInterval);
 	restores.push(() => schedule.mockRestore());
@@ -85,7 +82,7 @@ afterEach(async () => {
 	await act(async () => { root?.unmount(); root = null; });
 	replaceDesks([]);
 	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 
 async function settle(action: () => unknown = () => {}) { await act(async () => { await action(); }); }

@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { Window } from "happy-dom";
+import type { Window } from "happy-dom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { RemoteSection } from "../src/components/RemoteSection";
 import { replaceDesks } from "../src/desks";
 import { wire } from "../src/wire";
+import { installDom } from "./dom";
 
 // No desk, sockets, native shell, or real clock: drive the mounted UI at its wire boundary.
 const epoch = 1_800_000_000_000;
@@ -33,16 +34,12 @@ let root: Root | null;
 let container: HTMLDivElement;
 let dom: Window;
 let restores: (() => void)[];
+let teardown: () => Promise<void>;
 let clipboard: string[];
 
 beforeEach(() => {
 	restores = [];
-	dom = new Window();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); });
-	}
+	({ dom, teardown } = installDom());
 	clipboard = [];
 	const copy = spyOn(dom.navigator.clipboard, "writeText").mockImplementation(async (text) => { clipboard.push(text); });
 	restores.push(() => copy.mockRestore());
@@ -81,7 +78,7 @@ beforeEach(() => {
 afterEach(async () => {
 	await unmount();
 	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 async function mount() { await act(async () => { root!.render(<RemoteSection />); }); }
 async function unmount() { await act(async () => { root?.unmount(); root = null; }); }

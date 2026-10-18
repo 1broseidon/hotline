@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import type { RunningSubagent } from "../src/generated/contract";
 import type { ThreadRef } from "../src/components/Transcript";
+import { installDom } from "./dom";
 
 // Rendering needs the shell's platform and motion preference, not a live desk.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
@@ -25,17 +25,10 @@ const brakes: RunningSubagent = { runId: "r2", title: "Brakes", startedAt: 2 };
 let act: typeof import("react").act;
 let root: Root;
 let container: HTMLDivElement;
-let dom: Window;
-let restores: (() => void)[];
+let teardown: () => Promise<void>;
 
 beforeEach(async () => {
-	dom = new Window();
-	restores = [];
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, localStorage: dom.localStorage, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => (descriptor ? Object.defineProperty(globalThis, key, descriptor) : Reflect.deleteProperty(globalThis, key)));
-	}
+	({ teardown } = installDom());
 	act = (await import("react")).act;
 	const { createRoot } = await import("react-dom/client");
 	container = document.createElement("div");
@@ -45,8 +38,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await act(async () => root.unmount());
-	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 
 describe("the subagents at the composer's corner", () => {

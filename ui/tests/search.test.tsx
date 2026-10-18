@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { RosterEntry } from "../src/wire";
+import { installDom } from "./dom";
 
 const roster = [
 	{ persona: { id: "ada", name: "Ada" }, session: { personaId: "ada", state: "idle" } },
@@ -13,12 +13,7 @@ async function withSearch(run: (helpers: {
 	settle(): Promise<void>;
 	act: typeof import("react").act;
 }) => Promise<void>, answer: (name: string) => unknown, picked: [string, string | undefined][] = []) {
-	const dom = new Window();
-	const originals = new Map<string, PropertyDescriptor | undefined>();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true, requestAnimationFrame: (run: () => void) => setTimeout(run, 0) })) {
-		originals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-	}
+	const { dom, teardown } = installDom({ requestAnimationFrame: (run: () => void) => setTimeout(run, 0) });
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
 	const { TeamSearch } = await import("../src/components/Search");
@@ -49,11 +44,7 @@ async function withSearch(run: (helpers: {
 	} finally {
 		await act(async () => { root.unmount(); });
 		command.mockRestore();
-		await dom.happyDOM.close();
-		for (const [key, descriptor] of originals) {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		}
+		await teardown();
 	}
 }
 

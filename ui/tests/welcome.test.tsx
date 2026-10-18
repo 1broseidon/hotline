@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
+import { installDom } from "./dom";
 
 // Loading the window's modules reads the platform from `window`, before any test has a DOM.
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
@@ -17,22 +17,12 @@ class NoResize {
 let act: typeof import("react").act;
 let root: Root | null;
 let container: HTMLDivElement;
-let dom: Window;
-let restores: (() => void)[];
+let teardown: () => Promise<void>;
 let connected: number;
 let created: string[];
 
 beforeEach(async () => {
-	restores = [];
-	dom = new Window();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: NoResize })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		});
-	}
+	({ teardown } = installDom({ ResizeObserver: NoResize }));
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "", token: "" }]);
 	connected = 0;
 	created = [];
@@ -49,8 +39,7 @@ afterEach(async () => {
 		root = null;
 	});
 	replaceDesks([]);
-	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 
 async function mount(onConnectServer: (() => void) | null) {

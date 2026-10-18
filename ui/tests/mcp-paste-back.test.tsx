@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { Window } from "happy-dom";
+import type { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
+import { installDom } from "./dom";
 
 // Loading the window's modules reads the platform, and the theme, before any test has a DOM.
 Object.assign(globalThis, {
@@ -25,20 +26,13 @@ let container: HTMLDivElement;
 let dom: Window;
 let act: typeof import("react").act;
 let restores: (() => void)[];
+let teardown: () => Promise<void>;
 
 const pending = { serverId: "linear", status: "pending", loginId: "login-1", authorizationUrl: "https://provider.example/authorize", redirectUri: "http://127.0.0.1:41777/oauth/callback/linear" };
 
 beforeEach(async () => {
 	restores = [];
-	dom = new Window();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		});
-	}
+	({ dom, teardown } = installDom());
 	calls = [];
 	answer = ({ cmd }) => {
 		if (cmd === "mcp.auth_status") return pending;
@@ -64,7 +58,7 @@ afterEach(async () => {
 	});
 	replaceDesks([]);
 	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 
 async function mount(desk: "local" | "server") {

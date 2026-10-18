@@ -1,7 +1,7 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { CapabilityOptions, SpeechModel } from "../src/generated/contract";
 import { busy, installedChanged, languageHint, megabytes, modelLine, progress } from "../src/voice/deskModels";
+import { installDom } from "./dom";
 
 function model(overrides: Partial<SpeechModel> = {}): SpeechModel {
 	return {
@@ -66,17 +66,8 @@ describe("which model to suggest", () => {
 });
 
 test("each row names the model with its tag from the catalogue, and a window not in English is offered the model that hears more", async () => {
-	const dom = new Window();
+	const { dom, teardown } = installDom();
 	Object.defineProperty(dom.navigator, "language", { value: "fr-FR", configurable: true });
-	const restores: (() => void)[] = [];
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		});
-	}
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
 	const { DeskModels } = await import("../src/components/DeskModels");
@@ -106,22 +97,12 @@ test("each row names the model with its tag from the catalogue, and a window not
 	} finally {
 		await act(async () => { root.unmount(); });
 		command.mockRestore();
-		for (const restore of restores.reverse()) restore();
-		await dom.happyDOM.close();
+		await teardown();
 	}
 });
 
 test("a model is downloaded only when asked, followed until it lands, and removed; Voice opens even with nothing connected", async () => {
-	const dom = new Window();
-	const restores: (() => void)[] = [];
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		});
-	}
+	const { teardown } = installDom();
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
 	const { UseFor } = await import("../src/components/UseFor");
@@ -190,22 +171,12 @@ test("a model is downloaded only when asked, followed until it lands, and remove
 	} finally {
 		await act(async () => { root.unmount(); });
 		command.mockRestore();
-		for (const restore of restores.reverse()) restore();
-		await dom.happyDOM.close();
+		await teardown();
 	}
 });
 
 test("Words to listen for is one fold under the desk's models, and saving writes them beside the voice picks", async () => {
-	const dom = new Window();
-	const restores: (() => void)[] = [];
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		});
-	}
+	const { dom, teardown } = installDom();
 	const { act } = await import("react");
 	const { createRoot } = await import("react-dom/client");
 	const { UseFor } = await import("../src/components/UseFor");
@@ -252,7 +223,6 @@ test("Words to listen for is one fold under the desk's models, and saving writes
 	} finally {
 		await act(async () => { root.unmount(); });
 		command.mockRestore();
-		for (const restore of restores.reverse()) restore();
-		await dom.happyDOM.close();
+		await teardown();
 	}
 });

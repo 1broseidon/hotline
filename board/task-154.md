@@ -1,7 +1,7 @@
 ---
 id: task-154
 title: "P2-45a (D): Shared test plumbing: one bounded test Client in tests/common"
-column: todo
+column: in-progress
 position: 43
 priority: high
 tags:
@@ -9,13 +9,13 @@ tags:
   - fixes
 parentId: epic-13
 createdAt: "2026-10-17T22:41:03.758Z"
-updatedAt: "2026-10-18T06:18:53.191Z"
+updatedAt: "2026-10-18T06:19:02.655Z"
 relatedFiles:
   - crates/hotline-core/tests/common/mod.rs
   - crates/hotline-core/tests/
   - crates/hotline-cli/tests/
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - test -d crates/hotline-cli/tests/common
@@ -24,6 +24,8 @@ contract:
       - make verify
   metrics:
     readyAt: "2026-10-17T22:48:38.572Z"
+    pickedUpAt: "2026-10-18T06:19:02.655Z"
+    reworkCount: 0
 dependsOn:
   - task-132
   - task-133

@@ -1257,7 +1257,7 @@ impl Room {
     /// with the computer or without it, and a download that is still going is
     /// the DM's to watch.
     pub(crate) fn computer_in_a_thread(&self, persona_id: &str) -> String {
-        let enabled = self.persona(persona_id).ok().is_some_and(|persona| {
+        let enabled = self.persona(persona_id).is_ok_and(|persona| {
             persona
                 .computer
                 .as_ref()
@@ -1288,7 +1288,7 @@ impl Room {
     /// What `computer_status` answers: where this teammate's computer is,
     /// waiting up to `wait` for a download in progress to finish.
     pub(crate) async fn computer_setup_status(&self, persona_id: &str, wait: Duration) -> Value {
-        let enabled = self.persona(persona_id).ok().is_some_and(|persona| {
+        let enabled = self.persona(persona_id).is_ok_and(|persona| {
             persona
                 .computer
                 .as_ref()

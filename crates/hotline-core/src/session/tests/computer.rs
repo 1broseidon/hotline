@@ -845,8 +845,7 @@ async fn updating_a_computer_waits_for_the_turn_and_the_teammate_carries_on() {
         loop {
             let replaced = room
                 .session("ada")
-                .ok()
-                .is_some_and(|now| !Arc::ptr_eq(&now, &session) && now.computer);
+                .is_ok_and(|now| !Arc::ptr_eq(&now, &session) && now.computer);
             if replaced && room.info("ada").state == SessionState::Ready {
                 break;
             }

@@ -165,12 +165,10 @@ async fn probe(runtime: Runtime, bins: &BinSearch) -> RuntimeReport {
     let rootless = match runtime {
         Runtime::Docker => output(&cmd, &["info", "--format", "{{json .SecurityOptions}}"])
             .await
-            .ok()
-            .is_some_and(|out| out.contains("rootless")),
+            .is_ok_and(|out| out.contains("rootless")),
         Runtime::Podman => output(&cmd, &["info", "--format", "{{.Host.Security.Rootless}}"])
             .await
-            .ok()
-            .is_some_and(|out| out == "true"),
+            .is_ok_and(|out| out == "true"),
         // Apple's container runs each container in its own lightweight VM;
         // there is no root daemon on the host to be rootless relative to.
         Runtime::AppleContainer => true,

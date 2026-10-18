@@ -1,8 +1,6 @@
 ---
 id: task-169
 title: "P2-54 (F): The window's gates"
-column: in-progress
-position: 58
 priority: high
 tags:
   - phase2
@@ -14,7 +12,7 @@ relatedFiles:
   - ui/package.json
   - ui/bun.lock
   - Makefile
-updatedAt: "2026-10-18T03:34:31.529Z"
+updatedAt: "2026-10-18T03:45:01.246Z"
 contract:
   status: in_progress
   validation:
@@ -41,7 +39,10 @@ dispatch:
     runner: cli
     pid: 39764
     at: "2026-10-18T03:33:54.818Z"
+    ended: "2026-10-18T03:45:01.246Z"
+    outcome: done
 assignee: claude
+completedAt: "2026-10-18T03:45:00.868Z"
 ---
 
 ## Description
@@ -55,3 +56,6 @@ Phase 2 group F (Gates), plan row 54 in docs/audits/0.40/README.md on release/0.
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T03:45:00.489Z: Landed on release/0.40.0

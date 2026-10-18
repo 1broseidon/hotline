@@ -714,7 +714,10 @@ struct Turn {
 impl Turn {
     /// A turn on the history, after `message` when there is one; a retry has
     /// none, because the line it answers is already the history's last.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "Failure carries the whole structured diagnosis; a turn returns it once, so boxing buys nothing"
+    )]
     async fn run(
         &self,
         sender: &mpsc::Sender<Update>,

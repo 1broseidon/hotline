@@ -41,7 +41,10 @@ impl ChatMeter {
     }
 
     /// Reserves a round of about `input` tokens in and at most `output` out.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "Failure carries the whole structured diagnosis; a turn returns it once, so boxing buys nothing"
+    )]
     fn reserve(
         &self,
         input: u64,
@@ -139,7 +142,10 @@ impl Steering {
     }
 }
 
-#[allow(clippy::result_large_err)]
+#[expect(
+    clippy::result_large_err,
+    reason = "Failure carries the whole structured diagnosis; a turn returns it once, so boxing buys nothing"
+)]
 pub(super) async fn run(
     model: &impl CompletionModel,
     mut template: CompletionRequest,
@@ -192,7 +198,10 @@ pub(super) async fn run(
     }
 }
 
-#[allow(clippy::result_large_err)]
+#[expect(
+    clippy::result_large_err,
+    reason = "Failure carries the whole structured diagnosis; a turn returns it once, so boxing buys nothing"
+)]
 async fn run_inner(
     model: &impl CompletionModel,
     template: CompletionRequest,
@@ -391,7 +400,10 @@ impl Activity<'_> {
     /// the person as they come, its usage settled, and the response checked
     /// before any of its calls is accepted. Every retry of a round happens
     /// here, so a retry never replays a tool.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "Failure carries the whole structured diagnosis; a turn returns it once, so boxing buys nothing"
+    )]
     async fn stream_response(
         &mut self,
         model: &impl CompletionModel,
@@ -579,7 +591,10 @@ impl Activity<'_> {
 
     /// Whether a failed round may start again. Retrying happens before
     /// accepting another response, so no tool dispatch is replayed.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "Failure carries the whole structured diagnosis; a turn returns it once, so boxing buys nothing"
+    )]
     async fn recover(&mut self, failure: &Failure, revision: u64) -> Result<bool, Failure> {
         if self.turn.stop.raised.load(Ordering::SeqCst) {
             return Ok(true);
@@ -629,7 +644,10 @@ impl Activity<'_> {
 
     /// A failed round, started again when [`Self::recover`] says it may be, or the
     /// failure that ends the activity.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "Failure carries the whole structured diagnosis; a turn returns it once, so boxing buys nothing"
+    )]
     async fn retry(&mut self, failure: Failure, revision: u64) -> Result<Streamed, Failure> {
         if self.recover(&failure, revision).await? {
             if matches!(failure.kind, Kind::Context | Kind::Replay) {
@@ -643,7 +661,10 @@ impl Activity<'_> {
     /// The tool-dispatch phase: every call in an accepted response gets its
     /// one result, in order, whether it ran or was skipped. Nothing here
     /// retries.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "Failure carries the whole structured diagnosis; a turn returns it once, so boxing buys nothing"
+    )]
     async fn dispatch_calls(
         &mut self,
         tools: &ToolSet,
@@ -714,7 +735,10 @@ impl Activity<'_> {
 
     /// One call run, or skipped with the reason: the activity was stopped,
     /// a newer message superseded it, or its tool access was revoked.
-    #[allow(clippy::result_large_err)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "Failure carries the whole structured diagnosis; a turn returns it once, so boxing buys nothing"
+    )]
     async fn execute(
         &mut self,
         tools: &ToolSet,

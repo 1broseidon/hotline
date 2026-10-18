@@ -478,7 +478,10 @@ impl RoomHandle for Computered {
 /// A computer's viewer socket with nothing behind it: one frame the moment a
 /// viewer connects, then every text message handed straight back, and a note
 /// of the query it was asked with.
-#[allow(clippy::result_large_err)]
+#[expect(
+    clippy::result_large_err,
+    reason = "tungstenite fixes the handshake callback's error type"
+)]
 async fn fake_computer() -> (u16, Arc<std::sync::Mutex<Option<String>>>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

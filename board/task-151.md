@@ -1,8 +1,8 @@
 ---
 id: task-151
 title: "P2-42 (D): `result_large_err`: all 13 become `#[expect(…, reason)]`"
-column: review
-position: 40
+column: in-progress
+position: 1
 priority: high
 tags:
   - phase2
@@ -14,7 +14,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig.rs
   - crates/hotline-core/src/wire/
   - crates/hotline-core/src/remote/bridge.rs
-updatedAt: "2026-10-18T09:58:23.698Z"
+updatedAt: "2026-10-18T10:00:25.317Z"
 contract:
   status: delivered
   validation:

@@ -52,3 +52,6 @@ Phase 2 group D (Fixes in the moved files), plan row 35 in docs/audits/0.40/READ
 - Size: S
 
 End with `make precheck` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T02:40:21.818Z: [claude] Done on dispatch/task-144, one commit (030aedc5). `impl Default for DiscoveryHttp` is gone. `DiscoveryHttp::new() -> Result<Self, String>` replaces it ("Could not prepare model discovery; the previous list is unchanged."), and `built(builder)` is the seam for a test. All seven call sites now use `new()?`: the report's three in discovery.rs, plus four it missed (copilot.rs:155, custom.rs:99, chatgpt.rs:103, xai.rs:456). The previous list is kept because desk.rs credential_refresh_models returns the error before cache_discovery. Unit test a_client_that_cannot_build_refuses_the_listing_instead_of_panicking makes the build fail with use_preconfigured_tls(()). NOT done: the report's wire-level proof with an injected failure. That would need a global failure hook in the core path, which is more machinery than an S row should add, so the unit test proves the constructor path instead. For row 39: `collect` (future_not_send) moved from :182 to about :191. make check and make precheck (7/7) pass.

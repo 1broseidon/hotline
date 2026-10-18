@@ -689,7 +689,7 @@ fn a_rate_limit_rests_a_provider_a_minute_or_what_it_asked_and_a_timeout_a_littl
         Some(Duration::from_secs(20))
     );
     assert_eq!(
-        Failure::new("keenable: request failed: timed out").cooldown(),
+        Failure::of(Kind::TimedOut, "keenable: request failed: timed out").cooldown(),
         Some(Duration::from_secs(20))
     );
     assert_eq!(Failure::status("exa", 401, "", true).cooldown(), None);
@@ -697,6 +697,24 @@ fn a_rate_limit_rests_a_provider_a_minute_or_what_it_asked_and_a_timeout_a_littl
         Failure::new("failed to decode exa response").cooldown(),
         None
     );
+}
+
+#[test]
+fn the_cooldown_follows_the_kind_whatever_the_words_say() {
+    let reworded = |kind| Failure::of(kind, "exa: something went wrong").cooldown();
+    assert_eq!(reworded(Kind::RateLimited), Some(Duration::from_secs(60)));
+    assert_eq!(reworded(Kind::OutOfCredits), Some(Duration::from_secs(60)));
+    assert_eq!(reworded(Kind::TimedOut), Some(Duration::from_secs(20)));
+    assert_eq!(reworded(Kind::Status(502)), Some(Duration::from_secs(20)));
+    assert_eq!(reworded(Kind::Status(404)), None);
+    // A provider's own words cannot rest it: these came from a body.
+    for words in [
+        "exa search tool returned an error: rate limited",
+        "exa JSON-RPC error -32000: upstream timed out",
+        "exa: cooling down (rate limited) returned status 503",
+    ] {
+        assert_eq!(Failure::new(words).cooldown(), None, "{words}");
+    }
 }
 
 #[tokio::test]
@@ -708,7 +726,7 @@ async fn a_provider_that_was_rate_limited_is_skipped_and_the_footer_says_so() {
             scripted(P::Parallel, Ok(vec![hit("alpha")]), Duration::ZERO, &asked),
             scripted(
                 P::Firecrawl,
-                Err("firecrawl: rate limited"),
+                Err(Failure::status("firecrawl", 429, "", true)),
                 Duration::ZERO,
                 &asked,
             ),
@@ -822,7 +840,7 @@ fn a_result_without_a_preview_says_so() {
 
 /// A provider that answers as scripted and notes that it was asked.
 struct Scripted {
-    answer: Result<Vec<Hit>, String>,
+    answer: Result<Vec<Hit>, Failure>,
     delay: Duration,
     asked: Arc<Mutex<Vec<&'static str>>>,
     who: &'static str,
@@ -833,7 +851,7 @@ impl Searcher for Scripted {
     async fn search(&self, _request: &Request) -> Result<Vec<Hit>, Failure> {
         self.asked.lock().unwrap().push(self.who);
         tokio::time::sleep(self.delay).await;
-        self.answer.clone().map_err(Failure::new)
+        self.answer.clone()
     }
 }
 
@@ -850,14 +868,14 @@ type Asked = Arc<Mutex<Vec<&'static str>>>;
 
 fn scripted(
     provider: P,
-    answer: Result<Vec<Hit>, &str>,
+    answer: Result<Vec<Hit>, Failure>,
     delay: Duration,
     asked: &Asked,
 ) -> Attempt {
     Attempt {
         provider,
         searcher: Box::new(Scripted {
-            answer: answer.map_err(str::to_string),
+            answer,
             delay,
             asked: asked.clone(),
             who: id(provider),
@@ -927,7 +945,12 @@ async fn a_failed_or_slow_provider_costs_its_list_and_is_named_in_the_footer() {
     let asked = Asked::default();
     let search = ask(vec![
         scripted(P::Parallel, Ok(vec![hit("a")]), Duration::ZERO, &asked),
-        scripted(P::Exa, Err("exa: rate limited"), Duration::ZERO, &asked),
+        scripted(
+            P::Exa,
+            Err(Failure::status("exa", 429, "", true)),
+            Duration::ZERO,
+            &asked,
+        ),
         scripted(P::Keenable, Ok(vec![hit("b")]), Duration::ZERO, &asked),
         scripted(
             P::Firecrawl,
@@ -967,7 +990,10 @@ async fn the_total_budget_cuts_the_wait_and_uses_what_arrived() {
     );
     assert_eq!(answered.answered, vec![P::Parallel]);
     assert!(
-        answered.failed[0].1.contains("timed out after 120ms"),
+        answered.failed[0]
+            .1
+            .message
+            .contains("timed out after 120ms"),
         "{:?}",
         answered.failed
     );
@@ -1003,20 +1029,28 @@ async fn the_error_names_every_provider_tried_and_why() {
     let search = ask(vec![
         scripted(
             P::Parallel,
-            Err("parallel returned status 503"),
+            Err(Failure::status("parallel", 503, "", false)),
             Duration::ZERO,
             &asked,
         ),
-        scripted(P::Exa, Err("exa: rate limited"), Duration::ZERO, &asked),
+        scripted(
+            P::Exa,
+            Err(Failure::status("exa", 429, "", true)),
+            Duration::ZERO,
+            &asked,
+        ),
         scripted(
             P::Keenable,
-            Err("keenable: request failed: timed out"),
+            Err(Failure::of(
+                Kind::TimedOut,
+                "keenable: request failed: timed out",
+            )),
             Duration::ZERO,
             &asked,
         ),
         scripted(
             P::Firecrawl,
-            Err("firecrawl returned status 500"),
+            Err(Failure::status("firecrawl", 500, "", false)),
             Duration::ZERO,
             &asked,
         ),
@@ -1046,7 +1080,7 @@ async fn a_key_is_scrubbed_from_whatever_a_provider_says() {
     let asked = Asked::default();
     let mut attempt = scripted(
         P::Exa,
-        Err(&format!("exa returned status 400: bad key {KEY}")),
+        Err(Failure::status("exa", 400, &format!("bad key {KEY}"), true)),
         Duration::ZERO,
         &asked,
     );
@@ -1112,7 +1146,7 @@ async fn real_providers_over_mocks_fall_out_of_the_fusion_without_costing_the_an
     let reasons: Vec<&str> = answered
         .failed
         .iter()
-        .map(|(_, why)| why.as_str())
+        .map(|(_, failure)| failure.message.as_str())
         .collect();
     assert!(
         reasons[0].starts_with("parallel: rate limited"),

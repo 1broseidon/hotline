@@ -30,7 +30,7 @@ contract:
     readyAt: "2026-10-17T22:48:38.572Z"
     pickedUpAt: "2026-10-18T00:31:04.589Z"
     reworkCount: 0
-updatedAt: "2026-10-18T00:35:56.221Z"
+updatedAt: "2026-10-18T00:36:37.437Z"
 dependsOn:
   - task-122
 dispatch:
@@ -56,3 +56,6 @@ Phase 2 group C, plan row 33 (third landing) in docs/audits/0.40/README.md on re
 Move-only: first move the fold logic out of `ui/src/components/Transcript.tsx` into `ui/src/transcriptFolds.ts`, then split the rest of the component by concern, re-exporting everything from `components/Transcript.tsx` so no importer changes. No behaviour change.
 
 End with `make precheck` and `make ui-check` (the hooks are on; never --no-verify). Follow the epic's rules.
+
+## Log
+- 2026-10-18T00:36:37.437Z: Not landed: 1 file is not committed in the worktree: send it back, or commit in your editor

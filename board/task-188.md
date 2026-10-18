@@ -9,6 +9,11 @@ tags:
   - ui
 parentId: epic-14
 createdAt: "2026-10-18T23:40:57.376Z"
+relatedFiles:
+  - crates/hotline-core/src/driver/rig/build.rs
+  - crates/hotline-core/src/driver/failure.rs
+  - ui/src/components/settings
+updatedAt: "2026-10-18T23:53:19.400Z"
 ---
 
 ## Description

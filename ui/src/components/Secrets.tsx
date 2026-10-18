@@ -467,6 +467,7 @@ export function ComputerSecrets({
 	// Re-read whenever the ticks change from elsewhere — a passkey the room
 	// just stored and ticked shows as what it is, not as "not stored".
 	const grantedKey = granted.join("\n");
+	// biome-ignore lint/correctness/useExhaustiveDependencies: ticks changed elsewhere are what re-read the list.
 	useEffect(() => {
 		let gone = false;
 		wire

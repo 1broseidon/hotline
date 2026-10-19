@@ -14,8 +14,9 @@ parentId: epic-20
 createdAt: "2026-10-19T19:59:32.080Z"
 dependsOn:
   - task-216
-updatedAt: "2026-10-19T19:59:34.546Z"
+  - task-217
+updatedAt: "2026-10-19T20:02:52.839Z"
 ---
 
 ## Description
-ADR 0008 §6 slice 3: send_file and generate_image from a work thread, a pair or a call post to the home thread through Room::post, stamped with where they came from; a quiet run's file is its post. Removes the quiet refusal and its kept-copy cleanup in session/files.rs.
+ADR 0008 §6 slice 3: send_file and generate_image from a work thread, a pair or a call post to the home thread through Room::post (task-216), stamped with where they came from; a quiet run's file is its post and counts as the turn's one post under the post_to_chat gate task-217 builds (use that gate; do not add a second count). Removes the quiet refusal (the QUIET constant) and its kept-copy cleanup in session/files.rs. Extend the headless harness that covers sent files: a file from a work thread lands in the chat with its `from` stamp and the thread keeps a line naming it; a quiet run's file is its post, and a post_to_chat after it in the same turn is refused.

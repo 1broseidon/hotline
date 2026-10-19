@@ -2,8 +2,9 @@
 
 - Status: The five crates landed on `release/0.41.0` (epic-16). Of the
   core's split, under Next, steps 1 and 2 are done (`hotline-room`,
-  epic-18: task-211 and task-208; `hotline-mcp`, task-209); steps 3 and 4
-  are not started.
+  epic-18: task-211 and task-208; `hotline-mcp`, task-209) and timed
+  (task-210); steps 3 and 4 are not started, and the timings do not meet
+  the stopping rule for step 3.
 - Date: 2026-10-19
 - Supersedes: the "No new crates" line of [standards.md](../standards.md#module-layout),
   once task-196 rewrites it. The line after it, "Do not break the
@@ -13,7 +14,8 @@
   task-195 `hotline-websearch`, task-196 `hotline-support`, task-197
   `hotline-store`, task-198 `hotline-tools`, task-199 the timings again and
   the plan for the core); epic-18 for the core's split (task-211 and
-  task-208 `hotline-room`, task-209 `hotline-mcp`)
+  task-208 `hotline-room`, task-209 `hotline-mcp`, task-210 the timings
+  and the epic checked whole)
 
 ## Context
 
@@ -765,9 +767,175 @@ read the test-build row as a ceiling.
 The two steps took about 6.5% of the core's lines and the front end lost
 about 4% (0.8 s), the build 1.9 s; the touches moved by less than the
 noise. The cold test build is the outlier, nine seconds slower under twice
-the load, and not read as a result; it should be taken again on a quiet
-machine before step 3 is judged against it. What the step does give is
-the client's tests in under a second, alone.
+the load, and not read as a result; task-210 took it again, below, at 62.0
+to 63.5 s, so the 74.5 s was the load. What the step does give is the
+client's tests in under a second, alone.
+
+### Steps 1 and 2, timed
+
+Measured on 2026-10-19 by task-210, at three commits, each in its own
+fresh worktree with an empty `target/` and the speech-engine archive put
+in first, on the same machine, toolchain and profile as Before and After:
+9e2c01bc, the `release/0.41.0` commit before epic-18 (its crates are
+fd6ddfd1's, so it re-takes After's column), 66c2aa54, the merge of
+task-208 (step 1, with task-211 at 8188b43d before it), and a40e7745,
+the merge of task-209 (step 2). The commands are After's, with
+`room.rs` touched and edited as well, at `crates/hotline-core/src/room.rs`
+before step 1 and `crates/hotline-room/src/room.rs` after it.
+
+The machine was never quiet. With no build running, the load average was
+4 to 7 from processes that are not Hotline's (a virtual machine, video
+decoding, an Android emulator, a screen-sharing daemon), and they were left
+running. So the method is built to make that load fall on the three
+commits alike: one pass of every command at each commit in turn, then the
+cold builds and the `voice/dispatcher.rs` touches three more times, the
+three commits taken one after another in each round, then every other
+incremental row once, the three commits back to back for each row. Nothing
+ran in parallel. Twice the machine slowed for everything: the first
+interleaved round read 48.2 s for the baseline's cold build, 15 s above
+its own other runs, and the sequential passes at 66c2aa54 and a40e7745 fell
+in the same spell (42.0 s and 36.8 s). Those runs are left out. A figure
+below is the best of the rest, which were taken at load averages of 5 to
+22 for the cold builds and 6 to 19 for the touches, with the range of all
+of them in brackets where they differ. 9e2c01bc's column agrees with
+After's (33.5 s, 31.8 s with a 19.7 s front end, 65.1 s, 3.2 s, 8.6 s)
+to within that range, so the baseline held.
+
+| What | 9e2c01bc, before | 66c2aa54, step 1 | a40e7745, steps 1 and 2 |
+|---|---|---|---|
+| Lines in the core's `src/` | 138,788 | 132,678 | 129,734 |
+| Cold, hotline-core only, `cargo build` | 32.2 s (32.2–34.1) | 31.4 s (31.4–32.4) | 31.1 s (31.1–32.7) |
+| `hotline-core`'s library unit (front end, code generation) | 30.8 s (19.4 s, 11.4 s) | 30.0 s (18.6 s, 11.4 s) | 29.6 s (18.6 s, 11.0 s) |
+| The library's front end, every kept cold build | 19.0–19.9 s | 18.6–19.6 s | 18.6–19.7 s |
+| Cold, hotline-core only, `cargo test --no-run` | 60.8 s (60.8–67.5) | 63.0 s (63.0–66.9) | 62.0 s (62.0–63.5) |
+| Touch `voice/dispatcher.rs`, `cargo build` | 3.2 s | 3.2 s | 3.1 s |
+| Touch `voice/dispatcher.rs`, `cargo test --no-run` | 8.5 s (8.5–8.7) | 8.5 s (8.5–8.6) | 8.4 s (8.4–8.5) |
+| Edit `voice/dispatcher.rs`, `cargo build` | 3.5 s | 3.3 s | 3.2 s |
+| Edit `voice/dispatcher.rs`, `cargo test --no-run` | 8.7 s | 9.1 s | 8.8 s |
+| Touch the store's root, `cargo build` | 3.7 s | 3.7 s | 3.8 s |
+| Touch the store's root, `cargo test --no-run` | 9.4 s | 10.1 s | 9.5 s |
+| Touch `command.rs`, `cargo build` | 5.0 s | 5.2 s | 5.5 s |
+| Touch `command.rs`, `cargo test --no-run` | 10.8 s | 10.8 s | 11.2 s |
+| Touch `room.rs`, `cargo build` | 3.3 s | 3.4 s | 3.6 s |
+| Touch `room.rs`, `cargo test --no-run` | 8.7 s | 9.1 s | 9.0 s |
+| Edit `room.rs`, `cargo build` | 3.4 s | 3.8 s | 4.0 s |
+| Edit `room.rs`, `cargo test --no-run` | 9.1 s | 9.1 s | 9.4 s |
+| Edit `room.rs`, `cargo test -p hotline-room --no-run` | (9.1 s, the core's) | 0.7 s | 0.7 s |
+| Edit `oauth.rs`, `cargo test -p hotline-mcp --no-run` | (8.8 s, the core's) | | 0.9 s |
+
+The edits and the touches to the store's root, `command.rs` and `room.rs`
+were taken once each, the second of two runs kept: their builds at load
+averages of 7 to 15, their test builds at 23 to 35, the three commits under
+the same load, so read those test builds against one another and not
+against the rest of the table.
+
+What got faster:
+
+- **The library, by about a second.** Its unit fell from 30.8 s to 29.6 s
+  (4%) and its front end from 19.4 s to 18.6 s (also 4%), for 9,054 lines
+  (6.5%) out of the core's `src/`. Step 1 gave most of it (0.8 s), step 2
+  0.4 s. The cold build followed, 32.2 s to 31.1 s.
+- **The moved code, tested alone.** The room's tests build in 0.7 s and
+  the client's in 0.9 s, where testing that code meant the core's 9 s test
+  build before. As for the store and the contract in After, that is a
+  different command, not a faster one.
+
+What did not:
+
+- **The cold test build.** 60.8 s before, 62.0 s after, and every run of
+  every commit that was kept falls between 60.8 and 67.5 s; no change can
+  be read out of that spread. It is still the test-profile library alone. task-209's 74.5 s
+  was the load.
+- **The incremental floors.** A touch is 3.2 s and 8.5 s before, 3.1 s and
+  8.4 s after, and the edits move by as little, in both directions. After
+  found that the floor scales with the crate; at 6.5% of the lines that
+  would be 0.2 s and 0.6 s, and what was measured is 0.1 s and 0.1 s.
+- **An edit to the room.** `room.rs` is now a crate below the core, so a
+  change to it rebuilds `hotline-room` and then the core, as a change to
+  `command.rs` rebuilds the contract and everything above it: 3.4 s became
+  4.0 s. The touch to `command.rs` went from 5.0 s to 5.5 s, likely for the
+  same reason: `hotline-room` and `hotline-mcp` are now built one after the
+  other between the contract and the core. Both are the cost of a crate that the core reads everywhere, and
+  they are by design.
+
+**The stopping rule, for step 3.** The rule above asks each stage for about
+its share of the core's lines off the floors and the front end, and does
+not start the next stage when one does not show that. At 6.5% of the lines,
+that is 0.2 s off the build floor, 0.6 s off the test-build floor and
+1.3 s off the front end. Steps 1 and 2 gave 0.1 s, 0.1 s and 0.8 s: the
+front end about two thirds of its share, the floors less than the noise.
+So the numbers do not support starting step 3 for build time. The voice
+engines are 5.5% of the core's lines; at the rate steps 1 and 2 showed,
+they would take about 0.7 s off the front end and nothing measurable off
+the floors, and the one place they could show more is the cold test build,
+whose 3,400 lines of engine tests would leave the core's test-profile
+library. Step 1 was planned as a precondition, not for time, and step 2
+was planned as small; the case for step 3 would have to be what the split
+was also asked for, a boundary the compiler enforces and engines tested
+alone in a second, as the room and the client now are. That is George's
+call to make, and these numbers do not make it for him.
+
+### The epic, checked
+
+Checked on `release/0.41.0` at a40e7745, the tip with both steps in,
+against what epic-18 was to be done with:
+
+1. **Both are workspace crates, and neither depends on the core.** The
+   workspace's `members` list `crates/hotline-room` and
+   `crates/hotline-mcp`. `hotline-room`'s manifest names
+   `hotline-contract`, `hotline-support`, `hotline-store` and
+   `hotline-websearch`, and `hotline-mcp`'s names `hotline-contract`,
+   `hotline-support`, `hotline-tools` and `hotline-room`; neither names
+   `hotline-core` in any table, nor Tauri.
+2. **`contract.ts` is byte-identical to 9e2c01bc's** after the unfiltered
+   test run `make check` makes (`git diff --exit-code 9e2c01bc --
+   ui/src/generated/contract.ts` is empty).
+3. **The docs name the new paths.** No file in `docs/` outside the ADRs,
+   nor `AGENTS.md`, names `room.rs`, `linked.rs`, `session/ledger.rs`,
+   `wire/room_handle.rs`, `mcp/oauth.rs` or `mcp/tool.rs` under
+   `crates/hotline-core/src/`, except the 0.40 audits in `docs/audits/0.40/`,
+   which cite the tree they read at `release/0.40.0` with its line numbers
+   and are left as written, as they were for epic-16's moves (26 citations
+   of the core's old `contract`, `store`, `tools`, `websearch` and `paths`
+   are there too). standards.md's module map, security.md's citations,
+   development.md's tree and AGENTS.md's crate list name `hotline-room` and
+   `hotline-mcp`.
+4. **`make check` and `make precheck` pass** at the tip, with this ADR the
+   only change.
+
+For epic-17 (voice) to start on top: of the files its children name,
+two moved, and both are in Step 1's table: task-202's
+`crates/hotline-core/src/room.rs` is `crates/hotline-room/src/room.rs`,
+and task-207's `crates/hotline-core/src/voice/spoken.rs` is
+`crates/hotline-room/src/voice/spoken.rs` (with the sentence splitter it
+names, which came from `synthesis.rs`). The rest are where they were:
+`voice/dispatcher.rs`, `voice/duplex.rs`, `voice/front_prompt.rs` and
+`voice/front_tools.rs` (task-201, 203, 204 and 207) and `session.rs`
+(task-202), all in `crates/hotline-core/src/`. The core still reaches both
+moved files at their old module paths, `crate::room` and
+`crate::voice::spoken`.
+
+The re-exports that remain, each kept because callers in the core still
+name the old path, which is what this ADR allows while callers remain;
+none was renamed here, since that is each module's cost as it leaves
+(below). The count is the files in the core's `src/` and `tests/` that
+name it:
+
+| The core's path | Is | Files naming it |
+|---|---|---|
+| `crate::room` | `hotline_room::room` | 57, and the harnesses' `hotline_core::room::{roster, settings}` |
+| `crate::linked` | `hotline_room::linked` | 10 |
+| `crate::session::ledger` | `hotline_room::tool_ledger` | 7 |
+| `crate::session::ProviderAuth` | `hotline_room::provider_auth::ProviderAuth` | 23 |
+| `crate::wire::{RoomHandle, AuthStatus}` | `hotline_room::room_handle` | 34, and the desk harness |
+| `crate::wire::same_secret` | `hotline_room::secret::same_secret` | 6 |
+| `crate::driver::failure::redact_text` | `hotline_room::secret::redact_text` | 1 |
+| `crate::driver::clip` | `hotline_room::text::clip` | 18 |
+| `crate::desk::install_crypto_provider` | `hotline_room::tls::install_crypto_provider` | 2 |
+| `crate::computer::HOME_MOUNT` | `hotline_room::computer::HOME_MOUNT` | 3 |
+| `crate::voice::{ledger, metering, settings, spoken}` | `hotline_room::voice::…` | 21 |
+| `crate::mcp::normalize_servers` | `hotline_room::mcp_servers::normalize_servers` | 3 (`import.rs`, the wire's settings commands, `vault/launch.rs`) |
+| `crate::mcp::{McpServer, connect, grant, …}` | `hotline_mcp::…` | 31, and the MCP harness |
 
 ### The re-exports
 
@@ -797,6 +965,9 @@ in the core does.
    Done (task-209): the crate is `hotline-mcp`, below.
 3. The `voice` engines (the largest gain, through traits with five and two
    implementations).
+   Not started: steps 1 and 2 did not show their share (task-210, in
+   [Steps 1 and 2, timed](#steps-1-and-2-timed)), so by the rule below this
+   waits on George.
 4. `remote`, only if the numbers after 3 say the core's front end is still the
    bottleneck, because it is the one stage that changes control flow on a
    network path.

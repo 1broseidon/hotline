@@ -11,11 +11,11 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_prompt.rs
   - crates/hotline-core/src/voice/duplex.rs
   - crates/hotline-core/src/voice/assets
-parentId: epic-17
+parentId: epic-21
 createdAt: "2026-10-19T13:59:38.640Z"
 dependsOn:
   - task-201
-updatedAt: "2026-10-19T13:59:41.002Z"
+updatedAt: "2026-10-19T20:00:08.909Z"
 ---
 
 ## Description

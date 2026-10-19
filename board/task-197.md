@@ -1,7 +1,7 @@
 ---
 id: task-197
 title: "hotline-store: the tape, the log and the search index as their own crate"
-column: in-progress
+column: review
 position: 5
 priority: medium
 tags:
@@ -19,9 +19,9 @@ createdAt: "2026-10-19T06:07:00.407Z"
 dependsOn:
   - task-194
   - task-196
-updatedAt: "2026-10-19T08:04:18.855Z"
+updatedAt: "2026-10-19T08:14:11.206Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-store/Cargo.toml
@@ -48,6 +48,8 @@ contract:
     readyAt: "2026-10-19T06:11:04.523Z"
     pickedUpAt: "2026-10-19T08:04:18.855Z"
     reworkCount: 0
+    deliveredAt: "2026-10-19T08:14:11.206Z"
+    duration: 592
 dispatch:
   agent: claude
   model: opus

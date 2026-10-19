@@ -12,20 +12,7 @@ tags:
 assignee: claude
 createdAt: "2026-10-19T17:20:17.780Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-19T17:20:47.918Z"
-dispatch:
-  agent: claude
-  model: opus
-  effort: high
-  by: cli
-  at: "2026-10-19T17:20:46.888Z"
-  until: done
-  role: lead
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 94104
-    at: "2026-10-19T17:20:47.918Z"
+updatedAt: "2026-10-19T20:00:16.666Z"
 ---
 
 ## Description

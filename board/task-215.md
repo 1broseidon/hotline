@@ -1,8 +1,8 @@
 ---
 id: task-215
 title: "ADR: the agent thread layer, modalities, and one escalation path to the chat"
-column: todo
-position: 12
+column: in-progress
+position: 1
 priority: high
 tags:
   - design
@@ -32,7 +32,7 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-19T17:32:32.097Z"
-updatedAt: "2026-10-19T17:32:32.097Z"
+updatedAt: "2026-10-19T17:32:38.980Z"
 ---
 
 ## Description

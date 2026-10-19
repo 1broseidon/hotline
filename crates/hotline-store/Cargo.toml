@@ -1,0 +1,30 @@
+[package]
+name = "hotline-store"
+description = "What Hotline keeps on disk: the log and its tapes and threads, sent files, a thread's link line, and the search index, chapters and previews beside the tape. Depends on hotline-contract and hotline-support and no other Hotline crate by design."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hotline-contract = { path = "../hotline-contract" }
+hotline-support = { path = "../hotline-support" }
+serde_json.workspace = true
+chrono.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+rusqlite.workspace = true
+tempfile = "3"
+base64 = "0.22"
+# What a sent file is, from its name, when its bytes do not say.
+mime_guess = "2.0.5"
+# A generated picture is checked and measured before it is kept.
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+# A generated SVG is parsed, and kept only if it is one.
+roxmltree = "0.20"
+
+# The tests that round-trip a store view through its contract type.
+[dev-dependencies]
+serde.workspace = true

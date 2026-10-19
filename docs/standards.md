@@ -27,6 +27,13 @@ module map itself is [development.md](development.md#layout).
   `thumbs`, `fence`, `process_windows`). It depends on no Hotline crate, not
   even `hotline-contract`, and `hotline-core` re-exports each module under
   its old name, so `crate::paths` still holds there.
+- `hotline-store` is what is kept on disk and rebuilt from it: `log`,
+  `sent`, the search index, a tape's chapters and previews, and the link
+  line a thread leaves on its parent with the `ThreadState` it records. It
+  stands on `hotline-contract` and `hotline-support` and on no other Hotline
+  crate. `hotline-core` re-exports `log` and `sent` under their old names
+  and the crate as `store`, so `crate::store::search` still holds there,
+  and `thread` re-exports the link's types.
 - A new crate comes from the plan in
   [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
   direction, its edges only go down, and nothing but the app and the CLI

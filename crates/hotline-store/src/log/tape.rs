@@ -8,7 +8,7 @@
 //! this writes is one that Hotline reads unchanged, so importing a data directory
 //! copies its tapes and changes nothing about them.
 
-use crate::paths::{transcript_path, transcript_segment_path, transcript_segments_dir};
+use hotline_support::paths::{transcript_path, transcript_segment_path, transcript_segments_dir};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 /// a tape inside it, so it has no segments. That is the answer and not a
 /// panic in the path encoder, because the id comes off the wire — a client
 /// asking `chapter.list` for `""` must be told there is nothing there.
-pub(crate) fn segments_of(root: &Path, persona_id: &str) -> Vec<(u64, PathBuf)> {
+pub fn segments_of(root: &Path, persona_id: &str) -> Vec<(u64, PathBuf)> {
     if persona_id.is_empty() {
         return Vec::new();
     }
@@ -56,7 +56,7 @@ pub(crate) fn segments_of(root: &Path, persona_id: &str) -> Vec<(u64, PathBuf)> 
 /// written by that Hotline, past a hop — are the whole truth of where the tape is
 /// up to. When moving a teammate returns, it is the thing that will open the
 /// next segment, and this is where it will say so.
-pub(crate) fn open_epoch(root: &Path, persona_id: &str) -> u64 {
+pub fn open_epoch(root: &Path, persona_id: &str) -> u64 {
     segments_of(root, persona_id)
         .last()
         .map_or(1, |(epoch, _)| *epoch)
@@ -68,7 +68,7 @@ pub(crate) fn open_epoch(root: &Path, persona_id: &str) -> u64 {
 /// Refuses when both the flat file and `1.jsonl` exist. Readers are allowed to
 /// guess which of the two is the tape; a writer that guessed wrong would fork
 /// the history, so it stops instead.
-pub(crate) fn writable_segment(root: &Path, persona_id: &str) -> io::Result<(PathBuf, u64)> {
+pub fn writable_segment(root: &Path, persona_id: &str) -> io::Result<(PathBuf, u64)> {
     if persona_id.is_empty() {
         return Err(io::Error::other(
             "Refusing to write a transcript for a teammate with no id.",

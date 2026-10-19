@@ -4317,6 +4317,7 @@ dependencies = [
  "grep-searcher",
  "hex",
  "hotline-contract",
+ "hotline-store",
  "hotline-support",
  "http",
  "http-body-util",
@@ -4337,7 +4338,6 @@ dependencies = [
  "reqwest 0.13.4",
  "rig",
  "rmcp",
- "roxmltree",
  "rtc",
  "rusqlite",
  "serde",
@@ -4360,6 +4360,24 @@ dependencies = [
  "whatlang",
  "windows-sys 0.61.2",
  "zip",
+]
+
+[[package]]
+name = "hotline-store"
+version = "0.40.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "hotline-contract",
+ "hotline-support",
+ "image",
+ "mime_guess",
+ "roxmltree",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

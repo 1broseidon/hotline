@@ -22,11 +22,10 @@ import sys
 
 SRC = Path("crates/hotline-core/src")
 
-# The edges docs/adr/0007 plans to cut so that store and tools can leave the
-# strongly connected core. A cut's entry goes in the change that makes it,
+# The edges docs/adr/0007 plans to cut so that tools can leave the strongly
+# connected core. A cut's entry goes in the change that makes it,
 # because a module that has left this crate is not in the map to cut from.
 PLANNED_CUTS = [
-    ("store", "thread"),
     ("tools", "driver"),
 ]
 

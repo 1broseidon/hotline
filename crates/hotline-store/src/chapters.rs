@@ -13,7 +13,7 @@ fn is_chapter(event: &Value) -> bool {
     event.get("kind").and_then(Value::as_str) == Some("chapter")
 }
 
-pub(crate) fn is_message(event: &Value) -> bool {
+pub fn is_message(event: &Value) -> bool {
     matches!(
         event.get("kind").and_then(Value::as_str),
         Some("user" | "agent")
@@ -21,13 +21,13 @@ pub(crate) fn is_message(event: &Value) -> bool {
 }
 
 /// Every marker in the tape, oldest first.
-pub(crate) fn chapters_of(events: &[Value]) -> Vec<&Value> {
+pub fn chapters_of(events: &[Value]) -> Vec<&Value> {
     events.iter().filter(|event| is_chapter(event)).collect()
 }
 
 /// The chapter that has not closed, if any. There is at most one, and it is
 /// always the last: closing supersedes the marker by id rather than adding one.
-pub(crate) fn open_chapter(events: &[Value]) -> Option<&Value> {
+pub fn open_chapter(events: &[Value]) -> Option<&Value> {
     chapters_of(events)
         .last()
         .copied()
@@ -37,7 +37,7 @@ pub(crate) fn open_chapter(events: &[Value]) -> Option<&Value> {
 /// The closed chapter a fresh context should hear about: the most recent one
 /// that ended, provided it is the chapter immediately before the open one, or
 /// the last chapter of all when none is open.
-pub(crate) fn previous_chapter(events: &[Value]) -> Option<&Value> {
+pub fn previous_chapter(events: &[Value]) -> Option<&Value> {
     let mut chapters = chapters_of(events);
     if open_chapter(events).is_some() {
         chapters.pop();
@@ -51,7 +51,7 @@ pub(crate) fn previous_chapter(events: &[Value]) -> Option<&Value> {
 /// The moment of the last thing said, for deciding whether a chapter has gone
 /// quiet. Only messages count: a tool finishing on its own is the machinery
 /// running, not the conversation continuing.
-pub(crate) fn last_activity(events: &[Value]) -> Option<i64> {
+pub fn last_activity(events: &[Value]) -> Option<i64> {
     events
         .iter()
         .rev()
@@ -60,7 +60,7 @@ pub(crate) fn last_activity(events: &[Value]) -> Option<i64> {
 }
 
 /// Everything said or done within a chapter, the marker itself excluded.
-pub(crate) fn slice_of<'a>(events: &'a [Value], chapter: &Value) -> &'a [Value] {
+pub fn slice_of<'a>(events: &'a [Value], chapter: &Value) -> &'a [Value] {
     let Some(chapter_id) = chapter.get("id").and_then(Value::as_str) else {
         return &[];
     };
@@ -114,7 +114,7 @@ pub fn list(log: &Log, persona_id: &str) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::transcript_segments_dir;
+    use hotline_support::paths::transcript_segments_dir;
     use serde_json::json;
     use std::fs;
     use std::path::{Path, PathBuf};

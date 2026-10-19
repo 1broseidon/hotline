@@ -37,10 +37,10 @@ pub mod thread;
 
 mod tape;
 
-pub(crate) use tape::{open_epoch, segments_of};
+pub use tape::{open_epoch, segments_of};
 
-use crate::contract::{ThreadId, ThreadKind};
-use crate::paths::{room_path, transcripts_dir};
+use hotline_contract::{ThreadId, ThreadKind};
+use hotline_support::paths::{room_path, transcripts_dir};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
@@ -60,7 +60,7 @@ use tokio::sync::broadcast;
 const SUBSCRIPTION_DEPTH: usize = 1024;
 
 /// Which stream. The room's belongs to the room, a tape's to one teammate,
-/// a pair's to two teammates — the key from [`crate::paths::thread_key`] — and a
+/// a pair's to two teammates — the key from [`hotline_support::paths::thread_key`] — and a
 /// run's to one subagent run, by its id.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum StreamId {
@@ -169,7 +169,7 @@ impl Log {
         Ok(fold(events.into_iter()))
     }
 
-    pub(crate) fn try_load_strict(&self, stream: &StreamId) -> io::Result<Vec<Value>> {
+    pub fn try_load_strict(&self, stream: &StreamId) -> io::Result<Vec<Value>> {
         let mut events = Vec::new();
         for file in self.readable_files(stream) {
             let text = match fs::read_to_string(&file) {
@@ -241,7 +241,7 @@ impl Log {
     /// The core alone migrates credential-bearing settings. Replace the room
     /// with its fold so superseded MCP arguments cannot remain in history.
     /// The callback must durably protect values before returning references.
-    pub(crate) fn migrate_mcp_settings(
+    pub fn migrate_mcp_settings(
         &self,
         protect: impl FnOnce(&Value) -> io::Result<Value>,
     ) -> io::Result<()> {
@@ -282,7 +282,7 @@ impl Log {
             .join("\n")
             + "\n";
         if after != before {
-            crate::credentials::atomic_write(&file, after.as_bytes())?;
+            hotline_support::credentials::atomic_write(&file, after.as_bytes())?;
         }
         if let Some(event) = changed {
             self.publish(&StreamId::Room, &event);
@@ -351,7 +351,7 @@ impl Log {
                 if before.ends_with('\n') {
                     after.push('\n');
                 }
-                crate::credentials::atomic_write(&file, after.as_bytes())?;
+                hotline_support::credentials::atomic_write(&file, after.as_bytes())?;
             }
         }
         fs::create_dir_all(&self.root)?;
@@ -415,9 +415,10 @@ impl Log {
 
     /// Drops every live broadcast. A test of the wire uses this to end a
     /// subscription without unsubscribing: the task sees a closed channel and
-    /// returns, and the id must then be free to reuse.
-    #[cfg(test)]
-    pub(crate) fn close_broadcasts(&self) {
+    /// returns, and the id must then be free to reuse. Not behind
+    /// `cfg(test)`, because that test is in `hotline-core`, which builds this
+    /// crate without it.
+    pub fn close_broadcasts(&self) {
         self.subscribers
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -449,25 +450,25 @@ impl Log {
             StreamId::Tape(persona_id) => tape::writable_segment(&self.root, persona_id),
             StreamId::Pair(key) => {
                 let file = thread::file(&self.root, key)?;
-                fs::create_dir_all(crate::paths::threads_dir(&self.root))?;
+                fs::create_dir_all(hotline_support::paths::threads_dir(&self.root))?;
                 Ok((file, 1))
             }
             StreamId::Run(id) => {
-                let file = crate::paths::run_path(&self.root, id)
+                let file = hotline_support::paths::run_path(&self.root, id)
                     .ok_or_else(|| io::Error::other(format!("Invalid run id: {id}")))?;
-                fs::create_dir_all(crate::paths::runs_dir(&self.root))?;
+                fs::create_dir_all(hotline_support::paths::runs_dir(&self.root))?;
                 Ok((file, 1))
             }
             StreamId::Side(id) => {
-                let file = crate::paths::side_path(&self.root, id)
+                let file = hotline_support::paths::side_path(&self.root, id)
                     .ok_or_else(|| io::Error::other(format!("Invalid side id: {id}")))?;
-                fs::create_dir_all(crate::paths::sides_dir(&self.root))?;
+                fs::create_dir_all(hotline_support::paths::sides_dir(&self.root))?;
                 Ok((file, 1))
             }
             StreamId::Call(id) => {
-                let file = crate::paths::call_path(&self.root, id)
+                let file = hotline_support::paths::call_path(&self.root, id)
                     .ok_or_else(|| io::Error::other(format!("Invalid call id: {id}")))?;
-                fs::create_dir_all(crate::paths::calls_dir(&self.root))?;
+                fs::create_dir_all(hotline_support::paths::calls_dir(&self.root))?;
                 Ok((file, 1))
             }
         }
@@ -484,11 +485,13 @@ impl Log {
                 .map(|(_, path)| path)
                 .collect(),
             StreamId::Pair(key) => thread::file(&self.root, key).into_iter().collect(),
-            StreamId::Run(id) => crate::paths::run_path(&self.root, id).into_iter().collect(),
-            StreamId::Side(id) => crate::paths::side_path(&self.root, id)
+            StreamId::Run(id) => hotline_support::paths::run_path(&self.root, id)
                 .into_iter()
                 .collect(),
-            StreamId::Call(id) => crate::paths::call_path(&self.root, id)
+            StreamId::Side(id) => hotline_support::paths::side_path(&self.root, id)
+                .into_iter()
+                .collect(),
+            StreamId::Call(id) => hotline_support::paths::call_path(&self.root, id)
                 .into_iter()
                 .collect(),
         }
@@ -525,7 +528,7 @@ fn rename_backend(event: &mut Value) -> bool {
 }
 
 /// One line is one event; a torn final line from an unclean exit is skipped.
-pub(crate) fn parse_lines(text: &str) -> impl Iterator<Item = Value> + '_ {
+pub fn parse_lines(text: &str) -> impl Iterator<Item = Value> + '_ {
     text.lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
@@ -533,7 +536,7 @@ pub(crate) fn parse_lines(text: &str) -> impl Iterator<Item = Value> + '_ {
 }
 
 /// Later lines win by `id`, and each id keeps the place it first appeared.
-pub(crate) fn fold(events: impl Iterator<Item = Value>) -> Vec<Value> {
+pub fn fold(events: impl Iterator<Item = Value>) -> Vec<Value> {
     let mut order: Vec<String> = Vec::new();
     let mut by_id: HashMap<String, Value> = HashMap::new();
     for event in events {

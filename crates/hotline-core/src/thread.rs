@@ -9,23 +9,25 @@
 //! This module is the shared vocabulary. A [`Thread`] is read from the records
 //! each kind already keeps ([`ThreadStore`]), and what a kind decides is a
 //! [`Policy`] value. The one write path that applies the policy is
-//! `Room::threads().write`, beside the room it touches.
+//! `Room::threads().write`, beside the room it touches. The line a thread
+//! leaves on its parent ([`Link`]) and the [`ThreadState`] it records are in
+//! `hotline-store`, because the search index reads them, and are re-exported
+//! here.
 //!
 //! No stream moves: a thread is a view over the files that were there before
 //! it. A [`ThreadId`] is on the wire, in `thread.*` and `{"threadId": …}`
 //! (`docs/wire.md`).
 
-mod link;
 mod policy;
 mod store;
 
-pub use link::{Link, Opener};
+pub use hotline_store::link::{AgentBinding, Link, Opener, ThreadState};
 pub use policy::{Answer, Computer, Idle, Lease, Policy, Restart, Resume, Tools};
 #[cfg(test)]
 pub(crate) use policy::{QUIET_MS, SIDE_IDLE_MS};
 pub use store::ThreadStore;
 
-use crate::contract::{End, ThreadId, ThreadKind};
+use crate::contract::{ThreadId, ThreadKind};
 
 /// Who takes part in a thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -38,19 +40,6 @@ pub enum Participant {
     Voice(String),
 }
 
-/// Where a thread stands. The records say what they say: a thread whose
-/// record says `Live` has an agent only if the room holds one, and the room
-/// parks the ones it does not at its next start.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ThreadState {
-    /// An agent is running it.
-    Live,
-    /// Open, with no agent. Saying something in it brings one back.
-    Parked,
-    /// Over, and read-only until it is continued.
-    Closed(End),
-}
-
 /// A thread's place under another: the parent, and the line on it the child
 /// hangs off.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,14 +48,6 @@ pub struct ThreadLink {
     /// The id of the marker on the parent that stands for the child, if the
     /// kind writes one.
     pub event: Option<String>,
-}
-
-/// The agent's own memory of a thread, as its harness issued it: what a later
-/// start reopens.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AgentBinding {
-    pub backend_id: String,
-    pub session_id: String,
 }
 
 /// One conversation, as the records it already has describe it.

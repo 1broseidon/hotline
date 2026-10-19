@@ -12,12 +12,12 @@ relatedFiles:
   - crates/hotline-core/src/voice/duplex.rs
   - crates/hotline-core/src/voice/dispatcher.rs
   - crates/hotline-core/src/voice/front_tools.rs
-parentId: epic-17
+parentId: epic-21
 createdAt: "2026-10-19T13:59:38.168Z"
 dependsOn:
   - task-201
   - task-202
-updatedAt: "2026-10-19T13:59:51.090Z"
+updatedAt: "2026-10-19T20:00:08.414Z"
 ---
 
 ## Description

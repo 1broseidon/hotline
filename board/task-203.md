@@ -25,3 +25,4 @@ Per the design review: one rules builder for both calls; a desk call with a lead
 
 ## Log
 - 2026-10-19T20:00:12.232Z: [claude] Now ADR 0008 slice 7 in epic-21: a desk call is a call thread on the team lead; removes the dispatcher's desk role, the voice-dispatcher tape and desk_command's reach into the wire's command table.
+- 2026-10-19T20:02:41.594Z: [claude] From epic-17's lead: the lead's grant (hand work to teammates on a desk call without first-contact approval; stopping or reassigning others stays the person's) moved here from task-202, which has no desk-call caller in 0.41. It follows docs/security.md: default, grant source (the roster's lead from task-202), enforcement points, tests allowed and denied, residual risk.

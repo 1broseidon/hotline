@@ -187,7 +187,7 @@ Inspect every adapter when doing this: provider refusal text must stay scrubbed.
 
 Useful existing types to preserve are `ToolError`/`ToolErrorKind`
 (`crates/hotline-core/src/tools/mod.rs:22`), MCP `CallError`
-(`crates/hotline-core/src/mcp/tool.rs:97`), remote `OpenError`
+(`crates/hotline-mcp/src/tool.rs:97`), remote `OpenError`
 (`crates/hotline-core/src/remote/client.rs:490`), `ImageError`
 (`crates/hotline-core/src/imagegen/mod.rs:117`), and `SpeechError`
 (`crates/hotline-core/src/voice/speech/mod.rs:67`). They distinguish refusal,
@@ -246,7 +246,7 @@ state. These are concrete local proofs, not “the input usually looks right”.
 An additional assertion sweep found one production `assert!`, outside the
 requested syntax totals: `crates/hotline-core/src/paths.rs:51` rejects an empty
 file component. Keep it: roster and import readers filter empty ids at
-`crates/hotline-core/src/room.rs:216` and
+`crates/hotline-room/src/room.rs:216` and
 `crates/hotline-core/src/import/personas.rs:66`; tape readers/writers reject
 them at `crates/hotline-core/src/log/tape.rs:24` and
 `crates/hotline-core/src/log/tape.rs:73`. Avatar reads check a living teammate
@@ -259,9 +259,9 @@ New callers of the public path helpers must retain those boundary checks.
 | Typed serialization: `crates/hotline-core/src/import.rs:466`, `crates/hotline-core/src/wire/commands.rs:1248`, `crates/hotline-core/src/thread/link.rs:158`, `crates/hotline-core/src/vault.rs:1034`, `crates/hotline-core/src/voice/speech/local/install.rs:448` | Fixed serializable structs/string-keyed fields, not arbitrary deserialization; `voice/dispatcher.rs:962` serializes a string and should say so instead of “text” |
 | Bundled resources: `crates/hotline-core/src/models.rs:305`, `crates/hotline-core/src/skills/mod.rs:55` | Compiled-in files, validated by their tests; cannot be replaced by user disk content at runtime |
 | Fixed regex/captures: `crates/hotline-core/src/link_preview.rs:196`, `crates/hotline-core/src/websearch/when.rs:31`, `crates/hotline-core/src/voice/spoken.rs:88`, `crates/hotline-core/src/voice/spoken.rs:151` | Literal patterns and mandatory matched groups; replace preview's four unwraps with an expect explaining the fixed pattern |
-| Narrowed enums: `crates/hotline-core/src/driver/rig/images.rs:143`, `crates/hotline-core/src/sent/generated.rs:48`, `crates/hotline-core/src/session/jobs.rs:524`, `crates/hotline-core/src/wire/mod.rs:1630`, `crates/hotline-core/src/room.rs:188` | Prior matches/filters restrict variants; all room_event callers supply object literals/typed records. Explain the narrowing in the two empty unreachable messages |
+| Narrowed enums: `crates/hotline-core/src/driver/rig/images.rs:143`, `crates/hotline-core/src/sent/generated.rs:48`, `crates/hotline-core/src/session/jobs.rs:524`, `crates/hotline-core/src/wire/mod.rs:1630`, `crates/hotline-room/src/room.rs:188` | Prior matches/filters restrict variants; all room_event callers supply object literals/typed records. Explain the narrowing in the two empty unreachable messages |
 | Response builders: `crates/hotline-core/src/computer/gate.rs:322`, `crates/hotline-core/src/computer/gate.rs:378`, `crates/hotline-core/src/remote/server.rs:45`, `crates/hotline-core/src/remote/bridge.rs:260` | Typed status and fixed valid headers; the body is not parsed as a header. Replace raw unwraps with that reason |
-| Normalized MCP state: `crates/hotline-core/src/mcp/mod.rs:246`, `crates/hotline-core/src/mcp/mod.rs:787`, `crates/hotline-core/src/mcp/oauth.rs:284`, `crates/hotline-core/src/driver/acp.rs:2024` | Normalization/object checks and connected-proxy filtering precede access; proxy entries are not concurrently removed on this path |
+| Normalized MCP state: `crates/hotline-core/src/mcp/mod.rs:246`, `crates/hotline-core/src/mcp/mod.rs:787`, `crates/hotline-mcp/src/oauth.rs:284`, `crates/hotline-core/src/driver/acp.rs:2024` | Normalization/object checks and connected-proxy filtering precede access; proxy entries are not concurrently removed on this path |
 | Guarded HTTP state: `crates/hotline-core/src/providers/discovery.rs:140`, `crates/hotline-core/src/providers/xai.rs:56`, `crates/hotline-core/src/providers/xai.rs:334` | Valid response/status already obtained; distinct from fallible client construction |
 | Remote ownership: `crates/hotline-core/src/remote/admission.rs:172`, `crates/hotline-core/src/remote/relay.rs:217`, `crates/hotline-core/src/remote/v2.rs:356`, `crates/hotline-core/src/remote/server.rs:483`, `crates/hotline-core/src/remote/channel.rs:58` | Live permit entry, paired host/budget, checked pairing window, once-taken seat, or nonempty queue; same lock/exclusive owner spans the check and use |
 | Session ownership: `crates/hotline-core/src/session/dm.rs:168`, `crates/hotline-core/src/session/dm.rs:475`, `crates/hotline-core/src/session/jobs.rs:522`, `crates/hotline-core/src/session/exchanges.rs:1256`, `crates/hotline-core/src/session/sides.rs:310` | Turn driver consumes each hold once; indices/ids come from the same held collection; OnceLock-backed driver stays installed |
@@ -285,12 +285,12 @@ typed/literal objects or prove a named member exists first. For example
 its named backendId. Array/scalar records cannot pass those named-field checks.
 Map indexing differs: `settings["images"]` at
 `crates/hotline-core/src/capabilities.rs:33` can panic on a missing key, but
-`crates/hotline-core/src/room.rs:52` always seeds that key and spending defaults.
+`crates/hotline-room/src/room.rs:52` always seeds that key and spending defaults.
 The ACP env map access at `crates/hotline-core/src/driver/acp.rs:2010` uses keys
 from that same immutable map.
 
 Bounds/UTF-8 clusters also have explicit proofs: ASCII slugs before truncation
-(`crates/hotline-core/src/mcp/tool.rs:91`), ASCII-only generated image stems
+(`crates/hotline-mcp/src/tool.rs:91`), ASCII-only generated image stems
 (`crates/hotline-core/src/session/generate.rs:315`), brace-find character offsets
 (`crates/hotline-core/src/session/chapters.rs:286`), boundary-adjusted output
 elision (`crates/hotline-core/src/driver/rig.rs:836`), hexadecimal byte checks

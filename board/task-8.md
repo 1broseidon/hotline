@@ -74,3 +74,6 @@ dispatch:
     at: "2026-10-18T23:54:15.800Z"
 assignee: claude
 ---
+
+## Log
+- 2026-10-19T00:05:31.884Z: [claude] Done on branch dispatch/task-8 (c3d30f8c). Before a turn's notice goes out, a 401/403 (Kind::Auth) on a ChatGPT, Copilot or xAI-subscription sign-in runs Failure::checked_against_sign_in (driver/rig.rs). That asks the provider's model list once, within a 10s bound, and caches the verdict per provider for 60s. If the list answers, the failure becomes the new Kind::ProviderRefused: '<Provider> is refusing requests', 'Your sign-in still works, so signing in again won't help…', raw error kept in details. Otherwise it stays 'Provider sign-in required'. API keys and other providers keep today's wording. Nothing marks the credential in Settings. The UI offers 'Run again' for provider_refused. For later tasks: Kind serializes as "provider_refused", and chatgpt::list_models_at is now pub(crate) so tests can point it at a stub. Tests in driver/failure.rs: a stub that lists models but answers /responses with 401 vs a revoked token, one probe for a run of failures, and only sign-ins get probed. fmt, clippy, the full hotline-core tests and the contract.ts diff all pass.

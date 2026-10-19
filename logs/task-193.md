@@ -1,8 +1,6 @@
 ---
 id: task-193
 title: "Baseline: build timings and the module map, in an ADR"
-column: review
-position: 1
 priority: high
 tags:
   - crate-split
@@ -13,7 +11,7 @@ relatedFiles:
   - docs/adr
 parentId: epic-16
 createdAt: "2026-10-19T06:06:19.521Z"
-updatedAt: "2026-10-19T06:37:43.755Z"
+updatedAt: "2026-10-19T06:38:42.731Z"
 contract:
   status: delivered
   deliverables:
@@ -55,6 +53,7 @@ dispatch:
     at: "2026-10-19T06:11:20.001Z"
     ended: "2026-10-19T06:37:43.755Z"
     outcome: review
+completedAt: "2026-10-19T06:38:42.731Z"
 ---
 
 ## Description
@@ -66,3 +65,4 @@ Write docs/adr/0007-split-hotline-core.md (0007 is the next free number on relea
 
 ## Log
 - 2026-10-19T06:37:34.745Z: [claude] Done, on branch dispatch/task-193 (1931d0e9): docs/adr/0007-split-hotline-core.md (## Before, module map, cuts, core, target graph), scripts/module-map (executable, no args), scripts/timings-summary (prints the cargo --timings summary; task-199 adds the new crates to its OWN set), scripts/test_module_map.py. NAME: the leaf-utilities crate stays hotline-support, so task-196's contract needs no change. For later tasks: (1) Before, second runs: cold build 41.7s, cold test --no-run 78.8s; touch/edit of voice/dispatcher.rs, store.rs, contract/command.rs is a flat 5.0s build and 12.4-12.6s test --no-run whichever file, so incremental already clears standards.md's 30s trigger; hotline-core's lib is 40.2s of a 71s empty-target build (front end 26.5s) and in the test build the test-profile lib is 78.5s of 78.8s. About 14% of the lines (23.1k of 163k) move in these five stages, so expect small gains; the ADR says so and task-199 checks it. (2) Cuts, one site each: task-196 paths->linked: move valid_desk_id, valid_persona_id, split, is_linked into paths and re-export from linked (support then needs no hotline-contract at all); task-197 store->thread: Link, ThreadState and AgentBinding are plain types with no ts-rs derive and name only contract, so they move down and thread stays; task-198 tools->driver: CapabilityLease/CapabilityEpoch. Moved sets have no other edge into the core, test code included. (3) The epic text differs from the map: paths, log and linked are one cycle (log->paths is 15 sites; log->credentials is no cut), so skills and log_file are leaves only once paths is. Core is 20 modules, 18 after the cuts. (4) standards.md still says 'No new crates' and forbids single-impl traits to break session/driver/voice/mcp cycles: task-196 should rewrite the first; the second stands for task-199's plan. (5) Rerun scripts/module-map after each stage. (6) python3 -m unittest discover hangs here in test_githooks (mise exec -- node never returns, unrelated to this change); the other four test files pass. For the timings a worktree needs .speech-engine/ copied in (gitignored).
+- 2026-10-19T06:38:42.325Z: Landed on release/0.41.0

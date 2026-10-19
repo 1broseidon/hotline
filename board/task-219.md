@@ -1,7 +1,7 @@
 ---
 id: task-219
 title: "Slice 3: files and images from any thread land in the chat"
-column: in-progress
+column: review
 position: 15
 priority: medium
 tags:
@@ -15,9 +15,9 @@ createdAt: "2026-10-19T19:59:32.080Z"
 dependsOn:
   - task-216
   - task-217
-updatedAt: "2026-10-19T22:15:03.066Z"
+updatedAt: "2026-10-19T22:21:56.295Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/tests
@@ -30,6 +30,8 @@ contract:
     readyAt: "2026-10-19T20:03:14.159Z"
     pickedUpAt: "2026-10-19T22:15:03.066Z"
     reworkCount: 1
+    deliveredAt: "2026-10-19T22:21:56.295Z"
+    duration: 413
 dispatch:
   agent: claude
   model: opus

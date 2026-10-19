@@ -10,7 +10,6 @@ import { Glyph } from "../ui/Glyph";
 import type { Person } from "../avatars";
 import { Avatar } from "../ui/Avatar";
 import { Scroll } from "../ui/Scroll";
-import { Viewer } from "../ui/Viewer";
 import { failedLast } from "../retryTurn";
 import { wire } from "../wire";
 import {
@@ -31,6 +30,7 @@ import { useCadence, useLanding, useScrollToEvent, useSleep, useSteady } from ".
 import { Steps } from "./transcript/Steps";
 import { AgentSay, NamedSay, UserBubble, type ReactTarget, type ReplyTarget } from "./transcript/Bubbles";
 import { ExchangePaused, HumanAction, PasskeyAskCard, Permission } from "./transcript/Asks";
+import { ComputerFrame } from "./transcript/ComputerFrame";
 
 /* What the transcript's importers read from here, wherever it now lives. */
 export {
@@ -214,16 +214,24 @@ export function Transcript({
 	const earlierRef = useRef<{ more: boolean; load?: ((through?: string) => Promise<void>) | undefined }>({ more });
 	earlierRef.current = { more, load: onEarlier };
 	const anchor = useRef<{ height: number; top: number; first: string | undefined } | null>(null);
+	const firstShown = useRef(events[0]?.id);
+	firstShown.current = events[0]?.id;
 	const loadEarlier = useCallback((through?: string) => {
 		const { more, load } = earlierRef.current;
 		const el = scroller.current;
 		if (!more || load === undefined || !el || anchor.current !== null) return;
-		anchor.current = { height: el.scrollHeight, top: el.scrollTop, first: events[0]?.id };
+		const taken = { height: el.scrollHeight, top: el.scrollTop, first: firstShown.current };
+		anchor.current = taken;
 		void load(through).finally(() => {
-			// Nothing arrived: let the next scroll ask again.
-			if (anchor.current !== null && anchor.current.first === events[0]?.id) anchor.current = null;
+			// The page lands as a render that may not have committed when the
+			// load settles; a frame later it has, and the layout effect below
+			// has let go of the anchor. One still held means nothing arrived:
+			// let the next scroll ask again.
+			requestAnimationFrame(() => {
+				if (anchor.current === taken) anchor.current = null;
+			});
 		});
-	}, [events]);
+	}, []);
 	useLayoutEffect(() => {
 		const el = scroller.current;
 		const was = anchor.current;
@@ -686,7 +694,7 @@ const Row = memo(function Row({
 			return null;
 
 		case "computer_frame":
-			return <ComputerFrame dataUrl={event.dataUrl} />;
+			return <ComputerFrame eventId={event.id} dataUrl={event.dataUrl} />;
 
 		/* Older tapes carry a download's progress; it now lives on the
 		 * computer's button, and the conversation never shows it. */
@@ -840,28 +848,6 @@ function PlanMark({ status }: { status: string }) {
 		<span className="grid h-4 w-4 shrink-0 place-items-center" aria-label={status}>
 			<span className="h-1.5 w-1.5 rounded-full" style={{ boxShadow: "inset 0 0 0 1.5px var(--ink-4)" }} />
 		</span>
-	);
-}
-
-/**
- * What the computer looked like. A thumbnail beside the words, because a
- * capture is evidence and not another message; pressed, it opens in the
- * viewer at a size that can be read.
- */
-function ComputerFrame({ dataUrl }: { dataUrl: string }) {
-	const [open, setOpen] = useState(false);
-	return (
-		<>
-			<button
-				type="button"
-				className="picture-open mt-2 block w-28 overflow-hidden rounded-md border border-line bg-raised p-0 text-left"
-				title="Open the capture"
-				onClick={() => setOpen(true)}
-			>
-				<img src={dataUrl} alt="The computer's screen at capture" className="block w-full" />
-			</button>
-			{open && <Viewer src={dataUrl} alt="The computer's screen at capture" onClose={() => setOpen(false)} />}
-		</>
 	);
 }
 

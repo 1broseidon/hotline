@@ -3,7 +3,6 @@ id: task-226
 title: "The Jobs group in the thread list: a row per job with its name, next run and last post"
 column: todo
 position: 12
-description: "ADR 0008 §7, the desktop half, split from task-220. task-220 puts each job on its own thread under the home thread and carries the job listing (name, next run, last post) on the wire; this draws it. In the window's thread list, a Jobs group beside the person's threads: one minimal row per job (name, next run, last post), opening the job's thread, where the person can talk to it. A job that ended stays listed as readable, marked ended. Posts from a job in the chat show \"From a scheduled job\" from the agent event's `from` (task-216). Read the contract task-220 left; add no core behaviour here, and if the wire lacks something the row needs, say so in a note rather than reshaping the core. Regenerate ui/src/generated/contract.ts only with an unfiltered `cargo test -p hotline-core` (AGENTS.md rule 3)."
 priority: medium
 tags:
   - threads
@@ -28,7 +27,12 @@ contract:
   metrics:
     readyAt: "2026-10-19T20:02:36.231Z"
 createdAt: "2026-10-19T20:02:36.243Z"
+updatedAt: "2026-10-19T23:20:47.099Z"
 ---
 
 ## Description
-ADR 0008 §7, the desktop half, split from task-220. task-220 puts each job on its own thread under the home thread and carries the job listing (name, next run, last post) on the wire; this draws it. In the window's thread list, a Jobs group beside the person's threads: one minimal row per job (name, next run, last post), opening the job's thread, where the person can talk to it. A job that ended stays listed as readable, marked ended. Posts from a job in the chat show "From a scheduled job" from the agent event's `from` (task-216). Read the contract task-220 left; add no core behaviour here, and if the wire lacks something the row needs, say so in a note rather than reshaping the core. Regenerate ui/src/generated/contract.ts only with an unfiltered `cargo test -p hotline-core` (AGENTS.md rule 3).
+ADR 0008 §7, the desktop half, split from task-220. task-220 puts each job on its own thread under the home thread and carries the job listing on the wire; this draws it. In the window's thread list, a Jobs group beside the person's threads: one minimal row per job (name, next run, last post), opening the job's thread, where the person can talk to it. A job that ended stays listed as readable, marked ended. Posts from a job in the chat show "From a scheduled job" from the agent event's `from` (task-216). Read the contract task-220 left; add no core behaviour here, and if the wire lacks something the row needs, say so in a note rather than reshaping the core. Regenerate ui/src/generated/contract.ts only with an unfiltered `cargo test -p hotline-core` (AGENTS.md rule 3).
+
+What task-220 left (landed on release/0.41.0): the {"schedules": personaId} view sends ScheduleEntry {name, nextAt, lastPost{at,text}, endedAt, reminder, quiet}, ended jobs included; schedule.cancel on an ended job removes it from the list (use it to dismiss an ended row). A job's thread id is {kind:"job", key: job id}. thread.list includes job threads (live, parked or closed). thread.prompt, cancel and answer work on a job; thread.close cancels it; a phone may read a job but not prompt or close it. task-220's only UI changes: dock.ts (job rank 5, word "Job"; powersOf(job) is still READ, so check whether the desktop needs prompt power on a job thread for the person to talk to it, and set it for the desktop only) and room.ts, whose fold now skips ended jobs (the Jobs group must still show them, marked ended).
+
+How to work: run make check in the foreground with a generous timeout and wait for it to finish; never end the turn while it runs. Commit before ending the turn. Before saying done, merge release/0.41.0 into the branch and re-run make check, so the landing's check is incremental.

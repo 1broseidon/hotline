@@ -204,7 +204,7 @@ the handler, outside the model:
 
 | Safeguard | Today (`tell_person`) | `post_to_chat` |
 |---|---|---|
-| Who may | a quiet scheduled turn on Hotline Agent | any agent thread of the teammate, on either driver: a quiet turn, a work thread, a pair (to the target's own chat), a call. Refused on a loud DM turn ("your reply is already the chat") and to a subagent run |
+| Who may | a quiet scheduled turn on Hotline Agent | any agent thread of the teammate, on either driver: a quiet turn, a work thread, a pair (to the target's own chat), a call. Refused on a loud DM turn ("your reply is already the chat") and to a subagent the home agent launched; a job (§7) may post |
 | Where | the teammate's DM | the teammate's own DM only; never another teammate's |
 | How often | once per run | once per turn of the thread; a second call in the turn is refused in the same sentence as today. A call's summary is the core's, not a turn's, and does not count |
 | Authority | the turn it was armed for | the thread's capability lease, checked when the call lands, as `post_to_chat` does now; a revoked lease refuses |

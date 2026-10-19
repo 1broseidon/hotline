@@ -13,7 +13,7 @@ relatedFiles:
   - docs/adr
 parentId: epic-16
 createdAt: "2026-10-19T06:06:19.521Z"
-updatedAt: "2026-10-19T06:11:03.728Z"
+updatedAt: "2026-10-19T06:11:18.289Z"
 contract:
   status: ready
   deliverables:
@@ -36,6 +36,14 @@ contract:
     - Each timing run twice, the second kept, on this Mac
   metrics:
     readyAt: "2026-10-19T06:11:03.728Z"
+dispatch:
+  agent: claude
+  model: sonnet
+  effort: high
+  by: lead
+  at: "2026-10-19T06:11:18.158Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

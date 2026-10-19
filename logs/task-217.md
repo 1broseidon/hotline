@@ -1,8 +1,6 @@
 ---
 id: task-217
 title: "Slice 2: post_to_chat on the desk's MCP server for both drivers; tell_person and Escalate go"
-column: review
-position: 13
 priority: high
 tags:
   - threads
@@ -19,7 +17,7 @@ createdAt: "2026-10-19T19:59:31.099Z"
 dependsOn:
   - task-216
   - task-218
-updatedAt: "2026-10-19T21:33:35.365Z"
+updatedAt: "2026-10-19T22:05:28.343Z"
 contract:
   status: delivered
   deliverables:
@@ -60,6 +58,7 @@ dispatch:
     at: "2026-10-19T21:16:20.771Z"
     ended: "2026-10-19T21:33:35.365Z"
     outcome: review
+completedAt: "2026-10-19T22:05:28.343Z"
 ---
 
 ## Description
@@ -74,3 +73,4 @@ From task-216 (landed on release/0.41.0): Room::post lives in crates/hotline-cor
 - 2026-10-19T21:33:30.294Z: [claude] Landing fix: make check's 15-minute stop was a hang in task-202's wire::tests::roster::the_lead_is_set_moved_and_cleared_and_the_roster_rows_carry_it, not this slice. The roster re-sends the two rows from a HashSet (wire/roster.rs Dirty), so they come in random order; the test waited for Bob's row before Ada's, skipped Ada's on the way, then blocked forever on a heard() with no timeout. It fails about half the time on release/0.41.0 too. Fixed in 572a84bb: the test now collects both rows in either order (10/10 runs pass). All of make check's steps pass (cargo test --workspace exit 0, fmt, clippy, ui-check, deps, python), make precheck passes all 8 legs, and every contract validation passes (escalate/tell_person grep empty, post_to_chat in mcp/ and security.md, tests/mcp 19/19). The slice's handoff from try 2 still holds: calls don't open a Posting, and the voice front's post_to_chat is still its own in voice/front_tools.rs. On dispatch/task-217.
 - 2026-10-19T21:34:00.907Z: [claude] Lead: the landing conflict is only in crates/hotline-core/src/wire/tests/roster.rs. release/0.41.0 already fixed the same HashSet-ordering flake in b0565497. Merge release/0.41.0 into dispatch/task-217, take release's roster.rs as it is (drop 572a84bb's version of the test; don't write a third), check nothing else changed, rerun make check and the validation commands, and deliver. Don't change anything else in the slice.
 - 2026-10-19T21:34:05.194Z: [claude] Lead: I can't hand this off again because it has used its retries, so it waits in Review for George. The slice itself passed make check and make verify. The only thing stopping it from landing is the roster.rs conflict described above. To settle it, take release/0.41.0's side of crates/hotline-core/src/wire/tests/roster.rs (b0565497) and land it. task-219, task-220, task-221, task-222 and task-226 all wait on this.
+- 2026-10-19T22:05:27.955Z: Landed on release/0.41.0

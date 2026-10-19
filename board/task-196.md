@@ -20,7 +20,31 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:59.870Z"
 dependsOn:
   - task-194
-updatedAt: "2026-10-19T06:10:31.816Z"
+updatedAt: "2026-10-19T06:11:04.263Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-support/Cargo.toml
+      description: The leaf-utilities crate, on hotline-contract at most
+  validation:
+    commands:
+      - test -f crates/hotline-support/src/lib.rs
+      - for f in credentials process_windows images thumbs fence room_lock log_file paths; do test ! -e crates/hotline-core/src/$f.rs || { echo "$f.rs still in hotline-core"; exit 1; }; done
+      - "! grep -qE '^hotline-(core|store|tools|websearch)' crates/hotline-support/Cargo.toml"
+      - grep -A1 '^\[lints\]' crates/hotline-support/Cargo.toml | grep -q 'workspace = true'
+      - cargo test -p hotline-support -- --list 2>/dev/null | grep -q room_lock
+      - grep -q hotline-support docs/standards.md && grep -q hotline-support AGENTS.md
+      - make check
+      - git diff --exit-code ui/src/generated/contract.ts
+      - make precheck
+  constraints:
+    - "Moves only: no behaviour change"
+    - One crate, not seven
+    - SAFETY comments kept on unsafe code
+    - contract.ts byte-identical
+  metrics:
+    readyAt: "2026-10-19T06:11:04.263Z"
 ---
 
 ## Description

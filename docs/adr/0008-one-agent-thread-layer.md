@@ -91,6 +91,20 @@ a quiet run is refused (`session/files.rs:35`, `:76-78`).
 
 ## Decision
 
+### 0. Names (George, 2026-10-19)
+
+A teammate is one agent with many arms. Everything it does, wherever it does
+it, funnels back to the person; that is what makes it an agent rather than a
+set of features. The names below are the ones code, docs and the window use,
+and every future feature is placed among them.
+
+| Term | What it is |
+|---|---|
+| **Teammate** | The whole agent: its home agent, its arms and its abilities. |
+| **Home agent**, **home thread** | The teammate's main session, and its conversation with the person (today's DM). "Core" is not used: it collides with `hotline-core` and the core cycle. |
+| **Arm** | The teammate working outside the home thread: a work thread (today's side thread), a subagent, a job, a call, a pair (with another teammate). An arm runs on the home agent's model and workspace, with a lease derived from the home thread's and never wider. |
+| **Ability** | What any arm may use: tools, the computer, skills, MCP servers, as its lease allows. |
+
 ### 1. The agent thread
 
 An **agent thread** is a thread (ADR 0001) with an agent bound to it. It is
@@ -165,9 +179,20 @@ any thread, a call's summary. It:
   "From a scheduled job", "From *thread title*" from `from`;
 - lights the rail, raises the desktop toast and pushes as a reply does,
   except when `from` is a call that is live, since the person is on it;
-- hands the text to the DM's live session ahead of its next line, which is
-  `pending_calls` generalised, so a typed follow-up does not start cold; a
-  session that starts later reads it from the tape;
+- reaches the home agent by who asked for the work (George, 2026-10-19):
+  - **the person asked** (they scheduled the job, placed the call, opened
+    the work thread): the post is for the person. The home agent is not
+    woken; the post is handed to its live session ahead of its next line
+    (`pending_calls` generalised), so it knows what its arms said and a
+    typed follow-up does not start cold; a session that starts later reads
+    it from the tape;
+  - **the home agent asked** (a subagent it launched, a check it scheduled
+    for its own work): the result wakes the home agent once, as a subagent's
+    report does today, and the home agent decides what the person hears;
+  - **an arm needs the home agent to act**, not only the person to know
+    (the build broke under a refactor the home agent is in the middle of):
+    `post_to_chat(text, wake: true)` posts and wakes it once. The handler
+    allows one wake per turn, as one post per turn;
 - never opens or obeys a quiet window: it is the one door out of one.
 
 **The tool.** `post_to_chat(text)` is one of Hotline's own tools on the
@@ -193,9 +218,10 @@ teammate's own session, so the words were already its own, and the second
 turn cost a model call and could wait behind the person's queued lines. The
 tool's description says to write it as the message to the person.
 
-A subagent run is the one thread that may not post. It reports to its
-teammate's turn, and the teammate decides what the person hears, as
-sessions.md has it now. An ACP harness's own subagents may share the parent
+A subagent the home agent launched is the one arm that may not post. It
+reports to the home agent, which asked for it, and the home agent decides
+what the person hears, as sessions.md has it now. A job (§7) is a subagent
+the person asked for, and posts like any other arm. An ACP harness's own subagents may share the parent
 session's MCP server; the handler cannot tell them from the parent, so a
 post from one is the parent thread's and counts as its one.
 
@@ -368,6 +394,49 @@ Each slice lands alone, keeps every test green, and says what it removes.
 Slices 1 and 2 stand alone and are what George asked for first; 3 and 4 are
 independent of voice; 5 to 7 are the voice path, in order.
 
+### 7. Jobs are subagents on a schedule (George, 2026-10-19)
+
+A background job is the teammate doing a recurring task outside the home
+thread and reporting back: status when the person wants it, and anything of
+significance. It is not a mode of the home thread. So jobs and subagents are
+one thing with one schema and one runtime:
+
+| | Trigger | Report |
+|---|---|---|
+| Subagent | now | to whoever asked (the home agent, usually) |
+| One-off job ("do X at 9") | at a time | to whoever asked (the person, usually) |
+| Recurring job ("check every 30 min") | every interval | to whoever asked, when something is worth saying |
+
+- **One schema:** the task, the trigger (`now`, `at`, `every`), the report
+  policy (who asked; status on a cadence, or only on significance), and an
+  optional end (a goal, a date, a count). The `schedule`/`loop` tools and the
+  subagent tool write it; today's quiet flag becomes the report policy.
+- **Its own thread.** Each job is an arm with a thread under the home thread,
+  listed with the person's threads in a Jobs group with its next run. Each
+  firing is a turn on that thread, never the home thread, so the home agent's
+  context holds none of it. The person can open the thread and talk to it
+  ("skip the next check", "also watch CI").
+- **Same agent.** It runs on the home agent's model and workspace, with a
+  lease derived from the home thread's.
+- **Parked between firings**, its agent released and reopened from its
+  binding at the next one, as a work thread parks.
+- **A running note, not a growing context.** Each firing starts from a short
+  state note the job rewrites every time, plus its last few firings, so a
+  loop that runs for days stays small.
+- **A firing still running when the next is due** is skipped, the skip is
+  said on the job's thread, and the job suggests an interval that fits the
+  time its work takes, as a teammate would. A job that keeps overrunning
+  says so to the person once.
+- **Ends** when the person cancels it or the job meets its goal and cancels
+  itself, with a final post saying what came of it. Its thread stays
+  readable.
+- **A plain reminder** ("remind me at 9 to call Sam") does no work: it fires
+  as one post to the home thread, with no arm.
+
+Migration: one more slice after posting works everywhere (slice 2): the
+schema and runtime shared by subagents and jobs, the job thread and its
+note, then today's quiet-run path in the home thread removed.
+
 ## Consequences
 
 **Better**
@@ -401,11 +470,7 @@ independent of voice; 5 to 7 are the voice path, in order.
 
 ## Open questions
 
-- **A quiet job's own thread.** A loop every few minutes fills the DM's
-  tape and context with thinking. A thread per job (each firing a turn on
-  it, resumed by its binding, posting when it finds something) would keep
-  the DM clean and still remember the last check. Not proposed here; it is
-  the next modality question once posting works everywhere.
+None left open: the last (a quiet job's own thread) is decided in §7.
 
 ## Alternatives considered
 

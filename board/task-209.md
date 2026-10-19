@@ -14,7 +14,34 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:42.047Z"
 dependsOn:
   - task-208
-updatedAt: "2026-10-19T14:07:42.992Z"
+updatedAt: "2026-10-19T14:09:47.516Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-mcp/Cargo.toml
+      description: the MCP client crate
+    - type: docs
+      path: docs/adr/0007-split-hotline-core.md
+      description: step 2 done, with each moved file's old and new path
+  validation:
+    commands:
+      - test -f crates/hotline-mcp/Cargo.toml
+      - "! test -e crates/hotline-core/src/mcp/oauth.rs"
+      - "! test -e crates/hotline-core/src/mcp/tool.rs"
+      - grep -rq 'struct TeammateTools' crates/hotline-core/src
+      - "! grep -q 'hotline-core' crates/hotline-mcp/Cargo.toml"
+      - cargo test -p hotline-core --test mcp
+      - make check
+      - git diff --exit-code -- ui/src/generated/contract.ts
+      - make precheck
+  constraints:
+    - Moves only, no behaviour change; no new trait beyond rmcp's existing CredentialStore
+    - TeammateTools (the MCP server) stays in hotline-core
+    - ui/src/generated/contract.ts byte-identical after an unfiltered cargo test
+    - hotline-mcp never depends on hotline-core or Tauri
+  metrics:
+    readyAt: "2026-10-19T14:09:47.516Z"
 ---
 
 ## Description

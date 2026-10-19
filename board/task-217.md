@@ -1,7 +1,7 @@
 ---
 id: task-217
 title: "Slice 2: post_to_chat on the desk's MCP server for both drivers; tell_person and Escalate go"
-column: in-progress
+column: review
 position: 13
 priority: high
 tags:
@@ -19,9 +19,9 @@ createdAt: "2026-10-19T19:59:31.099Z"
 dependsOn:
   - task-216
   - task-218
-updatedAt: "2026-10-19T21:16:30.272Z"
+updatedAt: "2026-10-19T21:33:26.138Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/tests
@@ -43,8 +43,8 @@ contract:
     readyAt: "2026-10-19T20:03:13.865Z"
     pickedUpAt: "2026-10-19T21:16:30.272Z"
     reworkCount: 2
-    deliveredAt: "2026-10-19T21:01:07.502Z"
-    duration: 563
+    deliveredAt: "2026-10-19T21:33:26.138Z"
+    duration: 1016
 dispatch:
   agent: claude
   model: opus

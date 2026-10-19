@@ -59,3 +59,6 @@ Do:
 3. Write a QA checklist as a note on epic-14, one line per child, for George's pass on the Linux QA desktop with his xAI sign-in: what to do and what he should see.
 
 Done when all three make targets pass on the branch with every slice in, and the checklist is on epic-14.
+
+## Log
+- 2026-10-19T00:15:53.353Z: [claude] Lead, from task-180: hotline-mobile labels a withdrawn card 'Expired' until it regenerates its contract. That's cosmetic, but put it in the QA checklist so George expects it. Also check that the docs/security.md row for withdraw_request exists.

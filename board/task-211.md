@@ -50,9 +50,14 @@ dispatch:
   by: lead
   at: "2026-10-19T14:31:50.317Z"
   until: done
-  tries: 1
+  tries: 2
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-19T14:31:51.911Z"
 assignee: claude
-updatedAt: "2026-10-19T14:31:50.448Z"
+updatedAt: "2026-10-19T14:31:51.911Z"
 ---
 
 ## Description

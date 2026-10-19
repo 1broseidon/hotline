@@ -1,8 +1,6 @@
 ---
 id: task-213
 title: "Design: the room's side of a call, and whether it is narrow enough to move the calls"
-column: todo
-position: 10
 priority: high
 tags:
   - design
@@ -16,7 +14,7 @@ createdAt: "2026-10-19T17:20:19.224Z"
 dependsOn:
   - task-212
   - task-215
-updatedAt: "2026-10-19T18:23:50.235Z"
+updatedAt: "2026-10-19T20:00:11.753Z"
 contract:
   status: ready
   deliverables:
@@ -35,6 +33,7 @@ contract:
     - "The recommendation applies George's test in one sentence: move if the room's side is a handful of methods, stop if it mirrors most of the room"
   metrics:
     readyAt: "2026-10-19T17:22:11.096Z"
+completedAt: "2026-10-19T20:00:11.753Z"
 ---
 
 ## Description

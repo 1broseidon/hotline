@@ -12,7 +12,7 @@ relatedFiles:
 parentId: epic-20
 createdAt: "2026-10-19T19:59:31.591Z"
 contract:
-  status: delivered
+  status: done
   deliverables:
     - type: file
       path: crates/hotline-core/src/session/peers/sessions.rs
@@ -33,7 +33,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-19T20:08:25.244Z"
     duration: 270
-updatedAt: "2026-10-19T20:08:25.244Z"
+updatedAt: "2026-10-19T20:12:32.914Z"
 dispatch:
   agent: codex
   model: gpt-6.1-sol

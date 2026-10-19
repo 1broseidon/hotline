@@ -86,6 +86,11 @@ crates/hotline-mcp/src/       Hotline as an MCP client; on the contract, the sup
   lib.rs                     the servers settings name, a teammate's grant, the live connections
   tool.rs                    one granted tool as Hotline Agent calls it, and its ledger row
   oauth.rs                   OAuth sign-in to an HTTP server, with what the vault keeps handed in
+crates/hotline-voice/src/     the voice engines; on the contract, the support and the room
+  speech.rs                  the Speech seam: a clip heard, a reply spoken, and the errors either gives
+  speech/                    the providers' adapters, which one a call uses, the desk's own models
+  realtime.rs                the Realtime seam: one live spoken conversation that renews itself
+  realtime/                  Grok Voice and GPT Realtime over a socket, GPT-Live over WebRTC
 crates/hotline-core/src/
   thread/                    the one name for a conversation, its store and its policy
   vault/                     credential metadata beside the room stream
@@ -99,7 +104,7 @@ crates/hotline-core/src/
   mcp/                       Hotline's own teammate tools, and the vault's side of the client
   skills.rs                  the catalog: built-in, gateway and workspace skills, copied into a workspace
   computer/                  runtime detection and one container per teammate
-  voice/                     the owner's call: speech in and out, the front, realtime
+  voice/                     the owner's call: its turns, the front, the dispatcher, the vault's side of the engines
   imagegen/                  making images over whichever connected provider the owner has
   link_preview.rs            a link's card, read from the page's head
   desk.rs                    the room, vault and log behind the wire

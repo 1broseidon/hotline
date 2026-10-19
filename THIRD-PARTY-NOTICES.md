@@ -117,5 +117,5 @@ same way. A sherpa-onnx bump re-reads this table and that count.
 
 The models are downloaded from the sherpa-onnx releases when their owner
 installs one, and the window credits each with its license
-(`crates/hotline-core/src/voice/speech/local/install.rs`): Parakeet under
+(`crates/hotline-voice/src/speech/local/install.rs`): Parakeet under
 CC BY 4.0, Whisper and Moonshine under MIT.

@@ -161,11 +161,11 @@ semantics or justifies replacing a typed error with `String`.
 | `crates/hotline-core/src/wire/mod.rs:1021` | tungstenite handshake callback returns `ErrorResponse` | Keep narrow allow: upstream callback fixes the type |
 | `crates/hotline-core/src/remote/bridge.rs:236` | same callback constraint | Keep documented allow |
 | `crates/hotline-core/src/remote/tests.rs:1553` | test handshake rejection | Keep test-only allow |
-| `crates/hotline-core/src/voice/realtime/socket/tests.rs:29` | mock handshake callback | Keep test-only allow |
-| `crates/hotline-core/src/voice/realtime/socket/tests.rs:342` | mock handshake callback | Keep test-only allow |
-| `crates/hotline-core/src/voice/realtime/socket/tests.rs:484` | mock handshake callback | Keep test-only allow |
-| `crates/hotline-core/src/voice/speech/xai/tests.rs:213` | mock handshake callback | Keep test-only allow |
-| `crates/hotline-core/src/voice/speech/xai/tests.rs:426` | mock handshake callback | Keep test-only allow |
+| `crates/hotline-voice/src/realtime/socket/tests.rs:29` | mock handshake callback | Keep test-only allow |
+| `crates/hotline-voice/src/realtime/socket/tests.rs:342` | mock handshake callback | Keep test-only allow |
+| `crates/hotline-voice/src/realtime/socket/tests.rs:484` | mock handshake callback | Keep test-only allow |
+| `crates/hotline-voice/src/speech/xai/tests.rs:213` | mock handshake callback | Keep test-only allow |
+| `crates/hotline-voice/src/speech/xai/tests.rs:426` | mock handshake callback | Keep test-only allow |
 
 `Failure` at `crates/hotline-core/src/driver/failure.rs:40` carries several
 strings, static title/summary/phase, status, retry information, sign-in metadata,
@@ -190,7 +190,7 @@ Useful existing types to preserve are `ToolError`/`ToolErrorKind`
 (`crates/hotline-mcp/src/tool.rs:97`), remote `OpenError`
 (`crates/hotline-core/src/remote/client.rs:490`), `ImageError`
 (`crates/hotline-core/src/imagegen/mod.rs:117`), and `SpeechError`
-(`crates/hotline-core/src/voice/speech/mod.rs:67`). They distinguish refusal,
+(`crates/hotline-voice/src/speech.rs:67`). They distinguish refusal,
 revocation, transport loss, unsupported input, or retry/fallback conditions.
 In particular a lost remote connection must not become a revoked grant.
 Computer `Refusal::TooOld` versus `Failed(String)` at
@@ -256,7 +256,7 @@ New callers of the public path helpers must retain those boundary checks.
 | Cluster and evidence | Why it cannot fail under the current callers |
 | --- | --- |
 | Literal schemas/objects: `crates/hotline-core/src/bin/hotline-mcp-echo.rs:24`, `crates/hotline-core/src/log/thread.rs:84`, `crates/hotline-core/src/mcp/server.rs:149` | Built with object-shaped literals immediately above; use “the literal tool schema is an object” rather than unwrap |
-| Typed serialization: `crates/hotline-core/src/import.rs:466`, `crates/hotline-core/src/wire/commands.rs:1248`, `crates/hotline-core/src/thread/link.rs:158`, `crates/hotline-core/src/vault.rs:1034`, `crates/hotline-core/src/voice/speech/local/install.rs:448` | Fixed serializable structs/string-keyed fields, not arbitrary deserialization; `voice/dispatcher.rs:962` serializes a string and should say so instead of “text” |
+| Typed serialization: `crates/hotline-core/src/import.rs:466`, `crates/hotline-core/src/wire/commands.rs:1248`, `crates/hotline-core/src/thread/link.rs:158`, `crates/hotline-core/src/vault.rs:1034`, `crates/hotline-voice/src/speech/local/install.rs:448` | Fixed serializable structs/string-keyed fields, not arbitrary deserialization; `voice/dispatcher.rs:962` serializes a string and should say so instead of “text” |
 | Bundled resources: `crates/hotline-core/src/models.rs:305`, `crates/hotline-core/src/skills/mod.rs:55` | Compiled-in files, validated by their tests; cannot be replaced by user disk content at runtime |
 | Fixed regex/captures: `crates/hotline-core/src/link_preview.rs:196`, `crates/hotline-core/src/websearch/when.rs:31`, `crates/hotline-core/src/voice/spoken.rs:88`, `crates/hotline-core/src/voice/spoken.rs:151` | Literal patterns and mandatory matched groups; replace preview's four unwraps with an expect explaining the fixed pattern |
 | Narrowed enums: `crates/hotline-core/src/driver/rig/images.rs:143`, `crates/hotline-core/src/sent/generated.rs:48`, `crates/hotline-core/src/session/jobs.rs:524`, `crates/hotline-core/src/wire/mod.rs:1630`, `crates/hotline-room/src/room.rs:188` | Prior matches/filters restrict variants; all room_event callers supply object literals/typed records. Explain the narrowing in the two empty unreachable messages |
@@ -266,7 +266,7 @@ New callers of the public path helpers must retain those boundary checks.
 | Remote ownership: `crates/hotline-core/src/remote/admission.rs:172`, `crates/hotline-core/src/remote/relay.rs:217`, `crates/hotline-core/src/remote/v2.rs:356`, `crates/hotline-core/src/remote/server.rs:483`, `crates/hotline-core/src/remote/channel.rs:58` | Live permit entry, paired host/budget, checked pairing window, once-taken seat, or nonempty queue; same lock/exclusive owner spans the check and use |
 | Session ownership: `crates/hotline-core/src/session/dm.rs:168`, `crates/hotline-core/src/session/dm.rs:475`, `crates/hotline-core/src/session/jobs.rs:522`, `crates/hotline-core/src/session/exchanges.rs:1256`, `crates/hotline-core/src/session/sides.rs:310` | Turn driver consumes each hold once; indices/ids come from the same held collection; OnceLock-backed driver stays installed |
 | Session work lease: `crates/hotline-core/src/session/mod.rs:2630`, `crates/hotline-core/src/session/mod.rs:813` | Dispatch callers retain a read lease, preventing restart's exclusive write lease; preserve the lease across new callers |
-| Voice state: `crates/hotline-core/src/voice/mod.rs:1376`, `crates/hotline-core/src/voice/mod.rs:1460`, `crates/hotline-core/src/voice/mod.rs:1521`, `crates/hotline-core/src/voice/realtime/live.rs:825` | Accepted input and single work-item consumer; async select branch is polled only when its option is present. Replace “guarded” with the actual branch condition |
+| Voice state: `crates/hotline-core/src/voice/mod.rs:1376`, `crates/hotline-core/src/voice/mod.rs:1460`, `crates/hotline-core/src/voice/mod.rs:1521`, `crates/hotline-voice/src/realtime/live.rs:825` | Accepted input and single work-item consumer; async select branch is polled only when its option is present. Replace “guarded” with the actual branch condition |
 | Resolved voice model/tool: `crates/hotline-core/src/voice/dispatcher.rs:444`, `crates/hotline-core/src/voice/dispatcher.rs:924`, `crates/hotline-core/src/voice/settings.rs:69` | Resolver constructs provider/model; built-in tool exists; each enum's static voice list is nonempty |
 | Piped processes/completed wait: `crates/hotline-core/src/computer/mod.rs:1145`, `crates/hotline-core/src/computer/mod.rs:1146`, `crates/hotline-core/src/tools/shell.rs:330` | Spawn explicitly requests pipes; successful uninterrupted wait sets output before it is taken |
 | Never-closed decoder semaphore: `crates/hotline-core/src/driver/rig/images.rs:30`, `crates/hotline-core/src/driver/rig/images.rs:74` | Static semaphore has no close caller; ToolOutput replacement retains its nonempty content invariant |

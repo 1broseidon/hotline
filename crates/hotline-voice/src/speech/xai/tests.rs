@@ -17,6 +17,8 @@ use tokio_tungstenite::{
 
 /// Explicit operator proof only: never runs in the ordinary suite, and its
 /// output contains status/results rather than credential or provider content.
+/// It speaks with the stored login's bearer as it stands: the refresh is the
+/// core's xAI provider's, so sign in again first if it is an hour old.
 #[tokio::test]
 #[ignore = "requires explicit operator authorization and a real Hotline Grok subscription"]
 async fn live_grok_subscription_voice_entitlement_probe() {
@@ -56,9 +58,9 @@ async fn live_grok_subscription_voice_entitlement_probe() {
         backend["backend"], "native",
         "probe requires the declared native store"
     );
-    let tokens = crate::credentials::CredentialFiles::new(
+    let tokens = hotline_support::credentials::CredentialFiles::new(
         root.clone(),
-        Arc::new(crate::credentials::NativeStore),
+        Arc::new(hotline_support::credentials::NativeStore),
     )
     .file(root.join("vault/logins").join(id).join("auth.json"));
     match tokens.read() {
@@ -81,12 +83,7 @@ async fn live_grok_subscription_voice_entitlement_probe() {
             return;
         }
     }
-    if let Ok(Ok(_)) = timeout(
-        Duration::from_secs(30),
-        crate::providers::xai::bearer(&tokens, None),
-    )
-    .await
-    {
+    if let Ok(Ok(_)) = timeout(Duration::from_secs(30), test_bearer(&tokens, None)).await {
     } else {
         println!("grok_voice_probe credential_available=false");
         return;
@@ -99,7 +96,7 @@ async fn live_grok_subscription_voice_entitlement_probe() {
     };
     let voice = Xai::speaker(endpoint.clone(), SPEAK_MODEL, "eve")
         .unwrap()
-        .with_subscription(tokens.clone())
+        .with_subscription(test_login(tokens.clone()))
         .unwrap();
     let clip = match voice.speak("Hello. This is a quick voice test.").await {
         Ok(clip) => {
@@ -140,7 +137,7 @@ async fn live_grok_subscription_voice_entitlement_probe() {
     };
     let listen = Xai::listener(endpoint, LISTEN_MODEL)
         .unwrap()
-        .with_subscription(tokens)
+        .with_subscription(test_login(tokens))
         .unwrap();
     let (sender, input) = mpsc::channel(pcm.len().div_ceil(INPUT_FRAME_LIMIT).max(1));
     for chunk in pcm.chunks(INPUT_FRAME_LIMIT) {
@@ -249,14 +246,18 @@ fn speaker(url: &str) -> Xai {
     Xai::speaker(endpoint(url, "test-key"), SPEAK_MODEL, "eve").unwrap()
 }
 fn login(root: &std::path::Path) -> CredentialFile {
-    let tokens =
-        crate::credentials::CredentialFiles::new(root.into(), crate::vault::default_store())
-            .file(root.join("auth.json"));
-    crate::providers::xai::sign_in_for_test(&tokens, "first-login");
+    let tokens = hotline_support::credentials::CredentialFiles::new(
+        root.into(),
+        std::sync::Arc::new(hotline_support::credentials::MemoryStore::default()),
+    )
+    .file(root.join("auth.json"));
+    crate::speech::xai::sign_in_for_test(&tokens, "first-login");
     tokens
 }
 fn subscription_voice(tokens: CredentialFile, url: &str) -> Xai {
-    let mut voice = speaker(BASE_URL).with_subscription(tokens).unwrap();
+    let mut voice = speaker(BASE_URL)
+        .with_subscription(test_login(tokens))
+        .unwrap();
     // Only fixtures replace the production origin after the guarded constructor.
     voice.access.endpoint.base_url = url.into();
     voice
@@ -289,7 +290,7 @@ async fn subscription_tts_resolves_each_request_and_retries_one_rejected_login()
             };
             if first {
                 // Another synchronized client already refreshed this login.
-                crate::providers::xai::sign_in_for_test(&rotate, "fresh-login");
+                crate::speech::xai::sign_in_for_test(&rotate, "fresh-login");
                 (
                     StatusCode::UNAUTHORIZED,
                     [(header::CONTENT_TYPE, "audio/pcm")],
@@ -317,7 +318,7 @@ async fn subscription_tts_resolves_each_request_and_retries_one_rejected_login()
             .bytes
             .starts_with(b"RIFF")
     );
-    crate::providers::xai::sign_in_for_test(&tokens, "next-login");
+    crate::speech::xai::sign_in_for_test(&tokens, "next-login");
     voice.speak("Again.").await.unwrap();
     let seen = requests.lock().unwrap();
     assert_eq!(seen.len(), 3);
@@ -365,7 +366,7 @@ async fn subscription_denial_is_typed_redacted_and_never_uses_the_endpoint_key()
     assert!(seen.lock().unwrap().is_empty());
     assert!(
         speaker("https://other.example/v1")
-            .with_subscription(tokens)
+            .with_subscription(test_login(tokens))
             .is_err()
     );
 }
@@ -391,7 +392,7 @@ async fn subscription_tts_refreshes_only_once_and_batch_stt_never_replays_upload
                 seen.len()
             };
             if count == 1 {
-                crate::providers::xai::sign_in_for_test(&rotate, "fresh-login");
+                crate::speech::xai::sign_in_for_test(&rotate, "fresh-login");
             }
             (StatusCode::UNAUTHORIZED, "private refusal")
         }
@@ -405,7 +406,7 @@ async fn subscription_tts_refreshes_only_once_and_batch_stt_never_replays_upload
     assert_eq!(requests.lock().unwrap().len(), 2);
     let mut listen = Xai::listener(endpoint(BASE_URL, "unused-api-key"), LISTEN_MODEL)
         .unwrap()
-        .with_subscription(tokens)
+        .with_subscription(test_login(tokens))
         .unwrap();
     listen.access.endpoint.base_url = url;
     assert!(matches!(
@@ -436,7 +437,7 @@ async fn subscription_live_auth_retries_before_any_caller_audio_and_uses_fresh_l
                 request.headers()[header::AUTHORIZATION],
                 "Bearer first-login"
             );
-            crate::providers::xai::sign_in_for_test(&rotate, "fresh-login");
+            crate::speech::xai::sign_in_for_test(&rotate, "fresh-login");
             Err(http::Response::builder().status(401).body(None).unwrap())
         })
         .await;
@@ -467,7 +468,7 @@ async fn subscription_live_auth_retries_before_any_caller_audio_and_uses_fresh_l
     let _server = Server(task);
     let mut listen = Xai::listener(endpoint(BASE_URL, "unused-key"), LISTEN_MODEL)
         .unwrap()
-        .with_subscription(tokens)
+        .with_subscription(test_login(tokens))
         .unwrap();
     listen.access.endpoint.base_url = url;
     let (sender, input) = mpsc::channel(1);

@@ -3,8 +3,10 @@
 - Status: The five crates landed on `release/0.41.0` (epic-16). Of the
   core's split, under Next, steps 1 and 2 are done (`hotline-room`,
   epic-18: task-211 and task-208; `hotline-mcp`, task-209) and timed
-  (task-210); steps 3 and 4 are not started, and the timings do not meet
-  the stopping rule for step 3.
+  (task-210). Their timings did not meet the stopping rule for step 3;
+  George decided on 2026-10-19 to split voice for maintainability rather
+  than build time (epic-19), and step 3 is done and timed (`hotline-voice`,
+  task-212). Step 4 is not started.
 - Date: 2026-10-19
 - Supersedes: the "No new crates" line of [standards.md](../standards.md#module-layout),
   once task-196 rewrites it. The line after it, "Do not break the
@@ -15,7 +17,8 @@
   `hotline-store`, task-198 `hotline-tools`, task-199 the timings again and
   the plan for the core); epic-18 for the core's split (task-211 and
   task-208 `hotline-room`, task-209 `hotline-mcp`, task-210 the timings
-  and the epic checked whole)
+  and the epic checked whole); epic-19 for voice (task-212 the engines,
+  task-213 the design of the room's side of a call, task-214 the calls)
 
 ## Context
 
@@ -938,6 +941,218 @@ name it:
 | `crate::mcp::normalize_servers` | `hotline_room::mcp_servers::normalize_servers` | 3 (`import.rs`, the wire's settings commands, `vault/launch.rs`) |
 | `crate::mcp::{McpServer, connect, grant, …}` | `hotline_mcp::…` | 31, and the MCP harness |
 
+### Step 3, done: `hotline-voice`
+
+**What let it go ahead.** By the stopping rule, step 3 waited on George
+after task-210's numbers. He decided on 2026-10-19 (epic-19) to split voice
+for maintainability, not build speed: voice is a large body of code that
+has to be high quality, agents working on voice should stay in a voice crate
+rather than in the one core, and the next iteration adds a voice agent,
+which should be built on a clean voice crate. So this step was taken for
+the boundary and for the engines tested alone, and its timings below are a
+record, not its gate. The calls are a later question: task-213 designs the
+room's side of a call, and they move only if that comes out narrow.
+
+The engines are `hotline-voice`. It stands on `hotline-contract`,
+`hotline-support` (the credential files) and `hotline-room` (voice's
+settings, `ProviderAuth`, the TLS default, `clip`), and on nothing in the
+core, nor Tauri. The plan's seams held: `Speech` (five implementations) and
+`Realtime` (two) moved as they were, and no trait was added.
+
+Each moved file, by its old path in `crates/hotline-core/src/` and its new
+one in `crates/hotline-voice/src/`:
+
+| Old path (`hotline-core/src/`) | New path (`hotline-voice/src/`) | The core still reaches it as |
+|---|---|---|
+| `voice/speech.rs` | `speech.rs` | `crate::voice::speech::{Speech, Clip, SpeechError, SpeechId, SpeechSet, …}` |
+| `voice/speech/catalog.rs` | `speech/catalog.rs` | (private to the crate) |
+| `voice/speech/clip.rs` | `speech/clip.rs` | `crate::voice::speech::{billable_ms, plausible_goodbye, MIN_GOODBYE_MS}` |
+| `voice/speech/google.rs` | `speech/google.rs` | `crate::voice::speech::Google` |
+| `voice/speech/local.rs` | `speech/local.rs` | `crate::voice::speech::local` |
+| `voice/speech/local/install.rs` | `speech/local/install.rs` | `crate::voice::speech::local::{catalogue, Model, Installs, …}` |
+| `voice/speech/local/tests.rs` | `speech/local/tests.rs` | |
+| `voice/speech/openai_shape.rs` | `speech/openai_shape.rs` | `crate::voice::speech::{OpenAiShape, Endpoint, AudioFormat}` |
+| `voice/speech/providers.rs` | `speech/providers.rs` | `crate::voice::speech::{resolve, resolve_output, resolve_front, listens_for, options}`, the core's, which read the vault (below), and `speaks` |
+| `voice/speech/tests.rs` | `speech/tests.rs` | |
+| `voice/speech/wav.rs` | `speech/wav.rs` | (private to the crate) |
+| `voice/speech/xai.rs` | `speech/xai.rs` | (private to the crate) |
+| `voice/speech/xai/tests.rs` | `speech/xai/tests.rs` | |
+| `voice/realtime.rs` | `realtime.rs` | `crate::voice::realtime::{Realtime, RealtimeConfig, RealtimeEvent, SAY_THIS, …}` |
+| `voice/realtime/live.rs` | `realtime/live.rs` | `crate::voice::realtime::{GptLive, live::PROVIDER_ID}` |
+| `voice/realtime/live/tests.rs` | `realtime/live/tests.rs` | |
+| `voice/realtime/socket.rs` | `realtime/socket.rs` | `crate::voice::realtime::RealtimeSocket` |
+| `voice/realtime/socket/tests.rs` | `realtime/socket/tests.rs` | |
+
+And the pieces that moved out of files that stayed:
+
+| Item, from | To | The core still reaches it as |
+|---|---|---|
+| `front::SEND_TO_TEAMMATE`, from `voice/front.rs` | `hotline-voice/src/realtime.rs`, beside `SAY_THIS` | `crate::voice::front::SEND_TO_TEAMMATE`, re-exported where the constant was (the one line of a call file this step changed) |
+| `models::is_custom`, from `models.rs` | `hotline-room/src/provider_auth.rs`, beside `ProviderAuth::Custom` | `crate::models::is_custom` |
+
+GPT-Live reports its hand-offs as the front's `send_to_teammate`, so the
+name moved down with it; `is_custom` is five lines over a provider id, which
+the engines ask of a connection and the core's model wiring asks too.
+
+**The vault and the three credential helpers: values and functions the
+core hands in; none moved down.** The engines took `&Vault` in five places
+(`options`, `resolve`, `resolve_front`, `resolve_output`, `listens_for`),
+and read three things from it: the data root, each credential in the order
+it was created, and each provider's auth. That is now
+`speech::Connected { root, providers, sign_ins }`, which the core's new
+`voice/connected.rs` (160 lines, half of them its tests) reads the way
+`speech/providers.rs`'s `connections` did: the credentials in order, the revoked ones
+skipped, one per provider, with the vault's auth for each. The core's five
+readers keep their names and their `&Vault` and hand the engines'
+namesakes a `Connected`, so the calls (`input.rs`, `duplex.rs`), the
+desk's transcription and the capability options did not change. Of the
+helpers:
+
+- **OpenRouter's key** is a value. Its sign-in is a PKCE exchange that
+  leaves a plain key, read once when the connections are; `connected`
+  hands an OpenRouter sign-in in as the `ProviderAuth::ApiKey` read out of
+  it (`providers::openrouter_key`), and leaves one whose key cannot be read
+  as it was, which the engines do not count, as before.
+- **xAI's bearer** and **ChatGPT's refreshed sign-in** cannot be values:
+  they are read when a socket opens or a call is placed, and read again
+  when the server refuses one, and a value resolved with the speech set
+  would be a token read at the wrong time and never refreshed. So they are
+  the two calls back, as saving a registration is the MCP client's: plain
+  `fn` pointers in `speech::SignIns` (`speech::xai::Bearer`,
+  `realtime::live::SignIn`), which the core points at
+  `providers::xai::bearer` and `providers::chatgpt::refreshed_auth`. They
+  did not move down because neither is voice's. xAI's bearer is the token
+  store every client on the login shares (`TokenStore::shared`, one refresh
+  lock per login in the process, so a rotated refresh token is spent once):
+  a copy below would be a second lock, and moving the store would take
+  xAI's sign-in, with its device flow and the Rig transport the teammates'
+  clients and the image maker use, into the voice crate. ChatGPT's refresh
+  is Rig's ChatGPT client, which model discovery runs for the same login,
+  and would bring Rig into the crate.
+
+`ProviderAuth`, `install_crypto_provider` and `clip` were already below,
+from step 1; `credentials` from epic-16. What a teammate can reach did not
+change: the engines are the owner's calls' and no teammate's capability, a
+Grok bearer is still sent only to xAI's fixed voice origin (the
+subscription's constructor refuses another), GPT Realtime still refuses
+the login, and the crate cannot open the vault at all.
+
+The tests went with their code: 149 in the crate (146 run, three ignored
+probes of real providers), against the 152 the moved files and their
+`mod tests` held; the three that read a real `Vault`
+(`the_vault_gives_providers_in_the_order_they_were_connected`,
+`a_vault_with_only_chat_providers_cannot_speak`,
+`a_vault_with_native_xai_can_hear_live_and_speak`) are `voice/connected.rs`'s
+tests in the core, by the rule in
+[Sharing a test fixture](#sharing-a-test-fixture-down-the-crates). The
+engine tests that signed in through the core's xAI provider
+(`sign_in_for_test`, `bearer`) sign in with a test login in
+`speech/xai.rs` (`test_bearer`, `sign_in_for_test`, `test_login`), which
+reads the bearer from the token file and replaces a refused one only when
+a fresh one was written, as the core's store does when it need not ask
+xAI; their assertions did not change, and where the store would have asked
+`auth.x.ai` for a refresh the test login refuses, so these tests no longer
+reach the network. GPT-Live's tests read the login's `auth.json` as it
+stands. That makes the three ignored probes (the Grok entitlement probe and
+the two real GPT-Live calls) speak with a stored login unrefreshed: sign in
+within the hour before running one. The AAC clip test reads the desk
+harness's `tests/fixtures/voice/ask-mack.m4a` in the core, which keeps the
+clip once. The desk harness's voice tests (`tests/voice`,
+`tests/local_speech`, `tests/processes`) did not change, and
+`local_speech_check` stays in the core's examples, since it opens a `Desk`:
+its `cargo run -p hotline-core` line holds, and it downloaded, verified and
+unpacked `parakeet-tdt-110m-en` in 5.1 s and heard the four fixtures.
+
+webrtc, rtc, opus, sherpa-onnx and symphonia left `hotline-core`'s manifest,
+where nothing else used them, and are `hotline-voice`'s. Nothing that points
+the speech engine's link names the core: `SHERPA_ONNX_ARCHIVE_DIR` in
+`.cargo/config.toml` is relative to the workspace, and precheck's legs and CI
+fetch the archive and build the workspace. `scripts/fetch-speech-engine`'s
+doc and `scripts/timings-summary`'s `OWN` name the crate.
+
+The re-exports the core keeps, each while callers remain (files in the
+core's `src/`, `tests/` and `examples/` that name it):
+
+| The core's path | Is | Files naming it |
+|---|---|---|
+| `crate::voice::speech` | `hotline_voice::speech::*`, with the core's five vault readers in place of the engines' namesakes | 15 in `src/` (`voice.rs`, `voice/{turn, input, duplex, synthesis}.rs`, the voice tests, `models.rs`, `capabilities.rs`, `desk.rs`), and the harnesses `tests/voice.rs`, `tests/voice/front.rs`, `tests/local_speech.rs` and the `speech_check` example |
+| `crate::voice::realtime` | `hotline_voice::realtime` | 6 in `src/` (`voice.rs`, `voice/{turn, input, duplex, front}.rs`, `voice/tests/front_calls.rs`), and `tests/voice.rs`, `tests/voice/front.rs` |
+| `crate::voice::front::SEND_TO_TEAMMATE` | `hotline_voice::realtime::SEND_TO_TEAMMATE` | 3 (`voice/front.rs`, `voice/duplex.rs`, `voice/dispatcher.rs`) |
+| `crate::models::is_custom` | `hotline_room::provider_auth::is_custom` | 2 (`models.rs`, `desk.rs`) |
+
+`scripts/module-map`: `voice -> desk(0+21t), driver(10), mcp(2), models(6+1t), pricing(1+1t), providers(1), session(7+4t), test_support(0+1t), thread(0+9t), vault(4), wire(17+6t)`,
+against `desk(2+21t), driver(11), mcp(2), models(7+1t), pricing(1+1t), providers(3+8t), session(7+4t), test_support(0+1t), thread(0+9t), vault(4+5t), wire(17+6t)`
+before it. The engines' two `crate::desk::install_crypto_provider` were
+voice's only production edge to `desk`, so the strongly connected set fell
+from 17 modules to 14: `capabilities`, `import` and `desk` are now layers
+above it (2, 2 and 3). The crate is 11,147 lines with its tests; the moved
+files were 11,046 lines (7,687 outside the test files, 6,451 without their
+inline tests too), and the core's `src/` is 118,854 lines, against 129,734.
+
+**Step 3, timed.** Measured on 2026-10-19 by task-212, as task-210 measured
+steps 1 and 2: at two commits, each in its own fresh worktree with an empty
+`target/` and the speech-engine archive put in first, on the same machine,
+toolchain and profile: 419bdac5, the tip of `release/0.41.0` with steps 1
+and 2 in (it re-takes task-210's last column), and dd4923db, this step's
+code. The commands are After's, with two rows added: an edit to
+`speech/providers.rs` (`crates/hotline-core/src/voice/speech/` before,
+`crates/hotline-voice/src/speech/` after) built by the core, and the same
+edit tested by `hotline-voice` alone. Each command ran twice and the second
+was kept; the cold builds and the `voice/dispatcher.rs` touches ran in three
+rounds with the two commits back to back in each, the edits once per commit,
+back to back, and nothing ran in parallel. The machine was busy with other
+work as before: the load average was 6 to 27 for the cold builds, 7 to 20
+for the touches and 15 to 27 for the edits, alike for both commits. A figure
+is the best kept run, with the range of all kept runs in brackets where
+they differ.
+
+| What | 419bdac5, steps 1 and 2 | dd4923db, step 3 |
+|---|---|---|
+| Lines in the core's `src/` | 129,734 | 118,854 |
+| Cold, hotline-core only, `cargo build` | 29.8 s (29.8–29.9) | 26.3 s (26.3–26.5) |
+| `hotline-core`'s library unit (front end, code generation) | 28.1 s (17.7 s, 10.4 s) | 24.6 s (15.3 s, 9.3 s) |
+| The library's front end, every kept cold build | 17.7–17.8 s | 15.3 s |
+| Cold, hotline-core only, `cargo test --no-run` | 59.9 s (59.9–63.1) | 54.1 s (54.1–56.4) |
+| Touch `voice/dispatcher.rs`, `cargo build` | 3.0 s | 2.7 s (2.7–2.9) |
+| Touch `voice/dispatcher.rs`, `cargo test --no-run` | 8.0 s (8.0–8.4) | 7.7 s (7.7–7.8) |
+| Edit `voice/dispatcher.rs`, `cargo build` | 3.1 s | 2.9 s |
+| Edit `voice/dispatcher.rs`, `cargo test --no-run` | 8.1 s | 7.8 s |
+| Edit `speech/providers.rs`, `cargo build` | 3.1 s | 3.4 s |
+| Edit `speech/providers.rs`, `cargo test --no-run` | 8.5 s | 8.3 s |
+| Edit `speech/providers.rs`, `cargo test -p hotline-voice --no-run` | (8.5 s, the core's) | 1.1 s |
+
+419bdac5's column reads a second or two under task-210's a40e7745 (31.1 s,
+29.6 s with an 18.6 s front end, 62.0 s, 3.1 s, 8.4 s), at the same code:
+the machine was less loaded, so the two columns here are read against each
+other, not against that one.
+
+What got faster:
+
+- **The library, by 3.5 seconds.** Its unit fell from 28.1 s to 24.6 s
+  (12%) and its front end from 17.7 s to 15.3 s (14%), for 8.4% of the
+  core's lines; the cold build followed, 29.8 s to 26.3 s. That is more than
+  the lines' share, where steps 1 and 2 gave about two thirds of theirs.
+- **The cold test build, by 5.8 seconds**, 59.9 s to 54.1 s, outside both
+  commits' spreads: the engines' tests left the core's test-profile
+  library, as the plan said they could.
+- **The engines, tested alone**, in 1.1 s after an edit, where it was the
+  core's 8.5 s test build.
+
+What did not:
+
+- **The incremental floors moved by their share and no more.** At 8.4% of
+  the lines that is 0.25 s off the build floor and 0.7 s off the test
+  build's; a touch measured 0.3 s and 0.3 s.
+- **An edit to an engine.** `speech/providers.rs` is now a crate below the
+  core, so a change to it rebuilds `hotline-voice` and then the core: 3.1 s
+  became 3.4 s. It is the cost of a crate the core reads, as for the room.
+
+By the stopping rule, step 3 showed its share and more: about 1.5 s was
+its share off the front end and it took 2.4 s. Step 4, `remote`, waits
+for the numbers to say the front end is still the bottleneck; it is 15.3 s
+of the library's 24.6 s, and the decision is not this step's: epic-19 goes
+on to the calls (task-213, task-214), not to `remote`.
+
 ### The re-exports
 
 The five crates' re-exports are about 870 references in the core's source,
@@ -966,9 +1181,12 @@ in the core does.
    Done (task-209): the crate is `hotline-mcp`, below.
 3. The `voice` engines (the largest gain, through traits with five and two
    implementations).
-   Not started: steps 1 and 2 did not show their share (task-210, in
+   Steps 1 and 2 did not show their share (task-210, in
    [Steps 1 and 2, timed](#steps-1-and-2-timed)), so by the rule below this
-   waits on George.
+   waited on George, who decided on 2026-10-19 to split voice for
+   maintainability, not build time.
+   Done (task-212): the crate is `hotline-voice`, in
+   [Step 3, done](#step-3-done-hotline-voice).
 4. `remote`, only if the numbers after 3 say the core's front end is still the
    bottleneck, because it is the one stage that changes control flow on a
    network path.
@@ -983,8 +1201,8 @@ shortens both of those only in proportion.
 
 ## Consequences
 
-- Seven new workspace crates (epic-16's five, `hotline-room` for step 1
-  of Next and `hotline-mcp` for step 2), each with the workspace lints, a license and a crate-level doc. `hotline-core` keeps no Tauri.
+- Eight new workspace crates (epic-16's five, `hotline-room` for step 1
+  of Next, `hotline-mcp` for step 2 and `hotline-voice` for step 3), each with the workspace lints, a license and a crate-level doc. `hotline-core` keeps no Tauri.
 - The stages share lines (workspace members, `Cargo.lock`, `hotline-core`'s
   `Cargo.toml` and `lib.rs`, standards.md's module map, AGENTS.md), so they land
   in order and alone.

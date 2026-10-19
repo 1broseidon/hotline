@@ -75,6 +75,19 @@ module map itself is [development.md](development.md#layout).
   back. `hotline-core` re-exports its items at `crate::mcp`, where
   `TeammateTools`, the server of a teammate's own tools, stays: it calls
   into the live room, the `mcp`↔`session` cycle below.
+- `hotline-voice` is the voice engines: the `Speech` seam with its
+  providers' adapters, the desk's own models and the choice of which a call
+  uses (`speech`), and the `Realtime` seam with Grok Voice, GPT Realtime and
+  GPT-Live (`realtime`). It stands on `hotline-contract`, `hotline-support`
+  and `hotline-room` (voice's settings, `ProviderAuth`, the TLS default), and
+  never on `hotline-core` or Tauri. It never opens the vault: the core reads
+  what the vault keeps for voice and hands it in as `speech::Connected`,
+  with the Grok and ChatGPT logins' refreshes, which stay with the core's
+  providers, as functions in it. `hotline-core` re-exports the crate at
+  `crate::voice::speech` and `crate::voice::realtime`, where the readers
+  that take the vault stand in for the engines' own, and the calls (the
+  dispatcher, the turns, the front) stay: they report to the live room, the
+  `session`↔`voice` cycle below.
 - A new crate comes from the plan in
   [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
   direction, its edges only go down, and nothing but the app and the CLI

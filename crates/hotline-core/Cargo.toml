@@ -17,6 +17,7 @@ hotline-tools = { path = "../hotline-tools" }
 hotline-websearch = { path = "../hotline-websearch" }
 hotline-room = { path = "../hotline-room" }
 hotline-mcp = { path = "../hotline-mcp" }
+hotline-voice = { path = "../hotline-voice" }
 rig.workspace = true
 gethostname = "1.1"
 portable-pty = "0.9"
@@ -57,13 +58,6 @@ dunce = "1.0.5"
 oauth2 = { version = "5", default-features = false }
 bytes = "1"
 base64 = "0.22"
-# GPT-Live on a ChatGPT login is a WebRTC call, as the Codex app places it:
-# the desk is the peer and sends the person's audio as Opus over RTP; the
-# model's speech and events come back on a sideband socket. Pinned with the
-# versions Codex ships; opus builds libopus from source with cmake.
-webrtc = "=0.20.3"
-rtc = "=0.20.5"
-opus = "=0.4.0"
 # What a sent file is, from its name, when its bytes do not say.
 mime_guess = "2.0.5"
 http = "1"
@@ -103,12 +97,6 @@ hex = "0.4"
 # a ceiling below that, so an attached picture is decoded and shrunk before
 # it is inlined. Only the formats a phone or a screenshot produces.
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
-# The desk's own speech to text. Pinned exactly: the build downloads that
-# release's prebuilt static library (onnxruntime inside, so nothing is needed
-# on the host), and the C API under the wrapper moves between releases.
-sherpa-onnx = { version = "=1.13.8", default-features = false, features = ["static"] }
-# A phone's utterance is AAC in MP4; the local engine needs its samples.
-symphonia = { version = "0.6", default-features = false, features = ["aac", "isomp4"] }
 
 # `test-util`: a test whose time the code controls runs on a paused clock, so
 # waiting out a 30 s token lifetime or a 10 s deadline costs nothing.

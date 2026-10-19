@@ -4326,7 +4326,6 @@ dependencies = [
  "if-addrs",
  "ignore",
  "image",
- "keyring",
  "libc",
  "mime_guess",
  "oauth2",

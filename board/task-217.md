@@ -19,7 +19,28 @@ createdAt: "2026-10-19T19:59:31.099Z"
 dependsOn:
   - task-216
   - task-218
-updatedAt: "2026-10-19T20:02:52.541Z"
+updatedAt: "2026-10-19T20:03:13.865Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/tests
+      description: every refusal row of ADR 0008 §3 (loud DM turn, a subagent run, a second post, a second wake, a revoked lease, another teammate's chat, over 2,000 chars) through the real handler on both drivers, and an ACP quiet run that posts
+    - type: docs
+      path: docs/security.md
+      description: post_to_chat's default, grant source, enforcement points, tests and residual risk
+  validation:
+    commands:
+      - make check
+      - "! git grep -n -e escalate_next -e 'trait Escalate' -e tell_person -- crates/hotline-core/src"
+      - git grep -qn post_to_chat -- crates/hotline-core/src/mcp
+      - git grep -qn post_to_chat -- docs/security.md
+      - cargo test -p hotline-core --test mcp
+  constraints:
+    - "A capability change: follow docs/security.md"
+    - Write through Room::post from task-216; no second door to the chat
+  metrics:
+    readyAt: "2026-10-19T20:03:13.865Z"
 ---
 
 ## Description

@@ -11,6 +11,8 @@ tags:
   - "0.42"
 assignee: claude
 createdAt: "2026-10-19T20:00:05.973Z"
+landsOn: release/0.42.0
+updatedAt: "2026-10-19T20:00:06.453Z"
 ---
 
 ## Description

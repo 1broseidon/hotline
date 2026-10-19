@@ -20,7 +20,7 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:59.870Z"
 dependsOn:
   - task-194
-updatedAt: "2026-10-19T07:50:15.952Z"
+updatedAt: "2026-10-19T07:50:16.937Z"
 contract:
   status: ready
   deliverables:
@@ -45,6 +45,14 @@ contract:
     - contract.ts byte-identical
   metrics:
     readyAt: "2026-10-19T06:11:04.263Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T07:50:16.813Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

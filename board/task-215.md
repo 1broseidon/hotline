@@ -44,3 +44,6 @@ Write the next free ADR: today's map (every thread kind, the session path each t
 5. Voice under this design: speech in and out around the full agent; how it relates to epic-19's crate move and task-213's interface; what happens to the live fronts.
 6. Migration in slices, each landable on its own, with what each removes.
 Stops in Review for George; no code.
+
+## Log
+- 2026-10-19T17:42:12.367Z: [claude] Wrote docs/adr/0008-one-agent-thread-layer.md (proposed; indexed in design.md), on branch dispatch/task-215 at d5de756e, docs only. It covers today's map with citations at 419bdac5, then the target: the agent thread, a modality table, post_to_chat as the one escalation door on the MCP server for both drivers (Room::post, once per turn, lease-checked, stamped from:, runs excluded), the chat as log of truth, and voice as a call thread whose agent is the teammate. It recommends running calls on the Speech engines without the fronts, and says task-213 should size its interface against this target and task-214 should move the calls after slice 6. Seven migration slices, each listing what it removes. Found along the way: driver.rs Escalate doc and mcp/server.rs "Sixteen tools" are stale, and an ACP quiet run cannot escalate today.

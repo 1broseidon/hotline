@@ -11,7 +11,7 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:55.296Z"
 relatedFiles:
   - ui/src/components/teammate/Threads.tsx
-updatedAt: "2026-10-18T23:53:55.552Z"
+updatedAt: "2026-10-19T00:43:56.599Z"
 contract:
   status: ready
   validation:
@@ -19,6 +19,14 @@ contract:
       - make ui-check
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+dispatch:
+  agent: claude
+  model: sonnet
+  by: lead
+  at: "2026-10-19T00:43:56.467Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

@@ -1,7 +1,7 @@
 ---
 id: task-49
 title: "Window: render long conversations progressively with stable scroll anchoring"
-column: todo
+column: in-progress
 position: 5
 priority: medium
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - ui/src/index.css
 parentId: epic-14
 createdAt: "2026-10-12T04:20:52.535Z"
-updatedAt: "2026-10-19T00:44:04.356Z"
+updatedAt: "2026-10-19T00:44:15.039Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: test
       path: ui/src/components
@@ -25,6 +25,8 @@ contract:
       - make ui-check
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+    pickedUpAt: "2026-10-19T00:44:15.039Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

@@ -13,6 +13,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/assets
 parentId: epic-17
 createdAt: "2026-10-19T13:59:38.640Z"
+dependsOn:
+  - task-201
+updatedAt: "2026-10-19T13:59:41.002Z"
 ---
 
 ## Description

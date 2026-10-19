@@ -15,7 +15,7 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:58.782Z"
 dependsOn:
   - task-193
-updatedAt: "2026-10-19T07:41:39.477Z"
+updatedAt: "2026-10-19T07:41:48.097Z"
 contract:
   status: in_progress
   deliverables:
@@ -41,8 +41,8 @@ contract:
     - Tape event shapes unchanged
   metrics:
     readyAt: "2026-10-19T06:11:03.996Z"
-    pickedUpAt: "2026-10-19T06:39:08.140Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-19T07:41:48.097Z"
+    reworkCount: 1
 dispatch:
   agent: claude
   model: opus

@@ -26,7 +26,7 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:41.570Z"
 dependsOn:
   - task-211
-updatedAt: "2026-10-19T14:10:20.361Z"
+updatedAt: "2026-10-19T14:41:00.832Z"
 contract:
   status: ready
   deliverables:
@@ -57,6 +57,14 @@ contract:
     - The new crate never depends on hotline-core or Tauri
   metrics:
     readyAt: "2026-10-19T14:10:20.361Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T14:41:00.706Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

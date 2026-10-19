@@ -77,3 +77,4 @@ Proof: wire tests beside the code (roster carries the lead; set, move, clear; re
 
 ## Log
 - 2026-10-19T20:14:07.657Z: Landing sent back (1 of 1): with release/0.41.0 brought in, `make check` failed: 645 + Ok(Value::Null) ⏎ 646 + } ⏎ | ⏎ error: could not compile `hotline-core` (lib) due to 1 previous error ⏎ warning: build failed, waiting for other jobs to finish... ⏎ error: could not compile `hotline-core` (lib test) due to 1 previous error ⏎ make: *** [check] Error 101. Fix it on this branch, commit, and run the checks again.
+- 2026-10-19T20:14:30.790Z: [claude] Lead: the last try ended its turn while `make check` was still running in the background, and the app's `make check` then failed. This time, run `make check` (and `cargo test -p hotline-contract` / `-p hotline-core` unfiltered, so contract.ts is written whole) in the foreground, fix what it reports, and finish only once it passes.

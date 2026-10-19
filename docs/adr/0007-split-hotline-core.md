@@ -99,6 +99,10 @@ that needs it, not a stage of its own:
    not wire types. That widens them from `pub(crate)` to `pub`; their fields
    stay private so a lease cannot be forged, which is the security.md method's
    residual risk to state in that PR.
+   task-198 put them in `hotline-tools`' `capability` module with their
+   tests; `driver` re-exports them and the core re-exports the crate as
+   `tools`, so no caller moved. With this cut made, `scripts/module-map`
+   has no planned cuts left and no longer prints the layers after them.
 
 `push` → `remote` (`push.rs:23`, one call to `remote::push_targets`) is also a
 single-link cut, but `push` is 379 lines and no stage moves it. The same goes

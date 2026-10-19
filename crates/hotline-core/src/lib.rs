@@ -36,7 +36,7 @@ pub(crate) use hotline_store as store;
 #[cfg(test)]
 mod test_support;
 pub(crate) mod thread;
-pub mod tools;
+pub use hotline_tools as tools;
 pub mod vault;
 pub mod voice;
 pub(crate) mod websearch;

@@ -13,6 +13,7 @@ workspace = true
 hotline-contract = { path = "../hotline-contract" }
 hotline-support = { path = "../hotline-support" }
 hotline-store = { path = "../hotline-store" }
+hotline-tools = { path = "../hotline-tools" }
 rig.workspace = true
 gethostname = "1.1"
 portable-pty = "0.9"
@@ -24,12 +25,7 @@ chrono.workspace = true
 # The host's IANA zone, passed to the computer so its clock matches the desk's.
 iana-time-zone = "0.1"
 rusqlite.workspace = true
-cap-std = "4.0.3"
-ignore = "0.4.33"
-grep-searcher = "0.1.17"
-grep-regex = "0.1.14"
 regex = "1"
-globset = "0.4.20"
 futures-util = "0.3.34"
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 uuid = { version = "1.26.0", features = ["v4", "serde"] }

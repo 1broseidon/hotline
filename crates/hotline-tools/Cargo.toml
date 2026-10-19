@@ -1,0 +1,35 @@
+[package]
+name = "hotline-tools"
+description = "The workspace and shell tools a teammate works with on the desk, and the capability lease each checks before it acts. Depends on hotline-contract and hotline-support and no other Hotline crate by design."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hotline-contract = { path = "../hotline-contract" }
+hotline-support = { path = "../hotline-support" }
+rig.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "process", "time"] }
+tokio-util = "0.7"
+cap-std = "4.0.3"
+ignore = "0.4.33"
+grep-searcher = "0.1.17"
+grep-regex = "0.1.14"
+globset = "0.4.20"
+tempfile = "3"
+# Canonical paths without Windows' \\?\ prefix, for paths a person or a message will show.
+dunce = "1.0.5"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+# Killing a command's whole process group, which is the only way Stop reaches
+# what the command itself started.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

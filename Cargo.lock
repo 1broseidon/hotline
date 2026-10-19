@@ -4305,27 +4305,23 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "bzip2 0.6.1",
- "cap-std",
  "chrono",
  "dunce",
  "flate2",
  "futures-util",
  "gethostname",
  "getrandom 0.3.4",
- "globset",
- "grep-regex",
- "grep-searcher",
  "hex",
  "hotline-contract",
  "hotline-store",
  "hotline-support",
+ "hotline-tools",
  "http",
  "http-body-util",
  "hyper",
  "hyper-util",
  "iana-time-zone",
  "if-addrs",
- "ignore",
  "image",
  "libc",
  "mime_guess",
@@ -4396,6 +4392,27 @@ dependencies = [
  "tokio",
  "uuid",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "hotline-tools"
+version = "0.40.0"
+dependencies = [
+ "cap-std",
+ "dunce",
+ "globset",
+ "grep-regex",
+ "grep-searcher",
+ "hotline-contract",
+ "hotline-support",
+ "ignore",
+ "libc",
+ "rig",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

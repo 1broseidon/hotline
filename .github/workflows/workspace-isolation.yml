@@ -3,7 +3,7 @@ name: workspace-isolation
 on:
   pull_request:
     paths:
-      - 'crates/hotline-core/src/tools/**'
+      - 'crates/hotline-tools/**'
       - 'crates/hotline-core/tests/desk.rs'
       - 'crates/hotline-core/tests/desk/workspace.rs'
       - '.github/workflows/workspace-isolation.yml'
@@ -86,4 +86,6 @@ jobs:
       # machine may lack bubblewrap; this runner has it.
       - name: Check the bubblewrap sandbox
         if: runner.os == 'Linux'
-        run: cargo test -p hotline-core --locked -- --ignored tools::shell workspace_reach_keeps_another_projects_env_out_of_the_tools
+        run: |
+          cargo test -p hotline-tools --locked -- --ignored shell
+          cargo test -p hotline-core --locked --test desk -- --ignored workspace_reach_keeps_another_projects_env_out_of_the_tools

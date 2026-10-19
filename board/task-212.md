@@ -15,6 +15,40 @@ relatedFiles:
   - crates/hotline-core/src/voice/realtime
 parentId: epic-19
 createdAt: "2026-10-19T17:20:18.735Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-voice/Cargo.toml
+      description: the voice engines crate (speech and realtime)
+    - type: docs
+      path: docs/adr/0007-split-hotline-core.md
+      description: George's 2026-10-19 decision, step 3 done with each moved file's old and new path, the credential-helper choice, and step 3's timings
+  validation:
+    commands:
+      - test -f crates/hotline-voice/Cargo.toml
+      - "! test -e crates/hotline-core/src/voice/speech.rs"
+      - "! test -e crates/hotline-core/src/voice/speech"
+      - "! test -e crates/hotline-core/src/voice/realtime.rs"
+      - "! test -e crates/hotline-core/src/voice/realtime"
+      - "! grep -qE '^hotline-core[[:space:]]*=' crates/hotline-voice/Cargo.toml"
+      - "! grep -qE '^tauri' crates/hotline-voice/Cargo.toml"
+      - grep -q 'workspace = true' crates/hotline-voice/Cargo.toml
+      - cargo test -p hotline-voice
+      - cargo test -p hotline-core --test voice --test local_speech --test processes
+      - cargo build --workspace --examples
+      - make check
+      - git diff --exit-code -- ui/src/generated/contract.ts
+      - make precheck
+  constraints:
+    - Moves only, no behaviour change; the Speech and Realtime traits move as they are, no new trait
+    - hotline-voice never depends on hotline-core or Tauri
+    - ui/src/generated/contract.ts byte-identical after an unfiltered cargo test
+    - Harness tests keep their assertions; only their import paths may follow the move
+    - Run cargo test, make check and make precheck in the foreground and to completion before ending the turn
+  metrics:
+    readyAt: "2026-10-19T17:22:10.798Z"
+updatedAt: "2026-10-19T17:22:10.798Z"
 ---
 
 ## Description

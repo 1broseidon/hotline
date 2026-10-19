@@ -62,3 +62,6 @@ dispatch:
     at: "2026-10-19T00:44:01.478Z"
 assignee: claude
 ---
+
+## Log
+- 2026-10-19T00:49:14.700Z: [claude] Done on branch dispatch/task-37 (6513ea28), make ui-check green. WordlessVoice (ui/src/voice/transcription.ts) trips after 3 s of voice the TurnDetector found, across turns and engine sessions, while the Mac's engine has never answered a word; silence and anything after a first word never trip it. Call ends with trouble UNHEARD ("No words heard" on the card); dictation stops with the same sentence via macEngine. "Use desk model" (call card + composer) sets hearOnThisMac off and redials/redictates, offered only when voice.status {} reports stt.providerId "local" (hearsWithDeskModel/useDeskModelOffer in desk.ts), so no paid fallback. Not done: no real-TCC repro (needs a signature-mismatched build); the composer offer has no render test, only the call offer is unit-tested. Documented in docs/voice.md.

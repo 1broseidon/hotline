@@ -10,10 +10,11 @@ assignee: claude
 relatedFiles:
   - crates/hotline-core/src/voice/spoken.rs
   - crates/hotline-core/src/voice/dispatcher.rs
-parentId: epic-17
+parentId: epic-21
 dependsOn:
   - task-201
 createdAt: "2026-10-19T14:02:18.044Z"
+updatedAt: "2026-10-19T20:00:09.863Z"
 ---
 
 ## Description

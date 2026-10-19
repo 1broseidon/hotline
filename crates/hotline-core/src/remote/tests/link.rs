@@ -470,3 +470,82 @@ async fn a_desk_reachable_only_through_its_relay_is_linked_through_it() {
     let lou = ask(&laptop, "clementine", &home, "lou", "Lou").await;
     assert_eq!(lou["text"], "teammate says 0");
 }
+
+#[tokio::test]
+async fn a_link_this_desk_could_not_end_is_dialed_until_it_can() {
+    let laptop = desk("clementine", "Clementine").await;
+    let grizzly = desk("lou", "Lou").await;
+    connect(&laptop, &grizzly).await;
+    let grizzly_id = grizzly.remote.status_desktop_id();
+    let laptop_id = laptop.remote.status_desktop_id();
+    laptop.remote.link(&grizzly_id).await.unwrap();
+    until("connected", || knows(&laptop, "Lou")).await;
+
+    // Grizzly ends it while away, and the laptop cannot write its room
+    // stream when it hears: the link stays, saying why, and is dialed on.
+    grizzly.remote.configure(false, network::ALL).await.unwrap();
+    until("offline", || state(&laptop) == Some(DeskLinkState::Offline)).await;
+    grizzly.remote.unlink(&laptop_id).await.unwrap();
+    let room_file = crate::paths::room_path(laptop.root.path());
+    let mut permissions = fs::metadata(&room_file).unwrap().permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&room_file, permissions.clone()).unwrap();
+    grizzly.remote.configure(true, network::ALL).await.unwrap();
+    until("the laptop says it could not end it", || {
+        laptop
+            .remote
+            .desk_links()
+            .unwrap()
+            .first()
+            .is_some_and(|link| {
+                link.error
+                    .as_deref()
+                    .is_some_and(|error| error.contains("could not end it too"))
+            })
+    })
+    .await;
+
+    // Once it can write again, the next refusal ends it here.
+    #[allow(
+        clippy::permissions_set_readonly_false,
+        reason = "the test gives back the write it took away"
+    )]
+    permissions.set_readonly(false);
+    fs::set_permissions(&room_file, permissions).unwrap();
+    until("the laptop dropped it", || {
+        laptop.remote.desk_links().unwrap().is_empty()
+    })
+    .await;
+}
+
+#[test]
+fn a_desk_too_old_to_link_is_named_as_one_to_update() {
+    // What a desk from before links answers `desks.link_accept` with.
+    let old = json!({"id": 1, "ok": false, "error":
+        "This room cannot read that command: unknown variant `desks.link_accept`, expected one of `ping`, `room.subscribe`."});
+    assert_eq!(
+        crate::remote::link::refusal(&old),
+        "Update that desk to link with it."
+    );
+    let refused = json!({"id": 1, "ok": false, "error": "That is not another desk's id."});
+    assert_eq!(
+        crate::remote::link::refusal(&refused),
+        "That is not another desk's id."
+    );
+}
+
+#[tokio::test]
+async fn a_desk_that_linked_never_makes_itself_a_new_key() {
+    let laptop = desk("clementine", "Clementine").await;
+    let grizzly = desk("lou", "Lou").await;
+    connect(&laptop, &grizzly).await;
+    laptop
+        .remote
+        .link(&grizzly.remote.status_desktop_id())
+        .await
+        .unwrap();
+    // The laptop pairs no phone, so only its link trusts its key: a new key
+    // would read at grizzly as the link ending.
+    fs::remove_file(laptop.root.path().join("remote-noise-identity.json")).unwrap();
+    assert!(laptop.remote.noise_keys().is_err());
+}

@@ -103,7 +103,12 @@ impl Remote {
             let keys: Keys = serde_json::from_slice(&bytes).map_err(message)?;
             return Ok((keys.private, keys.public));
         }
-        if s.saved.all_grants().any(|g| g.device.public_key.is_some()) {
+        // A desk this one linked with trusts the key too, and would refuse a
+        // new one as the link ending.
+        let linked = self
+            .agents()
+            .is_ok_and(|agents| !crate::linked::records(&agents.log).is_empty());
+        if linked || s.saved.all_grants().any(|g| g.device.public_key.is_some()) {
             return Err(
                 "The sealed identity is missing; restore its secret store before enabling Remote."
                     .into(),

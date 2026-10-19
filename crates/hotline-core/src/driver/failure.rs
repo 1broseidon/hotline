@@ -46,8 +46,17 @@ pub(crate) enum Kind {
     /// `initialize` and open a session within the start bound. Sending
     /// another message starts it again.
     Startup,
+    /// No provider is connected on this desk, so Hotline Agent has no model
+    /// to run. Said when the teammate comes up, before anything is sent; a
+    /// provider in Settings › Providers fixes it.
+    NoProvider,
     Unknown,
 }
+
+/// What a message to Hotline Agent is refused with while no provider is
+/// connected. The words go back to the composer; nothing reaches the tape.
+pub(crate) const NO_PROVIDER: &str =
+    "Hotline Agent unavailable: connect a provider in Settings › Providers.";
 
 /// The whole structured diagnosis of a failed turn. It is large, and the rig
 /// driver returns it by value anyway: a turn returns it at most once, so
@@ -261,6 +270,25 @@ impl Failure {
         failure
     }
 
+    /// Hotline Agent on a desk with no provider connected. Not a turn that
+    /// failed: there was no turn, and there is no request to show.
+    pub fn no_provider() -> Self {
+        let mut failure = Self {
+            kind: Kind::NoProvider,
+            title: "",
+            summary: "",
+            details: "No provider is connected on this desk, so there is no model to run.".into(),
+            phase: "start",
+            status: None,
+            code: None,
+            retry_after_seconds: None,
+            tools_may_have_run: false,
+            sign_in: None,
+        };
+        failure.set_kind(Kind::NoProvider);
+        failure
+    }
+
     /// A 401 or 403 on a turn says the provider refused, not why. When the
     /// teammate's provider is a sign-in with a model list, the list is asked
     /// once with the same sign-in: if it still answers, the sign-in is fine and
@@ -417,6 +445,10 @@ impl Failure {
             Kind::Startup => (
                 "Agent did not start",
                 "Its command never answered, so it was stopped. Sending another message starts it again.",
+            ),
+            Kind::NoProvider => (
+                "Hotline Agent unavailable",
+                "Connect a provider in Settings › Providers to run a model.",
             ),
             Kind::Unknown => (
                 "Turn failed",

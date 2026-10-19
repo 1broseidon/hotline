@@ -97,6 +97,7 @@ export function Transcript({
 	onOpenScreen,
 	onOpenWork,
 	workOpen,
+	onProviders,
 	thread,
 	more = false,
 	onEarlier,
@@ -145,6 +146,8 @@ export function Transcript({
 	onOpenWork?(blockId: string | null): void;
 	/** What the work pane is showing, so its caption reads as open. */
 	workOpen?: string | null | undefined;
+	/** Opens Settings › Providers, from a card saying no provider is connected. */
+	onProviders?(): void;
 	/** Older lines are on the desk, above what is loaded. */
 	more?: boolean;
 	/** Loads them: a page, or back as far as one line. */
@@ -417,6 +420,7 @@ export function Transcript({
 									{...(onReact !== undefined ? { onReact } : {})}
 									{...(onOpenThread !== undefined ? { onOpenThread } : {})}
 									{...(onOpenScreen !== undefined ? { onOpenScreen } : {})}
+									{...(onProviders !== undefined ? { onProviders } : {})}
 									onJump={onJump}
 								/>
 							)}
@@ -499,6 +503,7 @@ const Row = memo(function Row({
 	onRunAgain,
 	onOpenThread,
 	onOpenScreen,
+	onProviders,
 	onJump,
 }: {
 	personaId: string;
@@ -521,6 +526,7 @@ const Row = memo(function Row({
 	onReact?(target: ReactTarget, emoji: string): void;
 	onOpenThread?(thread: ThreadRef): void;
 	onOpenScreen?(): void;
+	onProviders?(): void;
 	onJump(eventId: string): void;
 }) {
 	const run: Run = { top, bottom };
@@ -569,6 +575,7 @@ const Row = memo(function Row({
 						{...(!speakers ? { personaId } : {})}
 						{...(onRetry ? { onRetry } : {})}
 						{...(onRunAgain ? { onRunAgain } : {})}
+						{...(onProviders ? { onProviders } : {})}
 					/>
 				);
 			return (

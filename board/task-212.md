@@ -48,7 +48,15 @@ contract:
     - Run cargo test, make check and make precheck in the foreground and to completion before ending the turn
   metrics:
     readyAt: "2026-10-19T17:22:10.798Z"
-updatedAt: "2026-10-19T17:22:29.584Z"
+updatedAt: "2026-10-19T17:22:37.613Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T17:22:37.486Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

@@ -27,10 +27,11 @@
 
 use super::socket::Carry;
 use super::{Command, Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession};
-use crate::voice::front::SEND_TO_TEAMMATE;
-use crate::voice::speech::{SpeechError, SpeechId};
+use crate::realtime::SEND_TO_TEAMMATE;
+use crate::speech::{SpeechError, SpeechId};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
+use futures_util::future::BoxFuture;
 use futures_util::{SinkExt, StreamExt};
 use rtc::media::Sample;
 use rtc::rtp_transceiver::rtp_sender::{
@@ -39,7 +40,7 @@ use rtc::rtp_transceiver::rtp_sender::{
 };
 use serde_json::{Value, json};
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -98,6 +99,17 @@ const EVENT_QUEUE: usize = 256;
 
 type Sideband = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
+/// How a call reads the ChatGPT login it is placed as, from the login's
+/// directory: the core's ChatGPT provider refreshes the token there, as its
+/// model discovery does, and answers with the bearer and the account.
+pub type SignIn = for<'a> fn(&'a Path) -> BoxFuture<'a, Result<Login, String>>;
+
+/// A ChatGPT login, freshly refreshed.
+pub struct Login {
+    pub access_token: Option<String>,
+    pub account_id: Option<String>,
+}
+
 /// Who the call is placed as: the login's bearer and its account.
 struct Identity {
     token: String,
@@ -109,6 +121,7 @@ struct Identity {
 pub struct GptLive {
     /// The ChatGPT login's directory, refreshed before each call.
     token_dir: PathBuf,
+    sign_in: SignIn,
     calls_url: String,
     sideband_url: String,
     renew_after: Duration,
@@ -123,9 +136,10 @@ struct Placed {
 }
 
 impl GptLive {
-    pub fn new(token_dir: PathBuf) -> Self {
+    pub fn new(token_dir: PathBuf, sign_in: SignIn) -> Self {
         Self {
             token_dir,
+            sign_in,
             calls_url: CALLS_URL.into(),
             sideband_url: SIDEBAND_URL.into(),
             renew_after: RENEW_AFTER,
@@ -160,16 +174,13 @@ impl GptLive {
     }
 
     async fn identity(&self) -> Result<Identity, SpeechError> {
-        let record = timeout(
-            CONNECT_TIMEOUT,
-            crate::providers::chatgpt::refreshed_auth(&self.token_dir),
-        )
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .ok_or_else(|| SpeechError::SignInRequired {
-            provider_id: PROVIDER_ID.into(),
-        })?;
+        let record = timeout(CONNECT_TIMEOUT, (self.sign_in)(&self.token_dir))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .ok_or_else(|| SpeechError::SignInRequired {
+                provider_id: PROVIDER_ID.into(),
+            })?;
         Ok(Identity {
             token: record.access_token.unwrap_or_default(),
             account: record.account_id.filter(|id| !id.is_empty()),
@@ -192,7 +203,7 @@ impl GptLive {
             "audio": {"output": {"voice": voice}},
             "delegation": delegation,
         });
-        let http = crate::voice::speech::http_client().map_err(|_| self.unreachable())?;
+        let http = crate::speech::http_client().map_err(|_| self.unreachable())?;
         let mut request = http
             .post(&self.calls_url)
             .bearer_auth(&who.token)
@@ -282,7 +293,7 @@ impl GptLive {
     }
 
     async fn join(&self, who: &Identity, call: &str) -> Result<Sideband, SpeechError> {
-        crate::desk::install_crypto_provider();
+        hotline_room::tls::install_crypto_provider();
         let mut request = format!("{}/{call}", self.sideband_url)
             .into_client_request()
             .map_err(|_| self.malformed())?;
@@ -520,7 +531,7 @@ impl Heard {
                     "[voice] GPT-Live refused: {} param={} {}",
                     error["code"].as_str().unwrap_or("?"),
                     error["param"].as_str().unwrap_or("-"),
-                    crate::driver::clip(error["message"].as_str().unwrap_or(""), 300),
+                    hotline_room::text::clip(error["message"].as_str().unwrap_or(""), 300),
                 );
                 vec![RealtimeEvent::Refused {
                     code: event["error"]["code"]

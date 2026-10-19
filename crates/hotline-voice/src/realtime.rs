@@ -19,6 +19,10 @@ pub use socket::RealtimeSocket;
 /// has a channel for speech and is handed the line alone.
 pub const SAY_THIS: &str = "Say exactly this to the person, word for word, and add nothing: ";
 
+/// The front's tool that hands the person's words to the teammate. GPT-Live
+/// has no session tools, and reports each of its hand-offs under this name.
+pub const SEND_TO_TEAMMATE: &str = "send_to_teammate";
+
 use super::speech::{SpeechError, SpeechId};
 use async_trait::async_trait;
 use serde_json::Value;

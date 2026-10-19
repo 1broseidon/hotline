@@ -25,3 +25,11 @@ pub enum ProviderAuth {
         config: hotline_contract::CustomProvider,
     },
 }
+
+/// Whether a provider id names a connection the owner configured themselves:
+/// `custom-` and a uuid, never a provider Hotline knows.
+pub fn is_custom(provider_id: &str) -> bool {
+    provider_id
+        .strip_prefix("custom-")
+        .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
+}

@@ -8,15 +8,35 @@ use super::google::{self, Google};
 use super::local::{self, Installed, Local};
 use super::xai::{self, Xai};
 use super::{AudioFormat, Endpoint, OpenAiShape, Speech, SpeechOutput, SpeechSet, TurnClock};
-use crate::contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
-use crate::credentials::CredentialFile;
-use crate::session::ProviderAuth;
-use crate::vault::Vault;
-use crate::voice::realtime::{GptLive, Realtime, RealtimeSocket};
-use crate::voice::settings::{Choice, FrontProvider, VoiceSettings};
-use std::collections::{HashMap, HashSet};
+use crate::realtime::{GptLive, Realtime, RealtimeSocket, live};
+use hotline_contract::{CapabilityModel, CapabilityPick, CapabilityProvider};
+use hotline_room::provider_auth::ProviderAuth;
+use hotline_room::voice::settings::{Choice, FrontProvider, VoiceSettings};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// What the vault keeps that voice reads, read by the core and handed in:
+/// the room's data root, where the desk's own models are installed and what
+/// each provider offers is cached, and each connected provider's auth, one
+/// each, in the order the owner connected them. OpenRouter's sign-in is a
+/// key by then, which the core reads out of it.
+pub struct Connected {
+    pub root: PathBuf,
+    pub providers: Vec<(String, ProviderAuth)>,
+    pub sign_ins: SignIns,
+}
+
+/// The two logins voice speaks through whose tokens the core refreshes: the
+/// refresh belongs to each provider's sign-in, which model discovery and the
+/// teammates' clients use too.
+#[derive(Clone, Copy)]
+pub struct SignIns {
+    /// A Grok login's bearer.
+    pub xai: xai::Bearer,
+    /// The ChatGPT login GPT-Live calls are placed as.
+    pub chatgpt: live::SignIn,
+}
 
 /// A voice and the model that speaks it.
 #[derive(Clone)]
@@ -116,7 +136,7 @@ const ROWS: &[Row] = &[
 /// Whether a connection to this provider can do voice: hear or speak on a
 /// call, or front one (the ChatGPT sign-in runs GPT-Live).
 pub fn speaks(provider_id: &str) -> bool {
-    provider_id == crate::voice::realtime::live::PROVIDER_ID || row(provider_id).is_some()
+    provider_id == crate::realtime::live::PROVIDER_ID || row(provider_id).is_some()
 }
 
 fn row(provider_id: &str) -> Option<&'static Row> {
@@ -130,7 +150,7 @@ struct Connection {
     name: String,
     base_url: String,
     key: Option<String>,
-    login: Option<CredentialFile>,
+    login: Option<xai::Login>,
     /// A custom connection's model ids, which are all we know of what it serves.
     models: Vec<String>,
     /// The room's data root, where what the provider offers is cached.
@@ -139,7 +159,7 @@ struct Connection {
 
 impl Connection {
     fn custom(&self) -> bool {
-        crate::models::is_custom(&self.provider_id)
+        hotline_room::provider_auth::is_custom(&self.provider_id)
     }
 
     /// The custom connection's first model whose id says it does this job.
@@ -257,18 +277,18 @@ pub struct Options {
 /// (or answers from a day-old copy); if it cannot be asked and nothing is
 /// cached, it offers its default. A custom connection offers the models its
 /// own ids say do the job, because those ids are all we know.
-pub async fn options(vault: &Vault) -> Options {
-    let connections = connections(vault);
+pub async fn options(connected: &Connected) -> Options {
+    let connections = connections(connected);
     let endpoints: Vec<_> = connections
         .iter()
         .filter(|connection| connection.login.is_none() && row(&connection.provider_id).is_some())
         .map(Connection::endpoint)
         .collect();
-    let found: HashMap<String, Found> = catalog::discover_all(Some(vault.root()), &endpoints)
+    let found: HashMap<String, Found> = catalog::discover_all(Some(&connected.root), &endpoints)
         .await
         .into_iter()
         .collect();
-    options_from(&local::installed(vault.root()), &connections, &found)
+    options_from(&local::installed(&connected.root), &connections, &found)
 }
 
 /// The default first, so the picker leads with what automatic would use.
@@ -431,25 +451,23 @@ fn options_from(
     }
 }
 
-/// The connected providers in the order the owner connected them, one each.
-fn connections(vault: &Vault) -> Vec<Connection> {
-    let auth = vault.provider_auth();
-    let root = vault.root();
-    let mut seen = HashSet::new();
-    vault
-        .list()
-        .into_iter()
-        .filter(|credential| !credential.revoked)
-        .filter_map(|credential| {
-            let auth = auth.get(&credential.provider_id)?;
-            seen.insert(credential.provider_id.clone())
-                .then(|| connection(&credential.provider_id, auth, root))
-                .flatten()
+/// The connected providers that can do voice, in the order the owner connected them.
+fn connections(connected: &Connected) -> Vec<Connection> {
+    connected
+        .providers
+        .iter()
+        .filter_map(|(provider_id, auth)| {
+            connection(provider_id, auth, &connected.root, connected.sign_ins.xai)
         })
         .collect()
 }
 
-fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Connection> {
+fn connection(
+    provider_id: &str,
+    auth: &ProviderAuth,
+    root: &Path,
+    bearer: xai::Bearer,
+) -> Option<Connection> {
     // This row is derived only from the real xAI stored login, never a key
     // someone saved under the subscription's display/configuration id.
     if provider_id == xai::SUBSCRIPTION_PROVIDER_ID {
@@ -464,25 +482,23 @@ fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Con
             name: row.name.into(),
             base_url: row.base_url.into(),
             key: None,
-            login: Some(tokens.clone()),
+            login: Some(xai::Login {
+                tokens: tokens.clone(),
+                bearer,
+            }),
             models: Vec::new(),
             root: Some(root.to_path_buf()),
         });
     }
     if let Some(row) = row(provider_id) {
-        let key = match auth {
-            ProviderAuth::ApiKey(key) => key.clone(),
-            // OpenRouter's sign-in is a PKCE exchange that leaves a plain key.
-            ProviderAuth::StoredLogin { tokens } if provider_id == "openrouter" => {
-                crate::providers::openrouter_key(tokens).ok()?
-            }
-            _ => return None,
+        let ProviderAuth::ApiKey(key) = auth else {
+            return None;
         };
         return Some(Connection {
             provider_id: provider_id.to_string(),
             name: row.name.to_string(),
             base_url: row.base_url.to_string(),
-            key: Some(key),
+            key: Some(key.clone()),
             login: None,
             models: Vec::new(),
             root: Some(root.to_path_buf()),
@@ -510,19 +526,22 @@ fn connection(provider_id: &str, auth: &ProviderAuth, root: &Path) -> Option<Con
 /// The realtime model that fronts a live call, when the owner turned one on
 /// and the login or key it names is still connected. With no login named,
 /// the first connected one runs it. `None` keeps calls on the pipeline.
-pub fn resolve_front(vault: &Vault, settings: &VoiceSettings) -> Option<Arc<dyn Realtime>> {
+pub fn resolve_front(connected: &Connected, settings: &VoiceSettings) -> Option<Arc<dyn Realtime>> {
     if settings.front.as_ref()?.provider == FrontProvider::GptLive {
         // The ChatGPT login is a token directory, not a speech connection.
-        let ProviderAuth::Login { token_dir } = vault
-            .provider_auth()
-            .get(crate::voice::realtime::live::PROVIDER_ID)?
-            .clone()
+        let (_, ProviderAuth::Login { token_dir }) = connected
+            .providers
+            .iter()
+            .find(|(provider_id, _)| provider_id == live::PROVIDER_ID)?
         else {
             return None;
         };
-        return Some(Arc::new(GptLive::new(token_dir)));
+        return Some(Arc::new(GptLive::new(
+            token_dir.clone(),
+            connected.sign_ins.chatgpt,
+        )));
     }
-    front_from(&connections(vault), settings)
+    front_from(&connections(connected), settings)
 }
 
 fn front_from(connections: &[Connection], settings: &VoiceSettings) -> Option<Arc<dyn Realtime>> {
@@ -546,7 +565,7 @@ fn front_from(connections: &[Connection], settings: &VoiceSettings) -> Option<Ar
     }
     let voice = RealtimeSocket::grok(connection.endpoint());
     Some(Arc::new(match &connection.login {
-        Some(tokens) => voice.with_subscription(tokens.clone()).ok()?,
+        Some(login) => voice.with_subscription(login.clone()).ok()?,
         None => voice,
     }))
 }
@@ -558,20 +577,20 @@ fn front_from(connections: &[Connection], settings: &VoiceSettings) -> Option<Ar
 /// cannot do the job, is an error rather than a quiet switch to a provider the
 /// owner did not choose, because the audio would go there. The error is a
 /// sentence for a person.
-pub fn resolve(vault: &Vault, settings: &VoiceSettings) -> Result<SpeechSet, String> {
+pub fn resolve(connected: &Connected, settings: &VoiceSettings) -> Result<SpeechSet, String> {
     resolve_from(
-        &local::installed(vault.root()),
-        &connections(vault),
+        &local::installed(&connected.root),
+        &connections(connected),
         settings,
     )
 }
 
 /// What the desk's own model is asked to listen for when it hears with
 /// `settings`, for a clip heard outside a call.
-pub fn listens_for(vault: &Vault, settings: &VoiceSettings) -> Vec<String> {
+pub fn listens_for(connected: &Connected, settings: &VoiceSettings) -> Vec<String> {
     words_for(
-        &local::installed(vault.root()),
-        &connections(vault),
+        &local::installed(&connected.root),
+        &connections(connected),
         settings,
     )
 }
@@ -600,8 +619,11 @@ fn words_for(
 }
 
 /// A text call needs a voice, with no speech-input provider or credential.
-pub fn resolve_output(vault: &Vault, settings: &VoiceSettings) -> Result<SpeechOutput, String> {
-    output_from(&connections(vault), settings, &TurnClock::default())
+pub fn resolve_output(
+    connected: &Connected,
+    settings: &VoiceSettings,
+) -> Result<SpeechOutput, String> {
+    output_from(&connections(connected), settings, &TurnClock::default())
 }
 
 fn chosen_voice<'a>(
@@ -749,7 +771,7 @@ fn listener(
     ) {
         let adapter = Xai::listener(connection.endpoint(), model)?.with_clock(clock);
         return Ok(Arc::new(match &connection.login {
-            Some(tokens) => adapter.with_subscription(tokens.clone())?,
+            Some(login) => adapter.with_subscription(login.clone())?,
             None => adapter,
         }));
     }
@@ -776,7 +798,7 @@ fn speaker(
         let adapter =
             Xai::speaker(connection.endpoint(), &voice.model, &voice.voice)?.with_clock(clock);
         return Ok(Arc::new(match &connection.login {
-            Some(tokens) => adapter.with_subscription(tokens.clone())?,
+            Some(login) => adapter.with_subscription(login.clone())?,
             None => adapter,
         }));
     }
@@ -830,7 +852,7 @@ fn nothing_can(hears: bool, speaks: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::voice::speech::SpeechId;
+    use crate::speech::SpeechId;
 
     fn connected(provider_id: &str) -> Connection {
         Connection {
@@ -950,28 +972,45 @@ mod tests {
         let auth = ProviderAuth::Login {
             token_dir: dir.path().into(),
         };
-        assert!(connection("xai", &auth, dir.path()).is_none());
-        assert!(connection("xai", &ProviderAuth::ApiKey("test-key".into()), dir.path()).is_some());
+        assert!(connection("xai", &auth, dir.path(), xai::test_bearer).is_none());
+        assert!(
+            connection(
+                "xai",
+                &ProviderAuth::ApiKey("test-key".into()),
+                dir.path(),
+                xai::test_bearer
+            )
+            .is_some()
+        );
         assert!(
             connection(
                 xai::SUBSCRIPTION_PROVIDER_ID,
                 &ProviderAuth::ApiKey("test-key".into()),
-                dir.path()
+                dir.path(),
+                xai::test_bearer
             )
             .is_none()
         );
     }
 
     fn subscription(root: &Path) -> Connection {
-        let tokens =
-            crate::credentials::CredentialFiles::new(root.into(), crate::vault::default_store())
-                .file(root.join("auth.json"));
-        connection("xai", &ProviderAuth::StoredLogin { tokens }, root).unwrap()
+        let tokens = hotline_support::credentials::CredentialFiles::new(
+            root.into(),
+            Arc::new(hotline_support::credentials::MemoryStore::default()),
+        )
+        .file(root.join("auth.json"));
+        connection(
+            "xai",
+            &ProviderAuth::StoredLogin { tokens },
+            root,
+            xai::test_bearer,
+        )
+        .unwrap()
     }
 
     #[test]
     fn a_front_runs_on_the_named_grok_login_or_the_first_connected() {
-        use crate::voice::settings::{FrontChoice, FrontProvider};
+        use hotline_room::voice::settings::{FrontChoice, FrontProvider};
         let dir = tempfile::tempdir().unwrap();
         let connections = [
             connected("openai"),
@@ -1004,7 +1043,7 @@ mod tests {
 
     #[test]
     fn gpt_realtime_runs_on_an_openai_key_and_nothing_else() {
-        use crate::voice::settings::{FrontChoice, FrontProvider};
+        use hotline_room::voice::settings::{FrontChoice, FrontProvider};
         let openai = VoiceSettings {
             front: Some(FrontChoice {
                 provider: FrontProvider::OpenAi,
@@ -1015,10 +1054,7 @@ mod tests {
         };
         let front = front_from(&[connected("xai"), connected("openai")], &openai).unwrap();
         assert_eq!(front.id().provider_id, "openai");
-        assert_eq!(
-            front.id().model_id,
-            crate::voice::realtime::socket::OPENAI_MODEL
-        );
+        assert_eq!(front.id().model_id, crate::realtime::socket::OPENAI_MODEL);
         assert!(!front.is_subscription());
         // An xAI login is not an OpenAI key, and an OpenAI row with no key
         // runs nothing: the call stays on the pipeline.
@@ -1204,44 +1240,6 @@ mod tests {
         );
     }
 
-    // The vault half: which credentials count, and in what order.
-
-    fn vault_in(root: &std::path::Path) -> Vault {
-        let log = crate::log::Log::open(root);
-        Vault::open_with_store(
-            root,
-            log,
-            Arc::new(crate::credentials::MemoryStore::default()),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn the_vault_gives_providers_in_the_order_they_were_connected() {
-        let root = tempfile::tempdir().unwrap();
-        let vault = vault_in(root.path());
-        vault.create("anthropic", "Claude", "sk-ant").unwrap();
-        vault.create("groq", "Groq", "gsk-first").unwrap();
-        let openai = vault.create("openai", "OpenAI", "sk-second").unwrap();
-        vault.create("google", "Gemini", "AIza-third").unwrap();
-
-        let set = resolve(&vault, &VoiceSettings::default()).unwrap();
-        assert_eq!(set.stt.id().provider_id, "groq");
-        assert_eq!(set.tts.id().provider_id, "groq");
-        assert_eq!(
-            set.fallback_tts.as_ref().unwrap().id().provider_id,
-            "openai"
-        );
-
-        // A revoked key is not a connection.
-        vault.revoke(&openai.id).unwrap();
-        let set = resolve(&vault, &VoiceSettings::default()).unwrap();
-        assert_eq!(
-            set.fallback_tts.as_ref().unwrap().id().provider_id,
-            "google"
-        );
-    }
-
     #[test]
     fn every_voice_list_starts_with_the_voice_the_provider_speaks_with() {
         for row in ROWS {
@@ -1410,24 +1408,6 @@ mod tests {
             error.starts_with("Your connected providers can hear but not speak."),
             "{error}"
         );
-    }
-
-    #[test]
-    fn a_vault_with_only_chat_providers_cannot_speak() {
-        let root = tempfile::tempdir().unwrap();
-        let vault = vault_in(root.path());
-        vault.create("anthropic", "Claude", "sk-ant").unwrap();
-        assert!(resolve(&vault, &VoiceSettings::default()).is_err());
-    }
-
-    #[test]
-    fn a_vault_with_native_xai_can_hear_live_and_speak() {
-        let root = tempfile::tempdir().unwrap();
-        let vault = vault_in(root.path());
-        vault.create("xai", "Grok", "xai-key").unwrap();
-        let set = resolve(&vault, &VoiceSettings::default()).unwrap();
-        assert!(set.stt.supports_live_input());
-        assert_eq!(set.tts.id().provider_id, "xai");
     }
 
     fn found(listen: &[&str], speak: &[(&str, &[&str])]) -> Found {

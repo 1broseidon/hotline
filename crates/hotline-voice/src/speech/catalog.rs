@@ -10,8 +10,8 @@
 //! it reads only [`default_voice`], from the cache and the curated lists.
 
 use super::Endpoint;
-use crate::paths;
 use futures_util::future::join_all;
+use hotline_support::paths;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;

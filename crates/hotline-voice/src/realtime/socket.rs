@@ -14,9 +14,8 @@
 //! where `session.update` puts the voice, turn detection and transcription.
 
 use super::{Command, Realtime, RealtimeConfig, RealtimeEvent, RealtimeInput, RealtimeSession};
-use crate::credentials::CredentialFile;
-use crate::voice::speech::xai::{Access, Socket};
-use crate::voice::speech::{Endpoint, SpeechError, SpeechId};
+use crate::speech::xai::{Access, Login, Socket};
+use crate::speech::{Endpoint, SpeechError, SpeechId};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
@@ -103,11 +102,11 @@ impl RealtimeSocket {
         }
     }
 
-    pub fn with_subscription(mut self, tokens: CredentialFile) -> Result<Self, String> {
+    pub(crate) fn with_subscription(mut self, login: Login) -> Result<Self, String> {
         if self.dialect != Dialect::Grok {
             return Err("Only Grok Voice runs on the Grok login.".into());
         }
-        self.access = self.access.with_subscription(tokens)?;
+        self.access = self.access.with_subscription(login)?;
         Ok(self)
     }
 

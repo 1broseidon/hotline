@@ -8,9 +8,10 @@ use super::{
     Clip, Endpoint, Reply, Speech, SpeechChunk, SpeechError, SpeechId, Timing, TurnClock,
     base_mime, call, http_client, wav,
 };
-use crate::credentials::CredentialFile;
 use async_trait::async_trait;
+use futures_util::future::BoxFuture;
 use futures_util::{SinkExt, StreamExt};
+use hotline_support::credentials::CredentialFile;
 use reqwest::multipart::{Form, Part};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -22,9 +23,9 @@ use tokio_tungstenite::tungstenite::{
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
 
-pub(in crate::voice) const PROVIDER_ID: &str = "xai";
+pub(crate) const PROVIDER_ID: &str = "xai";
 pub(super) const SUBSCRIPTION_PROVIDER_ID: &str = "xai-subscription";
-pub(in crate::voice) const BASE_URL: &str = "https://api.x.ai/v1";
+pub(crate) const BASE_URL: &str = "https://api.x.ai/v1";
 pub(super) const LISTEN_MODEL: &str = "grok-voice-transcribe-2.0";
 // The native TTS API selects a voice, not a model. This names its speech job
 // consistently with the Grok voice already offered through OpenRouter.
@@ -44,7 +45,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const FINAL_TIMEOUT: Duration = Duration::from_secs(15);
 const LIVE_TIMEOUT: Duration = Duration::from_secs(50);
 
-pub(in crate::voice) type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+pub(crate) type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 enum Job {
     Listen { model: String },
@@ -178,18 +179,74 @@ impl FinalTranscript {
     }
 }
 
+/// How a Grok login's bearer is read: the current one, or a fresh one in
+/// place of `rejected`, the one xAI just refused. The core's xAI provider
+/// keeps the refresh and its lock, which every client on the login shares,
+/// teammates' too, so a rotated refresh token is spent once.
+pub type Bearer =
+    for<'a> fn(&'a CredentialFile, Option<&'a str>) -> BoxFuture<'a, Result<String, String>>;
+
+/// A stored Grok login: its tokens, and how its bearer is read from them.
+#[derive(Clone)]
+pub(crate) struct Login {
+    pub(crate) tokens: CredentialFile,
+    pub(crate) bearer: Bearer,
+}
+
+/// A Grok login for the tests: [`sign_in_for_test`] writes its bearer, and
+/// this reads it back. A rejected bearer is replaced only when another client
+/// has already written a fresh one, since a test has no xAI to refresh it
+/// with, and the core's store would have asked xAI.
+#[cfg(test)]
+pub(crate) fn test_bearer<'a>(
+    tokens: &'a CredentialFile,
+    rejected: Option<&'a str>,
+) -> BoxFuture<'a, Result<String, String>> {
+    Box::pin(async move {
+        let bytes = tokens
+            .read()
+            .map_err(|error| error.to_string())?
+            .ok_or("Grok sign-in is missing.")?;
+        let current: Value = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+        let current = current["access_token"]
+            .as_str()
+            .ok_or("Grok sign-in is incomplete.")?;
+        if rejected == Some(current) {
+            return Err("Grok sign-in is no longer valid.".into());
+        }
+        Ok(current.to_string())
+    })
+}
+
+/// A sign-in good until the next one, for the tests.
+#[cfg(test)]
+pub(crate) fn sign_in_for_test(tokens: &CredentialFile, access_token: &str) {
+    tokens
+        .write(json!({"access_token": access_token}).to_string().as_bytes())
+        .unwrap();
+}
+
+/// The tests' Grok login over `tokens`.
+#[cfg(test)]
+pub(crate) fn test_login(tokens: CredentialFile) -> Login {
+    Login {
+        tokens,
+        bearer: test_bearer,
+    }
+}
+
 /// Who xAI is told is calling: an API key, or the stored Grok login,
 /// resolved afresh for every request or connection. Speech and the realtime
 /// front both reach xAI through it, so a rejected login refreshes once, and
 /// errors stay free of provider bodies, the same way on both.
 #[derive(Clone)]
-pub(in crate::voice) struct Access {
-    pub(in crate::voice) endpoint: Endpoint,
-    subscription: Option<CredentialFile>,
+pub(crate) struct Access {
+    pub(crate) endpoint: Endpoint,
+    subscription: Option<Login>,
 }
 
 impl Access {
-    pub(in crate::voice) fn new(endpoint: Endpoint) -> Self {
+    pub(crate) fn new(endpoint: Endpoint) -> Self {
         Self {
             endpoint,
             subscription: None,
@@ -197,24 +254,21 @@ impl Access {
     }
 
     /// The subscription bearer can only be sent to xAI's fixed voice origin.
-    pub(in crate::voice) fn with_subscription(
-        mut self,
-        tokens: CredentialFile,
-    ) -> Result<Self, String> {
+    pub(crate) fn with_subscription(mut self, login: Login) -> Result<Self, String> {
         if self.endpoint.base_url != BASE_URL {
             return Err("Grok subscription voice requires the xAI voice service.".into());
         }
         self.endpoint.provider_id = SUBSCRIPTION_PROVIDER_ID.into();
         self.endpoint.key = None;
-        self.subscription = Some(tokens);
+        self.subscription = Some(login);
         Ok(self)
     }
 
-    pub(in crate::voice) fn is_subscription(&self) -> bool {
+    pub(crate) fn is_subscription(&self) -> bool {
         self.subscription.is_some()
     }
 
-    pub(in crate::voice) fn status_error(&self, status: u16) -> SpeechError {
+    pub(crate) fn status_error(&self, status: u16) -> SpeechError {
         let provider_id = self.endpoint.provider_id.clone();
         if self.subscription.is_some() {
             match status {
@@ -235,35 +289,32 @@ impl Access {
     }
 
     async fn bearer(&self, rejected: Option<&str>) -> Result<Option<String>, SpeechError> {
-        let Some(tokens) = &self.subscription else {
+        let Some(login) = &self.subscription else {
             return Ok(self.endpoint.key.clone());
         };
-        timeout(
-            CONNECT_TIMEOUT,
-            crate::providers::xai::bearer(tokens, rejected),
-        )
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .map(Some)
-        .ok_or_else(|| SpeechError::SignInRequired {
-            provider_id: self.endpoint.provider_id.clone(),
-        })
+        timeout(CONNECT_TIMEOUT, (login.bearer)(&login.tokens, rejected))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .map(Some)
+            .ok_or_else(|| SpeechError::SignInRequired {
+                provider_id: self.endpoint.provider_id.clone(),
+            })
     }
 
-    pub(in crate::voice) fn malformed(&self) -> SpeechError {
+    pub(crate) fn malformed(&self) -> SpeechError {
         SpeechError::Malformed {
             provider_id: self.endpoint.provider_id.clone(),
         }
     }
 
-    pub(in crate::voice) fn unreachable(&self) -> SpeechError {
+    pub(crate) fn unreachable(&self) -> SpeechError {
         SpeechError::Unreachable {
             provider_id: self.endpoint.provider_id.clone(),
         }
     }
 
-    pub(in crate::voice) fn socket_error(&self, error: WsError) -> SpeechError {
+    pub(crate) fn socket_error(&self, error: WsError) -> SpeechError {
         // Neither provider bodies nor transport errors may expose words or keys.
         match error {
             WsError::Http(response) => self.status_error(response.status().as_u16()),
@@ -273,7 +324,7 @@ impl Access {
     }
 
     /// The WebSocket form of one route under the endpoint's base URL.
-    pub(in crate::voice) fn socket_url(&self, route: &str) -> Result<url::Url, SpeechError> {
+    pub(crate) fn socket_url(&self, route: &str) -> Result<url::Url, SpeechError> {
         let mut url = url::Url::parse(&format!(
             "{}/{route}",
             self.endpoint.base_url.trim_end_matches('/')
@@ -290,7 +341,7 @@ impl Access {
 
     /// A rejected handshake refreshes the login once; nothing has been sent
     /// on a socket that never opened, so the retry replays no caller audio.
-    pub(in crate::voice) async fn socket(
+    pub(crate) async fn socket(
         &self,
         url: url::Url,
         message_limit: usize,
@@ -315,7 +366,7 @@ impl Access {
         bearer: Option<&str>,
         message_limit: usize,
     ) -> Result<Socket, SpeechError> {
-        crate::desk::install_crypto_provider();
+        hotline_room::tls::install_crypto_provider();
         let mut request = url
             .as_str()
             .into_client_request()
@@ -380,8 +431,8 @@ impl Xai {
         self
     }
 
-    pub(super) fn with_subscription(mut self, tokens: CredentialFile) -> Result<Self, String> {
-        self.access = self.access.with_subscription(tokens)?;
+    pub(super) fn with_subscription(mut self, login: Login) -> Result<Self, String> {
+        self.access = self.access.with_subscription(login)?;
         Ok(self)
     }
 

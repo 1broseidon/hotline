@@ -1,0 +1,55 @@
+[package]
+name = "hotline-voice"
+description = "Hotline's voice engines: speech to text and text to speech over the providers the owner connected and the desk's own models, and the realtime models that front a call. Depends on hotline-contract, hotline-support and hotline-room, and never on hotline-core or Tauri, by design."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hotline-contract = { path = "../hotline-contract" }
+hotline-support = { path = "../hotline-support" }
+hotline-room = { path = "../hotline-room" }
+async-trait = "0.1.92"
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-util = "0.7"
+futures-util = "0.3.34"
+# A spoken clip goes to a speech-to-text provider as a multipart form, and
+# a model download streams to disk.
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "multipart", "rustls", "stream"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+http = "1"
+url = "2.5.8"
+uuid = { version = "1.26.0", features = ["v4"] }
+base64 = "0.22"
+bytes = "1"
+getrandom = "0.3"
+hex = "0.4"
+sha2 = "0.10"
+tar = "0.4"
+bzip2 = "0.6"
+# GPT-Live on a ChatGPT login is a WebRTC call, as the Codex app places it:
+# the desk is the peer and sends the person's audio as Opus over RTP; the
+# model's speech and events come back on a sideband socket. Pinned with the
+# versions Codex ships; opus builds libopus from source with cmake.
+webrtc = "=0.20.3"
+rtc = "=0.20.5"
+opus = "=0.4.0"
+# The desk's own speech to text. Pinned exactly: the build links that
+# release's prebuilt static library (onnxruntime inside, so nothing is needed
+# on the host), which scripts/fetch-speech-engine puts in .speech-engine, and
+# the C API under the wrapper moves between releases.
+sherpa-onnx = { version = "=1.13.8", default-features = false, features = ["static"] }
+# A phone's utterance is AAC in MP4; the local engine needs its samples.
+symphonia = { version = "0.6", default-features = false, features = ["aac", "isomp4"] }
+
+# The tests serve a scripted provider over loopback HTTP and WebSocket.
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"] }
+tempfile = "3"

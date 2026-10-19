@@ -55,3 +55,6 @@ Only after George approves the design (task-213). Move the call code into hotlin
 Lead's note (2026-10-19): this is the epic's last child and the one that proves it whole: the engines (task-212) and the calls live together in hotline-voice, the room implements the approved interface, and the full harness (tests/voice, tests/local_speech, tests/processes, make check, make precheck) passes on it. The lead may split it per task-213's answer before handing it off; if the design recommends stopping, it is not handed off and George decides its fate.
 
 Carried from task-212: the core's glue is voice/connected.rs (it reads the vault into speech::Connected and keeps the five &Vault readers). Once the calls take a Connected, delete any of the core's re-exports that no longer have callers (crate::voice::speech, crate::voice::realtime, crate::voice::front::SEND_TO_TEAMMATE, crate::models::is_custom), and list in your notes the ones that remain. local_speech_check stays in the core because it needs Desk.
+
+## Log
+- 2026-10-19T20:00:10.807Z: [claude] Re-homed to epic-21 (0.42): after slice 6, the calls move into hotline-voice. task-213's sizing is done by ADR 0008 §5 (open and close a call thread, queue a heard line, take the spoken stream back, post to the chat, be told of a card); task-213 is closed into this.

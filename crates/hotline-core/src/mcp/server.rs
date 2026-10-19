@@ -751,7 +751,7 @@ impl TeammateTools {
                     .await?;
                 Ok(json!({ "closed": true, "title": closed.title }).to_string())
             }
-            COMPUTER_STATUS if self.thread.kind != ThreadKind::Dm || self.run => {
+            COMPUTER_STATUS if self.work.is_some() || self.job.is_some() || self.run => {
                 Ok(room.computer_in_a_thread(&self.persona_id))
             }
             COMPUTER_STATUS => {

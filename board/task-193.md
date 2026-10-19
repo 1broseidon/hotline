@@ -13,7 +13,7 @@ relatedFiles:
   - docs/adr
 parentId: epic-16
 createdAt: "2026-10-19T06:06:19.521Z"
-updatedAt: "2026-10-19T06:06:58.241Z"
+updatedAt: "2026-10-19T06:10:31.546Z"
 ---
 
 ## Description
@@ -21,4 +21,4 @@ Measure before moving anything, on this Mac (Apple silicon), each run twice and 
 - cold: `cargo clean -p hotline-core && cargo build -p hotline-core --timings` (keep the summary, not the HTML), and the same for `cargo test -p hotline-core --no-run`;
 - incremental: touch one file in voice/, one in store.rs, one in contract/, and time `cargo build -p hotline-core` and `cargo test -p hotline-core --no-run` after each;
 - note how long hotline-core's own compile takes against its dependencies in the timings.
-Write docs/adr/0007-split-hotline-core.md (next free number; check docs/adr): the timings, the module dependency map (crate::X references between top-level modules; script it, and put the script in scripts/ so later stages re-run it), the leaves, the one-link cuts, the strongly connected core, and the target crate graph for this epic's stages. No code changes.
+Write docs/adr/0007-split-hotline-core.md (0007 is the next free number on release/0.41.0): the exact commands, the timings under a heading `## Before` (task-199 adds `## After` beside it with the same commands, so write them so they can be re-run verbatim), the module dependency map (crate::X references between top-level modules, brace imports included; script it as an executable `scripts/module-map`, run from the repo root with no arguments, so later stages re-run it), the leaves, the one-link cuts, the strongly connected core, and the target crate graph for this epic's stages. Settle the name of the leaf-utilities crate there (hotline-support unless it reads wrong) and say it in your final note, so the lead can fix task-196's contract if it changes. No code changes: validation refuses any diff under crates/, Cargo.toml, Cargo.lock or ui/.

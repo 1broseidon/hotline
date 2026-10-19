@@ -1,5 +1,5 @@
 import { type CSSProperties, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Attachment, ThreadId, ThreadSummary } from "../generated/contract";
+import type { Attachment, ScheduleEntry, ThreadId, ThreadSummary } from "../generated/contract";
 import { chordKeys } from "../chords";
 import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CloseIcon } from "../icons";
 import { carry } from "../serverFiles";
@@ -11,6 +11,7 @@ import {
 	DOCK_WIDTH,
 	draggedDock,
 	groupThreads,
+	jobRows,
 	type LinkEvent,
 	openerOf,
 	openerWords,
@@ -25,6 +26,7 @@ import {
 	withLinks,
 } from "../dock";
 import { type Person, usePeople } from "../avatars";
+import { firstLine, nextText } from "../room";
 import { sideTitle } from "../links";
 import { answerCard, dmOf, sameThread, useThread } from "../tape";
 import { Avatar } from "../ui/Avatar";
@@ -80,6 +82,7 @@ export function Dock({
 
 	const teammate = entry === null ? null : { id: entry.persona.id, name: entry.persona.name, avatarHash: entry.persona.avatar?.hash };
 	const { rows, list, reload } = useThreadRows(entry);
+	const jobs = useJobs(entry?.persona.id);
 	/* A teammate on a linked desk is in no roster here; its pair's row names it ("Lou on grizzly"). */
 	const nameOf = useCallback(
 		(personaId: string) =>
@@ -97,7 +100,7 @@ export function Dock({
 			<aside ref={root} className="dock" aria-label="Threads">
 				{at === null && <DockBand onClose={onClose} />}
 				{at === null ? (
-					<ThreadList teammate={teammate} rows={rows} loaded={list !== undefined} nameOf={nameOf} opened={opened} onOpen={(open) => onState({ open })} />
+					<ThreadList teammate={teammate} rows={rows} jobs={jobs} loaded={list !== undefined} nameOf={nameOf} opened={opened} onOpen={(open) => onState({ open })} />
 				) : (
 					teammate !== null && (
 						<ThreadView
@@ -203,6 +206,20 @@ function useThreadRows(entry: RosterEntry | null): { rows: ThreadSummary[]; list
 	return { rows, list, reload: useCallback(() => setRevision((one) => one + 1), []) };
 }
 
+/** This teammate's jobs as the schedules view sends them, ended ones included. */
+function useJobs(personaId: string | undefined): ScheduleEntry[] {
+	const [entries, setEntries] = useState<ScheduleEntry[]>([]);
+	useEffect(() => {
+		setEntries([]);
+		if (personaId === undefined) return;
+		return wire.subscribe<ScheduleEntry>(
+			{ schedules: personaId },
+			{ snapshot: (next) => setEntries(next as ScheduleEntry[]), event: () => {}, removed: () => setEntries([]) },
+		);
+	}, [personaId]);
+	return entries;
+}
+
 const STATE_WORDS: Record<ThreadDot, string> = {
 	running: "running",
 	waiting: "waiting on you",
@@ -214,6 +231,7 @@ const STATE_WORDS: Record<ThreadDot, string> = {
 function ThreadList({
 	teammate,
 	rows,
+	jobs,
 	loaded,
 	nameOf,
 	opened,
@@ -221,6 +239,7 @@ function ThreadList({
 }: {
 	teammate: { id: string; name: string; avatarHash?: string | undefined } | null;
 	rows: ThreadSummary[];
+	jobs: ScheduleEntry[];
 	loaded: boolean;
 	nameOf(personaId: string): string | undefined;
 	/** The row a thread was last opened from. */
@@ -230,6 +249,7 @@ function ThreadList({
 	const root = useRef<HTMLDivElement>(null);
 	const idOf = (row: ThreadSummary) => `${row.thread.kind}:${row.thread.key}`;
 	const { open, closed } = groupThreads(rows);
+	const jobList = jobRows(jobs);
 	const [folded, setFolded] = useState(() => !closed.some((row) => idOf(row) === opened.current));
 	// Relative times age while the list is open.
 	const [now, setNow] = useState(() => Date.now());
@@ -270,18 +290,65 @@ function ThreadList({
 		);
 	};
 
+	const job = (one: ScheduleEntry) => {
+		const id = `job:${one.id}`;
+		const ended = one.endedAt !== undefined;
+		const running = rows.some((thread) => thread.thread.kind === "job" && thread.thread.key === one.id && thread.working);
+		const when = ended ? `Ended ${relativeTime(one.endedAt ?? now, now)}` : `Next ${nextText(one.nextAt, now)}`;
+		const post = one.lastPost === undefined ? "No post yet" : `Posted ${relativeTime(one.lastPost.at, now)}: ${firstLine(one.lastPost.text)}`;
+		return (
+			<div key={id} className="relative">
+				<button
+					type="button"
+					className="rail-row dock-row"
+					data-thread={id}
+					data-restore={opened.current === id || undefined}
+					aria-label={`${one.name}, ${ended ? "ended" : running ? "running" : when}`}
+					onClick={() => {
+						opened.current = id;
+						onOpen({ thread: { kind: "job", key: one.id }, title: one.name });
+					}}
+				>
+					<span aria-hidden="true" className={`dock-dot ${running ? "beat" : ""}`} data-state={ended ? "closed" : running ? "running" : "idle"} />
+					<span className="min-w-0 flex-1">
+						<span className="block h-[18px] truncate font-medium text-ink">{one.name}</span>
+						<span className="block h-4 truncate text-sm text-ink-3">{when}</span>
+						<span className="block h-4 truncate text-sm text-ink-3">{post}</span>
+					</span>
+				</button>
+				{ended && (
+					<button
+						type="button"
+						className="control btn-icon absolute right-1 top-1"
+						title="Remove"
+						aria-label={`Remove ${one.name}`}
+						onClick={() => void wire.command("schedule.cancel", { id: one.id }).catch(() => {})}
+					>
+						<CloseIcon />
+					</button>
+				)}
+			</div>
+		);
+	};
+
 	return (
 		<Scroll>
 			<div ref={root} className="px-2 pb-3">
 				{teammate === null ? (
 					<p className="px-2 py-3 text-sm text-ink-3">Pick a teammate to see their threads.</p>
-				) : !loaded ? null : open.length + closed.length === 0 ? (
+				) : !loaded ? null : open.length + closed.length + jobList.length === 0 ? (
 					<p className="px-2 py-3 text-sm text-ink-3">
 						No threads with {teammate.name} yet. Start a side thread from the conversation's More menu.
 					</p>
 				) : (
 					<>
 						{open.map(row)}
+						{jobList.length > 0 && (
+							<div className={open.length > 0 ? "mt-2" : ""}>
+								<h3 className="px-2 py-1 text-sm text-ink-3">Jobs</h3>
+								{jobList.map(job)}
+							</div>
+						)}
 						{closed.length > 0 && (
 							<div className={open.length > 0 ? "mt-2" : ""}>
 								<button

@@ -34,6 +34,8 @@ function postedFrom(event: Extract<TranscriptEvent, { kind: "agent" }>): string 
 			return "From a pair thread";
 		case "run":
 			return "From a subagent";
+		case "job":
+			return "From a scheduled job";
 		default:
 			return null;
 	}

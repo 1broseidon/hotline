@@ -1,8 +1,6 @@
 ---
 id: task-89
 title: "macOS shell sandbox: /usr/bin developer shims (python3, git, make) may hang when xcode-select points at Xcode"
-column: review
-position: 6
 priority: medium
 tags:
   - sandbox
@@ -10,7 +8,7 @@ tags:
   - shell
 createdAt: "2026-10-16T22:26:28.277Z"
 parentId: epic-14
-updatedAt: "2026-10-19T00:56:53.580Z"
+updatedAt: "2026-10-19T00:57:42.625Z"
 relatedFiles:
   - crates/hotline-core/src/tools/shell/macos.rs
   - crates/hotline-core/tests/processes.rs
@@ -45,6 +43,7 @@ dispatch:
     ended: "2026-10-19T00:56:53.580Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-19T00:57:42.625Z"
 ---
 
 ## Description
@@ -55,3 +54,4 @@ Found cutting 0.39.0 (2026-10-16). On GitHub's macOS runners, `python3 -m http.s
 ## Log
 - 2026-10-18T23:54:09.907Z: [claude] Lead: you cannot run a GitHub runner from your worktree, so don't fix anything on a guess. Ship (1) a macOS-only #[ignore] test in tests/processes.rs that runs `/usr/bin/python3 -c 'print(1)'` and `/usr/bin/git --version` in the real sandbox with a short timeout and says which one hung, and (2) a workflow_dispatch probe job in ci.yml that runs that test with --ignored on macOS runners. Change the Seatbelt profile only if you can reproduce the hang on this Mac, e.g. with DEVELOPER_DIR unset or pointed at a missing Xcode. Otherwise say in your notes that the fix waits on George's probe run.
 - 2026-10-19T00:56:48.280Z: [claude] Probe shipped on dispatch/task-89 (6873f6e7); the profile is unchanged and the fix waits on George's probe run (Actions → ci → Run workflow; the shell-probe job, macos-26 + macos-15). Added: ignored macOS test `developer_shims_run_in_both_shells` in tests/processes.rs. It runs /usr/bin/xcode-select -p, /usr/bin/python3 -c 'print(1)', /usr/bin/git --version, PATH python3 and its socket.getfqdn("127.0.0.1"), with an 8 s watchdog each, first at machine reach and then at workspace reach (Seatbelt). It prints timings and fails naming any /usr/bin command that hung. Findings: (1) the 0.39.0 failure was NOT in the sandbox: the processes.rs Desk is reach "machine", which runs the shell unconfined with the runner's PATH python3, so the xcode_select_link theory cannot explain it. (2) The likelier cause: HTTPServer.server_bind calls socket.getfqdn(host) BEFORE listen(), and on this Mac getfqdn("127.0.0.1") does a real reverse-DNS lookup (it returns 1.0.0.127.in-addr.arpa). A slow resolver on a runner would give "alive, never listened", and the "printed nothing" is just stdout buffered into a pipe. The probe reports how long getfqdn takes. (3) Locally, with DEVELOPER_DIR forced to Xcode inside Seatbelt, the /usr/bin/python3 shim launches xcodebuild (first-launch check, logs fs-event errors) and takes ~1 s the first time, then is fast: no hang. I fixed the perl test's comment, which wrongly said python3 ran in the sandbox.
+- 2026-10-19T00:57:42.235Z: Landed on release/0.40.0

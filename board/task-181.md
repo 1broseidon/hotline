@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/desk.rs
   - crates/hotline-core/src/wire/room_handle.rs
   - crates/hotline-core/src/driver/failure.rs
-updatedAt: "2026-10-19T00:27:42.818Z"
+updatedAt: "2026-10-19T00:36:35.902Z"
 contract:
   status: in_progress
   deliverables:
@@ -47,6 +47,8 @@ dispatch:
     runner: cli
     pid: 59290
     at: "2026-10-19T00:27:31.124Z"
+    ended: "2026-10-19T00:36:35.902Z"
+    outcome: review
 assignee: claude
 ---
 

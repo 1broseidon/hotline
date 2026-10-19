@@ -15,7 +15,29 @@ createdAt: "2026-10-19T06:06:59.331Z"
 dependsOn:
   - task-194
   - task-198
-updatedAt: "2026-10-19T06:10:21.526Z"
+updatedAt: "2026-10-19T06:11:05.054Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-websearch/Cargo.toml
+      description: Web search on hotline-contract, with its own HTTP and provider dependencies
+  validation:
+    commands:
+      - test -f crates/hotline-websearch/src/lib.rs
+      - test ! -e crates/hotline-core/src/websearch.rs && test ! -e crates/hotline-core/src/websearch
+      - "! grep -qE '^hotline-(core|store|tools)' crates/hotline-websearch/Cargo.toml"
+      - grep -A1 '^\[lints\]' crates/hotline-websearch/Cargo.toml | grep -q 'workspace = true'
+      - grep -q hotline-websearch docs/standards.md && grep -q hotline-websearch AGENTS.md
+      - make check
+      - git diff --exit-code ui/src/generated/contract.ts
+      - make precheck
+  constraints:
+    - "Moves only: no behaviour change"
+    - Dependencies nothing else uses leave hotline-core
+    - contract.ts byte-identical
+  metrics:
+    readyAt: "2026-10-19T06:11:05.054Z"
 ---
 
 ## Description

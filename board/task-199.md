@@ -12,6 +12,11 @@ relatedFiles:
   - docs/adr
 parentId: epic-16
 createdAt: "2026-10-19T06:07:01.477Z"
+dependsOn:
+  - task-195
+  - task-197
+  - task-198
+updatedAt: "2026-10-19T06:07:13.307Z"
 ---
 
 ## Description

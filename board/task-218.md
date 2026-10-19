@@ -29,7 +29,7 @@ contract:
     - Run cargo test -p hotline-core unfiltered before committing ui/src/generated/contract.ts (AGENTS.md rule 3)
   metrics:
     readyAt: "2026-10-19T20:03:13.573Z"
-updatedAt: "2026-10-19T20:03:30.379Z"
+updatedAt: "2026-10-19T20:03:36.062Z"
 dispatch:
   agent: codex
   model: gpt-6.1-sol
@@ -37,7 +37,12 @@ dispatch:
   by: lead
   at: "2026-10-19T20:03:30.245Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-19T20:03:36.062Z"
 ---
 
 ## Description

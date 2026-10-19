@@ -504,9 +504,12 @@ Where this differs from the design above:
 - **The two live handles are not one.** `Session` and `LiveSide` each hold their
   own driver and lease and close through their own door; `Occupant` is the
   seam where they meet, not a shared handle.
-- **A peer session is still built by `peer_session`** and driven by `drive`.
-  Its policy row is set; it has a queue of one and no person, so it did not need
-  the loop.
+- **A peer session uses the shared builder and turn** (ADR 0008 slice 4).
+  `peer_session` calls `Room::thread_agent` with the target and the caller as
+  opener; `Threads::drive` reads its turn with a witness that keeps directional
+  receipts and the waiting marker. First contact, the exchange cap and the
+  dual leases remain the pair's. It has one turn in flight, so it needs no
+  `Room::run_queue` occupant.
 
 **Phase 8.** The wire (BRO-203). The wire's part is in `wire/threads.rs`; the
 protocol is in [wire.md](wire.md#threads) and the seats in
@@ -683,8 +686,8 @@ the phases built so far.
 | --- | --- | --- | --- | --- | --- |
 | Stream | `Tape` | `Side` | `Pair(key)` + sidecar + `exchange_pair` on Room | `Call`; desk calls on a `voice-dispatcher` tape | `Run` |
 | Write helper | `write_value` | `Threads::write` | `Threads::write` (`write_thread`) | `Threads::write` (desk calls: `voice_record`) | `Threads::write` |
-| Agent builder | `Room::thread_agent` (from `start_now`) | `Room::thread_agent` (from `bring_up`) | `peer_session` | dispatcher front | `Room::thread_agent` (from `run_to_end`) |
-| Turn loop | `Room::run_queue` (`Session`) | `Room::run_queue` (`LiveSide`) | `drive` | voice `run` | `Threads::turn` |
+| Agent builder | `Room::thread_agent` (from `start_now`) | `Room::thread_agent` (from `bring_up`) | `Room::thread_agent` (from `peer_session`) | dispatcher front | `Room::thread_agent` (from `run_to_end`) |
+| Turn loop | `Room::run_queue` (`Session`) | `Room::run_queue` (`LiveSide`) | `Threads::drive` | voice `run` | `Threads::turn` |
 | Resume | persona checkpoints | marker `sessionId` | reseed from thread | none: each front starts from the DM's recent lines (`front_prompt`) | none |
 | Idle | `Room::sweep` (chapters) | `Room::sweep` (3 h) | `Room::sweep` (10 min) | `Room::sweep` (10 min) | `Room::sweep` (none) |
 | Restart | `Room::settle` | `Room::settle` | `Room::settle` + `reconcile_exchanges`, `recover_exchanges` | `Room::settle` (closed) | `Room::settle` |

@@ -1,22 +1,13 @@
 //! Runs: a teammate's agent started fresh for one piece of work, driven to
 //! its end on a stream of its own, and what it reported handed back.
 //!
-//! Two kinds of hidden work share this, and a third is meant to:
-//!
-//! - **A subagent.** A Hotline Agent teammate hands a task to a worker that
-//!   runs as itself — its working directory, its tools, the model it is on
-//!   right now — with none of its conversation and none of its persona. The
-//!   worker's system prompt is this module's, written for doing a job and
-//!   reporting on it, never the teammate's own. [`Room::run`] is the whole of
-//!   it; the teammate reaches it through its managed jobs (see
-//!   [`super::jobs::Delegate`]), which is what makes it cancellable, waitable
-//!   and parallel without a line of scheduling here.
-//! - **A peer exchange.** One teammate asking another is a run of the other's
-//!   agent on the pair's thread: [`drive`] is the loop both use, so a turn
-//!   nobody in the room is watching is written down the same way whoever
-//!   started it.
-//! - **A scheduled firing**, next: a quiet job is a run whose report nobody
-//!   sees unless it escalates.
+//! A Hotline Agent teammate hands a task to a worker that runs as itself —
+//! its working directory, its tools, the model it is on right now — with none
+//! of its conversation and none of its persona. The worker's system prompt
+//! is this module's, written for doing a job and reporting on it, never the
+//! teammate's own. [`Room::run`] is the whole of it; the teammate reaches it
+//! through its managed jobs (see [`super::jobs::Delegate`]), which is what
+//! makes it cancellable, waitable and parallel without scheduling here.
 //!
 //! A harness that runs subagents of its own and shows them — Claude's and
 //! Codex's ACP adapters do — has each written here as a run too
@@ -80,33 +71,6 @@ pub(super) struct Driven {
     pub stop_reason: Option<String>,
 }
 
-/// Drives one prompt on a driver to its end, handing every event it becomes
-/// to `write`, with whether it came of a permission request.
-///
-/// The funnel is the tape's: what the agent says between its tool calls is
-/// thinking, a tool left running when the driver stops is failed, and the
-/// words are split into bubbles the way every stream splits them. A cancel
-/// asks the driver to stop and keeps reading until it has, so the turn's own
-/// end is still written down.
-pub(super) async fn drive(
-    driver: &dyn Driver,
-    text: String,
-    reach: Reach,
-    cancel: Option<&CancellationToken>,
-    write: impl FnMut(TranscriptEvent, bool),
-) -> Driven {
-    drive_with(
-        driver,
-        timed(now_ms(), &text),
-        Vec::new(),
-        reach,
-        cancel,
-        |_, _, _, _| {},
-        write,
-    )
-    .await
-}
-
 /// What a kind does about each thing its agent does in a turn, the one place
 /// the kinds differ in how a turn is driven. [`drive_updates`] reads the turn
 /// off the driver and calls it; the funnel it feeds (what the agent says
@@ -145,46 +109,6 @@ pub(super) struct Words<'a> {
     /// start of a tag held back until the next chunk says whether it was.
     /// Empty while the spoken version streams.
     pub shown: &'a str,
-}
-
-/// A witness made of two closures: how a peer turn and a run are written.
-struct Calls<D, W> {
-    delta: D,
-    write: W,
-}
-
-impl<D, W> Witness for Calls<D, W>
-where
-    D: FnMut(MessageKind, &str, &str, bool),
-    W: FnMut(TranscriptEvent, bool),
-{
-    fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
-        if !words.shown.is_empty() {
-            (self.delta)(kind, message_id, words.shown, muted);
-        }
-    }
-
-    fn write(&mut self, event: TranscriptEvent, asked: bool) {
-        (self.write)(event, asked);
-    }
-}
-
-/// [`drive`] for a conversation somebody is watching: the line is handed over
-/// already stamped, with its attachments, and `delta` is told the words as
-/// they arrive (kind, message id, text as shown, and whether the reply is
-/// being held back as narration) so they can be shown before the message is
-/// whole.
-pub(super) async fn drive_with(
-    driver: &dyn Driver,
-    wire_text: String,
-    attachments: Vec<crate::contract::Attachment>,
-    reach: Reach,
-    cancel: Option<&CancellationToken>,
-    delta: impl FnMut(MessageKind, &str, &str, bool),
-    write: impl FnMut(TranscriptEvent, bool),
-) -> Driven {
-    let updates = driver.prompt(wire_text, attachments, reach).await;
-    drive_updates(driver, updates, cancel, None, &mut Calls { delta, write }).await
 }
 
 /// Reads one turn's updates off the driver to its end and tells `witness`
@@ -848,18 +772,31 @@ mod tests {
                 usage: None,
             },
         ]);
-        let mut streamed = Vec::new();
-        let mut written = Vec::new();
-        let driven = drive_with(
-            &driver,
-            timed(now_ms(), "Check the tests."),
-            Vec::new(),
-            Reach::Workspace,
-            None,
-            |_, _, text, _| streamed.push(text.to_string()),
-            |event, _| written.push(event),
-        )
-        .await;
+        #[derive(Default)]
+        struct Recorded {
+            streamed: Vec<String>,
+            written: Vec<TranscriptEvent>,
+        }
+        impl Witness for Recorded {
+            fn delta(&mut self, _: MessageKind, _: &str, words: Words<'_>, _: bool) {
+                if !words.shown.is_empty() {
+                    self.streamed.push(words.shown.to_string());
+                }
+            }
+            fn write(&mut self, event: TranscriptEvent, _: bool) {
+                self.written.push(event);
+            }
+        }
+        let mut recorded = Recorded::default();
+        let updates = driver
+            .prompt(
+                timed(now_ms(), "Check the tests."),
+                Vec::new(),
+                Reach::Workspace,
+            )
+            .await;
+        let driven = drive_updates(&driver, updates, None, None, &mut recorded).await;
+        let Recorded { streamed, written } = recorded;
         assert_eq!(streamed, ["| test | result |"]);
         let said: Vec<(&str, &Option<String>)> = written
             .iter()

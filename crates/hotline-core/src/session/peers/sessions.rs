@@ -3,10 +3,11 @@
 //! restart, and the one session per direction that answers.
 
 use super::*;
-use crate::driver::{HOTLINE_BACKEND_ID, acp};
-use crate::mcp::server::TeammateTools;
+use crate::contract::ThreadKind;
 use crate::paths::thread_participants;
+use crate::session::agent::{Opening, lease_of};
 use crate::session::now_ms;
+use crate::thread::Opener;
 
 impl Room {
     /// Every thread this teammate is in, newest first.
@@ -351,60 +352,23 @@ impl Room {
         {
             return Err("That collaboration approval expired before work started.".to_string());
         }
-        std::fs::create_dir_all(&target.cwd).map_err(|error| {
-            format!(
-                "{}'s working directory {} could not be made: {error}",
-                target.name, target.cwd
-            )
-        })?;
-        // A peer conversation is its own: an agent that reopened the
-        // teammate's saved session would answer its colleague inside the
-        // user's context, and say so.
-        let mut view = target.clone();
-        view.session_checkpoints = Vec::new();
-        view.last_session_id = None;
-        let in_process = view.backend_id == HOTLINE_BACKEND_ID;
-        let peer_caller_capability = caller_capability.scoped();
+        let peer_caller_capability = lease_of(ThreadKind::Pair, &caller_capability);
         let target_capability = target_capability.with_dependency(&peer_caller_capability);
         peer_caller_capability.check()?;
-        if !in_process {
-            caller_capability.check()?;
-            acp::materialize_agents_md_with_capability(&view, Some(target_capability.clone()))
-                .map_err(|error| {
-                    format!("{}'s AGENTS.md could not be written: {error}", view.name)
-                })?;
-        }
         let flip = thread_participants(key).is_some_and(|(user_side, _)| user_side != caller.id);
-        let driving = crate::session::computer::Driving::new(
-            format!("pair:{key}"),
-            format!("a request from {}", crate::session::links::shown(&caller)),
-            &target_capability,
-        );
-        let extra_mcp = self.grant_computer(&view, &driving).await?;
-        caller_capability.check()?;
-        target_capability.check()?;
-        peer_caller_capability.check()?;
-        if let Some(scope) = scope
-            && !self.peers.scope_current(&caller_id, &target_id, scope)
-        {
-            return Err("That collaboration approval expired before work started.".to_string());
-        }
-        let driver = self.agents.agent(
-            &view,
-            peer_preamble(
-                &caller,
-                &view,
-                in_process.then(|| view.reach.unwrap_or_default()),
-                &self.stored_secrets(),
-            ),
-            said_in(&self.log.load(&StreamId::Pair(key.to_string())), flip),
-            TeammateTools::new(self, &view.id)
-                .with_capability(target_capability.clone())
-                .for_peer(),
-            extra_mcp,
-        )?;
-        let mut starting = StartingPeer(Some(driver.clone()));
-        driver.start(&view).await?;
+        let mut agent = self
+            .thread_agent(Opening {
+                thread: ThreadId::pair(key),
+                persona: target,
+                title: format!("a request from {}", crate::session::links::shown(&caller)),
+                opener: Some(Opener {
+                    persona_id: caller.id.clone(),
+                    name: caller.name.clone(),
+                }),
+                lease: target_capability.clone(),
+                heard_from: None,
+            })
+            .await?;
         caller_capability.check()?;
         peer_caller_capability.check()?;
         target_capability.check()?;
@@ -416,11 +380,11 @@ impl Room {
 
         let now = now_ms();
         let live = Arc::new(PeerSession {
-            driver,
+            driver: agent.driver.clone(),
             caller_capability: peer_caller_capability,
             target_capability,
             thread_key: key.to_string(),
-            holder: driving.holder().clone(),
+            holder: agent.holder.clone(),
             target_id: target_id.clone(),
             flip,
             last_used: Mutex::new(now),
@@ -453,7 +417,7 @@ impl Room {
             existing.driver.invalidate();
         }
         lock(&self.peers.sessions).insert(pair, live.clone());
-        starting.0 = None;
+        agent.keep();
         Ok(live)
     }
 

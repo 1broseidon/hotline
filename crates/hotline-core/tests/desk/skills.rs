@@ -108,8 +108,9 @@ async fn the_skills_catalog_lists_builtins_the_gateway_and_a_teammates_own() {
     assert_eq!(nobody["ok"], false, "{nobody}");
 
     // A grant is files in the workspace from the moment the teammate is
-    // started, whichever driver runs it and even when the start is refused
-    // for want of a key: the folder is part of the workspace, like AGENTS.md.
+    // started, whichever driver runs it and even when it comes up unavailable
+    // for want of a provider: the folder is part of the workspace, like
+    // AGENTS.md. Each start here is stopped again, so the next is a start.
     let granted = client
         .call(
             "persona.update",
@@ -121,10 +122,13 @@ async fn the_skills_catalog_lists_builtins_the_gateway_and_a_teammates_own() {
         granted["result"]["skillPolicy"]["names"],
         json!(["cut-release"])
     );
-    let refused = client
+    let unavailable = client
         .call("session.start", json!({ "personaId": persona_id }))
         .await;
-    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(unavailable["result"]["state"], "error", "{unavailable}");
+    client
+        .call("session.stop", json!({ "personaId": persona_id }))
+        .await;
     let folder = workspace.join(".agents/skills");
     assert!(folder.join("hotline-room/SKILL.md").exists());
     assert!(folder.join("hotline-room/.managed-by-hotline").exists());
@@ -150,10 +154,13 @@ async fn the_skills_catalog_lists_builtins_the_gateway_and_a_teammates_own() {
         )
         .await;
     assert_eq!(revoked["ok"], true, "{revoked}");
-    let refused = client
+    let unavailable = client
         .call("session.start", json!({ "personaId": persona_id }))
         .await;
-    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(unavailable["result"]["state"], "error", "{unavailable}");
+    client
+        .call("session.stop", json!({ "personaId": persona_id }))
+        .await;
     assert!(
         !folder.join("cut-release").exists(),
         "a revoked grant leaves nothing of Hotline's"
@@ -321,10 +328,13 @@ async fn the_persons_own_skills_are_offered_by_switch_and_granted_like_the_gatew
         )
         .await;
     assert_eq!(granted["ok"], true, "{granted}");
-    let refused = client
+    let unavailable = client
         .call("session.start", json!({ "personaId": persona_id }))
         .await;
-    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(unavailable["result"]["state"], "error", "{unavailable}");
+    client
+        .call("session.stop", json!({ "personaId": persona_id }))
+        .await;
     let folder = workspace.join(".agents/skills");
     assert!(folder.join("cut-release/SKILL.md").exists());
     assert!(folder.join("cut-release/.managed-by-hotline").exists());
@@ -343,10 +353,13 @@ async fn the_persons_own_skills_are_offered_by_switch_and_granted_like_the_gatew
         .await;
     assert_eq!(withdrawn["ok"], true, "{withdrawn}");
     assert_eq!(withdrawn["result"]["offered"], false);
-    let refused = client
+    let unavailable = client
         .call("session.start", json!({ "personaId": persona_id }))
         .await;
-    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(unavailable["result"]["state"], "error", "{unavailable}");
+    client
+        .call("session.stop", json!({ "personaId": persona_id }))
+        .await;
     assert!(!folder.join("cut-release").exists());
     assert!(home.join("cut-release/SKILL.md").exists());
 }

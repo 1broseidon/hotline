@@ -58,12 +58,15 @@ export function ErrorCard({
     personaId,
     onRetry,
     onRunAgain,
+    onProviders,
 }: {
     text: string;
     personaId?: string;
     onRetry?: () => void;
     /** Runs the failed turn again; offered only on the latest one. */
     onRunAgain?: () => Promise<unknown>;
+    /** Opens Settings › Providers, the fix for Hotline Agent with no provider. */
+    onProviders?: () => void;
 }) {
     const error = errorDetails(text);
     const [again, setAgain] = useState<"idle" | "trying" | Refused>("idle");
@@ -75,6 +78,13 @@ export function ErrorCard({
                 <span className="font-medium">{error.title}</span>
             </div>
             <p className="mt-1 text-sm text-ink-2">{error.summary}</p>
+            {error.kind === "no_provider" && onProviders && (
+                <div className="mt-2">
+                    <button type="button" className="control btn btn-sm" onClick={onProviders}>
+                        Settings › Providers
+                    </button>
+                </div>
+            )}
             {error.signIn && personaId && <AgentSignIn personaId={personaId} action={error.signIn} {...(onRetry ? { onRetry } : {})} />}
             {offerAgain && (
                 <div className="mt-2 flex items-center gap-3">

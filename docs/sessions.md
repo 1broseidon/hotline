@@ -172,6 +172,17 @@ requests and tool execution. Rig keeps provider construction, authentication,
 request encoding, and response parsing. Every Hotline Agent provider uses that
 loop; `capabilities.activeInput` is true without a provider steering endpoint.
 
+On a desk with no provider connected, the teammate still comes up, with no
+model: its state is `error`, and its conversation gets an error card, "Hotline
+Agent unavailable" (kind `no_provider`), with a button to Settings › Providers.
+That happens when it starts, before anything is sent, so the person learns why
+before a turn can fail. A message sent while it stands is refused before it is
+written, with "Hotline Agent unavailable: connect a provider in Settings ›
+Providers.", and the words go back to the composer. The first message after a
+provider is connected starts the session again on it (`in_this_chapter` in
+`session/prompt.rs`). A side or peer thread is not opened onto an unavailable
+teammate: it is refused with the same sentence.
+
 An operator update interrupts inference, including a request still waiting
 for its first response. The next request includes the update and completed
 history. Incomplete tool calls never execute, and completed calls keep their

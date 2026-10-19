@@ -64,6 +64,7 @@ export function Conversation({
 	onCall,
 	onHangUp,
 	callBar,
+	onProviders,
 }: {
 	entry: RosterEntry;
 	/** The room's models, for the model picker in the band. */
@@ -76,6 +77,8 @@ export function Conversation({
 	onHangUp?: (() => void) | undefined;
 	/** The call strip, which hangs under the band while a call is on. */
 	callBar?: ReactNode;
+	/** Opens Settings › Providers, where a teammate with no provider is fixed. */
+	onProviders(): void;
 	roster: RosterEntry[];
 	jobs: ScheduledJob[];
 	/** What the band's model or effort picker was refused with, or nothing. */
@@ -462,6 +465,7 @@ export function Conversation({
 					onOpenThreads={onOpenThreadList}
 					onOpenWork={onOpenWork}
 					workOpen={workOpen}
+					onProviders={onProviders}
 				/>
 				{fresh && (
 					<div className="relative shrink-0 px-6">

@@ -902,3 +902,123 @@ async fn native_connection_metadata_and_account_restrictions_survive_reopening_o
             .contains("private-test-key")
     );
 }
+
+/// A Hotline Agent teammate on a desk with no provider comes up saying why,
+/// on its tape and before anything is sent, and a message is turned away
+/// without being written. Connecting a provider is the whole fix: the next
+/// message starts the teammate on it and is answered.
+#[tokio::test(flavor = "multi_thread")]
+async fn hotline_agent_with_no_provider_says_so_before_the_first_turn() {
+    use axum::{
+        Router,
+        routing::{get, post},
+    };
+    let app = Router::new()
+        .route(
+            "/api/tags",
+            get(|| async { json!({"models": [{"name": "coder", "model": "coder"}]}).to_string() }),
+        )
+        .route(
+            "/api/chat",
+            post(|| async {
+                let chunk = json!({"model":"coder", "created_at":"2026-10-18T00:00:00Z",
+                    "message":{"role":"assistant", "content":"Connected now."}, "done":false});
+                let done = json!({"model":"coder", "created_at":"2026-10-18T00:00:00Z",
+                    "message":{"role":"assistant", "content":""}, "done":true, "done_reason":"stop",
+                    "prompt_eval_count":10, "eval_count":3});
+                (
+                    [("Content-Type", "application/x-ndjson")],
+                    format!("{chunk}\n{done}\n"),
+                )
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let (root, port) = open("no-provider").await;
+    let mut client = Client::connect(port, TOKEN).await;
+    let workspace = root.join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let made = client
+        .call(
+            "persona.create",
+            json!({"draft":{"name":"Unplugged", "goal":"Wait for a provider.", "cwd":workspace.to_string_lossy()}}),
+        )
+        .await;
+    let persona = made["result"]["id"].as_str().unwrap().to_string();
+    let tape = client.subscribe(json!({"tape": persona})).await;
+
+    let started = client
+        .call("session.start", json!({"personaId": persona}))
+        .await;
+    assert_eq!(started["ok"], true, "{started}");
+    assert_eq!(started["result"]["state"], "error", "{started}");
+    let notice = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, tape, "event") && frame["event"]["kind"] == "notice"
+        })
+        .await;
+    assert_eq!(notice["event"]["level"], "error");
+    let text = notice["event"]["text"].as_str().unwrap();
+    assert!(
+        text.starts_with("Hotline Agent unavailable: Connect a provider in Settings › Providers"),
+        "{text}"
+    );
+    assert!(text.contains(r#""kind":"no_provider""#), "{text}");
+
+    let refused = client
+        .call(
+            "session.prompt",
+            json!({"personaId": persona, "text": "Are you there?"}),
+        )
+        .await;
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(
+        refused["error"],
+        "Hotline Agent unavailable: connect a provider in Settings › Providers."
+    );
+    // Not a failed turn: the words were never written, and no turn ran.
+    let again = client.subscribe(json!({"tape": persona})).await;
+    let snapshot = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, again, "snapshot")
+        })
+        .await;
+    let kinds: Vec<&str> = snapshot["snapshot"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|event| event["kind"].as_str())
+        .collect();
+    assert!(
+        !kinds.contains(&"user") && !kinds.contains(&"turn"),
+        "{kinds:?}"
+    );
+
+    let connected = client
+        .call("credential.connect_local", json!({"baseUrl": url}))
+        .await;
+    assert_eq!(connected["ok"], true, "{connected}");
+    let sent = client
+        .call(
+            "session.prompt",
+            json!({"personaId": persona, "text": "Are you there now?"}),
+        )
+        .await;
+    assert_eq!(sent["ok"], true, "{sent}");
+    let answer = client
+        .next_where(Duration::from_secs(15), |frame| {
+            is_sub(frame, tape, "event") && frame["event"]["kind"] == "agent"
+        })
+        .await;
+    assert!(
+        answer["event"]["text"]
+            .as_str()
+            .unwrap()
+            .contains("Connected now."),
+        "{answer}"
+    );
+    server.abort();
+}

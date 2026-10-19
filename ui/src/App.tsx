@@ -562,6 +562,10 @@ export function App() {
 							onCall={directCalls ? () => callTeammate(selected) : undefined}
 							onHangUp={calling && call?.target?.personaId === selected.persona.id ? closeCall : undefined}
 							callBar={callBar}
+							onProviders={() => {
+								setSettingsSection("providers");
+								setPane("settings");
+							}}
 							roster={roster}
 							jobs={jobs.filter((job) => job.personaId === selected.persona.id)}
 							said={said}

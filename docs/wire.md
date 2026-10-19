@@ -688,6 +688,13 @@ no file."`; an offset past the end is refused in a sentence. A phone needs
 no capability to ask: only a desk that serves `file.read` sends a
 teammate's file.
 
+An `agent` event the teammate posted from somewhere other than the
+conversation itself carries where it came from: `from`, `{thread, kind}` as
+on a delivery, for a call or a work thread, and `scheduled`, the job's
+stamp as on a user event, for a quiet scheduled run's note. A client says
+"From the call", "From a scheduled job" from them; the text does not. Both
+are optional, and absent from everything the conversation's own turns say.
+
 A teammate's `avatar` is `{hash, by: "self"|"person", updatedAt}`, and is
 absent when the teammate shows its initial. The picture is kept under
 `avatars/<teammate>/<hash>.png` and never rewritten, so a client may cache it

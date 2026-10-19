@@ -4,16 +4,19 @@
 //! workspace, its computer, or its computer's screen — keeps the desk's own
 //! copy of it ([`crate::sent`]), and puts it in the conversation as the
 //! teammate's message, with the caption as the message's words. A phone
-//! hears it the way it hears any reply.
+//! hears it the way it hears any reply. Sent from a work thread, it is posted
+//! to the chat all the same ([`Room::post`]), and the thread names it.
 //!
 //! A quiet scheduled run is refused rather than demoted. Its words become
 //! thinking, and a file in thinking would reach nobody while the teammate
 //! believed it had been sent.
 
 use super::prompt::stamped;
-use super::{Room, lock, new_id, now_ms, quiet};
+use super::{Post, Room, lock, new_id, now_ms, quiet};
 use crate::computer::{self, Ready};
-use crate::contract::{Attachment, AttachmentKind, Persona, TranscriptEvent};
+use crate::contract::{
+    Attachment, AttachmentKind, NoticeLevel, Persona, ThreadId, TranscriptEvent,
+};
 use crate::driver::CapabilityLease;
 use crate::images::DECODERS;
 use crate::sent::{self, Prepared};
@@ -127,24 +130,15 @@ impl Room {
         let root = self.log.root();
         let path = sent::store(root, persona_id, &id, &file)
             .map_err(|error| format!("The desk could not keep the file: {error}"))?;
-        let event = TranscriptEvent::Agent {
-            id: id.clone(),
-            ts: now_ms(),
-            text: caption.to_string(),
-            attachments: Some(vec![Attachment {
-                kind: file.kind,
-                name: file.name.clone(),
-                path: path.display().to_string(),
-                mime_type: Some(file.mime_type.clone()),
-                size: Some(file.bytes.len() as i64),
-                width: file.dimensions.map(|(width, _)| width),
-                height: file.dimensions.map(|(_, height)| height),
-                origin: Some(taken.origin),
-            }]),
-            reactions: None,
-            ring: None,
-            receipt: None,
-            spoken: None,
+        let attachment = Attachment {
+            kind: file.kind,
+            name: file.name.clone(),
+            path: path.display().to_string(),
+            mime_type: Some(file.mime_type.clone()),
+            size: Some(file.bytes.len() as i64),
+            width: file.dimensions.map(|(width, _)| width),
+            height: file.dimensions.map(|(_, height)| height),
+            origin: Some(taken.origin),
         };
         if let Some(capability) = &capability
             && let Err(refused) = capability.check()
@@ -152,16 +146,16 @@ impl Room {
             sent::discard(root, persona_id, &id);
             return Err(refused);
         }
-        if let Err(refused) = self.post_file(persona_id, home, event) {
+        let posted = match home {
+            Some(thread) => {
+                self.post_file_from(persona_id, thread, id.clone(), caption, attachment)
+            }
+            None => self.post_file(persona_id, id.clone(), caption, attachment),
+        };
+        if let Err(refused) = posted {
             sent::discard(root, persona_id, &id);
             return Err(refused);
         }
-        let body = if caption.is_empty() {
-            format!("Sent {}", file.name)
-        } else {
-            caption.to_string()
-        };
-        self.push.notify(&persona.name, &body, persona_id, None);
         if generated {
             let mut drawn = lock(&self.drawn);
             let recent = drawn.entry(persona_id.to_string()).or_default();
@@ -187,20 +181,28 @@ impl Room {
     }
 
     /// Writes the file's message through the same stamps and quiet window as
-    /// every line the room writes down, and says whether it landed: the
-    /// teammate is about to be told the person has the file.
+    /// every line the DM's own turns write down, and says whether it landed:
+    /// the teammate is about to be told the person has the file.
     fn post_file(
         &self,
         persona_id: &str,
-        home: Option<&str>,
-        event: TranscriptEvent,
+        id: String,
+        caption: &str,
+        attachment: Attachment,
     ) -> Result<(), String> {
-        // In a work thread the file is a line of that thread, through the same
-        // write path as the rest of what the thread says.
-        if let Some(thread) = home {
-            self.write_home(persona_id, Some(thread), &event);
-            return Ok(());
-        }
+        let name = attachment.name.clone();
+        let event = TranscriptEvent::Agent {
+            id,
+            ts: now_ms(),
+            text: caption.to_string(),
+            attachments: Some(vec![attachment]),
+            reactions: None,
+            ring: None,
+            receipt: None,
+            spoken: None,
+            from: None,
+            scheduled: None,
+        };
         let session = lock(&self.sessions).get(persona_id).cloned();
         let event = match &session {
             Some(session) => stamped(session, event, now_ms()),
@@ -213,7 +215,47 @@ impl Room {
         }
         let event = serde_json::to_value(&event).map_err(|error| error.to_string())?;
         self.try_write_value(persona_id, &event)
-            .map_err(|error| format!("The conversation could not be written to: {error}"))
+            .map_err(|error| format!("The conversation could not be written to: {error}"))?;
+        let body = if caption.is_empty() {
+            format!("Sent {name}")
+        } else {
+            caption.to_string()
+        };
+        let teammate = self
+            .persona(persona_id)
+            .map_or_else(|_| "Hotline".to_string(), |persona| persona.name);
+        self.push.notify(&teammate, &body, persona_id, None);
+        Ok(())
+    }
+
+    /// A file sent from a work thread is posted to the chat, stamped with
+    /// the thread, which keeps a line naming it: the chat holds everything
+    /// the teammate gave the person, wherever it was working.
+    fn post_file_from(
+        &self,
+        persona_id: &str,
+        thread: &str,
+        id: String,
+        caption: &str,
+        attachment: Attachment,
+    ) -> Result<(), String> {
+        let name = attachment.name.clone();
+        let post = Post {
+            id,
+            text: caption.to_string(),
+            attachments: Some(vec![attachment]),
+            scheduled: None,
+        };
+        let thread = ThreadId::side(thread);
+        self.post(persona_id, &thread, post)?;
+        let line = TranscriptEvent::Notice {
+            id: new_id(),
+            ts: now_ms(),
+            level: NoticeLevel::Info,
+            text: format!("Sent {name} to the chat."),
+        };
+        self.threads().write(&thread, persona_id, &line);
+        Ok(())
     }
 
     async fn computer_to_send_from(&self, persona_id: &str) -> Result<Ready, String> {

@@ -3,12 +3,11 @@
 //! A quiet run's words are thinking by kind: they stay out of the
 //! conversation and notify nobody, which is what lets a watcher check every
 //! few minutes without paging the person each time. This is the one door out.
-//! The run asks for it by name with `tell_person`, and what it hands over is
-//! not posted as it stands: once the quiet turn is over, the teammate is
-//! prompted with it in the open, and answers the person in its own voice,
-//! as any reply — on the rail, in a toast, on the phone.
+//! The run asks for it by name with `tell_person`, and once the quiet turn is
+//! over what it handed over is posted to the chat as it wrote it, stamped
+//! with the job ([`Room::post`](super::Room::post)), and heard as any reply
+//! is — on the rail, in a toast, on the phone.
 
-use crate::contract::ScheduledRun;
 use crate::driver::Escalate;
 use std::sync::Mutex;
 
@@ -45,13 +44,4 @@ impl Escalate for Escalation {
         *super::lock(&self.note) = Some(text.to_string());
         Ok(())
     }
-}
-
-/// What the teammate hears when its quiet run found something: which job,
-/// what it found, and that the person is waiting to be told.
-pub(super) fn follow_up(run: &ScheduledRun, note: &str) -> String {
-    format!(
-        "Your quiet scheduled job \"{}\" found something the person should know:\n\n{note}\n\nTell them now, in your own words.",
-        run.name
-    )
 }

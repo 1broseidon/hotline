@@ -411,8 +411,9 @@ Where this differs from the design above:
   `Wired::from`. `Stop` on the exchange cancels and closes the thread.
 - **Tools.** The same teammate tools as the main session, bar `new_chapter` and
   `resume_chapter`, plus `archive_thread`. `request_human` raises its card in
-  the thread, pushed with the thread's id; `send_file`, `generate_image` and
-  `message_teammate` post and reply there. Schedules and loops stay with the
+  the thread, pushed with the thread's id; `send_file` and `generate_image`
+  post their file to the chat, stamped `from` the thread (`Room::post`), and
+  leave a notice naming it there; `message_teammate` replies there. Schedules and loops stay with the
   persona and wake the DM.
 - **Cap.** `MAX_LIVE` is 3 live work threads per teammate, operator- and
   teammate-opened together; parked ones do not count. At the cap the idlest

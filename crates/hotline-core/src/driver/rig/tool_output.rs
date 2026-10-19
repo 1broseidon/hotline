@@ -19,9 +19,9 @@ use std::sync::Arc;
 /// the person.
 const TELL_PERSON: &str = "This is a quiet scheduled run: nothing you reply \
 is shown to the person or notifies them. If you find something they need to \
-see or act on, call this once with what you found. When this run ends you \
-will be asked, in the open, to tell them, and that reply notifies them. If \
-there is nothing worth their attention, do not call it.";
+see or act on, call this once with the message for them: it is posted to \
+the chat as you write it when this run ends, and notifies them. If there is \
+nothing worth their attention, do not call it.";
 
 /// The one-turn tool a quiet scheduled run escalates through (BRO-96).
 pub(super) fn tell_person(escalation: Arc<dyn Escalate>) -> DynamicTool {
@@ -33,7 +33,7 @@ pub(super) fn tell_person(escalation: Arc<dyn Escalate>) -> DynamicTool {
             "properties": {
                 "message": {
                     "type": "string",
-                    "description": "What you found, with what the person needs to act on it."
+                    "description": "The message to the person: what you found, and what they need to act on it."
                 }
             },
             "required": ["message"]
@@ -53,7 +53,7 @@ pub(super) fn tell_person(escalation: Arc<dyn Escalate>) -> DynamicTool {
                     .escalate(message)
                     .map(|()| {
                         ToolOutput::text(
-                            "Handed over. When this run ends you will be asked to tell the person.",
+                            "Handed over. It is posted to the chat when this run ends.",
                         )
                     })
                     .map_err(ToolExecutionError::other)

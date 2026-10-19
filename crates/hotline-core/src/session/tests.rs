@@ -540,6 +540,24 @@ pub(crate) fn enrol(log: &Log, persona: &Persona) {
 }
 
 /// A room with one teammate enrolled, on scripted agents, no session started.
+/// A phone paired with the desk, so a push has somewhere to go.
+pub(crate) fn pair_a_phone(room: &Room) {
+    std::fs::write(
+        room.log.root().join("remote.json"),
+        json!({
+            "desktopId": "desk-1",
+            "host": "desk.local",
+            "enabled": true,
+            "grants": [{
+                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0, "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
+                "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+}
+
 fn room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
     let log = scratch(name);
     enrol(&log, &persona("ada"));

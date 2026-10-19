@@ -298,8 +298,12 @@ jobs:
           pattern: server-*
           path: dist
           merge-multiple: true
-      - name: Verify manifest generation
-        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+      # Only the scripts this job runs; make check in CI runs the rest, some
+      # of which need the window's toolchain this job does not install.
+      - name: Verify manifest generation and release notes
+        run: |
+          python3 -m unittest discover -s scripts -p 'test_updater_manifest.py'
+          python3 -m unittest discover -s scripts -p 'test_release_notes.py'
       - name: Prepare a draft and release notes
         env:
           GH_TOKEN: ${{ github.token }}

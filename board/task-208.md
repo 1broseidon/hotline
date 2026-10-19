@@ -1,7 +1,7 @@
 ---
 id: task-208
 title: "hotline-room: RoomHandle and the room's plain pieces as their own crate"
-column: todo
+column: in-progress
 position: 9
 priority: high
 tags:
@@ -26,9 +26,9 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:41.570Z"
 dependsOn:
   - task-211
-updatedAt: "2026-10-19T14:41:02.657Z"
+updatedAt: "2026-10-19T14:41:18.541Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-room/Cargo.toml
@@ -57,6 +57,8 @@ contract:
     - The new crate never depends on hotline-core or Tauri
   metrics:
     readyAt: "2026-10-19T14:10:20.361Z"
+    pickedUpAt: "2026-10-19T14:41:18.541Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

@@ -416,7 +416,7 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `react`, `send_file`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `send_file`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
 | granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
 
 Every tool definition goes out with every request, and a large server's can
@@ -1085,9 +1085,25 @@ teammate a `delivery` with `cause: {kind: "answer", actionId, status,
 about}` and the note as its `text`, behind the turn in flight or on a turn
 of its own. The agent hears "The person answered your request (…)" or
 "The person declined your request (…)", then the note fenced, word for word.
-One lock settles a card once, however many answers race for it. A card that
-delivers and goes a day (`ASK_TTL`) without an answer is expired by the
-room's sweep, and the teammate is told the same way.
+One lock settles a card once, however many answers race for it.
+
+A card that delivers lives two hours (`ASK_HOURS`) unless the teammate
+passes `wait_hours`, clamped to 1–24 (`ASK_MAX_HOURS`), for an ask that
+really waits for the person to come back. The card carries the moment it
+goes as `expiresAt`, so a restart keeps the teammate's choice; a card from
+before that field lives the default from its `ts`. Past it, the room's sweep
+expires the card and the teammate is told once, the same way as an answer.
+Two hours, not a day, because a card a teammate has stopped needing keeps
+the conversation reading "needs you" on every desk and phone.
+
+The call's answer names the card's id, and `withdraw_request {id}` takes
+the card back when the teammate no longer needs it. It looks the id up
+among the caller's own cards only, so a teammate can withdraw nothing but its
+own; the card is superseded as `withdrawn` under the same lock as an answer,
+and nothing is delivered back. A card a handoff's running turn raised loses
+its gate on the handoff, so the turn's end returns the result; once the turn
+has ended to wait on the card, only an answer carries the work on, and the
+withdrawal is refused.
 
 A colleague's side session (`TeammateTools::for_peer`) has no conversation
 of its own to be answered in, so there the call still waits, as it always

@@ -928,6 +928,25 @@ async fn revocation_invalidates_a_dispatched_result_waiting_behind_the_person() 
 /// Drive the real handoff and request_human handlers, stopping only the fake
 /// model's updates so the tool call happens inside its actual handoff turn.
 async fn suspended_handoff(name: &str) -> (Arc<Room>, String, String) {
+    let (room, id, action, gate) = handoff_asking(name).await;
+    gate.add_permits(2);
+    until("the request waits on a person and bob's turn ends", || {
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::WaitingHuman
+            && !room.mid_turn("bob")
+    })
+    .await;
+    assert!(
+        room.tape("ada")
+            .iter()
+            .all(|v| v["cause"]["requestId"] != id),
+        "waiting is not a final result"
+    );
+    (room, id, action)
+}
+
+/// A handoff whose turn has asked the person and is still running: the
+/// returned gate lets the fake model finish it.
+async fn handoff_asking(name: &str) -> (Arc<Room>, String, String, Arc<tokio::sync::Semaphore>) {
     let log = scratch(name);
     enrol(&log, &persona("ada"));
     enrol(&log, &persona("bob"));
@@ -966,19 +985,34 @@ async fn suspended_handoff(name: &str) -> (Arc<Room>, String, String) {
         .as_str()
         .unwrap()
         .to_string();
+    (room, id, action, gate)
+}
+
+/// A card withdrawn while the handoff's turn runs no longer holds the
+/// result back: the turn's end returns it. Once the turn has ended to wait
+/// on a card, only an answer carries the work on, so that card stays.
+#[tokio::test]
+async fn a_withdrawn_card_lets_a_running_handoff_finish_and_a_waiting_one_keeps_its_card() {
+    let (room, id, action, gate) = handoff_asking("human-handoff-withdraw").await;
+    room.withdraw_human("bob", &action).unwrap();
     gate.add_permits(2);
-    until("the request waits on a person and bob's turn ends", || {
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::WaitingHuman
-            && !room.mid_turn("bob")
-    })
-    .await;
-    assert!(
+    until("the handoff's result reaches ada", || {
         room.tape("ada")
             .iter()
-            .all(|v| v["cause"]["requestId"] != id),
-        "waiting is not a final result"
-    );
-    (room, id, action)
+            .any(|v| v["cause"]["requestId"] == id)
+    })
+    .await;
+
+    let (room, _id, action) = suspended_handoff("human-handoff-withdraw-waiting").await;
+    let refused = room.withdraw_human("bob", &action);
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(matches!(
+        room.human_card("bob", &action),
+        Some(TranscriptEvent::HumanAction {
+            status: crate::contract::HumanActionStatus::Pending,
+            ..
+        })
+    ));
 }
 
 fn restart_human_room(old: Arc<Room>) -> (Arc<Room>, Arc<Fake>) {

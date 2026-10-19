@@ -1,8 +1,21 @@
 //! Classify at the provider boundary, before diagnostic data becomes display text.
+use crate::models::Client;
+use crate::providers::discovery::ListedModel;
+use crate::session::ProviderAuth;
 use rig::completion::CompletionError;
 use serde::Serialize;
 use serde_json::Value;
-use std::time::Duration;
+use std::collections::HashMap;
+use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
+
+/// How long a probe's verdict on a sign-in stands, so a run of refused turns
+/// asks the provider's model list once rather than once a turn.
+const VERDICT_FRESH: Duration = Duration::from_secs(60);
+
+/// How long the probe may take before the notice goes out with the sign-in
+/// wording it would have had without one.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -10,6 +23,10 @@ pub(crate) enum Kind {
     RateLimit,
     Quota,
     Auth,
+    /// The provider refused a turn with a 401 or 403, but the same sign-in
+    /// still lists its models. The sign-in is fine, so signing in again
+    /// cannot help; the provider is turning requests away.
+    ProviderRefused,
     /// An ACP harness's own sign-in — Claude Code's, Codex's — is gone or
     /// expired. Nothing in Hotline's Settings fixes it; the harness's login
     /// does.
@@ -244,6 +261,85 @@ impl Failure {
         failure
     }
 
+    /// A 401 or 403 on a turn says the provider refused, not why. When the
+    /// teammate's provider is a sign-in with a model list, the list is asked
+    /// once with the same sign-in: if it still answers, the sign-in is fine and
+    /// the notice says the provider is refusing, instead of sending the person
+    /// to sign in again. Any other provider keeps the sign-in wording.
+    pub async fn checked_against_sign_in(
+        self,
+        model: &str,
+        keys: &HashMap<String, ProviderAuth>,
+    ) -> Self {
+        if self.kind != Kind::Auth {
+            return self;
+        }
+        let Some((provider, _)) = model.split_once('/') else {
+            return self;
+        };
+        let (Some(wiring), Some(auth)) = (crate::models::wiring(provider), keys.get(provider))
+        else {
+            return self;
+        };
+        match (wiring.client, auth) {
+            (Client::ChatGpt, ProviderAuth::Login { token_dir }) => {
+                let listing = crate::providers::chatgpt::list_models(token_dir);
+                self.refused_if_listed(provider, "ChatGPT is refusing requests", listing)
+                    .await
+            }
+            (Client::Copilot, ProviderAuth::Login { token_dir }) => {
+                let listing = crate::providers::copilot::list_models(token_dir);
+                self.refused_if_listed(provider, "GitHub Copilot is refusing requests", listing)
+                    .await
+            }
+            (Client::XAi, ProviderAuth::StoredLogin { tokens }) => {
+                let listing = crate::providers::xai::list_models(tokens);
+                self.refused_if_listed(provider, "xAI is refusing requests", listing)
+                    .await
+            }
+            _ => self,
+        }
+    }
+
+    /// The probe itself. `listing` is only awaited when no verdict on this
+    /// provider's sign-in is fresher than [`VERDICT_FRESH`]; one that fails or
+    /// does not answer in time leaves the sign-in wording.
+    async fn refused_if_listed(
+        mut self,
+        provider: &str,
+        title: &'static str,
+        listing: impl Future<Output = Result<Vec<ListedModel>, String>>,
+    ) -> Self {
+        static VERDICTS: Mutex<Option<HashMap<String, (Instant, bool)>>> = Mutex::new(None);
+        let fresh = {
+            let verdicts = VERDICTS.lock().unwrap_or_else(PoisonError::into_inner);
+            verdicts
+                .as_ref()
+                .and_then(|verdicts| verdicts.get(provider))
+                .filter(|(asked, _)| asked.elapsed() < VERDICT_FRESH)
+                .map(|(_, listed)| *listed)
+        };
+        let listed = if let Some(listed) = fresh {
+            listed
+        } else {
+            let listed = matches!(
+                tokio::time::timeout(PROBE_TIMEOUT, listing).await,
+                Ok(Ok(_))
+            );
+            VERDICTS
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get_or_insert_with(HashMap::new)
+                .insert(provider.to_string(), (Instant::now(), listed));
+            listed
+        };
+        if listed {
+            self.set_kind(Kind::ProviderRefused);
+            self.title = title;
+        }
+        self
+    }
+
     pub fn after_tools(mut self, may_have_run: bool) -> Self {
         self.tools_may_have_run = may_have_run;
         self
@@ -273,6 +369,10 @@ impl Failure {
             Kind::Auth => (
                 "Provider sign-in required",
                 "The provider refused this connection. Check its credentials in Settings.",
+            ),
+            Kind::ProviderRefused => (
+                "Provider is refusing requests",
+                "Your sign-in still works, so signing in again won't help. Try again later or switch this teammate to another provider.",
             ),
             Kind::AgentAuth => (
                 "Agent sign-in expired",
@@ -543,6 +643,142 @@ mod tests {
         assert_eq!(provider.kind, Kind::Auth);
         let other = Failure::classify("Internal error: tool crashed", None, "acp_prompt");
         assert_eq!(other.kind, Kind::Acp);
+    }
+
+    /// OpenAI's 25 September 2026 outage: a ChatGPT sign-in that still listed
+    /// its models had every turn refused with `invalid_api_key`. A stub that
+    /// lists models and refuses `/responses` reads as the provider refusing;
+    /// a token the stub refuses everywhere still reads as a sign-in to fix.
+    #[tokio::test]
+    async fn a_provider_refusing_turns_is_told_apart_from_a_sign_in_that_no_longer_works() {
+        use axum::{Router, http::StatusCode, routing::get, routing::post};
+        use rig::client::CompletionClient;
+        use rig::completion::CompletionModel;
+
+        let refused = || {
+            (
+                StatusCode::UNAUTHORIZED,
+                [("content-type", "application/json")],
+                serde_json::json!({"error": {"code": "invalid_api_key",
+                    "message": "Incorrect API key provided."}})
+                .to_string(),
+            )
+        };
+        let listed = || {
+            (
+                StatusCode::OK,
+                [("content-type", "application/json")],
+                serde_json::json!({"models": [{"slug": "gpt-6-luna", "visibility": "list"}]})
+                    .to_string(),
+            )
+        };
+        let app = Router::new()
+            .route("/working/models", get(move || async move { listed() }))
+            .route("/working/responses", post(move || async move { refused() }))
+            .route("/revoked/models", get(move || async move { refused() }))
+            .route("/revoked/responses", post(move || async move { refused() }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let mut verdicts = Vec::new();
+        for sign_in in ["working", "revoked"] {
+            let dir = tempfile::tempdir().unwrap();
+            let far = chrono::Utc::now().timestamp() + 3600;
+            std::fs::write(
+                dir.path().join("auth.json"),
+                serde_json::json!({"access_token": "chatgpt-access", "refresh_token": "r",
+                    "expires_at": far, "account_id": "acct-1"})
+                .to_string(),
+            )
+            .unwrap();
+            let model = rig::providers::chatgpt::Client::builder()
+                .oauth()
+                .auth_file(dir.path().join("auth.json"))
+                .allow_device_flow(false)
+                .base_url(format!("{base}/{sign_in}"))
+                .build()
+                .unwrap()
+                .completion_model("gpt-6-luna");
+            let error = model
+                .completion(model.completion_request("hello").build())
+                .await
+                .unwrap_err();
+            let failure = Failure::provider(error, "request");
+            assert_eq!(failure.kind, Kind::Auth);
+            let models_url = format!("{base}/{sign_in}/models");
+            let listing =
+                crate::providers::chatgpt::list_models_at(dir.path(), &models_url, "0.161.2");
+            // Each case is its own provider to the verdict cache.
+            let failure = failure
+                .refused_if_listed(
+                    &format!("chatgpt-{sign_in}"),
+                    "ChatGPT is refusing requests",
+                    listing,
+                )
+                .await;
+            verdicts.push(failure);
+        }
+        server.abort();
+
+        let [working, revoked] = verdicts.try_into().unwrap();
+        assert_eq!(working.kind, Kind::ProviderRefused);
+        assert_eq!(working.title, "ChatGPT is refusing requests");
+        assert!(working.summary.contains("signing in again won't help"));
+        assert!(!working.notice().contains("Settings"));
+        assert!(working.details.contains("invalid_api_key"));
+        assert!(working.retry_delay(0).is_none());
+        assert_eq!(revoked.kind, Kind::Auth);
+        assert_eq!(revoked.title, "Provider sign-in required");
+    }
+
+    /// A run of refused turns asks the model list once: the second failure
+    /// within the verdict's life takes the first one's answer.
+    #[tokio::test]
+    async fn a_run_of_refused_turns_probes_the_sign_in_once() {
+        let asked = std::sync::atomic::AtomicUsize::new(0);
+        let probe = || async {
+            asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(Vec::new())
+        };
+        let refused = || {
+            Failure::classify(
+                r#"{"error":{"code":"invalid_api_key"}}"#,
+                Some(401),
+                "request",
+            )
+        };
+        let provider = format!("probe-once-{}", uuid::Uuid::new_v4());
+        let first = refused()
+            .refused_if_listed(&provider, "X is refusing requests", probe())
+            .await;
+        let second = refused()
+            .refused_if_listed(&provider, "X is refusing requests", probe())
+            .await;
+        assert_eq!(first.kind, Kind::ProviderRefused);
+        assert_eq!(second.kind, Kind::ProviderRefused);
+        assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    /// A provider with no model list to ask, or a failure that is not a
+    /// refused sign-in, keeps the wording it was classified with.
+    #[tokio::test]
+    async fn only_a_refused_sign_in_with_a_model_list_is_probed() {
+        let keys = HashMap::from([("openai".to_string(), ProviderAuth::ApiKey("sk-test".into()))]);
+        let refused = Failure::classify(
+            r#"{"error":{"code":"invalid_api_key"}}"#,
+            Some(401),
+            "request",
+        );
+        let kept = refused
+            .checked_against_sign_in("openai/gpt-6-sol", &keys)
+            .await;
+        assert_eq!(kept.kind, Kind::Auth);
+        let busy = Failure::classify("busy", Some(503), "request");
+        let kept = busy
+            .checked_against_sign_in("openai/gpt-6-sol", &keys)
+            .await;
+        assert_eq!(kept.kind, Kind::Transport);
     }
 
     #[test]

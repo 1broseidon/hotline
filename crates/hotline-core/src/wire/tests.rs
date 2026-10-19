@@ -1081,6 +1081,7 @@ async fn a_slow_read_answers_after_the_writes_behind_it_which_keep_their_order()
     assert_eq!(read["ok"], false, "{read}");
 }
 
+mod asks;
 mod capabilities;
 mod deltas;
 mod door;

@@ -583,7 +583,7 @@ family: string, profiles: Array<BrowserProfile>,
  */
 blocked: boolean, };
 
-export type HumanActionStatus = "pending" | "done" | "dismissed" | "expired";
+export type HumanActionStatus = "pending" | "done" | "dismissed" | "expired" | "withdrawn";
 
 /**
  * What the person can say to a waiting `request_human` card.
@@ -1851,10 +1851,19 @@ note?: string,
  * The asking turn did not wait: the answer comes back to the
  * teammate as a [`TranscriptEvent::Delivery`], whenever it comes.
  * Such a card is not orphaned by a restart or a stop, because
- * nothing was parked on it; only the person, or a day going by,
- * settles it. Absent on a card a tool is waiting on.
+ * nothing was parked on it; only the person, its lifetime running
+ * out, or the teammate withdrawing it settles it. Absent on a card a
+ * tool is waiting on.
  */
 delivers?: boolean, 
+/**
+ * When a card that delivers is taken down unanswered, in ms. The
+ * teammate chose how long it waits, up to a day, when it asked, and
+ * a restart must keep that choice, so it is on the card. Absent on a
+ * card a tool is waiting on, and on one written before cards carried
+ * it, which lives the default lifetime from its `ts`.
+ */
+expiresAt?: number, 
 /**
  * The work thread the card was raised in, when it was raised in one:
  * the card is on that thread's stream and not on the tape, and the

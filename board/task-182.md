@@ -12,7 +12,7 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:54.225Z"
 relatedFiles:
   - crates/hotline-core/src/mcp/oauth.rs
-updatedAt: "2026-10-19T00:41:19.859Z"
+updatedAt: "2026-10-19T00:41:31.384Z"
 contract:
   status: delivered
   deliverables:
@@ -43,6 +43,8 @@ dispatch:
     runner: cli
     pid: 59290
     at: "2026-10-19T00:33:58.587Z"
+    ended: "2026-10-19T00:41:31.383Z"
+    outcome: review
 assignee: claude
 ---
 

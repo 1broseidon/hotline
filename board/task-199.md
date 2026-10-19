@@ -16,7 +16,29 @@ dependsOn:
   - task-195
   - task-197
   - task-198
-updatedAt: "2026-10-19T06:10:21.788Z"
+updatedAt: "2026-10-19T06:11:05.319Z"
+contract:
+  status: ready
+  deliverables:
+    - type: docs
+      path: docs/adr/0007-split-hotline-core.md
+      description: After timings beside Before, the new module map, and the proposal for the core's seams
+  validation:
+    commands:
+      - grep -q '^## Before' docs/adr/0007-split-hotline-core.md && grep -q '^## After' docs/adr/0007-split-hotline-core.md && grep -q '^## Next' docs/adr/0007-split-hotline-core.md
+      - for c in hotline-contract hotline-support hotline-websearch hotline-store hotline-tools; do test -f crates/$c/src/lib.rs && grep -A1 '^\[lints\]' crates/$c/Cargo.toml | grep -q 'workspace = true' && grep -q license crates/$c/Cargo.toml && grep -q $c docs/standards.md && grep -q $c AGENTS.md || { echo "$c incomplete"; exit 1; }; done
+      - "! cargo tree -p hotline-core -e normal | grep -qi tauri"
+      - git diff --quiet release/0.41.0...HEAD -- crates Cargo.toml Cargo.lock ui
+      - make check
+      - git diff --exit-code ui/src/generated/contract.ts
+      - make verify
+      - make precheck
+  constraints:
+    - "No code: docs only"
+    - Same measurement commands as the baseline
+    - The core-split stage is a proposal for George, not started
+  metrics:
+    readyAt: "2026-10-19T06:11:05.319Z"
 ---
 
 ## Description

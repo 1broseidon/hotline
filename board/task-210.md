@@ -17,7 +17,27 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:42.521Z"
 dependsOn:
   - task-209
-updatedAt: "2026-10-19T14:10:03.099Z"
+updatedAt: "2026-10-19T14:10:03.360Z"
+contract:
+  status: ready
+  deliverables:
+    - type: docs
+      path: docs/adr/0007-split-hotline-core.md
+      description: stage 2 timings, the stopping-rule verdict on step 3, and the whole-epic check
+  validation:
+    commands:
+      - test -z "$(git diff --name-only $(git merge-base HEAD release/0.41.0) HEAD -- . ':!docs')"
+      - grep -q 'hotline-mcp' docs/adr/0007-split-hotline-core.md
+      - grep -q 'hotline-room\|room crate' docs/adr/0007-split-hotline-core.md
+      - "! grep -rnE 'crates/hotline-core/src/(room|linked|session/ledger|wire/room_handle|mcp/oauth|mcp/tool)\\.rs' docs AGENTS.md"
+      - make check
+      - git diff --exit-code 9e2c01bc -- ui/src/generated/contract.ts
+      - make precheck
+  constraints:
+    - "Docs only: no change outside docs/"
+    - Timings taken on the same machine and conditions at each of the three commits
+  metrics:
+    readyAt: "2026-10-19T14:10:03.360Z"
 ---
 
 ## Description

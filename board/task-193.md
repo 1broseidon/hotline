@@ -13,7 +13,7 @@ relatedFiles:
   - docs/adr
 parentId: epic-16
 createdAt: "2026-10-19T06:06:19.521Z"
-updatedAt: "2026-10-19T06:37:35.003Z"
+updatedAt: "2026-10-19T06:37:43.755Z"
 contract:
   status: delivered
   deliverables:
@@ -53,6 +53,8 @@ dispatch:
     runner: cli
     pid: 54892
     at: "2026-10-19T06:11:20.001Z"
+    ended: "2026-10-19T06:37:43.755Z"
+    outcome: review
 ---
 
 ## Description

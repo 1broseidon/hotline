@@ -32,7 +32,7 @@ contract:
       - make precheck
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
-updatedAt: "2026-10-18T23:53:55.552Z"
+updatedAt: "2026-10-19T00:57:59.496Z"
 dependsOn:
   - task-8
   - task-37
@@ -48,6 +48,14 @@ dependsOn:
   - task-186
   - task-187
   - task-188
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-19T00:57:59.366Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

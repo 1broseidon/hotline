@@ -1,15 +1,18 @@
 # ADR 0008: One agent thread layer; modalities attach to it, and the chat is the log of truth
 
-- Status: Accepted by George, 2026-10-19 (task-215). Slices 1, 2 and 4
-  are built (task-216, task-217, task-218); the rest are not yet.
+- Status: Accepted by George, 2026-10-19 (task-215). Slices 1 to 4 are
+  built (task-216, task-217, task-219, task-218), and §7's jobs on their own
+  threads (task-220) with today's run lease; §0's clone model (task-221) and
+  the voice slices are not yet.
 - Date: 2026-10-19
 - Builds on: [ADR 0001](0001-threads-are-a-primitive.md), whose runtime
   this finishes for pairs and calls
 - Amends, once its slices land: [ADR 0005](0005-front-is-a-full-agent.md)
   (the live voice stays a full agent for conversation and lookups, but real
   work goes to a clone of the teammate on its own model and harness, on the
-  call's thread, never into the DM); supersedes the "Quiet" rule in [sessions.md](../sessions.md#quiet) that only
-  a Hotline Agent quiet run may escalate
+  call's thread, never into the DM); supersedes the "Quiet" rule in sessions.md that only
+  a Hotline Agent quiet run may escalate, and §7 the quiet run itself (now
+  [Jobs](../sessions.md#jobs))
 - Design: [threads.md](../threads.md), [sessions.md](../sessions.md),
   [voice-calls.md](../voice-calls.md), [security.md](../security.md)
 - Tracking: epic-20; it bears on epic-19 (task-213, task-214) and epic-17

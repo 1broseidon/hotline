@@ -496,15 +496,21 @@ fn the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones() {
         ThreadKind::Pair,
         ThreadKind::Run,
         ThreadKind::Call,
+        ThreadKind::Job,
     ] {
         assert!(!Seat::Phone.permits(&prompt(kind)), "{kind:?}");
     }
+    // Closing a job cancels it, and a phone may not cancel a schedule.
+    assert!(!Seat::Phone.permits(&Command::ThreadClose {
+        thread: thread(ThreadKind::Job),
+    }));
     // `peers.answer_permission` is the owner's, so a pair's card is.
     for kind in [
         ThreadKind::Dm,
         ThreadKind::Side,
         ThreadKind::Run,
         ThreadKind::Call,
+        ThreadKind::Job,
     ] {
         assert!(Seat::Phone.permits(&answer(kind)), "{kind:?}");
     }
@@ -548,6 +554,7 @@ fn the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones() {
         ThreadKind::Side,
         ThreadKind::Pair,
         ThreadKind::Run,
+        ThreadKind::Job,
     ] {
         assert!(
             Seat::Phone.permits_sub(&Target::ThreadId(ThreadId::new(kind, "k"))),

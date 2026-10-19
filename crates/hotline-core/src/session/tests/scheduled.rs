@@ -266,7 +266,7 @@ async fn a_one_shot_fires_once_and_ends() {
     let events = job_thread(&room, "job-once", 3).await;
     assert_eq!(events[0]["text"], "say the word");
     assert_eq!(events[0]["scheduled"]["kind"], "schedule");
-    assert!(crate::room::schedules(&room.log).is_empty());
+    assert_eq!(crate::room::schedules(&room.log), [] as [ScheduledJob; 0]);
     until("the one-shot's thread is closed", || {
         matches!(
             job_state(&room, "job-once"),
@@ -412,7 +412,72 @@ async fn the_person_talks_to_a_jobs_thread() {
         heard[1].contains("Order still processing.") && heard[1].ends_with("skip the next one"),
         "a parked job's fresh agent is told where it stood: {heard:?}"
     );
-    assert!(tape(&room, "ada").is_empty());
+    assert_eq!(
+        tape(&room, "ada"),
+        [] as [Value; 0],
+        "nothing reached the DM"
+    );
+}
+
+/// A firing can wait behind a turn the person started in the job's thread.
+/// The check as its turn begins still reads the live grant, and drops an
+/// agent-created firing that lost permission while it waited.
+#[tokio::test]
+async fn a_queued_firing_is_dropped_when_background_work_is_revoked() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::turns(vec![
+        saying("asked", "Looking."),
+        saying("fired", "No change."),
+    ]);
+    driver.gate = Some(gate.clone());
+    let agents = Fake::new(driver);
+    let prompts = agents.driver.prompts.clone();
+    let mut job = due_job(
+        "job-revoked",
+        ScheduleKind::Loop,
+        "check the crane",
+        true,
+        0,
+    );
+    job.next_at = now_ms() + 3_600_000;
+    let room = room_due("schedule-queue-revoked", agents, job.clone());
+
+    room.prompt_job("job-revoked", "how is it going?", None)
+        .await
+        .unwrap();
+    heard(&prompts, 1).await;
+    room.fire_job(&job).unwrap();
+    job_thread(&room, "job-revoked", 2).await;
+
+    let mut teammate = persona("ada");
+    teammate.background_work = false;
+    enrol(&room.log, &teammate);
+    // One permit lets out one update; the firing's turn would need its own.
+    gate.add_permits(10);
+    until("the person's turn ended", || {
+        room.log
+            .load(&StreamId::Job("job-revoked".to_string()))
+            .iter()
+            .any(|event| event["kind"] == "turn")
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    assert_eq!(
+        lock(&prompts).len(),
+        1,
+        "the firing never reached the agent"
+    );
+    let firings = room
+        .log
+        .load(&StreamId::Job("job-revoked".to_string()))
+        .into_iter()
+        .filter(|event| event["kind"] == "user" && event.get("scheduled").is_some())
+        .count();
+    assert_eq!(
+        firings, 1,
+        "the firing remains a durable fact though no turn ran"
+    );
 }
 
 /// What a message answers is on the line it is written as, and a mark that has

@@ -34,6 +34,7 @@ type RoomItem = {
 	operatorCreated?: boolean;
 	nextAt?: number;
 	createdAt?: number;
+	endedAt?: number;
 };
 
 /**
@@ -225,10 +226,10 @@ function takeJobs(items: RoomItem[]): ScheduledJob[] {
  * The event's `kind` is always `schedule`. A loop is the job that carries
  * `every`; a one-shot is everything else that still reads as a job. A
  * half-written line is skipped, the same as a teammate that does not read
- * as a persona.
+ * as a persona, and so is a job that has ended: it fires no more.
  */
 function jobFromEvent(item: RoomItem): ScheduledJob | null {
-	if (item.kind !== "schedule" || item.deleted) return null;
+	if (item.kind !== "schedule" || item.deleted || item.endedAt !== undefined) return null;
 	if (typeof item.id !== "string" || item.id === "") return null;
 	if (typeof item.personaId !== "string" || item.personaId === "") return null;
 	if (typeof item.prompt !== "string" || item.prompt.trim() === "") return null;

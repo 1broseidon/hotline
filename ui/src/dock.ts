@@ -66,7 +66,7 @@ export function threadDot(row: Pick<ThreadSummary, "state" | "working" | "waitin
 }
 
 /** Where a kind sits in the list: work first, then the rest in the order a person reaches for them. */
-const KIND_RANK: Record<ThreadKind, number> = { side: 0, pair: 1, run: 2, call: 3, dm: 4 };
+const KIND_RANK: Record<ThreadKind, number> = { side: 0, pair: 1, run: 2, call: 3, dm: 4, job: 5 };
 
 /** Within a kind, what wants you first: a card waiting, a turn running, a thread open, then one parked. */
 const DOT_RANK: Record<ThreadDot, number> = { waiting: 0, running: 1, idle: 2, parked: 3, closed: 4 };
@@ -144,7 +144,7 @@ export function withLinks(list: ThreadSummary[], links: LinkEvent[], personaId: 
 }
 
 /** The kinds a row names, when its title would not: a pair has none, and a run or call is not work. */
-const KIND_WORDS: Record<ThreadKind, string> = { dm: "", side: "", pair: "Pair", run: "Subagent", call: "Call" };
+const KIND_WORDS: Record<ThreadKind, string> = { dm: "", side: "", pair: "Pair", run: "Subagent", call: "Call", job: "Job" };
 
 /**
  * Whose hands a thread came from, when a teammate other than its own opened

@@ -84,8 +84,16 @@ These come over as ideas and, where the code was already Rust, as code.
 - **The tool ledger.** Every tool a teammate was given, where it came from,
   and for anything absent, why. A tool that vanishes silently is the worst
   failure the old app shipped.
-- **Quiet scheduled runs by construction**, not by asking the model to be
-  quiet: a window over the run demotes its words to thoughts by event kind.
+- **Jobs are subagents on a schedule** ([ADR 0008](adr/0008-one-agent-thread-layer.md)
+  §7). One schema, `session::Brief` (the task, now / at / every, the report
+  policy, an optional end), is written by the `subagent`, `schedule` and
+  `loop` tools. Each job is an arm with a thread of its own
+  (`ThreadKind::Job`, `jobs/<id>.jsonl`), every firing is a turn on it and
+  never on the home thread, and its agent is parked between firings and
+  starts from a running note of its last turns rather than the thread. A
+  quiet job is quiet by construction, not by asking the model: its words stay
+  on its thread, and only `post_to_chat` reaches the chat. A plain reminder
+  is one post and no arm.
 - **One conversation, no machinery in it.** The tape holds what the person
   and the teammate said and did. The room does not narrate its own work: a
   computer downloading, joining or updating, a provider switch, a retry, a
@@ -277,7 +285,7 @@ live anywhere else.
 Today Hotline Agent and ACP backends are two implementations of a hundred-line
 seam, and every feature is decided twice. Here there is one `Session` with
 the supervisor's rules in it once — reply stamping, reaction notes, hop
-notices, the quiet window, chapters' gate, receipts, the ledger — and a
+notices, chapters' gate, receipts, the ledger — and a
 `Driver` beneath it that speaks ACP semantics:
 
 - `Driver::InProcess`: Hotline Agent on Rig, in this process, owning its tools
@@ -425,9 +433,9 @@ every tape the importer brings over still reads as it did, and a card without
 
 Whatever a teammate says somewhere other than its DM reaches the DM through
 one door, `Room::post` ([ADR 0008](adr/0008-one-agent-thread-layer.md) §3):
-a call's summary and its `post_to_chat`, a quiet run's note, and every file
-`send_file` or `generate_image` sends, from any thread; a quiet run's file is
-its one post. Each is one `agent` event stamped with where it came from, in
+a call's summary and its `post_to_chat`, a job's report, final word or
+reminder, and every file `send_file` or `generate_image` sends, from any
+thread; a job's file is its turn's one post. Each is one `agent` event stamped with where it came from, in
 two optional fields: `from` (the thread and its kind, the shape a delivery's
 `from` already has) and `scheduled` (the job, the shape a user event's
 `scheduled` already has). They replace the `call:<id>:` event id and the
@@ -436,18 +444,17 @@ are additions to the `agent` event and written only when present: a tape
 written before them has neither, the importer copies it unchanged and reads
 it as it did, and it reads an agent event that carries them, which the
 previous edition never wrote. A post reaches the person as a reply does,
-except from a call they are on, and never passes through the quiet window.
-The home agent is not woken by a post the person asked for (a call, a work
+except from a call they are on. The home agent is not woken by a post the person asked for (a call, a work
 thread, a job); its live session is handed the post ahead of the person's
 next line, and a session that starts later reads it from the tape with where
 it came from.
 
 An agent asks for that door with `post_to_chat(text, wake?)`, one of
 Hotline's own tools, which Hotline Agent calls in process and an ACP child
-over the desk's MCP server, so a quiet run on either driver can be heard. It
+over the desk's MCP server, so a quiet job on either driver can be heard. It
 is listed in every session but a subagent run's and gated by the handler,
-not the model: a work thread, a pair and a quiet run may post, once a turn;
-the DM's own loud turn and a subagent run may not; `wake` hands the post to
+not the model: a work thread, a pair and a job may post, once a turn;
+the DM's own turn and a subagent run may not; `wake` hands the post to
 the DM on a turn of its own when an arm needs the home agent to act. The
 rows are in [security.md](security.md#posting-to-the-chat-from-any-thread-adr-0008).
 It replaces the quiet run's `tell_person`, which only Hotline Agent offered,

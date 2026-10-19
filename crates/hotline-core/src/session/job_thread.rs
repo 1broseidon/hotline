@@ -265,6 +265,14 @@ impl Occupant for LiveJob {
         {
             return Begin::Skip;
         }
+        // A firing is running from here, its agent's start included: the
+        // next one due meanwhile is skipped, not queued behind it.
+        let now = now_ms();
+        *lock(&self.last_used) = now;
+        if line.firing.is_some() {
+            *lock(&self.firing_since) = Some(now);
+            lock(&self.overruns).skipped = 0;
+        }
         let stale = lock(&self.up)
             .as_ref()
             .is_some_and(|up| !up.lease.is_current());
@@ -272,24 +280,20 @@ impl Occupant for LiveJob {
             self.let_go(room);
         }
         if lock(&self.up).is_none() {
+            room.mark_job(self, ThreadState::Live, None);
             match room.job_agent(self, &job).await {
                 Ok(up) => *lock(&self.up) = Some(up),
                 Err(error) => {
+                    lock(&self.firing_since).take();
                     self.notice(
                         room,
                         NoticeLevel::Error,
                         format!("This job could not start its agent: {error}"),
                     );
+                    room.mark_job(self, ThreadState::Parked, None);
                     return Begin::Skip;
                 }
             }
-            room.mark_job(self, ThreadState::Live, None);
-        }
-        let now = now_ms();
-        *lock(&self.last_used) = now;
-        if line.firing.is_some() {
-            *lock(&self.firing_since) = Some(now);
-            lock(&self.overruns).skipped = 0;
         }
         Begin::Go(JobTurn {
             line: Some(line.line),
@@ -494,9 +498,10 @@ fn firing_text(job: &ScheduledJob, run: &ScheduledRun, standing: Option<String>)
         format!("{waking} · {}", job.prompt)
     };
     if let Some(goal) = &job.goal {
-        text.push_str(&format!(
+        let _ = write!(
+            text,
             "\n\nThe job's goal: {goal}. Once it is met, end the job with `cancel_schedule` and a `report`."
-        ));
+        );
     }
     if let Some(standing) = standing {
         text.push_str("\n\n");
@@ -603,10 +608,6 @@ impl Room {
         if busy_since.is_some() || firing_waits {
             self.skip_firing(&live, job, &run, busy_since.map(|since| now - since));
             return Ok(());
-        }
-        let thread = ThreadId::job(&job.id);
-        if self.link_of(&thread).is_none() {
-            self.mark_job(&live, ThreadState::Parked, None);
         }
         let standing = standing(&self.log.load(&StreamId::Job(job.id.clone())));
         live.say(

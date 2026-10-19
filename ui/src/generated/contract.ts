@@ -271,7 +271,7 @@ size?: number, } } | { "cmd": "avatar.read", "params": { personaId: string, hash
  * The picture at most this many px wide, still a PNG, rather than
  * as kept: what a list row or a bubble's face needs.
  */
-size?: number, } } | { "cmd": "avatar.generate", "params": { personaId: string, } } | { "cmd": "mobile.push_register", "params": { token: string, platform: string, } } | { "cmd": "mobile.persona_create", "params": { requestId: string, name: string, goal?: string, backendId?: string, modelId?: string, effortId?: string, } } | { "cmd": "mobile.persona_update", "params": { id: string, name?: string, goal?: string, } } | { "cmd": "mobile.persona_access", "params": { id: string, reach?: Reach, modeId?: string, backgroundWork?: boolean, } } | { "cmd": "mobile.persona_computer", "params": { id: string, enabled?: boolean, memory?: string, cpus?: number | null, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "persona.pin", "params": { id: string, slot?: number, } } | { "cmd": "persona.lead", "params": { id?: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "images.status", "params": Record<symbol, never> } | { "cmd": "websearch.status", "params": Record<symbol, never> } | { "cmd": "websearch.set_enabled", "params": { provider: WebSearchProvider, enabled: boolean, } } | { "cmd": "websearch.set_key", "params": { provider: WebSearchProvider, key?: string, } } | { "cmd": "link.preview", "params": { url: string, } } | { "cmd": "ping", "params": Record<symbol, never> } | { "cmd": "capabilities.options", "params": Record<symbol, never> } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "skills.list", "params": { personaId?: string, } } | { "cmd": "skills.add", "params": { path: string, } } | { "cmd": "skills.remove", "params": { name: string, } } | { "cmd": "skills.offer", "params": { name: string, offered: boolean, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "agent.auth.start", "params": { personaId: string, methodId: string, } } | { "cmd": "agent.auth.poll", "params": { personaId: string, id: string, } } | { "cmd": "agent.auth.input", "params": { personaId: string, id: string, input: string, } } | { "cmd": "agent.auth.cancel", "params": { personaId: string, id: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.retry", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "process.stop", "params": { personaId: string, id: string, } } | { "cmd": "process.output", "params": { personaId: string, id: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "teammates.exchange_resume", "params": { a: string, b: string, } } | { "cmd": "teammates.exchange_stop", "params": { a: string, b: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "tape.page", "params": { personaId: string, before: string, limit?: number, through?: string, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "side.start", "params": { personaId: string, text: string, } } | { "cmd": "side.prompt", "params": { sideId: string, text: string, attachments?: Array<Attachment>, } } | { "cmd": "side.cancel", "params": { sideId: string, } } | { "cmd": "side.archive", "params": { sideId: string, } } | { "cmd": "side.continue", "params": { sideId: string, } } | { "cmd": "side.list", "params": { personaId: string, } } | { "cmd": "side.answer_permission", "params": { sideId: string, requestId: string, optionId: string, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "peers.answer_permission", "params": { key: string, requestId: string, optionId: string, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.capacity", "params": Record<symbol, never> } | { "cmd": "computer.releases", "params": Record<symbol, never> } | { "cmd": "computer.releases.check", "params": Record<symbol, never> } | { "cmd": "welcome", "params": Record<symbol, never> } | { "cmd": "desk.looking", "params": { looking: boolean, } } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } } | { "cmd": "computer.update", "params": { personaId: string, } } | { "cmd": "computer.restart", "params": { personaId: string, } } | { "cmd": "computer.browsers.list", "params": Record<symbol, never> } | { "cmd": "computer.cookies.preview", "params": { browserId: string, profileId: string, } } | { "cmd": "computer.cookies.import", "params": { personaId: string, browserId: string, profileId: string, domains: Array<string>, } } | { "cmd": "computer.cookies.push", "params": { personaId: string, transfer: CookieTransfer, } } | { "cmd": "computer.cookies.list", "params": { personaId: string, } } | { "cmd": "computer.cookies.forget", "params": { personaId: string, browserId: string, profileId: string, domain?: string, } } | { "cmd": "secrets.list", "params": Record<symbol, never> } | { "cmd": "secrets.set", "params": { name: string, value: string, } } | { "cmd": "secrets.delete", "params": { name: string, } } | { "cmd": "secrets.login.set", "params": { name: string, sites: Array<string>, username: string, password: string, totp?: string, } } | { "cmd": "secrets.passkey.register", "params": { name: string, personaId: string, rpId: string, } } | { "cmd": "secrets.passkey.registration", "params": { personaId: string, } } | { "cmd": "secrets.passkey.answer", "params": { personaId: string, askId: string, approved: boolean, } } | { "cmd": "secrets.passkey.cancel", "params": { personaId: string, } } | { "cmd": "client.hello", "params": { capabilities: Array<string>, } } | { "cmd": "thread.list", "params": { personaId?: string, } } | { "cmd": "thread.open", "params": { personaId: string, text: string, } } | { "cmd": "thread.prompt", "params": { thread: ThreadId, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "thread.cancel", "params": { thread: ThreadId, } } | { "cmd": "thread.park", "params": { thread: ThreadId, } } | { "cmd": "thread.close", "params": { thread: ThreadId, } } | { "cmd": "thread.continue", "params": { thread: ThreadId, } } | { "cmd": "thread.answer", "params": { thread: ThreadId, answer: ThreadAnswer, } } | { "cmd": "thread.page", "params": { thread: ThreadId, before: string, limit?: number, through?: string, } };
+size?: number, } } | { "cmd": "avatar.generate", "params": { personaId: string, } } | { "cmd": "mobile.push_register", "params": { token: string, platform: string, } } | { "cmd": "mobile.persona_create", "params": { requestId: string, name: string, goal?: string, backendId?: string, modelId?: string, effortId?: string, } } | { "cmd": "mobile.persona_update", "params": { id: string, name?: string, goal?: string, } } | { "cmd": "mobile.persona_access", "params": { id: string, reach?: Reach, modeId?: string, backgroundWork?: boolean, } } | { "cmd": "mobile.persona_computer", "params": { id: string, enabled?: boolean, memory?: string, cpus?: number | null, } } | { "cmd": "persona.create", "params": { draft: PersonaDraft, } } | { "cmd": "persona.update", "params": { id: string, patch: Partial<Persona>, } } | { "cmd": "persona.delete", "params": { id: string, } } | { "cmd": "persona.pin", "params": { id: string, slot?: number, } } | { "cmd": "persona.lead", "params": { id?: string, } } | { "cmd": "settings.update", "params": { patch: Record<string, unknown>, } } | { "cmd": "images.status", "params": Record<symbol, never> } | { "cmd": "websearch.status", "params": Record<symbol, never> } | { "cmd": "websearch.set_enabled", "params": { provider: WebSearchProvider, enabled: boolean, } } | { "cmd": "websearch.set_key", "params": { provider: WebSearchProvider, key?: string, } } | { "cmd": "link.preview", "params": { url: string, } } | { "cmd": "ping", "params": Record<symbol, never> } | { "cmd": "capabilities.options", "params": Record<symbol, never> } | { "cmd": "credential.create", "params": { providerId: string, label: string, secret: string, } } | { "cmd": "credential.login", "params": { providerId: string, } } | { "cmd": "credential.login_cancel", "params": { loginId: string, } } | { "cmd": "credential.connect_local", "params": { baseUrl: string, } } | { "cmd": "credential.custom_save", "params": { id?: string, draft: CustomProviderDraft, } } | { "cmd": "credential.custom_models", "params": { id?: string, baseUrl: string, secret?: string, } } | { "cmd": "credential.login_status", "params": { loginId: string, } } | { "cmd": "credential.refresh_models", "params": { providerId: string, } } | { "cmd": "credential.revoke", "params": { id: string, } } | { "cmd": "credential.delete", "params": { id: string, } } | { "cmd": "backends.list", "params": Record<symbol, never> } | { "cmd": "skills.list", "params": { personaId?: string, } } | { "cmd": "skills.add", "params": { path: string, } } | { "cmd": "skills.remove", "params": { name: string, } } | { "cmd": "skills.offer", "params": { name: string, offered: boolean, } } | { "cmd": "credential.list", "params": Record<symbol, never> } | { "cmd": "mcp.auth_start", "params": { serverId: string, } } | { "cmd": "mcp.auth_callback", "params": { loginId: string, callbackUrl: string, } } | { "cmd": "mcp.auth_status", "params": { serverId: string, } } | { "cmd": "mcp.auth_reconnect", "params": { serverId: string, } } | { "cmd": "mcp.auth_sign_out", "params": { serverId: string, } } | { "cmd": "mcp.secret_set", "params": { serverId: string, url: string, secret: string, } } | { "cmd": "providers.list", "params": Record<symbol, never> } | { "cmd": "models.list", "params": Record<symbol, never> } | { "cmd": "models.catalog", "params": { providerId: string, } } | { "cmd": "models.manual_set", "params": { providerId: string, modelIds: Array<string>, } } | { "cmd": "models.efforts", "params": { modelId: string, } } | { "cmd": "agent.auth.start", "params": { personaId: string, methodId: string, } } | { "cmd": "agent.auth.poll", "params": { personaId: string, id: string, } } | { "cmd": "agent.auth.input", "params": { personaId: string, id: string, input: string, } } | { "cmd": "agent.auth.cancel", "params": { personaId: string, id: string, } } | { "cmd": "session.start", "params": { personaId: string, } } | { "cmd": "session.stop", "params": { personaId: string, } } | { "cmd": "session.retry", "params": { personaId: string, } } | { "cmd": "session.prompt", "params": { personaId: string, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "session.cancel", "params": { personaId: string, } } | { "cmd": "process.stop", "params": { personaId: string, id: string, } } | { "cmd": "process.output", "params": { personaId: string, id: string, } } | { "cmd": "session.set_model", "params": { personaId: string, modelId: string, } } | { "cmd": "session.set_mode", "params": { personaId: string, modeId: string, } } | { "cmd": "session.set_config", "params": { personaId: string, configId: string, value: string, } } | { "cmd": "session.answer_permission", "params": { personaId: string, requestId: string, optionId: string, } } | { "cmd": "teammates.exchange_resume", "params": { a: string, b: string, } } | { "cmd": "teammates.exchange_stop", "params": { a: string, b: string, } } | { "cmd": "human.answer", "params": { personaId: string, actionId: string, status: HumanAnswer, note?: string, } } | { "cmd": "search.thread", "params": { personaId: string, query: string, limit?: number, } } | { "cmd": "search.all", "params": { query: string, limit?: number, } } | { "cmd": "tape.page", "params": { personaId: string, before: string, limit?: number, through?: string, } } | { "cmd": "chapter.list", "params": { personaId: string, } } | { "cmd": "room.import", "params": { from: string, } } | { "cmd": "chapter.start_fresh", "params": { personaId: string, } } | { "cmd": "chapter.resume", "params": { personaId: string, } } | { "cmd": "teammate.tools", "params": { personaId: string, } } | { "cmd": "schedule.create", "params": { personaId: string, kind: ScheduleKind, when?: number, every?: number, prompt: string, quiet?: boolean, reminder?: boolean, } } | { "cmd": "schedule.list", "params": Record<symbol, never> } | { "cmd": "schedule.cancel", "params": { id: string, } } | { "cmd": "schedule.set_quiet", "params": { id: string, quiet: boolean, } } | { "cmd": "side.start", "params": { personaId: string, text: string, } } | { "cmd": "side.prompt", "params": { sideId: string, text: string, attachments?: Array<Attachment>, } } | { "cmd": "side.cancel", "params": { sideId: string, } } | { "cmd": "side.archive", "params": { sideId: string, } } | { "cmd": "side.continue", "params": { sideId: string, } } | { "cmd": "side.list", "params": { personaId: string, } } | { "cmd": "side.answer_permission", "params": { sideId: string, requestId: string, optionId: string, } } | { "cmd": "peers.list", "params": { personaId: string, } } | { "cmd": "peers.mark_read", "params": { key: string, eventIds: Array<string>, } } | { "cmd": "peers.answer_permission", "params": { key: string, requestId: string, optionId: string, } } | { "cmd": "computer.runtimes", "params": Record<symbol, never> } | { "cmd": "computer.capacity", "params": Record<symbol, never> } | { "cmd": "computer.releases", "params": Record<symbol, never> } | { "cmd": "computer.releases.check", "params": Record<symbol, never> } | { "cmd": "welcome", "params": Record<symbol, never> } | { "cmd": "desk.looking", "params": { looking: boolean, } } | { "cmd": "computer.status", "params": { personaId: string, } } | { "cmd": "computer.stop", "params": { personaId: string, } } | { "cmd": "computer.remove", "params": { personaId: string, } } | { "cmd": "computer.update", "params": { personaId: string, } } | { "cmd": "computer.restart", "params": { personaId: string, } } | { "cmd": "computer.browsers.list", "params": Record<symbol, never> } | { "cmd": "computer.cookies.preview", "params": { browserId: string, profileId: string, } } | { "cmd": "computer.cookies.import", "params": { personaId: string, browserId: string, profileId: string, domains: Array<string>, } } | { "cmd": "computer.cookies.push", "params": { personaId: string, transfer: CookieTransfer, } } | { "cmd": "computer.cookies.list", "params": { personaId: string, } } | { "cmd": "computer.cookies.forget", "params": { personaId: string, browserId: string, profileId: string, domain?: string, } } | { "cmd": "secrets.list", "params": Record<symbol, never> } | { "cmd": "secrets.set", "params": { name: string, value: string, } } | { "cmd": "secrets.delete", "params": { name: string, } } | { "cmd": "secrets.login.set", "params": { name: string, sites: Array<string>, username: string, password: string, totp?: string, } } | { "cmd": "secrets.passkey.register", "params": { name: string, personaId: string, rpId: string, } } | { "cmd": "secrets.passkey.registration", "params": { personaId: string, } } | { "cmd": "secrets.passkey.answer", "params": { personaId: string, askId: string, approved: boolean, } } | { "cmd": "secrets.passkey.cancel", "params": { personaId: string, } } | { "cmd": "client.hello", "params": { capabilities: Array<string>, } } | { "cmd": "thread.list", "params": { personaId?: string, } } | { "cmd": "thread.open", "params": { personaId: string, text: string, } } | { "cmd": "thread.prompt", "params": { thread: ThreadId, text: string, replyTo?: string, attachments?: Array<Attachment>, } } | { "cmd": "thread.cancel", "params": { thread: ThreadId, } } | { "cmd": "thread.park", "params": { thread: ThreadId, } } | { "cmd": "thread.close", "params": { thread: ThreadId, } } | { "cmd": "thread.continue", "params": { thread: ThreadId, } } | { "cmd": "thread.answer", "params": { thread: ThreadId, answer: ThreadAnswer, } } | { "cmd": "thread.page", "params": { thread: ThreadId, before: string, limit?: number, through?: string, } };
 
 /**
  * The resources available to a teammate's computer. Runtime limits take
@@ -607,6 +607,15 @@ export type HumanAnswer = "done" | "declined";
 export type ImageSettings = { provider?: string, model?: string, };
 
 export type ImagesStatus = { available: boolean, unavailable?: string, provider?: string, model?: string, spending?: SpendingSummary, spendingUnavailable?: string, };
+
+/**
+ * A job's latest post to the chat, for the listing to draw.
+ */
+export type JobPost = { at: number, 
+/**
+ * The post's first words, clipped for a line.
+ */
+text: string, };
 
 /**
  * A link's card: the page's title, a second line saying where it is or
@@ -1238,30 +1247,37 @@ export type RuntimeReport = { runtime: ComputerRuntime, state: RuntimeState, det
 export type RuntimeState = "ready" | "not_installed" | "not_running" | "not_responding" | "failed" | "unsupported";
 
 /**
- * One of a teammate's scheduled jobs as the schedules view shows it: what a
- * person reading the list needs, and nothing that decides what the job may
- * do.
+ * One of a teammate's jobs as the schedules view shows it: what a person
+ * reading the list needs, and nothing that decides what the job may do.
  *
- * `kind` is `schedule` for once and `loop` for every `every` milliseconds.
- * `when` is a one-shot's original time, milliseconds since the epoch.
- * `nextAt` is when the desk next means to wake the teammate for it, also
- * milliseconds since the epoch, and a plan rather than a promise: a desk
- * that is closed or asleep then fires it once when it can, a fire that
- * could not start tries again a minute later, and a loop counts its next
- * interval from when a run ends. There is no paused or failed job — a job
- * is listed until it has fired for the last time or is cancelled.
+ * `name` is the job's label, the first breath of its prompt. `kind` is
+ * `schedule` for once and `loop` for every `every` milliseconds. `when` is a
+ * one-shot's original time, milliseconds since the epoch. `nextAt` is when
+ * the desk next means to fire it, also milliseconds since the epoch, and a
+ * plan rather than a promise: a desk that is closed or asleep then fires it
+ * once when it can, a fire that could not start tries again a minute later,
+ * and a loop counts its next interval from when a firing starts. A job's
+ * firings are turns on its own thread, `{"kind": "job", "key": id}`.
+ * `lastPost` is what it last posted to the chat. A job that has fired for
+ * the last time, been cancelled or met its goal is still listed, with
+ * `endedAt`, because its thread stays readable; `schedule.cancel` on an
+ * ended job takes it off the list.
  */
-export type ScheduleEntry = { id: string, personaId: string, kind: ScheduleKind, 
+export type ScheduleEntry = { id: string, personaId: string, name: string, kind: ScheduleKind, 
 /**
- * What the teammate is asked when the job fires, which is also the only
- * name a job has.
+ * What the teammate is asked when the job fires.
  */
 prompt: string, when?: number, every?: number, nextAt: number, 
 /**
  * Present and true when the job was asked to say nothing in the chat
  * unless it finds something worth saying.
  */
-quiet?: boolean, };
+quiet?: boolean, 
+/**
+ * Present and true for a plain reminder, which posts its prompt and
+ * does no work.
+ */
+reminder?: boolean, lastPost?: JobPost, endedAt?: number, };
 
 /**
  * `schedule` is once. `loop` is every interval until cancelled.
@@ -1269,13 +1285,17 @@ quiet?: boolean, };
 export type ScheduleKind = "schedule" | "loop";
 
 /**
- * Work a teammate has asked Hotline to wake it for later.
+ * Work a teammate has asked Hotline to do later: a job (ADR 0008 §7).
  *
- * `schedule` is once. `loop` is every `every` milliseconds until cancelled.
- * `nextAt` is the next fire, so the window can say when without doing the
- * math. Jobs live on the room stream as events of kind `schedule`; that
- * event kind is the stream's, not this `kind`, and a loop is recovered from
- * `every` being present. A delete is a tombstone.
+ * `schedule` is once. `loop` is every `every` milliseconds until cancelled
+ * or until its end. `nextAt` is the next fire, so the window can say when
+ * without doing the math. Each firing is a turn on the job's own thread
+ * (`ThreadId::job(id)`), never the teammate's DM; a reminder is posted to the
+ * DM as it is and has no thread. Jobs live on the room stream as events of
+ * kind `schedule`; that event kind is the stream's, not this `kind`, and a
+ * loop is recovered from `every` being present. An ended job stays on the
+ * stream with `endedAt`, so its thread is still listed; a delete is a
+ * tombstone.
  */
 export type ScheduledJob = { id: string, personaId: string, kind: ScheduleKind, 
 /**
@@ -1287,16 +1307,43 @@ when?: number,
  */
 every?: number, prompt: string, 
 /**
- * The user asked this job for nothing in the chat. Absent means it
- * speaks. Stored only when true, so "not quiet" has one representation.
+ * The report policy: the job posts to the chat only what is worth
+ * telling, and a firing that finds nothing says nothing there. Absent
+ * means each firing's report is posted. Stored only when true, so "not
+ * quiet" has one representation.
  */
 quiet?: boolean, 
+/**
+ * A plain reminder: the prompt is posted to the chat as it is when the
+ * job fires, and no work is done. Stored only when true.
+ */
+reminder?: boolean, 
+/**
+ * The goal the job ends itself on reaching, with a final post.
+ */
+goal?: string, 
+/**
+ * The last moment a loop fires, milliseconds since epoch.
+ */
+until?: number, 
+/**
+ * How many more times a loop fires.
+ */
+times?: number, 
 /**
  * True only when the authenticated desk created this job. Jobs created by
  * a teammate, and jobs written by older versions without provenance,
  * require that teammate's current background-work grant at every wake.
  */
-operatorCreated: boolean, nextAt: number, createdAt: number, };
+operatorCreated: boolean, nextAt: number, createdAt: number, 
+/**
+ * What the job last posted to the chat.
+ */
+lastPost?: JobPost, 
+/**
+ * When the job ended: it fires no more, and its thread stays readable.
+ */
+endedAt?: number, };
 
 /**
  * What a firing stamps on the user event it writes.
@@ -1670,15 +1717,15 @@ export type ThreadEnd = "person" | "agent" | "idle" | "stopped" | "done" | "fail
 
 /**
  * Which thread: its kind and the key its stream is named by. A teammate's id
- * for a DM, the minted id for a side thread, run or call, and the pair key
- * (the core's `paths::thread_key`) for a pair.
+ * for a DM, the minted id for a side thread, run or call, the job's id for a
+ * job, and the pair key (the core's `paths::thread_key`) for a pair.
  */
 export type ThreadId = { kind: ThreadKind, key: string, };
 
 /**
  * What kind of conversation a thread is. The kind picks its [`Policy`].
  */
-export type ThreadKind = "dm" | "side" | "pair" | "call" | "run";
+export type ThreadKind = "dm" | "side" | "pair" | "call" | "run" | "job";
 
 /**
  * One hit from a thread search: a chapter by its note, or a message by its

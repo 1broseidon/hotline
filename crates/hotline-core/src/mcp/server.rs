@@ -580,11 +580,6 @@ impl TeammateTools {
         self
     }
 
-    #[cfg(test)]
-    pub(crate) fn in_job(&self) -> bool {
-        self.job.is_some()
-    }
-
     /// Marks these as the pair thread `thread`'s: see [`TeammateTools::peer`].
     pub(crate) fn for_peer(mut self, thread: ThreadId) -> Self {
         self.peer = true;

@@ -899,8 +899,9 @@ pub enum Command {
     ThreadOpen { persona_id: String, text: String },
     /// Says something in a thread, and returns at once: the answer arrives on
     /// the thread's `{"threadId": …}` subscription. A parked work thread is
-    /// brought back first. The person speaks in the main conversation and in
-    /// a work thread; a pair, a run and a call are not spoken in.
+    /// brought back first. The person speaks in the main conversation, in a
+    /// work thread and in a job's thread, until the job has ended; a pair, a
+    /// run and a call are not spoken in.
     #[serde(rename = "thread.prompt")]
     ThreadPrompt {
         thread: ThreadId,

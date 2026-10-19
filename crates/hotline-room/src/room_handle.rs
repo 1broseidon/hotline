@@ -398,7 +398,10 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Writes a job onto the room stream and wakes the clock. Times are
     /// milliseconds; `when` is a one-shot's fire, `every` a loop's interval.
     /// A reminder posts its prompt when it fires and does no work.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one argument for each field of the wire's schedule.create"
+    )]
     fn schedule_create(
         &self,
         persona_id: &str,

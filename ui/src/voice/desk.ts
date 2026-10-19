@@ -1,8 +1,9 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { SpeechModel } from "../generated/contract";
 import { wire } from "../wire";
 import { webAudio } from "./audio";
 import { microphoneTrouble } from "./microphone";
+import { UNHEARD } from "./transcription";
 import type { DictationEngine, DictationEvent } from "./dictation";
 import { downsample, encodeWav, rms, toBase64, WAV_RATE } from "./wav";
 
@@ -248,6 +249,37 @@ async function refreshDeskHearing(): Promise<boolean> {
 		setDeskHearing(false);
 	}
 	return deskHearing;
+}
+
+/** The desk's own speech models, as a transcription provider (speech/local.rs). */
+const DESK_MODEL = "local";
+
+/** Whether `voice.status`, asked about audio, says the desk hears with its own model, free, rather than a provider's. */
+export function hearsWithDeskModel(status: unknown): boolean {
+	return (status as { stt?: { providerId?: unknown } } | null)?.stt?.providerId === DESK_MODEL;
+}
+
+/**
+ * Whether to offer the desk's model in place of this Mac's after `trouble`:
+ * only for a voice this Mac heard without words, and only where the desk
+ * hears with its own model, so switching never moves a call to a paid
+ * provider.
+ */
+export function useDeskModelOffer(trouble: string | null): boolean {
+	const [offer, setOffer] = useState(false);
+	useEffect(() => {
+		setOffer(false);
+		if (trouble !== UNHEARD) return;
+		let live = true;
+		wire
+			.command("voice.status", {})
+			.then((status) => live && setOffer(hearsWithDeskModel(status)))
+			.catch(() => {});
+		return () => {
+			live = false;
+		};
+	}, [trouble]);
+	return offer;
 }
 
 /** Whether the desk can hear dictation, asked again whenever a component that wants to know mounts. */

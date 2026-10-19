@@ -20,6 +20,8 @@ import {
 	takeDictationRequests,
 	useDictationAvailable,
 } from "../voice/dictation";
+import { useDeskModelOffer } from "../voice/desk";
+import { setHearOnThisMac } from "../voice/hearing";
 
 /** The field stops growing here, and scrolls from then on. */
 const MAX_HEIGHT = 220;
@@ -147,6 +149,7 @@ export function Composer({
 		void dictation.start();
 	};
 	const dictationHere = useDictationAvailable();
+	const offerDeskModel = useDeskModelOffer(heard.error);
 	// A call has the microphone, so there is no dictating over one.
 	const live = useCall();
 	const callSnapshot = useCallSnapshot(live);
@@ -447,7 +450,24 @@ export function Composer({
 							}}
 						/>
 						{pasteFailed !== null && <p className="pt-1 text-xs text-danger">{pasteFailed}</p>}
-						{heard.error !== null && <p className="pt-1 text-xs text-danger">{heard.error}</p>}
+						{heard.error !== null && (
+							<p className="flex items-center gap-2 pt-1 text-xs text-danger">
+								<span className="min-w-0">{heard.error}</span>
+								{offerDeskModel && (
+									<button
+										type="button"
+										className="control btn"
+										onClick={() => {
+											// The desk's model hears from now on, as picking it in Settings would.
+											setHearOnThisMac(false);
+											act("start");
+										}}
+									>
+										Use desk model
+									</button>
+								)}
+							</p>
+						)}
 					</div>
 					{working && (
 						<button type="button" className="composer-key composer-stop" title="Interrupt (Esc)" aria-label="Interrupt" onClick={onCancel}>

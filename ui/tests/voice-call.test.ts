@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 Object.assign(globalThis, { requestAnimationFrame: () => 0, cancelAnimationFrame: () => {} });
 const { Call, supportsDirectCalls } = await import("../src/voice/call");
+import { UNHEARD } from "../src/voice/transcription";
 import type { CallAudio } from "../src/voice/audio";
 import type { CallOptions, CallTransport } from "../src/voice/call";
 import type { DeviceTranscription, TranscriptionCapability, TranscriptionEvent } from "../src/voice/transcription";
@@ -791,6 +792,59 @@ describe("a call heard by this Mac", () => {
 			expect(r.sent.filter((one) => one.cmd === "voice.utterance")).toHaveLength(1);
 		});
 	}
+
+	test("a voice this Mac never turns into words ends the call saying so, and offers the desk's own model", async () => {
+		const r = textRig();
+		r.status({ available: true, capabilities: TEXT_DESK, stt: { providerId: "local", modelId: "parakeet" } });
+		await r.call.start();
+		r.levels(-20, 1_200, 2_400);
+		r.levels(-74, 2_450, 3_700);
+		await tick();
+		// One sentence is not enough to say so: it could have been a mumble.
+		expect(r.call.current.phase).toBe("listening");
+		r.levels(-20, 4_000, 6_200);
+		r.levels(-74, 6_250, 7_500);
+		await tick();
+		expect(r.call.current.phase).toBe("ended");
+		expect(r.call.current.trouble).toBe(UNHEARD);
+		expect(r.call.current.deskModel).toBe(true);
+		expect(r.sent.filter((one) => one.cmd === "voice.status").at(-1)?.params).toEqual({});
+	});
+
+	test("offers no desk model when the desk would hear the call with a paid provider", async () => {
+		const r = textRig();
+		r.status({ available: true, capabilities: TEXT_DESK, stt: { providerId: "openai", modelId: "whisper-1" } });
+		await r.call.start();
+		r.levels(-20, 1_200, 4_600);
+		r.levels(-74, 4_650, 5_900);
+		await tick();
+		expect(r.call.current.trouble).toBe(UNHEARD);
+		expect(r.call.current.deskModel).toBeUndefined();
+	});
+
+	test("a quiet room, however long, is not taken for recognition that hears nothing", async () => {
+		const r = textRig();
+		await r.call.start();
+		r.levels(-74, 1_000, 40_000);
+		await tick();
+		expect(r.call.current.phase).toBe("listening");
+		expect(r.call.current.trouble).toBeUndefined();
+	});
+
+	test("once this Mac has heard a word, a long wordless stretch is not trouble", async () => {
+		const r = textRig();
+		await r.call.start();
+		r.levels(-20, 1_200, 1_600);
+		r.speech.emit({ type: "partial", text: "hello" });
+		r.speech.finalize("Hello.");
+		r.levels(-74, 1_650, 2_900);
+		await tick();
+		r.desk({ type: "state", state: "listening" });
+		r.levels(-20, 3_000, 7_000);
+		r.levels(-74, 7_050, 8_300);
+		await tick();
+		expect(r.call.current.trouble).toBeUndefined();
+	});
 
 	test("asks the desk about a text call, which needs a voice but no transcription provider", async () => {
 		const r = textRig();

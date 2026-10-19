@@ -17,7 +17,7 @@ import {
 	requestDictation,
 	takeDictationRequests,
 } from "../src/voice/dictation";
-import type { DeviceTranscription, TranscriptionEvent } from "../src/voice/transcription";
+import { type DeviceTranscription, type TranscriptionEvent, UNHEARD } from "../src/voice/transcription";
 
 /** An engine that does what the test says, and remembers what it was asked. */
 function fakeEngine(overrides: Partial<DictationEngine> = {}) {
@@ -156,6 +156,62 @@ describe("dictation into the composer", () => {
 		send({ type: "level", levelDb: -47, at: 1, unit: "dbfs" });
 		send({ type: "partial", text: "hi" });
 		expect(heard).toEqual([{ type: "level", level: 0.5 }, { type: "partial", text: "hi" }]);
+	});
+
+	describe("a voice this Mac's engine never turns into words", () => {
+		/** Dictation on this Mac's engine, faked, with a clock the test moves. */
+		function onThisMac() {
+			let send: (event: TranscriptionEvent) => void = () => {};
+			let now = 0;
+			const speech: DeviceTranscription = {
+				capability: async () => ({ available: true, onDevice: true, locale: "en-US" }),
+				permit: async () => true,
+				start: async (onEvent) => {
+					send = onEvent;
+					return true;
+				},
+				stop: async () => "",
+				cancel: async () => {},
+			};
+			const dictation = new Dictation(macEngine(speech, () => now), fakeField());
+			return {
+				dictation,
+				send: (event: TranscriptionEvent) => send(event),
+				/** The engine's meter every 50 ms, in its own processed dBFS. */
+				levels: (db: number, fromMs: number, toMs: number) => {
+					for (now = fromMs; now <= toMs; now += 50) send({ type: "level", levelDb: db, at: now, unit: "dbfs" });
+				},
+			};
+		}
+
+		test("stops dictation saying so, across the sessions the engine ended on pauses", async () => {
+			const mac = onThisMac();
+			await mac.dictation.start();
+			mac.levels(-30, 100, 2_000);
+			mac.levels(-74, 2_050, 3_400);
+			mac.send({ type: "ended", reason: "no-speech" });
+			await settle();
+			expect(mac.dictation.view).toEqual({ phase: "listening", error: null });
+			mac.levels(-30, 3_500, 5_000);
+			mac.levels(-74, 5_050, 6_400);
+			expect(mac.dictation.view).toEqual({ phase: "idle", error: UNHEARD });
+		});
+
+		test("a quiet room is not that, however long", async () => {
+			const mac = onThisMac();
+			await mac.dictation.start();
+			mac.levels(-74, 100, 60_000);
+			expect(mac.dictation.view).toEqual({ phase: "listening", error: null });
+		});
+
+		test("an engine that has heard a word is not that", async () => {
+			const mac = onThisMac();
+			await mac.dictation.start();
+			mac.send({ type: "partial", text: "hello" });
+			mac.levels(-30, 100, 6_000);
+			mac.levels(-74, 6_050, 7_400);
+			expect(mac.dictation.view.error).toBeNull();
+		});
 	});
 
 	test("stopping puts the engine's complete final text in the field and sends nothing", async () => {

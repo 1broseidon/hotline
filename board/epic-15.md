@@ -20,3 +20,6 @@ From the post-0.40 sniff test (2026-10-18, release/0.40.0 ed9972cb). The tree pa
 3. About 30 functions are over 120 lines. Routing tables like wire/commands.rs::run are fine. These four hold real logic and should read as named steps: session/exchanges.rs::exchange_step (264), voice/duplex.rs::carry_front (208), session/agent.rs::thread_agent (216), driver/rig/turn.rs::stream_response (183).
 
 Not started without George.
+
+## Log
+- 2026-10-19T06:07:14.324Z: [claude] The crate split (task-191) is its own epic now: epic-16, on release/0.41.0, which George asked for 2026-10-19.

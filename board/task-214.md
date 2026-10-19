@@ -10,11 +10,11 @@ tags:
 assignee: claude
 relatedFiles:
   - crates/hotline-core/src/voice
-parentId: epic-19
+parentId: epic-21
 createdAt: "2026-10-19T17:20:19.714Z"
 dependsOn:
   - task-213
-updatedAt: "2026-10-19T18:23:56.772Z"
+updatedAt: "2026-10-19T20:00:10.343Z"
 contract:
   status: ready
   deliverables:

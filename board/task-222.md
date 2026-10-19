@@ -20,7 +20,7 @@ dependsOn:
   - task-202
   - task-205
   - task-227
-updatedAt: "2026-10-19T23:31:33.010Z"
+updatedAt: "2026-10-19T23:58:30.045Z"
 contract:
   status: ready
   deliverables:
@@ -41,6 +41,13 @@ contract:
 
 ## Description
 The epic's wiring and proof, last. After every 0.41 child (this epic's and epic-17's task-202 and task-205): first a headless harness in crates/hotline-core/tests/ (threads.rs or a new one) that drives the real core over the wire through the whole of epic-20 together, against its description of done: one teammate on each driver; post_to_chat from a quiet job, a work thread, a pair and an ACP teammate, each landing in the chat stamped with where it came from; a loud DM turn and a subagent refused; a file from a work thread landing in the chat; a recurring job on its own thread with its running note, a skipped overlap and a final post on cancel; a subagent reaching back with search_thread under the home thread's lease. Fix any seam between the slices it finds. Then make check, make precheck and CI (ci.yml and workspace-isolation.yml dispatched on release/0.41.0) green; docs (sessions.md, threads.md, security.md, design.md) and the CHANGELOG's Unreleased section say what changed. Then Pork Chop runs the desk from release/0.41.0 on the Linux QA computer (its prepared workspace, xAI sign-in) and exercises: post_to_chat from a quiet job, a work thread and an ACP teammate; a file from a work thread landing in the chat with its stamp; a recurring job (its thread, note, a skipped overlap and the suggested interval, a post on significance, cancel with a final post); a one-off job and a plain reminder; the Jobs group rows; a subagent reaching back with search_thread; the team lead prompt, badge and single-teammate auto-lead. Screenshots of anything wrong; fix or file before handing George the QA checklist.
+
+Seams task-221 left in the core (fix them here, with the harness proving each):
+- A job delivery (a request_human answer or a message_teammate reply routed through Room::deliver_into_job) written just before a restart is not re-queued at startup, as a side's is. Re-queue it, or send it to the DM if the job no longer lives.
+- The person's schedule.create on the wire takes no `without`, so only the home agent can narrow a job. Either accept it on the wire (with the same never-wider rule and a refused test) or state in design.md why the person narrows through the agent.
+Out of scope, stated in the CHANGELOG as not yet wired: nothing starts a Hotline run for an ACP teammate yet (voice's work tool is the caller, epic-21), and an ACP harness's own subagents are still mirrored.
+
+How to work: run make check in the foreground with a generous timeout and wait for it to finish; never end the turn while it runs. Commit before ending the turn. Before saying done, merge release/0.41.0 into the branch and re-run make check, so the landing's check is incremental.
 
 ## Log
 - 2026-10-19T20:00:42.947Z: [claude] Split of work: the dispatched agent does the land-together part (check, precheck, CI, docs, CHANGELOG) and writes the QA checklist into epic-20's log; the hands-on QA on the Linux QA computer is Pork Chop's, from the watch loop, since only Pork Chop drives that computer. Hand-off to George waits for that QA.

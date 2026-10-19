@@ -311,11 +311,7 @@ impl Room {
         let mut wire = sending.wire;
         let posts = std::mem::take(&mut *lock(&session.pending_posts));
         if !posts.is_empty() {
-            wire.text = format!(
-                "(What you posted to this chat from elsewhere since you last spoke here:\n{})\n\n{}",
-                posts.join("\n"),
-                wire.text
-            );
+            wire.text = super::post::posted_since(&posts, &wire.text);
         }
         wire.text = timed_from(ts, client, &wire.text);
         wire.said = Some(id);
@@ -799,13 +795,19 @@ fn stamp_scheduled(session: &Session, mut event: TranscriptEvent, now: i64) -> T
 
 /// The framing the agent reads when a schedule wakes it.
 ///
-/// Deliberately silent about `quiet`: the window in [`quiet`] does not need
-/// the agent's cooperation, and asking for it is exactly how "No change —
-/// staying silent per protocol" ended up in someone's chat.
+/// A quiet run's says `quiet` and asks nothing of it: the window in [`quiet`]
+/// does not need the agent's cooperation, and asking for it is exactly how
+/// "No change — staying silent per protocol" ended up in someone's chat. The
+/// word is there so the agent knows what `post_to_chat` says of it: nobody
+/// sees its replies, and a post is its one way to the person.
 fn scheduled_wire_text(run: &ScheduledRun, prompt: &str) -> String {
     let waking = match run.kind {
         ScheduleKind::Loop => "loop",
         ScheduleKind::Schedule => "scheduled",
     };
-    format!("{waking} · {prompt}")
+    if run.quiet == Some(true) {
+        format!("quiet {waking} · {prompt}")
+    } else {
+        format!("{waking} · {prompt}")
+    }
 }

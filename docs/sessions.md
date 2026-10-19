@@ -121,10 +121,11 @@ get the same pacing. The house style in the preamble tells the agent this
 rule, in words it can act on.
 
 A scheduled firing is the same funnel with two differences the tape can see:
-the agent hears a framed prompt (`loop · …` or `scheduled · …`) naming the
-job, and the transcript keeps the bare prompt plus the stamp, so the
-conversation draws one line instead of a wall. The framing never mentions
-quiet — see [Quiet](#quiet).
+the agent hears a framed prompt (`loop · …` or `scheduled · …`, with
+`quiet` in front for a quiet job) naming the job, and the transcript keeps
+the bare prompt plus the stamp, so the conversation draws one line instead
+of a wall. The framing never asks the agent to be quiet — see
+[Quiet](#quiet).
 
 ## Two drivers
 
@@ -1807,19 +1808,24 @@ owed an answer they can read: a user event closes the window. A wedged turn
 cannot mute a teammate forever — the window expires after thirty minutes.
 
 A quiet run that finds something has one way to be heard, and has to ask
-for it by name. Its turn, and only that turn, is handed a `tell_person` tool
-(`session/escalation.rs`, armed through `Driver::escalate_next`). A call
-hands over the message to the person, once per run (a second call is
-refused). When the quiet turn is over, the room posts it as the teammate
-wrote it, through the chat's one door (`Room::post`, `session/post.rs`): an
-`agent` message stamped with the job's `scheduled`, written past the quiet
-window rather than through it. Nothing re-says it; the words were already
-the teammate's own, in the teammate's own session. It lands in the chat,
-lights the rail, and pushes like any reply. A run that finds nothing is
-exactly as silent as before, and the desktop toast skips a turn whose last
-visible line is the person's own. Hotline Agent teammates get the tool; an ACP agent
-brings its own tools and is not offered one, so its quiet runs stay silent.
-A subagent never gets it: it reports to its teammate, which decides.
+for it by name: `post_to_chat`, Hotline's own tool on the desk's MCP server,
+which an ACP child reaches over that server and Hotline Agent through the
+same handler in process. The word `quiet` in front of the framed prompt is
+what tells the agent its replies are unseen; nothing asks it to be silent.
+The tool is listed in every session, and the handler decides
+(`Room::post_to_chat`, `session/post.rs`): on the DM it posts only from a
+quiet run whose window is still open, so a loud turn, and a quiet one the
+person has spoken into, are told their reply is already the chat. One post
+a turn; a second is refused. The post goes through the chat's one door
+(`Room::post`) at once, as the teammate wrote it: an `agent` message stamped
+with the job's `scheduled`, written past the quiet window rather than
+through it. Nothing re-says it; the words were already the teammate's own,
+in the teammate's own session. It lands in the chat, lights the rail, and
+pushes like any reply. A run that finds nothing is exactly as silent as
+before, and the desktop toast skips a turn whose last visible line is the
+person's own. A subagent is refused: it reports to its teammate, which
+decides. The other threads that may post, and the rest of the gate, are in
+[security.md](security.md#posting-to-the-chat-from-any-thread-adr-0008).
 
 ## The ledger
 

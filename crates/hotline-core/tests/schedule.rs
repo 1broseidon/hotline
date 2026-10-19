@@ -171,7 +171,7 @@ fn chunk(delta: Value, finish: Option<&str>) -> Value {
 }
 
 /// A model that finds nothing on the crane, unless it is asked to watch for
-/// trouble, when it hands the person one note with `tell_person`.
+/// trouble, when it posts the person one note with `post_to_chat`.
 async fn crane_model(request: Value) -> String {
     let messages = request["messages"].as_array().cloned().unwrap_or_default();
     let answered = messages
@@ -184,8 +184,8 @@ async fn crane_model(request: Value) -> String {
         .map(|message| message["content"].to_string())
         .unwrap_or_default();
     if !answered && asked.contains("watch for trouble") {
-        let call = json!({"index":0,"id":"call_tell","type":"function","function":{
-            "name":"tell_person","arguments":json!({"message":"The crane is down: the winch cable snapped."}).to_string()
+        let call = json!({"index":0,"id":"call_post","type":"function","function":{
+            "name":"post_to_chat","arguments":json!({"text":"The crane is down: the winch cable snapped."}).to_string()
         }});
         return streamed(vec![
             chunk(json!({"role":"assistant","tool_calls":[call]}), None),

@@ -14,7 +14,9 @@
 //! — so:
 //!
 //! - no phrasing can defeat it, because no phrasing is read;
-//! - the agent is never told it is being quiet, so it has nothing to announce;
+//! - the agent is never asked to be quiet, so it has no protocol to announce;
+//!   its line only says `quiet`, so it knows `post_to_chat` is its one way to
+//!   the person;
 //! - the words are not destroyed, only demoted: the transcript keeps them
 //!   under thinking, where the window already leaves machinery off screen, so
 //!   a quiet run is still debuggable.

@@ -1,9 +1,11 @@
 //! Hotline's own MCP server: what a teammate may ask of the room it is in.
 //!
-//! Sixteen tools — four over its own conversation, four that reach the
-//! person (asking, reacting, sending a file, making an image), one that sets its own picture, two over the room's other
-//! teammates, four that wake it later and one about its computer — and one
-//! instance of them per teammate session. They are the room's, not the
+//! Twenty tools — four over its own conversation, seven that reach the person
+//! (asking and withdrawing the ask, reacting, posting to the chat, sending a
+//! file, opening a link, making an image), one that sets its own picture, two
+//! over the room's other teammates, four that wake it later, one about its
+//! computer and one that searches the web — and one instance of them per
+//! teammate session. They are the room's, not the
 //! agent's: the tape they read is Hotline's record of a conversation that has
 //! been going on far longer than any one context, the teammate they message
 //! is a colleague with a conversation of its own, and a scheduled job is a
@@ -24,7 +26,7 @@
 //! cycle nothing ever breaks. Not a trait, because a seam with one
 //! implementation and one caller is a layer that buys nothing.
 
-use crate::contract::{Capabilities, LinkedTeammate, Profile, WorkingOn};
+use crate::contract::{Capabilities, LinkedTeammate, Profile, ThreadId, WorkingOn};
 use crate::contract::{
     ChapterClose, ScheduleKind, ScheduledJob, SessionInfo, SessionState, ToolSourceKind,
 };
@@ -66,6 +68,7 @@ const NEW_CHAPTER: &str = "new_chapter";
 const REQUEST_HUMAN: &str = "request_human";
 const WITHDRAW_REQUEST: &str = "withdraw_request";
 const REACT: &str = "react";
+const POST_TO_CHAT: &str = "post_to_chat";
 const SEND_FILE: &str = "send_file";
 const OPEN_LINK: &str = "open_link";
 const GENERATE_IMAGE: &str = "generate_image";
@@ -83,7 +86,7 @@ const ARCHIVE_THREAD: &str = "archive_thread";
 const MAX_COMPUTER_WAIT_SECONDS: u64 = 300;
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 19] = [
+pub const TOOL_NAMES: [&str; 20] = [
     SEARCH_THREAD,
     LIST_CHAPTERS,
     RESUME_CHAPTER,
@@ -91,6 +94,7 @@ pub const TOOL_NAMES: [&str; 19] = [
     REQUEST_HUMAN,
     WITHDRAW_REQUEST,
     REACT,
+    POST_TO_CHAT,
     SEND_FILE,
     OPEN_LINK,
     GENERATE_IMAGE,
@@ -107,8 +111,8 @@ pub const TOOL_NAMES: [&str; 19] = [
 
 /// What a subagent run is given of these: its teammate's conversation, to
 /// read, and the web, to read. A run speaks to nobody, so nothing that asks
-/// the person, reacts, messages a colleague, schedules or moves a chapter is
-/// on its list. `web_search` is there because it only reads: it changes
+/// the person, reacts, posts to the chat, messages a colleague, schedules or
+/// moves a chapter is on its list. `web_search` is there because it only reads: it changes
 /// nothing, reaches nobody, and a run sent off to research something is the
 /// likeliest to need it. It gives the run nothing its teammate lacks, since it
 /// follows the same desk switches and the teammate's own policy.
@@ -142,7 +146,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and returns at once with the request's id; their answer, and whatever they type with it, arrives later as its own message. The card stays up two hours unless you ask for longer, up to a day; when you no longer need it, because you found another way or the work moved on, `withdraw_request` takes it down. You are not the only teammate here: `list_teammates` says who else is in this room by public name, each one's state (idle, working, waiting on the person, or stopped), what it is working on, and its goal, agent, model and capabilities, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Choose intent ask for a bounded answer or review, handoff to implement or continue work in their own context. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `open_link` opens a link in the person's own browser on this computer, only while they are here at the desktop app. `generate_image` makes an image in your workspace and posts it here itself, so never `send_file` it as well; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options. For a default avatar request, use `generate_image` with style `avatar` for the mature matte desk-collectible crew; for a specific custom subject/theme, omit style, or use an operator-provided photo directly. `set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. `web_search` searches the web for current information and returns each result's title, link and a snippet; read a page itself with your own tools, and rephrase and search again if the first try misses. A granted server's tools are named `<server>__<tool>`.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and returns at once with the request's id; their answer, and whatever they type with it, arrives later as its own message. The card stays up two hours unless you ask for longer, up to a day; when you no longer need it, because you found another way or the work moved on, `withdraw_request` takes it down. You are not the only teammate here: `list_teammates` says who else is in this room by public name, each one's state (idle, working, waiting on the person, or stopped), what it is working on, and its goal, agent, model and capabilities, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Choose intent ask for a bounded answer or review, handoff to implement or continue work in their own context. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `post_to_chat` puts one message a turn in the person's chat with you from a work thread, a colleague's thread or a quiet scheduled run, whose replies nobody sees; in the main conversation your reply is already the chat. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `open_link` opens a link in the person's own browser on this computer, only while they are here at the desktop app. `generate_image` makes an image in your workspace and posts it here itself, so never `send_file` it as well; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options. For a default avatar request, use `generate_image` with style `avatar` for the mature matte desk-collectible crew; for a specific custom subject/theme, omit style, or use an operator-provided photo directly. `set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. `web_search` searches the web for current information and returns each result's title, link and a snippet; read a page itself with your own tools, and rephrase and search again if the first try misses. A granted server's tools are named `<server>__<tool>`.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -274,6 +278,19 @@ fn descriptors() -> Vec<Tool> {
                     },
                 },
                 "required": ["emoji"],
+                "additionalProperties": false,
+            })),
+        ),
+        Tool::new(
+            POST_TO_CHAT,
+            "Post one message to the person's chat with you, your main conversation, from wherever you are working: a work thread, a thread with a colleague, a quiet scheduled run. It lands as your own message, marked with where it came from, and notifies them, so write it as the message to them: what you found or made and what they need to do, not a note about posting. One post a turn: put everything in it. In the main conversation your reply is already the chat, so it is refused there, except on a quiet scheduled run (its line begins `quiet`), whose replies nobody sees: post only if something needs their attention. Set `wake` only when your main conversation has to act on this, not only the person to know (the build broke under work it is doing); it is handed the post and answers the person itself. Without it, your main conversation hears of the post with the person's next message. Your own chat only, at most 2,000 characters.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "minLength": 1, "maxLength": crate::session::POST_CHARS },
+                    "wake": { "type": "boolean", "default": false },
+                },
+                "required": ["text"],
                 "additionalProperties": false,
             })),
         ),
@@ -482,13 +499,18 @@ pub struct TeammateTools {
     /// [`WORK_WITHOUT`], and what they post, the cards they raise and the
     /// answers they wait for are that thread's rather than the DM's.
     work: Option<String>,
+    /// The thread these answer in, which `post_to_chat` posts from: the DM
+    /// unless they were made for another.
+    thread: ThreadId,
 }
 
 impl TeammateTools {
     pub fn new(room: &Arc<Room>, persona_id: impl Into<String>) -> Self {
+        let persona_id = persona_id.into();
         Self {
             room: Arc::downgrade(room),
-            persona_id: persona_id.into(),
+            thread: ThreadId::dm(&persona_id),
+            persona_id,
             capability: None,
             subagents: false,
             run: false,
@@ -501,7 +523,9 @@ impl TeammateTools {
     /// Makes these one work thread's: see [`WORK_WITHOUT`]. Subagent runs hang
     /// off the DM's tape, so a thread starts none.
     pub(crate) fn for_work(mut self, thread_id: impl Into<String>) -> Self {
-        self.work = Some(thread_id.into());
+        let thread_id = thread_id.into();
+        self.thread = ThreadId::side(&thread_id);
+        self.work = Some(thread_id);
         self.subagents = false;
         self
     }
@@ -510,9 +534,10 @@ impl TeammateTools {
         self.work.is_some()
     }
 
-    /// Marks these as a peer session's: see [`TeammateTools::peer`].
-    pub(crate) fn for_peer(mut self) -> Self {
+    /// Marks these as the pair thread `thread`'s: see [`TeammateTools::peer`].
+    pub(crate) fn for_peer(mut self, thread: ThreadId) -> Self {
         self.peer = true;
+        self.thread = thread;
         self
     }
 
@@ -591,6 +616,9 @@ impl TeammateTools {
     pub async fn call(&self, name: &str, arguments: &Value) -> Result<String, String> {
         if let Some(capability) = &self.capability {
             capability.check()?;
+        }
+        if self.run && name == POST_TO_CHAT {
+            return Err(crate::session::SUBAGENT.to_string());
         }
         if self.run && !RUN_TOOLS.contains(&name) {
             return Err(format!("A subagent has no tool called '{name}'."));
@@ -778,6 +806,29 @@ impl TeammateTools {
                     None => room.react(&self.persona_id, emoji)?,
                 }
                 Ok("Reacted.".to_string())
+            }
+            POST_TO_CHAT => {
+                // Keep this check even though the schema has no such field: a
+                // direct MCP caller can send any JSON, and a post goes to this
+                // teammate's own chat, never another's.
+                if let Some(other) = arguments
+                    .as_object()
+                    .and_then(|fields| fields.keys().find(|key| *key != "text" && *key != "wake"))
+                {
+                    return Err(format!(
+                        "post_to_chat posts to your own chat only, and takes no `{other}`."
+                    ));
+                }
+                let text = arguments
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let wake = arguments
+                    .get("wake")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                room.post_to_chat(&self.persona_id, &self.thread, text, wake)
+                    .await
             }
             SEND_FILE => {
                 let text = |key: &str| {

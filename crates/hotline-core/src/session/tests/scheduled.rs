@@ -77,11 +77,11 @@ async fn a_quiet_runs_words_are_thinking_and_the_next_plain_prompt_speaks() {
     );
 
     // The tape keeps the bare prompt and the stamp naming the job; the agent
-    // heard the framing that says a schedule woke it.
+    // heard the framing that says a quiet schedule woke it.
     assert_eq!(events[0]["text"], "check the order page");
     assert_eq!(events[0]["scheduled"]["jobId"], "job-1");
     assert_eq!(events[0]["scheduled"]["quiet"], true);
-    assert_eq!(*lock(&prompts), ["loop · check the order page"]);
+    assert_eq!(*lock(&prompts), ["quiet loop · check the order page"]);
 
     room.prompt("ada", "and now?", None, None).await.unwrap();
     let events = settled(&room, "ada", 6).await;
@@ -156,17 +156,16 @@ async fn a_person_typing_during_a_quiet_run_gets_a_bubble_back() {
     );
 }
 
-/// A quiet run that finds something asks to be heard, once, and is: once its
-/// silent turn is over, what it wrote for the person is posted to the chat as
-/// it wrote it, stamped with its job, and no second turn re-says it.
+/// A quiet run that finds something posts it, once, and is heard: its note
+/// is in the chat as it wrote it, stamped with its job, while its turn stays
+/// thinking, and no second turn re-says it.
 #[tokio::test]
-async fn a_quiet_run_that_asks_has_its_note_posted_as_written() {
+async fn a_quiet_run_that_posts_is_heard_once_as_written() {
     let gate = Arc::new(Semaphore::new(0));
     let mut driver = Scripted::turns(vec![saying("quiet", "Checked the page; it moved.")]);
     driver.gate = Some(gate.clone());
-    let armed = driver.escalations.clone();
     let prompts = driver.prompts.clone();
-    let room = room("quiet-escalates", Fake::new(driver));
+    let room = room("quiet-posts", Fake::new(driver));
     pair_a_phone(&room);
     room.start("ada").await.unwrap();
 
@@ -178,26 +177,40 @@ async fn a_quiet_run_that_asks_has_its_note_posted_as_written() {
     .await
     .unwrap();
     heard(&prompts, 1).await;
-    let escalation = lock(&armed)[0].clone().expect("a quiet run is armed");
-    escalation.escalate("Your Apple order shipped.").unwrap();
-    let refused = escalation.escalate("And another thing.").unwrap_err();
-    assert!(refused.contains("one per run"), "{refused}");
+    let tools = TeammateTools::new(&room, "ada");
+    let posted = tools
+        .call(
+            "post_to_chat",
+            &json!({"text": "Your Apple order shipped."}),
+        )
+        .await;
+    assert_eq!(posted.as_deref(), Ok("Posted to the chat."));
+    let refused = tools
+        .call("post_to_chat", &json!({"text": "And another thing."}))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("one per turn"), "{refused}");
 
     gate.add_permits(6);
     let events = settled(&room, "ada", 4).await;
     assert_eq!(
         kinds(&events),
-        ["user", "thought", "turn", "agent"],
+        ["user", "agent", "thought", "turn"],
         "the run stayed thinking; its note is the teammate's message"
     );
-    assert_eq!(events[1]["text"], "Checked the page; it moved.");
-    assert_eq!(events[3]["text"], "Your Apple order shipped.");
-    assert_eq!(events[3]["scheduled"]["jobId"], "job-1");
-    assert_eq!(events[3].get("from"), None, "the DM's own turn posted it");
+    assert_eq!(events[1]["text"], "Your Apple order shipped.");
+    assert_eq!(events[1]["scheduled"]["jobId"], "job-1");
+    assert_eq!(events[1].get("from"), None, "the DM's own turn posted it");
+    assert_eq!(events[2]["text"], "Checked the page; it moved.");
     assert_eq!(room.sent_voice_pushes().len(), 1, "it wakes the person");
 
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert_eq!(lock(&prompts).len(), 1, "no turn follows to re-say it");
+    let after = tools
+        .call("post_to_chat", &json!({"text": "Once the run is over."}))
+        .await
+        .unwrap_err();
+    assert!(after.contains("turn in progress"), "{after}");
 }
 
 /// A quiet run that does not ask is not followed by anything.
@@ -225,12 +238,14 @@ async fn a_quiet_run_that_does_not_ask_stays_silent() {
     assert_eq!(lock(&prompts).len(), 1);
 }
 
-/// Loud runs already speak, so they have nothing to ask for.
+/// A loud run already speaks in the chat, so it has nothing to post.
 #[tokio::test]
-async fn a_loud_schedule_is_not_armed_to_escalate() {
-    let driver = Scripted::new(saying("s", "Standup is at ten."));
-    let armed = driver.escalations.clone();
-    let room = room("scheduled-loud-unarmed", Fake::new(driver));
+async fn a_loud_schedule_may_not_post() {
+    let gate = Arc::new(Semaphore::new(0));
+    let mut driver = Scripted::new(saying("s", "Standup is at ten."));
+    driver.gate = Some(gate.clone());
+    let prompts = driver.prompts.clone();
+    let room = room("scheduled-loud-posts", Fake::new(driver));
     room.start("ada").await.unwrap();
 
     room.prompt_scheduled(
@@ -240,10 +255,17 @@ async fn a_loud_schedule_is_not_armed_to_escalate() {
     )
     .await
     .unwrap();
-    settled(&room, "ada", 3).await;
-    let armed = lock(&armed);
-    assert_eq!(armed.len(), 1);
-    assert!(armed[0].is_none());
+    heard(&prompts, 1).await;
+    let refused = TeammateTools::new(&room, "ada")
+        .call("post_to_chat", &json!({"text": "Standup is at ten."}))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("already the chat"), "{refused}");
+    gate.add_permits(6);
+    assert_eq!(
+        kinds(&settled(&room, "ada", 3).await),
+        ["user", "agent", "turn"]
+    );
 }
 
 /// A schedule that is not quiet is stamped and framed all the same; only the

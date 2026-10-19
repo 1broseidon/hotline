@@ -693,6 +693,7 @@ extend; when a change adds a boundary, it adds a row.
 | ACP callbacks stay in the workspace for legacy `machine` personas; a symlinked root alias is accepted; `AGENTS.md` refuses external and dangling symlinks; runtime mode is separate from effort and other configs stay hidden | `driver/acp/tests/session_new.rs` `acp_callbacks_stay_in_workspace_for_legacy_machine_personas`, `callback_workspace_accepts_the_selected_symlinked_root_alias`, `agents_md_refuses_external_and_dangling_symlinks`; `driver/acp/tests/config.rs` `disposition_separates_runtime_mode_from_effort_and_hides_other_configs` | — |
 | An agent from the ACP registry is unpacked only whole: a link, an entry out of its folder, or a set-id or world-writable mode installs nothing and leaves no scratch, in zip and tar; a checksum mismatch is never unpacked; ordinary archives and bare binaries still install | `driver/acp/install.rs` `a_symlink_out_of_the_scratch_folder_is_refused`, `a_write_through_a_symlink_lands_nowhere`, `an_entry_that_climbs_out_of_its_folder_is_refused`, `a_set_id_or_world_writable_mode_is_refused`, `a_checksum_mismatch_installs_nothing`, `a_zip_without_modes_still_starts`, `a_tarball_is_unpacked_into_place_and_its_command_made_runnable` | — |
 | Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only `search_thread` and `list_chapters`, starts no runs of its own and never reopens the teammate's session or computer; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `a_run_is_on_its_teammates_live_model_with_no_computer_and_no_session_to_reopen`, `a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `a_cancelled_run_stops_its_agent_and_its_line_says_so`, `a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
+| `post_to_chat`: a quiet run posts once, stamped with its job, while a loud DM turn, a second post or wake, `wake` from the DM and a `to` are refused and land nowhere; a work thread posts once a turn, stamped from the thread, wakes the DM once and is clipped at 2,000 characters; a pair posts to its target's chat, never the asker's; each on Hotline Agent and on an ACP child. A run is refused and not offered it; a revoked lease refuses in process and over the served endpoint; nothing posts between turns | `tests/mcp/post_to_chat.rs` `hotline_agent_posts_from_the_dm_only_on_a_quiet_run`, `an_acp_quiet_run_posts_and_a_loud_turn_may_not`, `hotline_agent_work_thread_posts_once_a_turn_and_wakes_its_home`, `an_acp_work_thread_posts_once_a_turn_and_wakes_its_home`, `a_hotline_agent_pair_posts_to_its_own_chat`, `an_acp_pair_posts_to_its_own_chat`; `session/tests/posting.rs` `a_subagent_run_may_not_post`, `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`, `a_post_between_turns_is_refused`; `session/tests/scheduled.rs` `a_quiet_run_that_posts_is_heard_once_as_written`, `a_loud_schedule_may_not_post` | — |
 | A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk/teammates.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the sealed handshake binds the persona and refuses an unpaired device; revoking the device drops the socket | `remote/tests/sealed_network.rs` `sealed_computer_handshake_binds_purpose_and_target_before_upstream`, `sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant`; `remote/tests/computer.rs` `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
@@ -1512,6 +1513,52 @@ state-machine text/sequence/cancellation/accounting tests,
 in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
 errors, fallback and persistent budget failures. Live provider latency is a
 separate measurement; fake-provider test timings are not a production guarantee.
+
+## Posting to the chat from any thread (ADR 0008)
+
+`post_to_chat(text, wake?)` is one of Hotline's own tools: it writes one
+message, as the teammate, into the teammate's own chat, stamped with the
+thread it came from.
+
+- **Default and old records:** nothing new is stored and nothing is granted
+  per teammate. The tool is on the desk's MCP server and among Hotline
+  Agent's in-process tools in every session but a subagent run's, because an
+  ACP child's tool list is fixed when its session starts; what may post is
+  decided per call. It replaces `tell_person`, which only a quiet run on
+  Hotline Agent was handed, for its one turn, so an ACP teammate's quiet run,
+  silent until now, can be heard.
+- **Grant source:** the thread's kind and the turn's modality, read by the
+  handler. A work thread, a pair (into the target's own chat) and a quiet
+  scheduled run of the DM whose window is still open may post. Refused: a
+  loud DM turn, and a quiet one the person has typed into ("your reply is
+  already the chat"); a subagent run, which reports to the teammate that
+  launched it; a call that lands while no turn of its thread is in flight; a
+  second post in a turn, and so a second wake; `wake` from the DM itself; any
+  argument but `text` and `wake`, so no other teammate's chat can be named;
+  and a revoked lease. A voice front's `post_to_chat` is the call's own
+  (`voice/front_tools.rs`), under the teammate's current lease.
+- **Enforcement:** `TeammateTools::call` checks the session's capability
+  lease first, as for every tool, and refuses a run by name.
+  `Room::post_to_chat` (`session/post.rs`) applies the rest against the
+  `Posting` the turn opened: `Room::open_posting` is held by the DM's turn
+  (with its job when quiet), by `Threads::turn` for work threads and runs, and
+  by a pair's exchange turn, and is dropped when the turn ends. The text is
+  clipped to 2,000 characters and written through `Room::post`, the chat's
+  one door; a write that fails gives the turn its post back. `wake` brings
+  the DM up, posts into its chapter and queues one line on the DM carrying
+  the posts, and the DM's reply is what the person hears.
+- **Tests:** the `post_to_chat` row of the matrix: every refusal through the
+  real handler on both drivers, Hotline Agent in process and ACP through a
+  real child over the served endpoint, and the posts that land read off the
+  wire.
+- **Residual risk:** a teammate on a long work thread can post once a turn,
+  every turn, and each post pushes like a reply; a `wake` costs a DM turn. An
+  ACP harness's own subagents share their parent's MCP server and the handler
+  cannot tell them apart, so a post from one is the parent thread's and
+  counts as its one. Subagent runs are Hotline Agent's only, so the run
+  refusal has no ACP path to prove. An agent learns a run is quiet from the
+  word `quiet` on its line, so its model may say it is staying silent; the
+  window demotes those words by kind, as before.
 
 ## Thread commands on the wire (BRO-203)
 

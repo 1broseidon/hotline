@@ -24,7 +24,9 @@
 //!   a call or not (see [`crate::voice::spoken`] and
 //!   [`super::runner::drive_updates`]).
 //! - **The end of a turn.** What the driver did not take is queued again in its
-//!   order, and a quiet run that found something is escalated.
+//!   order.
+//! - **Posting.** Its turn is open for `post_to_chat` only while it is a
+//!   quiet scheduled run, whose replies nobody sees ([`super::post`]).
 //!
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
@@ -32,9 +34,7 @@
 use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
-use super::{
-    Glance, Post, Room, Session, Wired, call_origin, escalation, lock, now_ms, quiet, schedule,
-};
+use super::{Glance, Room, Session, Wired, call_origin, lock, now_ms, quiet, schedule};
 use crate::contract::{Reach, ScheduledRun, SessionState, TranscriptEvent};
 use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::{MessageKind, Update};
@@ -49,10 +49,8 @@ pub(super) struct Hold {
     reach: Reach,
     /// Whether the line came from a voice, which decides how the reply is said.
     from_voice: bool,
-    /// A quiet run's replies are thinking; it is heard only by asking. Armed
-    /// for this turn alone.
+    /// A quiet run's replies are thinking; it is heard only by posting.
     quiet_run: Option<ScheduledRun>,
-    escalation: Option<Arc<escalation::Escalation>>,
     /// The lines the driver took mid-turn, in the order it took them.
     steered: Vec<Wired>,
 }
@@ -121,37 +119,26 @@ impl Occupant for Session {
         if let Some(said) = wired.said.clone() {
             lock(&session.unread).push(said);
         }
-        // A quiet run's replies are thinking; it is heard only by asking.
-        // Armed for this turn alone, and cleared for every other one.
+        // A quiet run's replies are thinking; it is heard only by posting.
         let quiet_run = wired
             .scheduled
             .clone()
             .filter(|run| run.quiet == Some(true));
-        let escalation = quiet_run
-            .as_ref()
-            .map(|_| Arc::new(escalation::Escalation::new()));
         let from_voice = wired.spoken;
         let source = if let Some(unprompted) = &wired.unprompted {
             let Some(updates) = lock(&unprompted.0).take() else {
                 return Begin::Skip;
             };
             Source::Updates(updates)
+        } else if wired.retry {
+            Source::Retry {
+                text: wired.text,
+                attachments: wired.attachments,
+            }
         } else {
-            session.driver.escalate_next(
-                escalation
-                    .clone()
-                    .map(|armed| armed as Arc<dyn crate::driver::Escalate>),
-            );
-            if wired.retry {
-                Source::Retry {
-                    text: wired.text,
-                    attachments: wired.attachments,
-                }
-            } else {
-                Source::Say {
-                    text: wired.text,
-                    attachments: wired.attachments,
-                }
+            Source::Say {
+                text: wired.text,
+                attachments: wired.attachments,
             }
         };
         Begin::Go(Hold {
@@ -159,13 +146,13 @@ impl Occupant for Session {
             reach,
             from_voice,
             quiet_run,
-            escalation,
             steered: Vec::new(),
         })
     }
 
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut Hold) -> Driven {
         let source = held.source.take().expect("a turn is taken once");
+        let _posting = room.open_posting(&self.thread(), held.quiet_run.clone());
         let mut heard = Heard {
             room,
             session: self,
@@ -213,20 +200,6 @@ impl Occupant for Session {
                 wire
             };
             lock(&session.turns).waiting.push_front(wire);
-        }
-        // A quiet run's note is posted as the teammate wrote it, stamped
-        // with its job: its words were already the teammate's own.
-        if let (Some(run), Some(note)) = (
-            held.quiet_run,
-            held.escalation.as_ref().and_then(|armed| armed.take()),
-        ) {
-            let post = Post {
-                scheduled: Some(run),
-                ..Post::words(&note)
-            };
-            if let Err(error) = room.post(&session.persona_id, &session.thread(), post) {
-                eprintln!("a quiet run's note could not be posted: {error}");
-            }
         }
         Then::Next
     }

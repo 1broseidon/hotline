@@ -202,17 +202,6 @@ impl ToolImage {
     }
 }
 
-/// Where a quiet scheduled run's one message goes (BRO-96).
-///
-/// A quiet run's words become thinking by kind, so nothing it writes reaches
-/// the person. This is the exception it has to ask for by name: the room
-/// posts the text as a visible message stamped with the job, and notifies.
-pub trait Escalate: Send + Sync {
-    /// Posts `text` to the person. Refuses a second message from the same
-    /// run, so a confused run cannot flood the conversation.
-    fn escalate(&self, text: &str) -> Result<(), String>;
-}
-
 /// One agent, driven.
 #[async_trait]
 pub trait Driver: Send + Sync {
@@ -322,12 +311,6 @@ pub trait Driver: Send + Sync {
     ) -> mpsc::Receiver<Update> {
         self.prompt(text, attachments, reach).await
     }
-
-    /// Hands the next turn, and only that turn, a way to be heard: a quiet
-    /// scheduled run's `tell_person`. `None` clears one left unused. A
-    /// driver that cannot offer a tool of its own for one turn ignores it,
-    /// and that run stays silent as it always has.
-    fn escalate_next(&self, _escalation: Option<Arc<dyn Escalate>>) {}
 
     /// Admits new operator input into the current activity. False means the
     /// activity already ended or this driver cannot steer; the session keeps

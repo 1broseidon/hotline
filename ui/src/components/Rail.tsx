@@ -1,7 +1,7 @@
 import { type ReactNode, type FocusEvent, type MouseEvent, useEffect, useRef, useState } from "react";
 import { chordKeys } from "../chords";
 import { MAX_PINS, nudged, shownTeam, teamOrder, type TeamRow } from "../pins";
-import { ChevronDownIcon, ComputerIcon } from "../icons";
+import { ChevronDownIcon, ComputerIcon, LeadIcon } from "../icons";
 import { popupTeammateMenu } from "../native";
 import { shownState } from "../activity";
 import type { SessionState } from "../generated/contract";
@@ -40,6 +40,7 @@ export function Rail({
 	onEdit,
 	onDelete,
 	onPin,
+	onLead,
 	onAddDesk,
 	width,
 	compact = false,
@@ -63,6 +64,8 @@ export function Rail({
 	onDelete(personaId: string, name: string, deskId?: string): void;
 	/** Pin at a slot, or unpin with null. */
 	onPin(personaId: string, slot: number | null, deskId?: string): void;
+	/** Make the teammate its desk's lead, or with false, leave the desk with none. */
+	onLead(personaId: string, lead: boolean, deskId?: string): void;
 	onAddDesk(): void;
 	/** The dragged width; none in a narrow window, where the rail is the whole window. */
 	width?: number | undefined;
@@ -94,6 +97,8 @@ export function Rail({
 	const unread = (row: TeamRow) =>
 		onDesk(row) ? unreadOf(row.entry, selectedId, seen) : unreadOf(row.entry, null, seenOn(row.deskId));
 	const elsewhereId = (row: TeamRow) => (onDesk(row) ? undefined : row.deskId);
+	/* The only teammate on a desk is its lead, and stays it. */
+	const alone = (row: TeamRow) => (onDesk(row) ? entries : (elsewhere[row.deskId] ?? [])).length === 1;
 	const key = (row: TeamRow) => `${row.deskId}/${row.entry.persona.id}`;
 	const showTip = (row: HTMLElement | null, name = "", line = "") => {
 		if (row === null) {
@@ -143,6 +148,8 @@ export function Rail({
 											onSelect={() => onSelect(entry.persona.id, elsewhereId(row))}
 											onEdit={() => onEdit(entry.persona.id, elsewhereId(row))}
 											onDelete={() => onDelete(entry.persona.id, entry.persona.name, elsewhereId(row))}
+											alone={alone(row)}
+											onLead={() => onLead(entry.persona.id, entry.lead !== true, elsewhereId(row))}
 											onPin={(personaId, at) => {
 												// A pin moves along its own desk's row and no other.
 												if (drag !== null && !drag.id.startsWith(`${row.deskId}/`)) return;
@@ -180,6 +187,8 @@ export function Rail({
 									onEdit={() => onEdit(entry.persona.id, elsewhereId(row))}
 									onDelete={() => onDelete(entry.persona.id, entry.persona.name, elsewhereId(row))}
 									onPin={() => onPin(entry.persona.id, pins, elsewhereId(row))}
+									alone={alone(row)}
+									onLead={() => onLead(entry.persona.id, entry.lead !== true, elsewhereId(row))}
 									{...(compact ? { onTip: showTip } : {})}
 								/>
 							);
@@ -226,6 +235,8 @@ function Row({
 	onEdit,
 	onDelete,
 	onPin,
+	alone,
+	onLead,
 	onTip,
 }: {
 	entry: RosterEntry;
@@ -242,6 +253,9 @@ function Row({
 	onEdit(): void;
 	onDelete(): void;
 	onPin(): void;
+	/** The only teammate on its desk. */
+	alone: boolean;
+	onLead(): void;
 	/** Faces only: the row shows its name and line on a card while hovered or focused. */
 	onTip?: (row: HTMLElement | null, name?: string, line?: string) => void;
 }) {
@@ -251,13 +265,14 @@ function Row({
 	const busy = entry.session.state === "starting" || entry.drawing;
 	const line = lineOf(entry);
 	const named = desk === undefined ? entry.persona.name : `${entry.persona.name} · ${desk}`;
+	const lead = entry.lead === true;
 	return (
 		<button
 			type="button"
 			data-teammate-row
 			data-offline={offline || undefined}
 			aria-current={active ? "true" : undefined}
-			aria-label={`${named}${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
+			aria-label={`${named}${lead ? ", team lead" : ""}${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
 			className="rail-row group relative"
 			onClick={onSelect}
 			{...(onTip !== undefined
@@ -270,7 +285,13 @@ function Row({
 				: {})}
 			onContextMenu={(event) => {
 				event.preventDefault();
-				void popupTeammateMenu({ onOpen: onSelect, onEdit, onDelete, pin: { pinned: false, full, onToggle: onPin } });
+				void popupTeammateMenu({
+					onOpen: onSelect,
+					onEdit,
+					onDelete,
+					pin: { pinned: false, full, onToggle: onPin },
+					lead: { lead, alone, onToggle: onLead },
+				});
 			}}
 		>
 			{unread && onTip === undefined && (
@@ -279,21 +300,18 @@ function Row({
 					className="absolute left-[1px] top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full bg-accent"
 				/>
 			)}
-			{onTip !== undefined ? (
-				<span className="relative flex">
-					<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} busy={busy} />
-					{unread && <span aria-hidden="true" className="rail-face-unread" />}
-					{vital.color !== null && (
-						<span
-							aria-hidden="true"
-							className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
-							style={{ background: vital.color }}
-						/>
-					)}
-				</span>
-			) : (
-			<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} busy={busy} />
-			)}
+			<span className="relative flex shrink-0">
+				<Avatar id={entry.persona.id} name={entry.persona.name} size={28} hash={entry.persona.avatar?.hash} busy={busy} />
+				{lead && <LeadBadge />}
+				{onTip !== undefined && unread && <span aria-hidden="true" className="rail-face-unread" />}
+				{onTip !== undefined && vital.color !== null && (
+					<span
+						aria-hidden="true"
+						className={`rail-face-vital ${vital.beating ? "beat" : ""}`}
+						style={{ background: vital.color }}
+					/>
+				)}
+			</span>
 			{onTip === undefined && (
 			<span className="min-w-0 flex-1">
 				<span className="flex h-[18px] items-center gap-1.5">
@@ -362,6 +380,8 @@ function PinTile({
 	onEdit,
 	onDelete,
 	onPin,
+	alone,
+	onLead,
 	onDrag,
 	onTip,
 }: {
@@ -381,6 +401,8 @@ function PinTile({
 	onEdit(): void;
 	onDelete(): void;
 	onPin(personaId: string, slot: number | null): void;
+	alone: boolean;
+	onLead(): void;
 	onDrag(drag: { id: string; over: number | null } | null): void;
 	onTip(row: HTMLElement | null, name?: string, line?: string): void;
 }) {
@@ -389,6 +411,7 @@ function PinTile({
 	const busy = entry.session.state === "starting" || entry.drawing;
 	const line = lineOf(entry);
 	const named = desk === undefined ? persona.name : `${persona.name} · ${desk}`;
+	const lead = entry.lead === true;
 	const left = nudged(slot, -1, count);
 	const right = nudged(slot, 1, count);
 	return (
@@ -399,7 +422,7 @@ function PinTile({
 			data-offline={offline || undefined}
 			draggable
 			aria-current={active ? "true" : undefined}
-			aria-label={`${named}, pinned${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
+			aria-label={`${named}${lead ? ", team lead" : ""}, pinned${vital.label === "" ? "" : `, ${vital.label.toLowerCase()}`}${unread ? ", unread" : ""}${offline ? ", unreachable" : ""}`}
 			title={compact || shortcut === null ? undefined : `${named} (${chordKeys("teammate-seat").replace("1–9", String(shortcut))})`}
 			className="rail-pin group"
 			data-dragging={dragging || undefined}
@@ -440,11 +463,13 @@ function PinTile({
 						...(left !== null ? { onLeft: () => onPin(persona.id, left) } : {}),
 						...(right !== null ? { onRight: () => onPin(persona.id, right) } : {}),
 					},
+					lead: { lead, alone, onToggle: onLead },
 				});
 			}}
 		>
 			<span className="relative flex">
 				<Avatar id={persona.id} name={persona.name} size={compact ? 36 : 52} hash={persona.avatar?.hash} busy={busy} />
+				{lead && <LeadBadge />}
 				{unread && <span aria-hidden="true" className="rail-face-unread" />}
 				{vital.color !== null && (
 					<span
@@ -458,6 +483,15 @@ function PinTile({
 				<span className={`rail-pin-name text-sm ${unread ? "font-semibold text-ink" : "font-medium text-ink-2"}`}>{persona.name}</span>
 			)}
 		</button>
+	);
+}
+
+/** The team lead's star on its face. The row's own name says it to a screen reader. */
+function LeadBadge() {
+	return (
+		<span aria-hidden="true" className="rail-face-lead" title="Team lead">
+			<LeadIcon />
+		</span>
 	);
 }
 

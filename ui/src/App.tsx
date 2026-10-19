@@ -17,6 +17,7 @@ import { Teammate } from "./components/Teammate";
 import { ProcessWork, sameWork, Work, type OpenWork } from "./components/Work";
 import type { ThreadRef } from "./components/Transcript";
 import { EmptyRoom, Welcome } from "./components/Welcome";
+import { LeadPrompt } from "./components/LeadPrompt";
 import { confirmRemove, listenToastClicks, platform, setBadge, watchWindowShape } from "./native";
 import { watchLooking } from "./looking";
 import { noticeRoster, setWindowTitle, toastTarget } from "./notify";
@@ -298,6 +299,17 @@ export function App() {
 		}
 	}, []);
 
+	/* The roster's next rows carry the lead, so a refusal leaves nothing to undo. */
+	const leadTeammate = useCallback(async (personaId: string, lead: boolean, deskId?: string) => {
+		const params = lead ? { id: personaId } : {};
+		try {
+			if (deskId === undefined) await wire.command("persona.lead", params);
+			else await wireFor(deskId).command("persona.lead", params);
+		} catch {
+			// Clearing the lead of a desk of one is refused; the menu does not offer it.
+		}
+	}, []);
+
 	const removeTeammate = useCallback(
 		async (personaId: string, name: string, deskId?: string) => {
 			// The desk is the one the teammate was on when asked about, whatever is on screen by the answer.
@@ -520,6 +532,7 @@ export function App() {
 				}}
 				onDelete={(id, name, deskId) => void removeTeammate(id, name, deskId)}
 				onPin={(id, slot, deskId) => void pinTeammate(id, slot, deskId)}
+				onLead={(id, lead, deskId) => void leadTeammate(id, lead, deskId)}
 				onAddDesk={() => togglePane("add-desk")}
 				width={faces ? RAIL_FACES : railSize.width}
 				compact={faces}
@@ -532,6 +545,9 @@ export function App() {
 
 			<main ref={mainRef} className="@container flex min-w-0 flex-1 flex-col gap-0">
 				<DeskBand onAddDesk={() => togglePane("add-desk")} />
+				{rosterLoaded && (
+					<LeadPrompt deskId={desk?.id ?? ""} roster={roster} deskCalling={deskCalling} onLead={(id) => void leadTeammate(id, true)} />
+				)}
 				{/* A pane with no conversation has no band of its own to hang the call from. */}
 				{!conversationShown && callBar}
 				<div className="relative flex min-h-0 min-w-0 flex-1 gap-2">

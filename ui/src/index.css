@@ -2526,6 +2526,24 @@
 		border-radius: 50%;
 		box-shadow: 0 0 0 2px var(--well);
 	}
+	/* The team lead's star rides the shoulder the unread dot and the vital leave free. */
+	.rail-face-lead {
+		position: absolute;
+		left: -2px;
+		bottom: -2px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 13px;
+		height: 13px;
+		border-radius: 50%;
+		background: var(--well);
+		color: var(--ink-2);
+	}
+	.rail-face-lead svg {
+		width: 9px;
+		height: 9px;
+	}
 	.rail-tip {
 		position: fixed;
 		z-index: 40;

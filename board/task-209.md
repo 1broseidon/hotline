@@ -12,6 +12,9 @@ relatedFiles:
   - crates/hotline-core/src/mcp
 parentId: epic-18
 createdAt: "2026-10-19T14:07:42.047Z"
+dependsOn:
+  - task-208
+updatedAt: "2026-10-19T14:07:42.992Z"
 ---
 
 ## Description

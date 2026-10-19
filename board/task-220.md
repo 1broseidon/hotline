@@ -1,7 +1,7 @@
 ---
 id: task-220
 title: "Jobs are subagents on a schedule: one schema, a thread per job, a running note"
-column: in-progress
+column: review
 position: 16
 priority: high
 tags:
@@ -18,9 +18,9 @@ dependsOn:
   - task-217
   - task-218
   - task-219
-updatedAt: "2026-10-19T22:24:09.237Z"
+updatedAt: "2026-10-19T23:18:24.410Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/tests/schedule.rs
@@ -37,6 +37,8 @@ contract:
     readyAt: "2026-10-19T20:03:14.442Z"
     pickedUpAt: "2026-10-19T22:24:09.237Z"
     reworkCount: 0
+    deliveredAt: "2026-10-19T23:18:24.410Z"
+    duration: 3255
 dispatch:
   agent: claude
   model: opus

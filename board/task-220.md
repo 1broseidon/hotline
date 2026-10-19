@@ -18,7 +18,23 @@ dependsOn:
   - task-217
   - task-218
   - task-219
-updatedAt: "2026-10-19T20:02:53.143Z"
+updatedAt: "2026-10-19T20:03:14.442Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/tests/schedule.rs
+      description: a harness test for each rule of ADR 0008 §7, and a schedule written before the upgrade firing on its job thread after it
+    - type: docs
+      path: docs/sessions.md
+      description: jobs as subagents on a schedule, replacing the Quiet section
+  validation:
+    commands:
+      - make check
+      - cargo test -p hotline-core --test schedule
+      - "! git grep -n quiet_run -- crates/hotline-core/src/session"
+  metrics:
+    readyAt: "2026-10-19T20:03:14.442Z"
 ---
 
 ## Description

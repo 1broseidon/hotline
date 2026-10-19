@@ -12,7 +12,7 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:54.225Z"
 relatedFiles:
   - crates/hotline-core/src/mcp/oauth.rs
-updatedAt: "2026-10-18T23:53:55.552Z"
+updatedAt: "2026-10-19T00:33:55.864Z"
 contract:
   status: ready
   deliverables:
@@ -27,6 +27,14 @@ contract:
       - git diff --exit-code ui/src/generated/contract.ts
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-19T00:33:55.688Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

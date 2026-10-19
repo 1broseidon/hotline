@@ -49,3 +49,6 @@ dispatch:
 
 ## Description
 ADR 0008 §6 slice 4: peer_session builds through Room::thread_agent and drives through Threads::drive. Removes peer_session's own builder, the pair's use of runner::drive and the stale comment in Policy::of. Peer exchange harness tests pass unchanged.
+
+## Log
+- 2026-10-19T20:04:29.604Z: [codex] Picked up contract. Scope from cymbal impact: peer_session is called only by peer delivery; shared builder also serves DM/work/run. Preserve dual leases, directional history and linked caller identity; replace pair driving with a Witness on Threads::drive and remove the redundant startup guard. Reserved task-216 paths stay untouched.

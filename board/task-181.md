@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/desk.rs
   - crates/hotline-core/src/wire/room_handle.rs
   - crates/hotline-core/src/driver/failure.rs
-updatedAt: "2026-10-19T00:37:24.565Z"
+updatedAt: "2026-10-19T00:37:35.904Z"
 contract:
   status: in_progress
   deliverables:
@@ -31,8 +31,8 @@ contract:
       - git diff --exit-code ui/src/generated/contract.ts
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
-    pickedUpAt: "2026-10-19T00:27:42.818Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-19T00:37:35.904Z"
+    reworkCount: 1
 dependsOn:
   - task-188
 dispatch:

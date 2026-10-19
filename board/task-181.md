@@ -1,7 +1,7 @@
 ---
 id: task-181
 title: "Agent registry: keep the last working list, refresh it in the background at session start, and say plainly when a model isn't supported"
-column: in-progress
+column: review
 position: 7
 priority: high
 tags:
@@ -15,9 +15,9 @@ relatedFiles:
   - crates/hotline-core/src/desk.rs
   - crates/hotline-core/src/wire/room_handle.rs
   - crates/hotline-core/src/driver/failure.rs
-updatedAt: "2026-10-19T00:37:35.904Z"
+updatedAt: "2026-10-19T00:40:29.320Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/src/driver/acp/registry.rs
@@ -33,6 +33,8 @@ contract:
     readyAt: "2026-10-18T23:53:55.554Z"
     pickedUpAt: "2026-10-19T00:37:35.904Z"
     reworkCount: 1
+    deliveredAt: "2026-10-19T00:40:29.320Z"
+    duration: 173
 dependsOn:
   - task-188
 dispatch:

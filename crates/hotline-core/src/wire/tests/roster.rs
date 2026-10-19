@@ -190,20 +190,26 @@ async fn the_lead_is_set_moved_and_cleared_and_the_roster_rows_carry_it() {
     let row = heard_where(&mut socket, |f| f["event"]["persona"]["id"] == bob["id"]).await;
     assert!(row["event"].get("lead").is_none(), "{row}");
 
-    // Making Bob lead moves the role: both rows are sent again.
+    // Making Bob lead moves the role: both rows are sent again, in whichever
+    // order the roster's dirty set drains them.
     ask(&mut socket, lead(5, Some(&bob))).await;
     assert_eq!(
         heard_where(&mut socket, |f| f["id"] == 5).await["result"],
         bob["id"]
     );
-    heard_where(&mut socket, |f| {
-        f["event"]["persona"]["id"] == bob["id"] && f["event"]["lead"] == true
-    })
-    .await;
-    heard_where(&mut socket, |f| {
-        f["event"]["persona"]["id"] == ada["id"] && f["event"].get("lead").is_none()
-    })
-    .await;
+    let mut resent = Vec::new();
+    while resent.len() < 2 {
+        let row = heard_where(&mut socket, |f| f["event"]["persona"].is_object()).await;
+        resent.push(row["event"].clone());
+    }
+    let row_of = |who: &Value| {
+        resent
+            .iter()
+            .find(|row| row["persona"]["id"] == who["id"])
+            .unwrap_or_else(|| panic!("no row for {who} in {resent:?}"))
+    };
+    assert_eq!(row_of(&bob)["lead"], true);
+    assert!(row_of(&ada).get("lead").is_none(), "{}", row_of(&ada));
     assert_eq!(room::team_lead(&log).as_deref(), bob["id"].as_str());
 
     ask(&mut socket, lead(6, None)).await;

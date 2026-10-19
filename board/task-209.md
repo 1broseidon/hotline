@@ -14,7 +14,7 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:42.047Z"
 dependsOn:
   - task-208
-updatedAt: "2026-10-19T14:10:20.624Z"
+updatedAt: "2026-10-19T15:05:02.309Z"
 contract:
   status: ready
   deliverables:
@@ -42,6 +42,14 @@ contract:
     - hotline-mcp never depends on hotline-core or Tauri
   metrics:
     readyAt: "2026-10-19T14:10:20.624Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T15:05:02.180Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

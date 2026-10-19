@@ -19,7 +19,7 @@ createdAt: "2026-10-19T19:59:31.099Z"
 dependsOn:
   - task-216
   - task-218
-updatedAt: "2026-10-19T21:01:16.224Z"
+updatedAt: "2026-10-19T21:16:20.771Z"
 contract:
   status: delivered
   deliverables:
@@ -52,14 +52,12 @@ dispatch:
   by: lead
   at: "2026-10-19T20:51:29.852Z"
   until: done
-  tries: 2
+  tries: 3
   claim:
     host: Georges-Mac-Studio
     runner: cli
     pid: 94104
-    at: "2026-10-19T20:51:32.525Z"
-    ended: "2026-10-19T21:01:16.224Z"
-    outcome: review
+    at: "2026-10-19T21:16:20.771Z"
 ---
 
 ## Description
@@ -70,3 +68,4 @@ From task-216 (landed on release/0.41.0): Room::post lives in crates/hotline-cor
 ## Log
 - 2026-10-19T20:51:28.807Z: [claude] Lead: try 1 ended its turn while `make check` was still running, so nothing was validated. Its work is on dispatch/task-217 (4c256848, 4a68b1d6) with uncommitted edits to session/post.rs and session/prompt.rs. Next try: keep that work, run `make check` in the foreground (generous timeout, never backgrounded) and wait for it, fix what fails, commit, then run every contract validation command before delivering. Do not end the turn while a command is pending.
 - 2026-10-19T21:01:12.855Z: [claude] Try 2 kept try 1's work (4c256848, 4a68b1d6) and committed c8fa7e59. That commit holds try 1's uncommitted posted_since refactor (one sentence for posts from elsewhere, shared by prompt.rs and post.rs) plus fixes for what make check caught: two clippy lints (assert_is_empty in session/tests/posting.rs, equatable_if_let in tests/mcp/post_to_chat.rs), and a race in the quiet-run harness. That harness scheduled its job exactly 1s ahead, the server's minimum, so wire latency got it refused; it now uses 1,500ms like tests/schedule.rs. make check passes, make precheck passes all 8 legs, and every contract validation passes (the escalate/tell_person grep is empty; post_to_chat appears in mcp/ and security.md; tests/mcp passes 19/19). For later slices: the posting gate opens per turn through Room::open_posting in dm.rs (DM, with its job when quiet), turns.rs (Threads::turn: work threads and runs) and peers/delivery.rs (the pair's exchange turn, ThreadId::pair), not in peer_session. Calls don't open a Posting; a voice front's post_to_chat is still its own in voice/front_tools.rs. Moving calls onto Opening/Threads::drive is the place to fold that in. The subagent-run refusal and revoked lease are proved in session/tests/posting.rs (lease in process and over the served endpoint), because subagent runs exist only on Hotline Agent. Work is on dispatch/task-217.
+- 2026-10-19T21:16:20.215Z: Landing sent back (1 of 1): with release/0.41.0 brought in, `make check` failed: stopped after 15 minutes. Fix it on this branch, commit, and run the checks again.

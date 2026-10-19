@@ -15,7 +15,7 @@ createdAt: "2026-10-19T06:06:59.331Z"
 dependsOn:
   - task-194
   - task-198
-updatedAt: "2026-10-19T08:33:10.163Z"
+updatedAt: "2026-10-19T08:33:11.189Z"
 contract:
   status: ready
   deliverables:
@@ -38,6 +38,14 @@ contract:
     - contract.ts byte-identical
   metrics:
     readyAt: "2026-10-19T06:11:05.054Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T08:33:11.064Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

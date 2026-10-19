@@ -20,6 +20,42 @@ pub struct BudgetLimits {
     pub month_usd: Option<f64>,
 }
 
+impl BudgetLimits {
+    pub fn new(day_usd: Option<f64>, month_usd: Option<f64>) -> Self {
+        Self { day_usd, month_usd }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if [self.day_usd, self.month_usd]
+            .into_iter()
+            .flatten()
+            .all(valid_amount)
+        {
+            Ok(())
+        } else {
+            Err("Spending limits must be finite, nonnegative dollar amounts.".into())
+        }
+    }
+
+    /// Whether either limit is zero, which turns the budget's paid use off.
+    pub fn off(&self) -> bool {
+        self.day_usd == Some(0.0) || self.month_usd == Some(0.0)
+    }
+}
+
+impl SpendingSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        self.chat.validate()?;
+        self.voice.validate()?;
+        self.images.validate()
+    }
+}
+
+/// Whether a dollar amount can be a limit or a spend: finite and not negative.
+pub fn valid_amount(amount: f64) -> bool {
+    amount.is_finite() && amount >= 0.0
+}
+
 /// The room's `spending` setting: a budget each for chat (teammates and the
 /// call assistant), voice (transcription and speech) and images, each with
 /// optional daily and monthly limits. A room that set none has no limits.
@@ -99,6 +135,17 @@ pub struct ImageSettings {
     pub provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+}
+
+impl ImageSettings {
+    /// The `settings.images` provider that turns image generation off. Stored
+    /// as a provider so a desk that never heard of it still reads a string
+    /// there, and so the picker's one choice is the setting's one key.
+    pub const OFF: &str = "off";
+
+    pub fn is_off(&self) -> bool {
+        self.provider.as_deref() == Some(Self::OFF)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +260,36 @@ pub enum LinkedDelivery {
         reply: String,
         failed: bool,
     },
+}
+
+/// How a link is doing, as the Desks section shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export, export_to = "contract.ts")]
+pub enum DeskLinkState {
+    /// The channel is open; messages cross now.
+    Connected,
+    /// Not open: the other desk is away, or this one is still reaching it.
+    /// Messages wait in the exchange queue meanwhile.
+    Offline,
+}
+
+/// One linked desk, for `desks.links`.
+#[derive(Clone, Debug, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct DeskLink {
+    pub desk_id: String,
+    pub name: String,
+    /// Whether this desk made the link and dials the other.
+    pub dials: bool,
+    pub state: DeskLinkState,
+    /// Why the channel is not open, when this desk knows.
+    #[ts(optional)]
+    pub error: Option<String>,
+    /// The other desk's teammates, live while connected and as last heard
+    /// of while not.
+    pub teammates: Vec<LinkedTeammate>,
 }
 
 // ---------------------------------------------------------------------------

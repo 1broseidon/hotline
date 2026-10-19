@@ -9,7 +9,7 @@
 pub mod boot;
 mod capabilities;
 pub mod computer;
-pub mod contract;
+pub use hotline_contract as contract;
 pub mod credentials;
 pub mod desk;
 pub mod driver;

@@ -14,6 +14,7 @@
 use super::client::{Client, OpenError, PairedDesk, PairedRelay};
 use super::server::{Purpose, Seat, sealed_session};
 use super::*;
+use crate::contract::RemoteRelay;
 use futures_util::{SinkExt, StreamExt};
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
@@ -565,19 +566,6 @@ pub(super) async fn host<S>(
     remote.relay.unregister(&desk, id);
 }
 
-/// What the desk shows about the relay it stands in on.
-#[derive(Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct RemoteRelay {
-    /// The paired desk carrying this one's visitors.
-    pub desk_id: String,
-    pub name: String,
-    /// Where a visitor reaches this desk, once the relay has said.
-    pub url: Option<String>,
-    pub error: Option<String>,
-}
-
 #[derive(Default)]
 pub(super) struct Standing {
     pub(super) url: Option<String>,
@@ -601,7 +589,7 @@ fn relay_servers(root: &Path) -> Vec<PairedRelay> {
 /// Every server this desk may stand in on: a desk it owns, or a relay.
 fn stand_ins(root: &Path) -> Vec<PairedDesk> {
     let mut servers = paired(root);
-    servers.extend(relay_servers(root).iter().map(PairedRelay::dialed));
+    servers.extend(relay_servers(root).iter().map(PairedDesk::from));
     servers
 }
 

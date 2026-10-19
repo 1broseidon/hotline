@@ -1666,7 +1666,7 @@ export type ThreadEnd = "person" | "agent" | "idle" | "stopped" | "done" | "fail
 /**
  * Which thread: its kind and the key its stream is named by. A teammate's id
  * for a DM, the minted id for a side thread, run or call, and the pair key
- * (see [`crate::paths::thread_key`]) for a pair.
+ * (the core's `paths::thread_key`) for a pair.
  */
 export type ThreadId = { kind: ThreadKind, key: string, };
 

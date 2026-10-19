@@ -1,7 +1,7 @@
 # The wire
 
 One WebSocket per client, carrying commands and subscriptions. Frames are
-JSON text. Types are defined in `crates/hotline-core/src/contract/`; the
+JSON text. Types are defined in `crates/hotline-contract/src/`; the
 door that reads them is `crates/hotline-core/src/wire/`.
 
 The door binds `127.0.0.1` on an ephemeral port. `Door::run` serves until
@@ -98,7 +98,7 @@ Anything else with an id is refused: `"A frame is a command, a subscription or a
 ## Commands
 
 `cmd` is the enum tag, `params` the content. Field names on the wire are
-camelCase. The table is the `Command` enum in `contract/command.rs` and what
+camelCase. The table is the `Command` enum in `hotline-contract`'s `command.rs` and what
 `wire/commands.rs` returns, or `wire/socket.rs` for a command the socket
 answers itself (a phone's, a sign-in's, an upload's).
 

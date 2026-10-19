@@ -48,8 +48,8 @@ Rust that needs Tauri lives.
 ## Layout
 
 ```
+crates/hotline-contract/src/  the wire's types (serde + ts-rs), a file per concern; a leaf crate
 crates/hotline-core/src/
-  contract/                  the wire's types (serde + ts-rs), a file per concern; a leaf
   paths.rs                   the data directory's layout
   log/                       streams: append, fold, segments, subscribe; tapes and threads
   store/                     beside the tape: FTS5 search, chapter list, roster previews
@@ -562,20 +562,25 @@ scratch or the store.
 
 ## The generated contract
 
-Each wire type is defined once in Rust, with serde and ts-rs. Most live in
-`crates/hotline-core/src/contract/`, a file per concern, each re-exported
-from `contract`, which imports nothing else from the crate. The types that
-belong to Remote, linked desks and the importer are defined beside them
-(`remote.rs`, `remote/{client,relay,v2}.rs`, `linked.rs`, `import.rs`) and
-export to the same file. `cargo test -p hotline-core` runs the export tests and writes
-`ui/src/generated/contract.ts`. `.cargo/config.toml` points ts-rs at that
-directory and tells it a 64-bit integer is a JavaScript `number`, because
-every number on this wire arrives as `JSON.parse` produces it.
+Each wire type is defined once in Rust, with serde and ts-rs, in
+`crates/hotline-contract`, a file per concern, each re-exported from its
+`lib.rs`. The crate depends on no other Hotline crate, and `hotline-core`
+re-exports it as `contract`, so `hotline_core::contract::X` names every one;
+the types that belong to Remote, linked desks and the importer are
+re-exported again from those modules. `cargo test -p hotline-contract` runs
+the export tests and writes `ui/src/generated/contract.ts`.
+`.cargo/config.toml` points ts-rs at that directory and tells it a 64-bit
+integer is a JavaScript `number`, because every number on this wire arrives
+as `JSON.parse` produces it.
 
+ts-rs starts the file afresh the first time a test process writes it, so
+every exported type has to live in the one crate: a type exported from
+`hotline-core` would erase the contract crate's types, or be erased by them.
 A filtered run (`cargo test session`) writes only the types it matched
 and leaves a file the window cannot compile against. Run
-`cargo test -p hotline-core` unfiltered before committing that file; `make
-check` and the pre-commit hook catch it. Never run a filtered test as the last run.
+`cargo test -p hotline-contract` unfiltered before committing that file;
+`make check` and the pre-commit hook catch it. Never run a filtered test as
+the last run.
 
 ## The model catalogue
 

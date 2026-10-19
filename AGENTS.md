@@ -42,8 +42,11 @@ file, and if a rule fights the task in front of you, say so before breaking it.
 3. **The generated contract is written by the whole test run.** ts-rs writes
    `ui/src/generated/contract.ts` from the export tests, and a filtered run
    (`cargo test session`) writes only the types it matched, leaving a file
-   the window cannot compile against. Run `cargo test -p hotline-core` unfiltered
-   before committing that file; `make check` catches it, so never skip it.
+   the window cannot compile against. Every exported type lives in
+   `crates/hotline-contract`, because ts-rs starts the file afresh in each
+   test process and a second exporting crate would erase the first's types.
+   Run `cargo test -p hotline-contract` unfiltered before committing that
+   file; `make check` catches it, so never skip it.
 4. **The reference tree is byte-compatible for tapes.** A tape here is
    the same file as a tape there. Do not change the event shapes or the
    segment layout without changing the importer and saying so in the design.

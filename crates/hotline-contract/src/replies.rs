@@ -1,5 +1,5 @@
-//! What the room answers with: thread answers and summaries, targets, schedules
-//! and the roster.
+//! What the room answers with: thread answers and summaries, targets, schedules,
+//! the roster, and what an import did.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -238,4 +238,31 @@ pub struct RunningSide {
     pub started_at: i64,
     /// A turn of the thread is running right now.
     pub working: bool,
+}
+
+/// What an import did: how many of each thing came over, what it left
+/// behind, and notes about things that came over with a caveat.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct Report {
+    pub teammates: i64,
+    pub tapes: i64,
+    pub settings: i64,
+    pub keys: i64,
+    pub threads: i64,
+    pub schedules: i64,
+    pub skipped: Vec<Skipped>,
+    pub notes: Vec<Skipped>,
+}
+
+/// One row the import wants the person to see: left behind (`skipped`)
+/// or imported with a caveat (`notes`). Same shape so the window can
+/// word the list, not the row.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct Skipped {
+    pub item: String,
+    pub reason: String,
 }

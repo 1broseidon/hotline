@@ -15,6 +15,7 @@
 //! so a message can be addressed and queued while the other desk is away.
 
 use crate::contract::{Capabilities, LinkedTeammate, Profile, WorkingOn};
+pub use crate::contract::{DeskLink, DeskLinkState};
 use crate::log::{Log, StreamId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -22,7 +23,6 @@ use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
-use ts_rs::TS;
 
 /// The room stream's kind for a link. Not `link`: thread markers are.
 const KIND: &str = "desk_link";
@@ -266,36 +266,6 @@ fn plausible_profile(profile: Profile) -> Profile {
                 .collect(),
         },
     }
-}
-
-/// How a link is doing, as the Desks section shows it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export, export_to = "contract.ts")]
-pub enum DeskLinkState {
-    /// The channel is open; messages cross now.
-    Connected,
-    /// Not open: the other desk is away, or this one is still reaching it.
-    /// Messages wait in the exchange queue meanwhile.
-    Offline,
-}
-
-/// One linked desk, for `desks.links`.
-#[derive(Clone, Debug, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct DeskLink {
-    pub desk_id: String,
-    pub name: String,
-    /// Whether this desk made the link and dials the other.
-    pub dials: bool,
-    pub state: DeskLinkState,
-    /// Why the channel is not open, when this desk knows.
-    #[ts(optional)]
-    pub error: Option<String>,
-    /// The other desk's teammates, live while connected and as last heard
-    /// of while not.
-    pub teammates: Vec<LinkedTeammate>,
 }
 
 /// Why a call over a link got no answer.

@@ -88,45 +88,6 @@ impl From<SideOpener> for Opener {
     }
 }
 
-impl End {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Person => "person",
-            Self::Agent => "agent",
-            Self::Idle => "idle",
-            Self::Stopped => "stopped",
-            Self::Done => "done",
-            Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
-        }
-    }
-
-    fn parse(name: &str) -> Option<Self> {
-        [
-            Self::Person,
-            Self::Agent,
-            Self::Idle,
-            Self::Stopped,
-            Self::Done,
-            Self::Failed,
-            Self::Cancelled,
-        ]
-        .into_iter()
-        .find(|end| end.name() == name)
-    }
-}
-
-impl From<SideEnd> for End {
-    fn from(end: SideEnd) -> Self {
-        match end {
-            SideEnd::Agent => Self::Agent,
-            SideEnd::Person => Self::Person,
-            SideEnd::Idle => Self::Idle,
-            SideEnd::Stopped => Self::Stopped,
-        }
-    }
-}
-
 impl Link {
     /// The id a new thread's link is written under.
     pub fn fresh_id(thread: &ThreadId) -> String {

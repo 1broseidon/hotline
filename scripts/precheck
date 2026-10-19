@@ -82,12 +82,12 @@ leg_contract() {
   kept="$(mktemp)"
   cp "$file" "$kept"
   rm "$file"
-  cargo test -p hotline-core --lib --locked export_bindings
+  cargo test -p hotline-contract --lib --locked export_bindings
   local tests=$?
   local same=1
   if [ "$tests" -eq 0 ]; then
     if diff -u "$kept" "$file"; then same=0; else
-      echo "precheck: $file is not what the Rust types generate; run cargo test -p hotline-core, unfiltered, and commit the result"
+      echo "precheck: $file is not what the Rust types generate; run cargo test -p hotline-contract, unfiltered, and commit the result"
     fi
   fi
   cp "$kept" "$file"

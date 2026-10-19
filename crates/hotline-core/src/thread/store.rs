@@ -186,7 +186,7 @@ impl ThreadStore {
 
     /// The link at the head of a thread's own stream, as last written.
     fn link(&self, thread: &ThreadId) -> Option<Link> {
-        Link::find(&self.log.load(&thread.stream()?), thread)
+        Link::find(&self.log.load(&StreamId::of_thread(thread)?), thread)
     }
 
     /// A pair, from its sidecar's key. It is `Live` while the room stream

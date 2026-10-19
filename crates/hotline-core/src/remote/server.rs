@@ -485,7 +485,7 @@ pub(super) async fn sealed_session<S>(
         Purpose::RelayAccept | Purpose::Link => {}
         Purpose::Wire | Purpose::Pair => {
             // The role table above admitted only a role the wire seats.
-            let Some(role) = phone.role.seated() else {
+            let Some(role) = super::seated(phone.role) else {
                 return;
             };
             // The wire owns its writer and subscription tasks and must reach

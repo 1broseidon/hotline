@@ -556,7 +556,7 @@ fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
         .into_iter()
         .map(ThreadId::pair)
         .filter_map(|thread| {
-            let stream = thread.stream()?;
+            let stream = StreamId::of_thread(&thread)?;
             Some((thread, stream))
         });
     events
@@ -569,7 +569,7 @@ fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
             )
         })
         .filter_map(|link| {
-            let stream = link.thread.stream()?;
+            let stream = StreamId::of_thread(&link.thread)?;
             Some((link.thread, stream))
         })
         .chain(pairs)

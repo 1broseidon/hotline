@@ -655,7 +655,8 @@ impl InProcess {
                     }
                 }
             }
-            if let Err(mut error) = result {
+            if let Err(error) = result {
+                let mut error = error.checked_against_sign_in(&turn.model, &turn.keys).await;
                 for auth in turn.keys.values() {
                     match auth {
                         ProviderAuth::ApiKey(key)

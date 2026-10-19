@@ -19,7 +19,33 @@ createdAt: "2026-10-19T06:07:00.407Z"
 dependsOn:
   - task-194
   - task-196
-updatedAt: "2026-10-19T06:10:20.929Z"
+updatedAt: "2026-10-19T06:11:04.523Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-store/Cargo.toml
+      description: store, log and sent, on hotline-contract and hotline-support
+  validation:
+    commands:
+      - test -f crates/hotline-store/src/lib.rs
+      - for f in store log sent; do test ! -e crates/hotline-core/src/$f.rs || { echo "$f.rs still in hotline-core"; exit 1; }; done
+      - test -f crates/hotline-core/src/thread.rs
+      - "! grep -qE '^hotline-(core|tools|websearch)' crates/hotline-store/Cargo.toml"
+      - grep -A1 '^\[lints\]' crates/hotline-store/Cargo.toml | grep -q 'workspace = true'
+      - git diff --quiet release/0.41.0...HEAD -- crates/hotline-core/tests/desk.rs crates/hotline-core/tests/desk
+      - grep -q hotline-store docs/standards.md && grep -q hotline-store AGENTS.md
+      - make check
+      - git diff --exit-code ui/src/generated/contract.ts
+      - make precheck
+  constraints:
+    - "Moves only: no behaviour change"
+    - Tapes byte-compatible with the reference tree
+    - thread stays in hotline-core
+    - Desk harness unchanged
+    - contract.ts byte-identical
+  metrics:
+    readyAt: "2026-10-19T06:11:04.523Z"
 ---
 
 ## Description

@@ -1,7 +1,7 @@
 ---
 id: task-221
 title: "Subagents are clones of the home agent: same permission set, a focused start, reaching back with the same tools"
-column: in-progress
+column: review
 position: 17
 priority: high
 tags:
@@ -16,9 +16,9 @@ parentId: epic-20
 createdAt: "2026-10-19T19:59:33.081Z"
 dependsOn:
   - task-220
-updatedAt: "2026-10-19T23:21:04.880Z"
+updatedAt: "2026-10-19T23:56:14.374Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/tests
@@ -36,6 +36,8 @@ contract:
     readyAt: "2026-10-19T20:03:14.742Z"
     pickedUpAt: "2026-10-19T23:21:04.880Z"
     reworkCount: 0
+    deliveredAt: "2026-10-19T23:56:14.374Z"
+    duration: 2109
 dispatch:
   agent: claude
   model: opus

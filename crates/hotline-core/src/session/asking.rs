@@ -1,5 +1,5 @@
 //! A teammate asking a person: permission requests, `ask_human` cards and
-//! their answers, and the cards that expire or are superseded.
+//! their answers, and the cards that expire, are withdrawn or are superseded.
 
 use super::*;
 
@@ -142,6 +142,7 @@ impl Room {
                 status: HumanActionStatus::Pending,
                 note: None,
                 delivers: None,
+                expires_at: None,
                 thread: None,
             },
         );
@@ -166,12 +167,16 @@ impl Room {
     /// Posts a `human_action` card and returns: the asking turn goes on,
     /// and the person's answer comes back to the teammate as a delivery
     /// whenever they give it (see [`Room::answer_human`]). The card is the
-    /// record, so it outlives the turn, a stop, and a restart.
+    /// record, so it outlives the turn, a stop, and a restart. It stays up
+    /// [`ASK_HOURS`], or the `hours` the teammate asked for up to
+    /// [`ASK_MAX_HOURS`], and the teammate is handed its id so it can take
+    /// the card back with [`Room::withdraw_human`].
     pub fn ask_human(
         &self,
         persona_id: &str,
         reason: &str,
         home: Option<&str>,
+        hours: Option<u32>,
     ) -> Result<String, String> {
         self.persona(persona_id)?;
         let reason = reason.trim();
@@ -179,6 +184,8 @@ impl Room {
             return Err("request_human needs a `reason` of at least three characters.".to_string());
         }
         let reason: String = reason.chars().take(500).collect();
+        let hours = hours.unwrap_or(ASK_HOURS).clamp(1, ASK_MAX_HOURS);
+        let ts = now_ms();
         let action_id = new_id();
         self.link_handoff_human(home, &action_id)?;
         self.write_home(
@@ -186,12 +193,13 @@ impl Room {
             home,
             &TranscriptEvent::HumanAction {
                 id: format!("human:{action_id}"),
-                ts: now_ms(),
+                ts,
                 action_id: action_id.clone(),
                 reason: reason.clone(),
                 status: HumanActionStatus::Pending,
                 note: None,
                 delivers: Some(true),
+                expires_at: Some(ts + i64::from(hours) * 60 * 60_000),
                 thread: home.map(str::to_string),
             },
         );
@@ -200,9 +208,38 @@ impl Room {
             &self.needs_you(persona_id),
             &reason,
             persona_id,
-            Some(crate::push::Waiting::Human { action_id }),
+            Some(crate::push::Waiting::Human {
+                action_id: action_id.clone(),
+            }),
         );
-        Ok("Asked. The card is in front of the person now. Their answer, and anything they type with it, will arrive later as its own message in this conversation. Carry on with whatever does not depend on it; if nothing does, say what you are waiting for and end your reply.".to_string())
+        let lasts = if hours == 1 {
+            "an hour".to_string()
+        } else {
+            format!("{hours} hours")
+        };
+        Ok(format!(
+            "Asked. The card is in front of the person now, and stays up for {lasts} unless they answer it. Their answer, and anything they type with it, will arrive later as its own message in this conversation. Carry on with whatever does not depend on it; if nothing does, say what you are waiting for and end your reply. This request's id is `{action_id}`: if you stop needing it, because you found another way or the work moved on, call withdraw_request with that id so the person is no longer asked."
+        ))
+    }
+
+    /// Takes down a card that delivers because the teammate that raised it
+    /// no longer needs the person. The card is looked up among the caller's
+    /// own, so a teammate can withdraw nothing but its own; it is superseded
+    /// as withdrawn and nothing is delivered back. Held under the same lock
+    /// as an answer, so an answer and a withdrawal racing settle it once.
+    pub fn withdraw_human(&self, persona_id: &str, action_id: &str) -> Result<(), String> {
+        let _answering = lock(&self.answering_later);
+        let Some(TranscriptEvent::HumanAction {
+            status: HumanActionStatus::Pending,
+            delivers: Some(true),
+            ..
+        }) = self.human_card(persona_id, action_id)
+        else {
+            return Err("No request of yours is waiting under that id: it was answered, expired or withdrawn already, or it is not an id request_human gave you.".to_string());
+        };
+        self.unlink_handoff_human(persona_id, action_id)?;
+        self.supersede_human(persona_id, action_id, HumanActionStatus::Withdrawn, None);
+        Ok(())
     }
 
     /// Resolves a `request_human` card and supersedes it.
@@ -348,10 +385,11 @@ impl Room {
         }
     }
 
-    /// Cards that deliver and have waited [`ASK_TTL`] without an answer:
-    /// expired, and the teammate told, so neither the card nor the
-    /// teammate's "waiting on you" stays up forever.
-    pub(super) fn expire_stale_asks(self: &Arc<Self>, now: i64) {
+    /// Cards that deliver and have outlived their lifetime without an
+    /// answer: expired, and the teammate told, so neither the card nor the
+    /// teammate's "waiting on you" stays up forever. A card from before
+    /// cards carried `expiresAt` lives [`ASK_HOURS`] from when it was asked.
+    pub(crate) fn expire_stale_asks(self: &Arc<Self>, now: i64) {
         for persona in crate::room::roster(&self.log) {
             let cards = self
                 .tape(&persona.id)
@@ -364,13 +402,15 @@ impl Room {
                     reason,
                     status: HumanActionStatus::Pending,
                     delivers: Some(true),
+                    expires_at,
                     thread,
                     ..
                 }) = serde_json::from_value::<TranscriptEvent>(event)
                 else {
                     continue;
                 };
-                if now - ts < ASK_TTL {
+                let expires_at = expires_at.unwrap_or(ts + i64::from(ASK_HOURS) * 60 * 60_000);
+                if now < expires_at {
                     continue;
                 }
                 let _answering = lock(&self.answering_later);
@@ -468,6 +508,7 @@ impl Room {
             id,
             reason,
             delivers,
+            expires_at,
             thread,
             ..
         } = card
@@ -485,6 +526,7 @@ impl Room {
                 status,
                 note,
                 delivers,
+                expires_at,
                 thread: thread.clone(),
             },
         );
@@ -534,7 +576,7 @@ fn human_outcome(answer: HumanAnswered) -> String {
     let outcome = match answer.status {
         HumanActionStatus::Done => "The person answered.",
         HumanActionStatus::Dismissed => "The person declined.",
-        HumanActionStatus::Expired | HumanActionStatus::Pending => {
+        HumanActionStatus::Expired | HumanActionStatus::Pending | HumanActionStatus::Withdrawn => {
             return "Nobody answered in ten minutes.".to_string();
         }
     };

@@ -81,6 +81,7 @@ const AFTERLIFE: Record<HumanActionStatus, string> = {
 	done: "Done",
 	dismissed: "Declined",
 	expired: "Expired",
+	withdrawn: "Withdrawn",
 };
 
 /**

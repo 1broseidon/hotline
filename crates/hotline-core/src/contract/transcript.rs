@@ -149,10 +149,18 @@ pub enum TranscriptEvent {
         /// The asking turn did not wait: the answer comes back to the
         /// teammate as a [`TranscriptEvent::Delivery`], whenever it comes.
         /// Such a card is not orphaned by a restart or a stop, because
-        /// nothing was parked on it; only the person, or a day going by,
-        /// settles it. Absent on a card a tool is waiting on.
+        /// nothing was parked on it; only the person, its lifetime running
+        /// out, or the teammate withdrawing it settles it. Absent on a card a
+        /// tool is waiting on.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         delivers: Option<bool>,
+        /// When a card that delivers is taken down unanswered, in ms. The
+        /// teammate chose how long it waits, up to a day, when it asked, and
+        /// a restart must keep that choice, so it is on the card. Absent on a
+        /// card a tool is waiting on, and on one written before cards carried
+        /// it, which lives the default lifetime from its `ts`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expires_at: Option<i64>,
         /// The work thread the card was raised in, when it was raised in one:
         /// the card is on that thread's stream and not on the tape, and the
         /// answer goes back to that thread's agent. Absent on the tape's own.
@@ -534,7 +542,7 @@ pub enum DeliveryCause {
         about: String,
     },
     /// The person answered a `request_human` card the teammate did not wait
-    /// on, or a day went by without an answer (`expired`). `text` is the
+    /// on, or its lifetime ran out without an answer (`expired`). `text` is the
     /// note they typed with it, or empty.
     Answer {
         action_id: String,
@@ -734,6 +742,9 @@ pub enum HumanActionStatus {
     Done,
     Dismissed,
     Expired,
+    /// The teammate took the card back with `withdraw_request`: it no longer
+    /// needs the person, so nothing goes back to it.
+    Withdrawn,
 }
 
 /// Where a passkey card stands: waiting for the person, answered either

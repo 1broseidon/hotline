@@ -352,6 +352,7 @@ mod tests {
                 status: HumanActionStatus::Pending,
                 note: None,
                 delivers: None,
+                expires_at: None,
                 thread: None,
             },
         ];

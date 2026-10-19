@@ -1,8 +1,6 @@
 ---
 id: task-221
 title: "Subagents are clones of the home agent: same permission set, a focused start, reaching back with the same tools"
-column: review
-position: 17
 priority: high
 tags:
   - threads
@@ -16,7 +14,7 @@ parentId: epic-20
 createdAt: "2026-10-19T19:59:33.081Z"
 dependsOn:
   - task-220
-updatedAt: "2026-10-19T23:56:20.089Z"
+updatedAt: "2026-10-19T23:57:54.356Z"
 contract:
   status: delivered
   deliverables:
@@ -53,6 +51,7 @@ dispatch:
     at: "2026-10-19T23:20:52.686Z"
     ended: "2026-10-19T23:56:20.089Z"
     outcome: review
+completedAt: "2026-10-19T23:57:54.356Z"
 ---
 
 ## Description
@@ -70,3 +69,4 @@ How to work: run make check in the foreground with a generous timeout and wait f
 
 ## Log
 - 2026-10-19T23:56:14.043Z: [claude] Done on dispatch/task-221 (merged release/0.41.0, make check green). Runs and jobs are clones (ADR 0008 §0): clone_of (session/agent.rs) gives the home session's live model and effort and the record's permission set, narrowed by `without` (contract Ability: computer, folders, mcp_servers) on the subagent tool and the schedule/loop tools, kept on ScheduledJob.without (an unreadable list leaves everything out). Policy Run and Job rows are Computer::Lease. Leases unchanged and never wider: a run is scoped from the asking session, a job from the teammate's authority. RUN_TOOLS is now the reading set (search_thread, list_chapters, list_teammates, list_schedules, computer_status, web_search). JOB_TOOLS is gone: a job has the home thread's tools minus JOB_WITHOUT (chapter moves, react, open_link, schedule, loop). Cards and replies route by the tools' ThreadId: a job's request_human card is written on jobs/<id>.jsonl, human_card returns (card, thread) found by location, and answers and message_teammate replies (Request.reply_job) come back through Room::deliver_into_job while the job lives, else to the DM. runner.rs takes a Brief, runs on ACP too, refuses a non-Now/Asker brief, and uses the teammate's preamble plus a run brief. The search rebuild finds job threads from the room stream's jobs (jobs_of in hotline-store search.rs). Tests: tests/schedule/clones.rs (over the wire: subagent and job reach back, folders narrowed, job card round trip, search after an index rebuild), plus unit tests in runs.rs, scheduled.rs, agent.rs and search.rs. security.md has a new "Clones of the home agent" section and matrix row. Left unwired: nothing starts a Hotline run for an ACP teammate yet (voice slice 6's work tool is the caller; an ACP harness's own subagents are still mirrored); the person's schedule.create on the wire takes no `without`; the Jobs group does not show `without`; a job's card push names no thread (notify_in gets None, so it opens the DM); a job delivery written just before a restart is not re-queued at startup as a side's is (exchange replies are re-sent by exchange recovery).
+- 2026-10-19T23:57:53.973Z: Landed on release/0.41.0

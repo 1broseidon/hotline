@@ -23,7 +23,7 @@ relatedFiles:
   - docs/design.md
 parentId: epic-17
 createdAt: "2026-10-19T13:59:37.690Z"
-updatedAt: "2026-10-19T20:02:26.422Z"
+updatedAt: "2026-10-19T20:02:49.756Z"
 contract:
   status: ready
   deliverables:
@@ -51,6 +51,14 @@ contract:
     - Never kill by name, path or port; use HOTLINE_DATA_DIR for any manual run
   metrics:
     readyAt: "2026-10-19T20:02:26.422Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T20:02:49.610Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

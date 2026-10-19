@@ -11,7 +11,7 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:56.313Z"
 relatedFiles:
   - crates/hotline-app/src/desks.rs
-updatedAt: "2026-10-19T00:41:17.206Z"
+updatedAt: "2026-10-19T00:41:25.877Z"
 contract:
   status: delivered
   deliverables:
@@ -41,6 +41,8 @@ dispatch:
     runner: cli
     pid: 59290
     at: "2026-10-19T00:34:01.867Z"
+    ended: "2026-10-19T00:41:25.877Z"
+    outcome: review
 assignee: claude
 ---
 

@@ -589,6 +589,7 @@ pub(crate) async fn run(
             every,
             prompt,
             quiet,
+            reminder,
         } => room
             .schedule_create(
                 &persona_id,
@@ -597,6 +598,7 @@ pub(crate) async fn run(
                 every,
                 &prompt,
                 quiet.unwrap_or(false),
+                reminder.unwrap_or(false),
             )
             .map(|job| json!(job)),
         Command::ScheduleList {} => Ok(json!(room.schedule_list())),

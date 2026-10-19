@@ -410,9 +410,10 @@ impl RoomHandle for Computered {
         every: Option<i64>,
         prompt: &str,
         quiet: bool,
+        reminder: bool,
     ) -> Result<crate::contract::ScheduledJob, String> {
         self.desk
-            .schedule_create(persona_id, kind, when, every, prompt, quiet)
+            .schedule_create(persona_id, kind, when, every, prompt, quiet, reminder)
     }
     fn schedule_list(&self) -> Vec<crate::contract::ScheduledJob> {
         self.desk.schedule_list()

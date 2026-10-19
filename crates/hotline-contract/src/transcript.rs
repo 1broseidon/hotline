@@ -619,13 +619,17 @@ pub enum ScheduleKind {
     Loop,
 }
 
-/// Work a teammate has asked Hotline to wake it for later.
+/// Work a teammate has asked Hotline to do later: a job (ADR 0008 §7).
 ///
-/// `schedule` is once. `loop` is every `every` milliseconds until cancelled.
-/// `nextAt` is the next fire, so the window can say when without doing the
-/// math. Jobs live on the room stream as events of kind `schedule`; that
-/// event kind is the stream's, not this `kind`, and a loop is recovered from
-/// `every` being present. A delete is a tombstone.
+/// `schedule` is once. `loop` is every `every` milliseconds until cancelled
+/// or until its end. `nextAt` is the next fire, so the window can say when
+/// without doing the math. Each firing is a turn on the job's own thread
+/// (`ThreadId::job(id)`), never the teammate's DM; a reminder is posted to the
+/// DM as it is and has no thread. Jobs live on the room stream as events of
+/// kind `schedule`; that event kind is the stream's, not this `kind`, and a
+/// loop is recovered from `every` being present. An ended job stays on the
+/// stream with `endedAt`, so its thread is still listed; a delete is a
+/// tombstone.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
@@ -640,10 +644,25 @@ pub struct ScheduledJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub every: Option<i64>,
     pub prompt: String,
-    /// The user asked this job for nothing in the chat. Absent means it
-    /// speaks. Stored only when true, so "not quiet" has one representation.
+    /// The report policy: the job posts to the chat only what is worth
+    /// telling, and a firing that finds nothing says nothing there. Absent
+    /// means each firing's report is posted. Stored only when true, so "not
+    /// quiet" has one representation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quiet: Option<bool>,
+    /// A plain reminder: the prompt is posted to the chat as it is when the
+    /// job fires, and no work is done. Stored only when true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reminder: Option<bool>,
+    /// The goal the job ends itself on reaching, with a final post.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goal: Option<String>,
+    /// The last moment a loop fires, milliseconds since epoch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub until: Option<i64>,
+    /// How many more times a loop fires.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub times: Option<u32>,
     /// True only when the authenticated desk created this job. Jobs created by
     /// a teammate, and jobs written by older versions without provenance,
     /// require that teammate's current background-work grant at every wake.
@@ -651,6 +670,22 @@ pub struct ScheduledJob {
     pub operator_created: bool,
     pub next_at: i64,
     pub created_at: i64,
+    /// What the job last posted to the chat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_post: Option<JobPost>,
+    /// When the job ended: it fires no more, and its thread stays readable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<i64>,
+}
+
+/// A job's latest post to the chat, for the listing to draw.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "contract.ts")]
+pub struct JobPost {
+    pub at: i64,
+    /// The post's first words, clipped for a line.
+    pub text: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]

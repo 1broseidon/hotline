@@ -100,7 +100,6 @@ impl Room {
                         _ => text.to_string(),
                     },
                     attachments: attachments.clone().unwrap_or_default(),
-                    scheduled: None,
                     steer: !crate::wire::commands::from_voice()
                         || crate::wire::commands::voice_origin()
                             .is_some_and(|origin| origin.direct),
@@ -116,39 +115,6 @@ impl Room {
                     retry: false,
                 },
                 attachments,
-            },
-        )
-        .await;
-        Ok(())
-    }
-
-    /// A schedule firing, down the same funnel as everything else — with two
-    /// differences the tape can see.
-    ///
-    /// The agent hears the framed prompt, which says which job woke it; the
-    /// transcript keeps the bare prompt and the stamp naming that job, so the
-    /// conversation can draw one line instead of a wall. And if the job is
-    /// quiet, this is where the window over its turn opens.
-    pub async fn prompt_scheduled(
-        self: &Arc<Self>,
-        persona_id: &str,
-        prompt: &str,
-        run: ScheduledRun,
-    ) -> Result<(), String> {
-        let _working = self.working()?;
-        let (session, _held) = self.in_this_chapter(persona_id).await?;
-        if !schedule::scheduled_run_allowed(&self.log, persona_id, &run) {
-            return Err("Background work is not granted for this teammate.".to_string());
-        }
-        let mut wire = Wired::words(scheduled_wire_text(&run, prompt));
-        wire.scheduled = Some(run.clone());
-        mark(&session.pending_scheduled, run);
-        self.say(
-            &session,
-            Sending {
-                shown: prompt.to_string(),
-                wire,
-                attachments: None,
             },
         )
         .await;
@@ -754,60 +720,11 @@ impl PendingTool {
     }
 }
 
-/// What the tape writes down in place of the event the room handed it.
-///
-/// Order matters: a new speaker closes any window that is open, and only then
-/// may a scheduled firing open one of its own.
+/// What the tape writes down in place of the event the room handed it: a
+/// person's line, with the message it answers.
 pub(super) fn stamped(session: &Session, mut event: TranscriptEvent, now: i64) -> TranscriptEvent {
     if let TranscriptEvent::User { reply_to, .. } = &mut event {
         *reply_to = take_fresh(&session.pending_reply, now);
     }
-    let event = through_quiet(session, event, now);
-    stamp_scheduled(session, event, now)
-}
-
-/// Runs an event past an open quiet window, which may rewrite it or close.
-fn through_quiet(session: &Session, event: TranscriptEvent, now: i64) -> TranscriptEvent {
-    let mut held = lock(&session.quiet);
-    let Some(window) = held.take() else {
-        return event;
-    };
-    let (window, event) = quiet::step(window, event, now);
-    *held = window;
     event
-}
-
-/// Claims a pending firing for the user line it woke, opening its silence.
-fn stamp_scheduled(session: &Session, mut event: TranscriptEvent, now: i64) -> TranscriptEvent {
-    if let TranscriptEvent::User { scheduled, .. } = &mut event
-        && let Some(run) = take_fresh(&session.pending_scheduled, now)
-    {
-        // A firing that lands mid-turn is queued behind the turn already
-        // running, so the first boundary to arrive belongs to that turn and
-        // not to this one. The turn in flight is what `running` says, which is
-        // set as the line is dispatched — after this line reaches the tape.
-        let busy = lock(&session.turns).running;
-        *lock(&session.quiet) = quiet::open_window(&run, busy, now);
-        *scheduled = Some(run);
-    }
-    event
-}
-
-/// The framing the agent reads when a schedule wakes it.
-///
-/// A quiet run's says `quiet` and asks nothing of it: the window in [`quiet`]
-/// does not need the agent's cooperation, and asking for it is exactly how
-/// "No change — staying silent per protocol" ended up in someone's chat. The
-/// word is there so the agent knows what `post_to_chat` says of it: nobody
-/// sees its replies, and a post is its one way to the person.
-fn scheduled_wire_text(run: &ScheduledRun, prompt: &str) -> String {
-    let waking = match run.kind {
-        ScheduleKind::Loop => "loop",
-        ScheduleKind::Schedule => "scheduled",
-    };
-    if run.quiet == Some(true) {
-        format!("quiet {waking} · {prompt}")
-    } else {
-        format!("{waking} · {prompt}")
-    }
 }

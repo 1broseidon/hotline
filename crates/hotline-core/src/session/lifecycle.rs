@@ -7,16 +7,16 @@
 //! This module is where they are, once:
 //!
 //! - **The sweep.** [`Room::sweep`] is run on the room's clock and applies
-//!   every kind's `idle` policy. A side thread is parked there. A run is
-//!   never idle-ended, and a call that nobody has spoken on for ten minutes is
-//!   ended. The DM's row is its chapters ([`Idle::Chapters`]), which the sweep
+//!   every kind's `idle` policy. A side thread is parked there, and so is a
+//!   job's agent the person kept talking to. A run is never idle-ended, and a
+//!   call that nobody has spoken on for ten minutes is ended. The DM's row is its chapters ([`Idle::Chapters`]), which the sweep
 //!   closes through `sweep_chapters`: a chapter's close is awaited, a note being
 //!   a model call, so it is the one row the sweep awaits.
 //! - **The settle.** [`Room::settle`] is run once as the room opens. The last
 //!   process's agents died with it, so a card it left open is expired and a
 //!   thread it left live is moved by its kind's `restart` policy: a side
-//!   thread is parked, a run is closed as cancelled, and a call is closed as
-//!   stopped, its transcript kept. A peer exchange the
+//!   thread or a job's is parked, a run is closed as cancelled, and a call is
+//!   closed as stopped, its transcript kept. A peer exchange the
 //!   process was answering is told to its sender by `reconcile_exchanges`,
 //!   which the settle calls.
 //! - **The closing note.** [`Room::queue_closing_note`] writes a thread's note
@@ -80,6 +80,7 @@ impl Room {
             ThreadKind::Run,
             ThreadKind::Call,
             ThreadKind::Pair,
+            ThreadKind::Job,
         ] {
             for quiet in self.quiet(kind) {
                 if quiet.working {
@@ -147,6 +148,15 @@ impl Room {
                     working,
                 })
                 .collect(),
+            ThreadKind::Job => self
+                .idle_jobs()
+                .into_iter()
+                .map(|(thread, since, working)| Quiet {
+                    thread,
+                    since,
+                    working,
+                })
+                .collect(),
             ThreadKind::Dm => Vec::new(),
         }
     }
@@ -170,6 +180,8 @@ impl Room {
             // A pair's agent is stopped; the thread is the stream, and the next
             // exchange reads it again.
             ThreadKind::Pair => self.park_peer(&thread.key),
+            // A job's agent is let go of; the job goes on firing.
+            ThreadKind::Job => self.park_job(&thread.key),
             ThreadKind::Run | ThreadKind::Dm => {}
         }
     }
@@ -199,6 +211,7 @@ impl Room {
             .chain(std::iter::once(crate::voice::TAPE_ID.to_string()))
             .collect();
         let mut closed = Vec::new();
+        self.settle_jobs(now);
         // The room goes with them: every rewrite of a roster entry or a
         // setting is a new line under the same id, and nothing else ever
         // folds the file back down.

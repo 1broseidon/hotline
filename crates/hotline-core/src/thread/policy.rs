@@ -79,6 +79,9 @@ pub enum Tools {
     Work,
     /// A subagent run's: its teammate's conversation to read, no subagents.
     Run,
+    /// A job's: a work thread's, addressed by the job's id, so it can end
+    /// itself with its report.
+    Job,
     /// What a peer session answers a colleague with.
     Peer,
     /// None: the thread has no agent of its own.
@@ -223,6 +226,18 @@ impl Policy {
                 idle: Idle::Never,
                 restart: Restart::Close(End::Cancelled),
                 ..Self::unattended(Tools::Run, Lease::Scoped)
+            },
+            // A job is a subagent on a schedule that the person can open and
+            // talk to. It starts from its running note, not its history, and
+            // is listed with the teammate's jobs rather than drawn on the DM.
+            // Its lease is a run's for now; the clone model is task-221's.
+            ThreadKind::Job => Self {
+                tools: Tools::Job,
+                lease: Lease::Scoped,
+                idle: Idle::Park(QUIET_MS),
+                restart: Restart::Park,
+                resume: Resume::Binding,
+                ..Self::asked_of_the_person()
             },
         }
     }

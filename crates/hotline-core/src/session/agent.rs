@@ -450,6 +450,7 @@ fn preamble_of(
     } = joining;
     match kind {
         ThreadKind::Run => super::runner::run_preamble(persona, reach),
+        ThreadKind::Job => super::job_thread::job_preamble(persona, reach, stored),
         // The DM's: what it needs to know of the chapter it joins, and of its
         // computer, is the note.
         ThreadKind::Dm => super::preamble(persona, reach, note, stored),
@@ -475,6 +476,7 @@ fn tools_of(
         Tools::Teammate => tools.with_subagents(),
         Tools::Work => tools.for_work(thread.key.clone()),
         Tools::Run => tools.for_run(),
+        Tools::Job => tools.for_job(thread.key.clone()),
         Tools::Peer => tools.for_peer(thread.clone()),
         Tools::None => tools,
     }

@@ -5,16 +5,15 @@
 //! own is here, because it is what a person talking to a teammate has that no
 //! other thread does:
 //!
-//! - **What a line is.** A [`Wired`] line carries what a schedule, a call, a
-//!   delivery or a person stamped on it: whether it may steer a turn in flight,
-//!   the user line it was written as (so the tape can be told when the agent has
-//!   read it), the thread it came from, and a firing's authority, which travels
-//!   with the queued turn.
+//! - **What a line is.** A [`Wired`] line carries what a call, a delivery or
+//!   a person stamped on it: whether it may steer a turn in flight, the user
+//!   line it was written as (so the tape can be told when the agent has read
+//!   it), and the thread it came from.
 //! - **The door of a turn.** A colleague's result is heard once, and one the
-//!   exchange has since stopped never; a firing that was cancelled while it
-//!   waited is not run; work the agent took up by itself is read, not prompted.
+//!   exchange has since stopped never; work the agent took up by itself is
+//!   read, not prompted.
 //! - **The witness.** [`Heard`] writes what the agent does onto the tape,
-//!   through the stamps a prompt left and the quiet window of a schedule, marks
+//!   through the stamps a prompt left, marks
 //!   the person's lines read, keeps the session's checkpoint, says a reply to a
 //!   call and to the phone, and steers: a line said to a driver that takes
 //!   input mid-turn is handed to it when it arrives. On a turn said on a call
@@ -25,8 +24,9 @@
 //!   [`super::runner::drive_updates`]).
 //! - **The end of a turn.** What the driver did not take is queued again in its
 //!   order.
-//! - **Posting.** Its turn is open for `post_to_chat` only while it is a
-//!   quiet scheduled run, whose replies nobody sees ([`super::post`]).
+//! - **Posting.** Its turn is open for `post_to_chat`, which refuses it: its
+//!   reply is already the chat ([`super::post`]). A job's firing is a turn of
+//!   its own thread, never the DM's ([`super::job_thread`]).
 //!
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
@@ -34,8 +34,8 @@
 use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
-use super::{Glance, Room, Session, Wired, call_origin, lock, now_ms, quiet, schedule};
-use crate::contract::{Reach, ScheduledRun, SessionState, TranscriptEvent};
+use super::{Glance, Room, Session, Wired, call_origin, lock};
+use crate::contract::{Reach, SessionState, TranscriptEvent};
 use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::{MessageKind, Update};
 use crate::room;
@@ -49,8 +49,6 @@ pub(super) struct Hold {
     reach: Reach,
     /// Whether the line came from a voice, which decides how the reply is said.
     from_voice: bool,
-    /// A quiet run's replies are thinking; it is heard only by posting.
-    quiet_run: Option<ScheduledRun>,
     /// The lines the driver took mid-turn, in the order it took them.
     steered: Vec<Wired>,
 }
@@ -71,8 +69,8 @@ impl Occupant for Session {
         ThreadId::dm(&self.persona_id)
     }
 
-    fn holder(&self) -> &crate::computer::gate::Holder {
-        &self.holder
+    fn holder(&self) -> crate::computer::gate::Holder {
+        self.holder.clone()
     }
 
     fn answering(self: &Arc<Self>, room: &Room) -> bool {
@@ -111,19 +109,9 @@ impl Occupant for Session {
             session.abandon();
             return Begin::Stop;
         }
-        if wired.scheduled.as_ref().is_some_and(|run| {
-            !schedule::scheduled_run_allowed(&room.log, &session.persona_id, run)
-        }) {
-            return Begin::Skip;
-        }
         if let Some(said) = wired.said.clone() {
             lock(&session.unread).push(said);
         }
-        // A quiet run's replies are thinking; it is heard only by posting.
-        let quiet_run = wired
-            .scheduled
-            .clone()
-            .filter(|run| run.quiet == Some(true));
         let from_voice = wired.spoken;
         let source = if let Some(unprompted) = &wired.unprompted {
             let Some(updates) = lock(&unprompted.0).take() else {
@@ -145,14 +133,13 @@ impl Occupant for Session {
             source: Some(source),
             reach,
             from_voice,
-            quiet_run,
             steered: Vec::new(),
         })
     }
 
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut Hold) -> Driven {
         let source = held.source.take().expect("a turn is taken once");
-        let _posting = room.open_posting(&self.thread(), held.quiet_run.clone());
+        let _posting = room.open_posting(&self.thread(), None);
         let mut heard = Heard {
             room,
             session: self,
@@ -277,15 +264,12 @@ impl Witness for Heard<'_> {
             }
             // A phone hears a turn's reply once the driver is done with the
             // line ([`Room::send_glance`]), and a question the agent cannot go
-            // on without the moment it is asked. A quiet schedule's reply is
-            // demoted to a thought and says nothing anywhere.
+            // on without the moment it is asked.
             Update::Message {
                 kind: MessageKind::Agent,
                 id,
                 text,
-            } if !quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms())
-                && !text.trim().is_empty() =>
-            {
+            } if !text.trim().is_empty() => {
                 // narration::Voice has committed this as an acknowledgement or
                 // report. On a call to this teammate it is said now rather than
                 // when tool work ends: the words already said as it streamed
@@ -341,13 +325,6 @@ impl Witness for Heard<'_> {
     }
 
     fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
-        // A muted turn must not run the writing indicator for a message
-        // that will never land, so the delta is demoted with the event it
-        // is building; and after the acknowledgement a message may turn
-        // out to be narration, so it streams as thinking too.
-        let muted = muted
-            || (kind == MessageKind::Agent
-                && quiet::mutes_deltas(lock(&self.session.quiet).as_ref(), now_ms()));
         // Words the window types as they come are said as they come, from
         // what the agent wrote, tags and all; a message that may yet turn out
         // to be narration waits to be whole.

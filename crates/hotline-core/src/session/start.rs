@@ -148,11 +148,9 @@ impl Room {
             input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
             pending_posts: Mutex::new(Vec::new()),
-            pending_scheduled: Mutex::new(None),
             unread: Mutex::new(Vec::new()),
             voice_origin: Mutex::new(None),
             dispatched_deliveries: Mutex::new(HashSet::default()),
-            quiet: Mutex::new(None),
             glance: Mutex::new(None),
             pending_checkpoint: Mutex::new(
                 reported.session_id.filter(|_| !reported.context_restored),
@@ -218,6 +216,7 @@ impl Room {
         }
         self.drop_peer_sessions(persona_id);
         self.drop_sides(persona_id);
+        self.let_go_of_jobs(Some(persona_id));
         self.revoke_exchanges(persona_id);
         self.settle_collaboration(persona_id);
         self.settle_permissions(persona_id);
@@ -267,6 +266,7 @@ impl Room {
         }
         self.peers.invalidate_all();
         self.drop_all_sides();
+        self.let_go_of_jobs(None);
         self.settle_all_collaboration();
         for session in sessions {
             self.settle_permissions(&session.persona_id);
@@ -294,10 +294,12 @@ impl Room {
     /// Ends the session. The teammate keeps its tape; what stops is the agent.
     ///
     /// The person stopping a teammate ends its side threads with it: they are
-    /// its agent, and nothing is left to answer in them.
+    /// its agent, and nothing is left to answer in them. Its jobs' agents are
+    /// let go of too; the jobs go on firing.
     pub fn stop(&self, persona_id: &str) -> Result<(), String> {
         self.stop_session(persona_id);
         self.drop_sides(persona_id);
+        self.let_go_of_jobs(Some(persona_id));
         Ok(())
     }
 

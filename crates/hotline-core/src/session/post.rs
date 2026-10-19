@@ -3,14 +3,10 @@
 //! The DM is the log of truth: whatever a teammate gives the person reaches
 //! it, wherever the teammate was when it said so. Anything not said in a turn
 //! of the DM itself comes in through [`Room::post`] — a call's summary or what
-//! the call was asked to put in the chat, a quiet run's note, a file sent from
-//! a work thread — as one `agent` message stamped with where it came from, so
-//! a client draws "From the call" from the stamp rather than from words in
-//! the text.
-//!
-//! It never passes through the DM's quiet window. That window turns the
-//! teammate's words into thinking by kind, and this is the one way a quiet
-//! run is heard.
+//! the call was asked to put in the chat, a job's report or reminder, a file
+//! sent from a work thread — as one `agent` message stamped with where it
+//! came from, so a client draws "From the call" from the stamp rather than
+//! from words in the text.
 //!
 //! An agent asks for it with `post_to_chat`, one of Hotline's own tools, so an
 //! ACP child reaches it over the desk's MCP server and Hotline Agent through
@@ -21,7 +17,7 @@
 //! opens a [`Posting`] while it runs, and a call that lands outside one is
 //! refused.
 
-use super::{Room, Wired, lock, new_id, now_ms, quiet, timed};
+use super::{Room, Wired, lock, new_id, now_ms, timed};
 use crate::contract::{
     Attachment, DeliveryFrom, ScheduledRun, ThreadId, ThreadKind, TranscriptEvent,
 };
@@ -38,17 +34,14 @@ pub(crate) const POST_CHARS: usize = 2_000;
 /// reading that turn's reply.
 const LOUD: &str = "Your reply here is already the chat: say it in your reply.";
 
-/// What `post_to_chat` says to a second call in one turn, the wording the
-/// quiet run's one note always had.
+/// What `post_to_chat` says to a second call in one turn.
 pub(super) const AGAIN: &str =
     "Already posted: one per turn. Put everything in that one next time.";
 
 /// What a turn of a thread's agent may post, and whether it has.
 pub(super) struct Posting {
-    /// The job a quiet scheduled run of the DM is: the one DM turn whose
-    /// replies nobody sees, and so the one that may post. Its post carries the
-    /// job's stamp.
-    quiet: Option<ScheduledRun>,
+    /// The job whose thread the turn is on: its posts carry the job's stamp.
+    job: Option<ScheduledRun>,
     posted: bool,
 }
 
@@ -59,7 +52,7 @@ pub(super) enum Turn {
     /// The DM's own turn, which the person reads: its reply is the chat.
     Loud,
     /// A turn whose one post has just been taken, with the job when it is a
-    /// quiet run's.
+    /// job's.
     Taken(Option<ScheduledRun>),
 }
 
@@ -81,7 +74,7 @@ pub(crate) struct Post {
     pub id: String,
     pub text: String,
     pub attachments: Option<Vec<Attachment>>,
-    /// The job, when a scheduled run posted it.
+    /// The job, when a job posted it.
     pub scheduled: Option<ScheduledRun>,
 }
 
@@ -98,21 +91,14 @@ impl Post {
 
 impl Room {
     /// Opens `thread`'s turn for `post_to_chat`, for as long as the answer is
-    /// held. `quiet` is the job when the turn is a quiet scheduled run of the
-    /// DM. A thread takes one turn at a time, so the turn opened here is the
-    /// thread's only one.
+    /// held. `job` is the job when the thread is a job's. A thread takes one
+    /// turn at a time, so the turn opened here is the thread's only one.
     pub(super) fn open_posting(
         &self,
         thread: &ThreadId,
-        quiet: Option<ScheduledRun>,
+        job: Option<ScheduledRun>,
     ) -> PostingTurn<'_> {
-        lock(&self.posting).insert(
-            thread.clone(),
-            Posting {
-                quiet,
-                posted: false,
-            },
-        );
+        lock(&self.posting).insert(thread.clone(), Posting { job, posted: false });
         PostingTurn {
             room: self,
             thread: thread.clone(),
@@ -123,10 +109,10 @@ impl Room {
     /// gate, then [`Room::post`].
     ///
     /// Any thread of the teammate's may post but two. The DM's own turn is
-    /// refused, because its reply is already the chat, unless it is a quiet
-    /// scheduled run, whose replies nobody sees. A subagent run is refused,
-    /// because it reports to the agent that launched it, which decides what
-    /// the person hears. One post a turn, and so one wake; the post goes to
+    /// refused, because its reply is already the chat. A subagent run is
+    /// refused, because it reports to the agent that launched it, which
+    /// decides what the person hears; a job, a subagent on a schedule that
+    /// the person asked for, posts. One post a turn, and so one wake; the post goes to
     /// the teammate's own chat, clipped at [`POST_CHARS`]. The lease is the
     /// caller's to check as the call lands, as it is for every tool.
     ///
@@ -154,7 +140,7 @@ impl Room {
                     .to_string(),
             );
         }
-        let scheduled = match self.take_post(persona_id, thread)? {
+        let scheduled = match self.take_post(thread)? {
             Turn::Closed => {
                 return Err(
                     "post_to_chat posts from a turn in progress, and this thread has none."
@@ -174,26 +160,20 @@ impl Room {
     }
 
     /// Takes the one post of the turn in flight on `thread`, unless it is
-    /// the DM's own loud turn, which posts nothing. A second is refused.
-    pub(super) fn take_post(&self, persona_id: &str, thread: &ThreadId) -> Result<Turn, String> {
-        // A quiet run the person has spoken into since is answering them, out
-        // loud: its window is what says whether anyone sees its replies.
-        let unseen = thread.kind != ThreadKind::Dm
-            || self
-                .session(persona_id)
-                .is_ok_and(|session| quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms()));
+    /// the DM's own turn, which posts nothing. A second is refused.
+    pub(super) fn take_post(&self, thread: &ThreadId) -> Result<Turn, String> {
         let mut posting = lock(&self.posting);
         let Some(turn) = posting.get_mut(thread) else {
             return Ok(Turn::Closed);
         };
-        if thread.kind == ThreadKind::Dm && (turn.quiet.is_none() || !unseen) {
+        if thread.kind == ThreadKind::Dm {
             return Ok(Turn::Loud);
         }
         if turn.posted {
             return Err(AGAIN.to_string());
         }
         turn.posted = true;
-        Ok(Turn::Taken(turn.quiet.clone()))
+        Ok(Turn::Taken(turn.job.clone()))
     }
 
     /// Gives the turn in flight on `thread` back the post that never landed.
@@ -253,10 +233,11 @@ impl Room {
     /// [`Room::post_to_chat`], hands it a turn. A live home session is
     /// handed what its other threads posted ahead of the person's next line,
     /// so a typed follow-up does not start cold, and a session that starts
-    /// later reads it from the tape. A post from the DM's own turn, which is
-    /// a quiet run's, is already in that session's context.
+    /// later reads it from the tape. A job's post, and a reminder's, which is
+    /// the DM's own, are noted on the job for its listing.
     pub(crate) fn post(&self, persona_id: &str, from: &ThreadId, post: Post) -> Result<(), String> {
         let elsewhere = from.kind != ThreadKind::Dm;
+        let job = post.scheduled.as_ref().map(|run| run.job_id.clone());
         let event = TranscriptEvent::Agent {
             id: post.id,
             ts: now_ms(),
@@ -273,7 +254,12 @@ impl Room {
         self.try_write_value(persona_id, &event)
             .map_err(|error| format!("The chat could not be written to: {error}"))?;
         let said = crate::sent::message_text(&event);
-        if elsewhere && let Ok(session) = self.session(persona_id) {
+        if let Some(job) = &job {
+            self.job_posted(job, &said);
+        }
+        if (elsewhere || job.is_some())
+            && let Ok(session) = self.session(persona_id)
+        {
             let origin = posted_from(&event).unwrap_or_default();
             let mut posts = lock(&session.pending_posts);
             posts.push(format!("{origin}: {said}"));
@@ -327,6 +313,7 @@ pub(super) fn posted_from(event: &serde_json::Value) -> Option<String> {
             ThreadKind::Side => "From your work thread",
             ThreadKind::Pair => "From your thread with a colleague",
             ThreadKind::Run => "From your subagent",
+            ThreadKind::Job => "From your job",
         }
         .to_string(),
     )

@@ -1,7 +1,6 @@
 //! A teammate handing the person a file (BRO-98), through its own tool.
 
 use super::*;
-use crate::session::quiet::QuietWindow;
 use base64::{Engine, prelude::BASE64_STANDARD};
 
 /// A room where Ada works in a folder of her own, in the workspace
@@ -195,28 +194,21 @@ async fn what_cannot_be_sent_is_refused_and_leaves_nothing_behind() {
     assert_eq!(kept(&room), 0);
 }
 
-/// A quiet scheduled run's words become thinking, but its file does not: it
-/// is posted, stamped with the job, as the run's one post, and nothing else
-/// the turn sends after it reaches the chat.
+/// A job's file is posted, stamped with the job and from its thread, as the
+/// turn's one post, and nothing else the turn sends after it reaches the
+/// chat. The thread keeps a line naming it.
 #[tokio::test]
-async fn a_quiet_runs_file_is_its_one_post() {
-    let (room, _) = workspace("send-quiet");
-    room.start("ada").await.unwrap();
-    let session = lock(&room.sessions).get("ada").cloned().unwrap();
-    *lock(&session.quiet) = Some(QuietWindow {
-        job_id: "j1".to_string(),
-        pending_turns: 0,
-        until: now_ms() + 60_000,
-    });
-    let job = ScheduledRun {
+async fn a_jobs_file_is_its_one_post() {
+    let (room, _) = workspace("send-job");
+    let job = crate::contract::ScheduledRun {
         job_id: "j1".to_string(),
         kind: crate::contract::ScheduleKind::Schedule,
         name: "Crane check".to_string(),
         operator_created: false,
         quiet: Some(true),
     };
-    let _turn = room.open_posting(&ThreadId::dm("ada"), Some(job));
-    let tools = TeammateTools::new(&room, "ada");
+    let _turn = room.open_posting(&ThreadId::job("j1"), Some(job));
+    let tools = TeammateTools::new(&room, "ada").for_job("j1");
     assert_eq!(
         tools
             .call(
@@ -246,8 +238,15 @@ async fn a_quiet_runs_file_is_its_one_post() {
     assert_eq!(files[0]["kind"], "agent");
     assert_eq!(files[0]["text"], "The log");
     assert_eq!(files[0]["scheduled"]["jobId"], "j1");
-    assert!(files[0].get("from").is_none(), "{:?}", files[0]);
+    assert_eq!(files[0]["from"], json!({"thread": "j1", "kind": "job"}));
     assert_eq!(kept(&room), 1, "nothing refused was kept");
+    let thread = room.log.load(&StreamId::Job("j1".to_string()));
+    assert!(
+        thread
+            .iter()
+            .any(|event| event["text"] == "Sent notes.txt to the chat."),
+        "{thread:?}"
+    );
 }
 
 /// A file sent from the DM's turn on a call is the call's, as its replies

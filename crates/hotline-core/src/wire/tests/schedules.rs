@@ -15,9 +15,15 @@ fn scheduled(
         every: (kind == ScheduleKind::Loop).then_some(60_000),
         prompt: format!("{id}, please"),
         quiet: None,
+        reminder: None,
+        goal: None,
+        until: None,
+        times: None,
         operator_created: true,
         next_at,
         created_at: 1_700_000_000_000,
+        last_post: None,
+        ended_at: None,
     }
 }
 
@@ -57,6 +63,7 @@ async fn a_teammates_schedules_are_the_whole_list_on_opening_and_again_on_each_c
         json!({ "sub": 3, "snapshot": [{
             "id": "job-once",
             "personaId": ada_id,
+            "name": "job-once, please",
             "kind": "schedule",
             "prompt": "job-once, please",
             "when": 1_700_000_900_000_i64,
@@ -93,8 +100,25 @@ async fn a_teammates_schedules_are_the_whole_list_on_opening_and_again_on_each_c
     assert_eq!(moved["snapshot"][0]["nextAt"], 1_700_000_160_000_i64);
     assert!(!moved.to_string().contains("job-bob"), "{moved}");
 
-    // A one-shot that fired, or was cancelled, is a tombstone that names no
-    // teammate; the list without it is the answer either way.
+    // A job that ended is still listed, with its end and its last post:
+    // its thread stays readable.
+    let mut ended = once.clone();
+    ended.last_post = Some(crate::contract::JobPost {
+        at: 1_700_000_950_000,
+        text: "The crane is fine.".to_string(),
+    });
+    ended.ended_at = Some(1_700_000_960_000);
+    room::append_schedule(&log, &ended).unwrap();
+    let over = heard(&mut socket).await;
+    assert_eq!(over["snapshot"][1]["id"], "job-once", "{over}");
+    assert_eq!(over["snapshot"][1]["endedAt"], 1_700_000_960_000_i64);
+    assert_eq!(
+        over["snapshot"][1]["lastPost"],
+        json!({"at": 1_700_000_950_000_i64, "text": "The crane is fine."})
+    );
+
+    // A deleted job is a tombstone that names no teammate; the list without
+    // it is the answer.
     room::tombstone_schedule(&log, "job-once").unwrap();
     let fired = heard(&mut socket).await;
     assert_eq!(fired["snapshot"].as_array().unwrap().len(), 1, "{fired}");

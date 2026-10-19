@@ -201,7 +201,32 @@ impl Desk {
         }
     }
 
-    /// A turn's `RESULTS`, said or, on a quiet run, thought.
+    /// A quiet one-shot job for `persona_id` that fires in a moment, and the
+    /// subscription to its thread.
+    async fn quiet_job(&mut self, persona_id: &str, prompt: &str) -> (String, i64) {
+        let job = self
+            .client
+            .call(
+                "schedule.create",
+                json!({
+                    "personaId": persona_id,
+                    "kind": "schedule",
+                    "when": chrono::Utc::now().timestamp_millis() + 1_500,
+                    "quiet": true,
+                    "prompt": prompt,
+                }),
+            )
+            .await;
+        assert_eq!(job["ok"], true, "{job}");
+        let job_id = job["result"]["id"].as_str().unwrap().to_owned();
+        let thread = self
+            .client
+            .subscribe(json!({"threadId": {"kind": "job", "key": job_id}}))
+            .await;
+        (job_id, thread)
+    }
+
+    /// A turn's `RESULTS`, said or thought.
     async fn results(&mut self, sub: i64) -> Vec<String> {
         let said = self
             .event(sub, |event| {
@@ -237,10 +262,11 @@ fn says(lines: &[String], at: usize, sentence: &str) {
     );
 }
 
-/// The DM's own reply is the chat, so a loud turn may not post; a quiet run,
-/// whose replies nobody sees, posts once, to its own chat, stamped with its
-/// job, and wakes nobody but the person.
-async fn the_dm_posts_only_from_a_quiet_run(driver: Driver) {
+/// The DM's own reply is the chat, so a loud turn may not post. A quiet
+/// job's firing is a turn on the job's own thread, whose words nobody reads
+/// unless it posts: it posts once, to its own chat, stamped with its job and
+/// from its thread, and its refused calls land nowhere.
+async fn the_dm_may_not_post_and_a_quiet_job_posts_once(driver: Driver) {
     let mut desk = open().await;
     let (ada, tape) = desk.teammate("Ada", driver, false).await;
 
@@ -257,26 +283,11 @@ async fn the_dm_posts_only_from_a_quiet_run(driver: Driver) {
 
     let prompt = [
         r#"CALL post_to_chat {"text":"Into Bob's chat.","to":"bob"}"#,
-        r#"CALL post_to_chat {"text":"Wake yourself.","wake":true}"#,
         r#"CALL post_to_chat {"text":"The crane is down: the winch cable snapped."}"#,
         r#"CALL post_to_chat {"text":"And another thing."}"#,
     ]
     .join("\n");
-    let job = desk
-        .client
-        .call(
-            "schedule.create",
-            json!({
-                "personaId": ada,
-                "kind": "schedule",
-                "when": chrono::Utc::now().timestamp_millis() + 1_500,
-                "quiet": true,
-                "prompt": prompt,
-            }),
-        )
-        .await;
-    assert_eq!(job["ok"], true, "{job}");
-    let job_id = job["result"]["id"].as_str().unwrap().to_owned();
+    let (job_id, thread) = desk.quiet_job(&ada, &prompt).await;
     let posted = desk
         .event(tape, |event| {
             event["kind"] == "agent"
@@ -285,12 +296,11 @@ async fn the_dm_posts_only_from_a_quiet_run(driver: Driver) {
         .await;
     assert_eq!(posted["scheduled"]["jobId"], job_id.as_str());
     assert_eq!(posted["scheduled"]["quiet"], true);
-    assert!(posted.get("from").is_none(), "the DM's own turn: {posted}");
-    let quiet = desk.results(tape).await;
+    assert_eq!(posted["from"], json!({"thread": job_id, "kind": "job"}));
+    let quiet = desk.results(thread).await;
     says(&quiet, 0, "your own chat only");
-    says(&quiet, 1, "nobody to wake");
-    says(&quiet, 2, "Posted to the chat.");
-    says(&quiet, 3, "one per turn");
+    says(&quiet, 1, "Posted to the chat.");
+    says(&quiet, 2, "one per turn");
 
     let chat: Vec<Value> = desk
         .chat(&ada)
@@ -458,10 +468,10 @@ async fn a_work_threads_file_lands_in_the_chat(driver: Driver) {
     says(&results, 1, "Posted to the chat.");
 }
 
-/// A quiet run's file is posted, stamped with its job, and is the run's one
-/// post: a `post_to_chat` after it in the same turn is refused and lands
-/// nowhere.
-async fn a_quiet_runs_file_is_its_one_post(driver: Driver) {
+/// A quiet job's file is posted, stamped with its job and from its thread,
+/// and is the turn's one post: a `post_to_chat` after it in the same turn is
+/// refused and lands nowhere.
+async fn a_quiet_jobs_file_is_its_one_post(driver: Driver) {
     let mut desk = open().await;
     std::fs::write(
         std::path::Path::new(&desk.workspace).join("winch.txt"),
@@ -475,21 +485,7 @@ async fn a_quiet_runs_file_is_its_one_post(driver: Driver) {
         r#"CALL post_to_chat {"text":"And a note besides."}"#,
     ]
     .join("\n");
-    let job = desk
-        .client
-        .call(
-            "schedule.create",
-            json!({
-                "personaId": ada,
-                "kind": "schedule",
-                "when": chrono::Utc::now().timestamp_millis() + 1_500,
-                "quiet": true,
-                "prompt": prompt,
-            }),
-        )
-        .await;
-    assert_eq!(job["ok"], true, "{job}");
-    let job_id = job["result"]["id"].as_str().unwrap().to_owned();
+    let (job_id, thread) = desk.quiet_job(&ada, &prompt).await;
     let posted = desk
         .event(tape, |event| {
             event["kind"] == "agent" && event["text"] == "The winch log."
@@ -497,8 +493,8 @@ async fn a_quiet_runs_file_is_its_one_post(driver: Driver) {
         .await;
     assert_eq!(posted["attachments"][0]["name"], "winch.txt", "{posted}");
     assert_eq!(posted["scheduled"]["jobId"], job_id.as_str());
-    assert!(posted.get("from").is_none(), "the DM's own turn: {posted}");
-    let quiet = desk.results(tape).await;
+    assert_eq!(posted["from"], json!({"thread": job_id, "kind": "job"}));
+    let quiet = desk.results(thread).await;
     says(&quiet, 0, "Sent winch.txt (14 bytes).");
     says(&quiet, 1, "one per turn");
 
@@ -525,23 +521,23 @@ async fn an_acp_work_threads_file_lands_in_the_chat() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn hotline_agent_quiet_runs_file_is_its_one_post() {
-    a_quiet_runs_file_is_its_one_post(Driver::HotlineAgent).await;
+async fn hotline_agent_quiet_jobs_file_is_its_one_post() {
+    a_quiet_jobs_file_is_its_one_post(Driver::HotlineAgent).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_acp_quiet_runs_file_is_its_one_post() {
-    a_quiet_runs_file_is_its_one_post(Driver::Acp).await;
+async fn an_acp_quiet_jobs_file_is_its_one_post() {
+    a_quiet_jobs_file_is_its_one_post(Driver::Acp).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn hotline_agent_posts_from_the_dm_only_on_a_quiet_run() {
-    the_dm_posts_only_from_a_quiet_run(Driver::HotlineAgent).await;
+async fn hotline_agent_dm_may_not_post_and_a_quiet_job_posts_once() {
+    the_dm_may_not_post_and_a_quiet_job_posts_once(Driver::HotlineAgent).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn an_acp_quiet_run_posts_and_a_loud_turn_may_not() {
-    the_dm_posts_only_from_a_quiet_run(Driver::Acp).await;
+async fn an_acp_quiet_job_posts_and_a_loud_turn_may_not() {
+    the_dm_may_not_post_and_a_quiet_job_posts_once(Driver::Acp).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

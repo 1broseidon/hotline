@@ -35,6 +35,7 @@ fn not_here(thread: &ThreadId, what: &str) -> String {
         ThreadKind::Pair => "a thread between two teammates",
         ThreadKind::Call => "a call",
         ThreadKind::Run => "a subagent's run",
+        ThreadKind::Job => "a job",
     };
     format!("{what} does not apply to {kind}.")
 }
@@ -63,6 +64,10 @@ pub(super) async fn prompt(
                 .await?;
             Ok(Value::Null)
         }
+        ThreadKind::Job => {
+            room.job_prompt(&thread.key, text, attachments).await?;
+            Ok(Value::Null)
+        }
         _ => Err(not_here(thread, "Speaking")),
     }
 }
@@ -73,6 +78,7 @@ pub(super) fn cancel(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Va
     match thread.kind {
         ThreadKind::Dm => room.cancel(&thread.key)?,
         ThreadKind::Side => room.side_cancel(&thread.key)?,
+        ThreadKind::Job => room.job_cancel(&thread.key)?,
         ThreadKind::Pair => {
             let (a, b) = pair_of(thread)?;
             room.stop_exchange(a, b)?;
@@ -91,10 +97,11 @@ pub(super) fn park(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Valu
     Ok(Value::Null)
 }
 
-/// Ends a work thread, keeping its transcript.
+/// Ends a work thread, or a job, keeping its transcript.
 pub(super) fn close(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Value, String> {
     match thread.kind {
         ThreadKind::Side => room.side_archive(&thread.key)?,
+        ThreadKind::Job => room.schedule_cancel(&thread.key)?,
         _ => return Err(not_here(thread, "Closing")),
     }
     Ok(Value::Null)
@@ -176,6 +183,16 @@ pub(super) async fn answer(
                 .await?;
         }
         (
+            ThreadKind::Job,
+            ThreadAnswer::Permission {
+                request_id,
+                option_id,
+            },
+        ) => {
+            room.job_answer_permission(&thread.key, &request_id, &option_id)
+                .await?;
+        }
+        (
             ThreadKind::Dm | ThreadKind::Side,
             ThreadAnswer::Human {
                 action_id,
@@ -186,8 +203,8 @@ pub(super) async fn answer(
             let persona_id = owner_of(log, thread)?;
             room.answer_human(&persona_id, &action_id, status, note)?;
         }
-        // A pair raises permissions and nothing else. A run and a call are
-        // refused above, by their policy.
+        // A pair and a job raise permissions and nothing else. A run and a
+        // call are refused above, by their policy.
         (_, ThreadAnswer::Human { .. }) => {
             return Err(not_here(thread, "A request for the person"));
         }
@@ -360,7 +377,9 @@ fn summarize(
             .peer_threads(&persona_id)
             .iter()
             .any(|pair| pair.thread_key == thread.id.key && pair.working_persona_id.is_some()),
-        ThreadKind::Run => state == LinkState::Live,
+        // A job's link is live while its agent is up, which is while it
+        // works and for a little after a turn the person started.
+        ThreadKind::Run | ThreadKind::Job => state == LinkState::Live,
         ThreadKind::Call => false,
     };
 

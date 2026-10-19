@@ -27,3 +27,6 @@ Do:
 - Let a conversational turn's written version be the same words as the spoken one (no separate written answer to invent), so the chat doesn't fill with near-duplicates.
 - Relax the 40-word cap when the person explicitly asks for an overview or says they have time.
 Tests over the instruction builder and the narrator: no pointer on a conversational turn; at most one in N turns; present when the written version has code or a table.
+
+## Log
+- 2026-10-19T14:02:58.358Z: [claude] George, 09:02, refines the rule: the pointer is for something real the person will want later, like a file sent ('I sent you the HTML file, take a look when you're back at your desk'), a link, or a long write-up. It's said in context, in the teammate's own words, never a fixed phrase, the way a smart coworker on the other end of the line would mention it. A plain answer or a short list is just said, with no pointer. Put this into the instruction and the narrator prompt as a description plus bad examples, not stock good phrases (same approach as task-204).

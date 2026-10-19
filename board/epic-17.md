@@ -33,3 +33,4 @@ Until a lead exists (an old phone, or a desk mid-choice), desk calls behave as t
 
 ## Log
 - 2026-10-19T17:20:45.934Z: [claude] George, 2026-10-19 12:20: voice is a modality, not a separate agent (see task-213 in epic-19). Calling a teammate means talking to the full agent itself, speech in and out; the separate live-voice front answering on its behalf goes. epic-17 waits for epic-19's design: its 'one voice path' and acknowledgement tasks get rewritten against it; the team lead role (calling the desk reaches the lead) stands as is.
+- 2026-10-19T17:32:37.815Z: [claude] Also waits for epic-20's ADR (task-215, the agent thread layer): acknowledgements and the chat pointer (task-204, task-207) are redone against it; the team lead role stands.

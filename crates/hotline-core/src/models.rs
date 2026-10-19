@@ -15,6 +15,7 @@
 
 use crate::contract::{CatalogModel, ConfigChoice, CredentialKind, EffortChoices, Provider};
 use crate::session::ProviderAuth;
+pub use hotline_room::provider_auth::is_custom;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::borrow::Cow;
@@ -177,12 +178,6 @@ pub fn wiring(provider_id: &str) -> Option<&'static Wiring> {
         provider_id
     };
     WIRING.iter().find(|wiring| wiring.id == provider_id)
-}
-
-pub fn is_custom(provider_id: &str) -> bool {
-    provider_id
-        .strip_prefix("custom-")
-        .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
 }
 
 /// The snapshot: `models.json` as written by the sync and read at start.

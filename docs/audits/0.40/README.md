@@ -6,9 +6,10 @@ approve. Nothing in it is filed or applied yet. The six reports are unchanged;
 where one of them is wrong about the code, the correction is under
 [Contradictions](#contradictions) and the report stays as written. The one
 exception is a path: a citation of a file that ADR 0007 moved out of the core
-(`room.rs`, `linked.rs`, `mcp/oauth.rs`, `mcp/tool.rs`) names the file where
-it lives now, in `hotline-room` or `hotline-mcp`, so a search of the docs for
-the old path finds nothing; its line number is still the audited commit's.
+(`room.rs`, `linked.rs`, `mcp/oauth.rs`, `mcp/tool.rs`, `voice/speech` and
+`voice/realtime`) names the file where it lives now, in `hotline-room`,
+`hotline-mcp` or `hotline-voice`, so a search of the docs for the old path
+finds nothing; its line number is still the audited commit's.
 
 ## Reports
 

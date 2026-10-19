@@ -9,8 +9,8 @@
 //! it into place, so a crash or a cancel leaves no half model to load.
 
 use super::{Engine, FileHash, Installed, MANIFEST, Manifest, installed, models_dir, unload};
-use crate::contract::{SpeechModel, SpeechModelState};
 use futures_util::StreamExt;
+use hotline_contract::{SpeechModel, SpeechModelState};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::io::{Read, Write};

@@ -33,12 +33,12 @@ and `cargo fmt --check` both pass today. No `[lints]` table, `clippy.toml`,
 |---|---|---|---|
 | `clippy::uninlined_format_args` | 1 | `crates/hotline-core/src/voice/mod.rs:1990` | adopt now |
 | `clippy::manual_string_new` | 1 | `crates/hotline-core/src/vault/shared.rs:696` | adopt now |
-| `clippy::range_plus_one` | 1 | `crates/hotline-core/src/voice/speech/xai/tests.rs:883` | adopt now |
+| `clippy::range_plus_one` | 1 | `crates/hotline-voice/src/speech/xai/tests.rs:883` | adopt now |
 | `clippy::explicit_iter_loop` | 1 | `crates/hotline-core/src/driver/rig/turn.rs:1708` | adopt now |
 | `clippy::implicit_clone` | 1 | `crates/hotline-core/src/voice/dispatcher.rs:999` | adopt now |
 | `clippy::iter_on_single_items` | 1 | `crates/hotline-core/src/computer/cookies.rs:1024` | adopt now |
 | `clippy::tuple_array_conversions` | 1 | `crates/hotline-core/src/remote/tests/viewer_token_tests.rs:110` | adopt now |
-| `clippy::manual_midpoint` | 1 | `crates/hotline-core/src/voice/realtime/live.rs:563` | adopt now |
+| `clippy::manual_midpoint` | 1 | `crates/hotline-voice/src/realtime/live.rs:563` | adopt now |
 | `clippy::needless_raw_string_hashes` | 1 | `crates/hotline-mcp/src/oauth.rs:1617` | adopt now |
 | `clippy::float_cmp` | 1 | `crates/hotline-core/src/spending.rs:267` | adopt now (test compares money floats; use an epsilon) |
 | `clippy::manual_assert` | 1 | `crates/hotline-app/build.rs:93` | adopt now |
@@ -48,7 +48,7 @@ and `cargo fmt --check` both pass today. No `[lints]` table, `clippy.toml`,
 | `clippy::suspicious_operation_groupings` | 1 | `crates/hotline-core/src/driver/mod.rs:125` | adopt now (read it: may be a real typo) |
 | `clippy::nonminimal_bool` | 2 | `crates/hotline-core/src/log/mod.rs:172` | adopt now |
 | `clippy::borrow_as_ptr` | 2 | `crates/hotline-core/src/computer/capacity.rs:158` | adopt now |
-| `clippy::unnecessary_literal_bound` | 2 | `crates/hotline-core/src/voice/speech/mod.rs:147` | adopt now |
+| `clippy::unnecessary_literal_bound` | 2 | `crates/hotline-voice/src/speech.rs:147` | adopt now |
 | `clippy::unnecessary_debug_formatting` | 2 | `crates/hotline-cli/src/update.rs:93` | adopt now |
 | `clippy::trivially_copy_pass_by_ref` | 2 | `crates/hotline-core/tests/voice.rs:87` | adopt now |
 | `clippy::useless_let_if_seq` | 3 | `crates/hotline-core/src/log/mod.rs:490` | adopt now |

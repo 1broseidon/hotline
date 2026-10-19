@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
-pub const SEND_TO_TEAMMATE: &str = "send_to_teammate";
+pub use super::realtime::SEND_TO_TEAMMATE;
 pub const REMAIN_SILENT: &str = "remain_silent";
 
 /// One function the front may call. `parameters` is its JSON Schema.

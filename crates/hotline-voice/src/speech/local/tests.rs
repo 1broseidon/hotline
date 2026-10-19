@@ -3,7 +3,7 @@
 //! one can be given.
 
 use super::*;
-use crate::voice::speech::wav::pcm16_wav;
+use crate::speech::wav::pcm16_wav;
 use sha2::{Digest, Sha256};
 
 /// A transducer's files, which most tests here place.
@@ -366,8 +366,11 @@ fn more_than_a_minute_is_refused_before_the_model_runs() {
 
 #[test]
 fn a_phones_aac_clip_decodes_to_its_whole_length() {
+    // The desk harness hears the same phone clip, so it is kept once, with
+    // the harness's fixtures.
     let bytes = std::fs::read(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/voice/ask-mack.m4a"),
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../hotline-core/tests/fixtures/voice/ask-mack.m4a"),
     )
     .unwrap();
     let heard = samples(&Clip {

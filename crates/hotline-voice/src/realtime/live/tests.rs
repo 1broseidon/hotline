@@ -1,5 +1,20 @@
 use super::*;
 
+/// The login in `token_dir/auth.json` as it stands, for the calls here: the
+/// refresh is the core's ChatGPT provider's, so a real call wants a login
+/// signed in within the hour.
+fn signed_in(token_dir: &Path) -> BoxFuture<'_, Result<Login, String>> {
+    Box::pin(async move {
+        let bytes =
+            std::fs::read(token_dir.join("auth.json")).map_err(|error| error.to_string())?;
+        let auth: Value = serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+        Ok(Login {
+            access_token: auth["access_token"].as_str().map(String::from),
+            account_id: auth["account_id"].as_str().map(String::from),
+        })
+    })
+}
+
 fn pcm(samples: &[i16]) -> String {
     let bytes: Vec<u8> = samples
         .iter()
@@ -158,7 +173,7 @@ fn the_microphone_is_doubled_to_48_khz_paced_in_20_ms_and_never_lags() {
 
 #[tokio::test]
 async fn rates_other_than_24_khz_fail_before_any_call() {
-    let live = GptLive::new(std::env::temp_dir().join("hotline-no-login"));
+    let live = GptLive::new(std::env::temp_dir().join("hotline-no-login"), signed_in);
     let config = RealtimeConfig {
         instructions: String::new(),
         voice: "cove".into(),
@@ -183,7 +198,7 @@ async fn rates_other_than_24_khz_fail_before_any_call() {
 async fn a_live_call_says_a_line_hands_over_what_it_hears_and_says_the_answer() {
     let dir = std::env::var("HOTLINE_TEST_CHATGPT_DIR").expect("a ChatGPT login directory");
     let wav = std::fs::read(std::env::var("HOTLINE_TEST_ASK_WAV").expect("a 24 kHz clip")).unwrap();
-    let live = GptLive::new(dir.into());
+    let live = GptLive::new(dir.into(), signed_in);
     let mut session = live
         .open(RealtimeConfig {
             instructions: "You are a teammate on a call. Acknowledge a request in a few words and delegate it.".into(),
@@ -268,7 +283,7 @@ async fn a_live_call_says_a_line_hands_over_what_it_hears_and_says_the_answer() 
 #[ignore = "places two real GPT-Live calls on a ChatGPT login"]
 async fn a_live_call_moves_onto_a_replacement_before_the_session_ends() {
     let dir = std::env::var("HOTLINE_TEST_CHATGPT_DIR").expect("a ChatGPT login directory");
-    let mut live = GptLive::new(dir.into());
+    let mut live = GptLive::new(dir.into(), signed_in);
     live.renew_after = Duration::from_secs(15);
     let mut session = live
         .open(RealtimeConfig {

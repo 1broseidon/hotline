@@ -1,6 +1,6 @@
 use super::*;
-use crate::voice::realtime::RealtimeTool;
-use crate::voice::speech::xai::{BASE_URL, PROVIDER_ID};
+use crate::realtime::RealtimeTool;
+use crate::speech::xai::{BASE_URL, PROVIDER_ID, test_login};
 use http::{HeaderMap, header};
 use std::sync::{Arc, Mutex};
 use tokio::net::{TcpListener, TcpStream};
@@ -485,10 +485,12 @@ async fn a_lost_provider_is_retried_then_reported_unreachable() {
 #[tokio::test]
 async fn the_grok_login_refreshes_once_when_the_handshake_rejects_it() {
     let dir = tempfile::tempdir().unwrap();
-    let tokens =
-        crate::credentials::CredentialFiles::new(dir.path().into(), crate::vault::default_store())
-            .file(dir.path().join("auth.json"));
-    crate::providers::xai::sign_in_for_test(&tokens, "first-login");
+    let tokens = hotline_support::credentials::CredentialFiles::new(
+        dir.path().into(),
+        std::sync::Arc::new(hotline_support::credentials::MemoryStore::default()),
+    )
+    .file(dir.path().join("auth.json"));
+    crate::speech::xai::sign_in_for_test(&tokens, "first-login");
     let rotate = tokens.clone();
     let (listener, url) = listen().await;
     let server = tokio::spawn(async move {
@@ -499,7 +501,7 @@ async fn the_grok_login_refreshes_once_when_the_handshake_rejects_it() {
                 "Bearer first-login"
             );
             // Another client already refreshed this login.
-            crate::providers::xai::sign_in_for_test(&rotate, "fresh-login");
+            crate::speech::xai::sign_in_for_test(&rotate, "fresh-login");
             Err(http::Response::builder().status(401).body(None).unwrap())
         })
         .await;
@@ -514,7 +516,7 @@ async fn the_grok_login_refreshes_once_when_the_handshake_rejects_it() {
         base_url: BASE_URL.into(),
         key: Some("unused-key".into()),
     })
-    .with_subscription(tokens)
+    .with_subscription(test_login(tokens))
     .unwrap();
     // Only fixtures replace the production origin after the guarded constructor.
     grok.access.endpoint.base_url = url;
@@ -527,12 +529,14 @@ async fn the_grok_login_refreshes_once_when_the_handshake_rejects_it() {
 #[test]
 fn a_subscription_login_is_only_sent_to_xai() {
     let dir = tempfile::tempdir().unwrap();
-    let tokens =
-        crate::credentials::CredentialFiles::new(dir.path().into(), crate::vault::default_store())
-            .file(dir.path().join("auth.json"));
+    let tokens = hotline_support::credentials::CredentialFiles::new(
+        dir.path().into(),
+        std::sync::Arc::new(hotline_support::credentials::MemoryStore::default()),
+    )
+    .file(dir.path().join("auth.json"));
     assert!(
         voice("https://example.com/v1")
-            .with_subscription(tokens)
+            .with_subscription(test_login(tokens))
             .is_err()
     );
 }
@@ -610,10 +614,16 @@ async fn gpt_realtime_takes_only_24_khz_and_never_a_grok_login() {
         .unwrap();
     assert!(matches!(error, SpeechError::UnsupportedFormat(_)));
     let dir = tempfile::tempdir().unwrap();
-    let tokens =
-        crate::credentials::CredentialFiles::new(dir.path().into(), crate::vault::default_store())
-            .file(dir.path().join("auth.json"));
-    assert!(openai(BASE_URL).with_subscription(tokens).is_err());
+    let tokens = hotline_support::credentials::CredentialFiles::new(
+        dir.path().into(),
+        std::sync::Arc::new(hotline_support::credentials::MemoryStore::default()),
+    )
+    .file(dir.path().join("auth.json"));
+    assert!(
+        openai(BASE_URL)
+            .with_subscription(test_login(tokens))
+            .is_err()
+    );
 }
 
 #[tokio::test]

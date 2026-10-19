@@ -20,7 +20,23 @@ dependsOn:
   - task-226
   - task-202
   - task-205
-updatedAt: "2026-10-19T20:02:53.434Z"
+updatedAt: "2026-10-19T20:03:15.032Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/tests
+      description: one harness proving epic-20's pieces together over the wire
+    - type: docs
+      path: CHANGELOG.md
+      description: Unreleased says what 0.41 changed
+  validation:
+    commands:
+      - make check
+      - make precheck
+      - make verify
+  metrics:
+    readyAt: "2026-10-19T20:03:15.032Z"
 ---
 
 ## Description

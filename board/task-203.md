@@ -14,6 +14,9 @@ relatedFiles:
   - crates/hotline-core/src/voice/front_tools.rs
 parentId: epic-17
 createdAt: "2026-10-19T13:59:38.168Z"
+dependsOn:
+  - task-201
+updatedAt: "2026-10-19T13:59:40.540Z"
 ---
 
 ## Description

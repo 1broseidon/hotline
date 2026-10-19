@@ -23,7 +23,7 @@ relatedFiles:
   - docs/design.md
 parentId: epic-17
 createdAt: "2026-10-19T13:59:37.690Z"
-updatedAt: "2026-10-19T20:03:03.995Z"
+updatedAt: "2026-10-19T20:12:18.641Z"
 contract:
   status: in_progress
   deliverables:
@@ -66,6 +66,8 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-19T20:02:51.811Z"
+    ended: "2026-10-19T20:12:18.641Z"
+    outcome: review
 ---
 
 ## Description

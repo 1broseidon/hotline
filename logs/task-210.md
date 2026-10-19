@@ -1,8 +1,6 @@
 ---
 id: task-210
 title: Timings after stage 2, in ADR 0007
-column: review
-position: 11
 priority: medium
 tags:
   - crate-split
@@ -17,7 +15,7 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:42.521Z"
 dependsOn:
   - task-209
-updatedAt: "2026-10-19T16:55:42.722Z"
+updatedAt: "2026-10-19T16:57:23.353Z"
 contract:
   status: delivered
   deliverables:
@@ -58,6 +56,7 @@ dispatch:
     at: "2026-10-19T16:53:01.511Z"
     ended: "2026-10-19T16:55:42.722Z"
     outcome: review
+completedAt: "2026-10-19T16:57:23.353Z"
 ---
 
 ## Description
@@ -74,3 +73,4 @@ The whole: on the tip of release/0.41.0, confirm and state in the ADR that (1) h
 - 2026-10-19T16:53:00.998Z: Landing sent back (1 of 1): with release/0.41.0 brought in, `! grep -rnE --exclude-dir=adr 'crates/hotline-core/src/(room|linked|session/ledger|wire/room_handle|mcp/oauth|mcp/tool)\.rs' docs AGENTS.md` failed: messages | ⏎ docs/audits/0.40/errors.md:264:| Normalized MCP state: `crates/hotline-core/src/mcp/mod.rs:246`, `crates/hotline-core/src/mcp/mod.rs:787`, `crates/hotline-core/src/mcp/oauth.rs:284`, `crates/hotline-core/src/driver/acp.rs:2024` | Normalization/object checks and connected-proxy filtering precede access; proxy entries are not concurrently removed on this path | ⏎ docs/audits/0.40/errors.md:288:`crates/hotline-core/src/room.rs:52` always seeds that key and spending defaults. ⏎ docs/audits/0.40/errors.md:293:(`crates/hotline-core/src/mcp/tool.rs:91`), ASCII-only generated image stems. Fix it on this branch, commit, and run the checks again.
 - 2026-10-19T16:53:30.014Z: [claude] Lead: the failing grep hits only docs/audits/0.40/errors.md and lints.md, which record the 0.40 tree as it was (file:line citations), like the ADRs the check already excludes. The contract's grep was meant for standards.md, security.md and AGENTS.md and should have excluded docs/audits too. Don't rewrite the 0.40 audits to satisfy it. If nothing outside docs/audits and docs/adr names an old path, say so in a note and leave the task in Review for George to land with the check's scope corrected.
 - 2026-10-19T16:55:39.444Z: [claude] Landing fix on dispatch/task-210 (5d33237d): the 10 citations in docs/audits/0.40/{errors,lints}.md of the core's old room.rs, linked.rs, mcp/oauth.rs and mcp/tool.rs now name crates/hotline-room/src/ and crates/hotline-mcp/src/, keeping the audited line numbers; the audits' README says so as the one exception to "reports stay as written", and ADR 0007's epic check (3)/(4) says it too. The 26 epic-16 citations (contract, store, tools, websearch, paths) are still as written, since no check covers them. Every contract validation line passes as written now: make check and make precheck (8 legs) pass, contract.ts identical to 9e2c01bc, docs-only diff. Nothing left unwired.
+- 2026-10-19T16:57:22.973Z: Landed on release/0.41.0

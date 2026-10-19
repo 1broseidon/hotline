@@ -386,19 +386,24 @@ impl Room {
         // and the roster rather than once for each.
         let events = self.log.load(&StreamId::Room);
         let settings = room::settings_from_events(&events);
+        let persona = room::personas(&events)
+            .into_iter()
+            .find(|persona| persona.id == persona_id);
         let mut status = self
             .computers
-            .status(persona_id, crate::computer::preferred_runtime(&settings))
+            .status(
+                persona_id,
+                persona.as_ref(),
+                crate::computer::preferred_runtime(&settings),
+            )
             .await?;
         // An existing container keeps the release it was made on, so the
         // pane is told when the one it would be made on now is different.
         if let Some(release) = &status.release
-            && let Some(persona) = room::personas(&events)
-                .into_iter()
-                .find(|persona| persona.id == persona_id)
+            && let Some(persona) = &persona
         {
             let image = self.computers.image_for(
-                &persona,
+                persona,
                 crate::computer::preferred_image(&settings).as_deref(),
             );
             let wanted = crate::computer::release_of(&image);
@@ -466,6 +471,27 @@ impl Room {
                 }
             }
         });
+        Ok(())
+    }
+
+    /// Makes a teammate's computer again with the memory and CPUs it has
+    /// now, which a runtime only takes at create. A running teammate gets
+    /// it between turns, the way an update lands, and an update already
+    /// under way lands the new limits with it. With no session running the
+    /// computer only stops: its next start sees the limits differ and
+    /// makes it again.
+    pub async fn computer_restart(self: &Arc<Self>, persona_id: &str) -> Result<(), String> {
+        self.persona(persona_id)?;
+        if !lock(&self.sessions).contains_key(persona_id) {
+            return self.computer_stop(persona_id).await;
+        }
+        lock(&self.computer_swaps)
+            .entry(persona_id.to_string())
+            .or_insert(ComputerSwap {
+                old: None,
+                ready: true,
+            });
+        self.swap_computer_when_idle(persona_id);
         Ok(())
     }
 

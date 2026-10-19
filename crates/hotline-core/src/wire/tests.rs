@@ -438,6 +438,10 @@ impl RoomHandle for CoreHandle {
     async fn computer_update(&self, persona_id: &str) -> Result<(), String> {
         self.room.computer_update(persona_id).await
     }
+
+    async fn computer_restart(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_restart(persona_id).await
+    }
 }
 
 #[async_trait::async_trait]
@@ -870,6 +874,7 @@ impl RoomHandle for Quiet {
             release: None,
             available: None,
             update_failed: None,
+            limits_changed: false,
         })
     }
 
@@ -888,6 +893,10 @@ impl RoomHandle for Quiet {
     }
 
     async fn computer_update(&self, _persona_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn computer_restart(&self, _persona_id: &str) -> Result<(), String> {
         Ok(())
     }
 }

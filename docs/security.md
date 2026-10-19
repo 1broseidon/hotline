@@ -1121,8 +1121,10 @@ it lets a colleague use another's tools.
   as `4608m`. An empty change is refused. Updates use the desk's existing
   persona-update path and preserve image, process limit, mounts and secrets.
   Enabling or disabling follows the same session reattachment rules as the
-  desk. Limit changes do not interrupt a turn: they apply when the container
-  is next created, not merely when an existing container is restarted.
+  desk. Limit changes do not interrupt a turn: a container records the
+  limits it was made with (`HOTLINE_LIMITS`) and the next start makes it
+  again when they differ. `computer.restart` brings that forward from the
+  desk, between turns; the phone can stop a computer but not ask for it.
 - **Read-only capacity:** `computer.capacity {}` is available to the desk
   and both phone seats. It returns `runtime`, `cpus`, `memoryBytes` and
   `source`, cached for about a minute. Docker and Podman report their own

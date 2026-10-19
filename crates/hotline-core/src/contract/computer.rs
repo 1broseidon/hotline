@@ -158,6 +158,15 @@ pub struct ComputerStatus {
         skip_serializing_if = "Option::is_none"
     )]
     pub update_failed: Option<String>,
+    /// The running computer was made with other memory or CPU limits than
+    /// the teammate has now, which only a restart makes it take.
+    #[serde(
+        rename = "limitsChanged",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    #[ts(as = "Option<bool>", optional)]
+    pub limits_changed: bool,
 }
 
 /// A browser found on the host, offered to the operator as a source of

@@ -419,6 +419,52 @@ async fn a_computer_made_with_other_folders_is_made_again() {
     assert!(!create.contains("/home/agent/folders"), "{create}");
 }
 
+/// Stops ada's computer and starts it again, and says what the runtime
+/// was asked to do for the start.
+async fn restart(computers: &Computer, ada: &Persona, root: &Path) -> String {
+    computers.stop("ada", None).await.expect("stop");
+    fs::write(root.join("argv.log"), "").unwrap();
+    computers
+        .ensure_running(ada, &ada.cwd, None, None, |_| {})
+        .await
+        .expect("start");
+    log_text(&root.join("argv.log"))
+}
+
+/// A runtime takes memory and CPUs when a container is made, so one made
+/// with other limits is made again at the next start, and one made before
+/// limits were recorded is made again the next time it starts from stopped.
+#[tokio::test]
+async fn a_computer_made_with_other_limits_is_made_again() {
+    let root = scratch("limits-remade");
+    let cwd = root.join("work");
+    fs::create_dir_all(&cwd).unwrap();
+    let port = health_on().await;
+    fake_runtime(&root, port);
+    fs::write(root.join("state"), "absent").unwrap();
+    let computers = Computer::with_path(root.as_os_str());
+    let mut ada = persona("ada", cwd.to_str().unwrap());
+    computers
+        .ensure_running(&ada, &ada.cwd, None, None, |_| {})
+        .await
+        .expect("first");
+    let kept = restart(&computers, &ada, &root).await;
+    assert!(!kept.contains("create "), "{kept}");
+
+    ada.computer.as_mut().unwrap().memory = Some("2g".into());
+    let remade = restart(&computers, &ada, &root).await;
+    assert!(remade.contains("rm -f "), "{remade}");
+    assert!(create_line(&remade).contains("--memory 2g"), "{remade}");
+
+    ada.computer.as_mut().unwrap().cpus = Some(2.0);
+    let remade = restart(&computers, &ada, &root).await;
+    assert!(create_line(&remade).contains("--cpus 2"), "{remade}");
+
+    fs::remove_file(root.join("state.limits")).unwrap();
+    let unrecorded = restart(&computers, &ada, &root).await;
+    assert!(unrecorded.contains("create "), "{unrecorded}");
+}
+
 #[tokio::test]
 async fn ensure_running_on_a_stopped_container_starts() {
     let root = scratch("start");
@@ -481,7 +527,7 @@ async fn an_existing_desktop_remains_viewable_and_is_not_recreated_after_restart
     fs::write(root.join("state"), "running").unwrap();
     fs::write(root.join("state.token"), "present").unwrap();
     let computers = Computer::with_path(root.as_os_str());
-    let status = computers.status("ada", None).await.unwrap();
+    let status = computers.status("ada", None, None).await.unwrap();
     assert!(
         status
             .viewer

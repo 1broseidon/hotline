@@ -1,8 +1,8 @@
 ---
 id: task-203
 title: "Voice: calling the desk reaches the team lead through the one front path"
-column: todo
-position: 3
+column: backlog
+position: 39
 priority: high
 tags:
   - voice
@@ -17,7 +17,7 @@ createdAt: "2026-10-19T13:59:38.168Z"
 dependsOn:
   - task-225
   - task-202
-updatedAt: "2026-10-19T20:00:13.702Z"
+updatedAt: "2026-10-19T20:00:15.755Z"
 ---
 
 ## Description

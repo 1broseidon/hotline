@@ -106,41 +106,43 @@ impl Remote {
         let ask = json!({"id": 1, "cmd": "desks.link_accept", "params": {
             "deskId": me, "name": desktop_name(), "key": URL_SAFE_NO_PAD.encode(public),
         }});
+        tokio::time::timeout(STEP_WITHIN, owner.send(Message::text(ask.to_string())))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .ok_or("The desk disconnected.")?;
         let answer = tokio::time::timeout(STEP_WITHIN, async {
-            owner
-                .send(Message::text(ask.to_string()))
-                .await
-                .map_err(|_| "The desk disconnected.".to_string())?;
-            loop {
-                let Some(Ok(Message::Text(text))) = owner.next().await else {
-                    return Err("The desk disconnected.".to_string());
-                };
-                let Ok(frame) = serde_json::from_str::<Value>(&text) else {
-                    continue;
-                };
-                if frame["id"] == 1 {
-                    return Ok(frame);
+            while let Some(Ok(message)) = owner.next().await {
+                if let Message::Text(text) = message
+                    && let Ok(frame) = serde_json::from_str::<Value>(&text)
+                    && frame["id"] == 1
+                {
+                    return Some(frame);
                 }
             }
+            None
         })
         .await
-        .map_err(|_| "The desk did not answer within ten seconds.".to_string())??;
+        .ok()
+        .flatten();
         let _ = tokio::time::timeout(STEP_WITHIN, owner.close()).await;
-        if answer["ok"] != true {
-            return Err(answer["error"]
-                .as_str()
-                .unwrap_or("That desk would not link.")
-                .to_string());
+        // An ask that reached the other desk and went unanswered may have
+        // been accepted there, so the link is kept and dialed: the other
+        // desk's key either opens the channel, or refuses this desk's,
+        // which ends the link here as any refusal does.
+        let mut name = linked::plain(&desk.name, 80);
+        if let Some(answer) = answer {
+            if answer["ok"] != true {
+                return Err(refusal(&answer));
+            }
+            if answer["result"]["deskId"] != desk_id {
+                return Err("That desk answered as another desk.".into());
+            }
+            let named = linked::plain(answer["result"]["name"].as_str().unwrap_or(""), 80);
+            if !named.is_empty() {
+                name = named;
+            }
         }
-        if answer["result"]["deskId"] != desk_id {
-            return Err("That desk answered as another desk.".into());
-        }
-        let name = Some(linked::plain(
-            answer["result"]["name"].as_str().unwrap_or(""),
-            80,
-        ))
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| linked::plain(&desk.name, 80));
         linked::save(
             log,
             &Record {
@@ -304,13 +306,25 @@ impl Remote {
                     }
                     // Only the pinned desk can say this, and it says it when
                     // its link record is gone: it ended the link.
+                    // Ending it here can fail, writing the room stream; the
+                    // loop goes on, and the next refusal tries again.
                     Err(OpenError::Revoked) => {
-                        if !cancel.is_cancelled()
-                            && let Err(error) = room.unlinked(&desk_id).await
-                        {
-                            eprintln!("[link] {desk_id} could not be ended here: {error}");
+                        if cancel.is_cancelled() {
+                            return;
                         }
-                        return;
+                        match room.unlinked(&desk_id).await {
+                            Ok(()) => return,
+                            Err(error) => {
+                                eprintln!("[link] {desk_id} could not be ended here: {error}");
+                                links.closed(
+                                    &desk_id,
+                                    None,
+                                    Some(format!(
+                                        "That desk ended the link, and this desk could not end it too: {error}"
+                                    )),
+                                );
+                            }
+                        }
                     }
                     Err(error) => {
                         links.closed(&desk_id, None, Some(error.to_string()));
@@ -339,6 +353,18 @@ impl Remote {
             .filter(|record| !record.dials && record.key.as_deref() == Some(public.as_str()))?;
         Some(room.links()?.token(desk_id).child_token())
     }
+}
+
+/// What a desk's refusal to link says to the person. A desk from before
+/// links cannot read the command, and answers with every one it can.
+pub(super) fn refusal(answer: &Value) -> String {
+    let error = answer["error"]
+        .as_str()
+        .unwrap_or("That desk would not link.");
+    if error.contains("unknown variant `desks.link_accept`") {
+        return "Update that desk to link with it.".into();
+    }
+    error.to_string()
 }
 
 /// `/v2/link` on the desk being dialed: both Noise messages, then the

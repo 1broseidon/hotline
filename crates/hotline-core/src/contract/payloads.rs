@@ -115,7 +115,7 @@ pub struct ImageSettings {
 pub struct LinkedTeammate {
     pub persona_id: String,
     pub name: String,
-    /// idle, working, waiting or stopped.
+    /// idle, working, waiting or stopped; offline while its desk is away.
     pub state: String,
     /// The tool or task it is doing right now, while it is working.
     #[serde(default)]

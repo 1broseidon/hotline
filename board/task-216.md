@@ -35,9 +35,9 @@ contract:
     - "Do not touch session/peers or runner.rs: task-218 runs alongside"
   metrics:
     readyAt: "2026-10-19T20:03:13.285Z"
-    pickedUpAt: "2026-10-19T20:03:43.502Z"
-    reworkCount: 0
-updatedAt: "2026-10-19T20:22:58.046Z"
+    pickedUpAt: "2026-10-19T20:23:09.185Z"
+    reworkCount: 1
+updatedAt: "2026-10-19T20:23:09.185Z"
 dispatch:
   agent: claude
   model: opus

@@ -1,8 +1,6 @@
 ---
 id: task-208
 title: "hotline-room: RoomHandle and the room's plain pieces as their own crate"
-column: review
-position: 9
 priority: high
 tags:
   - crate-split
@@ -26,7 +24,7 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:41.570Z"
 dependsOn:
   - task-211
-updatedAt: "2026-10-19T15:02:47.179Z"
+updatedAt: "2026-10-19T15:04:34.734Z"
 contract:
   status: delivered
   deliverables:
@@ -76,6 +74,7 @@ dispatch:
     at: "2026-10-19T14:41:02.657Z"
     ended: "2026-10-19T15:02:47.179Z"
     outcome: review
+completedAt: "2026-10-19T15:04:34.734Z"
 ---
 
 ## Description
@@ -84,3 +83,4 @@ ADR 0007 step 1, second half. task-211 has already cut RoomHandle's five core-ty
 ## Log
 - 2026-10-19T14:40:59.829Z: [claude] Lead: task-211 landed on release/0.41.0 (770640d9). The wire now receives the calls, the Remote and the links in a `wire::Parts` when it is built. Parts names core types, so it stays in the core; only RoomHandle and the plain pieces move. Run the full `cargo test -p hotline-core`, `make check` and `make precheck` in the foreground and to completion before ending your turn. task-211's first try ended uncommitted because it put the test run in the background.
 - 2026-10-19T15:02:40.058Z: [claude] Done on dispatch/task-208 (8c39177e). crates/hotline-room (on contract, support, store, websearch; never core or Tauri) now holds room.rs, linked.rs, tool_ledger.rs (was session/ledger.rs), room_handle.rs (RoomHandle, AuthStatus, NOT_LINKED), mcp_servers.rs (normalize_servers + helpers + 3 tests), voice/{ledger,metering,settings,spoken}.rs, provider_auth.rs, secret.rs (same_secret, redact_text), text.rs (clip), tls.rs (install_crypto_provider), computer.rs (HOME_MOUNT). ADR 0007 "Step 1, done" has the old→new path tables for task-202 (room.rs → crates/hotline-room/src/room.rs) and task-207 (voice/spoken.rs → crates/hotline-room/src/voice/spoken.rs). Beyond the plan: voice/settings.rs moved too (metering reads VoiceSettings; GPT-Live's VOICES now inline there, gone from realtime/live.rs), and synthesis's sentences/take_sentences/spoken_lengths/SPOKEN_PIECE moved into spoken.rs (core callers now name spoken::). Left for later: the core still reaches every piece through `pub use` re-exports at the old paths (crate::room, crate::linked, session::ledger, voice::{ledger,metering,settings,spoken}, wire::{RoomHandle,AuthStatus,same_secret}, mcp::normalize_servers, session::ProviderAuth, driver::clip, driver::failure::redact_text, desk::install_crypto_provider, computer::HOME_MOUNT); wire::Parts/Agents stay in the core; Budget::charge is behind hotline-room's test-support feature (core dev-dep). module-map now shows remote's production edges as computer(1), wire(5) only, and a new one-link cut thread → session (thread/store.rs:203). No timings taken for this step. Checks: cargo test -p hotline-core unfiltered, make check, contract.ts byte-identical, make precheck (8/8) all pass.
+- 2026-10-19T15:04:34.363Z: Landed on release/0.41.0

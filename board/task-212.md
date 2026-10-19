@@ -1,7 +1,7 @@
 ---
 id: task-212
 title: "hotline-voice: the speech and realtime engines move first"
-column: in-progress
+column: review
 position: 9
 priority: high
 tags:
@@ -16,7 +16,7 @@ relatedFiles:
 parentId: epic-19
 createdAt: "2026-10-19T17:20:18.735Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-voice/Cargo.toml
@@ -50,7 +50,9 @@ contract:
     readyAt: "2026-10-19T17:22:10.798Z"
     pickedUpAt: "2026-10-19T17:22:50.262Z"
     reworkCount: 0
-updatedAt: "2026-10-19T17:22:50.262Z"
+    deliveredAt: "2026-10-19T18:21:03.399Z"
+    duration: 3493
+updatedAt: "2026-10-19T18:21:03.399Z"
 dispatch:
   agent: claude
   model: opus

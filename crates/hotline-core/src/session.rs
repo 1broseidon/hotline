@@ -46,7 +46,7 @@ pub(crate) mod exchanges;
 pub(crate) mod files;
 pub(crate) mod generate;
 pub(crate) mod jobs;
-pub(crate) mod ledger;
+pub(crate) use hotline_room::tool_ledger as ledger;
 mod lifecycle;
 mod links;
 mod narration;
@@ -70,6 +70,7 @@ use asking::HumanWait;
 use chapters::sweep_idle_chapters;
 use computer::{ComputerSetup, ComputerSwap};
 use driver_info::follow_model_changes;
+pub use hotline_room::provider_auth::ProviderAuth;
 use prompt::{PendingTool, stamped};
 use secrets::PasskeyArming;
 pub use stopping::Stopped;
@@ -156,29 +157,6 @@ const ASK_HOURS: u32 = 2;
 /// The longest a teammate may ask a card to wait: a day, for an ask that
 /// really waits for the person to come back.
 const ASK_MAX_HOURS: u32 = 24;
-
-/// How Hotline Agent reaches a provider: a key, a login directory, or a
-/// configured endpoint with its own protocol and optional key.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProviderAuth {
-    ApiKey(String),
-    Unavailable(String),
-    StoredLogin {
-        tokens: crate::credentials::CredentialFile,
-    },
-    Login {
-        token_dir: PathBuf,
-    },
-    Local {
-        base_url: String,
-    },
-    Custom {
-        name: String,
-        base_url: String,
-        api_key: Option<String>,
-        config: crate::contract::CustomProvider,
-    },
-}
 
 /// Where the provider credentials come from.
 ///

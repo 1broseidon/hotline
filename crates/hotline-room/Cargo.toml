@@ -1,0 +1,37 @@
+[package]
+name = "hotline-room"
+description = "The room as everything above Hotline's core sees it: the roster and settings folded from the room stream, linked desks, the seam the wire calls the room through, the tool ledger, and voice's settings, spend and spoken replies. Depends on hotline-contract, hotline-support, hotline-store and hotline-websearch, and never on hotline-core or Tauri, by design."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hotline-contract = { path = "../hotline-contract" }
+hotline-support = { path = "../hotline-support" }
+hotline-store = { path = "../hotline-store" }
+hotline-websearch = { path = "../hotline-websearch" }
+async-trait = "0.1.92"
+serde.workspace = true
+serde_json.workspace = true
+# `rt-multi-thread`: the voice ledger writes off the runtime with
+# `block_in_place`, which only a multi-threaded runtime has.
+tokio = { workspace = true, features = ["sync", "time", "rt-multi-thread"] }
+tokio-util = "0.7"
+chrono.workspace = true
+regex = "1"
+tempfile = "3"
+uuid = { version = "1.26.0", features = ["v4"] }
+# The process's TLS default; aws-lc-rs is the backend the core's HTTP uses.
+tokio-rustls = "0.26"
+
+# `test-support` adds code and changes nothing already here: the voice
+# budget's charge without a reservation, which the core's call tests spend.
+[features]
+test-support = []
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "test-util"] }

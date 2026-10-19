@@ -162,7 +162,7 @@ the run has stopped. How a run is driven is [sessions.md](sessions.md#subagents)
 `room.jsonl` holds the roster, the settings, the jobs that will wake a
 teammate later, and the fact of each credential. One file, no epochs. The
 folds are `room::roster`, `room::settings` and `room::schedules` in
-`crates/hotline-core/src/room.rs`; the vault writes the credential events.
+`crates/hotline-room/src/room.rs`; the vault writes the credential events.
 `kind` is the first key on every line this tree writes, because that is
 the field a fold discriminates on and the one a reader of the raw file
 looks for first.

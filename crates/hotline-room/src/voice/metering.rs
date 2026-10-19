@@ -11,8 +11,8 @@ use super::{
     ledger::{self, Exhausted, Kind, Ledger, Reservation, Spent},
     settings::VoiceSettings,
 };
-use crate::contract::{BudgetKind, BudgetLimits};
-use crate::log::Log;
+use hotline_contract::{BudgetKind, BudgetLimits};
+use hotline_store::log::Log;
 use std::sync::{Mutex, PoisonError};
 
 pub const BUDGET_ERROR: &str = "The voice budget cannot authorize this request.";
@@ -157,8 +157,8 @@ impl Budget {
         self.ready_held(&[kind])
     }
 
-    #[cfg(test)]
-    pub(crate) fn charge(&self, kind: Kind, usd: f64) {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn charge(&self, kind: Kind, usd: f64) {
         self.ledger(kind).charge(kind, usd);
     }
 }
@@ -190,7 +190,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let log = Log::open(root.path());
         log.append(
-            &crate::log::StreamId::Room,
+            &hotline_store::log::StreamId::Room,
             &crate::room::room_event("setting", json!({"id": "spending", "value": spending})),
         )
         .unwrap();

@@ -33,7 +33,6 @@ mod door;
 mod files;
 mod phone;
 mod relay_door;
-mod room_handle;
 mod roster;
 mod schedules;
 mod seat;
@@ -42,7 +41,8 @@ mod subscribe;
 mod threads;
 
 pub use door::Door;
-pub use room_handle::{AuthStatus, RoomHandle};
+pub use hotline_room::room_handle::{AuthStatus, RoomHandle};
+pub(crate) use hotline_room::secret::same_secret;
 pub(crate) use roster::{activity_on, waiting_on};
 use socket::Outbox;
 #[cfg(test)]
@@ -77,20 +77,6 @@ pub struct Parts {
     /// The live half of this desk's links (ADR 0003): which linked desks are
     /// reachable now, the calls waiting for them, and their teammates.
     pub links: Option<Arc<crate::linked::Links>>,
-}
-
-/// Equal without leaking, through timing, how much of a wrong token matched.
-pub(crate) fn same_secret(presented: &str, expected: &str) -> bool {
-    let presented = presented.as_bytes();
-    let expected = expected.as_bytes();
-    if presented.len() != expected.len() {
-        return false;
-    }
-    presented
-        .iter()
-        .zip(expected)
-        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-        == 0
 }
 
 /// One frame onto the socket's queue. False means the socket is gone.

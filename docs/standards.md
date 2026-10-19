@@ -49,6 +49,20 @@ module map itself is [development.md](development.md#layout).
   crate as `websearch`, so `crate::websearch::Search` still holds there.
   Its mock provider is public only under the `test-support` feature, which
   the core turns on for its tests alone.
+- `hotline-room` is the room as everything above the core sees it: the
+  roster and settings folded from the room stream, with the `mcpServers`
+  setting's reading beside them, linked desks, `RoomHandle` and its
+  `AuthStatus`, the tool ledger, voice's settings, ledger, metering and
+  spoken replies, and the stateless pieces the core's next crates need
+  (`ProviderAuth`, `same_secret`, `redact_text`, `clip`, the TLS default,
+  `HOME_MOUNT`). It stands on `hotline-contract`, `hotline-support`,
+  `hotline-store` and `hotline-websearch`, and never on `hotline-core` or
+  Tauri. `hotline-core` re-exports each piece at its old path, so
+  `crate::room`, `crate::linked`, `crate::session::ledger`,
+  `crate::voice::metering` and `crate::wire::RoomHandle` still hold there.
+  The wire's `Parts` (the calls, the Remote, the links) names core types,
+  so it stays in the core with the wire. The voice budget's unreserved
+  `charge` is public only under its `test-support` feature.
 - A new crate comes from the plan in
   [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
   direction, its edges only go down, and nothing but the app and the CLI

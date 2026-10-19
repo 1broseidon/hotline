@@ -22,6 +22,7 @@ use crate::contract::{
     SessionConfig, SubagentStatus, TokenUsage,
 };
 use async_trait::async_trait;
+pub(crate) use hotline_room::text::clip;
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::{mpsc, watch};
 
@@ -375,18 +376,6 @@ pub trait Driver: Send + Sync {
     fn answer_permission(&self, _request_id: &str, _option_id: &str) -> bool {
         false
     }
-}
-
-/// How much of a string a transcript line keeps, with an ellipsis standing
-/// for the rest. A tool's title and a tool's output are cut the same way and
-/// at very different lengths; what they share is that the cut is presentation
-/// and never touches what the model was given.
-pub(crate) fn clip(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        return text.to_string();
-    }
-    let kept: String = text.chars().take(max).collect();
-    format!("{kept}…")
 }
 
 /// The transcript line for a tool result: the text the tool produced, and

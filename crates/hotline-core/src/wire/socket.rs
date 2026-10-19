@@ -789,8 +789,6 @@ pub(crate) const WRITE_STALL: std::time::Duration = std::time::Duration::from_se
 
 /// The seat may not do this, whoever asks and whatever the room holds.
 pub(super) const FORBIDDEN: &str = "forbidden";
-/// A room that keeps no links answers a linked desk with this.
-pub(super) const NOT_LINKED: &str = "This desk is not linked with that one.";
 /// The command or subscription names a teammate the room does not hold.
 pub(super) const UNKNOWN_TEAMMATE: &str = "unknown_teammate";
 /// The room could not be read, so there is no answer to give — which is not

@@ -9,7 +9,7 @@
 //! "why does this teammate not have that tool" is usually asked after the
 //! teammate has been stopped again.
 
-use crate::contract::{AgentKind, TeammateToolLedger, ToolLedgerRow, ToolSourceKind, ToolState};
+use hotline_contract::{AgentKind, TeammateToolLedger, ToolLedgerRow, ToolSourceKind, ToolState};
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 

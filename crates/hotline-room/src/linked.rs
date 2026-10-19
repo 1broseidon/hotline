@@ -14,12 +14,12 @@
 //! and gone when the link is, plus the last names it had, kept on the record
 //! so a message can be addressed and queued while the other desk is away.
 
-use crate::contract::{Capabilities, LinkedTeammate, Profile, WorkingOn};
-pub use crate::contract::{DeskLink, DeskLinkState};
-use crate::log::{Log, StreamId};
+use hotline_contract::{Capabilities, LinkedTeammate, Profile, WorkingOn};
+pub use hotline_contract::{DeskLink, DeskLinkState};
+use hotline_store::log::{Log, StreamId};
 // The grammar of a node-qualified id is pure strings, so it lives in `paths`
 // beside the thread key that has to accept one; it is named from here.
-pub(crate) use crate::paths::{is_linked, qualified, split, valid_desk_id, valid_persona_id};
+pub use hotline_support::paths::{is_linked, qualified, split, valid_desk_id, valid_persona_id};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -36,7 +36,7 @@ const TEAMMATES_MAX: usize = 200;
 /// One linked desk, as the room stream keeps it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Record {
+pub struct Record {
     /// The other desk's id.
     pub desk_id: String,
     /// What the other desk calls itself.
@@ -57,7 +57,7 @@ pub(crate) struct Record {
 /// A linked teammate's id and name, and nothing else.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Known {
+pub struct Known {
     pub persona_id: String,
     pub name: String,
 }
@@ -67,7 +67,7 @@ fn record_id(desk_id: &str) -> String {
 }
 
 /// Every desk this one is linked with.
-pub(crate) fn records(log: &Log) -> Vec<Record> {
+pub fn records(log: &Log) -> Vec<Record> {
     log.load(&StreamId::Room)
         .into_iter()
         .filter(|event| event["kind"] == KIND && event["deleted"] != true)
@@ -75,7 +75,7 @@ pub(crate) fn records(log: &Log) -> Vec<Record> {
         .collect()
 }
 
-pub(crate) fn record(log: &Log, desk_id: &str) -> Option<Record> {
+pub fn record(log: &Log, desk_id: &str) -> Option<Record> {
     records(log)
         .into_iter()
         .find(|record| record.desk_id == desk_id)
@@ -90,14 +90,14 @@ fn records_held() -> std::sync::MutexGuard<'static, ()> {
     RECORDS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-pub(crate) fn save(log: &Log, record: &Record) -> Result<(), String> {
+pub fn save(log: &Log, record: &Record) -> Result<(), String> {
     let _held = records_held();
     append(log, record)
 }
 
 /// Changes a link's record, written back only if `change` says it changed
 /// it, and only while the link still exists.
-pub(crate) fn update(
+pub fn update(
     log: &Log,
     desk_id: &str,
     change: impl FnOnce(&mut Record) -> bool,
@@ -121,7 +121,7 @@ fn append(log: &Log, record: &Record) -> Result<(), String> {
 }
 
 /// The link's end on this desk, as a room event: the record is gone.
-pub(crate) fn remove(log: &Log, desk_id: &str) -> Result<(), String> {
+pub fn remove(log: &Log, desk_id: &str) -> Result<(), String> {
     let _held = records_held();
     log.append(
         &StreamId::Room,
@@ -139,7 +139,7 @@ pub(crate) fn remove(log: &Log, desk_id: &str) -> Result<(), String> {
 
 /// What a linked teammate is called here, "Name on Desk", from what its
 /// desk's record last heard; none for an id that is not a linked one.
-pub(crate) fn shown_name(log: &Log, id: &str) -> Option<String> {
+pub fn shown_name(log: &Log, id: &str) -> Option<String> {
     let (desk_id, persona_id) = split(id)?;
     let record = record(log, desk_id)?;
     let known = record
@@ -160,7 +160,7 @@ fn clipped(text: &str, most: usize) -> String {
 /// line breaks, runs of space as one, at most `most` characters. A name
 /// lands in a preamble and on the person's card, outside any quote, so it
 /// must not be able to start a line of its own there.
-pub(crate) fn plain(text: &str, most: usize) -> String {
+pub fn plain(text: &str, most: usize) -> String {
     let spaced: String = text
         .chars()
         .map(|c| if c.is_control() { ' ' } else { c })
@@ -174,7 +174,7 @@ pub(crate) fn plain(text: &str, most: usize) -> String {
 /// A roster another desk sent, kept only as far as it is plausible: known
 /// states, ids a room could have minted, bounded text. A desk that sends
 /// more than that is not refused; what it sent is cut down to it.
-pub(crate) fn plausible(teammates: Vec<LinkedTeammate>) -> Vec<LinkedTeammate> {
+pub fn plausible(teammates: Vec<LinkedTeammate>) -> Vec<LinkedTeammate> {
     teammates
         .into_iter()
         .filter(|teammate| valid_persona_id(&teammate.persona_id))
@@ -243,7 +243,7 @@ fn plausible_profile(profile: Profile) -> Profile {
 
 /// Why a call over a link got no answer.
 #[derive(Debug, PartialEq)]
-pub(crate) enum CallError {
+pub enum CallError {
     /// The channel is not open, or closed before the answer came. A request
     /// may or may not have arrived, so whatever is sent must be safe to send
     /// again.
@@ -253,7 +253,7 @@ pub(crate) enum CallError {
 }
 
 /// One command for the other desk, and where its answer goes.
-pub(crate) struct Call {
+pub struct Call {
     pub cmd: &'static str,
     pub params: Value,
     pub answer: oneshot::Sender<Result<Value, CallError>>,
@@ -302,7 +302,7 @@ const NAMES_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
 /// messages and answers far faster than teammates write them. Every frame
 /// may read the room stream, so another desk must not set the pace.
 const FRAMES_AT_ONCE: f64 = 200.0;
-pub(crate) const FRAMES_EVERY_SECOND: f64 = 20.0;
+pub const FRAMES_EVERY_SECOND: f64 = 20.0;
 
 /// A token bucket of frames, kept per link rather than per channel, so a
 /// desk that dials again starts with what it had left.
@@ -344,7 +344,7 @@ impl Links {
 
     /// The token that ends everything this desk runs for a link: its dialing
     /// and its open channel.
-    pub(crate) fn token(&self, desk_id: &str) -> CancellationToken {
+    pub fn token(&self, desk_id: &str) -> CancellationToken {
         self.peers()
             .entry(desk_id.to_string())
             .or_default()
@@ -354,7 +354,7 @@ impl Links {
 
     /// The token a new dial loop runs under, or none when one is already
     /// running for this link.
-    pub(crate) fn dialer(&self, desk_id: &str) -> Option<CancellationToken> {
+    pub fn dialer(&self, desk_id: &str) -> Option<CancellationToken> {
         let mut peers = self.peers();
         let peer = peers.entry(desk_id.to_string()).or_default();
         if peer.dialing {
@@ -367,7 +367,7 @@ impl Links {
     /// A channel opened: calls for this desk go to it from now on. Answers
     /// the generation to hand back when it closes, so a channel that closes
     /// late never unregisters the one that replaced it.
-    pub(crate) fn opened(&self, desk_id: &str, calls: mpsc::Sender<Call>) -> u64 {
+    pub fn opened(&self, desk_id: &str, calls: mpsc::Sender<Call>) -> u64 {
         static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         {
@@ -381,7 +381,7 @@ impl Links {
 
     /// A channel closed, or a dial failed, with why when there is a reason
     /// worth showing.
-    pub(crate) fn closed(&self, desk_id: &str, generation: Option<u64>, error: Option<String>) {
+    pub fn closed(&self, desk_id: &str, generation: Option<u64>, error: Option<String>) {
         let mut peers = self.peers();
         let Some(peer) = peers.get_mut(desk_id) else {
             return;
@@ -397,14 +397,14 @@ impl Links {
         peer.error = error;
     }
 
-    pub(crate) fn is_open(&self, desk_id: &str) -> bool {
+    pub fn is_open(&self, desk_id: &str) -> bool {
         self.peers()
             .get(desk_id)
             .is_some_and(|peer| peer.live.is_some())
     }
 
     /// The link's state and why, for the Desks section.
-    pub(crate) fn state(&self, desk_id: &str) -> (DeskLinkState, Option<String>) {
+    pub fn state(&self, desk_id: &str) -> (DeskLinkState, Option<String>) {
         match self.peers().get(desk_id) {
             Some(peer) if peer.live.is_some() => (DeskLinkState::Connected, None),
             Some(peer) => (DeskLinkState::Offline, peer.error.clone()),
@@ -414,14 +414,14 @@ impl Links {
 
     /// The other desk's teammates as it published them over the channel
     /// that is open now, if it has.
-    pub(crate) fn roster(&self, desk_id: &str) -> Option<Vec<LinkedTeammate>> {
+    pub fn roster(&self, desk_id: &str) -> Option<Vec<LinkedTeammate>> {
         self.peers().get(desk_id)?.roster.clone()
     }
 
     /// Whether the names a linked desk just published are to be written
     /// down now: when they differ from what its record is known to hold, the
     /// first time, and then at most every [`NAMES_EVERY`].
-    pub(crate) fn names_to_write(&self, desk_id: &str, names: &[Known]) -> bool {
+    pub fn names_to_write(&self, desk_id: &str, names: &[Known]) -> bool {
         let mut peers = self.peers();
         let peer = peers.entry(desk_id.to_string()).or_default();
         if peer.recorded.as_deref() == Some(names) {
@@ -437,7 +437,7 @@ impl Links {
     }
 
     /// The names a linked desk's record holds now.
-    pub(crate) fn names_written(&self, desk_id: &str, names: Vec<Known>) {
+    pub fn names_written(&self, desk_id: &str, names: Vec<Known>) {
         if let Some(peer) = self.peers().get_mut(desk_id) {
             peer.recorded = Some(names);
         }
@@ -445,20 +445,20 @@ impl Links {
 
     /// How long to wait before reading the frame a linked desk just sent,
     /// when it has spent its budget of frames.
-    pub(crate) fn frame_wait(&self, desk_id: &str) -> Option<std::time::Duration> {
+    pub fn frame_wait(&self, desk_id: &str) -> Option<std::time::Duration> {
         self.peers()
             .get_mut(desk_id)?
             .budget
             .spend(std::time::Instant::now())
     }
 
-    pub(crate) fn set_roster(&self, desk_id: &str, roster: Vec<LinkedTeammate>) {
+    pub fn set_roster(&self, desk_id: &str, roster: Vec<LinkedTeammate>) {
         self.peers().entry(desk_id.to_string()).or_default().roster = Some(roster);
     }
 
     /// This desk's rows, each made again only when what it is made from
     /// (`made_from`, by teammate) has changed since it was last made.
-    pub(crate) fn rows(
+    pub fn rows(
         &self,
         teammates: Vec<(String, String)>,
         make: impl Fn(&str) -> Option<LinkedTeammate>,
@@ -480,7 +480,7 @@ impl Links {
 
     /// Ends this link here: its dialing, its channel and every call waiting
     /// on it stop, and what was known of its teammates goes.
-    pub(crate) fn forget(&self, desk_id: &str) {
+    pub fn forget(&self, desk_id: &str) {
         let peer = self.peers().remove(desk_id);
         if let Some(peer) = peer {
             peer.cancel.cancel();
@@ -489,7 +489,7 @@ impl Links {
 
     /// Asks the other desk something and waits for its answer, or for the
     /// channel to close first.
-    pub(crate) async fn call(
+    pub async fn call(
         &self,
         desk_id: &str,
         cmd: &'static str,

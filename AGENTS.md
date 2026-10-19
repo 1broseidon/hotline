@@ -112,10 +112,12 @@ lints, dependencies) are in [docs/standards.md](docs/standards.md).
   Hotline crate; `hotline-store` (the log, sent files, the search index)
   and `hotline-tools` (the workspace and shell tools, and the capability
   lease they check) each stand on those two alone, and `hotline-websearch`
-  (web search) on `hotline-contract` alone; `hotline-core` stands on all
-  five and re-exports them under their old module names, so
-  `crate::paths`, `crate::store::search`, `crate::tools` and
-  `crate::websearch` still hold in the core.
+  (web search) on `hotline-contract` alone; `hotline-room` (the roster
+  fold, linked desks, `RoomHandle`, the tool ledger, voice's settings and
+  spend) stands on the contract, the support, the store and web search;
+  `hotline-core` stands on all six and re-exports them under their old
+  module names, so `crate::paths`, `crate::store::search`, `crate::room`,
+  `crate::tools` and `crate::websearch` still hold in the core.
 - **A capability change follows `docs/security.md`.** Anything that alters
   what a teammate can reach — a tool, a tool origin, a grant, a driver path —
   is enforced in the core outside the model, revocable through the session's

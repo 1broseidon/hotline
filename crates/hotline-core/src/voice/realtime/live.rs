@@ -57,10 +57,6 @@ use webrtc::peer_connection::{
 /// The ChatGPT login's provider id.
 pub const PROVIDER_ID: &str = "openai-codex";
 pub const MODEL: &str = "gpt-live-1-codex";
-/// The voices GPT-Live speaks in, the default first.
-pub const VOICES: [&str; 8] = [
-    "cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "sol",
-];
 const CALLS_URL: &str =
     "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas";
 const SIDEBAND_URL: &str = "wss://api.openai.com/v1/live";

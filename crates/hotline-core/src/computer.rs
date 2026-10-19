@@ -20,6 +20,7 @@ use container::{
     create_args, folder_mount_args, image_present, inspect, inspect_within, limits_of,
     pick_runtime, pull, run, wait_healthy,
 };
+pub(crate) use hotline_room::computer::HOME_MOUNT;
 use runtime::{BinSearch, Runtime};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -46,14 +47,6 @@ pub const COMPUTER_HIBERNATE_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 const MCP_PORT: u16 = 8787;
 const WORKSPACE_MOUNT: &str = "/home/agent/workspace";
-/// A named volume per teammate for the home itself, so what the teammate
-/// prepared there outlives the container the hibernate cycle removes: the
-/// environments it built for a workspace, its jobs and their output, its
-/// shell history and its browser profile. The image keeps nothing of its
-/// own in the home, so an empty volume is what a fresh container would
-/// have had anyway. An extra mount may sit inside it; only one that would
-/// cover it is refused, and that one already covers the workspace.
-pub(crate) const HOME_MOUNT: &str = "/home/agent";
 /// A named volume per teammate, so a checkout or a build it starts outlives
 /// the container the hibernate cycle removes. The workspace is the person's
 /// folder; this one is the teammate's.

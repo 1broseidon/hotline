@@ -4313,6 +4313,7 @@ dependencies = [
  "getrandom 0.3.4",
  "hex",
  "hotline-contract",
+ "hotline-room",
  "hotline-store",
  "hotline-support",
  "hotline-tools",
@@ -4356,6 +4357,26 @@ dependencies = [
  "webrtc",
  "windows-sys 0.61.2",
  "zip",
+]
+
+[[package]]
+name = "hotline-room"
+version = "0.40.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "hotline-contract",
+ "hotline-store",
+ "hotline-support",
+ "hotline-websearch",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "uuid",
 ]
 
 [[package]]

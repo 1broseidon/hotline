@@ -29,8 +29,8 @@
 //! set `spending` but kept the voice-only `dayUsd` and `monthUsd` of early
 //! versions here has those as its Voice limits.
 
-use crate::contract::{BudgetLimits, SpendingSettings};
-use crate::log::Log;
+use hotline_contract::{BudgetLimits, SpendingSettings};
+use hotline_store::log::Log;
 use serde_json::{Map, Value};
 
 /// The owner's pick for one job: a connected provider, and optionally the
@@ -77,7 +77,9 @@ impl FrontProvider {
                 "marin", "cedar", "alloy", "ash", "ballad", "coral", "echo", "sage", "shimmer",
                 "verse",
             ],
-            Self::GptLive => &crate::voice::realtime::live::VOICES,
+            Self::GptLive => &[
+                "cove", "juniper", "maple", "spruce", "ember", "vale", "breeze", "sol",
+            ],
         }
     }
 

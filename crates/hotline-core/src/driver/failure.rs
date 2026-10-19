@@ -2,6 +2,7 @@
 use crate::models::Client;
 use crate::providers::discovery::ListedModel;
 use crate::session::ProviderAuth;
+pub(crate) use hotline_room::secret::redact_text;
 use rig::completion::CompletionError;
 use serde::Serialize;
 use serde_json::Value;
@@ -622,29 +623,6 @@ fn clean(value: &mut Value, depth: usize) {
         }
         _ => {}
     }
-}
-
-pub(crate) fn redact_text(text: &str) -> String {
-    let mut output = text.to_string();
-    for prefix in ["Bearer ", "bearer ", "sk-", "sk_", "ghp_", "github_pat_"] {
-        let mut offset = 0;
-        while let Some(found) = output[offset..].find(prefix) {
-            let start = offset + found;
-            let end = output[start..]
-                .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ',' | '}'))
-                .map_or(output.len(), |n| start + n);
-            let end = if prefix.ends_with(' ') {
-                output[start + prefix.len()..]
-                    .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ',' | '}'))
-                    .map_or(output.len(), |n| start + prefix.len() + n)
-            } else {
-                end
-            };
-            output.replace_range(start..end, "[redacted]");
-            offset = start + "[redacted]".len();
-        }
-    }
-    output
 }
 
 pub(crate) fn sanitize(body: &str) -> String {

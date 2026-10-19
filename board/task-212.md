@@ -1,7 +1,7 @@
 ---
 id: task-212
 title: "hotline-voice: the speech and realtime engines move first"
-column: todo
+column: in-progress
 position: 9
 priority: high
 tags:
@@ -16,7 +16,7 @@ relatedFiles:
 parentId: epic-19
 createdAt: "2026-10-19T17:20:18.735Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-voice/Cargo.toml
@@ -48,7 +48,9 @@ contract:
     - Run cargo test, make check and make precheck in the foreground and to completion before ending the turn
   metrics:
     readyAt: "2026-10-19T17:22:10.798Z"
-updatedAt: "2026-10-19T17:22:38.944Z"
+    pickedUpAt: "2026-10-19T17:22:50.262Z"
+    reworkCount: 0
+updatedAt: "2026-10-19T17:22:50.262Z"
 dispatch:
   agent: claude
   model: opus

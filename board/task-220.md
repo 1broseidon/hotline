@@ -16,8 +16,10 @@ parentId: epic-20
 createdAt: "2026-10-19T19:59:32.588Z"
 dependsOn:
   - task-217
-updatedAt: "2026-10-19T19:59:35.036Z"
+  - task-218
+  - task-219
+updatedAt: "2026-10-19T20:02:53.143Z"
 ---
 
 ## Description
-ADR 0008 §7, all of it: one schema for subagents and jobs (task, trigger now/at/every, report policy, optional end) written by the schedule/loop and subagent tools; each job an arm with its own thread under the home thread, listed in a Jobs group with its next run; each firing a turn on that thread, never the home thread; parked between firings; a running note rewritten each firing plus the last few firings; an overlapping firing skipped, said on the job's thread, with a suggested interval; ends on cancel or goal with a final post; a plain reminder is one post with no arm; the person can talk to a job's thread. Today's quiet-run path in the home thread is removed. Existing schedules keep firing across the upgrade (migrated to job threads). Harness tests for each rule. Contract and desktop: the Jobs group in the thread list (a minimal row: name, next run, last post).
+ADR 0008 §7, the core of it: one schema for subagents and jobs (task, trigger now/at/every, report policy, optional end) written by the schedule/loop and subagent tools; each job an arm with its own thread under the home thread; each firing a turn on that thread, never the home thread; parked between firings; a running note rewritten each firing plus the last few firings; an overlapping firing skipped, said on the job's thread, with a suggested interval; ends on cancel or goal with a final post (through Room::post / post_to_chat, task-216/217); a plain reminder is one post with no arm; the person can talk to a job's thread. Today's quiet-run path in the home thread is removed (the quiet run on the DM's turns, Session::begin's quiet_run, and what is left of the quiet window that only it used). Existing schedules keep firing across the upgrade (migrated to job threads). Harness tests for each rule, in crates/hotline-core/tests/schedule.rs. Contract: carry the job listing on the wire (name, next run, last post, ended) so the desktop can draw it; the Jobs group itself is task-226, so leave the UI alone beyond what the contract change forces to compile. The clone model for the job's lease and start (§0) is task-221: run jobs on today's run lease here and say in a note what task-221 must change.

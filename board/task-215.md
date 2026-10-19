@@ -32,7 +32,9 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-19T17:32:32.097Z"
-updatedAt: "2026-10-19T17:42:13.162Z"
+    ended: "2026-10-19T17:42:20.059Z"
+    outcome: review
+updatedAt: "2026-10-19T17:42:20.059Z"
 ---
 
 ## Description

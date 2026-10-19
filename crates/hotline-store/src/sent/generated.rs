@@ -1,5 +1,5 @@
 use super::{MAX_BYTES, Prepared, clean_name, too_large};
-use crate::contract::AttachmentKind;
+use hotline_contract::AttachmentKind;
 use image::{ImageDecoder, ImageFormat};
 use std::fmt::Write;
 use std::io::Cursor;
@@ -7,7 +7,7 @@ use std::io::Cursor;
 const MAX_EDGE: u32 = 2048;
 const INVALID: &str = "The provider returned an image that could not be read.";
 
-pub(crate) fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
+pub fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
     let name = clean_name(name);
     if bytes.len() as u64 > MAX_BYTES {
         return Err(too_large(&name, Some(bytes.len() as u64)));
@@ -171,7 +171,7 @@ fn svg(bytes: Vec<u8>) -> Result<(Vec<u8>, (u32, u32)), String> {
 mod tests {
     use super::*;
 
-    pub(crate) fn picture(format: ImageFormat, width: u32, height: u32) -> Vec<u8> {
+    pub fn picture(format: ImageFormat, width: u32, height: u32) -> Vec<u8> {
         let image = image::RgbaImage::from_pixel(width, height, image::Rgba([20, 40, 60, 0]));
         let mut encoded = Cursor::new(Vec::new());
         image::DynamicImage::ImageRgba8(image)

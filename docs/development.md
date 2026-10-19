@@ -58,9 +58,14 @@ crates/hotline-support/src/   the utilities that hold no Hotline state; a leaf c
   fence.rs                   the one fence around anything quoted out of a conversation
   log_file.rs                where the app's own lines go when nobody reads its output
   process_windows.rs         a Windows child's kill-on-close job
-crates/hotline-core/src/
+crates/hotline-store/src/     what is kept on disk and rebuilt from it; on the two leaves and nothing else
   log/                       streams: append, fold, segments, subscribe; tapes and threads
-  store/                     beside the tape: FTS5 search, chapter list, roster previews
+  search.rs                  beside the tape: FTS5 search over every tape
+  chapters.rs                a tape's chapter list
+  previews.rs                a tape's last line, for the roster
+  link.rs                    the line a thread leaves on its parent, and where a thread stands
+  sent/                      files teammates send the person, and their readback
+crates/hotline-core/src/
   room.rs                    the roster fold, settings, and schedules
   thread/                    the one name for a conversation, its store and its policy
   vault/                     credential metadata beside the room stream
@@ -78,7 +83,6 @@ crates/hotline-core/src/
   voice/                     the owner's call: speech in and out, the front, realtime, metering
   websearch/                 web search for every teammate, keyless by default, ranked and cleaned
   imagegen/                  making images over whichever connected provider the owner has
-  sent/                      files teammates send the person, and their readback
   link_preview.rs            a link's card, read from the page's head
   desk.rs                    the room, vault and log behind the wire
   boot.rs                    one boot, the app's and `hotline serve`'s, that returns its errors

@@ -10,11 +10,13 @@
 //! The persona's proof is `room::roster`'s, because the room stream is
 //! where a teammate is written down.
 
-use crate::contract::{ChapterSummary, GlobalSearchHit, Preview, ThreadSearchHit, TranscriptEvent};
 use crate::log::{Log, StreamId};
-use crate::paths::transcript_segments_dir;
-use crate::store::search::fixture::{chapter, index, message};
-use crate::store::{chapters, previews, search};
+use crate::search::fixture::{chapter, index, message};
+use crate::{chapters, previews, search};
+use hotline_contract::{
+    ChapterSummary, GlobalSearchHit, Preview, ThreadSearchHit, TranscriptEvent,
+};
+use hotline_support::paths::transcript_segments_dir;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};

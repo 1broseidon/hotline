@@ -33,7 +33,7 @@ fn logical_size(segments: &[(u64, PathBuf)]) -> u64 {
 
 /// How many bytes a teammate's tape holds: what moves whenever anything is
 /// written to it, read without opening it.
-pub(crate) fn tape_size(root: &Path, persona_id: &str) -> u64 {
+pub fn tape_size(root: &Path, persona_id: &str) -> u64 {
     logical_size(&segments_of(root, persona_id))
 }
 
@@ -125,13 +125,13 @@ pub fn preview(root: &Path, persona_id: &str) -> Option<Value> {
 }
 
 /// Reuse a tail already read for the roster's activity and waiting state.
-pub(crate) fn preview_from_tail(tail: &[Value]) -> Option<Value> {
+pub fn preview_from_tail(tail: &[Value]) -> Option<Value> {
     tail.iter().rev().find_map(message_preview)
 }
 
 /// The preview for a tail already read, looking further back only when that
 /// tail holds no message and the tape has more than it read.
-pub(crate) fn preview_reaching(root: &Path, persona_id: &str, tail: &[Value]) -> Option<Value> {
+pub fn preview_reaching(root: &Path, persona_id: &str, tail: &[Value]) -> Option<Value> {
     if let Some(found) = preview_from_tail(tail) {
         return Some(found);
     }
@@ -154,7 +154,7 @@ pub(crate) fn preview_reaching(root: &Path, persona_id: &str, tail: &[Value]) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::paths::transcript_segments_dir;
+    use hotline_support::paths::transcript_segments_dir;
     use serde_json::json;
     use std::fs;
 

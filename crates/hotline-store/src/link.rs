@@ -24,8 +24,7 @@
 //! marker is rewritten as a link under its own id the next time its thread
 //! changes, so it is replaced in place and never doubled.
 
-use super::{AgentBinding, ThreadState};
-use crate::contract::{
+use hotline_contract::{
     CallStatus, End, SideEnd, SideOpener, SideStatus, SubagentStatus, ThreadId, ThreadKind,
     TranscriptEvent,
 };
@@ -33,6 +32,27 @@ use serde_json::{Value, json};
 
 /// The `kind` of a link line.
 pub const KIND: &str = "link";
+
+/// Where a thread stands. The records say what they say: a thread whose
+/// record says `Live` has an agent only if the room holds one, and the room
+/// parks the ones it does not at its next start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThreadState {
+    /// An agent is running it.
+    Live,
+    /// Open, with no agent. Saying something in it brings one back.
+    Parked,
+    /// Over, and read-only until it is continued.
+    Closed(End),
+}
+
+/// The agent's own memory of a thread, as its harness issued it: what a later
+/// start reopens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentBinding {
+    pub backend_id: String,
+    pub session_id: String,
+}
 
 /// One thread, as the line on its parent says it stands.
 #[derive(Clone, Debug, PartialEq, Eq)]

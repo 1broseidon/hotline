@@ -1602,7 +1602,7 @@ Hotline Agent's memory is the tape. It has no session id to checkpoint.
 A teammate is one long conversation; an agent's context cannot be. The tape
 is divided into **chapters**, and each chapter is one context. Nothing about
 this is a second thread: a chapter is a marker event in the tape it
-divides, superseded by id when it closes. `store/chapters.rs` reads markers;
+divides, superseded by id when it closes. `hotline-store`'s `chapters.rs` reads markers;
 `session/chapters.rs` writes them.
 
 ### Open

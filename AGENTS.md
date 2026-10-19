@@ -109,8 +109,10 @@ lints, dependencies) are in [docs/standards.md](docs/standards.md).
   depends on Tauri.
 - **Crates depend only downward.** `hotline-contract` (the wire's types) and
   `hotline-support` (the utilities that hold no Hotline state) depend on no
-  Hotline crate; `hotline-core` stands on them and re-exports them under
-  their old module names, so `crate::paths` still holds in the core.
+  Hotline crate; `hotline-store` (the log, sent files, the search index)
+  stands on those two alone; `hotline-core` stands on all three and
+  re-exports them under their old module names, so `crate::paths` and
+  `crate::store::search` still hold in the core.
 - **A capability change follows `docs/security.md`.** Anything that alters
   what a teammate can reach — a tool, a tool origin, a grant, a driver path —
   is enforced in the core outside the model, revocable through the session's

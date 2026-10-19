@@ -10,7 +10,7 @@
 //! Written to be byte-for-byte what the previous edition's `store/threads.ts`
 //! writes, so a data directory imports with its threads unchanged.
 
-use crate::paths::{decode_file_component, thread_meta_path, thread_path, threads_dir};
+use hotline_support::paths::{decode_file_component, thread_meta_path, thread_path, threads_dir};
 use serde_json::{Map, Value};
 use std::fs;
 use std::io;
@@ -25,7 +25,7 @@ fn missing_key(key: &str) -> io::Error {
 /// A key that does not spell itself the same way again — unsorted, three
 /// sided, or climbing out of the directory — names no file, so it is refused
 /// rather than written somewhere surprising.
-pub(crate) fn file(root: &Path, key: &str) -> io::Result<std::path::PathBuf> {
+pub fn file(root: &Path, key: &str) -> io::Result<std::path::PathBuf> {
     thread_path(root, key).ok_or_else(|| missing_key(key))
 }
 
@@ -70,7 +70,8 @@ pub fn ensure(root: &Path, key: &str) -> io::Result<bool> {
     if read_meta(root, key).is_some() {
         return Ok(false);
     }
-    let (a, b) = crate::paths::thread_participants(key).ok_or_else(|| missing_key(key))?;
+    let (a, b) =
+        hotline_support::paths::thread_participants(key).ok_or_else(|| missing_key(key))?;
     let now = chrono::Local::now().timestamp_millis();
     let meta = serde_json::json!({
         "version": 1,
@@ -94,7 +95,7 @@ pub fn keys_for(root: &Path, persona_id: &str) -> Vec<String> {
     list_all_keys(root)
         .into_iter()
         .filter(|key| {
-            crate::paths::thread_participants(key)
+            hotline_support::paths::thread_participants(key)
                 .is_some_and(|(a, b)| a == persona_id || b == persona_id)
         })
         .collect()

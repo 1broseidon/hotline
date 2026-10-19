@@ -88,6 +88,9 @@ that needs it, not a stage of its own:
    enums and structs with no ts-rs derive (`thread.rs:104-146`), so the three
    move down to `hotline-contract` or into `hotline-store` (task-197 picks),
    and `thread` itself, which reaches `room` and `session`, stays in the core.
+   task-197 put them, with `Opener`, in `hotline-store`'s `link` module: a
+   link is a line on a tape, and none of them is a wire type. `thread`
+   re-exports them, so no caller moved.
    If a ts-rs derive turns up on a moved type, `contract.ts` must still come
    out byte-identical.
 3. **`tools` → `driver`** (`tools/workspace.rs:3`, task-198).

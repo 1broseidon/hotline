@@ -2,7 +2,7 @@
 
 Everything the room remembers is an event on a stream. A stream is an
 append-only JSONL file — one event per line — folded by `id` when it is
-read. `Log` in `crates/hotline-core/src/log/` is the only door to every
+read. `Log` in `crates/hotline-store/src/log/` is the only door to every
 stream, and the only writer. Append and compact share one lock for the
 whole log, because both are read-then-write: an append measures the file
 to say where its bytes landed, and two of those at once would be told an

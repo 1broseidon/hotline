@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 hotline-contract = { path = "../hotline-contract" }
 hotline-support = { path = "../hotline-support" }
+hotline-store = { path = "../hotline-store" }
 rig.workspace = true
 gethostname = "1.1"
 portable-pty = "0.9"
@@ -103,7 +104,6 @@ hex = "0.4"
 # a ceiling below that, so an attached picture is decoded and shrunk before
 # it is inlined. Only the formats a phone or a screenshot produces.
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
-roxmltree = "0.20"
 whatlang = "0.18.0"
 # The desk's own speech to text. Pinned exactly: the build downloads that
 # release's prebuilt static library (onnxruntime inside, so nothing is needed

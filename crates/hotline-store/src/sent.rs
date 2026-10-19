@@ -8,7 +8,7 @@
 //! data directory, and nothing changes it afterwards.
 //!
 //! An image goes through the same policy as one the person attaches
-//! ([`crate::images`]) and is kept as the JPEG that makes. Generated pictures
+//! ([`hotline_support::images`]) and is kept as the JPEG that makes. Generated pictures
 //! keep their own format and alpha through [`generated`]. Anything else is
 //! kept byte for byte, up to [`MAX_BYTES`]. No type is refused: the person
 //! opens a file by choice, and the desk never opens one on its own.
@@ -17,43 +17,43 @@
 //! message's `user/<attachment index>`. Their original paths remain on the
 //! tape, but readback never reopens them: later edits are not earlier pictures.
 
-use crate::contract::{Attachment, AttachmentKind, FileChunk};
-use crate::images::{self, Unfit};
 use crate::log::{Log, StreamId};
-use crate::paths;
 use base64::{Engine, prelude::BASE64_STANDARD};
+use hotline_contract::{Attachment, AttachmentKind, FileChunk};
+use hotline_support::images::{self, Unfit};
+use hotline_support::paths;
 use serde_json::Value;
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-pub(crate) mod generated;
+pub mod generated;
 
 /// The most a file may weigh, whatever it is.
-pub(crate) const MAX_BYTES: u64 = 25 * 1024 * 1024;
+pub const MAX_BYTES: u64 = 25 * 1024 * 1024;
 
 /// The most one `file.read` answers. Its base64 is well inside the largest
 /// frame a phone's socket is sent.
-pub(crate) const CHUNK_BYTES: u64 = 512 * 1024;
+pub const CHUNK_BYTES: u64 = 512 * 1024;
 
 /// The longest name a sent file keeps.
 const MAX_NAME_CHARS: usize = 120;
 
 /// A file as it will be kept and shown.
-pub(crate) struct Prepared {
-    pub(crate) name: String,
-    pub(crate) mime_type: String,
-    pub(crate) kind: AttachmentKind,
-    pub(crate) bytes: Vec<u8>,
-    pub(crate) dimensions: Option<(u32, u32)>,
+pub struct Prepared {
+    pub name: String,
+    pub mime_type: String,
+    pub kind: AttachmentKind,
+    pub bytes: Vec<u8>,
+    pub dimensions: Option<(u32, u32)>,
     /// Why an image is being sent as a plain file instead of a picture.
-    pub(crate) unfit: Option<Unfit>,
+    pub unfit: Option<Unfit>,
 }
 
 /// Takes a file for what its bytes say it is. `name` is what it was called
 /// where it came from. Decoding an image is slow, so this is for a blocking
 /// thread.
-pub(crate) fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
+pub fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
     let name = clean_name(name);
     let unfit = if images::readable(&bytes) {
         match images::normalize(&bytes) {
@@ -94,7 +94,7 @@ pub(crate) fn prepare(name: &str, bytes: Vec<u8>) -> Result<Prepared, String> {
 
 /// The refusal for a file over the cap, which says what the cap is. `size`
 /// is `None` when the file was cut off before its end was known.
-pub(crate) fn too_large(name: &str, size: Option<u64>) -> String {
+pub fn too_large(name: &str, size: Option<u64>) -> String {
     let cap = size_text(MAX_BYTES);
     match size {
         // Just over the cap reads as the cap itself, which would say
@@ -109,7 +109,7 @@ pub(crate) fn too_large(name: &str, size: Option<u64>) -> String {
 
 /// What a file is, from its first bytes where they say, and otherwise from
 /// its name. A PDF is one only by its bytes, since the desk offers to open it.
-pub(crate) fn mime_type(name: &str, bytes: &[u8]) -> String {
+pub fn mime_type(name: &str, bytes: &[u8]) -> String {
     if bytes.starts_with(b"%PDF-") {
         return "application/pdf".to_string();
     }
@@ -125,7 +125,7 @@ pub(crate) fn mime_type(name: &str, bytes: &[u8]) -> String {
 }
 
 /// A size in the words a person reads it in.
-pub(crate) fn size_text(bytes: u64) -> String {
+pub fn size_text(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = 1024 * 1024;
     if bytes < KB {
@@ -220,7 +220,7 @@ fn as_jpeg(name: &str) -> String {
 }
 
 /// Keeps the desk's copy of the file one message carries, and says where.
-pub(crate) fn store(
+pub fn store(
     root: &Path,
     persona_id: &str,
     event_id: &str,
@@ -242,7 +242,7 @@ pub(crate) fn store(
 }
 
 /// Forgets the copy of a file whose message never reached the tape.
-pub(crate) fn discard(root: &Path, persona_id: &str, event_id: &str) {
+pub fn discard(root: &Path, persona_id: &str, event_id: &str) {
     if let Some(dir) = paths::sent_file_dir(root, persona_id, event_id) {
         let _ = fs::remove_dir_all(dir);
     }
@@ -272,7 +272,7 @@ fn user_image_path(root: &Path, persona_id: &str, event_id: &str, index: u32) ->
 /// Best-effort readback copies do not change whether a prompt is delivered.
 /// An unavailable, oversized or unrecognized source remains an attachment for
 /// the agent, but is never later reopened on behalf of a phone.
-pub(crate) fn retain_user_images(
+pub fn retain_user_images(
     root: &Path,
     persona_id: &str,
     event_id: &str,
@@ -341,7 +341,7 @@ fn retain_user_image(
 /// Read authority is a message and an attachment position, never a source
 /// path. Old user events lack a send-time copy and fail closed: even matching
 /// size or MIME cannot prove their source has not since been replaced.
-pub(crate) fn read_message(
+pub fn read_message(
     log: &Log,
     persona_id: &str,
     event_id: &str,
@@ -359,7 +359,7 @@ pub(crate) fn read_message(
 /// A message's file at most `edge` px on its longer side, as a JPEG the
 /// desk keeps: what a phone draws in the conversation. Only a picture has
 /// one.
-pub(crate) async fn read_message_thumb(
+pub async fn read_message_thumb(
     log: &Log,
     persona_id: &str,
     event_id: &str,
@@ -375,8 +375,13 @@ pub(crate) async fn read_message_thumb(
     if !images::readable(&head) {
         return Err("That file is not a picture.".to_string());
     }
-    let copy =
-        crate::thumbs::copy_of(log.root(), &source.path, edge, crate::thumbs::Kind::Photo).await?;
+    let copy = hotline_support::thumbs::copy_of(
+        log.root(),
+        &source.path,
+        edge,
+        hotline_support::thumbs::Kind::Photo,
+    )
+    .await?;
     let mut chunk = read_path(&copy, offset, true)?;
     let name = source.name.unwrap_or_else(|| chunk.name.clone());
     let stem = Path::new(&name)
@@ -442,8 +447,9 @@ fn message_source(
 }
 
 /// The existing teammate readback remains independent of the tape's age.
-#[cfg(test)]
-pub(crate) fn read(
+/// Only tests read a file this way, some of them in `hotline-core`, which
+/// builds this crate without `cfg(test)`.
+pub fn read(
     root: &Path,
     persona_id: &str,
     event_id: &str,
@@ -454,7 +460,7 @@ pub(crate) fn read(
     read_path(&path, offset, false)
 }
 
-pub(crate) fn read_path(path: &Path, offset: i64, image_only: bool) -> Result<FileChunk, String> {
+pub fn read_path(path: &Path, offset: i64, image_only: bool) -> Result<FileChunk, String> {
     let missing = || {
         if image_only {
             "That image has no retained copy. Send it again to make it available.".to_string()
@@ -511,7 +517,7 @@ pub(crate) fn read_path(path: &Path, offset: i64, image_only: bool) -> Result<Fi
 /// reads a conversation as words: the model's memory of it, a chapter's
 /// note, the search index. A file sent without a caption is a message with
 /// no words, and its name is all there is to go on.
-pub(crate) fn message_text(event: &Value) -> String {
+pub fn message_text(event: &Value) -> String {
     let text = event
         .get("text")
         .and_then(Value::as_str)
@@ -527,7 +533,7 @@ pub(crate) fn message_text(event: &Value) -> String {
 }
 
 /// The names of the files a message carries.
-pub(crate) fn file_names(event: &Value) -> impl Iterator<Item = &str> {
+pub fn file_names(event: &Value) -> impl Iterator<Item = &str> {
     event
         .get("attachments")
         .and_then(Value::as_array)

@@ -42,6 +42,13 @@ module map itself is [development.md](development.md#layout).
   `hotline-core` re-exports the crate as `tools` and `driver` re-exports
   the two types, so `crate::tools::Workspace` and
   `crate::driver::CapabilityLease` still hold there.
+- `hotline-websearch` is web search: the providers, the chain that asks
+  them at once and fuses their lists, and the cleaning of what comes back.
+  It stands on `hotline-contract` alone. The vault's keys, the desk's
+  switches and the `web_search` tool stay in the core, which re-exports the
+  crate as `websearch`, so `crate::websearch::Search` still holds there.
+  Its mock provider is public only under the `test-support` feature, which
+  the core turns on for its tests alone.
 - A new crate comes from the plan in
   [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
   direction, its edges only go down, and nothing but the app and the CLI

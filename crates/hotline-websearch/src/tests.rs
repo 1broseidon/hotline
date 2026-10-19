@@ -2,11 +2,9 @@
 //! No test here reaches the network.
 
 use super::*;
-use crate::contract::{PolicyMode, WebSearchPolicy, WebSearchProvider as P};
-use axum::Router;
-use axum::body::Bytes;
-use axum::http::{HeaderMap, StatusCode, Uri, header};
-use serde_json::{Value, json};
+use crate::mock::{Reply, mock};
+use hotline_contract::{PolicyMode, WebSearchPolicy, WebSearchProvider as P};
+use serde_json::json;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -30,124 +28,6 @@ impl Search {
         self.budget = budget;
         self
     }
-}
-
-/// What one mock request looked like.
-pub(crate) struct Seen {
-    pub(crate) path: String,
-    pub(crate) headers: HeaderMap,
-    pub(crate) body: Vec<u8>,
-}
-
-impl Seen {
-    pub(crate) fn json(&self) -> Value {
-        serde_json::from_slice(&self.body).unwrap()
-    }
-
-    fn header(&self, name: &str) -> Option<&str> {
-        self.headers.get(name).and_then(|value| value.to_str().ok())
-    }
-}
-
-/// What a mock answers.
-#[derive(Clone)]
-pub(crate) struct Reply {
-    status: u16,
-    content_type: &'static str,
-    body: String,
-    delay: Duration,
-}
-
-impl Reply {
-    pub(crate) fn json(body: impl Into<String>) -> Self {
-        Self {
-            status: 200,
-            content_type: "application/json",
-            body: body.into(),
-            delay: Duration::ZERO,
-        }
-    }
-
-    /// One SSE frame carrying `rpc`, as the hosted MCP servers answer.
-    pub(crate) fn sse(rpc: impl AsRef<str>) -> Self {
-        Self {
-            content_type: "text/event-stream",
-            body: format!("event: message\ndata: {}\n\n", rpc.as_ref()),
-            ..Self::json("")
-        }
-    }
-
-    /// An MCP tool result whose one text block is `text`.
-    pub(crate) fn tool_text(text: &str) -> String {
-        json!({"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":text}]}})
-            .to_string()
-    }
-
-    pub(crate) fn status(status: u16, body: &str) -> Self {
-        Self {
-            status,
-            ..Self::json(body)
-        }
-    }
-
-    pub(crate) fn after(mut self, delay: Duration) -> Self {
-        self.delay = delay;
-        self
-    }
-}
-
-pub(crate) struct Mock {
-    /// `http://127.0.0.1:port`
-    pub(crate) base: String,
-    pub(crate) seen: Arc<Mutex<Vec<Seen>>>,
-    task: tokio::task::JoinHandle<()>,
-}
-
-impl Mock {
-    /// `/mcp` on this server.
-    pub(crate) fn mcp(&self) -> String {
-        format!("{}/mcp", self.base)
-    }
-
-    fn only(&self) -> Seen {
-        let mut seen = self.seen.lock().unwrap();
-        assert_eq!(seen.len(), 1, "expected exactly one request");
-        seen.remove(0)
-    }
-}
-
-impl Drop for Mock {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
-}
-
-pub(crate) async fn mock(reply: Reply) -> Mock {
-    let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
-    let record = seen.clone();
-    let app = Router::new().fallback(move |uri: Uri, headers: HeaderMap, bytes: Bytes| {
-        let record = record.clone();
-        let reply = reply.clone();
-        async move {
-            record.lock().unwrap().push(Seen {
-                path: uri.path_and_query().unwrap().to_string(),
-                headers,
-                body: bytes.to_vec(),
-            });
-            tokio::time::sleep(reply.delay).await;
-            (
-                StatusCode::from_u16(reply.status).unwrap(),
-                [(header::CONTENT_TYPE, reply.content_type)],
-                reply.body,
-            )
-        }
-    });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
-    let task = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
-    Mock { base, seen, task }
 }
 
 fn http() -> reqwest::Client {

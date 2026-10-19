@@ -39,5 +39,5 @@ pub(crate) mod thread;
 pub use hotline_tools as tools;
 pub mod vault;
 pub mod voice;
-pub(crate) mod websearch;
+pub(crate) use hotline_websearch as websearch;
 pub mod wire;

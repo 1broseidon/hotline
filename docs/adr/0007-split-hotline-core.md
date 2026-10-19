@@ -104,6 +104,13 @@ that needs it, not a stage of its own:
    `tools`, so no caller moved. With this cut made, `scripts/module-map`
    has no planned cuts left and no longer prints the layers after them.
 
+`websearch` needed no cut: it names only `contract`. task-195 moved it whole
+and the core re-exports the crate as `websearch`, so no caller moved. The one
+thing that crossed back was test code: the core's tests of the `web_search`
+tool point the chain at websearch's mock providers, so the mock left
+`tests.rs` for a `mock` module that is public only under a `test-support`
+feature, which the core enables as a dev-dependency.
+
 `push` → `remote` (`push.rs:23`, one call to `remote::push_targets`) is also a
 single-link cut, but `push` is 379 lines and no stage moves it. The same goes
 for `skills`, `spending` and `link_preview`, which are leaves of the leaves

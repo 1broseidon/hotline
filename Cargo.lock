@@ -4316,6 +4316,7 @@ dependencies = [
  "hotline-store",
  "hotline-support",
  "hotline-tools",
+ "hotline-websearch",
  "http",
  "http-body-util",
  "hyper",
@@ -4353,7 +4354,6 @@ dependencies = [
  "url",
  "uuid",
  "webrtc",
- "whatlang",
  "windows-sys 0.61.2",
  "zip",
 ]
@@ -4413,6 +4413,24 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "hotline-websearch"
+version = "0.40.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "futures-util",
+ "hotline-contract",
+ "regex",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+ "whatlang",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/hotline-contract", "crates/hotline-support", "crates/hotline-store", "crates/hotline-tools", "crates/hotline-core", "crates/hotline-app", "crates/hotline-cli"]
+members = ["crates/hotline-contract", "crates/hotline-support", "crates/hotline-store", "crates/hotline-tools", "crates/hotline-websearch", "crates/hotline-core", "crates/hotline-app", "crates/hotline-cli"]
 
 [workspace.package]
 version = "0.40.0"

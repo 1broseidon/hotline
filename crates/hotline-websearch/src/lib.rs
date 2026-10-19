@@ -13,6 +13,12 @@
 //! and a few small rules about what the query asked for. The room asks for one
 //! search and gets text. Nothing here holds a secret longer than a call: keys
 //! come in with the providers and are scrubbed from every error.
+//!
+//! This crate owns the providers, the chain over them and the cleaning of what
+//! they answer; the vault's keys, the desk's switches and the `web_search` tool
+//! stay in the core, which hands them in. It depends on hotline-contract and on
+//! no other Hotline crate by design: never on hotline-core, hotline-store or
+//! hotline-tools.
 
 pub mod canonical;
 pub mod clean;
@@ -26,11 +32,11 @@ pub mod query;
 pub mod rank;
 pub mod when;
 
-use crate::contract::{PolicyMode, WebSearchPolicy, WebSearchProvider};
 use async_trait::async_trait;
 use chrono::NaiveDate;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
+use hotline_contract::{PolicyMode, WebSearchPolicy, WebSearchProvider};
 use query::{Language, Query};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
@@ -758,5 +764,7 @@ pub fn client() -> reqwest::Client {
 /// The keys a chain was given, by provider: the vault's, read at call time.
 pub type Keys = HashMap<WebSearchProvider, String>;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod mock;
 #[cfg(test)]
-pub(crate) mod tests;
+mod tests;

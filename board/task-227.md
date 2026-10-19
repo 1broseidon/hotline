@@ -1,8 +1,8 @@
 ---
 id: task-227
 title: A job's row and thread can Cancel the job, and Stop a firing that is running
-column: todo
-position: 3
+column: in-progress
+position: 0
 priority: medium
 tags:
   - jobs
@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/session
 parentId: epic-20
 createdAt: "2026-10-19T23:31:32.527Z"
-updatedAt: "2026-10-19T23:58:33.552Z"
+updatedAt: "2026-10-19T23:58:41.021Z"
 dispatch:
   agent: claude
   model: opus

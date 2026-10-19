@@ -163,9 +163,6 @@ impl Policy {
 impl Policy {
     pub fn of(kind: ThreadKind) -> Self {
         match kind {
-            // A pair is here for the table's sake: nothing writes it through
-            // the shared path yet, and until it does a card raised in one has
-            // no answer path (docs/threads.md, phase 6).
             ThreadKind::Dm => Self {
                 tools: Tools::Teammate,
                 lease: Lease::Same,

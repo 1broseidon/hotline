@@ -16,7 +16,7 @@ dependsOn:
   - task-195
   - task-197
   - task-198
-updatedAt: "2026-10-19T08:46:36.202Z"
+updatedAt: "2026-10-19T08:46:37.227Z"
 contract:
   status: ready
   deliverables:
@@ -39,6 +39,14 @@ contract:
     - The core-split stage is a proposal for George, not started
   metrics:
     readyAt: "2026-10-19T06:11:05.319Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T08:46:37.115Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

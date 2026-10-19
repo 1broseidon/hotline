@@ -271,19 +271,8 @@ impl Model {
     }
 }
 
-/// The `settings.images` provider that turns image generation off. Stored as
-/// a provider so a desk that never heard of it still reads a string there,
-/// and so the picker's one choice is the setting's one key.
-pub const OFF: &str = "off";
-
 /// Why nothing draws while the owner has images off; also a teammate's refusal.
 pub const IMAGES_OFF: &str = "Image generation is off in Settings";
-
-impl ImageSettings {
-    pub fn is_off(&self) -> bool {
-        self.provider.as_deref() == Some(OFF)
-    }
-}
 
 /// What the owner's connected providers give the desk: a model to draw
 /// with, and a second to try when it fails.

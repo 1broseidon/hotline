@@ -16,9 +16,12 @@ module map itself is [development.md](development.md#layout).
 - One type's behaviour may be filed by concern across sibling files, the way
   `impl Room` is spread over `session/*`. Do not invent per-concern traits or
   types for that.
-- `contract` is a leaf: it imports nothing from the crate. ts-rs types
-  elsewhere are fine, as long as `ui/src/generated/contract.ts` stays
-  byte-identical under an unfiltered `cargo test -p hotline-core`.
+- `hotline-contract` is a leaf: it depends on no other Hotline crate, and
+  `hotline-core` re-exports it as `contract`. Every `#[ts(export)]` type
+  lives in it, because ts-rs starts `ui/src/generated/contract.ts` afresh in
+  each test process: a type exported from a second crate would erase the
+  rest, or be erased. The file is what an unfiltered
+  `cargo test -p hotline-contract` writes.
 - A module is `pub` only when the app, the CLI, the harnesses or the examples
   name it. Otherwise it is `pub(crate)`.
 - No new crates. Revisit that when an incremental

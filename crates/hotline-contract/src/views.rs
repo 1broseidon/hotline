@@ -270,12 +270,71 @@ pub enum ThreadKind {
 
 /// Which thread: its kind and the key its stream is named by. A teammate's id
 /// for a DM, the minted id for a side thread, run or call, and the pair key
-/// (see [`crate::paths::thread_key`]) for a pair.
+/// (the core's `paths::thread_key`) for a pair.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "contract.ts")]
 pub struct ThreadId {
     pub kind: ThreadKind,
     pub key: String,
+}
+
+impl ThreadKind {
+    /// The kind as it is written in a link and in a log line.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Dm => "dm",
+            Self::Side => "side",
+            Self::Pair => "pair",
+            Self::Call => "call",
+            Self::Run => "run",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        [Self::Dm, Self::Side, Self::Pair, Self::Call, Self::Run]
+            .into_iter()
+            .find(|kind| kind.name() == name)
+    }
+}
+
+impl ThreadId {
+    pub fn dm(persona_id: impl Into<String>) -> Self {
+        Self::of(ThreadKind::Dm, persona_id)
+    }
+
+    pub fn side(side_id: impl Into<String>) -> Self {
+        Self::of(ThreadKind::Side, side_id)
+    }
+
+    pub fn pair(key: impl Into<String>) -> Self {
+        Self::of(ThreadKind::Pair, key)
+    }
+
+    pub fn run(run_id: impl Into<String>) -> Self {
+        Self::of(ThreadKind::Run, run_id)
+    }
+
+    pub fn call(call_id: impl Into<String>) -> Self {
+        Self::of(ThreadKind::Call, call_id)
+    }
+
+    pub fn new(kind: ThreadKind, key: impl Into<String>) -> Self {
+        Self::of(kind, key)
+    }
+
+    fn of(kind: ThreadKind, key: impl Into<String>) -> Self {
+        Self {
+            kind,
+            key: key.into(),
+        }
+    }
+}
+
+/// `side:<id>`, the way a log line or a search hit names a thread.
+impl std::fmt::Display for ThreadId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}:{}", self.kind.name(), self.key)
+    }
 }
 
 /// How a closed thread ended.
@@ -297,4 +356,43 @@ pub enum End {
     Failed,
     /// A run was stopped.
     Cancelled,
+}
+
+impl End {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Person => "person",
+            Self::Agent => "agent",
+            Self::Idle => "idle",
+            Self::Stopped => "stopped",
+            Self::Done => "done",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        [
+            Self::Person,
+            Self::Agent,
+            Self::Idle,
+            Self::Stopped,
+            Self::Done,
+            Self::Failed,
+            Self::Cancelled,
+        ]
+        .into_iter()
+        .find(|end| end.name() == name)
+    }
+}
+
+impl From<SideEnd> for End {
+    fn from(end: SideEnd) -> Self {
+        match end {
+            SideEnd::Agent => Self::Agent,
+            SideEnd::Person => Self::Person,
+            SideEnd::Idle => Self::Idle,
+            SideEnd::Stopped => Self::Stopped,
+        }
+    }
 }

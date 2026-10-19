@@ -5,43 +5,12 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use chrono::{Datelike, Utc};
 
-use crate::contract::{BudgetLimits, SpendingSettings, SpendingSummary};
+use crate::contract::{BudgetLimits, SpendingSummary, valid_amount};
 use serde::{Deserialize, Serialize};
 
 const MAX_LEDGER_BYTES: u64 = 4096;
 const STORAGE_ERROR: &str =
     "The spending ledger could not be safely read or saved. Spending is blocked.";
-
-impl BudgetLimits {
-    pub fn new(day_usd: Option<f64>, month_usd: Option<f64>) -> Self {
-        Self { day_usd, month_usd }
-    }
-
-    pub fn validate(&self) -> Result<(), String> {
-        if [self.day_usd, self.month_usd]
-            .into_iter()
-            .flatten()
-            .all(valid_amount)
-        {
-            Ok(())
-        } else {
-            Err("Spending limits must be finite, nonnegative dollar amounts.".into())
-        }
-    }
-
-    /// Whether either limit is zero, which turns the budget's paid use off.
-    pub fn off(&self) -> bool {
-        self.day_usd == Some(0.0) || self.month_usd == Some(0.0)
-    }
-}
-
-impl SpendingSettings {
-    pub fn validate(&self) -> Result<(), String> {
-        self.chat.validate()?;
-        self.voice.validate()?;
-        self.images.validate()
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct SpendLedger {
@@ -306,13 +275,10 @@ impl Ledger {
     }
 }
 
-fn valid_amount(amount: f64) -> bool {
-    amount.is_finite() && amount >= 0.0
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::SpendingSettings;
     use ts_rs::TS;
 
     fn read_totals(root: &std::path::Path) -> Totals {

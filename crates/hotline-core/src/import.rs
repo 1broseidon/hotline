@@ -23,46 +23,19 @@ mod schedules;
 mod threads;
 
 use crate::contract::{HarnessChoice, Persona, PersonaComputer, Reach, WebSearchPolicy};
+pub use crate::contract::{Report, Skipped};
 use crate::log::{Log, StreamId};
 use crate::store::search::Indexer;
 use crate::vault::Vault;
 use crate::{paths, room};
 use records::{open_for_import, try_list_records};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io;
 use std::path::{Path, PathBuf};
-use ts_rs::TS;
-
-/// What an import did: how many of each thing came over, what it left
-/// behind, and notes about things that came over with a caveat.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct Report {
-    pub teammates: i64,
-    pub tapes: i64,
-    pub settings: i64,
-    pub keys: i64,
-    pub threads: i64,
-    pub schedules: i64,
-    pub skipped: Vec<Skipped>,
-    pub notes: Vec<Skipped>,
-}
-
-/// One row the import wants the person to see: left behind (`skipped`)
-/// or imported with a caveat (`notes`). Same shape so the window can
-/// word the list, not the row.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct Skipped {
-    pub item: String,
-    pub reason: String,
-}
 
 const IMPORTED_SETTINGS: [&str; 3] = ["chapterIdleHours", "defaultBackendId", "mcpServers"];
 const IMPORTED_PROVIDERS: [&str; 3] = ["anthropic", "openai", "openrouter"];

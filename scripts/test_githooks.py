@@ -62,7 +62,7 @@ class PreCommit(unittest.TestCase):
         self.stage(CONTRACT, "".join(lines[len(lines) // 2 :]))
         result = self.pre_commit()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("cargo test -p hotline-core, unfiltered", result.stdout)
+        self.assertIn("cargo test -p hotline-contract, unfiltered", result.stdout)
 
     def test_contract_that_does_not_compile_is_refused(self):
         # As long as HEAD's, so only the compile catches it: a type named

@@ -264,9 +264,11 @@ changes are needed. Copies share the existing kept-file retention policy (no
 automatic cleanup); they are additional storage, including for phone uploads.
 
 Types are defined once in Rust with serde and the TypeScript is generated
-(ts-rs), so the window and the core cannot drift. `hotline_core::contract`
-holds most of them; [development.md](development.md#the-generated-contract)
-names the few defined beside the module that owns them.
+(ts-rs), so the window and the core cannot drift. They are all in the
+`hotline-contract` crate, which depends on no other Hotline crate and which
+`hotline-core` re-exports as `contract`;
+[development.md](development.md#the-generated-contract) says why none may
+live anywhere else.
 
 ### 3. One session kind, two drivers
 

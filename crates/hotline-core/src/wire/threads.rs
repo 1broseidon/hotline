@@ -19,7 +19,7 @@ use crate::contract::{
     Attachment, LinkState, Persona, SessionState, SideOpener, ThreadAnswer, ThreadSummary,
 };
 use crate::contract::{ThreadId, ThreadKind};
-use crate::log::Log;
+use crate::log::{Log, StreamId};
 use crate::paths::thread_participants;
 use crate::store::previews;
 use crate::thread::{Answer, Link, Participant, Policy, Thread, ThreadState, ThreadStore};
@@ -209,7 +209,7 @@ pub(super) fn page(
     if thread.kind == ThreadKind::Dm {
         super::commands::persona::living(log, &thread.key)?;
     }
-    let stream = thread.stream().ok_or("That thread has no lines.")?;
+    let stream = StreamId::of_thread(thread).ok_or("That thread has no lines.")?;
     Ok(super::subscribe::thread_page(
         log,
         &stream,
@@ -324,9 +324,7 @@ fn summarize(
             .map_or(0, |persona| persona.created_at);
         (tail, started, preview)
     } else {
-        let events = thread
-            .id
-            .stream()
+        let events = StreamId::of_thread(&thread.id)
             .map(|stream| log.load(&stream))
             .unwrap_or_default();
         let preview = crate::session::preview_line(&events);

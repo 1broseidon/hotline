@@ -933,7 +933,7 @@ async fn a_relay_only_server_stands_a_desktop_in_and_opens_no_desk_door() {
     let server = pair_relay(&h, &relay).await;
     let desk_id = h.remote.status_desktop_id();
     let mut control = client::Client::new(h.store.clone())
-        .host_relay(&server.dialed(), &desk_id)
+        .host_relay(&client::PairedDesk::from(&server), &desk_id)
         .await
         .unwrap();
     let ready = control_notice(&mut control).await;

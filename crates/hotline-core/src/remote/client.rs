@@ -1,6 +1,7 @@
 //! A desk is authenticated by its pinned Noise identity, independently of TLS.
 //! Secrets never belong in the shell's desk registry or the loopback window.
 use super::{PairingPayload, channel::Channel, sealed};
+pub use crate::contract::PairedRelay;
 use crate::credentials::{NativeStore, SecretStore};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::{SinkExt, StreamExt};
@@ -13,7 +14,6 @@ use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{Message, protocol::WebSocketConfig},
 };
-use ts_rs::TS;
 
 type Socket = WebSocketStream<TlsStream<TcpStream>>;
 pub(super) type Connection = Channel<TlsStream<TcpStream>>;
@@ -37,34 +37,17 @@ pub struct PairedDesk {
     pub relay_declined: bool,
 }
 
-/// A server this computer pairs with only to stand in on its relay (ADR
-/// 0006). It is not a desk: its grant opens no wire, so it has no bridge and
-/// is never in `desks.json`, where an older window would list it and dial
-/// its `/v2`. The shell keeps these in `relays.json` beside that file.
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct PairedRelay {
-    pub desk_id: String,
-    pub name: String,
-    pub url: String,
-    pub desk_key: String,
-    /// The person's public address for the server, tried after its own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub public: Option<String>,
-}
-impl PairedRelay {
-    /// The server as the sealed dialer reaches it: its own address, then its
-    /// public one. A relay is not reached through another relay.
-    pub(super) fn dialed(&self) -> PairedDesk {
-        PairedDesk {
-            desk_id: self.desk_id.clone(),
-            name: self.name.clone(),
-            url: self.url.clone(),
-            desk_key: self.desk_key.clone(),
+/// The relay server as the sealed dialer reaches it: its own address, then its
+/// public one. A relay is not reached through another relay.
+impl From<&PairedRelay> for PairedDesk {
+    fn from(relay: &PairedRelay) -> Self {
+        Self {
+            desk_id: relay.desk_id.clone(),
+            name: relay.name.clone(),
+            url: relay.url.clone(),
+            desk_key: relay.desk_key.clone(),
             relay: None,
-            public: self.public.clone(),
+            public: relay.public.clone(),
             relay_declined: false,
         }
     }

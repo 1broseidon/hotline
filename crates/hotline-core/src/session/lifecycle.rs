@@ -280,7 +280,7 @@ impl Room {
             if link.thread.kind == ThreadKind::Call {
                 // The call stopped being spoken on when its last line was said,
                 // not when the desk next opened.
-                let last = link.thread.stream().and_then(|stream| {
+                let last = StreamId::of_thread(&link.thread).and_then(|stream| {
                     self.log
                         .load(&stream)
                         .iter()
@@ -297,7 +297,7 @@ impl Room {
             if matches!(state, ThreadState::Closed(_)) {
                 closed.push(link.thread.clone());
             }
-            if let Some(stream) = link.thread.stream() {
+            if let Some(stream) = StreamId::of_thread(&link.thread) {
                 let mut lines =
                     crate::log::expire_orphaned_permissions(&self.log.load(&stream), now);
                 lines.push(link.event());
@@ -316,7 +316,7 @@ impl Room {
 
     /// The link a thread's own stream holds, as last written.
     pub(super) fn link_of(&self, thread: &ThreadId) -> Option<Link> {
-        Link::find(&self.log.load(&thread.stream()?), thread)
+        Link::find(&self.log.load(&StreamId::of_thread(thread)?), thread)
     }
 
     /// The id a thread's link is written under: the one it already has, so a
@@ -432,9 +432,11 @@ impl Room {
         let Some(link) = self.link_of(thread) else {
             return;
         };
-        let (Some(persona_id), Some(closed_at), Some(stream)) =
-            (link.persona_id.clone(), link.at, thread.stream())
-        else {
+        let (Some(persona_id), Some(closed_at), Some(stream)) = (
+            link.persona_id.clone(),
+            link.at,
+            StreamId::of_thread(thread),
+        ) else {
             return;
         };
         let (Ok(persona), Ok(runtime)) = (
@@ -603,7 +605,7 @@ mod tests {
         };
         for link in [live(&side, "A side"), live(&run, "A run")] {
             log.append(&tape, &link.event()).unwrap();
-            log.append(&link.thread.stream().unwrap(), &link.event())
+            log.append(&StreamId::of_thread(&link.thread).unwrap(), &link.event())
                 .unwrap();
         }
         log.append(&StreamId::Side("s1".into()), &card("side-card"))
@@ -694,7 +696,10 @@ mod tests {
         // Started, closed, brought back, closed again: still one line on the
         // tape and one at the head of the thread, under one id.
         let id = Link::fresh_id(&thread);
-        for stream in [StreamId::Tape("ada".into()), thread.stream().unwrap()] {
+        for stream in [
+            StreamId::Tape("ada".into()),
+            StreamId::of_thread(&thread).unwrap(),
+        ] {
             let links: Vec<Value> = stored(&room, stream)
                 .into_iter()
                 .filter(|event| event["kind"] == "link")
@@ -784,7 +789,7 @@ mod tests {
             opener: None,
         };
         let tape = StreamId::Tape("ada".into());
-        let stream = call.stream().unwrap();
+        let stream = StreamId::of_thread(&call).unwrap();
         log.append(&tape, &live.event()).unwrap();
         log.append(&stream, &live.event()).unwrap();
         for (kind, id, ts, text) in [
@@ -853,7 +858,8 @@ mod tests {
         log.append(&StreamId::Tape("bob".into()), &live.event())
             .unwrap();
         log.append(&StreamId::Tape("ada".into()), &copy).unwrap();
-        log.append(&side.stream().unwrap(), &live.event()).unwrap();
+        log.append(&StreamId::of_thread(&side).unwrap(), &live.event())
+            .unwrap();
 
         let room = room_on(log, quiet_agents());
 
@@ -872,7 +878,7 @@ mod tests {
         );
         assert_eq!(state_on("bob"), [(live.id, ThreadState::Parked)]);
         assert_eq!(
-            stored(&room, side.stream().unwrap())
+            stored(&room, StreamId::of_thread(&side).unwrap())
                 .iter()
                 .filter_map(Link::read)
                 .count(),

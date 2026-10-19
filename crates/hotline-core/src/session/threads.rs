@@ -22,6 +22,7 @@ use super::{Room, now_ms};
 use crate::contract::PermissionOption;
 use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::Driver;
+use crate::log::StreamId;
 use crate::paths::thread_participants;
 use crate::thread::{Answer, Policy};
 use serde::Serialize;
@@ -131,7 +132,7 @@ impl Threads<'_> {
             }
             ThreadKind::Side | ThreadKind::Run | ThreadKind::Call | ThreadKind::Pair => {}
         }
-        let Some(stream) = thread.stream() else {
+        let Some(stream) = StreamId::of_thread(thread) else {
             return Written::default();
         };
         if let Err(error) = self.room.log.append(&stream, &event) {
@@ -186,7 +187,7 @@ impl Threads<'_> {
     /// A card the turn left open is a button nobody is behind: expires every
     /// permission card the thread still shows, through the write path.
     pub(super) fn expire_asked(&self, thread: &ThreadId, persona_id: &str) {
-        let Some(stream) = thread.stream() else {
+        let Some(stream) = StreamId::of_thread(thread) else {
             return;
         };
         for expired in
@@ -242,7 +243,6 @@ mod tests {
     use crate::contract::End;
     use crate::contract::SideEnd;
     use crate::driver::{MessageKind, Update};
-    use crate::log::StreamId;
     use crate::session::runner::{RunEnd, RunSpec};
     use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
     use crate::test_support::until;

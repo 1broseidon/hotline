@@ -39,6 +39,7 @@ mod tape;
 
 pub(crate) use tape::{open_epoch, segments_of};
 
+use crate::contract::{ThreadId, ThreadKind};
 use crate::paths::{room_path, transcripts_dir};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -69,6 +70,20 @@ pub enum StreamId {
     Run(String),
     Side(String),
     Call(String),
+}
+
+impl StreamId {
+    /// The stream a thread's events are on.
+    pub fn of_thread(thread: &ThreadId) -> Option<Self> {
+        let key = thread.key.clone();
+        match thread.kind {
+            ThreadKind::Dm => Some(Self::Tape(key)),
+            ThreadKind::Side => Some(Self::Side(key)),
+            ThreadKind::Pair => Some(Self::Pair(key)),
+            ThreadKind::Run => Some(Self::Run(key)),
+            ThreadKind::Call => Some(Self::Call(key)),
+        }
+    }
 }
 
 /// One write, as replication sees it: which bytes landed where. The bytes are

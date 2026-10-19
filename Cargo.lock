@@ -4285,6 +4285,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hotline-contract"
+version = "0.40.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "ts-rs",
+ "url",
+]
+
+[[package]]
 name = "hotline-core"
 version = "0.40.0"
 dependencies = [
@@ -4305,6 +4316,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "hex",
+ "hotline-contract",
  "http",
  "http-body-util",
  "hyper",

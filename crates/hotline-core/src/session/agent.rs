@@ -36,6 +36,7 @@ use crate::driver::{
     CapabilityEpoch, CapabilityLease, Driver, DriverInfo, HOTLINE_BACKEND_ID, SubagentReport,
     Update, acp,
 };
+use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::thread::{AgentBinding, Computer, Lease, Opener, Policy, Resume, ThreadStore, Tools};
 use std::path::Path;
@@ -305,7 +306,7 @@ impl Room {
         let note = tape.as_ref().and_then(|events| {
             with_note(computer_note.take(), chapters::wake_block(events, now_ms()))
         });
-        let earlier = match thread.stream() {
+        let earlier = match StreamId::of_thread(&thread) {
             Some(stream) if policy.seed.own_history => {
                 let mut earlier = self.log.load(&stream);
                 if let Some(from) = heard_from {

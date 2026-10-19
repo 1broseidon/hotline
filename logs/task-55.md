@@ -1,13 +1,11 @@
 ---
 id: task-55
 title: Desk drops a phone's dead socket sooner
-column: review
-position: 3
 priority: low
 tags:
   - remote
 createdAt: "2026-10-14T19:29:48.338Z"
-updatedAt: "2026-10-19T00:37:19.268Z"
+updatedAt: "2026-10-19T00:37:20.034Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
@@ -49,6 +47,7 @@ dispatch:
     ended: "2026-10-19T00:31:29.292Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-19T00:37:20.034Z"
 ---
 
 ## Description

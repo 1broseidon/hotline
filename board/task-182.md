@@ -1,7 +1,7 @@
 ---
 id: task-182
 title: "OAuth callback page: a styled, dark page with a strict Content-Security-Policy"
-column: in-progress
+column: review
 position: 8
 priority: high
 tags:
@@ -12,9 +12,9 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:54.225Z"
 relatedFiles:
   - crates/hotline-core/src/mcp/oauth.rs
-updatedAt: "2026-10-19T00:34:12.502Z"
+updatedAt: "2026-10-19T00:41:19.859Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/src/mcp/oauth.rs
@@ -29,6 +29,8 @@ contract:
     readyAt: "2026-10-18T23:53:55.554Z"
     pickedUpAt: "2026-10-19T00:34:12.502Z"
     reworkCount: 0
+    deliveredAt: "2026-10-19T00:41:19.859Z"
+    duration: 427
 dispatch:
   agent: claude
   model: opus

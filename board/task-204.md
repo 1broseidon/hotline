@@ -1,8 +1,8 @@
 ---
 id: task-204
 title: "Voice: acknowledgements that fit, never repeat, and never leave dead air; no guessing"
-column: todo
-position: 4
+column: backlog
+position: 40
 priority: high
 tags:
   - voice
@@ -15,7 +15,7 @@ parentId: epic-21
 createdAt: "2026-10-19T13:59:38.640Z"
 dependsOn:
   - task-201
-updatedAt: "2026-10-19T20:00:08.909Z"
+updatedAt: "2026-10-19T20:00:16.276Z"
 ---
 
 ## Description

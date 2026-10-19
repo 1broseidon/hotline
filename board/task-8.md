@@ -34,7 +34,7 @@ description: |-
   Migrated from Linear BRO-126: https://linear.app/1broseidon/issue/BRO-126/a-provider-refusing-turns-shouldnt-read-as-sign-in-again-when-the-sign (2026-10-11).
 
   0.40 triage (2026-10-18): In scope as is: the wording plus a one-off discovery probe. driver/failure.rs:273-275 still says 'Provider sign-in required… Check its credentials' for every Kind::Auth. Probe providers/chatgpt.rs list_models_at once per failure, cache the verdict briefly, and say 'ChatGPT is refusing requests' (or the provider's name) when the sign-in still lists models.
-updatedAt: "2026-10-19T00:05:28.131Z"
+updatedAt: "2026-10-19T00:05:35.770Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/driver/failure.rs
@@ -72,6 +72,8 @@ dispatch:
     runner: cli
     pid: 59290
     at: "2026-10-18T23:54:15.800Z"
+    ended: "2026-10-19T00:05:35.770Z"
+    outcome: review
 assignee: claude
 ---
 

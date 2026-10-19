@@ -633,7 +633,7 @@ intent: string, } | { "kind": "result", requestId: string, reply: string, failed
  */
 export type LinkedTeammate = { personaId: string, name: string, 
 /**
- * idle, working, waiting or stopped.
+ * idle, working, waiting or stopped; offline while its desk is away.
  */
 state: string, 
 /**

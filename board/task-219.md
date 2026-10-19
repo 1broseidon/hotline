@@ -15,7 +15,7 @@ createdAt: "2026-10-19T19:59:32.080Z"
 dependsOn:
   - task-216
   - task-217
-updatedAt: "2026-10-19T22:06:01.337Z"
+updatedAt: "2026-10-19T22:06:02.723Z"
 contract:
   status: ready
   deliverables:
@@ -28,6 +28,14 @@ contract:
       - "! git grep -n 'const QUIET:' -- crates/hotline-core/src/session/files.rs"
   metrics:
     readyAt: "2026-10-19T20:03:14.159Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T22:06:02.591Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

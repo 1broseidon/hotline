@@ -1,8 +1,6 @@
 ---
 id: task-215
 title: "ADR: the agent thread layer, modalities, and one escalation path to the chat"
-column: review
-position: 0
 priority: high
 tags:
   - design
@@ -34,7 +32,8 @@ dispatch:
     at: "2026-10-19T17:32:32.097Z"
     ended: "2026-10-19T17:42:20.059Z"
     outcome: review
-updatedAt: "2026-10-19T17:42:20.059Z"
+updatedAt: "2026-10-19T19:11:09.462Z"
+completedAt: "2026-10-19T19:11:09.462Z"
 ---
 
 ## Description
@@ -50,3 +49,4 @@ Stops in Review for George; no code.
 ## Log
 - 2026-10-19T17:42:12.367Z: [claude] Wrote docs/adr/0008-one-agent-thread-layer.md (proposed; indexed in design.md), on branch dispatch/task-215 at d5de756e, docs only. It covers today's map with citations at 419bdac5, then the target: the agent thread, a modality table, post_to_chat as the one escalation door on the MCP server for both drivers (Room::post, once per turn, lease-checked, stamped from:, runs excluded), the chat as log of truth, and voice as a call thread whose agent is the teammate. It recommends running calls on the Speech engines without the fronts, and says task-213 should size its interface against this target and task-214 should move the calls after slice 6. Seven migration slices, each listing what it removes. Found along the way: driver.rs Escalate doc and mcp/server.rs "Sixteen tools" are stale, and an ACP quiet run cannot escalate today.
 - 2026-10-19T18:54:22.260Z: [claude] George 13:53: continuing a call as text is a feature, not a nice-to-have: done with a call and at the desk, keep chatting by text in that thread or start another call from there. Moved from Open questions into §5 of the ADR (commit on dispatch/task-215).
+- 2026-10-19T19:11:09.060Z: Landed on release/0.41.0

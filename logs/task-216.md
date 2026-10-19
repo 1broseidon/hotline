@@ -1,8 +1,6 @@
 ---
 id: task-216
 title: "Slice 1: Room::post, one door to the chat, posts stamped with where they came from"
-column: review
-position: 12
 priority: high
 tags:
   - threads
@@ -39,7 +37,7 @@ contract:
     reworkCount: 1
     deliveredAt: "2026-10-19T20:30:24.113Z"
     duration: 435
-updatedAt: "2026-10-19T20:30:31.304Z"
+updatedAt: "2026-10-19T20:32:03.963Z"
 dispatch:
   agent: claude
   model: opus
@@ -55,6 +53,7 @@ dispatch:
     at: "2026-10-19T20:22:58.046Z"
     ended: "2026-10-19T20:30:31.303Z"
     outcome: review
+completedAt: "2026-10-19T20:32:03.963Z"
 ---
 
 ## Description
@@ -63,3 +62,4 @@ ADR 0008 §3 and §6 slice 1, as written there: Room::post(teammate, from, post)
 ## Log
 - 2026-10-19T20:22:47.691Z: [claude] Lead: try 1 ended before committing (it said make check was still running) — 35 files of uncommitted work sit in the task-216 worktree, branch has no commits. Next try: do not redo it; run make check in the foreground and wait for it to finish, fix what fails, then commit. task-218 has since landed on release/0.41.0 and rewrote session/peers (Room::thread_agent, Threads::drive); this diff also touches session/peers.rs and peers/tests.rs, so merge release/0.41.0 in, resolve keeping task-218's builder, rerun cargo test -p hotline-core unfiltered (AGENTS.md rule 3) and make check, then commit and deliver. Do not end the turn with a command still running.
 - 2026-10-19T20:30:26.932Z: [claude] Committed try 1's work as b790b237 (Room::post in session/post.rs; call_posted, the quiet run's follow-up and send_file from a thread write through it; TranscriptEvent::Agent has optional from/scheduled, documented in design.md). Merged release/0.41.0 cleanly (3fb75707). session/peers only gained from: None/scheduled: None field passthroughs for the new optional fields. make check, make precheck, and the contract's validation greps all pass; harness: tests/schedule.rs a_quiet_run_is_heard_only_when_it_posts plus tests/voice/front_tools.rs. For task-217: post_to_chat and the Escalate trait are untouched, so they still go their old way and should move onto Room::post. Work is on branch dispatch/task-216.
+- 2026-10-19T20:32:03.583Z: Landed on release/0.41.0

@@ -41,6 +41,11 @@ pub(super) async fn apply_update(
     room: &Arc<dyn RoomHandle>,
     mut patch: Map<String, Value>,
 ) -> Result<Value, String> {
+    // The lead has rules a setting cannot check: it names a teammate on the
+    // team, and a desk of one has that one.
+    if patch.contains_key(room::TEAM_LEAD) {
+        return Err("The lead is set with persona.lead.".to_string());
+    }
     for (key, value) in &mut patch {
         if !value.is_null() {
             *value = room::normalize_setting(key, value)?;

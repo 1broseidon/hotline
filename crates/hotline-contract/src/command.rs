@@ -354,6 +354,15 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         slot: Option<u8>,
     },
+    /// Makes `id` the desk's lead, moving the role from whoever had it, or
+    /// clears the lead when `id` is absent. A desk has at most one. A desk
+    /// of one teammate always has that one as lead, so clearing it there is
+    /// refused. Owners only, as `persona.pin`.
+    #[serde(rename = "persona.lead")]
+    PersonaLead {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
     /// One key at a time, `null` clearing a key back to its default.
     #[serde(rename = "settings.update")]
     SettingsUpdate {

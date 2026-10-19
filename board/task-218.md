@@ -33,7 +33,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-19T20:08:25.244Z"
     duration: 270
-updatedAt: "2026-10-19T20:12:32.914Z"
+updatedAt: "2026-10-19T20:13:20.988Z"
 dispatch:
   agent: codex
   model: gpt-6.1-sol
@@ -47,6 +47,8 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-19T20:03:36.062Z"
+    ended: "2026-10-19T20:13:20.988Z"
+    outcome: review
 ---
 
 ## Description

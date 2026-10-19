@@ -13,7 +13,29 @@ relatedFiles:
   - docs/adr
 parentId: epic-16
 createdAt: "2026-10-19T06:06:19.521Z"
-updatedAt: "2026-10-19T06:10:31.546Z"
+updatedAt: "2026-10-19T06:11:03.728Z"
+contract:
+  status: ready
+  deliverables:
+    - type: docs
+      path: docs/adr/0007-split-hotline-core.md
+      description: Before timings, module map, leaves, cuts, core cycle, target crate graph
+    - type: file
+      path: scripts/module-map
+      description: Re-runnable script printing crate::X references between top-level modules
+  validation:
+    commands:
+      - test -f docs/adr/0007-split-hotline-core.md
+      - grep -q '^## Before' docs/adr/0007-split-hotline-core.md
+      - grep -q 'cargo build -p hotline-core' docs/adr/0007-split-hotline-core.md
+      - test -x scripts/module-map && scripts/module-map | grep -q websearch
+      - git diff --quiet release/0.41.0...HEAD -- crates Cargo.toml Cargo.lock ui
+      - python3 -m unittest discover -s scripts -p 'test_*.py'
+  constraints:
+    - No code changes under crates/, Cargo.toml, Cargo.lock or ui/
+    - Each timing run twice, the second kept, on this Mac
+  metrics:
+    readyAt: "2026-10-19T06:11:03.728Z"
 ---
 
 ## Description

@@ -2,8 +2,6 @@
 id: epic-19
 title: "hotline-voice: the voice system as its own crate, engines first, then the calls behind a narrow room interface (0.41)"
 type: epic
-column: todo
-position: 8
 priority: high
 tags:
   - crate-split
@@ -12,7 +10,8 @@ tags:
 assignee: claude
 createdAt: "2026-10-19T17:20:17.780Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-19T20:00:16.666Z"
+updatedAt: "2026-10-19T20:00:17.086Z"
+completedAt: "2026-10-19T20:00:17.086Z"
 ---
 
 ## Description
@@ -29,3 +28,8 @@ Same rules as epics 16 and 18: moves only, no behaviour change, contract.ts byte
 - 2026-10-19T17:22:36.695Z: [claude] Lead's plan: strictly serial, on release/0.41.0. (1) task-212 moves the engines (speech, realtime) to crates/hotline-voice; it goes first because the design has to inventory the calls' reaches against the engines' new home, and both edit ADR 0007. (2) task-213 writes the call-interface design into ADR 0007 under '## The room's side of a call' with a '**Recommendation:**' line; docs only, validated to touch nothing under crates/ui. (3) task-214 moves the calls and is the epic's whole-system proof (engines plus calls in hotline-voice, room implementing the trait, full voice/local_speech/processes harnesses, make check, make precheck). GATE: in bypass task-213 lands on its own, so the lead holds task-214 until George approves the design in a note or message; if the design says stop, task-214 is not handed off and George decides it. The lead may split task-214 into the trait-plus-impl and the file move if task-213 sizes it as two. All three now carry validation commands (file absences, no hotline-core/Tauri dependency, cargo test -p hotline-voice, the harnesses, make check, contract.ts unchanged, make precheck). Agents: claude/opus, high effort for the move, xhigh for the design.
 - 2026-10-19T18:23:50.541Z: [claude] task-212 landed on release/0.41.0: engines in crates/hotline-voice, no new trait, vault handed in as speech::Connected. Its carry-overs (the &Vault readers the calls still use, the re-exports the core keeps, the SignIns fn pointers) are now in task-213's description. task-213 waits on task-215 (epic-20, in Review for George), so nothing is handed off until George lands that.
 - 2026-10-19T20:00:15.224Z: [claude] epic-19 is done for 0.41 with the engines' move (task-212). task-213 is closed into task-214, which moved to epic-21 (0.42) after slice 6.
+
+## Child Tasks
+Summary: 2/2 children completed.
+- task-212: hotline-voice: the speech and realtime engines move first (completed)
+- task-213: Design: the room's side of a call, and whether it is narrow enough to move the calls (completed)

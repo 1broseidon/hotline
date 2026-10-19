@@ -6,7 +6,7 @@ position: 14
 priority: medium
 tags:
   - threads
-assignee: claude
+assignee: codex
 relatedFiles:
   - crates/hotline-core/src/session
 parentId: epic-20
@@ -29,7 +29,15 @@ contract:
     - Run cargo test -p hotline-core unfiltered before committing ui/src/generated/contract.ts (AGENTS.md rule 3)
   metrics:
     readyAt: "2026-10-19T20:03:13.573Z"
-updatedAt: "2026-10-19T20:03:13.573Z"
+updatedAt: "2026-10-19T20:03:30.379Z"
+dispatch:
+  agent: codex
+  model: gpt-6.1-sol
+  effort: high
+  by: lead
+  at: "2026-10-19T20:03:30.245Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

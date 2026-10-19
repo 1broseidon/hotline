@@ -1,8 +1,6 @@
 ---
 id: task-182
 title: "OAuth callback page: a styled, dark page with a strict Content-Security-Policy"
-column: review
-position: 8
 priority: high
 tags:
   - mcp
@@ -12,7 +10,7 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:54.225Z"
 relatedFiles:
   - crates/hotline-core/src/mcp/oauth.rs
-updatedAt: "2026-10-19T00:41:31.384Z"
+updatedAt: "2026-10-19T00:45:50.319Z"
 contract:
   status: delivered
   deliverables:
@@ -46,6 +44,7 @@ dispatch:
     ended: "2026-10-19T00:41:31.383Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-19T00:45:50.319Z"
 ---
 
 ## Description
@@ -55,3 +54,4 @@ Split from task-25, which keeps the rest and stays deferred.
 
 ## Log
 - 2026-10-19T00:41:23.557Z: [claude] Done on branch dispatch/task-182 (b7c2849b). mcp/oauth.rs: callback_page() renders one escaped card (heading + detail; 'Signed in' / 'You can close this tab.', or 'Sign-in failed' + the error) with inline styles copied from ui/src/tokens.css, dark by default and light via prefers-color-scheme (the browser tab cannot see the window's data-theme). Served with CALLBACK_CONTENT_SECURITY_POLICY = default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none', plus Cache-Control: no-store; no script. Tests: the_callback_pages_say_what_happened_under_a_strict_policy (real socket, 400 then 200, headers + no <script), callback_page_escapes_what_it_is_told. For later tasks: the page's colours are a copy of tokens.css, so a token change there does not reach it; a worktree build needs .speech-engine (make speech-engine).
+- 2026-10-19T00:45:49.908Z: Landed on release/0.40.0

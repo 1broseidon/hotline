@@ -56,6 +56,9 @@ struct Live {
     generation: u64,
 }
 
+/// How long launch waits on one desk's bridge before listing it unreachable.
+const START_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// How long a bridge that would not start waits before the next try.
 fn retry_after(tries: u32) -> Duration {
     Duration::from_millis((250u64 << tries.min(7)).min(30_000))
@@ -87,18 +90,39 @@ impl Host {
         self.registry.parent().unwrap_or(Path::new("."))
     }
 
-    /// Starts a bridge for every paired desk. A bridge is a local listener;
-    /// it dials the server only once the window connects to it. One that
-    /// will not start is listed as unreachable and keeps being retried.
+    /// Starts a bridge for every paired desk, all at once, so one slow desk
+    /// never holds up the rest or the window that waits on the list. A
+    /// bridge is a local listener; it dials the server only once the window
+    /// connects to it. One that will not start, or not within
+    /// `START_TIMEOUT`, is listed as unreachable and keeps being retried.
     pub(crate) async fn start_all(self: &Arc<Self>) {
+        self.start_each(
+            START_TIMEOUT,
+            |desk| async move { Bridge::start(&desk).await },
+        )
+        .await;
+    }
+
+    async fn start_each<F, Fut>(self: &Arc<Self>, timeout: Duration, open: F)
+    where
+        F: Fn(PairedDesk) -> Fut,
+        Fut: Future<Output = Result<Bridge, String>>,
+    {
         let paired = self
             .paired
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
-        for desk in paired {
-            self.start(&desk).await;
-        }
+        let starts = paired.into_iter().map(|desk| {
+            let opened = tokio::time::timeout(timeout, open(desk.clone()));
+            async move {
+                let opened = opened
+                    .await
+                    .unwrap_or_else(|_| Err("The local desk bridge did not start in time.".into()));
+                self.settle(&desk, opened);
+            }
+        });
+        futures_util::future::join_all(starts).await;
     }
 
     /// Where the window's list changes go, once there is a window.
@@ -111,8 +135,13 @@ impl Host {
     /// a retry keeps trying with backoff until it starts, or until the desk
     /// is paired again or forgotten.
     async fn start(self: &Arc<Self>, desk: &PairedDesk) {
+        let opened = Bridge::start(desk).await;
+        self.settle(desk, opened);
+    }
+
+    fn settle(self: &Arc<Self>, desk: &PairedDesk, opened: Result<Bridge, String>) {
         let generation = self.generations.fetch_add(1, Ordering::Relaxed) + 1;
-        match Bridge::start(desk).await {
+        match opened {
             Ok(bridge) => self.install(desk, generation, bridge),
             Err(error) => {
                 eprintln!("[desks] {}: {error}", desk.name);
@@ -876,6 +905,54 @@ mod tests {
         assert_eq!(reopened.relays.lock().unwrap().len(), 1);
         reopened.forget_relay("d1").unwrap();
         assert!(read_list::<PairedRelay>(&dir.path().join(RELAYS)).is_empty());
+    }
+
+    // On a paused clock the hanging desk's timeout passes as soon as nothing
+    // else can run, before the real-time retry of the failing desk would.
+    #[tokio::test(start_paused = true)]
+    async fn a_desk_that_hangs_at_launch_does_not_delay_the_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = Host::open(dir.path(), "http://127.0.0.1:1".into(), "t".into());
+        for (id, name) in [("hangs", "Hangs"), ("fails", "Fails"), ("opens", "Opens")] {
+            host.paired.lock().unwrap().push(PairedDesk {
+                desk_id: id.into(),
+                name: name.into(),
+                ..desk()
+            });
+        }
+        let timeout = Duration::from_secs(1);
+        let launched = tokio::time::Instant::now();
+        let opened_at = Mutex::new(None);
+        host.start_each(timeout, |desk| {
+            let opened_at = &opened_at;
+            async move {
+                match desk.desk_id.as_str() {
+                    // First in the list, so started one by one it would hold the rest.
+                    "hangs" => std::future::pending().await,
+                    "fails" => Err("The keychain is locked.".into()),
+                    _ => {
+                        let bridge = Bridge::start(&desk).await;
+                        *opened_at.lock().unwrap() = Some(launched.elapsed());
+                        bridge
+                    }
+                }
+            }
+        })
+        .await;
+
+        assert!(opened_at.lock().unwrap().unwrap() < timeout);
+        let bridges = host.lock_bridges();
+        assert!(bridges["opens"].bridge.is_some());
+        assert_eq!(bridges["opens"].error, None);
+        assert_eq!(
+            bridges["fails"].error.as_deref(),
+            Some("The keychain is locked.")
+        );
+        assert_eq!(bridges["hangs"].state, State::Unreachable);
+        assert_eq!(
+            bridges["hangs"].error.as_deref(),
+            Some("The local desk bridge did not start in time.")
+        );
     }
 
     #[test]

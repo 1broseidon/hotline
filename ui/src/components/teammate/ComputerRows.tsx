@@ -33,7 +33,8 @@ function without(computer: PersonaComputer, key: "image" | "memory" | "cpus" | "
  * desktop to speak of, three folds. Desktop carries the machine's state and
  * opens to what is done with it — Stop, Remove, Update — and what the
  * container is built with: image, memory, process limit, the host folders
- * bound in. Browser is what its browser signs in with: the cookies brought
+ * bound in. Memory and CPUs reach a computer when it is made, so the pane
+ * says so, and offers a restart while the running one has others. Browser is what its browser signs in with: the cookies brought
  * over from the person's own browsers, and the passkeys made for the
  * teammate under an arming started here. Secrets is the stored names, one
  * tick each. Every change spreads the settings it does not touch, so
@@ -179,7 +180,7 @@ export function ComputerRows({
 
 	const setMounts = (next: ComputerMount[]) => onChange(next.length === 0 ? without(current, "mounts") : { ...current, mounts: next });
 
-	const act = async (cmd: "computer.stop" | "computer.remove" | "computer.update") => {
+	const act = async (cmd: "computer.stop" | "computer.remove" | "computer.update" | "computer.restart") => {
 		if (acting) return;
 		setActing(true);
 		setRefusal(null);
@@ -335,6 +336,18 @@ export function ComputerRows({
 								}}
 								onCommit={commitCpus}
 							/>
+							<div className={NESTED}>
+								<span className="group-row-text">
+									<span className="group-row-detail" style={{ whiteSpace: "normal" }}>
+										Applies the next time the computer starts.
+									</span>
+								</span>
+								{state === "running" && status?.limitsChanged === true && (
+									<button type="button" className="control btn-quiet btn-sm" disabled={acting || disabled} onClick={() => void act("computer.restart")}>
+										Restart to apply
+									</button>
+								)}
+							</div>
 							{capacity && capacityNote(capacity) && (
 								<div className={NESTED}>
 									<span className="group-row-text">

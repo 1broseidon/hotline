@@ -211,6 +211,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `computer.status` | `{personaId}` | `{state, url?, viewer?}` — a peek, never a wake |
 | `computer.stop` | `{personaId}` | none |
 | `computer.remove` | `{personaId}` | none |
+| `computer.restart` | `{personaId}` | none; makes the teammate's computer again with the memory and CPUs it has now, between turns if it is running, or stops it for the next start if not ([computer.md](computer.md)) |
 | `computer.update` | `{personaId}` | none; recreates the teammate's computer on the release it would be created on now, keeping its volumes, and starts the teammate again if it was running ([computer.md](computer.md)) |
 | `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}], blocked}]` — the host browsers cookies could come from; names only. `blocked` marks one that is installed but whose data the host refuses the desk (macOS without Full Disk Access), listed with no profiles so the window can say what to allow |
 | `computer.cookies.preview` | `{browserId, profileId}` | `[{domain, cookies}]` — the sites in that profile and their counts, never a value |

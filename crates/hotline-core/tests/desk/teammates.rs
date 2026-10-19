@@ -40,20 +40,6 @@ async fn a_teammate_is_made_watched_keyed_chaptered_and_removed_over_the_wire() 
         .await;
     assert_eq!(blank["snapshot"], json!([]));
 
-    // No key on the desk: the built-in agent says so instead of starting.
-    let refused = client
-        .call("session.start", json!({ "personaId": persona_id }))
-        .await;
-    assert_eq!(refused["ok"], false, "{refused}");
-    assert!(
-        refused["error"]
-            .as_str()
-            .unwrap()
-            .to_lowercase()
-            .contains("key"),
-        "{refused}"
-    );
-
     let none = client.call("models.list", json!({})).await;
     assert_eq!(none["result"], json!([]));
     let keyed = client

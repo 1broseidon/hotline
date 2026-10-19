@@ -17,8 +17,8 @@ use crate::contract::{
 use crate::mcp::{HttpAuth, McpServer, McpTransport};
 pub(crate) use container::folder_mounts;
 use container::{
-    create_args, folder_mount_args, image_present, inspect, inspect_within, pick_runtime, pull,
-    run, wait_healthy,
+    create_args, folder_mount_args, image_present, inspect, inspect_within, limits_of,
+    pick_runtime, pull, run, wait_healthy,
 };
 use runtime::{BinSearch, Runtime};
 use serde_json::Value;
@@ -70,6 +70,9 @@ pub(crate) const FOLDERS_MOUNT: &str = "/home/agent/folders";
 /// The environment entry that records which folders a container was made
 /// with, so a container made with others is made again rather than kept.
 const FOLDERS_ENV: &str = "HOTLINE_FOLDERS";
+/// The environment entry that records the memory and CPU limits a
+/// container was made with, which only a new container can change.
+const LIMITS_ENV: &str = "HOTLINE_LIMITS";
 /// The glibc image seeds a writable store; old Alpine volumes remain available.
 const NIX_VOLUME: &str = "hotline-nix-glibc";
 const DEFAULT_MEMORY: &str = "4g";
@@ -419,8 +422,17 @@ impl Computer {
         // made with other folders than the teammate has now is made again:
         // a folder taken away must not stay mounted. Named volumes keep the
         // home, the store and scratch; the container's own layer goes.
+        // Memory and CPUs are the same: a runtime takes them at create, so
+        // a container made with others is made again. What one made before
+        // the limits were recorded has is unknown, so it is made again the
+        // next time it starts from stopped; one already running is kept.
         let folders = folder_mount_args(persona)?.join("\n");
-        if inspection.exists && inspection.folders != folders {
+        let limits = limits_of(persona, runtime)?;
+        let other_limits = inspection
+            .limits
+            .as_ref()
+            .map_or(!inspection.running, |made| *made != limits);
+        if inspection.exists && (inspection.folders != folders || other_limits) {
             run(&cmd, &["rm", "-f", &name], COMMAND_TIMEOUT).await?;
             inspection.exists = false;
             inspection.running = false;
@@ -534,10 +546,13 @@ impl Computer {
 
     /// A teammate's computer as it is now. Polls that overlap share one
     /// inspect: a caller that waited behind another takes the answer that
-    /// one produced, because it was asked for after this caller did.
+    /// one produced, because it was asked for after this caller did. With
+    /// the teammate's settings, it says whether the running computer's
+    /// limits are theirs.
     pub async fn status(
         &self,
         persona_id: &str,
+        persona: Option<&Persona>,
         prefer: Option<Runtime>,
     ) -> Result<ComputerStatus, String> {
         let asked = Instant::now();
@@ -554,7 +569,7 @@ impl Computer {
         {
             return Ok(status.clone());
         }
-        let status = self.inspect_status(persona_id, prefer).await?;
+        let status = self.inspect_status(persona_id, persona, prefer).await?;
         *last = Some((Instant::now(), status.clone()));
         Ok(status)
     }
@@ -562,6 +577,7 @@ impl Computer {
     async fn inspect_status(
         &self,
         persona_id: &str,
+        persona: Option<&Persona>,
         prefer: Option<Runtime>,
     ) -> Result<ComputerStatus, String> {
         let name = container_name(persona_id);
@@ -577,10 +593,13 @@ impl Computer {
                     release: None,
                     available: None,
                     update_failed: None,
+                    limits_changed: false,
                 });
             };
+            let limits_changed = limits_changed(&inspection, persona, live.runtime);
             let mut status = status_of(inspection, Some((live.mcp_port, &live.token)));
             status.release.clone_from(&live.release);
+            status.limits_changed = limits_changed;
             return Ok(status);
         }
         let Ok((runtime, cmd)) = self.pick_for_status(prefer).await else {
@@ -591,6 +610,7 @@ impl Computer {
                 release: None,
                 available: None,
                 update_failed: None,
+                limits_changed: false,
             });
         };
         let Ok(inspection) = inspect_within(&cmd, runtime, &name, STATUS_TIMEOUT).await else {
@@ -601,9 +621,13 @@ impl Computer {
                 release: None,
                 available: None,
                 update_failed: None,
+                limits_changed: false,
             });
         };
-        Ok(status_of(inspection, None))
+        let limits_changed = limits_changed(&inspection, persona, runtime);
+        let mut status = status_of(inspection, None);
+        status.limits_changed = limits_changed;
+        Ok(status)
     }
 
     /// Stop containers idle longer than [`COMPUTER_IDLE_STOP_MS`]; remove
@@ -655,6 +679,20 @@ struct Inspection {
     /// The folder mounts it was made with; empty for one made before
     /// folders, which had none.
     folders: String,
+    /// The memory and CPU limits it was made with; `None` for one made
+    /// before they were recorded.
+    limits: Option<String>,
+}
+
+/// Whether a running computer was made with other limits than the
+/// teammate's settings give now. One made before limits were recorded is
+/// not said to differ: what it has is unknown, and its next start from
+/// stopped remakes it anyway.
+fn limits_changed(inspection: &Inspection, persona: Option<&Persona>, runtime: Runtime) -> bool {
+    let (Some(made), Some(persona)) = (&inspection.limits, persona) else {
+        return false;
+    };
+    inspection.running && limits_of(persona, runtime).ok().as_ref() != Some(made)
 }
 
 /// The private runtime metadata preserves the bearer across app restarts.
@@ -668,6 +706,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             release: None,
             available: None,
             update_failed: None,
+            limits_changed: false,
         };
     }
     if !inspection.running {
@@ -678,6 +717,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
             release: None,
             available: None,
             update_failed: None,
+            limits_changed: false,
         };
     }
     let mcp = inspection.mcp_port.or(known.map(|known| known.0));
@@ -686,6 +726,7 @@ fn status_of(inspection: Inspection, known: Option<(u16, &str)>) -> ComputerStat
         release: None,
         available: None,
         update_failed: None,
+        limits_changed: false,
         url: mcp.map(mcp_url),
         viewer: match (
             mcp,

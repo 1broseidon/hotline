@@ -96,16 +96,22 @@ if [ "$state" = absent ]; then
 fi
 running=false
 [ "$state" = running ] && running=true
-environment='[]'
-if [ -f "${STATE}.token" ]; then environment='["HOTLINE_COMPUTER_TOKEN=fixture-persisted-token"]'; fi
-if [ -f "${STATE}.folders" ]; then environment="[\"$(cat "${STATE}.folders")\"]"; fi
+entries=''
+add() { entries="${entries:+$entries,}\"$1\""; }
+if [ -f "${STATE}.token" ]; then add HOTLINE_COMPUTER_TOKEN=fixture-persisted-token; fi
+if [ -f "${STATE}.folders" ]; then add "$(cat "${STATE}.folders")"; fi
+if [ -f "${STATE}.limits" ]; then add "$(cat "${STATE}.limits")"; fi
+environment="[$entries]"
 printf '[{"Config":{"Env":%s},"State":{"Running":%s},"NetworkSettings":{"Ports":{"8787/tcp":[{"HostPort":"%s"}]}}}]\n' "$environment" "$running" "$MCP"
 exit 0
 ;;
   create)
-rm -f "${STATE}.folders"
+rm -f "${STATE}.folders" "${STATE}.limits"
 for a in "$@"; do
-  case "$a" in HOTLINE_FOLDERS=?*) printf '%s' "$a" > "${STATE}.folders" ;; esac
+  case "$a" in
+    HOTLINE_FOLDERS=?*) printf '%s' "$a" > "${STATE}.folders" ;;
+    HOTLINE_LIMITS=*) printf '%s' "$a" > "${STATE}.limits" ;;
+  esac
 done
 echo stopped > "$STATE"; exit 0 ;;
   start) echo running > "$STATE"; exit 0 ;;

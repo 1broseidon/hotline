@@ -42,6 +42,18 @@ impl Room {
             self.close_chapter(persona_id, ChapterClose::Idle).await;
         }
         let session = self.session(persona_id)?;
+        // Hotline Agent that came up with no provider said so on its tape. A
+        // message is refused while that stands, so the words go back to the
+        // composer; once a provider is connected, the session starts again
+        // on it and the message goes to that one.
+        if session.backend_id == HOTLINE_BACKEND_ID && session.driver.startup_failure().is_some() {
+            if self.keys.provider_auth().is_empty() {
+                return Err(crate::driver::failure::NO_PROVIDER.to_string());
+            }
+            let capability = self.stop_with_capability(persona_id);
+            self.start_now(persona_id, capability).await?;
+            return Ok((self.session(persona_id)?, held));
+        }
         if chapter_view::open_chapter(&self.tape(persona_id)).is_some() {
             return Ok((session, held));
         }

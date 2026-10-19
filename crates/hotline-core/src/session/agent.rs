@@ -375,6 +375,12 @@ impl Room {
         let mut starting = Starting(Some(driver.clone()));
         let mut info = driver.start(&checkpointed).await?;
         lease.check()?;
+        // Hotline Agent with no provider comes up for the main conversation,
+        // to say so on its tape before anything is sent. A side or peer
+        // thread would only open onto that, so it is refused instead.
+        if in_process && !main && driver.startup_failure().is_some() {
+            return Err(crate::driver::failure::NO_PROVIDER.to_string());
+        }
         // A harness that came up failed (it never answered, or is signed out)
         // was not asked to reopen anything, and starting it over would only
         // wait out the same failure a second time.

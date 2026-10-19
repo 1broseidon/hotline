@@ -456,6 +456,7 @@ impl RoomHandle for Computered {
             release: None,
             available: None,
             update_failed: None,
+            limits_changed: false,
         })
     }
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String> {
@@ -472,6 +473,10 @@ impl RoomHandle for Computered {
     }
     async fn computer_update(&self, persona_id: &str) -> Result<(), String> {
         self.desk.computer_update(persona_id).await
+    }
+
+    async fn computer_restart(&self, persona_id: &str) -> Result<(), String> {
+        self.desk.computer_restart(persona_id).await
     }
 }
 

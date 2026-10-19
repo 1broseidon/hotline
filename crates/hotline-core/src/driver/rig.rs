@@ -339,11 +339,25 @@ impl Driver for InProcess {
         Some(self.info(&self.keys.provider_auth()))
     }
 
+    /// A started driver has a model unless the desk had no provider to give
+    /// it one.
+    fn startup_failure(&self) -> Option<String> {
+        lock(&self.model)
+            .is_empty()
+            .then(|| Failure::no_provider().notice())
+    }
+
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
         if let Some(capability) = &self.capability {
             capability.check()?;
         }
         let keys = self.keys.provider_auth();
+        // With no provider there is nothing to run a model on. The teammate
+        // still comes up, with no model, so it can say why before anyone
+        // sends it a word: see `startup_failure`.
+        if keys.is_empty() {
+            return Ok(self.info(&keys));
+        }
         let choices = models::choices(
             &keys,
             &self.keys.enabled_models(),

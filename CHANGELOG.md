@@ -24,6 +24,14 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   `--relay`, and `--relay` on a full server is refused before anything
   changes.
 
+### Fixed
+
+- A computer's memory and CPU settings say they apply the next time it
+  starts, and now they do: a stopped computer whose limits changed is made
+  again at its next start, rather than keeping the ones it was made with.
+  While a running computer has other limits than its settings, the pane
+  offers Restart to apply, which swaps it between turns.
+
 ## [0.39.0] - 2026-10-16
 
 ### Added

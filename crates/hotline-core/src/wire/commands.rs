@@ -737,6 +737,12 @@ pub(crate) async fn run(
                 .await
                 .map(|()| Value::Null)
         }
+        Command::ComputerRestart { persona_id } => {
+            living(log, &persona_id)?;
+            room.computer_restart(&persona_id)
+                .await
+                .map(|()| Value::Null)
+        }
         Command::ComputerBrowsersList {} => Ok(json!(room.computer_browsers().await)),
         Command::ComputerCookiesPreview {
             browser_id,

@@ -2,8 +2,6 @@
 id: epic-17
 title: "Team lead and one voice path: calling the desk reaches a real teammate, and both calls sound natural (0.41)"
 type: epic
-column: todo
-position: 0
 priority: high
 tags:
   - voice
@@ -12,7 +10,8 @@ tags:
 assignee: claude
 createdAt: "2026-10-19T13:59:36.300Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-19T21:33:29.998Z"
+updatedAt: "2026-10-19T21:33:30.445Z"
+completedAt: "2026-10-19T21:33:30.445Z"
 ---
 
 ## Description
@@ -38,3 +37,9 @@ Until a lead exists (an old phone, or a desk mid-choice), desk calls behave as t
 - 2026-10-19T20:02:48.635Z: [claude] Lead plan (0.41 half, lands on release/0.41.0): task-202 (core + contract: the lead on the room stream and roster, set/move/clear commands under owner checks, auto-lead for a one-teammate desk at create and load, cleared on delete) first, then task-205 (desktop: menu, badge, pick-a-lead prompt, onboarding line, CHANGELOG), which waits on 202 because it drives 202's commands and reads its roster field. task-205 is also the wiring child: its make verify runs 202's lead harness on the merged branch. Contracts added to both (validation: lead harness tests exist, make check, contract.ts written whole, make verify; 205 adds ui/tests/team-lead.test.tsx). The first-contact grant left 202 for task-203 (epic-21, 0.42), where desk calls first reach the lead; a grant with no caller would be dead code. relatedFiles fixed: room.rs now lives in crates/hotline-room. Both dispatched to claude/opus.
 - 2026-10-19T20:28:22.404Z: [claude] [claude] Lead: task-202 has used its one retry and now waits for George. Both tries wrote the code (commit 3ea025bd on dispatch/task-202) but ended while `make check` was still running in the background. The fmt/clippy fixes are uncommitted in its worktree. George can commit them and land it, or allow another try. task-205 waits on task-202.
 - 2026-10-19T20:54:41.446Z: [claude] Watch, 16:20: three children so far ended their turn while make check ran in the background, leaving work uncommitted, and a landing's make check stops after 15 minutes. For every hand-off from here, the lead's note should say: run make check in the foreground and wait for it, commit before ending the turn, and merge release/0.41.0 into the branch and re-run make check before saying done, so the landing's check is incremental.
+
+## Child Tasks
+Summary: 3/3 children completed.
+- task-201: Design review: one voice front, the team lead role, routing and acknowledgements (completed)
+- task-202: Core + contract: the team lead role, set, moved and kept (completed)
+- task-205: Desktop: Make team lead, the lead's badge, and the pick-a-lead prompt (completed)

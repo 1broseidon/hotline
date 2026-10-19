@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig/build.rs
   - crates/hotline-core/src/driver/failure.rs
   - ui/src/components/settings
-updatedAt: "2026-10-19T00:08:30.905Z"
+updatedAt: "2026-10-19T00:08:33.017Z"
 contract:
   status: ready
   deliverables:
@@ -37,7 +37,12 @@ dispatch:
   by: lead
   at: "2026-10-19T00:08:30.763Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 59290
+    at: "2026-10-19T00:08:33.017Z"
 assignee: claude
 ---
 

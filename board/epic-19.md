@@ -12,7 +12,15 @@ tags:
 assignee: claude
 createdAt: "2026-10-19T17:20:17.780Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-19T17:20:18.243Z"
+updatedAt: "2026-10-19T17:20:47.021Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: cli
+  at: "2026-10-19T17:20:46.888Z"
+  until: done
+  role: lead
 ---
 
 ## Description

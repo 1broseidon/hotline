@@ -6,7 +6,8 @@ use super::ledger::{self, Kind};
 use super::metering::BUDGET_ERROR;
 use super::record::Speaker;
 use super::speech::{self, Clip};
-use super::synthesis::{goodbye, sentences, speech_ready};
+use super::spoken::sentences;
+use super::synthesis::{goodbye, speech_ready};
 use super::{
     BUDGET_LINE, Calls, Delivery, ERROR_LINE, MAX_FAILURES, Origin, RETRY_LINE, REWRITE_WAIT,
     Reply, TranscriptSource, Work, lock, realtime, spoken,

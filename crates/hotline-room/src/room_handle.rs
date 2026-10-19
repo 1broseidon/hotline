@@ -1,12 +1,14 @@
 //! The seam between the wire and the live half of the room.
 
-use super::socket::NOT_LINKED;
-use crate::contract::{SessionInfo, StreamDelta};
 use async_trait::async_trait;
+use hotline_contract::{SessionInfo, StreamDelta};
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+
+/// A room that keeps no links answers a linked desk with this.
+const NOT_LINKED: &str = "This desk is not linked with that one.";
 
 /// How far a harness sign-in has got, as `agent.auth.poll` answers it: the
 /// state, the sign-in's output so far, and why it failed when it did.
@@ -38,8 +40,8 @@ pub struct AuthStatus {
 /// run to completion.
 #[async_trait]
 pub trait RoomHandle: Send + Sync + 'static {
-    fn images_status(&self) -> crate::contract::ImagesStatus {
-        crate::contract::ImagesStatus {
+    fn images_status(&self) -> hotline_contract::ImagesStatus {
+        hotline_contract::ImagesStatus {
             available: false,
             unavailable: Some("This room cannot make images.".into()),
             provider: None,
@@ -51,7 +53,7 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     /// The providers the owner can pick for each job, the choice made and what
     /// automatic would pick now.
-    async fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {
+    async fn capability_options(&self) -> Result<hotline_contract::CapabilityOptions, String> {
         Err("This room cannot list what its providers can do.".into())
     }
 
@@ -61,14 +63,14 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     /// This desk's teammates as a linked desk is shown them: the rows
     /// `list_teammates` gives a local colleague, and nothing more.
-    fn federation_roster_entries(&self) -> Vec<crate::contract::LinkedTeammate> {
+    fn federation_roster_entries(&self) -> Vec<hotline_contract::LinkedTeammate> {
         Vec::new()
     }
     /// A linked desk published its teammates.
     fn federation_roster(
         &self,
         _desk_id: &str,
-        _teammates: Vec<crate::contract::LinkedTeammate>,
+        _teammates: Vec<hotline_contract::LinkedTeammate>,
     ) -> Result<(), String> {
         Err(NOT_LINKED.into())
     }
@@ -77,7 +79,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn federation_deliver(
         &self,
         _desk_id: &str,
-        _delivery: crate::contract::LinkedDelivery,
+        _delivery: hotline_contract::LinkedDelivery,
     ) -> Result<Value, String> {
         Err(NOT_LINKED.into())
     }
@@ -131,7 +133,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         &self,
         _persona_id: &str,
         _id: &str,
-    ) -> Result<crate::contract::ProcessOutput, String> {
+    ) -> Result<hotline_contract::ProcessOutput, String> {
         Err("This desk runs no processes.".into())
     }
     /// Runs the last turn again when it failed (`Room::retry`).
@@ -151,7 +153,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         persona_id: &str,
         text: &str,
         reply_to: Option<String>,
-        attachments: Option<Vec<crate::contract::Attachment>>,
+        attachments: Option<Vec<hotline_contract::Attachment>>,
     ) -> Result<(), String>;
     fn cancel(&self, persona_id: &str) -> Result<(), String>;
     async fn set_model(&self, persona_id: &str, model_id: &str) -> Result<SessionInfo, String>;
@@ -165,7 +167,7 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     /// The effort levels a catalogue model offers, as picker choices, and
     /// the one a teammate with none stored runs at.
-    fn models_efforts(&self, model_id: &str) -> crate::contract::EffortChoices;
+    fn models_efforts(&self, model_id: &str) -> hotline_contract::EffortChoices;
 
     /// Answers a permission the agent is waiting behind, refusing when there
     /// is nothing left to answer.
@@ -187,7 +189,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         &self,
         persona_id: &str,
         action_id: &str,
-        status: crate::contract::HumanAnswer,
+        status: hotline_contract::HumanAnswer,
         note: Option<String>,
     ) -> Result<(), String>;
 
@@ -195,13 +197,13 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn start_fresh_chapter(
         &self,
         persona_id: &str,
-    ) -> Result<crate::contract::ChapterSummary, String>;
+    ) -> Result<hotline_contract::ChapterSummary, String>;
 
     /// Reopens the previous chapter's context in place of the current one.
     async fn resume_chapter(
         &self,
         persona_id: &str,
-    ) -> Result<crate::contract::ChapterSummary, String>;
+    ) -> Result<hotline_contract::ChapterSummary, String>;
 
     /// What this teammate's session is doing, idle when it has none.
     fn info(&self, persona_id: &str) -> SessionInfo;
@@ -215,12 +217,12 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
 
     /// The subagents this teammate has running, for the roster row.
-    fn subagents(&self, _persona_id: &str) -> Vec<crate::contract::RunningSubagent> {
+    fn subagents(&self, _persona_id: &str) -> Vec<hotline_contract::RunningSubagent> {
         Vec::new()
     }
 
     /// The side threads this teammate has live, for the roster row.
-    fn sides(&self, _persona_id: &str) -> Vec<crate::contract::RunningSide> {
+    fn sides(&self, _persona_id: &str) -> Vec<hotline_contract::RunningSide> {
         Vec::new()
     }
 
@@ -235,7 +237,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         &self,
         _persona_id: &str,
         _text: &str,
-    ) -> Result<crate::contract::SideThreadSummary, String> {
+    ) -> Result<hotline_contract::SideThreadSummary, String> {
         Err("Side threads are unavailable on this room.".to_string())
     }
 
@@ -246,7 +248,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         _side_id: &str,
         _text: &str,
         _reply_to: Option<String>,
-        _attachments: Option<Vec<crate::contract::Attachment>>,
+        _attachments: Option<Vec<hotline_contract::Attachment>>,
     ) -> Result<(), String> {
         Err("Side threads are unavailable on this room.".to_string())
     }
@@ -268,11 +270,11 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn side_continue(
         &self,
         _side_id: &str,
-    ) -> Result<crate::contract::SideThreadSummary, String> {
+    ) -> Result<hotline_contract::SideThreadSummary, String> {
         Err("Side threads are unavailable on this room.".to_string())
     }
 
-    fn side_list(&self, _persona_id: &str) -> Vec<crate::contract::SideThreadSummary> {
+    fn side_list(&self, _persona_id: &str) -> Vec<hotline_contract::SideThreadSummary> {
         Vec::new()
     }
 
@@ -303,7 +305,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         provider_id: &str,
         label: &str,
         secret: &str,
-    ) -> Result<crate::contract::Credential, String>;
+    ) -> Result<hotline_contract::Credential, String>;
     fn credential_revoke(&self, id: &str) -> Result<(), String>;
     fn credential_delete(&self, id: &str) -> Result<(), String>;
     /// Starts provider sign-in. Returns the prompt as soon as the provider
@@ -311,21 +313,21 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn credential_login(
         &self,
         provider_id: &str,
-    ) -> Result<crate::contract::LoginPrompt, String>;
+    ) -> Result<hotline_contract::LoginPrompt, String>;
     fn credential_login_cancel(&self, _login_id: &str) -> Result<(), String> {
         Err("Login cancellation is unavailable.".into())
     }
     async fn credential_connect_local(
         &self,
         _base_url: &str,
-    ) -> Result<crate::contract::Credential, String> {
+    ) -> Result<hotline_contract::Credential, String> {
         Err("Local providers are unavailable.".into())
     }
     fn credential_custom_save(
         &self,
         _id: Option<&str>,
-        _draft: crate::contract::CustomProviderDraft,
-    ) -> Result<crate::contract::Credential, String> {
+        _draft: hotline_contract::CustomProviderDraft,
+    ) -> Result<hotline_contract::Credential, String> {
         Err("Custom connections are unavailable.".into())
     }
     async fn credential_custom_models(
@@ -337,20 +339,21 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Custom model discovery is unavailable.".into())
     }
     /// How far a login started by [`Self::credential_login`] has got.
-    fn login_status(&self, login_id: &str) -> Result<crate::contract::LoginStatus, String>;
+    fn login_status(&self, login_id: &str) -> Result<hotline_contract::LoginStatus, String>;
     /// What the room knows of every credential, the secrets left in the vault.
-    fn credentials(&self) -> Vec<crate::contract::Credential>;
+    fn credentials(&self) -> Vec<hotline_contract::Credential>;
 
     /// Every harness a teammate could run on here, the built-in one first.
-    async fn backends(&self) -> Vec<crate::contract::BackendChoice>;
+    async fn backends(&self) -> Vec<hotline_contract::BackendChoice>;
 
     /// The skills catalog: built-ins, then the gateway folder and the
     /// person's own, then — for a named teammate — what is in its own
     /// workspace.
-    fn skills(&self, persona_id: Option<&str>) -> Result<Vec<crate::contract::SkillEntry>, String>;
+    fn skills(&self, persona_id: Option<&str>)
+    -> Result<Vec<hotline_contract::SkillEntry>, String>;
 
     /// Every model the desk's keys can reach, for the model picker.
-    fn models(&self) -> Vec<crate::contract::ConfigChoice>;
+    fn models(&self) -> Vec<hotline_contract::ConfigChoice>;
 
     /// Every model the catalogue lists for this provider, flagged by the
     /// saved filter. An unwired provider is an error; a credential is not
@@ -358,28 +361,28 @@ pub trait RoomHandle: Send + Sync + 'static {
     fn models_catalog(
         &self,
         provider_id: &str,
-    ) -> Result<Vec<crate::contract::CatalogModel>, String>;
+    ) -> Result<Vec<hotline_contract::CatalogModel>, String>;
 
     /// Copies an existing Hotline data directory into this room. The source is
     /// never written.
-    fn import(&self, from: &std::path::Path) -> Result<crate::contract::Report, String>;
+    fn import(&self, from: &std::path::Path) -> Result<hotline_contract::Report, String>;
 
     /// What tools this teammate was given the last time it started.
-    fn teammate_tools(&self, persona_id: &str) -> Option<crate::contract::TeammateToolLedger>;
+    fn teammate_tools(&self, persona_id: &str) -> Option<hotline_contract::TeammateToolLedger>;
 
     /// Writes a job onto the room stream and wakes the clock. Times are
     /// milliseconds; `when` is a one-shot's fire, `every` a loop's interval.
     fn schedule_create(
         &self,
         persona_id: &str,
-        kind: crate::contract::ScheduleKind,
+        kind: hotline_contract::ScheduleKind,
         when: Option<i64>,
         every: Option<i64>,
         prompt: &str,
         quiet: bool,
-    ) -> Result<crate::contract::ScheduledJob, String>;
+    ) -> Result<hotline_contract::ScheduledJob, String>;
 
-    fn schedule_list(&self) -> Vec<crate::contract::ScheduledJob>;
+    fn schedule_list(&self) -> Vec<hotline_contract::ScheduledJob>;
 
     fn schedule_cancel(&self, id: &str) -> Result<(), String>;
 
@@ -388,7 +391,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// Every thread this teammate has with another teammate, newest first.
     /// The events of one are a `{"thread": key}` subscription, which is a
     /// stream like any other.
-    fn peer_threads(&self, persona_id: &str) -> Vec<crate::contract::PeerThreadSummary>;
+    fn peer_threads(&self, persona_id: &str) -> Vec<hotline_contract::PeerThreadSummary>;
 
     /// Marks messages in a peer thread read, answering how many moved.
     fn mark_peer_read(&self, key: &str, event_ids: &[String]) -> usize;
@@ -402,13 +405,13 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn credential_refresh_models(
         &self,
         provider_id: &str,
-    ) -> Result<Vec<crate::contract::CatalogModel>, String>;
+    ) -> Result<Vec<hotline_contract::CatalogModel>, String>;
 
     fn models_manual_set(
         &self,
         _provider_id: &str,
         _model_ids: &[String],
-    ) -> Result<Vec<crate::contract::CatalogModel>, String> {
+    ) -> Result<Vec<hotline_contract::CatalogModel>, String> {
         Err("Manual model IDs are unavailable on this room.".into())
     }
 
@@ -417,21 +420,21 @@ pub trait RoomHandle: Send + Sync + 'static {
     fn forget(&self, persona_id: &str);
 
     /// Test harnesses without a runtime return conservative, explicit defaults.
-    async fn computer_capacity(&self) -> crate::contract::ComputerCapacity {
-        crate::contract::ComputerCapacity {
+    async fn computer_capacity(&self) -> hotline_contract::ComputerCapacity {
+        hotline_contract::ComputerCapacity {
             runtime: None,
             cpus: 4,
             memory_bytes: 8 * 1024 * 1024 * 1024,
-            source: crate::contract::ComputerCapacitySource::Default,
+            source: hotline_contract::ComputerCapacitySource::Default,
         }
     }
-    async fn computer_runtimes(&self) -> Vec<crate::contract::RuntimeReport>;
-    fn computer_releases(&self) -> crate::contract::ComputerReleases;
-    async fn computer_releases_check(&self) -> crate::contract::ComputerReleases;
+    async fn computer_runtimes(&self) -> Vec<hotline_contract::RuntimeReport>;
+    fn computer_releases(&self) -> hotline_contract::ComputerReleases;
+    async fn computer_releases_check(&self) -> hotline_contract::ComputerReleases;
     async fn computer_status(
         &self,
         persona_id: &str,
-    ) -> Result<crate::contract::ComputerStatus, String>;
+    ) -> Result<hotline_contract::ComputerStatus, String>;
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_update(&self, persona_id: &str) -> Result<(), String>;
@@ -439,7 +442,7 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     /// The host browsers the operator could bring cookies from. Names only.
     /// Defaults to none: a room without a desk under it offers no host.
-    async fn computer_browsers(&self) -> Vec<crate::contract::HostBrowser> {
+    async fn computer_browsers(&self) -> Vec<hotline_contract::HostBrowser> {
         Vec::new()
     }
     /// The sites in one host browser profile and how many cookies each has.
@@ -448,7 +451,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         &self,
         _browser_id: &str,
         _profile_id: &str,
-    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+    ) -> Result<Vec<hotline_contract::CookieSite>, String> {
         Err("Browser cookie import is unavailable on this room.".to_string())
     }
     /// Copies the ticked sites' cookies from a host browser into the
@@ -459,14 +462,14 @@ pub trait RoomHandle: Send + Sync + 'static {
         _browser_id: &str,
         _profile_id: &str,
         _domains: &[String],
-    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+    ) -> Result<Vec<hotline_contract::CookieSite>, String> {
         Err("Browser cookie import is unavailable on this room.".to_string())
     }
     async fn computer_cookies_push(
         &self,
         _persona_id: &str,
-        _transfer: crate::contract::CookieTransfer,
-    ) -> Result<Vec<crate::contract::CookieSite>, String> {
+        _transfer: hotline_contract::CookieTransfer,
+    ) -> Result<Vec<hotline_contract::CookieSite>, String> {
         Err("Cookie transfer is unavailable on this room.".into())
     }
     /// What has been brought over to a teammate's computer, by browser and
@@ -474,7 +477,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn computer_cookies_list(
         &self,
         _persona_id: &str,
-    ) -> Result<Vec<crate::contract::CookieImport>, String> {
+    ) -> Result<Vec<hotline_contract::CookieImport>, String> {
         Err("Browser cookie import is unavailable on this room.".to_string())
     }
     /// Takes brought-over cookies back out: one site, or the whole import.
@@ -485,18 +488,18 @@ pub trait RoomHandle: Send + Sync + 'static {
         _browser_id: &str,
         _profile_id: &str,
         _domain: Option<&str>,
-    ) -> Result<Vec<crate::contract::CookieImport>, String> {
+    ) -> Result<Vec<hotline_contract::CookieImport>, String> {
         Err("Browser cookie import is unavailable on this room.".to_string())
     }
 
     /// The web search providers that have a key saved. Never a key.
-    fn websearch_keyed(&self) -> std::collections::HashSet<crate::contract::WebSearchProvider> {
+    fn websearch_keyed(&self) -> std::collections::HashSet<hotline_contract::WebSearchProvider> {
         std::collections::HashSet::new()
     }
     /// Saves a web search provider's key in the vault, or forgets it.
     fn websearch_set_key(
         &self,
-        _provider: crate::contract::WebSearchProvider,
+        _provider: hotline_contract::WebSearchProvider,
         _key: Option<&str>,
     ) -> Result<(), String> {
         Err("Web search keys are unavailable on this room.".to_string())
@@ -505,7 +508,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     /// The secrets the operator keeps for teammates: names and when each
     /// changed, never a value. Defaults to none: a room without a vault
     /// under it stores nothing.
-    fn secrets_list(&self) -> Result<Vec<crate::contract::SharedSecret>, String> {
+    fn secrets_list(&self) -> Result<Vec<hotline_contract::SharedSecret>, String> {
         Ok(Vec::new())
     }
     /// Stores or replaces a secret and hands the new value to every running
@@ -514,7 +517,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         &self,
         _name: &str,
         _value: &str,
-    ) -> Result<crate::contract::SharedSecret, String> {
+    ) -> Result<hotline_contract::SharedSecret, String> {
         Err("Stored secrets are unavailable on this room.".to_string())
     }
     /// Takes a secret away, and out of every running computer it was
@@ -531,7 +534,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         _username: &str,
         _password: &str,
         _totp: Option<&str>,
-    ) -> Result<crate::contract::SharedSecret, String> {
+    ) -> Result<hotline_contract::SharedSecret, String> {
         Err("Stored secrets are unavailable on this room.".to_string())
     }
     /// Arms a teammate's computer to make one passkey, to be stored under
@@ -541,7 +544,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         _name: &str,
         _persona_id: &str,
         _rp_id: &str,
-    ) -> Result<crate::contract::PasskeyRegistration, String> {
+    ) -> Result<hotline_contract::PasskeyRegistration, String> {
         Err("Stored secrets are unavailable on this room.".to_string())
     }
     /// Where the making of that passkey stands; the poll that finds it made
@@ -549,7 +552,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn secrets_passkey_registration(
         &self,
         _persona_id: &str,
-    ) -> Result<crate::contract::PasskeyRegistration, String> {
+    ) -> Result<hotline_contract::PasskeyRegistration, String> {
         Err("Stored secrets are unavailable on this room.".to_string())
     }
     /// Answers the passkey card on a teammate's tape: approved, the
@@ -559,7 +562,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         _persona_id: &str,
         _ask_id: &str,
         _approved: bool,
-    ) -> Result<crate::contract::PasskeyRegistration, String> {
+    ) -> Result<hotline_contract::PasskeyRegistration, String> {
         Err("Stored secrets are unavailable on this room.".to_string())
     }
     /// Ends an arming without a passkey.

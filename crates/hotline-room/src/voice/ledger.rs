@@ -13,8 +13,8 @@
 //! reservation that is never settled (the request failed, was cancelled, or
 //! came back without usage) stays charged, since it may have been billed.
 
-use crate::contract::{BudgetKind, BudgetLimits};
 use chrono::{Local, NaiveDate};
+use hotline_contract::{BudgetKind, BudgetLimits};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
@@ -489,7 +489,7 @@ impl Ledger {
 /// Runs a write that waits on the disk without holding a runtime worker: on
 /// a multi-thread runtime the worker's other tasks move elsewhere first. A
 /// current-thread runtime, or none, has nowhere to move them and just waits.
-pub(super) fn off_the_runtime<T>(work: impl FnOnce() -> T) -> T {
+pub fn off_the_runtime<T>(work: impl FnOnce() -> T) -> T {
     match tokio::runtime::Handle::try_current() {
         Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
             tokio::task::block_in_place(work)

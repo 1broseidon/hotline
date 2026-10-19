@@ -7,16 +7,14 @@ pub mod front;
 pub mod front_prompt;
 mod front_tools;
 mod input;
-pub mod ledger;
-pub mod metering;
 pub mod realtime;
 mod record;
 mod replies;
-pub mod settings;
 pub mod speech;
-pub mod spoken;
 mod synthesis;
 mod turn;
+
+pub use hotline_room::voice::{ledger, metering, settings, spoken};
 
 use crate::contract::{
     BudgetKind, SpeechModel, VoiceBudget, VoiceEndReason, VoiceEvent, VoiceFront, VoiceInputMode,

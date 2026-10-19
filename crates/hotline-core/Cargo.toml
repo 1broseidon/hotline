@@ -15,6 +15,7 @@ hotline-support = { path = "../hotline-support" }
 hotline-store = { path = "../hotline-store" }
 hotline-tools = { path = "../hotline-tools" }
 hotline-websearch = { path = "../hotline-websearch" }
+hotline-room = { path = "../hotline-room" }
 rig.workspace = true
 gethostname = "1.1"
 portable-pty = "0.9"
@@ -116,6 +117,8 @@ tokio = { workspace = true, features = ["test-util"] }
 ts-rs.workspace = true
 # The tests of the `web_search` tool point the chain at its mock providers.
 hotline-websearch = { path = "../hotline-websearch", features = ["test-support"] }
+# The core's call tests charge the voice budget without a reservation.
+hotline-room = { path = "../hotline-room", features = ["test-support"] }
 
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.

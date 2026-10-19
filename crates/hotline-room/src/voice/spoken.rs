@@ -60,7 +60,7 @@ pub const ENDED_NOTE: &str = "[This came from a voice call that ended before it 
 /// What the agent is handed for a turn said on a call: the person's words as
 /// they said them, the note when a front relayed them, then the contract. A
 /// call that has ended has no contract: the answer is only written.
-pub(crate) fn voice_turn(words: &str, front: bool, ended: bool) -> String {
+pub fn voice_turn(words: &str, front: bool, ended: bool) -> String {
     if ended {
         format!(
             "{words}
@@ -223,7 +223,7 @@ fn table(line: &str) -> bool {
 /// block or a table is never read out, and no tag is ever said, not even the
 /// part of one that ends a chunk.
 #[derive(Default)]
-pub(crate) struct Spoken {
+pub struct Spoken {
     tags: Tags,
     place: Place,
     /// A spoken version has begun.
@@ -249,7 +249,7 @@ pub(crate) struct Spoken {
 
 /// How a reply that has been read to its end finishes being said.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Ending {
+pub enum Ending {
     /// It wrote a spoken version, and this is the rest of it.
     Spoken(Vec<String>),
     /// It wrote none, and this is its opening.
@@ -258,14 +258,14 @@ pub(crate) enum Ending {
 
 impl Spoken {
     /// A chunk of the reply in, the sentences now ready to say out.
-    pub(crate) fn push(&mut self, chunk: &str) -> Vec<String> {
+    pub fn push(&mut self, chunk: &str) -> Vec<String> {
         let pieces = self.tags.push(chunk);
         self.take(pieces, false)
     }
 
     /// The reply is over: the rest of its spoken version, or its opening
     /// when it wrote none.
-    pub(crate) fn finish(&mut self) -> Ending {
+    pub fn finish(&mut self) -> Ending {
         let pieces = self.tags.finish().into_iter().collect();
         let rest = self.take(pieces, true);
         if self.began {
@@ -323,7 +323,7 @@ impl Spoken {
                 self.line(&text, &mut out);
             }
             self.prose_line = false;
-            let rest = super::synthesis::take_sentences(&mut self.prose, true);
+            let rest = take_sentences(&mut self.prose, true);
             self.gate(rest, &mut out);
             return out;
         }
@@ -334,7 +334,7 @@ impl Spoken {
         {
             self.prose_line = true;
             self.prose.push_str(&text);
-            let sentences = super::synthesis::take_sentences(&mut self.prose, false);
+            let sentences = take_sentences(&mut self.prose, false);
             self.gate(sentences, &mut out);
         } else {
             // Not yet known: it waits for the rest of its line.
@@ -361,7 +361,7 @@ impl Spoken {
             }
         }
         self.prose.push_str(line);
-        let sentences = super::synthesis::take_sentences(&mut self.prose, false);
+        let sentences = take_sentences(&mut self.prose, false);
         self.gate(sentences, out);
     }
 
@@ -388,13 +388,13 @@ const LINE_WORDS: usize = 40;
 /// at most [`FALLBACK_SENTENCES`] sentences, with no code or table, so its
 /// opening is all of it. That is the one short line the contract asks for
 /// before a tool, and a reply that short has nothing to rewrite.
-pub(crate) fn said_as_written(written: &str) -> bool {
+pub fn said_as_written(written: &str) -> bool {
     let text = written.trim();
     !text.is_empty()
         && !text.contains(['\n', '`'])
         && !table(text)
         && text.split_whitespace().count() < LINE_WORDS
-        && super::synthesis::sentences(text).len() <= FALLBACK_SENTENCES
+        && sentences(text).len() <= FALLBACK_SENTENCES
 }
 
 /// A reply as the chat shows it while it streams: the written version, and
@@ -403,7 +403,7 @@ pub(crate) fn said_as_written(written: &str) -> bool {
 /// space a version begins with is dropped until it says something, and what
 /// follows something already shown is a paragraph after it.
 #[derive(Default)]
-pub(crate) struct Shown {
+pub struct Shown {
     tags: Tags,
     place: Place,
     /// Something has been shown.
@@ -413,7 +413,7 @@ pub(crate) struct Shown {
 }
 
 impl Shown {
-    pub(crate) fn push(&mut self, chunk: &str) -> String {
+    pub fn push(&mut self, chunk: &str) -> String {
         let mut out = String::new();
         for piece in self.tags.push(chunk) {
             let place = self.place;
@@ -447,7 +447,7 @@ impl Shown {
 
 /// A whole reply, read for both its versions.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Versions {
+pub struct Versions {
     /// What the reply said, when it wrote a spoken version: that version,
     /// after any line it began with.
     pub spoken: Option<String>,
@@ -463,7 +463,7 @@ pub(crate) struct Versions {
 /// A whole reply as the chat shows it and as the call said it. No tag is
 /// ever shown, on a call or not: an agent that keeps its own history keeps
 /// the contract in it and may write the tags in a typed reply long after.
-pub(crate) fn versions(text: &str) -> Versions {
+pub fn versions(text: &str) -> Versions {
     let mut tags = Tags::default();
     let mut pieces = tags.push(text);
     pieces.extend(tags.finish());
@@ -522,9 +522,9 @@ pub(crate) fn versions(text: &str) -> Versions {
 }
 
 /// How a reply on a call was written, which decides how it was said:
-/// counted by the model that wrote it ([`super::replies`]).
+/// counted by the model that wrote it (the core's `voice::replies`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Path {
+pub enum Path {
     /// A spoken version closed with `</spoken>`, and a written one.
     Both,
     /// A spoken version closed with `</spoken>`, and no written one.
@@ -540,7 +540,7 @@ pub(crate) enum Path {
 
 impl Path {
     /// How the log and the wire name it.
-    pub(crate) fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Path::Both => "both",
             Path::SpokenOnly => "spokenOnly",
@@ -554,7 +554,7 @@ impl Path {
 /// How a whole reply was written, read as [`Spoken`] reads it: only the
 /// first spoken version counts, and a stray tag is no version. A reply is
 /// [`Path::Rewritten`] only once the call assistant has rewritten it.
-pub(crate) fn path(text: &str) -> Path {
+pub fn path(text: &str) -> Path {
     let mut tags = Tags::default();
     let mut pieces = tags.push(text);
     pieces.extend(tags.finish());
@@ -588,7 +588,7 @@ fn paragraphs(parts: &[&str]) -> String {
 /// A reply said on a call as the model is shown it again in a history
 /// rebuilt from the tape, so a follow-up knows what was heard and what was
 /// only read.
-pub(crate) fn both(spoken: &str, written: &str) -> String {
+pub fn both(spoken: &str, written: &str) -> String {
     format!("<spoken>{spoken}</spoken>\n<written>{written}</written>")
 }
 
@@ -664,7 +664,7 @@ fn common_in_order(a: &[String], b: &[String]) -> usize {
 /// what is written. Markdown and code marks go, a link is said as "a link",
 /// and money, percentages and arrows are said as words. The line shown on the
 /// call keeps the text as it was written.
-pub(crate) fn speech_text(text: &str) -> String {
+pub fn speech_text(text: &str) -> String {
     fn rule(pattern: &str) -> Regex {
         Regex::new(pattern).expect("fixed speech rule")
     }
@@ -723,6 +723,71 @@ pub(crate) fn speech_text(text: &str) -> String {
     let text = ABOUT.replace_all(&text, "about $1");
     let text = text.replace(" & ", " and ");
     SPACES.replace_all(&text, " ").trim().to_string()
+}
+
+pub fn sentences(text: &str) -> Vec<String> {
+    take_sentences(&mut text.to_string(), true)
+}
+
+/// A boundary needs following whitespace, so file names and versions stay
+/// intact. A line break is a boundary too: list items rarely end in a stop.
+pub fn take_sentences(pending: &mut String, finished: bool) -> Vec<String> {
+    let mut ends = Vec::new();
+    let mut chars = pending.char_indices().peekable();
+    while let Some((at, c)) = chars.next() {
+        if c == '\n'
+            || matches!(c, '.' | '!' | '?')
+                && chars.peek().is_some_and(|(_, next)| next.is_whitespace())
+        {
+            ends.push(at + c.len_utf8());
+        }
+    }
+    if finished {
+        ends.push(pending.len());
+    }
+    let mut start = 0;
+    let mut out = Vec::new();
+    for end in ends {
+        let sentence = pending[start..end].trim();
+        if !sentence.is_empty() {
+            out.extend(spoken_lengths(sentence));
+        }
+        start = end;
+    }
+    pending.drain(..start);
+    out
+}
+
+/// The longest piece sent to speech at once. A run-on sentence is cut at a
+/// comma-like pause, else a space, so no one request nears the audio limit.
+pub const SPOKEN_PIECE: usize = 300;
+
+pub fn spoken_lengths(sentence: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = sentence;
+    while rest.len() > SPOKEN_PIECE {
+        let mut limit = SPOKEN_PIECE;
+        while !rest.is_char_boundary(limit) {
+            limit -= 1;
+        }
+        let head = &rest[..limit];
+        let cut = [", ", "; ", ": ", " - "]
+            .iter()
+            .filter_map(|pause| head.rfind(pause).map(|at| at + 1))
+            .max()
+            .filter(|&at| at > SPOKEN_PIECE / 3)
+            .or_else(|| head.rfind(' ').filter(|&at| at > 0))
+            .unwrap_or(limit);
+        let piece = rest[..cut].trim();
+        if !piece.is_empty() {
+            out.push(piece.to_string());
+        }
+        rest = rest[cut..].trim_start();
+    }
+    if !rest.is_empty() {
+        out.push(rest.to_string());
+    }
+    out
 }
 
 #[cfg(test)]

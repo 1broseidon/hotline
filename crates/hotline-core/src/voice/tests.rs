@@ -1,6 +1,7 @@
 use super::dispatcher::Context;
 use super::input::validate_audio;
-use super::synthesis::{goodbye, own_voice, sentences, speech_ready, take_sentences};
+use super::spoken::{sentences, take_sentences};
+use super::synthesis::{goodbye, own_voice, speech_ready};
 use super::*;
 use crate::contract::VoiceCallMode;
 use crate::log::StreamId;

@@ -74,11 +74,18 @@ crates/hotline-websearch/src/ web search for every teammate, keyless by default,
   clean.rs, rank.rs          error pages and chrome out, duplicates and mirrors merged
   query.rs, when.rs          what the query asked for: its language, its dates
   mock.rs                    a provider on localhost, for tests (the `test-support` feature)
-crates/hotline-core/src/
+crates/hotline-room/src/      the room as the code above the core sees it; on the leaves, the store and web search
   room.rs                    the roster fold, settings, and schedules
+  mcp_servers.rs             the `mcpServers` setting, read the way the fold reads it
+  linked.rs                  linked desks: their records, qualified ids, the roster that crosses
+  room_handle.rs             RoomHandle, the seam the wire calls the live room through
+  tool_ledger.rs             what tools a teammate got, from where, and why one is absent
+  voice/                     voice's settings, its spend and the budget that gates it, spoken replies
+  provider_auth.rs, ...      ProviderAuth, the secret and text helpers, the TLS default, the computer's home
+crates/hotline-core/src/
   thread/                    the one name for a conversation, its store and its policy
   vault/                     credential metadata beside the room stream
-  session/                   Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
+  session/                   Session, the funnel, quiet, chapters, the scheduler, peer threads
   driver/                    Hotline Agent on Rig, and the ACP child with its registry and OAuth proxy
   models.rs                  the providers Hotline Agent reaches, and the model catalogue they serve
   providers/                 connection work Rig does not own; requests stay on Rig's clients
@@ -88,14 +95,13 @@ crates/hotline-core/src/
   mcp/                       the client of granted servers, and Hotline's own teammate tools
   skills.rs                  the catalog: built-in, gateway and workspace skills, copied into a workspace
   computer/                  runtime detection and one container per teammate
-  voice/                     the owner's call: speech in and out, the front, realtime, metering
+  voice/                     the owner's call: speech in and out, the front, realtime
   imagegen/                  making images over whichever connected provider the owner has
   link_preview.rs            a link's card, read from the page's head
   desk.rs                    the room, vault and log behind the wire
   boot.rs                    one boot, the app's and `hotline serve`'s, that returns its errors
   wire/                      the door: seats, commands, subscriptions, the phone and relay doors
   remote/                    Remote: the sealed listener, pairing, the relay, a linked desk's channel
-  linked.rs                  linked desks: their records, qualified ids, the roster that crosses
   push.rs                    notifications to paired phones
   import.rs                  copies an existing Hotline data directory
   import/                    the previous edition's roster and records, read-only

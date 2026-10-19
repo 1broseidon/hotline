@@ -536,7 +536,7 @@ while a desk text call also needs the dispatcher.
 ## One brain, two outputs
 
 A pipeline call to a teammate has nothing in front of the teammate
-(`voice/spoken.rs`); a front call puts a realtime voice there, which answers
+(`voice/spoken.rs` in `hotline-room`); a front call puts a realtime voice there, which answers
 conversation and runs the teammate's desk-side tools itself, and hands
 the teammate's session only work that needs it (see the voice front setting
 below, [voice-calls.md](voice-calls.md) and
@@ -803,7 +803,7 @@ Neither is called by the speech layer; the desk asks them beside its own.
 
 ## The ledger
 
-`voice/ledger.rs` keeps today's and this month's spend in
+`voice/ledger.rs` in `hotline-room` keeps today's and this month's spend in
 `<data dir>/voice-ledger.json`, split into speech to text, text to speech and
 dispatcher. `spent()` reads what each kind has spent today and this month
 and `charge(kind, usd)` records a cost. `reserve(kind, usd)` records an
@@ -828,7 +828,7 @@ that never set `settings.spending` but kept an early version's
 `settings.voice.dayUsd` and `monthUsd` has those as its Voice limits. A
 spending setting that cannot be read turns paid chat and voice off.
 
-`voice/metering.rs` is the gate. `reserve(kind, usd)` is refused with
+`voice/metering.rs` beside it is the gate. `reserve(kind, usd)` is refused with
 `Exhausted::Day(budget)`, `Month(budget)` or `Off(budget)` when the kind's
 own budget would go over a limit, and each says which budget in a sentence
 ("The Voice budget for today is spent. Raise it in Settings › Budgets.").

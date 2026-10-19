@@ -1,7 +1,8 @@
 # ADR 0007: Split hotline-core into crates, leaves first
 
-- Status: The five crates landed on `release/0.41.0` (epic-16). The core's
-  split, under Next, is proposed for George and not started.
+- Status: The five crates landed on `release/0.41.0` (epic-16). Of the
+  core's split, under Next, step 1 is done (`hotline-room`, epic-18:
+  task-211 and task-208); steps 2 to 4 are not started.
 - Date: 2026-10-19
 - Supersedes: the "No new crates" line of [standards.md](../standards.md#module-layout),
   once task-196 rewrites it. The line after it, "Do not break the
@@ -10,7 +11,8 @@
 - Tracking: epic-16 (task-193 this baseline, task-194 `hotline-contract`,
   task-195 `hotline-websearch`, task-196 `hotline-support`, task-197
   `hotline-store`, task-198 `hotline-tools`, task-199 the timings again and
-  the plan for the core)
+  the plan for the core); epic-18 for the core's split (task-211 and
+  task-208 `hotline-room`)
 
 ## Context
 
@@ -46,6 +48,7 @@ not start it.
 | `hotline-support` | state-free utilities: `credentials`, `process_windows`, `images`, `thumbs`, `fence`, `room_lock`, `log_file`, `paths` | none |
 | `hotline-store` | the log, the tape store and its search index, sent files: `log`, `store`, `sent` | `hotline-contract`, `hotline-support` |
 | `hotline-tools` | the shell and workspace tools and the capability lease they check (`tools/`) | `hotline-contract`, `hotline-support` |
+| `hotline-room` | the room as the code above the core sees it (Next, step 1) | `hotline-contract`, `hotline-support`, `hotline-store`, `hotline-websearch` |
 | `hotline-core` | everything else | all of the above |
 
 `hotline-app` and `hotline-cli` depend on `hotline-core` as now.
@@ -588,6 +591,77 @@ dependencies leave the core's list (snow, rcgen, hyper, hyper-util,
 http-body-util, if-addrs, socket2, qrcode). `push` → `remote` (one call to
 `remote::push_targets`) is cut on the way.
 
+### Step 1, done: `hotline-room`
+
+The name reads right: what it holds is the room as the code above the core
+sees it, the roster, the settings, the links and the seam the wire calls,
+and the alternatives (`hotline-roster`, `hotline-plain`) name a part of it
+or nothing. It stands on `hotline-contract`, `hotline-support`,
+`hotline-store` and `hotline-websearch` (the `webSearch` setting is checked
+by websearch's own rule), and on nothing in the core.
+
+Each moved file, by its old path in `crates/hotline-core/src/` and its new
+one in `crates/hotline-room/src/`:
+
+| Old path (`hotline-core/src/`) | New path (`hotline-room/src/`) | The core still reaches it as |
+|---|---|---|
+| `room.rs` | `room.rs` | `crate::room` |
+| `linked.rs` | `linked.rs` | `crate::linked` |
+| `session/ledger.rs` | `tool_ledger.rs` | `crate::session::ledger` |
+| `wire/room_handle.rs` | `room_handle.rs` | `crate::wire::{RoomHandle, AuthStatus}` |
+| `voice/ledger.rs` | `voice/ledger.rs` | `crate::voice::ledger` |
+| `voice/metering.rs` | `voice/metering.rs` | `crate::voice::metering` |
+| `voice/spoken.rs` | `voice/spoken.rs` | `crate::voice::spoken` |
+| `voice/settings.rs` | `voice/settings.rs` | `crate::voice::settings` |
+
+And the pieces that moved out of files that stayed:
+
+| Item, from | To (`hotline-room/src/`) | The core still reaches it as |
+|---|---|---|
+| `mcp::normalize_servers` and its four private helpers, from `mcp.rs` | `mcp_servers.rs` | `crate::mcp::normalize_servers` |
+| `session::ProviderAuth`, from `session.rs` | `provider_auth.rs` | `crate::session::ProviderAuth` |
+| `wire::same_secret`, from `wire.rs` | `secret.rs` | `crate::wire::same_secret` |
+| `failure::redact_text`, from `driver/failure.rs` | `secret.rs` | `crate::driver::failure::redact_text` |
+| `driver::clip`, from `driver.rs` | `text.rs` | `crate::driver::clip` |
+| `desk::install_crypto_provider`, from `desk.rs` | `tls.rs` | `crate::desk::install_crypto_provider` |
+| `computer::HOME_MOUNT`, from `computer.rs` | `computer.rs` | `crate::computer::HOME_MOUNT` |
+| `NOT_LINKED`, from `wire/socket.rs` | `room_handle.rs`, private | (its one user is the trait) |
+| `sentences`, `take_sentences`, `spoken_lengths`, `SPOKEN_PIECE`, from `voice/synthesis.rs` | `voice/spoken.rs` | `crate::voice::spoken::…` |
+
+`import::Report` was already the contract's `Report` (task-211), so it
+did not move; `AuthStatus` moved with the trait. Two things moved that the
+plan above did not name, because the plan's "the contract, the log and each
+other" was wrong for two of voice's three. `metering` reads the budgets'
+limits through `voice::settings::VoiceSettings`, so `settings.rs` came too:
+it names only the contract, the log and `room`, and GPT-Live's eight voices,
+which were a constant in `realtime/live.rs` used by nothing else, are now
+written inline in it beside Grok's and GPT Realtime's. And `spoken` cuts a
+reply into sentences with `synthesis`'s splitter, which is four pure
+functions over a string, so they moved into `spoken.rs` and the core's
+callers (`synthesis`, `turn`, `dispatcher` and the voice tests) name
+`spoken::sentences` now. The tests went with their code: 101 in the crate,
+three of them `mcp.rs`'s tests of the server-list reading.
+
+What stayed: `wire::Parts` and `wire::Agents`, which name `voice::Calls`,
+`remote::Remote` and `linked::Links` and so live with the wire; the three
+test rooms (`CoreHandle`, `Quiet`, `Computered`), which implement the trait
+from the core's tests as `Desk` does from the core. The moved items that
+were `pub(crate)` are `pub` now (the room's fold helpers, `linked`'s
+`Record` and the `Links` methods, `spoken`'s types), which the core alone
+sees: nothing else depends on `hotline-room`. `Budget::charge`, a test's
+way to spend without a reservation, is public only under the crate's
+`test-support` feature, which the core turns on in `[dev-dependencies]`,
+as websearch's mock is.
+
+With the room out, `scripts/module-map` lists 22 modules, 17 of them
+strongly connected (`room` and `linked` left; `store` and `tools` had
+before). `remote`'s production edges are now `computer` (1) and `wire` (5)
+and nothing else; and the script finds a new one-link cut, `thread` → `session`
+(`thread/store.rs:203`). The crate is about 6,400 lines with its tests,
+against the 132,700 left in the core's `src/`. No timings were taken: the
+plan above says this step's point is the steps after it, and step 2's
+measurement will include it.
+
 ### The re-exports
 
 The five crates' re-exports are about 870 references in the core's source,
@@ -611,6 +685,7 @@ in the core does.
    `AuthStatus` moved beside the trait rather than into the contract, because
    `agent.auth.poll` is typed by hand in the window and exporting it would
    change `contract.ts`.
+   Done (task-208): the crate is `hotline-room`, below.
 2. The `mcp` client (the cheapest seam, an external trait).
 3. The `voice` engines (the largest gain, through traits with five and two
    implementations).
@@ -628,8 +703,8 @@ shortens both of those only in proportion.
 
 ## Consequences
 
-- Five new workspace crates, each with the workspace lints, a license and a
-  crate-level doc. `hotline-core` keeps no Tauri.
+- Six new workspace crates (epic-16's five, and `hotline-room` for step 1
+  of Next), each with the workspace lints, a license and a crate-level doc. `hotline-core` keeps no Tauri.
 - The stages share lines (workspace members, `Cargo.lock`, `hotline-core`'s
   `Cargo.toml` and `lib.rs`, standards.md's module map, AGENTS.md), so they land
   in order and alone.

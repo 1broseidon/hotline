@@ -29,10 +29,10 @@
 //! makes a delete something a mirror can ship, rather than an absence it has
 //! to notice.
 
-use crate::contract::{
+use hotline_contract::{
     ImageSettings, Persona, ScheduleKind, ScheduledJob, SessionCheckpoint, SpendingSettings,
 };
-use crate::log::{Log, StreamId};
+use hotline_store::log::{Log, StreamId};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
@@ -54,9 +54,9 @@ fn defaults() -> Map<String, Value> {
     settings
 }
 
-pub(crate) fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
+pub fn normalize_setting(key: &str, value: &Value) -> Result<Value, String> {
     if key == "webSearch" {
-        return crate::websearch::normalize_setting(value);
+        return hotline_websearch::normalize_setting(value);
     }
     if matches!(key, "images" | "spending") && !value.is_object() {
         return Err(format!("The {key} setting must be an object."));
@@ -111,7 +111,7 @@ pub(crate) fn normalize_setting(key: &str, value: &Value) -> Result<Value, Strin
 /// the desktop rail's width, and a fourth would stop being a favourite.
 pub const MAX_PINS: usize = 3;
 
-pub(crate) fn too_many_pins() -> String {
+pub fn too_many_pins() -> String {
     format!("A desk pins up to {MAX_PINS} teammates. Unpin one first.")
 }
 
@@ -121,7 +121,7 @@ pub(crate) fn too_many_pins() -> String {
 /// Read leniently and settled against who is on the team, so a stored list
 /// that names a teammate who is gone, repeats one, or runs long (an older
 /// or hand-edited stream) still reads as pins that can be shown.
-pub(crate) fn settled_pins(value: Option<&Value>, team: &[Persona]) -> Vec<String> {
+pub fn settled_pins(value: Option<&Value>, team: &[Persona]) -> Vec<String> {
     let mut pins: Vec<String> = Vec::new();
     for id in value.and_then(Value::as_array).into_iter().flatten() {
         let Some(id) = id.as_str() else { continue };
@@ -143,11 +143,11 @@ pub fn pinned_teammates(log: &Log) -> Vec<String> {
 }
 
 /// The one id every `models` event shares.
-pub(crate) const MODELS_CHANGED: &str = "models-changed";
+pub const MODELS_CHANGED: &str = "models-changed";
 
 /// Tells the room its model choices changed. A failed write only costs the
 /// prompt update: the list is read fresh on the next start either way.
-pub(crate) fn models_changed(log: &Log) {
+pub fn models_changed(log: &Log) {
     let _ = log.append(
         &StreamId::Room,
         &room_event(
@@ -163,7 +163,7 @@ pub(crate) fn models_changed(log: &Log) {
 /// Whether a room event can change which models Hotline Agent offers: a
 /// connection added, revoked or removed, the "Models shown" filter, or the
 /// `models` event itself.
-pub(crate) fn changes_models(event: &Value) -> bool {
+pub fn changes_models(event: &Value) -> bool {
     is_kind(event, "credential")
         || is_kind(event, "models")
         || (is_kind(event, "setting")
@@ -183,7 +183,7 @@ fn is_deleted(event: &Value) -> bool {
 /// serde_json preserves insert order, so putting `kind` on after the body's
 /// fields would leave it last, and a reader of the raw file would not see
 /// the field a fold discriminates on first.
-pub(crate) fn room_event(kind: &str, body: Value) -> Value {
+pub fn room_event(kind: &str, body: Value) -> Value {
     let Value::Object(fields) = body else {
         unreachable!("a room event is an object");
     };
@@ -208,7 +208,7 @@ pub fn roster(log: &Log) -> Vec<Persona> {
     personas(&log.load(&StreamId::Room))
 }
 
-pub(crate) fn personas(events: &[Value]) -> Vec<Persona> {
+pub fn personas(events: &[Value]) -> Vec<Persona> {
     events
         .iter()
         .filter(|event| is_kind(event, "persona") && !is_deleted(event))
@@ -221,7 +221,7 @@ pub(crate) fn personas(events: &[Value]) -> Vec<Persona> {
 /// is left. Deleting a teammate writes a `persona` tombstone, and the fold
 /// keeps it in the teammate's place, so the stream still says one was here:
 /// that is how the room knows it has been set up without storing that it was.
-pub(crate) fn has_had_a_teammate(events: &[Value]) -> bool {
+pub fn has_had_a_teammate(events: &[Value]) -> bool {
     events.iter().any(|event| {
         is_kind(event, "persona")
             && event
@@ -240,7 +240,7 @@ pub fn settings(log: &Log) -> Map<String, Value> {
 }
 
 /// Whether the owner has set `key`, as opposed to it standing at its default.
-pub(crate) fn is_set(log: &Log, key: &str) -> bool {
+pub fn is_set(log: &Log, key: &str) -> bool {
     log.load(&StreamId::Room).iter().any(|event| {
         is_kind(event, "setting")
             && !is_deleted(event)
@@ -264,7 +264,7 @@ pub fn try_settings(log: &Log) -> Result<Map<String, Value>, String> {
     Ok(settings_from_events(&events))
 }
 
-pub(crate) fn settings_from_events(events: &[Value]) -> Map<String, Value> {
+pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
     let mut settings = defaults();
     for event in events {
         if !is_kind(event, "setting") || is_deleted(event) {
@@ -280,7 +280,7 @@ pub(crate) fn settings_from_events(events: &[Value]) -> Map<String, Value> {
     // The raw list is what was stored; a half-written entry costs that
     // entry on the way out, so a teammate never sees a server that cannot
     // be started.
-    let normalised = crate::mcp::normalize_servers(
+    let normalised = crate::mcp_servers::normalize_servers(
         settings
             .get("mcpServers")
             .unwrap_or(&Value::Array(Vec::new())),
@@ -314,7 +314,7 @@ fn jobs(events: &[Value]) -> Vec<ScheduledJob> {
 /// answer as the whole truth: `None` when the room holds no living teammate
 /// by that id, and an error when the room could not be read. Neither may
 /// come back looking like a teammate with nothing scheduled.
-pub(crate) fn teammate_schedules(
+pub fn teammate_schedules(
     log: &Log,
     persona_id: &str,
 ) -> Result<Option<Vec<ScheduledJob>>, String> {
@@ -338,7 +338,7 @@ pub(crate) fn teammate_schedules(
 /// A job event is the job's record with the stream kind beside it. The job's
 /// own kind is not written as `kind` — that slot is the stream's — and is
 /// recovered on the way back from `every`.
-pub(crate) fn append_schedule(log: &Log, job: &ScheduledJob) -> Result<(), String> {
+pub fn append_schedule(log: &Log, job: &ScheduledJob) -> Result<(), String> {
     log.append(&StreamId::Room, &event_of(job))
         .map(|_| ())
         .map_err(|error| format!("The room's stream could not be written: {error}."))
@@ -347,7 +347,7 @@ pub(crate) fn append_schedule(log: &Log, job: &ScheduledJob) -> Result<(), Strin
 /// The tombstone is the same kind and id again, so the fold finds it instead
 /// of the job and a mirror has a line to ship rather than an absence to
 /// notice.
-pub(crate) fn tombstone_schedule(log: &Log, id: &str) -> Result<(), String> {
+pub fn tombstone_schedule(log: &Log, id: &str) -> Result<(), String> {
     log.append(
         &StreamId::Room,
         &json!({"kind": "schedule", "id": id, "deleted": true}),
@@ -398,13 +398,13 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
 /// browsers: the latest `cookie-imports` event for that teammate, whole,
 /// since the stream folds by teammate and a line carrying one import would
 /// leave the fold holding one import. Nothing recorded is an empty list.
-pub fn cookie_imports(log: &Log, persona_id: &str) -> Vec<crate::contract::CookieImport> {
+pub fn cookie_imports(log: &Log, persona_id: &str) -> Vec<hotline_contract::CookieImport> {
     log.load(&StreamId::Room)
         .into_iter()
         .filter(|event| is_kind(event, "cookie-imports"))
         .filter(|event| event.get("personaId").and_then(Value::as_str) == Some(persona_id))
         .filter_map(|event| {
-            serde_json::from_value::<Vec<crate::contract::CookieImport>>(
+            serde_json::from_value::<Vec<hotline_contract::CookieImport>>(
                 event.get("imports").cloned().unwrap_or(Value::Null),
             )
             .ok()
@@ -417,9 +417,9 @@ pub fn cookie_imports(log: &Log, persona_id: &str) -> Vec<crate::contract::Cooki
 /// keeps one entry, with its sites the union — a site brought over twice
 /// carries the latest count — and its time the latest; another browser or
 /// profile is another entry.
-pub(crate) fn merge_cookie_import(
-    imports: &mut Vec<crate::contract::CookieImport>,
-    import: crate::contract::CookieImport,
+pub fn merge_cookie_import(
+    imports: &mut Vec<hotline_contract::CookieImport>,
+    import: hotline_contract::CookieImport,
 ) {
     if let Some(earlier) = imports.iter_mut().find(|earlier| {
         earlier.browser_id == import.browser_id && earlier.profile_id == import.profile_id
@@ -447,10 +447,10 @@ pub(crate) fn merge_cookie_import(
 
 /// Records the whole list of what a teammate's computer has been handed,
 /// replacing the earlier record; domains and counts only, never a value.
-pub(crate) fn record_cookie_imports(
+pub fn record_cookie_imports(
     log: &Log,
     persona_id: &str,
-    imports: &[crate::contract::CookieImport],
+    imports: &[hotline_contract::CookieImport],
 ) -> Result<(), String> {
     log.append(
         &StreamId::Room,
@@ -469,7 +469,7 @@ pub(crate) fn record_cookie_imports(
 mod cookie_import_tests {
     use super::tests::scratch;
     use super::*;
-    use crate::contract::{CookieImport, CookieSite};
+    use hotline_contract::{CookieImport, CookieSite};
 
     fn import(browser: &str, profile: &str, sites: &[(&str, u32)], at: i64) -> CookieImport {
         CookieImport {
@@ -547,7 +547,7 @@ mod cookie_import_tests {
 /// A persona event is the teammate's record with the kind beside it, and the
 /// whole record every time: a stream folds by id, so a line carrying only what
 /// changed would leave the fold holding only what changed.
-pub(crate) fn append_persona(log: &Log, persona: &Persona) -> Result<(), String> {
+pub fn append_persona(log: &Log, persona: &Persona) -> Result<(), String> {
     log.append(&StreamId::Room, &room_event("persona", json!(persona)))
         .map(|_| ())
         .map_err(|error| format!("The room's stream could not be written: {error}."))
@@ -559,7 +559,7 @@ pub(crate) fn append_persona(log: &Log, persona: &Persona) -> Result<(), String>
 /// One entry per backend, replaced in place: a teammate that moves between
 /// harnesses and back finds both conversations where it left them, and Cursor
 /// is never handed Claude's session id.
-pub(crate) fn checkpoint_session(
+pub fn checkpoint_session(
     log: &Log,
     persona_id: &str,
     backend_id: &str,
@@ -577,11 +577,7 @@ pub(crate) fn checkpoint_session(
 /// Withdraws the promise to reopen that backend's session. The session itself
 /// is not touched; what is gone is Hotline's intention to return to it, which is
 /// what closing a chapter means.
-pub(crate) fn clear_checkpoint(
-    log: &Log,
-    persona_id: &str,
-    backend_id: &str,
-) -> Result<(), String> {
+pub fn clear_checkpoint(log: &Log, persona_id: &str, backend_id: &str) -> Result<(), String> {
     with_checkpoints(log, persona_id, |checkpoints| {
         checkpoints.retain(|checkpoint| checkpoint.backend_id != backend_id);
     })
@@ -610,8 +606,8 @@ fn with_checkpoints(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::SkillPolicy;
-    use crate::contract::{McpPolicy, PolicyMode};
+    use hotline_contract::SkillPolicy;
+    use hotline_contract::{McpPolicy, PolicyMode};
     use serde_json::json;
 
     pub(super) fn scratch(name: &str) -> Log {
@@ -684,8 +680,8 @@ mod tests {
         assert_eq!(
             policy.providers,
             vec![
-                crate::contract::WebSearchProvider::Exa,
-                crate::contract::WebSearchProvider::Firecrawl
+                hotline_contract::WebSearchProvider::Exa,
+                hotline_contract::WebSearchProvider::Firecrawl
             ]
         );
         // Written back, it is in the new vocabulary only.
@@ -841,8 +837,8 @@ mod tests {
 
     #[test]
     fn voices_own_caps_count_only_until_the_owner_sets_spending() {
-        use crate::contract::BudgetLimits;
         use crate::voice::settings::VoiceSettings;
+        use hotline_contract::BudgetLimits;
         let log = scratch("voice-shared-caps");
         append(
             &log,
@@ -936,7 +932,7 @@ mod tests {
             json!({"chat": {}, "voice": {"dayUsd": 0.0}, "images": {"dayUsd": 0.0}})
         );
         std::fs::write(
-            crate::paths::room_path(log.root()),
+            hotline_support::paths::room_path(log.root()),
             "{\"kind\":\"setting\",\"id\":\"spending\",\"value\":{\"dayUsd\":0,\"monthUsd\":0},\"private\":\"corrupt-room-canary\"\n",
         ).unwrap();
         assert_eq!(

@@ -57,3 +57,6 @@ dispatch:
 
 ## Description
 ADR 0008 §3 and §6 slice 1, as written there: Room::post(teammate, from, post); call_posted, the quiet run's follow-up and send_file from a thread write through it; TranscriptEvent::Agent gains optional `from` and `scheduled` (the reference importer reads them; design.md says so); a quiet run's note is posted as written; posts reach the home agent by who asked (§3). Removes what slice 1 lists. Proved by the headless harness the ADR names.
+
+## Log
+- 2026-10-19T20:22:47.691Z: [claude] Lead: try 1 ended before committing (it said make check was still running) — 35 files of uncommitted work sit in the task-216 worktree, branch has no commits. Next try: do not redo it; run make check in the foreground and wait for it to finish, fix what fails, then commit. task-218 has since landed on release/0.41.0 and rewrote session/peers (Room::thread_agent, Threads::drive); this diff also touches session/peers.rs and peers/tests.rs, so merge release/0.41.0 in, resolve keeping task-218's builder, rerun cargo test -p hotline-core unfiltered (AGENTS.md rule 3) and make check, then commit and deliver. Do not end the turn with a command still running.

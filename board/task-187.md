@@ -12,7 +12,7 @@ createdAt: "2026-10-18T23:40:56.843Z"
 relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/tests.rs
-updatedAt: "2026-10-19T00:03:10.606Z"
+updatedAt: "2026-10-19T00:03:20.470Z"
 contract:
   status: delivered
   deliverables:
@@ -43,6 +43,8 @@ dispatch:
     runner: cli
     pid: 59290
     at: "2026-10-18T23:54:20.975Z"
+    ended: "2026-10-19T00:03:20.470Z"
+    outcome: review
 assignee: claude
 ---
 

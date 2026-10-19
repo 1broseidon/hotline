@@ -1,7 +1,7 @@
 ---
 id: task-209
 title: "hotline-mcp: the MCP client as its own crate; the server stays in the core"
-column: todo
+column: in-progress
 position: 10
 priority: high
 tags:
@@ -14,9 +14,9 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:42.047Z"
 dependsOn:
   - task-208
-updatedAt: "2026-10-19T15:05:04.316Z"
+updatedAt: "2026-10-19T15:05:10.603Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-mcp/Cargo.toml
@@ -42,6 +42,8 @@ contract:
     - hotline-mcp never depends on hotline-core or Tauri
   metrics:
     readyAt: "2026-10-19T14:10:20.624Z"
+    pickedUpAt: "2026-10-19T15:05:10.603Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

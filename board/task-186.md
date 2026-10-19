@@ -48,3 +48,6 @@ assignee: claude
 Slice of task-21. hotline-app desks.rs start_all starts paired desks one by one, so one slow desk delays the rest. Start them concurrently (join_all with a per-desk timeout), keeping per-desk errors separate. Test that a desk that hangs doesn't delay the others. The other startup work stays in task-21.
 
 Split from task-21, which keeps the rest and stays deferred.
+
+## Log
+- 2026-10-19T00:41:21.419Z: [claude] Done on dispatch/task-186 (fe1c50f3). Host::start_all now calls start_each, which runs every desk's Bridge::start together with join_all, each under START_TIMEOUT (5s). A desk that times out goes through the same settle path as one that fails: it is listed unreachable with "The local desk bridge did not start in time." and retried. The test a_desk_that_hangs_at_launch_does_not_delay_the_others runs on a paused tokio clock (test-util is a dev-dependency) so the failing desk's real-time retry cannot land before the asserts; it fails if the desks are started one by one. For the rest of task-21: start_each takes an opener closure so tests can inject hangs; pairing again still goes through start(), which has no timeout. To build in a fresh worktree, copy .speech-engine/ over or run make speech-engine.

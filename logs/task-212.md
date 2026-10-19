@@ -1,8 +1,6 @@
 ---
 id: task-212
 title: "hotline-voice: the speech and realtime engines move first"
-column: review
-position: 9
 priority: high
 tags:
   - crate-split
@@ -52,7 +50,7 @@ contract:
     reworkCount: 0
     deliveredAt: "2026-10-19T18:21:03.399Z"
     duration: 3493
-updatedAt: "2026-10-19T18:21:11.090Z"
+updatedAt: "2026-10-19T18:23:10.149Z"
 dispatch:
   agent: claude
   model: opus
@@ -68,6 +66,7 @@ dispatch:
     at: "2026-10-19T17:22:38.944Z"
     ended: "2026-10-19T18:21:11.090Z"
     outcome: review
+completedAt: "2026-10-19T18:23:10.149Z"
 ---
 
 ## Description
@@ -82,3 +81,4 @@ Lead's additions (2026-10-19):
 
 ## Log
 - 2026-10-19T18:21:02.933Z: [claude] Done on dispatch/task-212 (dd4923db code, 7025f7f6 ADR+docs). crates/hotline-voice (on contract, support, room; never core or Tauri) holds speech.rs+speech/ and realtime.rs+realtime/ as they were (ADR 0007 "Step 3, done" has the old→new table for task-213/epic-17). Seam: no new trait; Speech and Realtime moved as they were. The vault reaches the engines as speech::Connected { root, providers: Vec<(id, ProviderAuth)> in connect order, sign_ins }, read by the core's new voice/connected.rs. Helpers: none moved down. OpenRouter's key is a value (core turns that sign-in into ProviderAuth::ApiKey). xAI's bearer and ChatGPT's refresh are fn pointers in speech::SignIns (xai::Bearer, realtime::live::SignIn), pointed at providers::xai::bearer / chatgpt::refreshed_auth. They stay in the core because the xAI TokenStore is one process-wide refresh lock shared with the Rig clients, and ChatGPT's refresh is Rig's. Also moved: front::SEND_TO_TEAMMATE → hotline_voice::realtime (front.rs re-exports it, a one-line change, the only call file touched) and models::is_custom → hotline_room::provider_auth. Re-exports the core keeps while callers remain: crate::voice::speech (glob of hotline_voice::speech, with the core's five &Vault readers resolve/resolve_output/resolve_front/listens_for/options in place of the engines' namesakes; ~15 src files plus tests/voice, tests/voice/front, tests/local_speech, examples/speech_check), crate::voice::realtime (6 src files + 2 harness files), crate::voice::front::SEND_TO_TEAMMATE (3), crate::models::is_custom (2). webrtc/rtc/opus/sherpa-onnx/symphonia left core's manifest; SHERPA_ONNX_ARCHIVE_DIR is workspace-relative, so nothing else needed changing. Tests: 149 in the crate (146 run + 3 ignored live probes); the 3 tests that use a real Vault are in voice/connected.rs. Engine xAI tests use a test login (xai::test_bearer/sign_in_for_test/test_login), assertions unchanged. The ignored Grok/GPT-Live probes now use the stored login unrefreshed. The AAC test reads hotline-core/tests/fixtures/voice/ask-mack.m4a. Harness tests unchanged; local_speech_check stays in core (needs Desk) and ran OK. Module map: strongly connected set 17→14 (capabilities, import, desk left it). Timings (419bdac5 vs dd4923db, own worktrees, interleaved): lib 28.1→24.6 s, front end 17.7→15.3 s, cold build 29.8→26.3 s, cold test build 59.9→54.1 s, touch floors 3.0/8.0→2.7/7.7 s, engines alone 1.1 s; an engine edit built by the core went 3.1→3.4 s. For task-213: the calls (input.rs, duplex.rs) still call speech::resolve*(&self.vault, …) through the core's readers; when they move, they take a Connected (or the room hands one in) and voice/connected.rs is what's left in the core. Docs: standards.md, development.md, AGENTS.md, security.md (2 citations), voice.md, THIRD-PARTY-NOTICES, 0.40 audits' full-path citations (README notes the exception). make check, make precheck (8 legs) and every contract validation line pass; contract.ts identical to 419bdac5.
+- 2026-10-19T18:23:09.768Z: Landed on release/0.41.0

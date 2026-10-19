@@ -69,6 +69,11 @@ crates/hotline-tools/src/     a teammate's workspace and shell tools; on the two
   capability.rs              the session's lease every tool checks, and the epoch that revokes it
   workspace.rs               workspace tools on cap-std: the wall, granted folders, read, grep, edit
   shell.rs                   the shell command, confined: Seatbelt on macOS, bubblewrap on Linux
+crates/hotline-websearch/src/ web search for every teammate, keyless by default, ranked and cleaned; on the contract alone
+  exa.rs, parallel.rs, ...   the four providers, one file each
+  clean.rs, rank.rs          error pages and chrome out, duplicates and mirrors merged
+  query.rs, when.rs          what the query asked for: its language, its dates
+  mock.rs                    a provider on localhost, for tests (the `test-support` feature)
 crates/hotline-core/src/
   room.rs                    the roster fold, settings, and schedules
   thread/                    the one name for a conversation, its store and its policy
@@ -84,7 +89,6 @@ crates/hotline-core/src/
   skills.rs                  the catalog: built-in, gateway and workspace skills, copied into a workspace
   computer/                  runtime detection and one container per teammate
   voice/                     the owner's call: speech in and out, the front, realtime, metering
-  websearch/                 web search for every teammate, keyless by default, ranked and cleaned
   imagegen/                  making images over whichever connected provider the owner has
   link_preview.rs            a link's card, read from the page's head
   desk.rs                    the room, vault and log behind the wire

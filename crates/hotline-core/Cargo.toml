@@ -14,6 +14,7 @@ hotline-contract = { path = "../hotline-contract" }
 hotline-support = { path = "../hotline-support" }
 hotline-store = { path = "../hotline-store" }
 hotline-tools = { path = "../hotline-tools" }
+hotline-websearch = { path = "../hotline-websearch" }
 rig.workspace = true
 gethostname = "1.1"
 portable-pty = "0.9"
@@ -100,7 +101,6 @@ hex = "0.4"
 # a ceiling below that, so an attached picture is decoded and shrunk before
 # it is inlined. Only the formats a phone or a screenshot produces.
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
-whatlang = "0.18.0"
 # The desk's own speech to text. Pinned exactly: the build downloads that
 # release's prebuilt static library (onnxruntime inside, so nothing is needed
 # on the host), and the C API under the wrapper moves between releases.
@@ -114,6 +114,8 @@ symphonia = { version = "0.6", default-features = false, features = ["aac", "iso
 tokio = { workspace = true, features = ["test-util"] }
 # The tests that read a contract type's TypeScript declaration.
 ts-rs.workspace = true
+# The tests of the `web_search` tool point the chain at its mock providers.
+hotline-websearch = { path = "../hotline-websearch", features = ["test-support"] }
 
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.

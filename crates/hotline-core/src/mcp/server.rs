@@ -2224,7 +2224,7 @@ mod tests {
 
     use crate::contract::WebSearchProvider;
     use crate::websearch::Endpoints;
-    use crate::websearch::tests::{Mock, Reply, mock};
+    use crate::websearch::mock::{Mock, Reply, mock};
 
     const EXA_KEY: &str = "exa-key-never-shown-0123";
 

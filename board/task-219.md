@@ -12,6 +12,9 @@ relatedFiles:
   - crates/hotline-core/src/session/files.rs
 parentId: epic-20
 createdAt: "2026-10-19T19:59:32.080Z"
+dependsOn:
+  - task-216
+updatedAt: "2026-10-19T19:59:34.546Z"
 ---
 
 ## Description

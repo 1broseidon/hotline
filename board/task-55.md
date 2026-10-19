@@ -1,20 +1,20 @@
 ---
 id: task-55
 title: Desk drops a phone's dead socket sooner
-column: todo
+column: in-progress
 position: 3
 priority: low
 tags:
   - remote
 createdAt: "2026-10-14T19:29:48.338Z"
-updatedAt: "2026-10-19T00:20:21.806Z"
+updatedAt: "2026-10-19T00:20:30.457Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/phone.rs
   - crates/hotline-core/src/remote/v2.rs
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: test
       path: crates/hotline-core
@@ -27,6 +27,8 @@ contract:
       - git diff --exit-code ui/src/generated/contract.ts
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+    pickedUpAt: "2026-10-19T00:20:30.457Z"
+    reworkCount: 0
 dependsOn:
   - task-187
   - task-183

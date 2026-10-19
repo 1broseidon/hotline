@@ -1,8 +1,6 @@
 ---
 id: task-185
 title: Computer settings say 'applies after restart' for memory and CPUs
-column: review
-position: 11
 priority: high
 tags:
   - computer
@@ -13,7 +11,7 @@ relatedFiles:
   - crates/hotline-core/src/computer/container.rs
   - ui/src/components/settings
   - ui/src/generated/contract.ts
-updatedAt: "2026-10-19T00:31:11.284Z"
+updatedAt: "2026-10-19T00:33:23.983Z"
 contract:
   status: delivered
   validation:
@@ -46,6 +44,7 @@ dispatch:
     ended: "2026-10-19T00:31:11.284Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-19T00:33:23.983Z"
 ---
 
 ## Description
@@ -55,3 +54,4 @@ Split from task-27, which keeps the rest and stays deferred.
 
 ## Log
 - 2026-10-19T00:31:06.874Z: [claude] Done on dispatch/task-185 (31e7cd61). The description's premise was half right: a stop and start reused the container, so new limits never applied. Now a container records the limits it was made with (HOTLINE_LIMITS env, next to HOTLINE_FOLDERS), and ensure_running makes it again when they differ. A running container from before this change is kept, and is made again the next time it starts from stopped, so upgrading never tears down a live desktop. ComputerStatus gains limitsChanged (a running computer with a record that differs). The new computer.restart command (desk-only, not for the phone) puts a swap in computer_swaps marked ready, so it lands between turns the way an update does; with no session it only stops. Under the sliders the pane says 'Applies the next time the computer starts.', and 'Restart to apply' shows when limitsChanged. Computer::status now takes Option<&Persona>. Tests: computer::tests a_computer_made_with_other_limits_is_made_again, session tests a_restart_makes_the_computer_again… and restarting_a_resting…, a seats test, and ui/tests/computer-restart.test.tsx. Green: fmt, clippy -D warnings, cargo test -p hotline-core (1892), the contract diff, make ui-check (433). Left for task-27: live docker/podman update and Apple home persistence (an Apple restart still loses its home, as an update does). The phone owner card has no restart.
+- 2026-10-19T00:33:23.562Z: Landed on release/0.40.0

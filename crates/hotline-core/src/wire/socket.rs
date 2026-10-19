@@ -192,7 +192,14 @@ where
     let writer_cancel = cancel.clone();
     let writer = tokio::spawn(async move {
         while let Some(text) = outbox.recv().await {
-            if sink.send(Message::text(text)).await.is_err() {
+            // A peer that stopped reading without closing (a phone that left
+            // the network) takes no more bytes, and TCP may keep the socket
+            // up for many minutes before it says so. A frame it has not taken
+            // in this long ends the seat: a queue that never fills, because
+            // the seat is quiet, cannot end it, nor can a silence timer the
+            // client never asked for.
+            let sent = tokio::time::timeout(WRITE_STALL, sink.send(Message::text(text))).await;
+            if !matches!(sent, Ok(Ok(()))) {
                 break;
             }
         }
@@ -781,6 +788,9 @@ const THREADS2: &str = "threads2";
 const LEAN: &str = "lean";
 /// How long a lean phone may say nothing before its link is taken as dead.
 const LEAN_IDLE: std::time::Duration = std::time::Duration::from_secs(90);
+/// How long one frame may wait for the peer to take it before the seat is
+/// taken as dead. A phone's largest frame crosses a slow link well within it.
+pub(crate) const WRITE_STALL: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The seat may not do this, whoever asks and whatever the room holds.
 pub(super) const FORBIDDEN: &str = "forbidden";

@@ -16,6 +16,10 @@ relatedFiles:
   - crates/hotline-core/src/thread.rs
 parentId: epic-16
 createdAt: "2026-10-19T06:07:00.407Z"
+dependsOn:
+  - task-194
+  - task-196
+updatedAt: "2026-10-19T06:07:12.268Z"
 ---
 
 ## Description

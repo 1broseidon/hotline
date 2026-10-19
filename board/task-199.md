@@ -16,7 +16,7 @@ dependsOn:
   - task-195
   - task-197
   - task-198
-updatedAt: "2026-10-19T08:46:37.227Z"
+updatedAt: "2026-10-19T08:46:38.918Z"
 contract:
   status: ready
   deliverables:
@@ -46,7 +46,12 @@ dispatch:
   by: lead
   at: "2026-10-19T08:46:37.115Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 54892
+    at: "2026-10-19T08:46:38.918Z"
 ---
 
 ## Description

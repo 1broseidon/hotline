@@ -13,7 +13,15 @@ relatedFiles:
   - crates/hotline-core/src/session
 parentId: epic-20
 createdAt: "2026-10-19T23:31:32.527Z"
-updatedAt: "2026-10-19T23:58:29.745Z"
+updatedAt: "2026-10-19T23:58:31.386Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T23:58:31.265Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

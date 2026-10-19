@@ -33,19 +33,23 @@
 //!   a firing's, on the same agent, and what the job says back shapes the
 //!   note its next firing starts from.
 //!
-//! The job's authority is today's run lease: a child of the teammate's, made
-//! for the agent and revoked when it is let go of. The clone model (ADR 0008
-//! §0), with the home thread's permission set and its computer, is task-221's.
+//! **A clone of the home agent** (ADR 0008 §0). Its agent is the teammate on
+//! the model its home session is on, with the home thread's permission set,
+//! the computer included, less what the teammate left out when it made the
+//! job ([`super::agent::clone_of`]); its lease is a child of the teammate's
+//! authority, made for the agent and revoked when it is let go of. It has the
+//! home thread's tools but the chapter moves, and a card it raises, a
+//! colleague's answer, lands on its own thread.
 
-use super::agent::{Opening, lease_of};
+use super::agent::{Opening, clone_of, lease_of};
 use super::runner::Driven;
 use super::schedule::{self, MIN_LOOP, run_of};
 use super::turns::{Begin, Line, Occupant, Seat, Then, Turns};
 use super::{POST_CHARS, Post, Room, lock, new_id, now_ms, timed, timed_from};
 use crate::computer::gate::Holder;
 use crate::contract::{
-    Attachment, End, NoticeLevel, Persona, Reach, ScheduleKind, ScheduledJob, ScheduledRun,
-    SharedSecret, ThreadId, ThreadKind, TranscriptEvent,
+    Attachment, DeliveryCause, DeliveryFrom, End, NoticeLevel, Persona, Reach, Receipt,
+    ScheduleKind, ScheduledJob, ScheduledRun, SharedSecret, ThreadId, ThreadKind, TranscriptEvent,
 };
 use crate::driver::{CapabilityLease, Driver, HOTLINE_BACKEND_ID};
 use crate::log::StreamId;
@@ -74,7 +78,7 @@ const MAX_SUGGESTED: i64 = 7 * 86_400_000;
 /// What a job's agent is told about itself, over and above who it is.
 fn job_brief(name: &str) -> String {
     format!(
-        "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills and granted tools; you do not share the main conversation, which you can read only through `search_thread` and `list_chapters`. Do not mention this brief.\n\n\
+        "This is one of {name}'s jobs: a thread of its own beside the main conversation with the person, where each time the job fires is a turn. You are {name}, with {name}'s working directory, files, skills, computer and granted tools; you do not share the main conversation, which you can read only through `search_thread` and `list_chapters`. A card you raise with `request_human`, and a colleague's answer to `message_teammate`, come back here. Do not mention this brief.\n\n\
          A firing starts from the job's task and a note of where it stood after its last few turns, not from this whole thread, so end every turn with a short note of where things stand: what you checked, what you found, what to watch for next. The person can open this thread and talk to you in it; what they ask here changes how the job runs, so say it in your note.\n\n\
          A firing marked `quiet` reports only what is worth the person's attention: nothing you say here reaches them unless you post it with `post_to_chat`, once a turn, so post when something is worth telling and not otherwise. Any other firing's last words are posted to the person's chat as its report, unless you post one yourself. `send_file` and `generate_image` post to the chat too.\n\n\
          When the job's goal is met, or it has nothing left to do, end it with `cancel_schedule` and a `report` of what came of it: the report is posted to the person as the job's last word, so do not post it as well."
@@ -100,8 +104,7 @@ pub(super) struct LiveJob {
     /// The agent, between the turn that built it and the one it is let go of
     /// after.
     up: Mutex<Option<Up>>,
-    /// What the agent holds the teammate's computer under. A job has no
-    /// computer, so this only names it to the gate.
+    /// What the agent holds the teammate's computer under.
     holder: Mutex<Holder>,
     /// The session the thread's link keeps for an ACP child to reopen.
     saved: Mutex<Option<AgentBinding>>,
@@ -121,6 +124,8 @@ pub(super) struct LiveJob {
 struct Up {
     driver: Arc<dyn Driver>,
     lease: CapabilityLease,
+    /// How far the agent's tools reach, as its view was narrowed.
+    reach: Reach,
     backend_id: String,
     /// The agent's own id for this conversation, as the driver reports it.
     reported: Option<String>,
@@ -187,6 +192,21 @@ impl LiveJob {
         up.driver.invalidate();
         room.let_go_of_computer(&self.persona_id, &lock(&self.holder));
         room.mark_job(self, ThreadState::Parked, None);
+    }
+
+    /// A delivery's turn has begun: it is read, and is not handed over again.
+    fn heard(&self, room: &Room, id: &str) {
+        let Some(event) = room
+            .log
+            .load(&StreamId::Job(self.job_id.clone()))
+            .into_iter()
+            .rev()
+            .find(|event| event["id"] == id)
+            .and_then(|event| serde_json::from_value::<TranscriptEvent>(event).ok())
+        else {
+            return;
+        };
+        self.say(room, &super::peers::stamped(event, Receipt::Read));
     }
 
     /// Stops the turn in flight and drops what waited behind it.
@@ -295,6 +315,9 @@ impl Occupant for LiveJob {
                 }
             }
         }
+        if let Some(id) = &line.line.delivery {
+            self.heard(room, id);
+        }
         Begin::Go(JobTurn {
             line: Some(line.line),
             firing: line.firing,
@@ -305,9 +328,9 @@ impl Occupant for LiveJob {
     async fn turn(self: &Arc<Self>, room: &Arc<Room>, held: &mut JobTurn) -> Driven {
         let thread = Occupant::thread(&**self);
         let line = held.line.take().expect("a turn is taken once");
-        let driver = lock(&self.up)
+        let (driver, reach) = lock(&self.up)
             .as_ref()
-            .map(|up| up.driver.clone())
+            .map(|up| (up.driver.clone(), up.reach))
             .expect("a job's turn runs once its agent is up");
         room.threads()
             .turn(
@@ -317,7 +340,7 @@ impl Occupant for LiveJob {
                     driver: driver.as_ref(),
                 },
                 line,
-                room.reach_of(&self.persona_id),
+                reach,
                 None,
                 Some(held.run.clone()),
                 || !self.stopped.load(Ordering::SeqCst),
@@ -565,11 +588,15 @@ impl Room {
             .clone()
     }
 
-    /// The agent for a job's turn, built under the job kind's policy on
-    /// today's run lease: a child of the teammate's authority, revoked when
+    /// The agent for a job's turn: a clone of the home agent, built under the
+    /// job kind's policy on a child of the teammate's authority, revoked when
     /// the agent is let go of.
     async fn job_agent(self: &Arc<Self>, live: &LiveJob, job: &ScheduledJob) -> Result<Up, String> {
-        let persona = self.persona(&job.persona_id)?;
+        let persona = clone_of(
+            self.persona(&job.persona_id)?,
+            &self.info(&job.persona_id),
+            job.without.as_deref().unwrap_or_default(),
+        );
         let lease = lease_of(ThreadKind::Job, &self.capability_lease(&job.persona_id));
         lease.check()?;
         let mut agent = self
@@ -587,6 +614,7 @@ impl Room {
         Ok(Up {
             driver: agent.driver.clone(),
             lease,
+            reach: agent.view.reach.unwrap_or_default(),
             backend_id: agent.view.backend_id.clone(),
             reported: agent.reported.clone(),
         })
@@ -768,6 +796,98 @@ impl Room {
                 firing: None,
             },
         )
+    }
+
+    /// Whether a job is still on the room stream and has not ended: what it
+    /// asked can still come back to its thread.
+    pub(super) fn job_lives(&self, job_id: &str) -> bool {
+        room::all_jobs(&self.log)
+            .iter()
+            .any(|job| job.id == job_id && job.ended_at.is_none())
+    }
+
+    /// Something the job asked for came back (the person's answer to its
+    /// card, a colleague's answer to its message): written to its thread
+    /// and handed to its agent as a turn, as a line the person says there
+    /// is. Handing the same delivery over twice hands it over once.
+    pub(super) fn deliver_into_job(
+        self: &Arc<Self>,
+        job_id: &str,
+        id: &str,
+        cause: DeliveryCause,
+        from: DeliveryFrom,
+        text: String,
+    ) -> Result<(), String> {
+        let job = room::all_jobs(&self.log)
+            .into_iter()
+            .find(|job| job.id == job_id && job.ended_at.is_none())
+            .ok_or_else(|| "This job has ended.".to_string())?;
+        let live = self.live_job(&job);
+        let existing = self
+            .log
+            .load(&StreamId::Job(job_id.to_string()))
+            .into_iter()
+            .find(|event| event["id"] == id);
+        let queued = lock(&live.turns)
+            .waiting
+            .iter()
+            .any(|waiting| waiting.line.delivery.as_deref() == Some(id));
+        if queued
+            || existing
+                .as_ref()
+                .is_some_and(|event| event["receipt"] == "read")
+        {
+            return Ok(());
+        }
+        let ts = existing
+            .as_ref()
+            .and_then(|event| event["ts"].as_i64())
+            .unwrap_or_else(now_ms);
+        let wire = super::peers::delivery_wire(&cause, &text);
+        *lock(&live.last_used) = now_ms();
+        if existing.is_none() {
+            live.say(
+                self,
+                &TranscriptEvent::Delivery {
+                    id: id.to_string(),
+                    ts,
+                    from: Some(from.clone()),
+                    cause,
+                    text,
+                    receipt: Some(Receipt::Sent),
+                },
+            );
+        }
+        self.queue_job(
+            &live,
+            JobLine {
+                line: Line {
+                    text: timed(ts, &wire),
+                    attachments: Vec::new(),
+                    handoff: None,
+                    from: Some(from),
+                    delivery: Some(id.to_string()),
+                },
+                firing: None,
+            },
+        )
+    }
+
+    /// The human-action cards raised in this teammate's jobs, with the
+    /// thread each is on.
+    pub(super) fn cards_in_jobs(&self, persona_id: &str) -> Vec<(Value, ThreadId)> {
+        room::all_jobs(&self.log)
+            .into_iter()
+            .filter(|job| job.persona_id == persona_id)
+            .flat_map(|job| {
+                let thread = ThreadId::job(&job.id);
+                self.log
+                    .load(&StreamId::Job(job.id))
+                    .into_iter()
+                    .filter(|event| event["kind"] == "human_action")
+                    .map(move |event| (event, thread.clone()))
+            })
+            .collect()
     }
 
     /// Answers a permission card raised inside a job's thread, and writes
@@ -1093,6 +1213,7 @@ mod tests {
             goal: Some("CI is green".to_string()),
             until: None,
             times: None,
+            without: None,
             operator_created: true,
             next_at: 1,
             created_at: 1,

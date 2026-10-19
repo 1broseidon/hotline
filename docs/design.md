@@ -93,7 +93,11 @@ These come over as ideas and, where the code was already Rust, as code.
   starts from a running note of its last turns rather than the thread. A
   quiet job is quiet by construction, not by asking the model: its words stay
   on its thread, and only `post_to_chat` reaches the chat. A plain reminder
-  is one post and no arm.
+  is one post and no arm. A subagent and a job are clones of the home agent
+  (§0): the teammate on the home session's model, with the home thread's
+  permission set and computer under a lease derived from the home thread's,
+  narrowed only by what the home agent leaves out (`without`), starting from
+  the brief and reaching back with `search_thread` and `list_chapters`.
 - **One conversation, no machinery in it.** The tape holds what the person
   and the teammate said and did. The room does not narrate its own work: a
   computer downloading, joining or updating, a provider switch, a retry, a

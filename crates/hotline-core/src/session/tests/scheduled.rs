@@ -96,7 +96,11 @@ async fn a_job_is_created_silenced_and_cancelled_on_the_room() {
 async fn a_job_is_a_brief_that_runs_later() {
     let room = room("schedule-brief", Fake::new(Scripted::new(Vec::new())));
     let refused = room
-        .schedule_create("ada", Brief::subagent("check now".to_string()), false)
+        .schedule_create(
+            "ada",
+            Brief::subagent("check now".to_string(), Vec::new()),
+            false,
+        )
         .unwrap_err();
     assert!(refused.contains("subagent runs now"), "{refused}");
     let mut once = brief(
@@ -136,6 +140,7 @@ fn due_job(
         goal: None,
         until: None,
         times: None,
+        without: None,
         operator_created: false,
         next_at: now - overdue_by,
         created_at: now - overdue_by - 60_000,
@@ -417,6 +422,111 @@ async fn the_person_talks_to_a_jobs_thread() {
         [] as [Value; 0],
         "nothing reached the DM"
     );
+}
+
+/// A job asks the person on its own thread: the `request_human` card is on
+/// the job's stream, not the DM's tape, and the person's answer comes back
+/// to the job as a turn on that thread, read once.
+#[tokio::test]
+async fn a_jobs_card_is_raised_and_answered_on_its_own_thread() {
+    let agents = Fake::new(Scripted::new(saying("answered", "Using the blue crane.")));
+    let prompts = agents.driver.prompts.clone();
+    let mut job = due_job("job-ask", ScheduleKind::Loop, "check the cranes", false, 0);
+    job.next_at = now_ms() + 3_600_000;
+    let room = room_due("schedule-ask", agents, job);
+    let tools = TeammateTools::new(&room, "ada")
+        .with_capability(room.capability_lease("ada"))
+        .for_job("job-ask");
+
+    let asked = tools
+        .call("request_human", &json!({"reason": "Which crane is mine?"}))
+        .await
+        .unwrap();
+    assert!(asked.starts_with("Asked."), "{asked}");
+    let card = job_thread(&room, "job-ask", 1).await;
+    assert_eq!(kinds(&card), ["human_action"]);
+    assert_eq!(card[0]["status"], "pending");
+    assert_eq!(tape(&room, "ada"), [] as [Value; 0], "not on the DM");
+    let action = card[0]["actionId"].as_str().unwrap().to_string();
+
+    room.answer_human(
+        "ada",
+        &action,
+        HumanAnswer::Done,
+        Some("the blue one".to_string()),
+    )
+    .unwrap();
+    let heard = heard(&prompts, 1).await;
+    assert!(heard[0].contains("the blue one"), "{heard:?}");
+    let events = job_thread(&room, "job-ask", 4).await;
+    assert_eq!(
+        kinds(&events),
+        ["human_action", "delivery", "agent", "turn"]
+    );
+    let delivery = events
+        .iter()
+        .rfind(|event| event["kind"] == "delivery")
+        .unwrap();
+    assert_eq!(
+        delivery["from"],
+        json!({"thread": "job-ask", "kind": "job", "request": action})
+    );
+    until("the delivery is read", || {
+        job_thread_now(&room, "job-ask")
+            .iter()
+            .rfind(|event| event["kind"] == "delivery")
+            .is_some_and(|event| event["receipt"] == "read")
+    })
+    .await;
+    assert!(
+        job_thread_now(&room, "job-ask")
+            .iter()
+            .any(|event| event["kind"] == "human_action" && event["status"] == "done")
+    );
+    assert_eq!(
+        tape(&room, "ada"),
+        [] as [Value; 0],
+        "nothing reached the DM"
+    );
+}
+
+/// A job is a clone of the home agent: it has the teammate's computer, as a
+/// work thread does, unless the teammate made it without.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_job_has_the_computer_unless_it_was_made_without_it() {
+    let ComputerRoom { room, agents, .. } =
+        computer_room("job-computer", Some("0.10.3"), TWO_RELEASES, true).await;
+    let computer = |view: &Persona| view.computer.as_ref().is_some_and(|c| c.enabled);
+    let mut built = Vec::new();
+    for (id, without) in [
+        ("job-whole", None),
+        ("job-narrow", Some(vec![crate::contract::Ability::Computer])),
+    ] {
+        let mut job = due_job(id, ScheduleKind::Loop, "look at the screen", false, 0);
+        job.next_at = now_ms() + 3_600_000;
+        job.operator_created = true;
+        job.without = without;
+        crate::room::append_schedule(&room.log, &job).unwrap();
+        let before = lock(&agents.views).len();
+        room.fire_job(&job).unwrap();
+        until("the job's agent is built", || {
+            lock(&agents.views).len() > before
+        })
+        .await;
+        built.push(lock(&agents.views).last().cloned().unwrap());
+    }
+    assert!(computer(&built[0]), "a job has its teammate's computer");
+    assert!(!computer(&built[1]), "unless it was made without");
+}
+
+/// What a job's thread holds now, its link left out.
+fn job_thread_now(room: &Room, job_id: &str) -> Vec<Value> {
+    room.log
+        .load(&StreamId::Job(job_id.to_string()))
+        .into_iter()
+        .filter(|event| event["kind"] != "link")
+        .collect()
 }
 
 /// A firing can wait behind a turn the person started in the job's thread.

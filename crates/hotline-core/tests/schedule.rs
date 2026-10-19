@@ -210,8 +210,10 @@ fn after<'a>(said: &'a str, word: &str) -> Option<&'a str> {
 /// The model: what its line spells out. Each `CALL <tool> <json>` is one call
 /// to one of Hotline's tools, made in order; then it says what follows `SAY`,
 /// or `RESULTS` with what each call came back with, or "No change." A line
-/// with `STALL` holds its first answer back for [`STALL`]. Every line it is
-/// handed is kept in `heard`.
+/// with `STALL` holds its first answer back for [`STALL`]. A line of Hotline's
+/// own execution data (a subagent's report coming back) is not a script, so
+/// a report that quotes one is never run again. Every line it is handed is
+/// kept in `heard`.
 async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>) -> String {
     let messages = request["messages"].as_array().cloned().unwrap_or_default();
     let Some(asked_at) = messages
@@ -234,6 +236,12 @@ async fn model(request: Value, heard: Arc<Mutex<Vec<String>>>) -> String {
         if asked.contains("STALL") {
             tokio::time::sleep(STALL).await;
         }
+    }
+    if asked.contains("Hotline execution data") {
+        return streamed(vec![chunk(
+            json!({"role":"assistant","content":"Noted."}),
+            Some("stop"),
+        )]);
     }
     let calls: Vec<(String, String)> = asked
         .lines()
@@ -318,6 +326,11 @@ async fn door(root: &Path) -> (Client, Log) {
 /// Makes the model connection and a teammate on it, Ada, with Background
 /// work granted, over the wire of the desk `client` is connected to.
 async fn teammate(client: &mut Client, base: &str, workspace: &Path) -> String {
+    teammate_with(client, base, workspace, json!({})).await
+}
+
+/// [`teammate`], with more of the draft: `extra`'s fields are added to it.
+async fn teammate_with(client: &mut Client, base: &str, workspace: &Path, extra: Value) -> String {
     let saved = client
         .call(
             "credential.custom_save",
@@ -327,15 +340,14 @@ async fn teammate(client: &mut Client, base: &str, workspace: &Path) -> String {
         )
         .await;
     assert_eq!(saved["ok"], true, "{saved}");
-    let created = client
-        .call(
-            "persona.create",
-            json!({"draft": {
-                "name":"Ada","goal":"Keep the harbour.","cwd":workspace.to_string_lossy(),
-                "backgroundWork": true,
-            }}),
-        )
-        .await;
+    let mut draft = json!({
+        "name":"Ada","goal":"Keep the harbour.","cwd":workspace.to_string_lossy(),
+        "backgroundWork": true,
+    });
+    for (key, value) in extra.as_object().cloned().unwrap_or_default() {
+        draft[key] = value;
+    }
+    let created = client.call("persona.create", json!({"draft": draft})).await;
     assert_eq!(created["ok"], true, "{created}");
     created["result"]["id"].as_str().unwrap().to_owned()
 }
@@ -886,3 +898,6 @@ async fn the_loop_tool_writes_a_job_with_its_report_policy_and_end() {
     assert_eq!(job["times"], 10);
     assert_eq!(job["operatorCreated"], false);
 }
+
+#[path = "schedule/clones.rs"]
+mod clones;

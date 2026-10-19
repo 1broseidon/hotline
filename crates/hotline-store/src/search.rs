@@ -546,7 +546,8 @@ fn index_chapter(database: &Connection, persona_id: &str, chapter: &Value) -> ru
 }
 
 /// The side threads, runs and calls a teammate's tape carries a link for, and
-/// the pair threads it carries a marker for.
+/// the pair threads it carries a marker for. A job's thread has no line on
+/// the tape: see [`jobs_of`].
 fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
     let pairs = events
         .iter()
@@ -573,6 +574,21 @@ fn threads_on(events: &[Value]) -> Vec<(ThreadId, StreamId)> {
             Some((link.thread, stream))
         })
         .chain(pairs)
+        .collect()
+}
+
+/// The job threads a teammate has, from the jobs the room stream holds for
+/// it, ended ones included: a job's thread is kept to read once it ends, and
+/// a tombstoned job's stream is still on disk until it is not.
+fn jobs_of(log: &Log, persona_id: &str) -> Vec<(ThreadId, StreamId)> {
+    log.load(&StreamId::Room)
+        .iter()
+        .filter(|event| event.get("kind").and_then(Value::as_str) == Some("schedule"))
+        .filter(|event| event.get("personaId").and_then(Value::as_str) == Some(persona_id))
+        .filter_map(|event| event.get("id").and_then(Value::as_str))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(|id| (ThreadId::job(id), StreamId::Job(id.to_string())))
         .collect()
 }
 
@@ -622,9 +638,13 @@ fn rebuild(database: &Connection, log: &Log, persona_id: &str) -> rusqlite::Resu
             index_message(database, persona_id, id, None, event)?;
         }
     }
-    // The threads the tape holds a marker for come after it, so a rebuild
-    // keeps what the write path indexed as they were said.
-    for (thread, stream) in threads_on(&events) {
+    // The threads the tape holds a marker for, and the teammate's jobs, come
+    // after it, so a rebuild keeps what the write path indexed as they were
+    // said.
+    for (thread, stream) in threads_on(&events)
+        .into_iter()
+        .chain(jobs_of(log, persona_id))
+    {
         for event in log.load(&stream) {
             if said_in_thread(&event) {
                 index_message(
@@ -1670,5 +1690,30 @@ mod tests {
             hits(&search(&root, "ada", "winch", None).unwrap()).as_slice(),
             [] as [Value; 0]
         );
+    }
+
+    /// A job's thread has no line on its teammate's tape: the room stream's
+    /// jobs are what a rebuild finds it by, so `search_thread` still finds
+    /// what a job said once the index has been rebuilt from the streams.
+    #[test]
+    fn a_rebuild_keeps_what_the_teammates_jobs_said() {
+        let (root, log, mut indexer) = fixture::indexer("job-rebuild");
+        for (id, persona) in [("j1", "ada"), ("j2", "bob")] {
+            log.append(
+                &StreamId::Room,
+                &json!({"kind": "schedule", "id": id, "personaId": persona, "prompt": "Watch the crane."}),
+            )
+            .unwrap();
+            log.append(
+                &StreamId::Job(id.into()),
+                &json!({"kind": "agent", "id": format!("{id}-line"), "ts": 2, "text": "the crane winch held"}),
+            )
+            .unwrap();
+        }
+        indexer.reindex("ada").unwrap();
+
+        let found = search_teammate(&root, "ada", "winch", None).unwrap();
+        assert_eq!(sorted_ids(&found), ["j1-line"], "only Ada's own job");
+        assert!(hits(&found).iter().all(|hit| hit["thread"] == "job:j1"));
     }
 }

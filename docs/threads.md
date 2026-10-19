@@ -111,12 +111,12 @@ side-thread pane reuses. On the phone it is one hook and one sheet in place of
 | | DM | Side (work thread) | Pair (ask) | Call | Run | Job |
 | --- | --- | --- | --- | --- | --- | --- |
 | Parent | — | DM, and the opener's DM when a teammate opened it | both DMs | DM | DM | DM, listed with the teammate's jobs rather than drawn on it |
-| Agent | main session | the teammate's own agent, full tools | target's peer agent | voice front, hands off to the DM | child agent | the teammate's own agent, a run's tools and the doors to the chat; built per firing from its running note |
-| Lease | the teammate's | the teammate's; the computer through an exclusive lease | dual, scoped; the same computer lease | none of its own | scoped child | scoped child of the teammate's, revoked when its agent is let go of (task-221 brings the clone model) |
+| Agent | main session | the teammate's own agent, full tools | target's peer agent | voice front, hands off to the DM | a clone of the home agent, the reading tools | a clone of the home agent, the home thread's tools but the chapter moves, `react`, `open_link` and scheduling; built per firing from its running note |
+| Lease | the teammate's | the teammate's; the computer through an exclusive lease | dual, scoped; the same computer lease | none of its own | scoped child of the asking session's; the same computer lease | scoped child of the teammate's, revoked when its agent is let go of; the same computer lease |
 | Idle | chapters (setting) | park at 3 h | park at 10 min (`Room::sweep` row) | end at 10 min | ends with the run | park after each firing; a person's turn parks at 10 min |
 | Restart | resume | park | park; cut-off told to the sender | close, transcript kept | cancel | park |
 | Limit | one | three live per teammate, park the idlest; a handoff queues when all are mid-turn | one turn in flight per pair | one call | job limits | one firing at a time; an overlapping one is skipped and said |
-| Cards | person | person, pushed; `request_human` lands here | person, pushed, `peers.answer_permission` | signalled, never answered by voice | expire | person, pushed, `thread.answer` |
+| Cards | person | person, pushed; `request_human` lands here | person, pushed, `peers.answer_permission` | signalled, never answered by voice | expire | person, pushed, `thread.answer`; `request_human` lands here |
 | Search | indexed | indexed | indexed under both teammates | indexed | indexed | indexed as written |
 
 A handoff is a side thread: opened by a teammate instead of the person, with the

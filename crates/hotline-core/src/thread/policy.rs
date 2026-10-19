@@ -77,10 +77,12 @@ pub enum Tools {
     /// A work thread's: the teammate's tools, but the chapter moves, which
     /// belong to the DM, and `archive_thread`, addressed by the thread's id.
     Work,
-    /// A subagent run's: its teammate's conversation to read, no subagents.
+    /// A subagent run's: the home thread's reading tools, nothing that
+    /// reaches the person, and no subagents.
     Run,
-    /// A job's: a work thread's, addressed by the job's id, so it can end
-    /// itself with its report.
+    /// A job's: a work thread's, addressed by the job's thread, so what it
+    /// asks and is answered lands there, and it can end itself with its
+    /// report.
     Job,
     /// What a peer session answers a colleague with.
     Peer,
@@ -222,21 +224,26 @@ impl Policy {
                 closing_note: true,
                 ..Self::unattended(Tools::None, Lease::Same)
             },
+            // A run and a job are clones of the home agent (ADR 0008 §0): the
+            // home thread's lease, scoped so letting go of the clone revokes
+            // only the clone, and the teammate's computer, shared as a work
+            // thread shares it.
             ThreadKind::Run => Self {
                 idle: Idle::Never,
                 restart: Restart::Close(End::Cancelled),
+                computer: Computer::Lease,
                 ..Self::unattended(Tools::Run, Lease::Scoped)
             },
             // A job is a subagent on a schedule that the person can open and
             // talk to. It starts from its running note, not its history, and
             // is listed with the teammate's jobs rather than drawn on the DM.
-            // Its lease is a run's for now; the clone model is task-221's.
             ThreadKind::Job => Self {
                 tools: Tools::Job,
                 lease: Lease::Scoped,
                 idle: Idle::Park(QUIET_MS),
                 restart: Restart::Park,
                 resume: Resume::Binding,
+                computer: Computer::Lease,
                 ..Self::asked_of_the_person()
             },
         }

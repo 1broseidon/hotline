@@ -111,6 +111,7 @@ fn job_from_legacy(value: &Value) -> Option<ScheduledJob> {
         goal: None,
         until: None,
         times: None,
+        without: None,
         operator_created: false,
         next_at,
         created_at,

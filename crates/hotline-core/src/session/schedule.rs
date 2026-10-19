@@ -20,7 +20,7 @@
 //! strings and call this module.
 
 use super::{Post, Room, lock, now_ms};
-use crate::contract::{ScheduleEntry, ScheduleKind, ScheduledJob, ScheduledRun, ThreadId};
+use crate::contract::{Ability, ScheduleEntry, ScheduleKind, ScheduledJob, ScheduledRun, ThreadId};
 use crate::log::Log;
 use crate::room;
 use std::sync::{Arc, Weak};
@@ -57,6 +57,9 @@ pub(crate) struct Brief {
     pub trigger: Trigger,
     pub report: Report,
     pub ends: Ends,
+    /// What the home agent left out of the clone's permission set for this
+    /// task: see [`Ability`]. Empty for work the person asked for.
+    pub without: Vec<Ability>,
 }
 
 /// When the work runs.
@@ -96,12 +99,13 @@ pub(crate) struct Ends {
 impl Brief {
     /// What the `subagent` tool writes: the task, now, reported to the agent
     /// that handed it over.
-    pub(crate) fn subagent(task: String) -> Self {
+    pub(crate) fn subagent(task: String, without: Vec<Ability>) -> Self {
         Self {
             task,
             trigger: Trigger::Now,
             report: Report::Asker,
             ends: Ends::default(),
+            without,
         }
     }
 
@@ -141,6 +145,7 @@ impl Brief {
                 Report::EachFiring
             },
             ends: Ends::default(),
+            without: Vec::new(),
         })
     }
 }
@@ -510,6 +515,7 @@ impl Room {
             trigger,
             report,
             ends,
+            without,
         } = brief;
         let _mutations = lock(&self.schedule_mutations);
         if !operator_created && !background_work_allowed(&self.log, persona_id) {
@@ -600,6 +606,7 @@ impl Room {
             goal,
             until: ends.at,
             times: ends.after,
+            without: (!without.is_empty()).then_some(without),
             operator_created,
             next_at,
             created_at: now,
@@ -850,6 +857,7 @@ mod tests {
             goal: None,
             until: None,
             times: None,
+            without: None,
             operator_created: false,
             next_at: now + 60_000,
             created_at: now,
@@ -883,6 +891,7 @@ mod tests {
             goal: None,
             until: None,
             times: None,
+            without: None,
             operator_created: true,
             next_at: now + 60_000,
             created_at: now,
@@ -930,6 +939,7 @@ mod update_tests {
             goal: None,
             until: None,
             times: None,
+            without: None,
             operator_created: true,
             next_at: now_ms(),
             created_at: now_ms(),

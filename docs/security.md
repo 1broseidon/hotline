@@ -643,13 +643,16 @@ capture, scope, tie and revoke a lease but never forge or revive one.
   tombstoned by then. Revoking background work pauses agent jobs without
   deleting them.
 - **Subagents.** A Hotline Agent teammate's own session may hand a task to
-  a subagent: a fresh run of the same teammate, started as a managed job of
-  the turn that asked. The run holds a lease `scoped()` from that session's,
-  so a stop, a policy change or a revoked session revokes every run it
-  started, and the run's end revokes the run's lease alone. A run is the
-  teammate's reach, its granted MCP servers and its model, never more: it
-  gets no computer, no subagents of its own, and of Hotline's tools only
-  `search_thread` and `list_chapters` — nothing that asks the person,
+  a subagent: a clone of the teammate (see
+  [Clones of the home agent](#clones-of-the-home-agent-adr-0008-0)), started
+  as a managed job of the turn that asked. The run holds a lease `scoped()`
+  from that session's, so a stop, a policy change or a revoked session
+  revokes every run it started, and the run's end revokes the run's lease
+  alone. A run is the teammate's permission set, the computer included,
+  less what the home agent left out with `without`, and never more: no
+  subagents of its own, and of Hotline's tools only the reading ones
+  (`search_thread`, `list_chapters`, `list_teammates`, `list_schedules`,
+  `computer_status`, `web_search`) — nothing that asks the person, posts,
   reacts, messages a colleague, schedules, or moves a chapter. It writes to
   its own stream and one line on the tape; its report reaches the teammate
   as execution data, which the teammate is told to verify rather than
@@ -693,7 +696,8 @@ extend; when a change adds a boundary, it adds a row.
 | Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued firing is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests/scheduled.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_firing_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
 | ACP callbacks stay in the workspace for legacy `machine` personas; a symlinked root alias is accepted; `AGENTS.md` refuses external and dangling symlinks; runtime mode is separate from effort and other configs stay hidden | `driver/acp/tests/session_new.rs` `acp_callbacks_stay_in_workspace_for_legacy_machine_personas`, `callback_workspace_accepts_the_selected_symlinked_root_alias`, `agents_md_refuses_external_and_dangling_symlinks`; `driver/acp/tests/config.rs` `disposition_separates_runtime_mode_from_effort_and_hides_other_configs` | — |
 | An agent from the ACP registry is unpacked only whole: a link, an entry out of its folder, or a set-id or world-writable mode installs nothing and leaves no scratch, in zip and tar; a checksum mismatch is never unpacked; ordinary archives and bare binaries still install | `driver/acp/install.rs` `a_symlink_out_of_the_scratch_folder_is_refused`, `a_write_through_a_symlink_lands_nowhere`, `an_entry_that_climbs_out_of_its_folder_is_refused`, `a_set_id_or_world_writable_mode_is_refused`, `a_checksum_mismatch_installs_nothing`, `a_zip_without_modes_still_starts`, `a_tarball_is_unpacked_into_place_and_its_command_made_runnable` | — |
-| Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only `search_thread` and `list_chapters`, starts no runs of its own and never reopens the teammate's session or computer; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `a_run_is_on_its_teammates_live_model_with_no_computer_and_no_session_to_reopen`, `a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `a_cancelled_run_stops_its_agent_and_its_line_says_so`, `a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
+| Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only the reading tools, starts no runs of its own and never reopens the teammate's session; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `a_run_is_on_its_teammates_live_model_with_no_session_to_reopen`, `a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `a_cancelled_run_stops_its_agent_and_its_line_says_so`, `a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
+| Clones: a subagent and a job each reach back into the home thread with `search_thread` and `list_chapters` and read the granted folder, and one the home agent made `without` folders cannot read it; a run is not offered the doors to the person; a job's card is raised on its own thread, not the DM, and the answer comes back to it as a turn; a job's thread is found by `search_thread` after the index is rebuilt; a clone is built with the computer unless it was left out, on the model the home session is on, and on its teammate's own harness, ACP included; a run whose home lease is revoked never starts; a job is offered the home thread's tools but `JOB_WITHOUT`, and `schedule` writes what was left out on the job | `tests/schedule/clones.rs` `a_subagent_is_a_clone_that_reaches_back_and_is_narrowed_when_asked`, `a_job_is_a_clone_on_its_own_thread_and_reaches_back_after_a_restart`; `session/tests/runs.rs` `a_run_has_the_computer_unless_the_home_agent_leaves_it_out`, `a_run_is_a_clone_on_its_teammates_own_harness`, `a_run_refuses_a_brief_that_is_a_jobs`; `session/tests/scheduled.rs` `a_jobs_card_is_raised_and_answered_on_its_own_thread`, `a_job_has_the_computer_unless_it_was_made_without_it`; `session/agent.rs` `a_clone_is_narrowed_by_what_the_home_agent_left_out`, `a_clone_is_on_the_model_and_effort_its_home_session_is_on`; `session/tests/posting.rs` `a_jobs_thread_posts_where_a_run_may_not`; `hotline-store/src/search.rs` `a_rebuild_keeps_what_the_teammates_jobs_said` | Unix for the computer rows |
 | `post_to_chat`: a quiet job posts once from its own thread, stamped with the job and from the thread, while a DM turn, a second post and a `to` are refused and land nowhere; `wake` from the DM is refused; a work thread posts once a turn, stamped from the thread, wakes the DM once and is clipped at 2,000 characters; a pair posts to its target's chat, never the asker's; each on Hotline Agent and on an ACP child. A file from a work thread lands in the chat stamped from it and leaves the thread's post; a job's file is its turn's one post, stamped with the job, and a post after it is refused; a file sent on a call is stamped from the call. A run is refused and not offered it, nor `send_file` or `generate_image`, while a job's thread is offered and let through; a revoked lease refuses in process and over the served endpoint; nothing posts between turns | `tests/mcp/post_to_chat.rs` `hotline_agent_dm_may_not_post_and_a_quiet_job_posts_once`, `an_acp_quiet_job_posts_and_a_loud_turn_may_not`, `hotline_agent_work_thread_posts_once_a_turn_and_wakes_its_home`, `an_acp_work_thread_posts_once_a_turn_and_wakes_its_home`, `a_hotline_agent_pair_posts_to_its_own_chat`, `an_acp_pair_posts_to_its_own_chat`, `hotline_agent_work_threads_file_lands_in_the_chat`, `an_acp_work_threads_file_lands_in_the_chat`, `hotline_agent_quiet_jobs_file_is_its_one_post`, `an_acp_quiet_jobs_file_is_its_one_post`; `session/tests/sent_files.rs` `a_jobs_file_is_its_one_post`, `a_file_sent_on_a_call_is_posted_from_the_call`; `session/tests/posting.rs` `a_subagent_run_may_not_post`, `a_jobs_thread_posts_where_a_run_may_not`, `the_dms_own_turn_may_not_post`, `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`, `a_post_between_turns_is_refused`; `tests/schedule.rs` `a_quiet_job_is_heard_only_when_it_posts` | — |
 | A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk/teammates.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
@@ -1559,8 +1563,9 @@ thread it came from.
   every turn, and each post pushes like a reply; a `wake` costs a DM turn. An
   ACP harness's own subagents share their parent's MCP server and the handler
   cannot tell them apart, so a post from one is the parent thread's and
-  counts as its one. Subagent runs are Hotline Agent's only, so the run
-  refusal has no ACP path to prove. An agent learns a job is quiet from the
+  counts as its one. A run on an ACP child is refused by the same handler,
+  but nothing starts one yet (voice's work tool will), so the run refusal is
+  proved in process only. An agent learns a job is quiet from the
   word `quiet` on its line, so its model may say it is staying silent: those
   words land on the job's thread, never in the chat.
 
@@ -1579,29 +1584,87 @@ that the room builds for it, rather than a turn of the DM's session.
   what its agent is handed.
 - **Enforcement:** the clock (`session/schedule.rs`) checks the grant before
   a firing; the job thread checks it again as the firing's turn begins
-  (`session/job_thread.rs`, `Occupant::begin`). The agent is built by
-  `Room::thread_agent` on today's run lease: `lease_of(ThreadKind::Job, …)`,
-  a child of the teammate's authority, made when the agent is built and
-  revoked when it is let go of, so a stop, a policy change or a deletion
-  refuses its next call and a stale agent is rebuilt rather than reused. Its
-  tools are `JOB_TOOLS` (`mcp/server.rs`): what a run has (`search_thread`,
-  `list_chapters`, `web_search`), the doors to the chat (`post_to_chat`,
-  `send_file`, `generate_image`, gated as above), `list_teammates`,
-  `list_schedules`, and `cancel_schedule`, which with no `id` ends this job
-  only. Anything else is refused by name in `TeammateTools::call`, and the
-  job is offered nothing else. No computer. Its cards are the person's,
-  answered through `thread.answer` on the job's thread; a companion reads a
-  job's thread as it reads a run's, and may not close (cancel) a job.
+  (`session/job_thread.rs`, `Occupant::begin`). The agent is a clone of
+  the home agent, built by `Room::thread_agent` under
+  `lease_of(ThreadKind::Job, …)`, a child of the teammate's authority, made
+  when the agent is built and revoked when it is let go of, so a stop, a
+  policy change or a deletion refuses its next call and a stale agent is
+  rebuilt rather than reused. What it is handed, and its tools, are the
+  clone's: see [Clones of the home agent](#clones-of-the-home-agent-adr-0008-0).
+  `cancel_schedule` with no `id` ends this job only. Its cards are the
+  person's, raised on its thread and answered through `human.answer` or
+  `thread.answer` back into it; a companion reads a job's thread as it
+  reads a run's, and may not close (cancel) a job.
 - **Tests:** `session/tests/posting.rs` `a_jobs_thread_posts_where_a_run_may_not`
   (its tools and the refusals, through the real handler);
   `session/tests/scheduled.rs` `a_queued_firing_is_dropped_when_background_work_is_revoked`;
   `wire/tests/threads.rs` `the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones`;
   and `tests/schedule.rs`, a harness test for each rule of §7.
 - **Residual risk:** a job's agent works unattended, between the person's
-  visits, on the teammate's workspace and reach; it can post once a turn, and
-  a loud job posts every firing. The clone model of ADR 0008 §0 (task-221)
-  gives it the home thread's permission set and computer, and is where this
-  section's tool list widens.
+  visits, with the home thread's permission set and the teammate's computer;
+  it can post once a turn, a loud job posts every firing, and a card it
+  raises pushes like the DM's.
+
+## Clones of the home agent (ADR 0008 §0)
+
+A subagent run and a job are clones of the teammate's home agent: the same
+teammate with one focus, on the home agent's model and workspace, with the
+home thread's permission set, starting from its brief rather than the home
+thread, and reaching back into it with the home agent's own reading tools.
+
+- **Default and old records:** a clone has everything the teammate's record
+  grants the home thread: its reach, its granted folders, its MCP servers,
+  its skills and its computer, shared through the computer gate as a work
+  thread shares it (`Computer::Lease` on the `Run` and `Job` rows of
+  `thread/policy.rs`); and the model and effort the home session is on now,
+  else the record's. Before this, a run had no computer and was Hotline
+  Agent's only, and a job ran on the record's model with no computer. A job
+  written before this has no `without`, so it has the whole set.
+- **Grant source:** the teammate's record, read when the clone's agent is
+  built, narrowed by what the home agent left out for the task: `without`
+  on the `subagent` tool (`session/jobs.rs`) and on the `schedule` and
+  `loop` tools (`mcp/server.rs`), each of `computer`, `folders` (granted
+  folders, and whole-machine reach, which becomes the working directory's)
+  and `mcp_servers`. A job keeps it on its record (`ScheduledJob.without`);
+  a list a desk cannot read leaves every ability out. Nothing widens it: the
+  person's job has no `without`, and a job cannot schedule more work, so
+  what it was narrowed by cannot be shed by a job it made.
+- **Enforcement:** `clone_of` (`session/agent.rs`) makes the view the agent
+  is built from, which only takes away; `Room::thread_agent` builds the
+  agent from that view (the computer is granted only to a view that has it,
+  the MCP servers are the view's policy's, Hotline Agent's file tools and
+  shell take the view's reach and folders, and ACP file callbacks the view's
+  folders), and a job's turns are reached from the view's reach. The lease
+  is the home thread's: a run's is `scoped()` from the asking session's, a
+  job's from the teammate's authority, so a stop, a policy change or a
+  deletion revokes every clone, and `Room::run_to_end` checks the
+  session's lease before it builds anything. The tools are gated in
+  `TeammateTools::call` (`mcp/server.rs`), outside the model, for both
+  drivers: a run has `RUN_TOOLS`, the reading ones, and is refused the doors
+  to the person; a job has the teammate's tools less `JOB_WITHOUT` (the
+  chapter moves, `react`, `open_link`, `schedule`, `loop`). A job's
+  `request_human` card is written on its own thread (`Room::ask_human`), a
+  colleague's answer to its `message_teammate` is routed by
+  `Request::reply_job`, and both come back through
+  `Room::deliver_into_job` while the job lives, else to the DM. A run
+  starts only from a brief that runs now and reports to whoever asked
+  (`Room::run`); later work is a job's.
+- **Tests:** the matrix row below: a subagent and a job each reach back
+  into the home thread and read the granted folder, and the narrowed one
+  cannot read it, through the real core; a job's card goes to its thread
+  and its answer comes back there; a clone has the computer unless it was
+  left out; a run on an ACP teammate is built on its own harness; a run's
+  lease dies with the home session's; and a job's thread is found by
+  `search_thread` after the index is rebuilt.
+- **Residual risk:** a clone has as much as the home thread, unattended: a
+  run works without anyone reading it, and a job between the person's
+  visits. Narrowing is the home agent's choice, made by the model, and a
+  home agent that does not narrow hands a clone everything it has. Reach is
+  Hotline Agent's policy: an ACP clone's own tools are its harness's, so
+  `folders` narrows only what Hotline enforces for it (its delegated file
+  operations and its computer's mounts). Nothing starts a Hotline run for
+  an ACP teammate yet; its harness's own subagents are mirrored as runs and
+  share its home session's MCP endpoint, with the home thread's tools.
 
 ## Thread commands on the wire (BRO-203)
 

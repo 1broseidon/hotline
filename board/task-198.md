@@ -1,7 +1,7 @@
 ---
 id: task-198
 title: "hotline-tools: the shell and workspace tools as their own crate"
-column: in-progress
+column: review
 position: 6
 priority: medium
 tags:
@@ -19,9 +19,9 @@ dependsOn:
   - task-194
   - task-196
   - task-197
-updatedAt: "2026-10-19T08:18:11.932Z"
+updatedAt: "2026-10-19T08:30:50.882Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-tools/Cargo.toml
@@ -53,6 +53,8 @@ contract:
     readyAt: "2026-10-19T06:11:04.784Z"
     pickedUpAt: "2026-10-19T08:18:11.932Z"
     reworkCount: 0
+    deliveredAt: "2026-10-19T08:30:50.882Z"
+    duration: 759
 dispatch:
   agent: claude
   model: opus

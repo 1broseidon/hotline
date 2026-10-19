@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { platform } from "../native";
+import { SILENCE_MS, type TurnEvent } from "./turn";
 
 /**
  * Speech recognition on this Mac, as the phone has it: the shell's native
@@ -177,9 +178,41 @@ export function hearsOnThisMac(): Promise<boolean> {
  * while the room between sentences (up to about -62) still reads as a
  * pause: from those measurements, anything from 13 to 23 works.
  */
-export const PROCESSED_GAIN_DB = 18;
+const PROCESSED_GAIN_DB = 18;
 
 /** A level from this Mac's engine as a raw microphone would read it, in dBFS. */
 export function rawEquivalentDb(db: number): number {
 	return db + PROCESSED_GAIN_DB;
+}
+
+/**
+ * A Speech Recognition grant that no longer matches the app's signature
+ * (a self-signed build with the same bundle id was run) leaves the engine
+ * metering the microphone and recognizing nothing, with no error. This is
+ * the rule that tells it from a quiet room: only voice counts, and only
+ * while the engine has never answered a word.
+ */
+const WORDLESS_VOICE_MS = 3_000;
+
+export const UNHEARD = "Hotline hears your voice but no words. Allow Hotline under Speech Recognition in System Settings › Privacy & Security.";
+
+export class WordlessVoice {
+	private words = false;
+	private voiceMs = 0;
+	private turnStart: number | null = null;
+
+	/** Text from the engine: any word at all shows that it recognizes. */
+	heard(text: string): void {
+		if (text.trim() !== "") this.words = true;
+	}
+
+	/** A turn the meter found; true once its voice adds up to enough with never a word. */
+	turn(event: TurnEvent): boolean {
+		if (event.kind === "start") this.turnStart = event.at;
+		else if (this.turnStart !== null) {
+			if (event.kind === "end") this.voiceMs += event.at - this.turnStart - (event.reason === "silence" ? SILENCE_MS : 0);
+			this.turnStart = null;
+		}
+		return !this.words && this.voiceMs >= WORDLESS_VOICE_MS;
+	}
 }

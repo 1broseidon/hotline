@@ -15,6 +15,9 @@ pub struct ServeOptions {
     pub public_url: String,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
+    /// Whether this server carries a relay for desktops (ADR 0006). Whether
+    /// it runs agents is whether it is opened with a room.
+    pub relay: bool,
 }
 impl ServeOptions {
     pub fn validate(&self) -> Result<(), String> {
@@ -48,22 +51,57 @@ impl ServeOptions {
     }
 }
 impl Remote {
+    /// A served desk, with the room it runs agents on, or none for a server
+    /// that runs only a relay.
     pub fn open_served_with_store(
         root: &Path,
-        log: Log,
-        room: Arc<dyn RoomHandle>,
+        agents: Option<Agents>,
+        store: Arc<dyn SecretStore>,
+        options: ServeOptions,
+    ) -> io::Result<Arc<Self>> {
+        Self::open_served(root, agents, store, options, None)
+    }
+    /// A served desk on `listener`, which the caller bound at
+    /// `options.listen`: a test's socket, so no other test can take its port.
+    pub fn open_served_on(
+        listener: std::net::TcpListener,
+        root: &Path,
+        agents: Option<Agents>,
+        store: Arc<dyn SecretStore>,
+        options: ServeOptions,
+    ) -> io::Result<Arc<Self>> {
+        let bound = network::Bound::new(listener)?;
+        if bound.address != options.listen {
+            return Err(io::Error::other(
+                "The listener is not bound at the listen address.",
+            ));
+        }
+        Self::open_served(root, agents, store, options, Some(bound))
+    }
+    fn open_served(
+        root: &Path,
+        agents: Option<Agents>,
         store: Arc<dyn SecretStore>,
         mut options: ServeOptions,
+        bound: Option<network::Bound>,
     ) -> io::Result<Arc<Self>> {
         options.validate().map_err(io::Error::other)?;
+        if agents.is_none() && !options.relay {
+            return Err(io::Error::other("A server runs agents, a relay, or both."));
+        }
         options.public_url = options.public_url.trim_end_matches('/').into();
-        Self::open_options(root, log, room, store, Some(options))
+        Self::open_options(root, agents, store, Some(options), bound)
     }
 
     pub(super) async fn restore_served(self: &Arc<Self>) {
-        let host = self.served.as_ref().unwrap().listen.to_string();
+        let host = self
+            .served
+            .as_ref()
+            .expect("restore calls this only on a served remote")
+            .listen
+            .to_string();
         if let Err(error) = self.configure_served(true, &host).await {
-            self.state.lock().unwrap().error = Some(error);
+            lock(&self.state).error = Some(error);
         }
     }
 
@@ -123,13 +161,17 @@ impl Remote {
         enabled: bool,
         host: &str,
     ) -> Result<RemoteStatus, String> {
-        let options = self.served.as_ref().unwrap().clone();
+        let options = self
+            .served
+            .as_ref()
+            .expect("configure and restore_served call this only on a served remote")
+            .clone();
         if host != options.listen.to_string() {
             return Err("The served listen address is fixed by its startup options.".into());
         }
         let _held = self.lifecycle.lock().await;
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             if enabled && s.saved.enabled && !s.cancel.is_cancelled() {
                 drop(s);
                 return Ok(self.status());
@@ -142,7 +184,8 @@ impl Remote {
             s.error = None;
             self.save(&s.saved)?;
         }
-        if let Some(task) = self.server.lock().await.take() {
+        let task = self.server.lock().await.take();
+        if let Some(task) = task {
             let _ = task.await;
         }
         if !enabled {
@@ -152,7 +195,7 @@ impl Remote {
         let tls = self.served_tls(&options)?;
         let cancel = CancellationToken::new();
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             s.saved.enabled = true;
             self.save(&s.saved)?;
             s.cancel = cancel.clone();
@@ -163,36 +206,48 @@ impl Remote {
             loop {
                 let result = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
-                    result = tokio::net::TcpListener::bind(options.listen) => result,
+                    () = cancel.cancelled() => return,
+                    result = remote.listen_served(options.listen) => result,
                 };
                 match result {
                     Ok(listener) => {
                         {
-                            let mut s = remote.state.lock().unwrap();
+                            let mut s = lock(&remote.state);
                             if cancel.is_cancelled() {
                                 return;
                             }
                             s.endpoints = vec![options.public_url.clone()];
                             s.error = None;
-                            for grant in s.saved.grants.clone() {
-                                if grant.device.public_key.is_some() {
-                                    s.devices.insert(grant.device.id, cancel.child_token());
-                                }
+                            // Relay grants too: a relay pairing outlives a restart.
+                            let keyed: Vec<_> = s
+                                .saved
+                                .all_grants()
+                                .filter(|grant| grant.device.public_key.is_some())
+                                .map(|grant| grant.device.id.clone())
+                                .collect();
+                            for id in keyed {
+                                s.devices.insert(id, cancel.child_token());
                             }
                         }
                         server::run(remote, listener, tls, cancel).await;
                         return;
                     }
                     Err(error) => {
-                        remote.state.lock().unwrap().error =
-                            Some(format!("Waiting for {}: {error}", options.listen))
+                        lock(&remote.state).error =
+                            Some(format!("Waiting for {}: {error}", options.listen));
                     }
                 }
-                tokio::select! { _ = cancel.cancelled() => return, _ = tokio::time::sleep(Duration::from_secs(1)) => {} }
+                tokio::select! { () = cancel.cancelled() => return, () = tokio::time::sleep(Duration::from_secs(1)) => {} }
             }
         }));
         Ok(self.status())
+    }
+
+    async fn listen_served(&self, listen: SocketAddr) -> io::Result<tokio::net::TcpListener> {
+        match &self.bound {
+            Some(bound) => bound.listen().await,
+            None => tokio::net::TcpListener::bind(listen).await,
+        }
     }
 
     pub(super) fn route_path<'a>(&self, path: &'a str) -> Option<&'a str> {

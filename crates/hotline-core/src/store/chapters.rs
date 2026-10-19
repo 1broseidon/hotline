@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn an_empty_tape_lists_no_chapters() {
         let (_root, log) = scratch("empty");
-        assert!(list(&log, "nobody").is_empty());
+        assert_eq!(list(&log, "nobody"), [] as [Value; 0]);
     }
 
     #[test]
@@ -154,7 +154,7 @@ mod tests {
                 json!({"kind": "agent", "id": "a1", "ts": 2, "text": "hello"}),
             ],
         );
-        assert!(list(&log, "p").is_empty());
+        assert_eq!(list(&log, "p"), [] as [Value; 0]);
     }
 
     /// What a fresh context is told about, and when a chapter last heard
@@ -170,12 +170,12 @@ mod tests {
         assert_eq!(previous_chapter(std::slice::from_ref(&second)), None);
         assert_eq!(previous_chapter(std::slice::from_ref(&first)), Some(&first));
         assert_eq!(
-            previous_chapter(&[first.clone(), second.clone(), hello.clone()]),
+            previous_chapter(&[first.clone(), second, hello.clone()]),
             Some(&first)
         );
 
         assert_eq!(last_activity(&[]), None);
-        assert_eq!(last_activity(&[hello.clone(), tool.clone()]), Some(310));
+        assert_eq!(last_activity(&[hello, tool]), Some(310));
     }
 
     #[test]

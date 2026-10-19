@@ -20,9 +20,10 @@
 
 use super::{Room, now_ms};
 use crate::contract::PermissionOption;
+use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::Driver;
 use crate::paths::thread_participants;
-use crate::thread::{Answer, Policy, ThreadId, ThreadKind};
+use crate::thread::{Answer, Policy};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -238,15 +239,16 @@ impl Room {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::End;
     use crate::contract::SideEnd;
     use crate::driver::{MessageKind, Update};
     use crate::log::StreamId;
     use crate::session::runner::{RunEnd, RunSpec};
     use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
-    use crate::thread::{AgentBinding, End, Participant, ThreadLink, ThreadState, ThreadStore};
+    use crate::test_support::until;
+    use crate::thread::{AgentBinding, Participant, ThreadLink, ThreadState, ThreadStore};
     use serde_json::json;
     use std::sync::Arc;
-    use std::time::Duration;
     use tokio::sync::Semaphore;
     use tokio_util::sync::CancellationToken;
 
@@ -306,16 +308,6 @@ mod tests {
         .unwrap();
     }
 
-    async fn until(mut done: impl FnMut() -> bool) {
-        for _ in 0..500 {
-            if done() {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        panic!("the room never got there");
-    }
-
     fn spec(room: &Room, run_id: &str) -> RunSpec {
         RunSpec {
             persona_id: "ada".to_string(),
@@ -361,7 +353,7 @@ mod tests {
             })
         );
         assert_eq!(store.load(&ThreadId::dm("nobody")), None);
-        assert!(store.list("nobody").is_empty());
+        assert_eq!(store.list("nobody"), [] as [crate::thread::Thread; 0]);
     }
 
     #[tokio::test]
@@ -372,7 +364,10 @@ mod tests {
         let summary = room.start_side("ada", "Look at the winch").await.unwrap();
         let id = ThreadId::side(&summary.side_id);
         let store = ThreadStore::new(&room.log);
-        until(|| room.side_threads("ada").iter().all(|side| !side.working)).await;
+        until("ada's side threads finish", || {
+            room.side_threads("ada").iter().all(|side| !side.working)
+        })
+        .await;
 
         let side = store.load(&id).unwrap();
         assert_eq!(side.state, ThreadState::Live);
@@ -492,7 +487,7 @@ mod tests {
             format!("pair:{key}"),
             "dm:bob".to_string(),
         ];
-        let mut found = ids.clone();
+        let mut found = ids;
         expected.sort();
         found.sort();
         assert_eq!(found, expected, "each stream once, the pair not twice");
@@ -510,7 +505,7 @@ mod tests {
         let mut info = room.subscribe_info();
         let summary = room.start_side("ada", "Task").await.unwrap();
         let stream = StreamId::Side(summary.side_id.clone());
-        until(|| {
+        until("a permission card on the side's stream", || {
             room.log
                 .load(&stream)
                 .iter()
@@ -589,7 +584,10 @@ mod tests {
         ]));
         let room = room("thread-search-side", agents);
         let summary = room.start_side("ada", "Task").await.unwrap();
-        until(|| room.side_threads("ada").iter().all(|side| !side.working)).await;
+        until("ada's side threads finish", || {
+            room.side_threads("ada").iter().all(|side| !side.working)
+        })
+        .await;
 
         let root = room.log.root();
         let found = crate::store::search::search_teammate(root, "ada", "winch", None).unwrap();

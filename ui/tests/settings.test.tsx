@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Window } from "happy-dom";
+import type { Window } from "happy-dom";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { SettingsSection } from "../src/components/Settings";
+import { installDom } from "./dom";
 
 // Loading the window's modules reads the platform, and the theme, before any test has a DOM.
 Object.assign(globalThis, {
@@ -15,17 +16,11 @@ Reflect.deleteProperty(globalThis, "localStorage");
 let dom: Window;
 let root: Root;
 let container: HTMLDivElement;
-let restores: (() => void)[];
+let teardown: () => Promise<void>;
 let opened: SettingsSection[];
 
 beforeEach(() => {
-	restores = [];
-	dom = new Window();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); });
-	}
+	({ dom, teardown } = installDom());
 	(dom as unknown as { __hotlineDesk: unknown }).__hotlineDesk = { version: "0.39.0" };
 	opened = [];
 	container = document.createElement("div");
@@ -34,8 +29,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
 	await act(async () => { root.unmount(); });
-	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 
 async function mount(section: SettingsSection) {

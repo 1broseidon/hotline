@@ -1,4 +1,5 @@
 use super::*;
+use crate::contract::SkillPolicy;
 use crate::contract::{McpPolicy, Persona, PolicyMode};
 use crate::log::Log;
 use crate::mcp::server::TeammateTools;
@@ -38,7 +39,7 @@ fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
             mode: PolicyMode::None,
             server_ids: Vec::new(),
         },
-        skill_policy: Default::default(),
+        skill_policy: SkillPolicy::default(),
         background_work: false,
         allowed_senders: Vec::new(),
         web_search_policy: None,
@@ -148,7 +149,7 @@ async fn a_new_picture_replaces_the_old_and_clearing_removes_it() {
         .await
         .unwrap();
     assert_eq!(avatar(&room), None);
-    assert!(kept(&dir).is_empty());
+    assert_eq!(kept(&dir), [] as [String; 0]);
 }
 
 #[tokio::test]
@@ -200,7 +201,7 @@ async fn only_an_image_inside_the_workspace_can_be_a_picture() {
         assert!(error.contains(wanted), "{path}: {error}");
     }
     assert_eq!(avatar(&room), None);
-    assert!(kept(&dir).is_empty());
+    assert_eq!(kept(&dir), [] as [String; 0]);
 }
 
 #[tokio::test]

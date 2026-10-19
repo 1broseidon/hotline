@@ -2,14 +2,17 @@
 
 `hotline serve` runs the desk with no window: the same room, teammates,
 scheduler and Remote access as the desktop app, on a Linux machine you
-reach over SSH. It needs no display and no session bus. This page covers
+reach over SSH. Or it runs only a relay for your desktops, with no agents
+at all ([What it runs](#what-it-runs-capabilities)). It needs no display and no session bus. This page covers
 the sealed phone connection. Owner onboarding from the phone (BRO-116)
 is separate; until then use the local Door for setup.
 
 ## Install
 
 The release has `hotline-server_<version>_linux_x86_64.tar.gz` and
-`_linux_aarch64.tar.gz`, holding the `hotline` binary and a systemd unit.
+`_linux_aarch64.tar.gz`, holding the `hotline` binary and two systemd
+units: `hotline.service` for a full server and `hotline-relay.service` for a
+[relay-only server](#a-relay-only-server).
 
 ```sh
 tar xzf hotline-server_*_linux_x86_64.tar.gz
@@ -33,10 +36,11 @@ Docker or Podman is needed only for teammates with a computer.
 
 The desk finds a harness's CLI (`claude`, `codex`, `gemini` and the rest) on
 its own `PATH`, as its own user, and a harness signs in with files in that
-user's home (`~/.claude.json`, `~/.codex/auth.json`). The unit runs the desk
-as `hotline`, with `HOME=/var/lib/hotline`, so a CLI you installed and signed
-in to as yourself is invisible to it: the teammate list shows the row as not
-available.
+user's home (`~/.claude.json`, `~/.codex/auth.json`). The installer picks
+that account (below); `systemctl show -p User --value hotline` names it. A
+desk on the `hotline` service account, with `HOME=/var/lib/hotline`, cannot
+see a CLI you installed and signed in to as yourself: the teammate list shows
+the row as not available.
 
 The row says why. When the CLI is installed for another user on this machine:
 
@@ -127,12 +131,82 @@ ciphertext for the handshake payloads and application frames. It can
 still observe connection timing and sizes and deny service. Do not put
 credentials in `--public-url` or its query string.
 
+## What it runs: capabilities
+
+A server runs `agents` (the room, its scheduler, teammates, drivers,
+computers, models and provider keys, and the wire at `/v2`), `relay` (the
+relay below), or both. `--capabilities` chooses, and is remembered in
+`serve.json` in the data directory (`{"capabilities":["relay"]}`), so the
+mode belongs to the data and not to the unit:
+
+```sh
+hotline serve --store file --listen … --public-url … --capabilities relay
+```
+
+A boot with the flag uses it and records it, saying so on stderr when it
+changes what the server ran (`capabilities: agents,relay → relay`). A boot
+without it runs what the record says, and `agents,relay` when there is no
+record, which is what every server ran before the choice. A door of a
+capability the server does not run answers `404 not_found` before any
+Noise, as an unknown path does: no `/v2`, `/v2/computer/…` or `/v2/link`
+without agents, no `/v2/relay`, `/v2/relay/accept` or `/relay/<deskId>/…`
+without the relay. See [ADR 0006](adr/0006-relay-only-servers.md).
+
+### A relay-only server
+
+`--capabilities relay` is for a small machine, a Raspberry Pi say, that
+only carries visitors to your desktops. It takes the room's lock and claims
+the secret store, because Remote's TLS and Noise identities live there,
+then opens Remote and its loopback Door, and nothing else: no room stream,
+vault, index, scheduler, session, driver, MCP, skills, computer, voice,
+model catalogue or importer, and it reads no provider key. Nothing of a
+room is created in the data directory.
+
+Its Door answers `hotline status` (which says `runs relay`, the address and
+how many devices are paired), `hotline pair`, `hotline devices` and `hotline
+revoke`. `hotline links`, `unlink` and `wire` are refused with a sentence
+saying the server runs only a relay. `hotline pair` there opens a relay
+invitation, its only kind; `--companion` is refused, since a phone has
+nothing to reach on it.
+
+`packaging/hotline-relay.service` is its unit. Install it as
+`/etc/systemd/system/hotline.service`, the name the commands above look up
+the served room by, and set its `--listen` and `--public-url` as for any
+unit. It carries `--capabilities relay` and a system-only `PATH`, since a
+relay runs no teammate tools. `install --server --relay` installs it that
+way, as the `hotline` service account; a re-run keeps the mode, refusing
+`--relay` on a full server and its absence on a relay. The docs site's "Run
+a relay" page walks a Raspberry Pi through it.
+
+Measured idle, on an Apple M5 Max (aarch64, macOS 27), release build, with
+nothing paired: a relay-only server holds **14 MB** resident and used under
+10 ms of CPU in a minute (below what `ps` resolves); the same server running
+`agents,relay` on an empty room holds 25 MB and used 30 ms. The figure on a
+Raspberry Pi is still to be measured there.
+
+### Switching modes
+
+Serve again with another `--capabilities`. `remote.json` is not touched, so
+every pairing survives and keeps its role:
+
+- **relay → agents,relay** opens the room for the first time, as any new
+  server: no teammates, no provider keys, no models; set them up as below.
+  A desktop that wants the teammates pairs again as an owner, which replaces
+  its relay grant.
+- **agents,relay → relay** leaves the room on disk, unopened and unchanged;
+  nothing is lost, so no confirmation is asked. Owner and companion grants
+  stay saved, and an owner may still stand in on the relay.
+- **dropping relay** makes `/v2/relay` `404`; desktops standing in back off
+  and keep trying, and relay grants stay saved for a later return.
+
 ## Relay
 
-A served desk is also a relay for desktops paired with it as owners, so a
+A served desk running `relay` carries visitors for desktops paired with it
+as owners or as relays, so a
 phone reaches a desktop through the server instead of over a VPN. On the
-desktop, add the server as an owner (Add a server, with `hotline pair --link`
-from the server), then turn on Remote and choose the server under **Relay**.
+desktop, add the server (Add a server, with `hotline pair --link` from the
+server, or `hotline pair --relay --link` for a grant that may only stand in),
+then turn on Remote and choose the server under **Relay**.
 The desktop dials out to the server and stands in there, so the server never
 needs a way into the desktop's network.
 
@@ -166,7 +240,9 @@ sessions per desk and four per device as its direct listener. Changing or
 deselecting the relay, turning Remote off, losing control, or revoking the
 host device cancels its relayed sessions. Joined writes, closes, and control
 writes have a 10-second bound. Standing URLs clear before reconnect, whose
-backoff resets after `ready` and varies by ±20%.
+backoff resets after `ready` and varies by ±20%. `ready` also carries
+`serves`, what the server runs (`["relay"]`, `["agents","relay"]`): it is
+the only frame a relay grant ever reads.
 
 The Rust client pairs at the invitation's direct URL, then its relay if the
 direct route fails. Authenticated v2 hello frames update the session and
@@ -222,7 +298,7 @@ release. These are rollout checks, not claims that this rule is already live.
 
 ### Validate admission before rollout
 
-Run `cargo test -p hotline-core remote::tests::admission_tests --locked` for
+Run `cargo test -p hotline-core remote::tests::admission --locked` for
 isolated tests using fresh device keys, temporary state and a local
 TLS-terminating proxy. The tests exercise shared proxy-IP saturation,
 reconnects, existing sessions and HTTP keepalive expiry without touching a
@@ -252,6 +328,8 @@ On the machine running the desk, as the service account or root:
 hotline pair
 # Or grant the existing limited phone seat explicitly:
 hotline pair --companion
+# Or a desktop that may only stand in on the relay:
+hotline pair --relay --link
 hotline devices
 hotline revoke DEVICE_ID
 ```
@@ -279,9 +357,20 @@ with Ctrl-C. Desktop and served desks pair only through the sealed QR or
 link; neither offers a six-digit manual code or a legacy bearer route. The
 v2 claim endpoint is absent when no pairing window is open.
 Removing every device does not open an owner bootstrap route: run `pair`
-again explicitly. An owner has the same commands and subscriptions as the
-local desk, including providers, grants and server paths. A companion keeps
-the limited phone command set. Existing grants without a role remain owners.
+again explicitly.
+
+A grant has one of three roles. An **owner** has the same commands and
+subscriptions as the local desk, including providers, grants and server
+paths. A **companion** (`hotline pair --companion`) keeps the limited phone
+command set. A **relay** grant (`hotline pair --relay`, or plain `hotline
+pair` on a relay-only server) is for a desktop that stands in on the relay
+and nothing else: it opens `/v2/relay` and `/v2/relay/accept`, and `/v2`,
+`/v2/computer/…` and `/v2/link` answer it `role_not_permitted` (on a
+relay-only server those doors have no route at all). Only a claim that
+declares `purpose:"relay"` takes a relay invitation, so a phone's scan makes
+no grant. `hotline devices` lists relay grants beside the others, and
+`hotline revoke` ends them the same way. An owner desktop may narrow its own
+grant to relay, never another device's; nothing widens one. Existing grants without a role remain owners.
 Old grants with only a token hash and no public key remain listed and
 revocable, but give no access or push delivery. Phones paired with the
 six-digit code before 0.33 scan the new QR once.
@@ -293,9 +382,12 @@ Both wait for a claim, cancellation or expiry, so an SSH caller must keep the
 process alive after reading the first line. Completion and errors use stderr.
 The link is `hotline://pair?p=<base64url(JSON)>`, without base64 padding. Its
 payload fields are `version` (2), `url` (HTTPS), `deskKey` (base64url X25519),
-`secret`, `role`, `expiresAt` (Unix milliseconds), and `name`. The existing
-phone QR query keeps `v`, `u`, `k`, `s` and adds `r`, `e`, `n` for the same
-role, expiry and name. All forms name the same single-use invitation.
+`secret`, `role`, `expiresAt` (Unix milliseconds), `name`, and, when set,
+`public` (the desktop's Public address) and `relay`. The existing phone QR
+query keeps `v`, `u`, `k`, `s` and adds `r`, `e`, `n` for the same role,
+expiry and name, and `x` and `a` for the public and relay addresses. A client
+tries `url`, then `public`, then `relay`. A served desk's own address is its
+public one, so it never repeats it. All forms name the same single-use invitation.
 
 
 ## Link the server's teammates with a desktop's
@@ -331,7 +423,9 @@ journalctl -u hotline
 ```
 
 `hotline status` asks the running desk, through its loopback Door, for its
-version, uptime, store, teammates and connected models. When the service is
+version, uptime, store, what it runs, teammates and connected models (a
+relay-only server has no teammates or models, and reports its address and
+paired devices instead). When the service is
 down it says so and exits 3.
 
 `hotline wire <command>` sends one wire command (`docs/wire.md`) on the
@@ -346,6 +440,25 @@ echo '{}' | hotline wire providers.list
 It is an escape hatch for what the phone cannot do yet, not the way to run
 the desk.
 
+`hotline help` prints every command and its flags.
+
+## Update
+
+```sh
+hotline update --check                   # the installed and available versions
+sudo hotline update                      # the latest server release
+sudo hotline update --version X.Y.Z      # a chosen one, a downgrade included
+```
+
+`hotline update` (`crates/hotline-cli/src/update.rs`) is only for the
+script-installed binary at `/usr/local/bin/hotline`. It downloads the server
+archive for this architecture, checks its SHA-256 against the release's
+checksums, and swaps the binary with an atomic rename; no unit or room is
+written. A running unit is restarted and checked, and a failed start restores
+the previous binary. Rollback restores the executable, not what a newer
+release may have changed in the room, so back the room up first. Without root
+it prints the `sudo` command to run; `--check` never needs root.
+
 ## The secret store
 
 `--store` is required. `file` keeps secrets as owner-only files under
@@ -355,7 +468,7 @@ refuses a desk started on the other one, rather than opening on an empty
 store beside keys it cannot reach. Moving a room between stores means
 entering its keys and pairing its phones again.
 
-The files are protected by the `hotline` account and the disk, nothing
+The files are protected by the account the desk runs as and the disk, nothing
 more: encrypt the volume, and its snapshots and backups
 (`docs/security.md`, "A served desk's secrets are files").
 
@@ -364,6 +477,12 @@ more: encrypt the volume, and its snapshots and backups
 `serve` takes the room's lock before it opens anything. A second `serve`,
 the desktop app, or `hotline-import` on the same data directory is refused
 while it runs. The lock goes with the process, however it ends.
+
+A boot that cannot finish ends `serve` with exit status 1 and one line on
+stderr saying which step failed: the store, the room, Remote's settings, the
+Door, the runtime, the signals, or the OS random source the Door's token
+comes from. It fails before `door.json` is written, and it rewrites nothing
+it could not read, so an unreadable `remote.json` is still there to look at.
 
 ## Stopping
 
@@ -392,14 +511,20 @@ is dropped. None of this is exactly-once. A desk killed outright
 | `desk.lock` | The room's lock. Never delete it while a desk runs. |
 | `door.json` | The Door's loopback port and this process's token, 0600, removed on a clean stop. |
 | `store.json` | Which secret store the room uses. |
+| `serve.json` | What the server runs, `{"capabilities":[…]}`; absent means both. |
 | `secrets/` | The file store, 0700, one 0600 file per record. |
 | `pending.json` | Lines kept by the last stop for the next start; absent otherwise. |
 
 ## Desktop client library
 
 `hotline_core::remote::client::pair(&payload, device_name)` uses the OS secret
-store and returns `PairedDesk { desk_id, name, url, desk_key, relay }`. Tests and shells
-with an explicitly chosen store use `Client::new(store).pair(...)`. Keep the
+store and returns `Result<Paired, String>`: `Paired::Desk(PairedDesk)` for a
+desk's invitation, `Paired::Relay(PairedRelay)` for a relay's. A `PairedDesk`
+is `{ desk_id, name, url, desk_key, relay, public, relay_declined }`; a
+`PairedRelay` has no `relay` and no `relay_declined`. Tests and shells with an
+explicitly chosen store use `Client::new(store).pair(...)`, which returns a
+`PairedDesk` and refuses a relay's invitation, or `.pair_relay(...)` for the
+reverse. Keep the
 registry entry; it contains no private key or invitation secret.
 
 `remote::bridge::Bridge::start(&desk).await` returns a bridge whose public

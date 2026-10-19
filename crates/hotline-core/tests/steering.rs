@@ -3,12 +3,10 @@
 mod common;
 
 use axum::{Router, body::Bytes, routing::post};
-use futures_util::{SinkExt, StreamExt};
+use common::Client;
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
-use std::{collections::VecDeque, sync::Arc, time::Duration};
-use tokio::net::TcpStream;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
+use std::{sync::Arc, time::Duration};
 
 const TOKEN: &str = "disposable-steering-test";
 
@@ -59,7 +57,7 @@ async fn steering_restarts_inference_and_preserves_tool_history_on_both_rig_rout
         let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
         let port = door.port();
         let door_task = tokio::spawn(door.run());
-        let mut client = Client::connect(port).await;
+        let mut client = Client::connect(port, TOKEN).await;
         let saved = client
             .call(
                 "credential.custom_save",
@@ -133,7 +131,7 @@ async fn steering_restarts_inference_and_preserves_tool_history_on_both_rig_rout
         // The steer is read once the agent produces anything with it in
         // context: the tape says so with a receipt, not a notice.
         let updated = client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape
                     && frame["event"]["kind"] == "user"
                     && frame["event"]["text"] == "Actually focus on login"
@@ -142,7 +140,7 @@ async fn steering_restarts_inference_and_preserves_tool_history_on_both_rig_rout
             .await;
         assert_eq!(updated["event"]["receipt"], "read");
         let completed = client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape && frame["event"]["kind"] == "turn"
             })
             .await;
@@ -211,7 +209,7 @@ async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finis
         let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
         let port = door.port();
         let door_task = tokio::spawn(door.run());
-        let mut client = Client::connect(port).await;
+        let mut client = Client::connect(port, TOKEN).await;
         let saved = client
             .call(
                 "credential.custom_save",
@@ -250,21 +248,17 @@ async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finis
                 .any(|value| value["status"] == "accepted")
         );
         client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape
                     && frame["event"]["kind"] == "tool"
                     && frame["event"]["toolKind"] == "wait_jobs"
                     && frame["event"]["status"] == "in_progress"
             })
             .await;
-        tokio::time::timeout(Duration::from_secs(15), async {
-            while !std::fs::metadata(workspace.join("heartbeat")).is_ok_and(|file| file.len() > 0) {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
+        common::until("the command starts before it is cancelled", || {
+            std::fs::metadata(workspace.join("heartbeat")).is_ok_and(|file| file.len() > 0)
         })
-        .await
-        .expect("the command must actually start before cancellation");
-        let began = tokio::time::Instant::now();
+        .await;
         assert_eq!(
             client
                 .call(
@@ -277,7 +271,6 @@ async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finis
         next_request(&mut requests).await;
         next_request(&mut requests).await;
         let confirmed = next_request(&mut requests).await;
-        assert!(began.elapsed() < Duration::from_secs(15));
         let items = confirmed[if api == "responses" {
             "input"
         } else {
@@ -296,13 +289,13 @@ async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finis
             "the launch gets exactly one ordinary tool reply"
         );
         let completion = client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape && frame["event"]["kind"] == "turn"
             })
             .await;
         assert_eq!(completion["event"]["stopReason"], "end_turn");
         let shell = client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape
                     && frame["event"]["kind"] == "tool"
                     && frame["event"]["toolKind"] == "shell"
@@ -416,7 +409,7 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
     let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
     let port = door.port();
     let door_task = tokio::spawn(door.run());
-    let mut client = Client::connect(port).await;
+    let mut client = Client::connect(port, TOKEN).await;
     let saved = client
         .call(
             "credential.custom_save",
@@ -474,7 +467,7 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
     // The reply is chat, and the turn reads as done while the run works.
     client
         .next_where(
-            Duration::from_secs(15),
+            common::ANSWER,
             said("The lift is in crane.rs; a subagent is checking the edge cases."),
         )
         .await;
@@ -484,7 +477,7 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
     let waiting = {
         let row = row(true);
         client
-            .next_where(Duration::from_secs(15), move |frame: &Value| {
+            .next_where(common::ANSWER, move |frame: &Value| {
                 row(frame)
                     && frame["event"]["subagents"]
                         .as_array()
@@ -510,31 +503,31 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
         true
     );
     next_request(&mut requests).await;
-    client.next_where(Duration::from_secs(15), row(false)).await;
+    client.next_where(common::ANSWER, row(false)).await;
     client.inbox.retain(|frame| frame["sub"] != roster);
     client
-        .next_where(Duration::from_secs(15), said("Noted, the brakes are next."))
+        .next_where(common::ANSWER, said("Noted, the brakes are next."))
         .await;
-    client.next_where(Duration::from_secs(15), row(true)).await;
+    client.next_where(common::ANSWER, row(true)).await;
 
     // The run reports, and the turn answers it and ends.
     release.notify_one();
     next_request(&mut requests).await;
     client
         .next_where(
-            Duration::from_secs(15),
+            common::ANSWER,
             said("Two edge cases fail; I will fix them."),
         )
         .await;
     let ended = client
-        .next_where(Duration::from_secs(15), |frame| {
+        .next_where(common::ANSWER, |frame| {
             frame["sub"] == tape && frame["event"]["kind"] == "turn"
         })
         .await;
     assert_eq!(ended["event"]["stopReason"], "end_turn");
     let persona_id = persona.clone();
     let rested = client
-        .next_where(Duration::from_secs(15), move |frame| {
+        .next_where(common::ANSWER, move |frame| {
             frame["sub"] == roster
                 && frame["event"]["persona"]["id"] == persona_id.as_str()
                 && frame["event"]["session"]["state"] == "ready"
@@ -595,7 +588,7 @@ fn tool_events(api: &str, name: &str, arguments: Value, call_id: &str) -> Vec<Va
 }
 
 async fn next_request(requests: &mut tokio::sync::mpsc::Receiver<Value>) -> Value {
-    tokio::time::timeout(Duration::from_secs(15), requests.recv())
+    tokio::time::timeout(common::ANSWER, requests.recv())
         .await
         .expect("steering must not wait for the old request to finish")
         .unwrap()
@@ -631,94 +624,6 @@ fn events(api: &str, answer: bool) -> Vec<Value> {
             json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":delta,"finish_reason":null}]}),
             json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{},"finish_reason":if answer {"stop"} else {"tool_calls"}}]}),
         ]
-    }
-}
-
-/// The window's half of the wire, as the harness plays it.
-struct Client {
-    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    next_id: i64,
-    /// Frames that arrived while waiting for something else: a subscription's
-    /// snapshot or event lands whenever the room has one.
-    inbox: VecDeque<Value>,
-}
-
-impl Client {
-    async fn connect(port: u16) -> Client {
-        let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token={TOKEN}"))
-            .await
-            .unwrap();
-        Client {
-            socket,
-            next_id: 1,
-            inbox: VecDeque::new(),
-        }
-    }
-
-    async fn read(&mut self) -> Value {
-        loop {
-            match self.socket.next().await.expect("the door closed") {
-                Ok(Message::Text(text)) => return serde_json::from_str(&text).unwrap(),
-                Ok(_) => continue,
-                Err(error) => panic!("the socket failed: {error}"),
-            }
-        }
-    }
-
-    /// A command, answered. Frames for subscriptions that arrive first are
-    /// kept for `next_where`.
-    async fn call(&mut self, cmd: &str, params: Value) -> Value {
-        let id = self.next_id;
-        self.next_id += 1;
-        let frame = json!({ "id": id, "cmd": cmd, "params": params });
-        self.socket
-            .send(Message::text(frame.to_string()))
-            .await
-            .unwrap();
-        loop {
-            let frame = self.read().await;
-            if frame.get("id").and_then(Value::as_i64) == Some(id) {
-                return frame;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
-
-    async fn subscribe(&mut self, target: Value) -> i64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.socket
-            .send(Message::text(
-                json!({ "id": id, "sub": target }).to_string(),
-            ))
-            .await
-            .unwrap();
-        loop {
-            let frame = self.read().await;
-            if frame.get("id").and_then(Value::as_i64) == Some(id) {
-                assert_eq!(frame["ok"], true, "{frame}");
-                return id;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
-
-    /// The next frame that satisfies `wanted`, from the inbox first and then
-    /// the socket, within `patience`.
-    async fn next_where(&mut self, patience: Duration, wanted: impl Fn(&Value) -> bool) -> Value {
-        if let Some(at) = self.inbox.iter().position(&wanted) {
-            return self.inbox.remove(at).unwrap();
-        }
-        let deadline = tokio::time::Instant::now() + patience;
-        loop {
-            let frame = tokio::time::timeout_at(deadline, self.read())
-                .await
-                .unwrap_or_else(|_| panic!("nothing wanted arrived within {patience:?}"));
-            if wanted(&frame) {
-                return frame;
-            }
-            self.inbox.push_back(frame);
-        }
     }
 }
 
@@ -761,7 +666,7 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
         let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
         let port = door.port();
         let door_task = tokio::spawn(door.run());
-        let mut client = Client::connect(port).await;
+        let mut client = Client::connect(port, TOKEN).await;
         assert_eq!(
             client
                 .call(
@@ -790,7 +695,7 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
         assert_eq!(failed, retried);
         assert!(retried.to_string().contains("a confirmed fact"));
         client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape && frame["event"]["kind"] == "turn"
             })
             .await;
@@ -802,7 +707,7 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
             .await;
         next_request(&mut requests).await;
         let failure = client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape
                     && frame["event"]["kind"] == "notice"
                     && frame["event"]["level"] == "error"
@@ -813,7 +718,7 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
         assert!(text.contains("hotlineFailure"));
         assert!(!text.contains("do-not-store-this"));
         client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape
                     && frame["event"]["kind"] == "turn"
                     && frame["event"]["stopReason"] == "failed"
@@ -831,7 +736,7 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
         assert!(continuation.to_string().contains("Fresh continuation"));
         assert!(continuation.to_string().contains("a confirmed fact"));
         client
-            .next_where(Duration::from_secs(15), |frame| {
+            .next_where(common::ANSWER, |frame| {
                 frame["sub"] == tape && frame["event"]["kind"] == "turn"
             })
             .await;

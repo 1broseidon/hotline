@@ -24,7 +24,7 @@ const TAIL_BYTES: u64 = 64 * 1024;
 const PREVIEW_REACH: [u64; 2] = [1024 * 1024, 8 * 1024 * 1024];
 
 fn segment_size(path: &Path) -> u64 {
-    fs::metadata(path).map(|meta| meta.len()).unwrap_or(0)
+    fs::metadata(path).map_or(0, |meta| meta.len())
 }
 
 fn logical_size(segments: &[(u64, PathBuf)]) -> u64 {
@@ -80,9 +80,7 @@ fn read_tail_logical(segments: &[(u64, PathBuf)], window: u64) -> Vec<Value> {
     let bytes: Vec<u8> = chunks.into_iter().flatten().collect();
     let text = String::from_utf8_lossy(&bytes).into_owned();
     let sliced: &str = if started_mid {
-        text.find('\n')
-            .map(|index| &text[index + 1..])
-            .unwrap_or("")
+        text.find('\n').map_or("", |index| &text[index + 1..])
     } else {
         &text
     };
@@ -97,11 +95,12 @@ fn message_preview(event: &Value) -> Option<Value> {
     };
     let text = event.get("text").and_then(Value::as_str).unwrap_or("");
     // A file sent without a caption is previewed by its name.
-    let text = match text.trim().is_empty() {
-        true => crate::sent::file_names(event)
+    let text = if text.trim().is_empty() {
+        crate::sent::file_names(event)
             .collect::<Vec<_>>()
-            .join(", "),
-        false => text.to_string(),
+            .join(", ")
+    } else {
+        text.to_string()
     };
     let at = event.get("ts").cloned().unwrap_or(Value::Null);
     Some(json!({ "from": from, "text": text, "at": at }))

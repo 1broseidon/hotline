@@ -20,6 +20,8 @@ import {
 	takeDictationRequests,
 	useDictationAvailable,
 } from "../voice/dictation";
+import { useDeskModelOffer } from "../voice/desk";
+import { setHearOnThisMac } from "../voice/hearing";
 
 /** The field stops growing here, and scrolls from then on. */
 const MAX_HEIGHT = 220;
@@ -64,6 +66,7 @@ export function Composer({
 	onClearReply,
 	onDraftChange,
 	corner,
+	focused = false,
 	embedded = false,
 }: {
 	personaId: string;
@@ -81,6 +84,8 @@ export function Composer({
 	onDraftChange?(hasContent: boolean): void;
 	/** Keys that sit on the pill's top right, over the conversation's foot. */
 	corner?: ReactNode;
+	/** Takes the keys while true: a conversation with nothing said yet has nothing else to do. */
+	focused?: boolean;
 	/**
 	 * Inside another composer's window (a side thread's): the same size and
 	 * place as the conversation's, and it leaves file drops to the conversation's own composer, which is the one a drop
@@ -104,6 +109,9 @@ export function Composer({
 	const [pasteFailed, setPasteFailed] = useState<string | null>(null);
 	const area = useRef<HTMLTextAreaElement>(null);
 	const working = isWorking(state);
+	useEffect(() => {
+		if (focused) area.current?.focus();
+	}, [focused]);
 
 	// Dictation writes into the field as the words come (voice/dictation.ts),
 	// so it reads and writes the text through a ref that is never a render behind.
@@ -141,6 +149,7 @@ export function Composer({
 		void dictation.start();
 	};
 	const dictationHere = useDictationAvailable();
+	const offerDeskModel = useDeskModelOffer(heard.error);
 	// A call has the microphone, so there is no dictating over one.
 	const live = useCall();
 	const callSnapshot = useCallSnapshot(live);
@@ -166,6 +175,7 @@ export function Composer({
 	useEffect(() => {
 		if (callLive) dictation.release();
 	}, [callLive, dictation]);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new draftOf means the draft was put away, which lets go of the mic too.
 	useEffect(
 		() => () => {
 			dictation.release();
@@ -232,6 +242,7 @@ export function Composer({
 
 	// Grow with content, up to a ceiling. Before paint, because measuring after
 	// it draws a wrapped line at the old height for one frame first.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the text and the teammate are what change the height.
 	useLayoutEffect(() => {
 		const el = area.current;
 		if (!el) return;
@@ -439,7 +450,24 @@ export function Composer({
 							}}
 						/>
 						{pasteFailed !== null && <p className="pt-1 text-xs text-danger">{pasteFailed}</p>}
-						{heard.error !== null && <p className="pt-1 text-xs text-danger">{heard.error}</p>}
+						{heard.error !== null && (
+							<p className="flex items-center gap-2 pt-1 text-xs text-danger">
+								<span className="min-w-0">{heard.error}</span>
+								{offerDeskModel && (
+									<button
+										type="button"
+										className="control btn"
+										onClick={() => {
+											// The desk's model hears from now on, as picking it in Settings would.
+											setHearOnThisMac(false);
+											act("start");
+										}}
+									>
+										Use desk model
+									</button>
+								)}
+							</p>
+						)}
 					</div>
 					{working && (
 						<button type="button" className="composer-key composer-stop" title="Interrupt (Esc)" aria-label="Interrupt" onClick={onCancel}>

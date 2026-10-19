@@ -17,7 +17,8 @@
 use super::client::{Client, OpenError};
 use super::server::Seat;
 use super::*;
-use crate::linked::{self, Call, CallError, DeskLink, LinkedTeammate, Record};
+use crate::contract::LinkedTeammate;
+use crate::linked::{self, Call, CallError, DeskLink, Record};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use futures_util::{SinkExt, StreamExt};
 use std::time::Duration;
@@ -36,7 +37,8 @@ const FRAME_MAX: usize = 1024 * 1024;
 
 impl Remote {
     fn link_registry(&self) -> Result<Arc<linked::Links>, String> {
-        self.room
+        self.agents()?
+            .room
             .links()
             .ok_or_else(|| "This desk cannot link with another.".to_string())
     }
@@ -44,7 +46,7 @@ impl Remote {
     /// Every desk this one is linked with, and how each link is doing.
     pub fn desk_links(&self) -> Result<Vec<DeskLink>, String> {
         let links = self.link_registry()?;
-        Ok(linked::records(&self.log)
+        Ok(linked::records(&self.agents()?.log)
             .into_iter()
             .map(|record| {
                 let (state, error) = links.state(&record.desk_id);
@@ -56,11 +58,7 @@ impl Remote {
                             persona_id: known.persona_id.clone(),
                             name: known.name.clone(),
                             state: "offline".into(),
-                            activity: None,
-                            working_on: linked::WorkingOn {
-                                title: String::new(),
-                                last_turn_at: None,
-                            },
+                            ..Default::default()
                         })
                         .collect()
                 });
@@ -88,7 +86,8 @@ impl Remote {
     /// sides keep it as a room event, and this side dials from then on.
     pub async fn link(self: &Arc<Self>, desk_id: &str) -> Result<DeskLink, String> {
         let links = self.link_registry()?;
-        if linked::record(&self.log, desk_id).is_some() {
+        let log = &self.agents()?.log;
+        if linked::record(log, desk_id).is_some() {
             return self.desk_link(desk_id);
         }
         let me = self.status_desktop_id();
@@ -107,43 +106,45 @@ impl Remote {
         let ask = json!({"id": 1, "cmd": "desks.link_accept", "params": {
             "deskId": me, "name": desktop_name(), "key": URL_SAFE_NO_PAD.encode(public),
         }});
+        tokio::time::timeout(STEP_WITHIN, owner.send(Message::text(ask.to_string())))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .ok_or("The desk disconnected.")?;
         let answer = tokio::time::timeout(STEP_WITHIN, async {
-            owner
-                .send(Message::text(ask.to_string()))
-                .await
-                .map_err(|_| "The desk disconnected.".to_string())?;
-            loop {
-                let Some(Ok(Message::Text(text))) = owner.next().await else {
-                    return Err("The desk disconnected.".to_string());
-                };
-                let Ok(frame) = serde_json::from_str::<Value>(&text) else {
-                    continue;
-                };
-                if frame["id"] == 1 {
-                    return Ok(frame);
+            while let Some(Ok(message)) = owner.next().await {
+                if let Message::Text(text) = message
+                    && let Ok(frame) = serde_json::from_str::<Value>(&text)
+                    && frame["id"] == 1
+                {
+                    return Some(frame);
                 }
             }
+            None
         })
         .await
-        .map_err(|_| "The desk did not answer within ten seconds.".to_string())??;
+        .ok()
+        .flatten();
         let _ = tokio::time::timeout(STEP_WITHIN, owner.close()).await;
-        if answer["ok"] != true {
-            return Err(answer["error"]
-                .as_str()
-                .unwrap_or("That desk would not link.")
-                .to_string());
+        // An ask that reached the other desk and went unanswered may have
+        // been accepted there, so the link is kept and dialed: the other
+        // desk's key either opens the channel, or refuses this desk's,
+        // which ends the link here as any refusal does.
+        let mut name = linked::plain(&desk.name, 80);
+        if let Some(answer) = answer {
+            if answer["ok"] != true {
+                return Err(refusal(&answer));
+            }
+            if answer["result"]["deskId"] != desk_id {
+                return Err("That desk answered as another desk.".into());
+            }
+            let named = linked::plain(answer["result"]["name"].as_str().unwrap_or(""), 80);
+            if !named.is_empty() {
+                name = named;
+            }
         }
-        if answer["result"]["deskId"] != desk_id {
-            return Err("That desk answered as another desk.".into());
-        }
-        let name = Some(linked::plain(
-            answer["result"]["name"].as_str().unwrap_or(""),
-            80,
-        ))
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| linked::plain(&desk.name, 80));
         linked::save(
-            &self.log,
+            log,
             &Record {
                 desk_id: desk_id.to_string(),
                 name,
@@ -162,6 +163,7 @@ impl Remote {
     /// identity, for `/v2/link`. Asked over an owner seat here, so it is the
     /// owner's decision on this desk too.
     pub async fn accept_link(&self, desk_id: &str, name: &str, key: &str) -> Result<Value, String> {
+        let Agents { log, room } = self.agents()?;
         let name = linked::plain(name, 80);
         if !linked::valid_desk_id(desk_id) || desk_id == self.status_desktop_id() {
             return Err("That is not another desk's id.".into());
@@ -175,21 +177,21 @@ impl Remote {
         {
             return Err("That is not a desk identity key.".into());
         }
-        if linked::record(&self.log, desk_id).is_some_and(|record| record.dials) {
+        if linked::record(log, desk_id).is_some_and(|record| record.dials) {
             return Err("This desk already links with that one from here.".into());
         }
         // A link accepted again — the other desk ended it while this one
         // could not hear, and linked again — ends the old one first, with
         // everything it held, so the new one starts from nothing.
-        if linked::record(&self.log, desk_id).is_some() {
-            self.room.unlinked(desk_id).await?;
+        if linked::record(log, desk_id).is_some() {
+            room.unlinked(desk_id).await?;
         }
         // Nor does anything a frame of an earlier link left behind here.
         if let Ok(links) = self.link_registry() {
             links.forget(desk_id);
         }
         linked::save(
-            &self.log,
+            log,
             &Record {
                 desk_id: desk_id.to_string(),
                 name,
@@ -205,8 +207,9 @@ impl Remote {
     /// ends it now whatever the other says.
     pub async fn unlink(self: &Arc<Self>, desk_id: &str) -> Result<(), String> {
         let links = self.link_registry()?;
+        let Agents { log, room } = self.agents()?;
         let record =
-            linked::record(&self.log, desk_id).ok_or("This desk is not linked with that one.")?;
+            linked::record(log, desk_id).ok_or("This desk is not linked with that one.")?;
         if links.is_open(desk_id) {
             let _ = tokio::time::timeout(
                 STEP_WITHIN,
@@ -221,7 +224,7 @@ impl Remote {
             // there too.
             let _ = tokio::time::timeout(STEP_WITHIN * 2, self.say_goodbye(desk_id)).await;
         }
-        self.room.unlinked(desk_id).await
+        room.unlinked(desk_id).await
     }
 
     async fn say_goodbye(&self, desk_id: &str) -> Result<(), OpenError> {
@@ -246,7 +249,10 @@ impl Remote {
 
     /// Dials every link this desk made. Called once the desk is up.
     pub(super) fn restore_links(self: &Arc<Self>) {
-        for record in linked::records(&self.log) {
+        let Ok(agents) = self.agents() else {
+            return;
+        };
+        for record in linked::records(&agents.log) {
             if record.dials {
                 self.dial(record.desk_id);
             }
@@ -275,14 +281,17 @@ impl Remote {
         };
         let remote = self.clone();
         tokio::spawn(async move {
+            let Ok(Agents { log, room }) = remote.agents() else {
+                return;
+            };
             let mut tries = 0u32;
             loop {
-                if !linked::record(&remote.log, &desk_id).is_some_and(|record| record.dials) {
+                if !linked::record(log, &desk_id).is_some_and(|record| record.dials) {
                     return;
                 }
                 let opened = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
+                    () = cancel.cancelled() => return,
                     opened = remote.open_link(&desk_id) => opened,
                 };
                 match opened {
@@ -297,24 +306,36 @@ impl Remote {
                     }
                     // Only the pinned desk can say this, and it says it when
                     // its link record is gone: it ended the link.
+                    // Ending it here can fail, writing the room stream; the
+                    // loop goes on, and the next refusal tries again.
                     Err(OpenError::Revoked) => {
-                        if !cancel.is_cancelled()
-                            && let Err(error) = remote.room.unlinked(&desk_id).await
-                        {
-                            eprintln!("[link] {desk_id} could not be ended here: {error}");
+                        if cancel.is_cancelled() {
+                            return;
                         }
-                        return;
+                        match room.unlinked(&desk_id).await {
+                            Ok(()) => return,
+                            Err(error) => {
+                                eprintln!("[link] {desk_id} could not be ended here: {error}");
+                                links.closed(
+                                    &desk_id,
+                                    None,
+                                    Some(format!(
+                                        "That desk ended the link, and this desk could not end it too: {error}"
+                                    )),
+                                );
+                            }
+                        }
                     }
-                    Err(OpenError::Unreachable(error)) => {
-                        links.closed(&desk_id, None, Some(error));
+                    Err(error) => {
+                        links.closed(&desk_id, None, Some(error.to_string()));
                     }
                 }
                 let wait = Duration::from_millis((500u64 << tries.min(6)).min(30_000));
                 tries = tries.saturating_add(1);
-                let jitter = 0.8 + (Uuid::new_v4().as_bytes()[0] as f64 / 255.0) * 0.4;
+                let jitter = 0.8 + (f64::from(Uuid::new_v4().as_bytes()[0]) / 255.0) * 0.4;
                 tokio::select! {
-                    _ = cancel.cancelled() => return,
-                    _ = tokio::time::sleep(wait.mul_f64(jitter)) => {}
+                    () = cancel.cancelled() => return,
+                    () = tokio::time::sleep(wait.mul_f64(jitter)) => {}
                 }
             }
         });
@@ -323,14 +344,27 @@ impl Remote {
     /// The token a dialing desk's channel runs under, if `public` is the key
     /// this desk's link record for `desk_id` trusts.
     fn authenticate_link(&self, desk_id: &str, public: &[u8]) -> Option<CancellationToken> {
-        if self.state.lock().unwrap().endpoints.is_empty() {
+        if lock(&self.state).endpoints.is_empty() {
             return None;
         }
         let public = URL_SAFE_NO_PAD.encode(public);
-        linked::record(&self.log, desk_id)
+        let Agents { log, room } = self.agents().ok()?;
+        linked::record(log, desk_id)
             .filter(|record| !record.dials && record.key.as_deref() == Some(public.as_str()))?;
-        Some(self.room.links()?.token(desk_id).child_token())
+        Some(room.links()?.token(desk_id).child_token())
     }
+}
+
+/// What a desk's refusal to link says to the person. A desk from before
+/// links cannot read the command, and answers with every one it can.
+pub(super) fn refusal(answer: &Value) -> String {
+    let error = answer["error"]
+        .as_str()
+        .unwrap_or("That desk would not link.");
+    if error.contains("unknown variant `desks.link_accept`") {
+        return "Update that desk to link with it.".into();
+    }
+    error.to_string()
 }
 
 /// `/v2/link` on the desk being dialed: both Noise messages, then the
@@ -347,7 +381,7 @@ where
         purpose: String,
         desk_id: String,
     }
-    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let cancel = lock(&remote.state).cancel.clone();
     let deadline = tokio::time::Instant::now() + STEP_WITHIN;
     let handshake = async {
         let (private, _) = remote.noise_keys().ok()?;
@@ -370,8 +404,17 @@ where
         if link.is_none() && cancel.is_cancelled() {
             return None;
         }
+        // A relay grant is told its role does not open this door, so its
+        // desktop does not take a working relay pairing for a revoked one.
+        let relay_grant = || {
+            remote
+                .authenticate_v2(&public)
+                .is_some_and(|phone| phone.role == DeviceRole::Relay)
+        };
         let answer = if link.is_some() {
             Vec::new()
+        } else if relay_grant() {
+            sealed::ROLE_REFUSED.to_vec()
         } else {
             sealed::DEVICE_REJECTED.to_vec()
         };
@@ -404,8 +447,8 @@ where
     };
     let established = tokio::select! {
         biased;
-        _ = cancel.cancelled() => return,
-        _ = seat.expired(deadline) => return,
+        () = cancel.cancelled() => return,
+        () = seat.expired(deadline) => return,
         result = handshake => result,
     };
     let Some((channel, desk_id, link, _seated)) = established else {
@@ -419,9 +462,9 @@ where
     };
     let watch = tokio::spawn(async move {
         tokio::select! {
-            _ = cancel.cancelled() => {},
-            _ = relayed.cancelled() => {},
-            _ = ended.cancelled() => {},
+            () = cancel.cancelled() => {},
+            () = relayed.cancelled() => {},
+            () = ended.cancelled() => {},
         }
         ended.cancel();
     });
@@ -440,7 +483,10 @@ async fn session<S>(
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let Some(links) = remote.room.links() else {
+    let Ok(room) = remote.agents().map(|agents| agents.room.clone()) else {
+        return;
+    };
+    let Some(links) = room.links() else {
         return;
     };
     let mut channel = channel.limited(FRAME_MAX);
@@ -457,7 +503,7 @@ async fn session<S>(
     // The roster goes before anything else that crosses: a message names its
     // sender, and the other desk takes only senders it has been shown.
     let mut publish = |next: &mut i64| {
-        let now = remote.room.federation_roster_entries();
+        let now = room.federation_roster_entries();
         if published.as_ref() == Some(&now) {
             return None;
         }
@@ -470,7 +516,7 @@ async fn session<S>(
         let mut frames = Vec::new();
         tokio::select! {
             biased;
-            _ = cancel.cancelled() => break None,
+            () = cancel.cancelled() => break None,
             _ = roster.tick() => frames.extend(publish(&mut next)),
             call = waiting.recv() => {
                 let Some(call) = call else { break None };
@@ -499,8 +545,8 @@ async fn session<S>(
                             throttled = true;
                         }
                         tokio::select! {
-                            _ = cancel.cancelled() => break None,
-                            _ = tokio::time::sleep(wait) => {}
+                            () = cancel.cancelled() => break None,
+                            () = tokio::time::sleep(wait) => {}
                         }
                     } else {
                         throttled = false;
@@ -508,7 +554,7 @@ async fn session<S>(
                     heard = tokio::time::Instant::now();
                     let Ok(received) = serde_json::from_str::<Value>(&text) else { continue };
                     if received.get("ok").is_none() {
-                        frames.extend(crate::wire::federation(&received, &desk_id, &remote.room).await);
+                        frames.extend(crate::wire::federation(&received, &desk_id, &room).await);
                     } else if let Some(answer) = received["id"].as_i64().and_then(|id| answers.remove(&id)) {
                         let _ = answer.send(if received["ok"] == true {
                             Ok(received.get("result").cloned().unwrap_or(Value::Null))

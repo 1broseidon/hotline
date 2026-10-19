@@ -19,10 +19,11 @@
 //! is [`Indexer`], and there is one of those, in the process that owns the
 //! tapes.
 
+use crate::contract::{ThreadId, ThreadKind};
 use crate::log::{Log, StreamId, open_epoch};
 use crate::paths::{index_path, transcript_path, transcript_segment_path};
 use crate::store::chapters::{chapters_of, open_chapter, slice_of};
-use crate::thread::{Link, ThreadId, ThreadKind, ThreadState};
+use crate::thread::{Link, ThreadState};
 use rusqlite::types::Value as SqlValue;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row};
 use serde_json::{Map, Value, json};
@@ -794,28 +795,6 @@ impl Indexer {
         Ok(())
     }
 
-    /// Forgets a teammate entirely — the rows and the stamp that would stop
-    /// them being rebuilt.
-    pub fn forget(&mut self, persona_id: &str) -> rusqlite::Result<()> {
-        let transaction = self.database.transaction()?;
-        forget_threads(&transaction, persona_id)?;
-        for table in [
-            "messages",
-            "message_ids",
-            "chapters",
-            "chapters_fts",
-            "index_state",
-        ] {
-            transaction.execute(
-                &format!("DELETE FROM {table} WHERE persona_id = ?"),
-                [persona_id],
-            )?;
-        }
-        transaction.commit()?;
-        self.open_chapters.remove(persona_id);
-        Ok(())
-    }
-
     /// Brings the index in line with the files at startup.
     ///
     /// A transcript whose size or modification time differs from what was last
@@ -960,9 +939,15 @@ mod tests {
         let (root, database) = index("or");
         message(&database, "ada", "m1", "user", "the harbour is quiet");
 
-        assert!(hits(&search(&root, "ada", "harbour zeppelin", None).unwrap()).len() == 1);
+        assert_eq!(
+            hits(&search(&root, "ada", "harbour zeppelin", None).unwrap()).len(),
+            1
+        );
         // One term that matches nothing has nothing to fall back to.
-        assert!(hits(&search(&root, "ada", "zeppelin", None).unwrap()).is_empty());
+        assert_eq!(
+            hits(&search(&root, "ada", "zeppelin", None).unwrap()).as_slice(),
+            [] as [Value; 0]
+        );
     }
 
     #[test]
@@ -1247,7 +1232,10 @@ mod tests {
         indexer.database.execute("DROP TABLE messages", []).unwrap();
         let event = message_event("m1", 1, "user", "harbour");
         assert!(indexer.index_event("ada", &event).is_err());
-        assert!(rows_of(&indexer.database, "SELECT id FROM message_ids").is_empty());
+        assert_eq!(
+            rows_of(&indexer.database, "SELECT id FROM message_ids"),
+            [] as [Vec<SqlValue>; 0]
+        );
         indexer.database.execute(SCHEMA[1], []).unwrap();
         indexer.index_event("ada", &event).unwrap();
         assert_eq!(messages(&indexer.database).len(), 1);
@@ -1285,7 +1273,10 @@ mod tests {
             ids(&search(root.path(), "ada", "harbour", None).unwrap()),
             ["m1"]
         );
-        assert!(hits(&search(root.path(), "ada", "obsolete", None).unwrap()).is_empty());
+        assert_eq!(
+            hits(&search(root.path(), "ada", "obsolete", None).unwrap()).as_slice(),
+            [] as [Value; 0]
+        );
     }
 
     #[test]
@@ -1328,37 +1319,6 @@ mod tests {
         // The chapter closed, so what came after it belongs to no chapter.
         let after = messages(&indexer.database);
         assert_eq!(after[1][2], SqlValue::Null);
-    }
-
-    #[test]
-    fn a_teammate_the_index_forgets_leaves_no_row_and_no_stamp() {
-        let (_root, log, mut indexer) = indexer("forget");
-        // A chapter id apiece: the id is the primary key, so two teammates
-        // sharing one would be one row and this test would prove nothing.
-        for (persona_id, chapter_id) in [("ada", "c1"), ("bob", "c2")] {
-            let events = [
-                chapter_event(chapter_id, 100, false),
-                message_event("m1", 110, "user", "the harbour crane is stuck"),
-            ];
-            tape(&log, persona_id, &events);
-            for event in &events {
-                indexer.index_event(persona_id, event).unwrap();
-            }
-        }
-
-        indexer.forget("ada").unwrap();
-
-        assert_eq!(messages(&indexer.database).len(), 1);
-        assert_eq!(messages(&indexer.database)[0][0], text("bob"));
-        assert_eq!(chapter_rows(&indexer.database).len(), 1);
-        assert_eq!(chapter_text(&indexer.database).len(), 1);
-        assert_eq!(
-            rows_of(
-                &indexer.database,
-                "SELECT persona_id FROM index_state ORDER BY persona_id"
-            ),
-            [vec![text("bob")]]
-        );
     }
 
     #[test]
@@ -1706,9 +1666,9 @@ mod tests {
         let found = search_teammate(&root, "ada", "winch", None).unwrap();
         assert_eq!(sorted_ids(&found), ["a1", "u1"]);
         assert!(hits(&found).iter().all(|hit| hit["thread"] == "side:s1"));
-        assert!(hits(&search(&root, "ada", "winch", None).unwrap()).is_empty());
-
-        indexer.forget("ada").unwrap();
-        assert!(hits(&search_teammate(&root, "ada", "winch", None).unwrap()).is_empty());
+        assert_eq!(
+            hits(&search(&root, "ada", "winch", None).unwrap()).as_slice(),
+            [] as [Value; 0]
+        );
     }
 }

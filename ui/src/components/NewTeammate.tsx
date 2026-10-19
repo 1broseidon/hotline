@@ -29,7 +29,7 @@ const HOTLINE_AGENT = "hotline";
  * read — are asked too, with the pane's own words; MCP and skill grants stay
  * on the pane.
  *
- * Created, the teammate is started at once and opened — nobody adds a
+ * Created, the teammate is opened at once and started — nobody adds a
  * colleague in order to look at them in a list.
  */
 export function NewTeammate({
@@ -163,13 +163,17 @@ export function NewTeammateForm({
 		if (folders.length > 0) draft.folders = folders;
 		try {
 			const persona = await wire.command("persona.create", { draft });
-			await wire.command("session.start", { personaId: persona.id });
+			// Opened as soon as it exists, not once it has started: a start
+			// takes seconds, and the roster already shows the teammate, so
+			// waiting left the window on no one. A start that fails says so in
+			// the conversation, as an error notice and a session to retry.
+			onCreated(persona.id);
+			void wire.command("session.start", { personaId: persona.id }).catch((error: Error) => console.warn("session.start", error.message));
 			// Drawn while they settle in: the initial shows until the roster
 			// brings the picture, and a refusal leaves the initial in place.
 			if (imagesBy !== null && picture) {
 				void wire.command("avatar.generate", { personaId: persona.id }).catch((error: Error) => console.warn("avatar.generate", error.message));
 			}
-			onCreated(persona.id);
 		} catch (error) {
 			setRefusal(error instanceof Error ? error.message : String(error));
 			setBusy(false);
@@ -219,6 +223,7 @@ export function NewTeammateForm({
 								id="new-name"
 								className="field pr-9"
 								value={name}
+								// biome-ignore lint/a11y/noAutofocus: the pane opens only when New teammate is asked for, and the name is the first thing it asks.
 								autoFocus
 								autoComplete="off"
 								placeholder="Name your teammate"

@@ -13,6 +13,9 @@ code implements them, are [wire.md](wire.md), [log.md](log.md) and
 - The [Tauri CLI](https://v2.tauri.app/) as a cargo subcommand:
   `cargo install tauri-cli --version ^2`.
 - Python 3, for release manifest validation in `make check`.
+- cargo-machete 0.9.2 and cargo-deny 0.20.2, for the dependency gates in
+  `make check`: `cargo install --locked cargo-machete@0.9.2 cargo-deny@0.20.2`.
+  Another version stops `make check` with that line; the Makefile says why.
 - [Bun](https://bun.sh), for the window's install, typecheck, Vite, and
   production build.
 - On macOS, Xcode or its Command Line Tools: `build.rs` compiles the
@@ -46,31 +49,55 @@ Rust that needs Tauri lives.
 
 ```
 crates/hotline-core/src/
-  contract.rs            the wire's types (serde + ts-rs)
-  paths.rs               the data directory's layout
-  log/                   streams: append, fold, segments, subscribe
-  store/                 FTS5 index, chapter list, roster previews
-  room.rs                the roster fold, settings, and schedules
-  vault.rs               secrets beside the room stream
-  session/               Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
-  driver/                Hotline Agent on Rig, and the ACP child with its registry
-  models.rs              the providers Hotline Agent reaches, and the model catalogue they serve
-  mcp/                   the client of granted servers, and Hotline's own teammate tools
-  computer/              runtime detection and one container per teammate
-  tools/                 workspace tools on cap-std, shell command
-  desk.rs                the room, vault and log behind the wire
-  import.rs              copies an existing Hotline data directory
-  import/                the previous edition's roster and records, read-only
-  wire/                  the door: seats, commands, subscriptions
-  bin/hotline-import.rs     the importer as a binary
-  bin/hotline-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
+  contract/                  the wire's types (serde + ts-rs), a file per concern; a leaf
+  paths.rs                   the data directory's layout
+  log/                       streams: append, fold, segments, subscribe; tapes and threads
+  store/                     beside the tape: FTS5 search, chapter list, roster previews
+  room.rs                    the roster fold, settings, and schedules
+  room_lock.rs               one writer per room
+  thread/                    the one name for a conversation, its store and its policy
+  vault/                     credential metadata beside the room stream
+  credentials/               the OS credential store that holds the secret values
+  session/                   Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
+  driver/                    Hotline Agent on Rig, and the ACP child with its registry and OAuth proxy
+  models.rs                  the providers Hotline Agent reaches, and the model catalogue they serve
+  providers/                 connection work Rig does not own; requests stay on Rig's clients
+  capabilities.rs            which connected provider the owner can pick for each job
+  pricing.rs                 what a model costs per token
+  spending.rs                the spending ledger and the budget it enforces
+  mcp/                       the client of granted servers, and Hotline's own teammate tools
+  skills.rs                  the catalog: built-in, gateway and workspace skills, copied into a workspace
+  tools/                     workspace tools on cap-std, shell command
+  computer/                  runtime detection and one container per teammate
+  voice/                     the owner's call: speech in and out, the front, realtime, metering
+  websearch/                 web search for every teammate, keyless by default, ranked and cleaned
+  imagegen/                  making images over whichever connected provider the owner has
+  images.rs                  what an attached or generated image is made into before anyone sees it
+  thumbs.rs                  smaller copies of pictures for a phone
+  sent/                      files teammates send the person, and their readback
+  link_preview.rs            a link's card, read from the page's head
+  fence.rs                   the one fence around anything quoted out of a conversation
+  desk.rs                    the room, vault and log behind the wire
+  boot.rs                    one boot, the app's and `hotline serve`'s, that returns its errors
+  wire/                      the door: seats, commands, subscriptions, the phone and relay doors
+  remote/                    Remote: the sealed listener, pairing, the relay, a linked desk's channel
+  linked.rs                  linked desks: their records, qualified ids, the roster that crosses
+  push.rs                    notifications to paired phones
+  import.rs                  copies an existing Hotline data directory
+  import/                    the previous edition's roster and records, read-only
+  log_file.rs                where the app's own lines go when nobody reads its output
+  process_windows.rs         a Windows child's kill-on-close job
+  test_support.rs            what the unit tests of more than one module share
+  bin/hotline-import.rs      the importer as a binary
+  bin/hotline-mcp-echo.rs    a one-tool stdio server the MCP harnesses spawn
   bin/hotline-models-sync.rs rewrites models.json from models.dev
 crates/hotline-core/models.json  the model catalogue: a filtered snapshot of models.dev
-crates/hotline-core/tests/  headless proofs driving the real core over the wire
-crates/hotline-app/     the Tauri 2 shell: plugins, the menu, the door
-ui/                      the React window, built against the generated contract; ui/src/ui is the design system
-assets/                  the mark and the app tile it sits on; `make icons` renders the icon set from them
-docs/                    what is
+crates/hotline-core/tests/   headless proofs driving the real core over the wire
+crates/hotline-app/          the Tauri 2 shell: plugins, the menu, the door
+crates/hotline-cli/          `hotline`: the desk with no window (`hotline serve`), and its operator commands
+ui/                          the React window, built against the generated contract; ui/src/ui is the design system
+assets/                      the mark and the app tile it sits on; `make icons` renders the icon set from them
+docs/                        what is
 ```
 
 The core is a library. The shell binds its door on a loopback port, injects
@@ -84,8 +111,9 @@ before anything is served.
 
 ```bash
 make dev        # the Tauri shell, Vite with hot reload, on .hotline-dev
-make check      # cargo fmt --check, clippy -D warnings, cargo test, the window's typecheck
+make check      # the window's typecheck, lint and tests, the dependency gates, the Python tests, cargo fmt, clippy -D warnings, cargo test
 make verify     # the headless harnesses, driving the real core over the wire
+make precheck   # what CI's runners would fail, caught here; see Before pushing
 make build      # a release bundle under target/release/bundle (unsigned)
 make icons      # every platform's app icon, and the tray marks, from assets/
 ```
@@ -105,16 +133,157 @@ instance. The shell generates a one-launch token, binds the door on
 `127.0.0.1` with an ephemeral port, and sets `window.__hotlineDesk` to
 `{platform, origin, token, version, dataDir}` before the page loads.
 
-`make check` is, in order: `bun install --frozen-lockfile` and `bun run
-typecheck` in `ui/`; the Python release-manifest tests; `cargo fmt --all --check`; `cargo clippy --workspace
+`make check` is, in order: `bun install --frozen-lockfile`; a contract
+preflight that stops in one line when `ui/src/generated/contract.ts` is
+partial (a filtered `cargo test` wrote it); `bun run typecheck`, `bun run
+lint` (Biome, lint only), `bun run knip` (no unused export, file or
+dependency; `ui/knip.json` and the Makefile say what is exempt and why) and
+`bun run test` in `ui/`; the dependency gates, `make deps`: `cargo machete
+--with-metadata` (no unused Cargo dependency), `cargo deny --locked check
+advisories licenses` (no advisory against `Cargo.lock` that `deny.toml`
+does not list with its review condition, and no crate under a license
+nobody reviewed), `scripts/window_licenses.py` (the same for the window's
+packages; [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) says what was
+reviewed) and `bun audit` in `ui/` (no advisory at all); the speech engine fetched and checked against its pinned hash;
+`scripts/security-citations` (every test `docs/security.md` cites is a `fn` in
+the file its row names); the Python tests under `scripts/` and
+`site/tests/`; `cargo fmt --all --check`; `cargo clippy --workspace
 --all-targets -- -D warnings`; `cargo test --workspace`. A window that
 does not compile is a broken build however green the Rust is.
 
 `make verify` is `cargo test --workspace --test '*'`: the integration
 tests under `crates/hotline-core/tests/`, not the unit tests that live beside
 the code. `make check` already runs those unit tests as part of
-`cargo test --workspace`. Two of those tests talk to a real agent and are
-skipped unless you set the env they name — see [The harness](#the-harness).
+`cargo test --workspace`. The tests that talk to a real agent are skipped
+unless you set the env they name — see [The harness](#the-harness).
+
+Two more variables are for development only. `HOTLINE_EXTRA_DESKS` adds
+desks to the window's list by endpoint: a JSON list of `{ "id", "name",
+"origin", "token" }`, for example a second `hotline serve` on this machine.
+A malformed entry is skipped and said. `HOTLINE_DEV_SIGN_IDENTITY` picks
+the certificate `make dev` signs the debug binary with on macOS
+(`scripts/cargo-dev-sign`); without it the first "Apple Development"
+identity in the keychain is used, and with none the binary stays unsigned.
+
+## Before pushing
+
+```bash
+make precheck        # before any pull request or release branch is pushed
+make precheck-full   # before a release pull request
+scripts/precheck windows ui   # only the legs named
+```
+
+`make check` is green on this Mac and says nothing about what only breaks
+on a runner, which was every CI failure in 0.39.0: test helpers only
+Unix uses, dead code on Windows; a window test that leaned on a `window`
+another file left defined; a tool the runner's PATH found differently.
+`scripts/precheck` runs one leg for each, prints a line per leg with
+its time, and for a failure the tail of `target/precheck/<leg>.log` and
+the command that reruns it. Every leg runs even after one fails. A tool a
+leg needs and this Mac lacks is installed with brew, `cargo install` or
+rustup, and announced first.
+
+| Leg | What it runs | What it catches |
+| --- | --- | --- |
+| `fmt` | `cargo fmt --all --check` | unformatted Rust |
+| `lockfile` | `cargo metadata --locked`, `bun install --frozen-lockfile` | a `Cargo.lock` or `bun.lock` that CI's `--locked` refuses |
+| `actionlint` | `actionlint` (with shellcheck) | a workflow that reads what is not there, a `run:` script shellcheck faults |
+| `citations` | `scripts/security-citations` | a test `docs/security.md` cites that is renamed or moved without its row |
+| `contract` | every ts-rs export test, writing `contract.ts` from nothing | a committed contract that is stale, or that a filtered run truncated; the file you have is put back |
+| `clippy` | `cargo clippy --workspace --all-targets --locked -- -D warnings` | the host's lints |
+| `windows` | the same clippy for `x86_64-pc-windows-msvc`, through `cargo xwin` | Windows-only code, and code only Unix uses that is dead on Windows |
+| `ui` | `bun run typecheck`, `bun run lint` and `bun run knip`, then `bun test ./<file>` for each file alone, then `bun run test` | a test file that passes only after another has set up a global for it |
+| `linux` (full) | clippy and `cargo test --workspace --locked` in Ubuntu 24.04 | Linux-only code and its tests |
+| `bare-path` (full) | the integration tests with PATH `/usr/bin:/bin:/usr/sbin:/sbin` and the toolchain | a test that needs a tool this shell put first (mise, uv, Homebrew's python) |
+| `shuffle` (full) | every test in a random order, `--shuffle` | a test that passes only after another: a shared temp path, a global |
+
+How the less obvious legs work:
+
+- `windows` cross-compiles with `clang-cl` and `lld-link` (Homebrew's
+  `llvm` and `lld`, which are keg-only, so the script puts them on PATH
+  for that leg) and the MSVC CRT and SDK headers `cargo-xwin` downloads
+  once into `~/Library/Caches/cargo-xwin`, accepting Microsoft's licence
+  for them. `ninja` builds libopus. The C in ring, aws-lc-sys and libopus
+  compiles, so the whole workspace checks and nothing is skipped. It
+  links nothing: tests are compiled, not run.
+- `ui`: bun runs every file in one process, in the order this machine
+  lists them, so a global one file leaves behind is there for the files
+  after it. A file that fails alone is named with its command.
+- `linux` runs under Apple's `container` CLI. The image,
+  `scripts/precheck-linux.Containerfile`, is the check job's packages on
+  ubuntu-24.04 and this Mac's stable Rust, tagged by both, so changing
+  either builds a new one. The checkout is mounted read-only; the build
+  writes only to volumes (`hotline-precheck-*`): the target directory,
+  cargo's registry, and the three gitignored folders tauri-build writes
+  into the app crate. The tests run as an unprivileged user, as on the
+  runner, under an init that reaps what they kill (a zombie looks alive
+  to the tests that check a process group died), with every test binary
+  run even after one fails. The container's masked `/proc` paths are
+  cleared so bubblewrap can mount its own: the workspace shell's sandbox
+  tests, ignored on Linux unless asked for, run here with `--ignored`, as
+  in workspace-isolation.yml; ci.yml's Linux job, without the AppArmor
+  grant, reports them ignored.
+  The container is arm64, this Mac's own architecture, where the runner
+  is x86_64: code that differs by architecture rather than by operating
+  system is the one thing this leg does not see. `container volume rm`
+  of the five volumes starts it cold.
+- `bare-path` compiles with the normal PATH, then cargo runs each test
+  binary through `scripts/precheck-runner-env`, which keeps cargo's
+  variables, `HOME`, `USER`, `TMPDIR` and `LANG` and nothing else. This
+  Mac has the Command Line Tools, so `/usr/bin/python3` works here; a
+  runner with only Xcode, task-89's case, is not reproduced.
+- `shuffle` sets `RUSTC_BOOTSTRAP=1` in the test runner, so stable's
+  libtest takes `-Z unstable-options --shuffle` without the variable
+  reaching cargo, which would rebuild every crate. Each binary prints its
+  seed in `target/precheck/shuffle.log`; `-- -Z unstable-options
+  --shuffle-seed <seed>` replays it. Doc tests are not shuffled.
+
+Times on a Mac Studio with 18 cores, measured 2026-10-17. Warm means a
+build of the same tree has run before; cold, an empty target directory
+(and for `linux`, a new image), with crates already
+downloaded and cargo-xwin's MSVC files already cached:
+
+| | warm | cold |
+| --- | --- | --- |
+| `make precheck` | 15 s | 4 min |
+| `linux` | 70 s | 5 min, the image included |
+| `bare-path` | 35–45 s | a `cargo test` build first |
+| `shuffle` | 75 s | a `cargo test` build first |
+| `make precheck-full` | 3.5 min | about 12 min |
+
+## Git hooks
+
+```bash
+make hooks   # git config core.hooksPath .githooks, once per clone
+```
+
+The hooks are plain `sh` in `.githooks/`, versioned with the code they
+check; there is no hook manager. `make dev` and `make check` print a line
+while they are off and never turn them on themselves. The setting lives in
+the repository's shared config, so every worktree, a dispatched agent's
+included, runs the hooks its own branch carries; a branch cut before
+`.githooks/` existed runs none.
+
+| Hook | What it runs | How long |
+| --- | --- | --- |
+| `pre-commit` | refuses a staged `*.p8`, `*.pem` or `auth.json`; `cargo fmt --all -- --check` when a `.rs` file is staged; when `contract.ts` is staged, refuses it if it lost more than a quarter of HEAD's lines or does not compile alone; `bun run typecheck` when anything under `ui/` is staged | 1–2 s |
+| `pre-push` | `make precheck` ([Before pushing](#before-pushing)) | 15 s warm, 4 min cold |
+
+The `contract.ts` check is for the filtered run's truncation
+([The generated contract](#the-generated-contract)): a file missing types
+either shrinks or names a type it no longer defines. The typecheck and
+`cargo fmt` read the working tree, not the index, so a partly staged file
+is checked as it stands on disk.
+
+`git push --no-verify` skips pre-push, and the hook says so when it
+fails; it is for an emergency, and the push then has only CI behind it.
+There is no `pre-merge-commit`: a clean merge (`brainfile land`'s) joins
+commits that each passed pre-commit, and a merge that stopped on a
+conflict is finished with `git commit`, which runs pre-commit on
+everything the merge brought in. `scripts/test_githooks.py`, in `make
+check`, stages a clean change, unformatted Rust, a truncated contract, a
+contract that does not compile and a key file in a clone, and runs
+pre-commit on each.
 
 ## Application updates
 
@@ -375,7 +544,7 @@ and `~/.local/bin`, because a packaged Mac app's GUI PATH is the bare
 system one. The user's pick is the room setting `computerRuntime`; absent
 means the first available. The image is the teammate's or the room's pin,
 or else the newest published release at or above the floor
-`COMPUTER_VERSION` in `crates/hotline-core/src/computer/mod.rs`, and the
+`COMPUTER_VERSION` in `crates/hotline-core/src/computer.rs`, and the
 floor itself when nothing newer is known ([computer.md](computer.md)), at
 `ghcr.io/1broseidon/hotline-computer:<release>`. Never `latest`. Tests use a fake runtime script in a temp dir; they do not talk
 to a real daemon.
@@ -393,8 +562,12 @@ scratch or the store.
 
 ## The generated contract
 
-Types are defined once in `crates/hotline-core/src/contract.rs` (serde +
-ts-rs). `cargo test -p hotline-core` runs the export tests and writes
+Each wire type is defined once in Rust, with serde and ts-rs. Most live in
+`crates/hotline-core/src/contract/`, a file per concern, each re-exported
+from `contract`, which imports nothing else from the crate. The types that
+belong to Remote, linked desks and the importer are defined beside them
+(`remote.rs`, `remote/{client,relay,v2}.rs`, `linked.rs`, `import.rs`) and
+export to the same file. `cargo test -p hotline-core` runs the export tests and writes
 `ui/src/generated/contract.ts`. `.cargo/config.toml` points ts-rs at that
 directory and tells it a 64-bit integer is a JavaScript `number`, because
 every number on this wire arrives as `JSON.parse` produces it.
@@ -402,7 +575,7 @@ every number on this wire arrives as `JSON.parse` produces it.
 A filtered run (`cargo test session`) writes only the types it matched
 and leaves a file the window cannot compile against. Run
 `cargo test -p hotline-core` unfiltered before committing that file; `make
-check` catches it. Never run a filtered test as the last run.
+check` and the pre-commit hook catch it. Never run a filtered test as the last run.
 
 ## The model catalogue
 
@@ -497,23 +670,30 @@ wrong-state callbacks, registration gaps, concurrent refresh, URL binding,
 sign-out and the protected vault boundary. No real provider account is used by
 the test suite.
 
-`desk.rs` has four tests. The first creates a teammate, watches the
-roster view, lists models, adds a credential, and deletes the teammate —
-no provider key required. The second lists a peer thread, subscribes to
-it, and marks a message read. The third starts a Hotline Agent turn with a
-real key, has it read a file, and checks the tape. It is skipped unless
-`HOTLINE_HARNESS_ANTHROPIC_KEY` is set. The fourth is the same proof for the
+Most of `desk.rs` needs no provider key: it creates a teammate, watches
+the roster view, lists models, adds a credential, lists and marks a peer
+thread, and so on. The tests that need a real agent are ignored, and run
+with `--ignored`, failing by name when their env is missing. One starts a
+Hotline Agent turn with a real key in `HOTLINE_HARNESS_ANTHROPIC_KEY`, has it
+read a file, and checks the tape. The others are the same proof for the
 other kind of agent: set `HOTLINE_HARNESS_ACP` to a backend id this machine
-can run (`cursor`, say) and it drives a real harness as a child.
+can run (`cursor`, say) and they drive a real harness as a child, including
+a line sent mid-turn.
 
 ```bash
-HOTLINE_HARNESS_ANTHROPIC_KEY=… make verify
-HOTLINE_HARNESS_ACP=cursor make verify
+HOTLINE_HARNESS_ANTHROPIC_KEY=… cargo test -p hotline-core --test desk -- --ignored a_turn_with_a_real_key
+HOTLINE_HARNESS_ACP=cursor cargo test -p hotline-core --test desk -- --ignored real_acp_harness
 ```
 
 A harness that wants state in a stream asks the core over the wire, or
 writes the file before the core starts. The core is the only process that
 appends to a stream.
+
+A test waits on the thing it is waiting for, never on a sleep it hopes is
+long enough: `common::until(what, cond)` in a harness, and
+`test_support::until(what, cond)` in a unit test, each giving up after one
+generous minute with `what` in the failure. A loaded runner only makes them
+slower, so a test asserts what happened and in what order, never how fast.
 
 ## hotline-import
 

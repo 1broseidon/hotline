@@ -31,7 +31,7 @@ pub const CAP: u64 = 5 * 1024 * 1024;
 /// How often a running app looks at the log's size. It writes a few lines an
 /// hour when all is well; a loop printing in earnest still cannot get far past
 /// the cap between two looks.
-const CHECK_EVERY: Duration = Duration::from_secs(5 * 60);
+const CHECK_EVERY: Duration = Duration::from_mins(5);
 
 /// The file a person is asked for when something went wrong.
 pub fn path(root: &Path) -> PathBuf {

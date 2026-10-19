@@ -46,6 +46,17 @@ Pass `--listen` and `--public-url` again to change them (add `--force` when
 keeping the same version); if the desk won't start with the new values,
 the previous unit goes back.
 
+For a server that only [relays](/docs/server/relay/) and runs no agents, a
+Raspberry Pi say, add `--relay`:
+
+```sh
+curl -fsSL https://hotline.dev/install | sh -s -- --server --relay
+```
+
+A re-run keeps what the server is: one installed with `--relay` is updated
+only with `--relay`, and one installed without it is never made a relay by
+the installer. Each says so and stops before changing anything.
+
 ## Update a server
 
 For a server installed at `/usr/local/bin/hotline` with the `hotline` systemd

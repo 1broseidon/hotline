@@ -1,6 +1,6 @@
 # ADR 0005: The live voice is a full agent on the call
 
-- Status: Accepted (0.39, landing over epic-7)
+- Status: Accepted (0.39)
 - Date: 2026-10-16
 - Supersedes: the relay-only guardrails of
   [ADR 0004](0004-live-calls-get-a-voice-front.md) ("The front relays and
@@ -22,8 +22,9 @@ request paid a full round trip through the working session, even "what did we
 do yesterday", which is one search. Every relayed line became a turn in the
 DM, so the chat filled with the call: "No, stop" came back as two "Stopped"
 messages. And the front, a model that can run tools and think in the voice
-modality, sat idle while a text model did its thinking for it. 0.38.1 took the
-first step (talk about the call stays in the voice); the rest is this.
+modality, sat idle while a text model did its thinking for it. The first step
+(talk about the call stays in the voice) was built as a 0.38.1 that was never
+tagged, and shipped in 0.39.0 with the rest, which is this.
 
 ## Decision
 
@@ -150,7 +151,7 @@ by the route its protocol gives.
 
 - [voice-calls.md](../voice-calls.md) Direct turns and
   [voice.md](../voice.md) "One brain, two outputs" describe the full agent,
-  and `tests/voice.rs` (`one_call_proves_the_whole_front`) proves it end to
+  and `tests/voice/front_tools.rs` (`one_call_proves_the_whole_front`) proves it end to
   end on a function-tool dialect; the GPT-Live case proves lookups, denial
   and hand-off through its backend tool calls.
 - ADR 0004's latency, barge-in, subscription and fallback decisions stand.

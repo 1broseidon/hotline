@@ -49,9 +49,7 @@ jobs:
       # hash, never fetched by the build itself (scripts/fetch-speech-engine).
       - name: Fetch the pinned speech engine
         shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
+        run: python3 scripts/fetch-speech-engine || python scripts/fetch-speech-engine
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -97,6 +95,9 @@ jobs:
           cargo clippy --workspace --all-targets --locked -- -D warnings
           cargo test --workspace --locked
           bun run --cwd ui typecheck
+          bun run --cwd ui lint
+          bun run --cwd ui knip
+          python3 scripts/window_licenses.py || python scripts/window_licenses.py
           python3 -m unittest discover -s scripts -p 'test_updater_manifest.py' || python -m unittest discover -s scripts -p 'test_updater_manifest.py'
 
       # The release no longer runs the tests, so the round trip through
@@ -104,6 +105,37 @@ jobs:
       - name: Verify native desktop credential storage
         if: runner.os == 'Windows'
         run: cargo test --workspace native_store_roundtrip --locked -- --ignored
+
+  # The dependency gates `make check` runs (deny.toml says the policy). They
+  # read manifests and lockfiles, never compile, and answer the same on every
+  # operating system, so they run once, on GitHub's runner: the advisory
+  # databases are fetched either way.
+  dependencies:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The same versions the Makefile pins.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete@0.9.2,cargo-deny@0.20.2
+
+      - name: Check for unused Cargo dependencies
+        run: cargo machete --with-metadata
+
+      - name: Check Cargo.lock against the advisory database and the reviewed licenses
+        run: cargo deny --locked check advisories licenses
+
+      - name: Check the window's lockfile against the advisory database
+        working-directory: ui
+        run: bun audit
 
   # macOS-only code (the keychain, notifications, the Finder PATH test) is
   # compiled nowhere else before a tag, and the release only builds: a slip
@@ -118,9 +150,7 @@ jobs:
       # hash, never fetched by the build itself (scripts/fetch-speech-engine).
       - name: Fetch the pinned speech engine
         shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
+        run: python3 scripts/fetch-speech-engine || python scripts/fetch-speech-engine
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -146,6 +176,39 @@ jobs:
       # session.
       - name: Verify native desktop credential storage
         run: cargo test --workspace native_store_roundtrip --locked -- --ignored
+
+  # A manual run only: whether /usr/bin's developer shims (python3, git) run
+  # in both shells on a hosted Mac, where Xcode is selected, and how long
+  # each took. The test prints its report and names any that hung.
+  shell-probe:
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Fetch the pinned speech engine
+        shell: bash
+        run: python3 scripts/fetch-speech-engine || python scripts/fetch-speech-engine
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-macos
+          save-if: false
+
+      - name: Unpack the speech engine again
+        shell: bash
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+
+      - name: Probe the developer shims in both shells
+        run: |
+          xcode-select -p
+          cargo test -p hotline-core --test processes developer_shims --locked -- --ignored --nocapture
 
   # On a push to main (or a manual run), the release's own build of each target, unsigned and
   # unbundled, saved under the key desktop-release.yml restores. A tag then

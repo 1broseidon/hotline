@@ -8,7 +8,7 @@ beside them (`crates/hotline-core/src/voice/`).
 
 ## The seam
 
-`Speech` (`voice/speech/mod.rs`) has `transcribe(clip)` and `speak(text)`, and
+`Speech` (`voice/speech.rs`) has `transcribe(clip)` and `speak(text)`, and
 `resolve(vault, settings)` returns a `SpeechSet` of three: `stt`, `tts` and an
 optional `fallback_tts`. An adapter is built for one job, so `id()` names the
 model behind that job, and the other job answers `WrongJob`. `output_mime()`
@@ -65,6 +65,19 @@ final text, failing rather than returning a partial. A changed input device
 ends the utterance with an error. Cancelling with an empty id cancels
 whatever is current, a model download included, and a reload of the window
 does that too.
+
+A Speech Recognition grant that no longer matches the app's signature (a
+self-signed build with the same bundle id was run) leaves the engine
+metering the microphone and recognizing nothing, with no error. The window
+watches for it (`WordlessVoice`, `ui/src/voice/transcription.ts`): once the
+turn detector has found three seconds of voice, across turns and sessions,
+and the engine has never answered a word, a call ends and a dictation stops
+saying "Hotline hears your voice but no words", with where to allow it. A
+quiet room never trips it, and neither does anything after the first word.
+Where `voice.status`, asked about audio, says the desk hears with its own
+model (`local`), the call card and the composer offer "Use desk model",
+which turns hearing on this Mac off, as Settings would, and calls or
+dictates again; with a paid provider there, nothing is offered.
 
 ## Calls from the window on a Mac
 
@@ -907,8 +920,8 @@ and 150 ms.
 
 The tests in `voice/speech/` use mock servers on localhost and never reach the
 network. `tests/local_speech.rs` serves small fake archives on localhost, and
-runs a real model only when `HOTLINE_TEST_SPEECH_MODEL` names a directory
-holding one.
+runs a real model only with `--ignored` and `HOTLINE_TEST_SPEECH_MODEL`
+naming a directory holding one.
 
 ## The voice front setting
 

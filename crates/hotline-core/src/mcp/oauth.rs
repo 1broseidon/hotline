@@ -300,9 +300,7 @@ pub(crate) async fn manager_for_server(
             .map(|client_id| McpOAuthRegistration {
                 client_id: client_id.clone(),
                 client_secret: None,
-                redirect_uri: redirect_uri
-                    .map(str::to_string)
-                    .unwrap_or_else(loopback_redirect),
+                redirect_uri: redirect_uri.map_or_else(loopback_redirect, str::to_string),
                 issuer: metadata.issuer.clone(),
                 resource: configured
                     .as_ref()
@@ -765,14 +763,14 @@ impl McpOAuthService {
         let deadline_at = Instant::now() + CALLBACK_DEADLINE;
         loop {
             tokio::select! {
-                _ = tokio::time::sleep_until(deadline_at) => {
+                () = tokio::time::sleep_until(deadline_at) => {
                     let mut state = login.state.lock().await;
                     if *state == OAuthLoginState::Pending {
                         *state = OAuthLoginState::Failed("MCP OAuth sign-in timed out.".to_string());
                     }
                     break;
                 }
-                _ = login.shutdown.cancelled() => break,
+                () = login.shutdown.cancelled() => break,
                 accepted = listener.accept() => {
                     let Ok((mut socket, _)) = accepted else { break; };
                     let request = read_callback_request(
@@ -784,12 +782,12 @@ impl McpOAuthService {
                     match request {
                         Ok(url) => match self.complete_login(&login, &url).await {
                             Ok(()) => {
-                                let body = "<html><body>Hotline sign-in complete. You may close this tab.</body></html>";
-                                write_callback_response(&mut socket, "200 OK", body).await;
+                                let body = callback_page("Signed in", "You can close this tab.", false);
+                                write_callback_response(&mut socket, "200 OK", &body).await;
                                 break;
                             }
                             Err(error) => {
-                                let body = format!("<html><body>Hotline could not finish sign-in: {}</body></html>", html_escape(&error));
+                                let body = callback_page("Sign-in failed", &error, true);
                                 write_callback_response(&mut socket, "400 Bad Request", &body).await;
                                 let terminal = matches!(
                                     &*login.state.lock().await,
@@ -803,7 +801,7 @@ impl McpOAuthService {
                             }
                         },
                         Err(error) => {
-                            let body = format!("<html><body>Hotline could not read the sign-in callback: {}</body></html>", html_escape(&error));
+                            let body = callback_page("Sign-in failed", &error, true);
                             write_callback_response(&mut socket, "400 Bad Request", &body).await;
                         }
                     }
@@ -857,12 +855,12 @@ impl McpOAuthService {
             Ok(_) => {
                 *state = OAuthLoginState::Complete;
                 login.shutdown.cancel();
-                if let Some(callback) = self
+                let callback = self
                     .on_complete
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner)
-                    .clone()
-                {
+                    .clone();
+                if let Some(callback) = callback {
                     callback();
                 }
                 Ok(())
@@ -1021,15 +1019,58 @@ async fn read_callback_request(
             .map_err(|error| format!("OAuth callback URL was invalid: {error}"))
     };
     tokio::select! {
-        _ = shutdown.cancelled() => Err("MCP OAuth callback listener was closed".to_string()),
+        () = shutdown.cancelled() => Err("MCP OAuth callback listener was closed".to_string()),
         result = tokio::time::timeout_at(deadline_at, read) => result
             .map_err(|_| "MCP OAuth callback request timed out".to_string())?,
     }
 }
 
+/// The callback page runs nothing and loads nothing: its one style sheet is
+/// inline, so the policy allows inline style and refuses everything else,
+/// and an error message that slipped past escaping still could not run.
+const CALLBACK_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+/// The window's dark and light planes, ink and signals, copied from
+/// `ui/src/tokens.css`, because the browser tab cannot reach the window's
+/// stylesheet and the policy would refuse it if it could.
+const CALLBACK_PAGE_STYLE: &str = "\
+:root{color-scheme:dark light;--well:oklch(12% 0.006 250);--raised:oklch(20% 0.007 250);\
+--line:oklch(100% 0 0 / 0.09);--ink:oklch(95% 0.004 250);--ink-2:oklch(78% 0.006 250);\
+--ink-3:oklch(62% 0.008 250);--accent:oklch(78.7% 0.128 163);--danger:oklch(72% 0.17 25)}\
+@media (prefers-color-scheme:light){:root{--well:oklch(92.5% 0.005 250);\
+--raised:oklch(100% 0 0);--line:oklch(20% 0.01 250 / 0.1);--ink:oklch(20% 0.01 250);\
+--ink-2:oklch(42% 0.01 250);--ink-3:oklch(56% 0.01 250);--danger:oklch(55% 0.19 27)}}\
+*{box-sizing:border-box}\
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;\
+background:var(--well);color:var(--ink);\
+font:14px/1.5 \"IBM Plex Sans\",-apple-system,\"Segoe UI Variable Text\",system-ui,sans-serif}\
+main{width:min(360px,100%);padding:24px;border:1px solid var(--line);border-radius:12px;\
+background:var(--raised)}\
+p{margin:0}\
+.brand{color:var(--ink-3);font-size:12px;letter-spacing:.02em}\
+h1{display:flex;align-items:center;gap:8px;margin:8px 0 4px;font-size:16px;font-weight:600}\
+h1::before{content:\"\";width:8px;height:8px;border-radius:50%;background:var(--accent)}\
+.failed h1::before{background:var(--danger)}\
+.detail{color:var(--ink-2);overflow-wrap:anywhere}";
+
+/// The page the browser lands on after the provider sends it back: what
+/// happened in a heading, and a line saying what to do or what went wrong.
+fn callback_page(title: &str, detail: &str, failed: bool) -> String {
+    let class = if failed { " class=\"failed\"" } else { "" };
+    let title = html_escape(title);
+    let detail = html_escape(detail);
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<title>Hotline · {title}</title><style>{CALLBACK_PAGE_STYLE}</style></head>\
+<body><main{class}><p class=\"brand\">Hotline</p><h1>{title}</h1>\
+<p class=\"detail\">{detail}</p></main></body></html>"
+    )
+}
+
 async fn write_callback_response(socket: &mut TcpStream, status: &str, body: &str) {
     let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Security-Policy: {CALLBACK_CONTENT_SECURITY_POLICY}\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     let _ = tokio::time::timeout(
@@ -1166,8 +1207,7 @@ fn is_loopback_host(host: Option<&str>) -> bool {
     host.eq_ignore_ascii_case("localhost")
         || host
             .parse::<IpAddr>()
-            .map(|address| address.is_loopback())
-            .unwrap_or(false)
+            .is_ok_and(|address| address.is_loopback())
 }
 
 fn validate_redirect_uri(value: &str) -> Result<(), String> {
@@ -1614,7 +1654,7 @@ mod tests {
 
     fn mcp_challenge(state: &MockOAuthState) -> Response {
         let metadata = format!("{}/.well-known/oauth-protected-resource", state.base);
-        let value = format!(r##"Bearer resource_metadata="{metadata}", scope="mcp""##);
+        let value = format!(r#"Bearer resource_metadata="{metadata}", scope="mcp""#);
         Response::builder()
             .status(StatusCode::UNAUTHORIZED)
             .header(WWW_AUTHENTICATE, value)
@@ -1701,6 +1741,69 @@ mod tests {
             .expect("native callback response timeout")
             .expect("native callback response");
         String::from_utf8(response).expect("native callback response text")
+    }
+
+    /// The callback page's headers carry the strict policy, its body is the
+    /// styled page with the given heading, and nothing on it can run.
+    fn assert_callback_page(response: &str, status: &str, title: &str) {
+        let (head, body) = response.split_once("\r\n\r\n").expect("headers end");
+        assert!(head.starts_with(&format!("HTTP/1.1 {status}")), "{head}");
+        let policy = head
+            .lines()
+            .find_map(|line| line.strip_prefix("Content-Security-Policy: "))
+            .expect("Content-Security-Policy header");
+        assert_eq!(policy, CALLBACK_CONTENT_SECURITY_POLICY);
+        assert!(policy.starts_with("default-src 'none';"), "{policy}");
+        assert!(!policy.contains("script-src"), "{policy}");
+        assert!(head.contains("\r\nCache-Control: no-store"), "{head}");
+        assert!(body.contains(&format!("<h1>{title}</h1>")), "{body}");
+        assert!(body.contains("prefers-color-scheme:light"), "{body}");
+        assert!(!body.to_ascii_lowercase().contains("<script"), "{body}");
+    }
+
+    #[test]
+    fn callback_page_escapes_what_it_is_told() {
+        let page = callback_page(
+            "Sign-in failed",
+            "<script>alert(1)</script> & \"more\"",
+            true,
+        );
+        assert!(!page.contains("<script"), "{page}");
+        assert!(page.contains("&lt;script&gt;alert(1)&lt;/script&gt; &amp; &quot;more&quot;"));
+        assert!(page.contains("<main class=\"failed\">"), "{page}");
+    }
+
+    /// A callback the sign-in cannot accept gets the failure page, under the
+    /// same policy, and leaves the sign-in waiting; the right one then gets
+    /// the signed-in page.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_callback_pages_say_what_happened_under_a_strict_policy() {
+        let mock = MockOAuthServer::start().await;
+        let root = scratch("callback-page");
+        let log = Log::open(&root);
+        let vault = Arc::new(Vault::open(&root, log).expect("vault"));
+        let server = mock.server();
+        let service = McpOAuthService::new(vault);
+        let started = service.start(&server).await.expect("start OAuth");
+
+        let response = send_native_callback(&started, "good-code", "wrong-state").await;
+        assert_callback_page(&response, "400 Bad Request", "Sign-in failed");
+        assert!(response.contains("state did not match"), "{response}");
+        assert!(!response.contains("good-code"), "{response}");
+        assert_eq!(
+            service.status(&server).await.expect("pending status")["status"],
+            "pending"
+        );
+
+        let state = state_from(&started);
+        let response = send_native_callback(&started, "good-code", &state).await;
+        assert_callback_page(&response, "200 OK", "Signed in");
+        assert!(response.contains("You can close this tab."), "{response}");
+        assert_eq!(
+            service.status(&server).await.expect("signed-in status")["status"],
+            "signed_in"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

@@ -29,16 +29,17 @@
 //! The chapters the DM keeps are in [`super::chapters`], and its idle clock is
 //! the Dm row of [`Room::sweep`].
 
+use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
 use super::{
-    Glance, PendingTool, Room, Session, Wired, call_origin, escalation, lock, mark, new_id, now_ms,
-    quiet, schedule, timed,
+    Glance, Room, Session, Wired, call_origin, escalation, lock, mark, new_id, now_ms, quiet,
+    schedule, timed,
 };
 use crate::contract::{Reach, Receipt, ScheduledRun, SessionState, TranscriptEvent};
+use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::{MessageKind, Update};
 use crate::room;
-use crate::thread::{ThreadId, ThreadKind};
 use crate::voice::spoken::versions;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -315,8 +316,7 @@ impl Witness for Heard<'_> {
                 {
                     let name = room
                         .persona(&session.persona_id)
-                        .map(|p| p.name)
-                        .unwrap_or_else(|_| "Hotline".into());
+                        .map_or_else(|_| "Hotline".into(), |p| p.name);
                     voice.delivery(&session.persona_id, id, &name, text, true, Some(origin));
                 }
                 // The phone is shown the reply as the chat is, its written

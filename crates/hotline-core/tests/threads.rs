@@ -4,12 +4,10 @@
 mod common;
 
 use axum::{Router, body::Bytes, routing::post};
-use futures_util::{SinkExt, StreamExt};
+use common::Client;
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
-use std::{collections::VecDeque, sync::Arc, time::Duration};
-use tokio::net::TcpStream;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
+use std::{sync::Arc, time::Duration};
 
 const TOKEN: &str = "disposable-threads-test";
 const PATIENCE: Duration = Duration::from_secs(20);
@@ -52,8 +50,8 @@ async fn a_work_thread_is_one_conversation_to_old_and_threads2_clients() {
     let port = door.port();
     let door_task = tokio::spawn(door.run());
 
-    let mut now = Client::connect(port).await;
-    let mut old = Client::connect(port).await;
+    let mut now = Client::connect(port, TOKEN).await;
+    let mut old = Client::connect(port, TOKEN).await;
     let saved = now
         .call(
             "credential.custom_save",
@@ -132,9 +130,16 @@ async fn a_work_thread_is_one_conversation_to_old_and_threads2_clients() {
         "an old client is never sent a link"
     );
 
-    // The first turn ends, then another is asked for, with both reading.
+    // The first turn ends, then another is asked for, with both reading. The
+    // model answers at once, so on a fast machine the turn has ended before
+    // the side is subscribed to, and arrives in its snapshot instead.
     now.next_where(PATIENCE, |frame| {
-        frame["sub"] == now_side && frame["event"]["kind"] == "turn"
+        let ended = |event: &Value| event["kind"] == "turn";
+        frame["sub"] == now_side
+            && (ended(&frame["event"])
+                || frame["snapshot"]
+                    .as_array()
+                    .is_some_and(|events| events.iter().any(ended)))
     })
     .await;
     let said = now
@@ -282,110 +287,4 @@ async fn state_of(client: &mut Client, persona: &str, thread: &Value) -> String 
         .as_str()
         .unwrap()
         .to_owned()
-}
-
-/// The window's half of the wire, as the harness plays it.
-struct Client {
-    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    next_id: i64,
-    /// Frames that arrived while waiting for something else: a subscription's
-    /// snapshot or event lands whenever the room has one.
-    inbox: VecDeque<Value>,
-}
-
-impl Client {
-    async fn connect(port: u16) -> Client {
-        let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token={TOKEN}"))
-            .await
-            .unwrap();
-        Client {
-            socket,
-            next_id: 1,
-            inbox: VecDeque::new(),
-        }
-    }
-
-    async fn read(&mut self) -> Value {
-        loop {
-            match self.socket.next().await.expect("the door closed") {
-                Ok(Message::Text(text)) => return serde_json::from_str(&text).unwrap(),
-                Ok(_) => continue,
-                Err(error) => panic!("the socket failed: {error}"),
-            }
-        }
-    }
-
-    /// A command, answered. Frames for subscriptions that arrive first are
-    /// kept for `next_where`.
-    async fn call(&mut self, cmd: &str, params: Value) -> Value {
-        let id = self.next_id;
-        self.next_id += 1;
-        let frame = json!({ "id": id, "cmd": cmd, "params": params });
-        self.socket
-            .send(Message::text(frame.to_string()))
-            .await
-            .unwrap();
-        loop {
-            let frame = self.read().await;
-            if frame.get("id").and_then(Value::as_i64) == Some(id) {
-                return frame;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
-
-    async fn subscribe(&mut self, target: Value) -> i64 {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.socket
-            .send(Message::text(
-                json!({ "id": id, "sub": target }).to_string(),
-            ))
-            .await
-            .unwrap();
-        loop {
-            let frame = self.read().await;
-            if frame.get("id").and_then(Value::as_i64) == Some(id) {
-                assert_eq!(frame["ok"], true, "{frame}");
-                return id;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
-
-    /// The next frame that satisfies `wanted`, from the inbox first and then
-    /// the socket, within `patience`.
-    async fn next_where(&mut self, patience: Duration, wanted: impl Fn(&Value) -> bool) -> Value {
-        if let Some(at) = self.inbox.iter().position(&wanted) {
-            return self.inbox.remove(at).unwrap();
-        }
-        let deadline = tokio::time::Instant::now() + patience;
-        loop {
-            let frame = tokio::time::timeout_at(deadline, self.read())
-                .await
-                .unwrap_or_else(|_| {
-                    // What did arrive, newest last, so a timeout on a slow
-                    // runner says which step stalled.
-                    let seen: Vec<String> = self
-                        .inbox
-                        .iter()
-                        .rev()
-                        .take(12)
-                        .rev()
-                        .map(|frame| {
-                            let text = frame.to_string();
-                            text.chars().take(240).collect()
-                        })
-                        .collect();
-                    panic!(
-                        "nothing wanted arrived within {patience:?}; the inbox held:\n{}",
-                        seen.join("\n")
-                    )
-                });
-            if wanted(&frame) {
-                return frame;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
 }

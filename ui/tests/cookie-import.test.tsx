@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
+import { installDom } from "./dom";
 
 // Loading the window's modules reads the platform, and the theme, before any test has a DOM.
 Object.assign(globalThis, {
@@ -21,24 +21,16 @@ let browsers: unknown[];
 let asked: string[];
 let root: Root | null;
 let container: HTMLDivElement;
-let dom: Window;
 let act: typeof import("react").act;
 let restores: (() => void)[];
+let teardown: () => Promise<void>;
 
 beforeEach(async () => {
 	restores = [];
-	dom = new Window();
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		});
-	}
+	({ teardown } = installDom());
 	asked = [];
 	const command = spyOn(wire, "command").mockImplementation((async (cmd: string, params: Record<string, unknown>) => {
-		asked.push(cmd === "computer.cookies.preview" ? `${cmd} ${String(params.browserId)}` : cmd);
+		asked.push(cmd === "computer.cookies.preview" ? `${cmd} ${String(params["browserId"])}` : cmd);
 		if (cmd === "computer.browsers.list") return browsers;
 		if (cmd === "computer.cookies.preview") return [];
 		throw new Error(`Unexpected command ${cmd}`);
@@ -57,7 +49,7 @@ afterEach(async () => {
 	});
 	replaceDesks([]);
 	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 
 async function mount() {

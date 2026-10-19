@@ -18,6 +18,7 @@ use crate::tools::Workspace;
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use std::io::{Cursor, Write};
 use std::path::{Path, PathBuf};
 
@@ -148,7 +149,7 @@ impl Room {
             transparent: false,
             references: styled.references,
         };
-        let drawn = self.draw(&request, &None).await?;
+        let drawn = self.draw(&request, None).await?;
         let permit = DECODERS
             .acquire()
             .await
@@ -198,23 +199,19 @@ impl Room {
     ) -> Result<Option<String>, String> {
         let root = self.log.root();
         let mut persona = self.persona(persona_id)?;
-        let hash = match png {
-            Some(png) => {
-                let hash = hex::encode(Sha256::digest(&png));
-                store(root, persona_id, &hash, &png)
-                    .map_err(|_| "The picture could not be saved.".to_string())?;
-                persona.avatar = Some(Avatar {
-                    hash: hash.clone(),
-                    by,
-                    updated_at: chrono::Utc::now()
-                        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-                });
-                Some(hash)
-            }
-            None => {
-                persona.avatar = None;
-                None
-            }
+        let hash = if let Some(png) = png {
+            let hash = hex::encode(Sha256::digest(&png));
+            store(root, persona_id, &hash, &png)
+                .map_err(|_| "The picture could not be saved.".to_string())?;
+            persona.avatar = Some(Avatar {
+                hash: hash.clone(),
+                by,
+                updated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            });
+            Some(hash)
+        } else {
+            persona.avatar = None;
+            None
         };
         persona.updated_at = super::now_ms();
         crate::room::append_persona(&self.log, &persona)?;
@@ -229,7 +226,7 @@ fn avatar_subject(name: &str, goal: &str) -> String {
     let goal: String = goal.trim().chars().take(600).collect();
     let mut subject = format!("a teammate called {}", name.trim());
     if !goal.is_empty() {
-        subject.push_str(&format!(", whose job is: {goal}"));
+        let _ = write!(subject, ", whose job is: {goal}");
     }
     subject.push_str(
         ". Pick its taste decisions from these, the few a person would remember it by. If the name is a thing, its colour, skin or a detail echoes that thing.",

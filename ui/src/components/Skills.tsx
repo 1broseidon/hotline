@@ -4,15 +4,16 @@ import { ChevronRightIcon, PlusIcon } from "../icons";
 import { chooseFolder, showPath } from "../serverFiles";
 import { useRoomSettings } from "../room";
 import { BackKey, Band } from "../ui/Band";
-import { Refusal } from "../ui/Refusal";
+import { Refusal, refused, type Refused } from "../ui/Refusal";
 import { Scroll } from "../ui/Scroll";
 import { wire } from "../wire";
 
 /** Where the person's own skills are read from when the room does not say. */
 const STANDARD_FOLDER = "~/.agents/skills";
+const FOLDER_FAILED = "Couldn't change folder";
 
 /** One word for where a skill came from, as the row's second line says it. */
-export function skillSourceName(entry: SkillEntry): string {
+function skillSourceName(entry: SkillEntry): string {
 	switch (entry.source) {
 		case "builtin":
 			return "Built in";
@@ -40,7 +41,7 @@ export function skillSourceName(entry: SkillEntry): string {
  */
 export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined }) {
 	const [entries, setEntries] = useState<SkillEntry[]>([]);
-	const [refusal, setRefusal] = useState<string | null>(null);
+	const [refusal, setRefusal] = useState<Refused | null>(null);
 	const [open, setOpen] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const { skillsHome } = useRoomSettings();
@@ -49,22 +50,23 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 		void wire
 			.command("skills.list", {})
 			.then(setEntries)
-			.catch((error: Error) => setRefusal(error.message));
+			.catch((error: unknown) => setRefusal(refused("Couldn't list skills", error)));
 	}, []);
 
 	// The folder may change under the list, so a new folder lists again.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new folder is what lists again.
 	useEffect(() => {
 		refresh();
 	}, [refresh, skillsHome]);
 
-	const run = async (work: () => Promise<void>) => {
+	const run = async (label: string, work: () => Promise<void>) => {
 		setBusy(true);
 		setRefusal(null);
 		try {
 			await work();
 			refresh();
 		} catch (error) {
-			setRefusal(error instanceof Error ? error.message : String(error));
+			setRefusal(refused(label, error));
 		} finally {
 			setBusy(false);
 		}
@@ -73,23 +75,23 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 	const add = async () => {
 		const path = await chooseFolder(undefined, "Choose a skill folder on the server");
 		if (path === null) return;
-		await run(async () => {
+		await run("Couldn't add skill", async () => {
 			await wire.command("skills.add", { path });
 		});
 	};
 	const remove = (name: string) =>
-		run(async () => {
+		run("Couldn't remove skill", async () => {
 			await wire.command("skills.remove", { name });
 			setOpen(null);
 		});
 	const offer = (name: string, offered: boolean) =>
-		run(async () => {
+		run("Couldn't change skill", async () => {
 			await wire.command("skills.offer", { name, offered });
 		});
 	// One switch at a time, so each lands through the same command a row's
 	// switch sends and a refusal stops the rest rather than half-saying yes.
 	const offerAll = () =>
-		run(async () => {
+		run("Couldn't offer skills", async () => {
 			for (const entry of entries) {
 				if (entry.source !== "home" || entry.invalid !== undefined || entry.offered === true) continue;
 				await wire.command("skills.offer", { name: entry.name, offered: true });
@@ -98,12 +100,12 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 	const changeFolder = async () => {
 		const path = await chooseFolder(undefined, "Choose the skills folder on the server");
 		if (path === null) return;
-		await run(async () => {
+		await run(FOLDER_FAILED, async () => {
 			await wire.command("settings.update", { patch: { skillsHome: path } });
 		});
 	};
 	const standardFolder = () =>
-		run(async () => {
+		run(FOLDER_FAILED, async () => {
 			await wire.command("settings.update", { patch: { skillsHome: null } });
 		});
 
@@ -198,7 +200,7 @@ export function SkillsSection({ onBack }: { onBack?: (() => void) | undefined })
 						</div>
 						<p className="group-hint">Every teammate has these.</p>
 					</section>
-					{refusal !== null && <Refusal message={refusal} />}
+					{refusal !== null && <Refusal {...refusal} />}
 				</div>
 			</Scroll>
 		</div>
@@ -265,7 +267,7 @@ function SkillPage({
 }: {
 	entry: SkillEntry;
 	busy: boolean;
-	refusal: string | null;
+	refusal: Refused | null;
 	onBack(): void;
 	onRemove(): void;
 }) {
@@ -313,7 +315,7 @@ function SkillPage({
 							)}
 						</div>
 					</section>
-					{refusal !== null && <Refusal message={refusal} />}
+					{refusal !== null && <Refusal {...refusal} />}
 				</div>
 			</Scroll>
 		</div>

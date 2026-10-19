@@ -3,6 +3,11 @@ name = "hotline-app"
 description = "Hotline's desktop shell on Tauri 2: one window onto the core, which runs in this process."
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
 
 [lib]
 name = "hotline_app_lib"
@@ -23,7 +28,13 @@ tauri-plugin-clipboard-manager = "=2.3.3"
 tauri-plugin-dialog = "=2.7.3"
 tauri-plugin-opener = "=2.5.5"
 tauri-plugin-window-state = "=2.4.1"
-tauri-plugin-updater = "=2.11.0"
+# Without the plugin's `zip` feature. It unpacks a Windows `.zip` with ZIP 4,
+# whose extraction carries RUSTSEC-2026-0367/0368/0369 (fixed only in ZIP 9,
+# which no updater release takes), and a Linux `.AppImage.tar.gz`. Hotline
+# publishes neither: Windows gets the bare NSIS installer, Linux the bare
+# AppImage, and the macOS `.app.tar.gz` reader is not behind the feature. An
+# archive offered anyway is refused as an unknown installer.
+tauri-plugin-updater = { version = "=2.11.0", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-global-shortcut = "=2.3.1"
 serde.workspace = true
 semver = "1"
@@ -65,3 +76,11 @@ objc2-user-notifications = { version = "0.3", features = [
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
+tokio = { workspace = true, features = ["test-util"] }
+
+# `cargo machete --with-metadata` (make check) reads a crate's targets but
+# never its build script, so a build dependency used only there looks unused.
+# tauri-build is that: `build.rs` calls it to write the shell's command
+# manifest. serde_json is also a build dependency, but `src/` names it too.
+[package.metadata.cargo-machete]
+ignored = ["tauri-build"]

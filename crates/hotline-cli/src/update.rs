@@ -52,9 +52,10 @@ impl Options {
 
     #[cfg(any(target_os = "linux", test))]
     fn sudo_command(&self) -> String {
+        use std::fmt::Write;
         let mut command = format!("sudo {BINARY} update");
         if let Some(version) = &self.version {
-            command.push_str(&format!(" --version {version}"));
+            let _ = write!(command, " --version {version}");
         }
         command
     }
@@ -90,11 +91,11 @@ fn curl(url: &str) -> Command {
 fn output(command: &mut Command) -> Result<Vec<u8>> {
     let result = command
         .output()
-        .map_err(|error| format!("could not run {:?}: {error}", command.get_program()))?;
+        .map_err(|error| format!("could not run {}: {error}", command.get_program().display()))?;
     if !result.status.success() {
         return Err(format!(
-            "{:?} failed ({}): {}",
-            command.get_program(),
+            "{} failed ({}): {}",
+            command.get_program().display(),
             result.status,
             String::from_utf8_lossy(&result.stderr).trim()
         ));
@@ -296,7 +297,9 @@ mod linux {
 
     pub(super) fn update(options: &Options) -> Result<()> {
         let target_path = Path::new(BINARY);
-        let parent = target_path.parent().unwrap();
+        let parent = target_path
+            .parent()
+            .expect("BINARY is an absolute file path, so it has a directory");
         secure_parent(parent)?;
         let _lock = lock_parent(parent)?;
         validate_installation()?;
@@ -305,8 +308,8 @@ mod linux {
         let current = parse_version(env!("CARGO_PKG_VERSION"))?;
         if before.active {
             // Refuse an unhealthy or unsupported custom unit before writing anything.
-            service
-                .probe(target_path, &current, &crate::door::runtime())
+            crate::door::runtime()
+                .and_then(|runtime| service.probe(target_path, &current, &runtime))
                 .map_err(|error| {
                     format!(
                         "the existing service is not ready for an update: {error}; nothing changed"
@@ -512,7 +515,7 @@ mod linux {
         fn restart_ready(&mut self, binary: &Path, version: &Version) -> Result<()> {
             systemctl(&["restart"])?;
             let deadline = Instant::now() + Duration::from_secs(30);
-            let runtime = crate::door::runtime();
+            let runtime = crate::door::runtime()?;
             let mut stable_pid = 0;
             let mut successes = 0;
             let mut last_error = "service has not become ready".to_owned();
@@ -635,7 +638,11 @@ mod linux {
         // This name is reserved before replacement, so recovery allocates no
         // executable contents even when the filesystem has filled up.
         io(fs::rename(&rollback, target))?;
-        sync_directory(target.parent().unwrap())?;
+        sync_directory(
+            target
+                .parent()
+                .expect("the installed binary's path is absolute, so it has a directory"),
+        )?;
         sync_directory(work)
     }
 
@@ -648,6 +655,9 @@ mod linux {
         version: &Version,
         previous: &Version,
     ) -> Result<()> {
+        let directory = target
+            .parent()
+            .expect("the installed binary's path is absolute, so it has a directory");
         prepare_binary(staged)?;
         if service.snapshot()? != *before {
             return Err(
@@ -673,7 +683,7 @@ mod linux {
             .sync_all()
             .map_err(|error| error.to_string())?;
         sync_directory(work.path())?;
-        sync_directory(target.parent().unwrap())?;
+        sync_directory(directory)?;
         // From this point onward, failed recovery must not allow TempDir's destructor to erase the backup.
         let work = work.keep();
         if let Err(error) = fs::rename(staged, target) {
@@ -685,7 +695,7 @@ mod linux {
         }
         let mut restart_attempted = false;
         let activation: Result<()> = (|| {
-            sync_directory(target.parent().unwrap())?;
+            sync_directory(directory)?;
             sync_directory(&work)?;
             // Do not turn an externally stopped/stopping service back on. The lock serializes
             // updaters, not an administrator's concurrent systemctl commands.
@@ -709,7 +719,7 @@ mod linux {
             return match recovery {
                 Ok(()) => {
                     let _ = fs::remove_dir_all(&work);
-                    let _ = sync_directory(target.parent().unwrap());
+                    let _ = sync_directory(directory);
                     Err(format!(
                         "update failed: {error}; previous binary restored{}",
                         if restart_attempted {
@@ -726,7 +736,7 @@ mod linux {
             };
         }
         io(fs::remove_dir_all(&work))?;
-        sync_directory(target.parent().unwrap())
+        sync_directory(directory)
     }
 
     #[cfg(test)]
@@ -792,6 +802,10 @@ mod linux {
             )
         }
         #[test]
+        #[expect(
+            clippy::verbose_file_reads,
+            reason = "the handle opened before the swap must still read the old file"
+        )]
         fn stopped_service_stays_stopped_and_replacement_is_atomic() {
             let (_parent, target, work, staged, mut service) = fixture(false);
             let mut old = File::open(&target).unwrap();
@@ -801,7 +815,7 @@ mod linux {
             let mut bytes = Vec::new();
             old.read_to_end(&mut bytes).unwrap();
             assert_eq!(bytes, b"old binary");
-            assert!(service.restarts.is_empty());
+            assert_eq!(service.restarts, [] as [String; 0]);
         }
         #[test]
         fn active_service_restarts_into_the_requested_version() {
@@ -829,7 +843,7 @@ mod linux {
                 .is_err()
             );
             assert_eq!(fs::read(&target).unwrap(), b"old binary");
-            assert!(service.restarts.is_empty());
+            assert_eq!(service.restarts, [] as [String; 0]);
         }
         #[test]
         fn failed_atomic_restore_does_not_consume_backup() {
@@ -993,7 +1007,7 @@ mod linux {
 mod tests {
     use super::*;
     fn options(args: &[&str]) -> Result<Options> {
-        Options::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        Options::parse(&args.iter().map(ToString::to_string).collect::<Vec<_>>())
     }
     #[test]
     fn strict_update_options() {

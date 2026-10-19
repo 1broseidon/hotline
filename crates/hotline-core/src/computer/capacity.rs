@@ -142,6 +142,7 @@ fn host_cpus() -> Option<u32> {
 fn host_memory() -> Option<u64> {
     // SAFETY: these sysconf selectors require no pointers or initialization.
     let pages = u64::try_from(unsafe { libc::sysconf(libc::_SC_PHYS_PAGES) }).ok()?;
+    // SAFETY: as above.
     let page_size = u64::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok()?;
     pages.checked_mul(page_size)
 }
@@ -155,8 +156,8 @@ fn host_memory() -> Option<u64> {
     let result = unsafe {
         libc::sysctlbyname(
             c"hw.memsize".as_ptr(),
-            (&mut bytes as *mut u64).cast(),
-            &mut len,
+            (&raw mut bytes).cast(),
+            &raw mut len,
             std::ptr::null_mut(),
             0,
         )
@@ -171,7 +172,8 @@ fn host_memory() -> Option<u64> {
     // initialized before calling GlobalMemoryStatusEx with a valid pointer.
     let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
     status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
-    (unsafe { GlobalMemoryStatusEx(&mut status) } != 0).then_some(status.ullTotalPhys)
+    // SAFETY: the pointer is to the local above, its size now set.
+    (unsafe { GlobalMemoryStatusEx(&raw mut status) } != 0).then_some(status.ullTotalPhys)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
@@ -343,7 +345,9 @@ mod tests {
         assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
         cache.get(Some(Runtime::Docker), &probe).await;
         assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
-        cache.entries.lock().await.get_mut(&None).unwrap().0 = Instant::now() - CACHE_FOR;
+        cache.entries.lock().await.get_mut(&None).unwrap().0 = Instant::now()
+            .checked_sub(CACHE_FOR)
+            .expect("the machine has been up for longer than the cache lasts");
         cache.get(None, &probe).await;
         assert_eq!(probe.calls.load(Ordering::SeqCst), 3);
     }

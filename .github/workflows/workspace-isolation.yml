@@ -5,6 +5,7 @@ on:
     paths:
       - 'crates/hotline-core/src/tools/**'
       - 'crates/hotline-core/tests/desk.rs'
+      - 'crates/hotline-core/tests/desk/workspace.rs'
       - '.github/workflows/workspace-isolation.yml'
   workflow_dispatch:
 
@@ -27,9 +28,7 @@ jobs:
       # hash, never fetched by the build itself (scripts/fetch-speech-engine).
       - name: Fetch the pinned speech engine
         shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: python3 scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"} || python scripts/fetch-speech-engine ${TARGET:+--target "$TARGET"}
+        run: python3 scripts/fetch-speech-engine || python scripts/fetch-speech-engine
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
@@ -77,5 +76,14 @@ jobs:
           uname -a
           if [ "$(uname)" = Darwin ]; then sw_vers; fi
           for tool in python3 node npm go rustc; do command -v "$tool" || true; done
+      # make check runs these at the versions the Makefile pins.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete@0.9.2,cargo-deny@0.20.2
       - name: Check core, desktop, window and isolation
         run: make check
+      # The sandbox tests are ignored on Linux unless asked for, since a
+      # machine may lack bubblewrap; this runner has it.
+      - name: Check the bubblewrap sandbox
+        if: runner.os == 'Linux'
+        run: cargo test -p hotline-core --locked -- --ignored tools::shell workspace_reach_keeps_another_projects_env_out_of_the_tools

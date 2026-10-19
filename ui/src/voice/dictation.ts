@@ -1,7 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { deskEngine, deskHears, useDeskHears } from "./desk";
 import { hearOnThisMac } from "./hearing";
-import { type DeviceTranscription, deviceTranscription, hearsOnThisMac, rawEquivalentDb } from "./transcription";
+import { TurnDetector, levelFromDb } from "./turn";
+import { type DeviceTranscription, UNHEARD, WordlessVoice, deviceTranscription, hearsOnThisMac, rawEquivalentDb } from "./transcription";
 
 /**
  * Dictation into the composer: an engine hears the person and the words go
@@ -39,15 +40,43 @@ export type DictationEvent =
 	| { type: "error"; message: string }
 	| { type: "ended"; reason: "final" | "no-speech" | "cancelled" | "error" };
 
-/** This Mac's engine as a dictation engine: the same, with its dBFS made a level. */
-export function macEngine(speech: DeviceTranscription): DictationEngine {
+/**
+ * This Mac's engine as a dictation engine: the same, with its dBFS made a
+ * level, and an error once the meter has heard a voice the engine never
+ * turned into a word (`WordlessVoice`). One dictation is watched across
+ * the sessions it takes, until it is stopped or let go.
+ */
+export function macEngine(speech: DeviceTranscription, now: () => number = () => performance.now()): DictationEngine {
+	let watch: { turns: TurnDetector; wordless: WordlessVoice } | null = null;
+	const forget = () => {
+		watch = null;
+	};
 	return {
 		capability: () => speech.capability(),
 		permit: () => speech.permit(),
-		start: (onEvent) =>
-			speech.start((event) => onEvent(event.type === "level" ? { type: "level", level: levelFromDbfs(rawEquivalentDb(event.levelDb)) } : event)),
-		stop: () => speech.stop(),
-		cancel: () => speech.cancel(),
+		start(onEvent) {
+			watch ??= { turns: new TurnDetector(now()), wordless: new WordlessVoice() };
+			const { turns, wordless } = watch;
+			turns.reset(now());
+			return speech.start((event) => {
+				if (event.type === "partial" || event.type === "final") wordless.heard(event.text);
+				if (event.type !== "level") return onEvent(event);
+				const at = now();
+				for (const turn of turns.push(levelFromDb(rawEquivalentDb(event.levelDb)), at)) {
+					if (wordless.turn(turn)) return onEvent({ type: "error", message: UNHEARD });
+					if (turn.kind !== "start") turns.reset(at);
+				}
+				onEvent({ type: "level", level: levelFromDbfs(rawEquivalentDb(event.levelDb)) });
+			});
+		},
+		stop: () => {
+			forget();
+			return speech.stop();
+		},
+		cancel: () => {
+			forget();
+			return speech.cancel();
+		},
 	};
 }
 
@@ -70,7 +99,7 @@ type DictationField = {
 export const DICTATION_UNAVAILABLE = "Dictation isn't available yet. Download a speech model for the desk in Settings › Providers.";
 export const DICTATION_DENIED =
 	"Hotline can't hear you. Allow Hotline under Speech Recognition and Microphone in System Settings › Privacy & Security, then try again.";
-const DICTATION_NOT_STARTED = "Dictation couldn't start. Try again.";
+const DICTATION_NOT_STARTED ="Dictation couldn't start. Try again.";
 const DICTATION_STOPPED = "Dictation stopped. What it heard is in the field.";
 
 /** The microphone's loudness in dBFS from a quiet room to a raised voice, which a level spreads across 0 to 1. */
@@ -406,7 +435,7 @@ export class TapOrHold {
 export const SEND_AFTER_MS = 1_500;
 
 /** Fewer than two letters is a cough or a click, not a message. */
-export function worthSending(heard: string): boolean {
+function worthSending(heard: string): boolean {
 	return heard.replace(/\s/g, "").length >= 2;
 }
 
@@ -546,7 +575,11 @@ export function takeDictationRequests(handle: (edge: KeyEdge, at: number) => voi
 	waiting = [];
 	// After the mount has settled: React may take a fresh mount down and up
 	// once more (StrictMode), and that would let a dictation begun here go.
-	if (fresh.length > 0) queueMicrotask(() => fresh.forEach((one) => handle(one.edge, one.at)));
+	if (fresh.length > 0) {
+		queueMicrotask(() => {
+			for (const one of fresh) handle(one.edge, one.at);
+		});
+	}
 	return () => {
 		if (target === handle) target = null;
 	};

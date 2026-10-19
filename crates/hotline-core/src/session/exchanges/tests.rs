@@ -4,6 +4,7 @@ use super::*;
 use crate::driver::{MessageKind, Update};
 use crate::mcp::server::TeammateTools;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
+use crate::test_support::until;
 use std::time::Duration;
 
 fn setup(name: &str) -> (Arc<Room>, Arc<Fake>) {
@@ -31,15 +32,6 @@ fn setup(name: &str) -> (Arc<Room>, Arc<Fake>) {
         agents,
     )
 }
-async fn until(mut condition: impl FnMut() -> bool) {
-    for _ in 0..500 {
-        if condition() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("exchange never reached the expected state");
-}
 async fn send(room: &Arc<Room>, intent: &str) -> String {
     let result = TeammateTools::new(room, "ada")
         .call(
@@ -54,7 +46,7 @@ async fn send(room: &Arc<Room>, intent: &str) -> String {
         .into()
 }
 async fn done(room: &Room, id: &str) {
-    until(|| {
+    until("the request is done", || {
         room.exchange_pair("ada~bob").is_some_and(|p| {
             p.requests
                 .iter()
@@ -255,11 +247,14 @@ async fn the_twelfth_request_keeps_its_reply_queued_until_keep_going() {
         false,
     );
     room.recover_queued_exchanges();
-    until(|| room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::Reply).await;
+    until("the ada~bob request is at Reply", || {
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::Reply
+    })
+    .await;
     let pair = room.exchange_pair("ada~bob").unwrap();
     assert!(pair.paused);
     assert_eq!(pair.exchanges, 12);
-    assert!(!pair.requests[0].reply.is_empty());
+    assert_ne!(pair.requests[0].reply, "");
     assert!(room.tape("ada").iter().all(|v| v["kind"] != "delivery"));
     room.resume_exchange("ada", "bob").unwrap();
     done(&room, "twelfth").await;
@@ -289,7 +284,7 @@ async fn restart_preserves_a_paused_queue_and_unstarted_handoff_without_counting
     let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
     room.recover_queued_exchanges();
     tokio::time::sleep(Duration::from_millis(150)).await;
-    assert!(agents.prompts().is_empty());
+    assert_eq!(agents.prompts(), [] as [String; 0]);
     assert_eq!(
         room.exchange_pair("ada~bob").unwrap().requests[0].phase,
         Phase::Queued
@@ -314,7 +309,7 @@ async fn restart_never_replays_started_work_and_delivers_an_explicit_failure() {
     room.recover_queued_exchanges();
     done(&room, "started").await;
     assert_eq!(agents.prompts().len(), 1, "only sender hears the failure");
-    assert!(room.tape("bob").is_empty());
+    assert_eq!(room.tape("bob"), [] as [serde_json::Value; 0]);
     let result = room
         .tape("ada")
         .into_iter()
@@ -358,7 +353,7 @@ async fn stop_and_revocation_settle_saved_work_and_resume_cannot_resurrect_it() 
         room.exchange_pair("ada~bob").unwrap().requests[0].phase,
         Phase::Stopped
     );
-    assert!(agents.prompts().is_empty());
+    assert_eq!(agents.prompts(), [] as [String; 0]);
     assert!(
         room.tape("ada")
             .iter()
@@ -425,7 +420,7 @@ async fn a_legacy_grant_requires_informed_handoff_approval_but_still_allows_ask(
     let ask = send(&room, "ask").await;
     done(&room, &ask).await;
     let handoff = send(&room, "handoff").await;
-    until(|| {
+    until("an open permission card on ada's tape", || {
         room.tape("ada")
             .iter()
             .any(|v| v["kind"] == "permission" && v.get("decision").is_none())
@@ -477,10 +472,13 @@ async fn a_handoff_runs_beside_the_persons_turn_and_stop_leaves_that_turn_alone(
     room.prompt("bob", "the person's work", None, None)
         .await
         .unwrap();
-    until(|| agents.prompts().len() == 1).await;
+    until("the agents have one prompt", || agents.prompts().len() == 1).await;
     let id = send(&room, "handoff").await;
     // It does not wait for the person's turn: it has a thread of its own.
-    until(|| agents.prompts().len() == 2).await;
+    until("the agents have two prompts", || {
+        agents.prompts().len() == 2
+    })
+    .await;
     assert!(room.mid_turn("bob"), "the person's turn is still going");
     let thread = work_thread(&room, &id);
     assert_eq!(room.sides("bob").len(), 1);
@@ -495,7 +493,7 @@ async fn a_handoff_runs_beside_the_persons_turn_and_stop_leaves_that_turn_alone(
         "stopping the handoff is not stopping the person"
     );
     gate.add_permits(10);
-    until(|| !room.mid_turn("bob")).await;
+    until("bob's turn ends", || !room.mid_turn("bob")).await;
 }
 
 #[tokio::test]
@@ -539,7 +537,7 @@ async fn recovery_and_the_result_worker_dispatch_a_saved_reply_only_once() {
     );
     room.recover_exchanges().await;
     done(&room, "result-restart").await;
-    until(|| !agents.prompts().is_empty()).await;
+    until("the agents have a prompt", || !agents.prompts().is_empty()).await;
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert_eq!(agents.prompts().len(), 1);
     assert_eq!(
@@ -671,7 +669,7 @@ async fn delayed_boot_recovery_preserves_a_new_long_running_handoff_and_its_real
     let (room, agents) = controlled("live-during-boot-recovery");
     room.allow_sender("bob", "ada").unwrap();
     let id = send(&room, "handoff").await;
-    until(|| agents.drivers["bob"].prompts() == 1).await;
+    until("bob is prompted", || agents.drivers["bob"].prompts() == 1).await;
     // Cross the real startup recovery deadline, not a substitute recovery path.
     tokio::time::sleep(Duration::from_millis(5300)).await;
     let pair = room.exchange_pair("ada~bob").unwrap();
@@ -702,10 +700,10 @@ async fn nested_handoff(active: bool, expire_dependency_only: bool) {
         room.prompt("cara", "person's task", None, None)
             .await
             .unwrap();
-        until(|| agents.drivers["cara"].prompts() == 1).await;
+        until("cara is prompted", || agents.drivers["cara"].prompts() == 1).await;
     }
     let _outer = send(&room, "ask").await;
-    until(|| agents.drivers["bob"].prompts() == 1).await;
+    until("bob is prompted", || agents.drivers["bob"].prompts() == 1).await;
     // These are the actual delegated tools issued to B's side session for A.
     let tools = lock(&agents.tools)["bob"].clone();
     let nested = tokio::spawn(async move {
@@ -716,13 +714,13 @@ async fn nested_handoff(active: bool, expire_dependency_only: bool) {
             )
             .await
     });
-    until(|| {
+    until("the bob~cara request is at Running", || {
         room.exchange_pair("bob~cara")
             .is_some_and(|p| p.requests[0].phase == Phase::Running)
     })
     .await;
     if active {
-        until(|| agents.drivers["cara"].prompts() == 1).await;
+        until("cara is prompted", || agents.drivers["cara"].prompts() == 1).await;
     }
     if expire_dependency_only {
         // Stopping A-B revokes the scoped delegated authority without changing
@@ -731,7 +729,10 @@ async fn nested_handoff(active: bool, expire_dependency_only: bool) {
     } else {
         room.invalidate("ada").unwrap();
     }
-    until(|| room.exchange_pair("bob~cara").unwrap().requests[0].phase == Phase::Stopped).await;
+    until("the bob~cara request is at Stopped", || {
+        room.exchange_pair("bob~cara").unwrap().requests[0].phase == Phase::Stopped
+    })
+    .await;
     assert!(
         tokio::time::timeout(Duration::from_secs(1), nested)
             .await
@@ -741,14 +742,14 @@ async fn nested_handoff(active: bool, expire_dependency_only: bool) {
     );
     if active {
         assert!(agents.drivers["cara"].cancels() > 0);
-        until(|| !room.mid_turn("cara")).await;
+        until("cara's turn ends", || !room.mid_turn("cara")).await;
     } else {
         // The handoff had its own thread beside the person's turn, and
         // stopping it closed that thread (this fake shares one driver between
         // threads, so it cannot tell whose turn a cancel reached).
-        assert!(room.sides("cara").is_empty());
+        assert_eq!(room.sides("cara"), [] as [crate::contract::RunningSide; 0]);
         agents.drivers["cara"].updates.add_permits(2);
-        until(|| !room.mid_turn("cara")).await;
+        until("cara's turn ends", || !room.mid_turn("cara")).await;
     }
 }
 #[tokio::test]
@@ -772,7 +773,7 @@ async fn stop_at_twelfth_reply_invalidates_dispatched_result_without_cancelling_
     room.prompt("ada", "person still working", None, None)
         .await
         .unwrap();
-    until(|| agents.drivers["ada"].prompts() == 1).await;
+    until("ada is prompted", || agents.drivers["ada"].prompts() == 1).await;
     let mut reply = saved_request("twelfth-reply", Intent::Ask, Phase::Reply);
     reply.request_counted = true;
     reply.reply = "queued answer".into();
@@ -785,7 +786,7 @@ async fn stop_at_twelfth_reply_invalidates_dispatched_result_without_cancelling_
     assert!(room.mid_turn("ada"));
     assert_eq!(agents.drivers["ada"].cancels(), 0);
     agents.drivers["ada"].updates.add_permits(2);
-    until(|| !room.mid_turn("ada")).await;
+    until("ada's turn ends", || !room.mid_turn("ada")).await;
     assert_eq!(agents.drivers["ada"].prompts(), 1);
     room.stop("ada").unwrap();
     room.start("ada").await.unwrap();
@@ -807,7 +808,7 @@ async fn stop_settles_pending_approval_and_the_next_request_does_not_wait_for_it
     bob.allowed_senders.push("ada".into());
     crate::room::append_persona(&room.log, &bob).unwrap();
     let old = send(&room, "handoff").await;
-    until(|| {
+    until("an open permission card on ada's tape", || {
         room.tape("ada")
             .iter()
             .any(|e| e["kind"] == "permission" && e.get("decision").is_none())
@@ -846,9 +847,15 @@ async fn stop_during_uncached_peer_startup_never_executes_ask_and_releases_the_w
     let (room, agents) = controlled("stop-slow-peer-startup");
     agents.drivers["bob"].startup.forget_permits(100);
     let old = send(&room, "ask").await;
-    until(|| agents.drivers["bob"].starts.load(Ordering::SeqCst) == 1).await;
+    until("bob's driver starts", || {
+        agents.drivers["bob"].starts.load(Ordering::SeqCst) == 1
+    })
+    .await;
     room.stop_exchange("ada", "bob").unwrap();
-    until(|| agents.drivers["bob"].cancels() > 0).await;
+    until("bob's driver is cancelled", || {
+        agents.drivers["bob"].cancels() > 0
+    })
+    .await;
     assert_eq!(agents.drivers["bob"].prompts(), 0);
     assert_eq!(
         room.exchange_pair("ada~bob")
@@ -860,7 +867,10 @@ async fn stop_during_uncached_peer_startup_never_executes_ask_and_releases_the_w
             .phase,
         Phase::Stopped
     );
-    until(|| lock(&room.exchange_workers).is_empty()).await;
+    until("no exchange worker is left", || {
+        lock(&room.exchange_workers).is_empty()
+    })
+    .await;
     agents.drivers["bob"].startup.add_permits(1);
     agents.drivers["bob"].updates.add_permits(10);
     agents.drivers["ada"].updates.add_permits(10);
@@ -898,7 +908,7 @@ async fn revocation_invalidates_a_dispatched_result_waiting_behind_the_person() 
     room.prompt("ada", "person still working", None, None)
         .await
         .unwrap();
-    until(|| agents.drivers["ada"].prompts() == 1).await;
+    until("ada is prompted", || agents.drivers["ada"].prompts() == 1).await;
     let mut reply = saved_request("revoked-result", Intent::Ask, Phase::Reply);
     reply.reply = "queued answer".into();
     seed(&room, reply, 1, false);
@@ -911,13 +921,32 @@ async fn revocation_invalidates_a_dispatched_result_waiting_behind_the_person() 
     );
     assert_eq!(agents.drivers["ada"].cancels(), 0);
     agents.drivers["ada"].updates.add_permits(2);
-    until(|| !room.mid_turn("ada")).await;
+    until("ada's turn ends", || !room.mid_turn("ada")).await;
     assert_eq!(agents.drivers["ada"].prompts(), 1);
 }
 
 /// Drive the real handoff and request_human handlers, stopping only the fake
 /// model's updates so the tool call happens inside its actual handoff turn.
 async fn suspended_handoff(name: &str) -> (Arc<Room>, String, String) {
+    let (room, id, action, gate) = handoff_asking(name).await;
+    gate.add_permits(2);
+    until("the request waits on a person and bob's turn ends", || {
+        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::WaitingHuman
+            && !room.mid_turn("bob")
+    })
+    .await;
+    assert!(
+        room.tape("ada")
+            .iter()
+            .all(|v| v["cause"]["requestId"] != id),
+        "waiting is not a final result"
+    );
+    (room, id, action)
+}
+
+/// A handoff whose turn has asked the person and is still running: the
+/// returned gate lets the fake model finish it.
+async fn handoff_asking(name: &str) -> (Arc<Room>, String, String, Arc<tokio::sync::Semaphore>) {
     let log = scratch(name);
     enrol(&log, &persona("ada"));
     enrol(&log, &persona("bob"));
@@ -939,7 +968,7 @@ async fn suspended_handoff(name: &str) -> (Arc<Room>, String, String) {
     let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
     room.allow_sender("bob", "ada").unwrap();
     let id = send(&room, "handoff").await;
-    until(|| agents.prompts().len() == 1).await;
+    until("the agents have one prompt", || agents.prompts().len() == 1).await;
     // The handoff runs in its own work thread; its tools are that thread's.
     let thread = work_thread(&room, &id);
     TeammateTools::new(&room, "bob")
@@ -956,19 +985,34 @@ async fn suspended_handoff(name: &str) -> (Arc<Room>, String, String) {
         .as_str()
         .unwrap()
         .to_string();
+    (room, id, action, gate)
+}
+
+/// A card withdrawn while the handoff's turn runs no longer holds the
+/// result back: the turn's end returns it. Once the turn has ended to wait
+/// on a card, only an answer carries the work on, so that card stays.
+#[tokio::test]
+async fn a_withdrawn_card_lets_a_running_handoff_finish_and_a_waiting_one_keeps_its_card() {
+    let (room, id, action, gate) = handoff_asking("human-handoff-withdraw").await;
+    room.withdraw_human("bob", &action).unwrap();
     gate.add_permits(2);
-    until(|| {
-        room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::WaitingHuman
-            && !room.mid_turn("bob")
-    })
-    .await;
-    assert!(
+    until("the handoff's result reaches ada", || {
         room.tape("ada")
             .iter()
-            .all(|v| v["cause"]["requestId"] != id),
-        "waiting is not a final result"
-    );
-    (room, id, action)
+            .any(|v| v["cause"]["requestId"] == id)
+    })
+    .await;
+
+    let (room, _id, action) = suspended_handoff("human-handoff-withdraw-waiting").await;
+    let refused = room.withdraw_human("bob", &action);
+    assert!(refused.is_err(), "{refused:?}");
+    assert!(matches!(
+        room.human_card("bob", &action),
+        Some(TranscriptEvent::HumanAction {
+            status: crate::contract::HumanActionStatus::Pending,
+            ..
+        })
+    ));
 }
 
 fn restart_human_room(old: Arc<Room>) -> (Arc<Room>, Arc<Fake>) {
@@ -1007,7 +1051,10 @@ async fn a_human_gated_handoff_routes_its_final_result_after_restart_for_done_an
         room.answer_human("bob", &action, answer, Some("operator note".into()))
             .unwrap();
         done(&room, &id).await;
-        until(|| agents.prompts().len() == 2).await;
+        until("the agents have two prompts", || {
+            agents.prompts().len() == 2
+        })
+        .await;
         let result = room
             .tape("ada")
             .into_iter()
@@ -1052,8 +1099,10 @@ async fn a_saved_human_answer_recovers_the_gap_before_delivery() {
         let (room, agents) = restart_human_room(old);
         room.recover_exchanges().await;
         if paused {
-            until(|| room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::Reply)
-                .await;
+            until("the ada~bob request is at Reply", || {
+                room.exchange_pair("ada~bob").unwrap().requests[0].phase == Phase::Reply
+            })
+            .await;
             assert_eq!(
                 agents.prompts().len(),
                 1,
@@ -1062,7 +1111,10 @@ async fn a_saved_human_answer_recovers_the_gap_before_delivery() {
             room.resume_exchange("ada", "bob").unwrap();
         }
         done(&room, &id).await;
-        until(|| agents.prompts().len() == 2).await;
+        until("the agents have two prompts", || {
+            agents.prompts().len() == 2
+        })
+        .await;
         assert!(agents.prompts()[0].contains("saved answer"));
     }
 }
@@ -1103,7 +1155,10 @@ async fn a_human_answer_saved_to_the_thread_but_never_admitted_is_delivered_afte
     let (room, agents) = restart_human_room(old);
     room.recover_exchanges().await;
     done(&room, &id).await;
-    until(|| agents.prompts().len() == 2).await;
+    until("the agents have two prompts", || {
+        agents.prompts().len() == 2
+    })
+    .await;
     assert!(agents.prompts()[0].contains("saved answer"));
     let delivered: Vec<_> = room
         .log
@@ -1130,7 +1185,7 @@ async fn a_result_queued_for_a_busy_work_thread_is_stopped_with_its_exchange() {
         .await
         .unwrap()
         .side_id;
-    until(|| agents.drivers["ada"].prompts() == 1).await;
+    until("ada is prompted", || agents.drivers["ada"].prompts() == 1).await;
     let mut reply = saved_request("stopped-work-result", Intent::Ask, Phase::Reply);
     reply.reply = "queued answer".into();
     reply.reply_thread = Some(side.clone());
@@ -1144,7 +1199,7 @@ async fn a_result_queued_for_a_busy_work_thread_is_stopped_with_its_exchange() {
         "a result that has not begun a turn can still be stopped"
     );
     agents.drivers["ada"].updates.add_permits(4);
-    until(|| !room.mid_turn("ada")).await;
+    until("ada's turn ends", || !room.mid_turn("ada")).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(
         agents.drivers["ada"].prompts(),
@@ -1167,7 +1222,7 @@ async fn stopped_or_revoked_human_handoffs_cannot_resume_after_restart() {
             .unwrap();
         room.recover_exchanges().await;
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(agents.prompts().is_empty());
+        assert_eq!(agents.prompts(), [] as [String; 0]);
         assert_eq!(
             room.exchange_pair("ada~bob").unwrap().requests[0].phase,
             Phase::Stopped
@@ -1195,7 +1250,7 @@ async fn a_human_answer_does_not_replace_collaboration_consent_after_restart() {
     let (room, agents) = restart_human_room(old);
     room.answer_human("bob", &action, crate::contract::HumanAnswer::Done, None)
         .unwrap();
-    until(|| {
+    until("an open permission card on ada's tape", || {
         room.tape("ada")
             .iter()
             .any(|v| v["kind"] == "permission" && v.get("decision").is_none())
@@ -1240,7 +1295,7 @@ async fn restart_does_not_replay_an_interrupted_human_answer_turn() {
     active
         .answer_human("bob", &action, crate::contract::HumanAnswer::Done, None)
         .unwrap();
-    until(|| agents.prompts().len() == 1).await;
+    until("the agents have one prompt", || agents.prompts().len() == 1).await;
     // A crash snapshot while the answer turn has started but produced no
     // update (not even a read receipt). No concurrent writers share a log.
     let snapshot = scratch("human-answer-crash-snapshot");
@@ -1262,7 +1317,7 @@ async fn restart_does_not_replay_an_interrupted_human_answer_turn() {
     let room = Room::with_agents(snapshot, Arc::new(DeskKeys), agents.clone());
     room.recover_exchanges().await;
     done(&room, &id).await;
-    until(|| agents.prompts().len() == 1).await;
+    until("the agents have one prompt", || agents.prompts().len() == 1).await;
     let result = room
         .tape("ada")
         .into_iter()
@@ -1349,14 +1404,17 @@ async fn a_target_answers_the_person_while_its_handoff_is_still_working() {
     );
     room.allow_sender("bob", "ada").unwrap();
     let id = send(&room, "handoff").await;
-    until(|| room.sides("bob").iter().any(|side| side.working)).await;
+    until("bob has a working side", || {
+        room.sides("bob").iter().any(|side| side.working)
+    })
+    .await;
 
     // Bob's own conversation is open while the handoff holds its thread.
     room.start("bob").await.unwrap();
     room.prompt("bob", "how is the weather?", None, None)
         .await
         .unwrap();
-    until(|| {
+    until("bob's tape has the dm answer", || {
         room.tape("bob")
             .iter()
             .any(|v| v["kind"] == "agent" && v["text"] == "dm answer")
@@ -1377,7 +1435,7 @@ async fn a_target_answers_the_person_while_its_handoff_is_still_working() {
     // It finishes, and the result goes to Ada's DM.
     gate.add_permits(10);
     done(&room, &id).await;
-    until(|| {
+    until("ada's tape has the result", || {
         room.tape("ada")
             .iter()
             .any(|v| v["cause"]["requestId"] == id)

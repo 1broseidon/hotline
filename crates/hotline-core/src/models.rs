@@ -444,8 +444,7 @@ pub fn login_refusal(provider_id: &str) -> Option<String> {
             let name = catalog()
                 .providers
                 .get(wiring.id)
-                .map(|entry| entry.name.as_str())
-                .unwrap_or(wiring.id);
+                .map_or(wiring.id, |entry| entry.name.as_str());
             Some(if wiring.client == Client::Ollama {
                 format!("{name} takes a server URL, not a sign-in.")
             } else {
@@ -593,9 +592,7 @@ pub fn catalog_models(
             let metadata = model_of(provider_id, &id);
             let metadata = metadata.as_deref();
             CatalogModel {
-                name: metadata
-                    .map(|model| model.name.clone())
-                    .unwrap_or_else(|| id.clone()),
+                name: metadata.map_or_else(|| id.clone(), |model| model.name.clone()),
                 release_date: metadata
                     .map(|model| model.release_date.clone())
                     .unwrap_or_default(),
@@ -830,7 +827,10 @@ mod tests {
     fn choices_follow_the_keys_the_desk_holds_newest_first() {
         let mut keys = HashMap::new();
         let none = HashMap::new();
-        assert!(choices(&keys, &none, &none, &HashMap::new()).is_empty());
+        assert_eq!(
+            choices(&keys, &none, &none, &HashMap::new()),
+            [] as [ConfigChoice; 0]
+        );
         keys.insert("anthropic".to_string(), ProviderAuth::ApiKey("k".into()));
         let listed = choices(&keys, &none, &none, &HashMap::new());
         assert!(
@@ -933,7 +933,7 @@ mod tests {
     fn catalog_models_are_newest_first_and_a_filter_flags_them() {
         let none = HashMap::new();
         let all = catalog_models("anthropic", &none, None);
-        assert!(!all.is_empty());
+        assert_ne!(all, [] as [CatalogModel; 0]);
         assert!(all.iter().all(|model| model.enabled));
         let dates: Vec<&str> = all
             .iter()
@@ -949,7 +949,7 @@ mod tests {
         assert_eq!(flagged.len(), all.len());
         assert!(flagged[0].enabled);
         assert!(flagged.iter().skip(1).all(|model| !model.enabled));
-        assert!(catalog_models("nope", &none, None).is_empty());
+        assert_eq!(catalog_models("nope", &none, None), [] as [CatalogModel; 0]);
     }
 
     #[test]
@@ -965,8 +965,14 @@ mod tests {
             assert_eq!(listed[0].id, format!("{provider}/custom/coder:latest"));
             assert_eq!(catalog_models(provider, &none, Some(&ids)).len(), 1);
             account.insert(provider.to_string(), vec![]);
-            assert!(choices(&keys, &none, &account, &HashMap::new()).is_empty());
-            assert!(catalog_models(provider, &none, Some(&[])).is_empty());
+            assert_eq!(
+                choices(&keys, &none, &account, &HashMap::new()),
+                [] as [ConfigChoice; 0]
+            );
+            assert_eq!(
+                catalog_models(provider, &none, Some(&[])),
+                [] as [CatalogModel; 0]
+            );
         }
     }
 
@@ -1020,10 +1026,9 @@ mod tests {
             catalog.providers["anthropic"].models["plain"].efforts,
             ["low", "medium", "high"]
         );
-        assert!(
-            catalog.providers["openai"].models["plain"]
-                .efforts
-                .is_empty()
+        assert_eq!(
+            catalog.providers["openai"].models["plain"].efforts,
+            [] as [String; 0]
         );
     }
 
@@ -1095,8 +1100,8 @@ mod tests {
             })
             .expect("the snapshot has at least one model with an effort list");
         assert_eq!(efforts(&known.0), known.1);
-        assert!(efforts("nope/nope").is_empty());
-        assert!(efforts("bare").is_empty());
+        assert_eq!(efforts("nope/nope"), [] as [String; 0]);
+        assert_eq!(efforts("bare"), [] as [String; 0]);
     }
 
     #[test]
@@ -1119,7 +1124,10 @@ mod tests {
         assert_eq!(reply.default_id.as_deref(), Some("high"));
         assert!(reply.choices.iter().any(|one| one.id == "high"));
         assert_eq!(default_effort("nope/nope"), None);
-        assert!(effort_choices_with_default("nope/nope").choices.is_empty());
+        assert_eq!(
+            effort_choices_with_default("nope/nope").choices,
+            [] as [ConfigChoice; 0]
+        );
     }
 
     #[test]
@@ -1160,7 +1168,10 @@ mod tests {
             assert!(!models[0].metadata_known);
             assert_eq!(models[0].reasoning, None);
             assert_eq!(models[0].output_limit, None);
-            assert!(catalog_models(provider, &HashMap::new(), Some(&[])).is_empty());
+            assert_eq!(
+                catalog_models(provider, &HashMap::new(), Some(&[])),
+                [] as [CatalogModel; 0]
+            );
         }
     }
 

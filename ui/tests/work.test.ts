@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { sameWork } from "../src/components/Work";
 import { sideTitle } from "../src/links";
+
+// Work.tsx reaches hotkeys.ts, which asks the shell's globals which system it
+// is on when it loads; outside the shell there are none.
+if (typeof window === "undefined") Object.assign(globalThis, { window: {} });
+const { sameWork } = await import("../src/components/Work");
 
 describe("pressing what opened a card", () => {
 	test("is the same work only for the same turn", () => {

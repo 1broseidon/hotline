@@ -21,7 +21,12 @@ fn shout_schema() -> Arc<JsonObject> {
         "properties": { "text": { "type": "string" } },
         "required": ["text"],
     });
-    Arc::new(schema.as_object().unwrap().clone())
+    Arc::new(
+        schema
+            .as_object()
+            .expect("the literal tool schema is an object")
+            .clone(),
+    )
 }
 
 impl ServerHandler for Echo {

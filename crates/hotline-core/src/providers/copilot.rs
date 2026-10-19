@@ -32,7 +32,7 @@ const MAX_ENDPOINT_LEN: usize = 64;
 /// How long a turn waits for the model list it fetches for itself.
 const ENSURE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How soon a login whose list could not be fetched is tried again.
-const ENSURE_RETRY: Duration = Duration::from_secs(5 * 60);
+const ENSURE_RETRY: Duration = Duration::from_mins(5);
 
 // The identity Rig 0.42 presents to Copilot. Copilot refuses a request
 // that does not look like an editor's, so the transport here says the same.
@@ -152,7 +152,7 @@ async fn fetch_models(session: &Session) -> Result<(Vec<ListedModel>, Endpoints)
     let request = request.body(Bytes::new()).map_err(|_| failed())?;
     let response = tokio::time::timeout(
         Duration::from_secs(30),
-        DiscoveryHttp::default().send::<Bytes, Vec<u8>>(request),
+        DiscoveryHttp::new()?.send::<Bytes, Vec<u8>>(request),
     )
     .await
     .map_err(|_| "Model discovery timed out; the previous list is unchanged.".to_string())?
@@ -400,7 +400,7 @@ fn responses_client(
         .base_url(&session.api_base)
         .http_client(Transport::new(token_dir)?)
         .build()
-        .map(|client| client.with_system_instructions_as_messages())
+        .map(rig::client::Client::with_system_instructions_as_messages)
         .map_err(|_| "Could not prepare the GitHub Copilot connection.".to_string())
 }
 
@@ -419,6 +419,8 @@ struct Login {
     token_dir: PathBuf,
 }
 
+// The Copilot client holds the live token, so Debug names only where it is
+// stored and marks the rest as omitted.
 impl fmt::Debug for Transport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CopilotTransport")
@@ -426,7 +428,7 @@ impl fmt::Debug for Transport {
                 "token_dir",
                 &self.login.as_ref().map(|login| login.token_dir.as_path()),
             )
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -791,18 +793,32 @@ pub(crate) mod tests {
             "a list on file is not fetched again"
         );
 
-        let unreachable = seeded_login("ensure-down", "http://127.0.0.1:9");
-        ensure_endpoints(&unreachable).await;
-        assert!(!wants_responses(&unreachable, "grok-4.6"));
-        let started = Instant::now();
-        ensure_endpoints(&unreachable).await;
-        assert!(
-            started.elapsed() < Duration::from_millis(50),
+        let failures = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = failures.clone();
+        let failing = Router::new().route(
+            "/models",
+            get(move || {
+                let counted = counted.clone();
+                async move {
+                    counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR
+                }
+            }),
+        );
+        let (failing_url, failing_server) = serve(failing).await;
+        let down = seeded_login("ensure-down", &failing_url);
+        ensure_endpoints(&down).await;
+        assert!(!wants_responses(&down, "grok-4.6"));
+        ensure_endpoints(&down).await;
+        assert_eq!(
+            failures.load(std::sync::atomic::Ordering::SeqCst),
+            1,
             "a failed login is not retried at once"
         );
         server.abort();
+        failing_server.abort();
         let _ = std::fs::remove_dir_all(&dir);
-        let _ = std::fs::remove_dir_all(&unreachable);
+        let _ = std::fs::remove_dir_all(&down);
     }
 
     #[tokio::test]

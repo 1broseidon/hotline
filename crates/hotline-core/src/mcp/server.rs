@@ -24,11 +24,11 @@
 //! cycle nothing ever breaks. Not a trait, because a seam with one
 //! implementation and one caller is a layer that buys nothing.
 
+use crate::contract::{Capabilities, LinkedTeammate, Profile, WorkingOn};
 use crate::contract::{
     ChapterClose, ScheduleKind, ScheduledJob, SessionInfo, SessionState, ToolSourceKind,
 };
 use crate::driver::CapabilityLease;
-use crate::linked::{LinkedTeammate, WorkingOn};
 use crate::session::files::Source;
 use crate::session::jobs::Delegate;
 use crate::session::runner::Subagents;
@@ -45,7 +45,7 @@ use rmcp::model::{
 };
 use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::{
-    StreamableHttpService, session::local::LocalSessionManager,
+    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
 use serde_json::{Value, json};
 use std::net::Ipv4Addr;
@@ -64,6 +64,7 @@ const LIST_CHAPTERS: &str = "list_chapters";
 const RESUME_CHAPTER: &str = "resume_chapter";
 const NEW_CHAPTER: &str = "new_chapter";
 const REQUEST_HUMAN: &str = "request_human";
+const WITHDRAW_REQUEST: &str = "withdraw_request";
 const REACT: &str = "react";
 const SEND_FILE: &str = "send_file";
 const OPEN_LINK: &str = "open_link";
@@ -82,12 +83,13 @@ const ARCHIVE_THREAD: &str = "archive_thread";
 const MAX_COMPUTER_WAIT_SECONDS: u64 = 300;
 
 /// Every tool this server has, in the order it lists them.
-pub const TOOL_NAMES: [&str; 18] = [
+pub const TOOL_NAMES: [&str; 19] = [
     SEARCH_THREAD,
     LIST_CHAPTERS,
     RESUME_CHAPTER,
     NEW_CHAPTER,
     REQUEST_HUMAN,
+    WITHDRAW_REQUEST,
     REACT,
     SEND_FILE,
     OPEN_LINK,
@@ -140,7 +142,7 @@ const MAX_QUERY: usize = 200;
 /// tools and there must be one description of them: a teammate told about a
 /// tool it does not have, or not told about one it does, is the bug the
 /// ledger exists to catch, made of words.
-pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and returns at once; their answer, and whatever they type with it, arrives later as its own message. You are not the only teammate here: `list_teammates` says who else is in this room by public name, each one's state (idle, working, waiting on the person, or stopped) and what it is working on, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Choose intent ask for a bounded answer or review, handoff to implement or continue work in their own context. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `open_link` opens a link in the person's own browser on this computer, only while they are here at the desktop app. `generate_image` makes an image in your workspace and posts it here itself, so never `send_file` it as well; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options. For a default avatar request, use `generate_image` with style `avatar` for the mature matte desk-collectible crew; for a specific custom subject/theme, omit style, or use an operator-provided photo directly. `set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. `web_search` searches the web for current information and returns each result's title, link and a snippet; read a page itself with your own tools, and rephrase and search again if the first try misses. A granted server's tools are named `<server>__<tool>`.";
+pub const HOW_TO_USE: &str = "`search_thread` finds earlier chapters and messages in this conversation, including ones your current context has never seen; `list_chapters` lists them newest first, with the note each closed with; `resume_chapter` reopens the previous chapter's full context when the user is continuing work that was mid-flight; `new_chapter` closes this chapter when the subject has clearly changed, and the next message starts fresh. `request_human` asks the person to do something you cannot — enter credentials, tap a prompt, solve a CAPTCHA, answer a question only they can — and returns at once with the request's id; their answer, and whatever they type with it, arrives later as its own message. The card stays up two hours unless you ask for longer, up to a day; when you no longer need it, because you found another way or the work moved on, `withdraw_request` takes it down. You are not the only teammate here: `list_teammates` says who else is in this room by public name, each one's state (idle, working, waiting on the person, or stopped), what it is working on, and its goal, agent, model and capabilities, and `message_teammate` sends one of them a message and returns at once; their answer arrives later as its own message. Workspace callers need the operator's first-contact approval before asking a colleague to use that colleague's workspace and enabled tools; a Whole machine Hotline Agent can initiate collaboration directly. Choose intent ask for a bounded answer or review, handoff to implement or continue work in their own context. Use that when a colleague genuinely owns something you need, not to check in. When Background work is granted, `schedule` wakes you once later (`20m`, an ISO time) and `loop` wakes you on an interval; `list_schedules` shows only your jobs and `cancel_schedule` drops one of yours. The pane labels each job from its prompt. `react` puts one emoji on the person's last message instead of a reply — a thumbs up to a decision, a nod to a correction you are about to act on — for when a reaction says everything a reply would; it is not for questions, and not for every message, or it becomes noise. `send_file` hands the person a file from your workspace, your computer or its screen, as your message, and a picture shows in the conversation itself; send one when they need the file, not in place of saying what is in it. `open_link` opens a link in the person's own browser on this computer, only while they are here at the desktop app. `generate_image` makes an image in your workspace and posts it here itself, so never `send_file` it as well; use it when the person asks or an image is clearly part of their task, say what you are going for, and make one image per ask unless they want options. For a default avatar request, use `generate_image` with style `avatar` for the mature matte desk-collectible crew; for a specific custom subject/theme, omit style, or use an operator-provided photo directly. `set_avatar` makes an image in your workspace your own picture, or clears it back to your initial; change your picture only when the person asks. `computer_status` says whether your computer is attached, still downloading, or could not start, and can wait for a download. `web_search` searches the web for current information and returns each result's title, link and a snippet; read a page itself with your own tools, and rephrase and search again if the first try misses. A granted server's tools are named `<server>__<tool>`.";
 
 fn schema(value: Value) -> Arc<JsonObject> {
     Arc::new(
@@ -224,7 +226,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             REQUEST_HUMAN,
-            "Ask the person to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA, answer a question only they can. A card appears in your conversation and this call returns at once. Their answer, done or declined with whatever note they typed, arrives later as its own message, so carry on with anything that does not depend on it and do not poll. (Answering a colleague in a private thread, the call waits up to ten minutes instead.) Set the stage first and say in `reason` exactly what to do. If you have a computer, they can see its screen and drive it, so get the page that needs them on screen before you ask.",
+            "Ask the person to take an action you cannot — enter credentials, tap a 2FA prompt, solve a CAPTCHA, answer a question only they can. A card appears in your conversation and this call returns at once. Their answer, done or declined with whatever note they typed, arrives later as its own message, so carry on with anything that does not depend on it and do not poll. The card stays up two hours, then is taken down and you are told; pass `wait_hours` (up to 24) only when the ask really waits for the person to come back. The call returns the request's id: if you stop needing the answer, because you found another way or the work moved on, call withdraw_request with it so the person is not left being asked. (Answering a colleague in a private thread, the call waits up to ten minutes instead.) Set the stage first and say in `reason` exactly what to do. If you have a computer, they can see its screen and drive it, so get the page that needs them on screen before you ask.",
             schema(json!({
                 "type": "object",
                 "properties": {
@@ -234,8 +236,27 @@ fn descriptors() -> Vec<Tool> {
                         "maxLength": 500,
                         "description": "What the person should do, precisely, e.g. 'Enter the GitHub 2FA code on screen'",
                     },
+                    "wait_hours": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 24,
+                        "default": 2,
+                        "description": "How long the card stays up unanswered. More than the default only for an ask that waits for the person to come back.",
+                    },
                 },
                 "required": ["reason"],
+                "additionalProperties": false,
+            })),
+        ),
+        Tool::new(
+            WITHDRAW_REQUEST,
+            "Take back a request_human card of yours that you no longer need: the work moved on, you found another way, or the flow it asked about is gone. The card is taken down, the person is no longer shown it as waiting, and nothing comes back to you. Pass the id request_human returned. Withdraw a request as soon as you stop needing it rather than leaving it for the person.",
+            schema(json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "The id request_human returned." },
+                },
+                "required": ["id"],
                 "additionalProperties": false,
             })),
         ),
@@ -338,7 +359,7 @@ fn descriptors() -> Vec<Tool> {
         ),
         Tool::new(
             LIST_TEAMMATES,
-            "The other teammates in this Hotline room: each one's id and public name, and what the roster already shows about it — whether it is idle, working, waiting on the person, or stopped; the tool or task it is doing right now, if it is working; and what it is working on, the current chapter's title (or its goal, if the chapter has none yet) and when it last spoke. Check this before message_teammate to see whether a colleague is mid-turn, so you know a message will wait rather than land at once. Roster metadata only: never a message's text, never what anyone said, and never workspaces, tools, or model choices. Teammates on desks linked with this one are listed too, each with its desk's name in `desk`, and are messaged the same way.",
+            "The other teammates in this Hotline room: each one's id and public name, and what the roster already shows about it — whether it is idle, working, waiting on the person, or stopped; the tool or task it is doing right now, if it is working; and what it is working on, the current chapter's title (or its goal, if the chapter has none yet) and when it last spoke. Each also has its `goal`, its `agent` (Hotline Agent, Claude Code, Codex…), its `model` and `effort` when set, and `capabilities`: `computer` (none, attached, or in use now), `webSearch`, `imageGeneration`, `backgroundWork`, `messageTeammates` (directly, or after the person's approval), `reach` (workspace or whole machine) and `mcpServers`, the names of the servers it is granted. Check this before message_teammate to see whether a colleague is mid-turn, so you know a message will wait rather than land at once, and who can do what you need. Never a message's text, never what anyone said, and never a workspace path, a server's address or login, or a tool list. Teammates on desks linked with this one are listed too, each with its desk's name in `desk`, and are messaged the same way.",
             schema(json!({ "type": "object", "properties": {}, "additionalProperties": false })),
         ),
         Tool::new(
@@ -643,10 +664,14 @@ impl TeammateTools {
                     .to_string())
             }
             LIST_TEAMMATES => {
+                let settings = crate::room::settings(room.log());
                 let mut teammates: Vec<Value> = crate::room::roster(room.log())
                     .into_iter()
                     .filter(|persona| persona.id != self.persona_id)
-                    .map(|persona| json!(roster_row(&room, persona)))
+                    .map(|persona| {
+                        let profile = profile(&room, &persona, &settings);
+                        json!(roster_row(&room, persona, profile))
+                    })
                     .collect();
                 teammates.extend(room.linked_rows());
                 Ok(json!({ "teammates": teammates }).to_string())
@@ -725,7 +750,23 @@ impl TeammateTools {
                         .request_human(&self.persona_id, reason, crate::session::HUMAN_DEADLINE)
                         .await;
                 }
-                room.ask_human(&self.persona_id, reason, self.work.as_deref())
+                let hours = arguments
+                    .get("wait_hours")
+                    .and_then(Value::as_u64)
+                    .map(|hours| u32::try_from(hours).unwrap_or(u32::MAX));
+                room.ask_human(&self.persona_id, reason, self.work.as_deref(), hours)
+            }
+            WITHDRAW_REQUEST => {
+                let id = arguments
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .ok_or_else(|| {
+                        "withdraw_request needs the `id` request_human returned.".to_string()
+                    })?;
+                room.withdraw_human(&self.persona_id, id)?;
+                Ok("Withdrawn. The card is down and the person is no longer asked.".to_string())
             }
             REACT => {
                 let emoji = arguments
@@ -981,9 +1022,14 @@ fn quoted(result: &Value) -> String {
 
 /// One teammate's row in `list_teammates`: the same roster state a desk
 /// window would show, and nothing a desk window would not — no message, no
-/// preview, no path or command a tool touched. It is also all a linked desk
-/// is ever sent about a teammate (ADR 0003): the type has no field for more.
-pub(crate) fn roster_row(room: &Room, persona: crate::contract::Persona) -> LinkedTeammate {
+/// preview, no path or command a tool touched — with its [`profile`]. It is
+/// also all a linked desk is ever sent about a teammate (ADR 0003): the type
+/// has no field for more.
+pub(crate) fn roster_row(
+    room: &Room,
+    persona: crate::contract::Persona,
+    profile: Profile,
+) -> LinkedTeammate {
     let session = room.info(&persona.id);
     let tail = previews::tail(room.log().root(), &persona.id);
     let waiting = wire::waiting_on(&tail);
@@ -996,6 +1042,87 @@ pub(crate) fn roster_row(room: &Room, persona: crate::contract::Persona) -> Link
         },
         persona_id: persona.id,
         name: persona.name,
+        profile,
+    }
+}
+
+/// Who a teammate is and what it can do, for its colleagues: its goal, the
+/// agent and model it runs, and each capability as a switch, a word or a
+/// name. Never a path, a server's address or login, or the policy behind a
+/// grant — a colleague decides whom to ask from this, not how to reach
+/// around them. `settings` is the room's, read once for the whole roster.
+pub(crate) fn profile(
+    room: &Room,
+    persona: &crate::contract::Persona,
+    settings: &serde_json::Map<String, Value>,
+) -> Profile {
+    let session = room.info(&persona.id);
+    let in_process = persona.backend_id == crate::driver::HOTLINE_BACKEND_ID;
+    let agent = if in_process {
+        "Hotline Agent".to_string()
+    } else {
+        crate::driver::acp::registry::name_of(room.log().root(), &persona.backend_id)
+            .unwrap_or_else(|| "Unknown agent".to_string())
+    };
+    let effort = session
+        .configs
+        .iter()
+        .find(|config| config.category == Some(crate::contract::SessionConfigCategory::Effort))
+        .and_then(|config| config.current_id.clone())
+        .or_else(|| persona.effort_id.clone());
+    // Whole-machine reach is Hotline Agent's alone: a harness's callbacks
+    // stay in its workspace whatever its record says (`driver/acp/session.rs`), and
+    // only such a teammate on this desk collaborates without the person's
+    // first-contact approval (`session/peers.rs`).
+    let whole_machine =
+        in_process && persona.reach.unwrap_or_default() == crate::contract::Reach::Machine;
+    let computer = if !persona
+        .computer
+        .as_ref()
+        .is_some_and(|computer| computer.enabled)
+    {
+        "none"
+    } else if session.state != SessionState::Stopped && room.computer_in_use(&persona.id) {
+        "in use"
+    } else {
+        "attached"
+    };
+    let web_search = !crate::websearch::effective_chain(
+        &crate::websearch::disabled_on_desk(settings),
+        persona.web_search_policy.as_ref(),
+    )
+    .is_empty();
+    let mcp_servers = crate::mcp::grant(&crate::mcp::servers(settings), &persona.mcp_policy)
+        .servers
+        .into_iter()
+        .map(|server| server.name)
+        .collect();
+    Profile {
+        goal: persona.goal.clone(),
+        agent,
+        model: session
+            .current_model_id
+            .or_else(|| persona.model_id.clone()),
+        effort,
+        capabilities: Capabilities {
+            computer: computer.to_string(),
+            web_search,
+            image_generation: !crate::session::generate::images_off_in(settings),
+            background_work: persona.background_work,
+            message_teammates: if whole_machine && persona.node.is_none() {
+                "directly"
+            } else {
+                "after approval"
+            }
+            .to_string(),
+            reach: if whole_machine {
+                "whole machine"
+            } else {
+                "workspace"
+            }
+            .to_string(),
+            mcp_servers,
+        },
     }
 }
 
@@ -1194,7 +1321,7 @@ pub async fn serve(tools: TeammateTools) -> std::io::Result<Served> {
         StreamableHttpService::new(
             move || Ok(tools.clone()),
             Arc::new(LocalSessionManager::default()),
-            Default::default(),
+            StreamableHttpServerConfig::default(),
         );
     let expected = token.clone();
     let router = axum::Router::new()
@@ -1237,12 +1364,13 @@ pub async fn serve(tools: TeammateTools) -> std::io::Result<Served> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::{McpPolicy, Persona, PolicyMode};
+    use crate::contract::SkillPolicy;
+    use crate::contract::{McpPolicy, Persona, PolicyMode, Reach, WebSearchPolicy};
     use crate::log::{Log, StreamId};
     use crate::session::ProviderKeys;
     use rig::tool::{ToolContext, ToolSet};
     use rmcp::ServiceExt;
-    use rmcp::model::{CallToolRequestParams, ClientInfo, Implementation};
+    use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation};
     use rmcp::transport::streamable_http_client::{
         StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
     };
@@ -1348,7 +1476,7 @@ mod tests {
                 mode: PolicyMode::None,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work: true,
             allowed_senders: Vec::new(),
             web_search_policy: None,
@@ -1411,21 +1539,140 @@ mod tests {
         assert_eq!(wire["tools"].as_array().unwrap().len(), TOOL_NAMES.len());
     }
 
+    fn write_setting(log: &Log, id: &str, value: Value) {
+        log.append(
+            &StreamId::Room,
+            &json!({ "kind": "setting", "id": id, "value": value }),
+        )
+        .unwrap();
+    }
+
+    /// A colleague learns who Bob is and what he can do — his goal, his
+    /// agent and model, and each capability as a switch, a word or a server's
+    /// name — and nothing of how: not the secret-shaped workspace path, not
+    /// the granted server's address or login header, and not the server he
+    /// was never granted.
     #[tokio::test(flavor = "multi_thread")]
-    async fn teammate_discovery_never_derives_the_technical_fields_of_a_persona_record() {
-        let room = room_with_two("teammate-discovery");
+    async fn a_colleague_sees_a_teammates_goal_agent_model_and_capabilities_and_no_more() {
+        let room = room_with_two("teammate-profile");
+        write_setting(
+            room.log(),
+            "mcpServers",
+            json!([
+                {"id": "docs", "name": "Docs", "type": "http",
+                 "url": "https://mcp.example/sk-live-URLTOKEN",
+                 "auth": {"mode": "header", "name": "X-Leaky-Header"}},
+                {"id": "vault", "name": "Vault Of Bob", "type": "stdio",
+                 "command": "vault-mcp", "args": [], "env": {"TOKEN": "sk-live-ENVTOKEN"}},
+            ]),
+        );
+        let mut bob = bob();
+        bob.cwd = "/Users/bob/sk-live-CWDTOKEN".to_string();
+        bob.reach = Some(Reach::Machine);
+        bob.model_id = Some("anthropic/claude-opus-5-5".to_string());
+        bob.effort_id = Some("high".to_string());
+        bob.mcp_policy = McpPolicy {
+            mode: PolicyMode::Some,
+            server_ids: vec!["docs".to_string()],
+        };
+        bob.computer = Some(serde_json::from_value(json!({"enabled": true})).unwrap());
+        write_persona(room.log(), bob.clone());
+
         let listed = through_rig(&tools(&room), LIST_TEAMMATES, json!({})).await;
-        let listed: Value = serde_json::from_str(&listed).unwrap();
-        let teammate = &listed["teammates"][0];
-        assert_eq!(teammate["personaId"], "bob");
-        assert_eq!(teammate["name"], "Bob");
-        let fields = teammate.as_object().unwrap();
-        assert_eq!(fields.len(), 5, "{fields:?}");
-        assert!(!fields.contains_key("cwd"));
-        assert!(!fields.contains_key("mcpPolicy"));
-        assert!(!fields.contains_key("reach"));
-        assert!(!fields.contains_key("node"));
-        assert!(!fields.contains_key("backendId"));
+        let parsed: Value = serde_json::from_str(&listed).unwrap();
+        let teammate = &parsed["teammates"][0];
+        let mut fields: Vec<&str> = teammate
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        fields.sort_unstable();
+        assert_eq!(
+            fields,
+            [
+                "activity",
+                "agent",
+                "capabilities",
+                "effort",
+                "goal",
+                "model",
+                "name",
+                "personaId",
+                "state",
+                "workingOn"
+            ]
+        );
+        assert_eq!(teammate["goal"], bob.goal);
+        assert_eq!(teammate["agent"], "Hotline Agent");
+        assert_eq!(teammate["model"], "anthropic/claude-opus-5-5");
+        assert_eq!(teammate["effort"], "high");
+        assert_eq!(
+            teammate["capabilities"],
+            json!({
+                "computer": "attached",
+                "webSearch": true,
+                "imageGeneration": true,
+                "backgroundWork": true,
+                "messageTeammates": "directly",
+                "reach": "whole machine",
+                "mcpServers": ["Docs"],
+            })
+        );
+        for never in [
+            "sk-live",
+            "mcp.example",
+            "X-Leaky-Header",
+            "Vault Of Bob",
+            "vault-mcp",
+            "/Users/bob",
+            "mcpPolicy",
+            "backendId",
+            "node",
+        ] {
+            assert!(
+                !listed.contains(never),
+                "{never} reached a colleague: {listed}"
+            );
+        }
+    }
+
+    /// The narrow end of each capability: no computer reads `none`, a harness
+    /// is confined to its workspace whatever its record says and needs the
+    /// person's approval to start collaborating, and a desk with images off
+    /// or a teammate with web search off says so.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_teammate_without_a_computer_or_grants_shows_none_of_them() {
+        let room = room_with_two("teammate-narrow-profile");
+        write_setting(room.log(), "images", json!({"provider": "off"}));
+        let mut bob = bob();
+        bob.backend_id = "claude-acp".to_string();
+        bob.reach = Some(Reach::Machine);
+        bob.background_work = false;
+        bob.web_search_policy = Some(WebSearchPolicy {
+            mode: PolicyMode::None,
+            providers: Vec::new(),
+        });
+        write_persona(room.log(), bob);
+
+        let listed = through_rig(&tools(&room), LIST_TEAMMATES, json!({})).await;
+        let parsed: Value = serde_json::from_str(&listed).unwrap();
+        let teammate = &parsed["teammates"][0];
+        assert_eq!(teammate["agent"], "Claude Code");
+        assert_eq!(teammate["model"], Value::Null);
+        assert_eq!(teammate["effort"], Value::Null);
+        assert_eq!(
+            teammate["capabilities"],
+            json!({
+                "computer": "none",
+                "webSearch": false,
+                "imageGeneration": false,
+                "backgroundWork": false,
+                "messageTeammates": "after approval",
+                "reach": "workspace",
+                "mcpServers": [],
+            })
+        );
     }
 
     /// Idle, never spoken to, never given a chapter: the shape this row
@@ -1717,7 +1964,7 @@ mod tests {
             refused,
             "`nope` is not a duration like 20m or 2h, or an ISO timestamp."
         );
-        assert!(room.schedule_list().is_empty());
+        assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1829,7 +2076,7 @@ mod tests {
             serde_json::from_str::<Value>(&answered).unwrap(),
             json!({ "cancelled": true })
         );
-        assert!(room.schedule_list().is_empty());
+        assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
     }
 
     /// The tool does not re-state the room's bounds. A loop under `MIN_LOOP`
@@ -1877,7 +2124,7 @@ mod tests {
 
     fn client() -> ClientInfo {
         ClientInfo::new(
-            Default::default(),
+            ClientCapabilities::default(),
             Implementation::new("test", env!("CARGO_PKG_VERSION")),
         )
     }
@@ -1975,7 +2222,7 @@ mod tests {
     }
     // web_search ------------------------------------------------------------
 
-    use crate::contract::{WebSearchPolicy, WebSearchProvider};
+    use crate::contract::WebSearchProvider;
     use crate::websearch::Endpoints;
     use crate::websearch::tests::{Mock, Reply, mock};
 

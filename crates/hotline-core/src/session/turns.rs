@@ -16,9 +16,9 @@
 use super::runner::{Driven, Witness, Words, drive_updates};
 use super::threads::Threads;
 use super::{Room, Wired, lock};
+use crate::contract::ThreadId;
 use crate::contract::{Attachment, DeliveryFrom, DeltaKind, Reach, StreamDelta, TranscriptEvent};
 use crate::driver::{Driver, MessageKind, Update};
-use crate::thread::ThreadId;
 use std::collections::VecDeque;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -295,7 +295,7 @@ impl Room {
                 Begin::Go(mut held) => {
                     let driven = occupant.turn(&self, &mut held).await;
                     self.let_go_of_computer(occupant.persona_id(), occupant.holder());
-                    if let Then::Stop = occupant.end(&self, held, driven) {
+                    if matches!(occupant.end(&self, held, driven), Then::Stop) {
                         break;
                     }
                 }

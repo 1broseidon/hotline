@@ -9,7 +9,9 @@ use crate::contract::{ChapterClose, NoticeLevel, ToolStatus};
 use crate::driver::rig::Said;
 use crate::driver::{MessageKind, Update};
 use crate::mcp::server::TeammateTools;
+use crate::session::now_ms;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
+use crate::test_support::until;
 use serde_json::json;
 
 /// A room with Ada and Bob enrolled, neither of them running.
@@ -38,19 +40,20 @@ fn workspace_room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
 }
 
 async fn collaboration_card(room: &Room, persona_id: &str) -> Value {
-    for _ in 0..100 {
-        if let Some(card) = room.tape(persona_id).into_iter().find(|event| {
+    let card = || {
+        room.tape(persona_id).into_iter().find(|event| {
             kind_of(event) == "permission"
                 && event["requestId"]
                     .as_str()
                     .is_some_and(|id| id.starts_with(COLLAB_REQUEST_PREFIX))
                 && event.get("decision").is_none()
-        }) {
-            return card;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-    }
-    panic!("the collaboration card did not reach the tape")
+        })
+    };
+    until("the collaboration card reaches the tape", || {
+        card().is_some()
+    })
+    .await;
+    card().unwrap()
 }
 
 #[tokio::test]
@@ -72,7 +75,7 @@ async fn workspace_delivery_requires_consent_before_peer_side_effects() {
     assert_eq!(card["options"][0]["name"], "Allow this session");
     assert_eq!(card["options"][1]["name"], "Always allow Ada");
     assert_eq!(card["options"][2]["name"], "Deny");
-    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
     assert!(lock(&room.peers.sessions).is_empty());
 
     room.answer_permission("ada", &request_id, DENY)
@@ -80,7 +83,7 @@ async fn workspace_delivery_requires_consent_before_peer_side_effects() {
         .unwrap();
     let error = delivery.await.unwrap().unwrap_err();
     assert!(error.contains("denied"), "{error}");
-    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
     assert!(lock(&room.peers.sessions).is_empty());
     let settled = room
         .tape("ada")
@@ -144,7 +147,7 @@ async fn collaboration_rechecks_reach_after_discovery() {
         .await
         .unwrap();
     assert!(authorization.await.unwrap().is_err());
-    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
 }
 
 #[tokio::test]
@@ -769,7 +772,7 @@ async fn a_teammate_this_room_does_not_have_is_refused_in_a_sentence() {
     let refused = room.deliver("ada", "Cal", "hello?").await.unwrap_err();
     assert!(refused.contains("Cal"), "{refused}");
     assert!(refused.contains("list_teammates"), "{refused}");
-    assert!(thread_of(&room, "ada~cal").is_empty());
+    assert_eq!(thread_of(&room, "ada~cal"), [] as [Value; 0]);
 
     let itself = room.deliver("ada", "Ada", "hello?").await.unwrap_err();
     assert!(itself.contains("cannot message itself"), "{itself}");
@@ -839,6 +842,51 @@ async fn a_peer_session_that_has_gone_quiet_is_stopped_and_a_deleted_teammate_ta
     assert_eq!(lock(&room.peers.sessions).len(), 1);
     room.drop_peer_sessions("bob");
     assert!(lock(&room.peers.sessions).is_empty());
+}
+
+/// A session revoked while another start for the same pair was on its way is
+/// found stale when that start goes to keep its own, and is replaced. A lock
+/// the start never lets go of would wedge the runtime's workers and its clock,
+/// so the deadline is kept on this thread and the runtime is let go of in the
+/// background rather than waited for: the test fails instead of hanging.
+#[test]
+fn a_start_that_finds_a_revoked_session_in_its_place_replaces_it() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let agents = Fake::new(Scripted::turns(vec![
+        answers("a1", "first"),
+        answers("a2", "second"),
+    ]));
+    let room = runtime.block_on(async {
+        let room = room("stale-in-place", agents.clone());
+        room.deliver("ada", "bob", "first question").await.unwrap();
+        room
+    });
+    let pair = (String::from("ada"), String::from("bob"));
+    let stale = lock(&room.peers.sessions)
+        .remove(&pair)
+        .expect("the first peer session is cached");
+    stale.caller_capability.revoke();
+    let sessions = room.clone();
+    let put_back = pair.clone();
+    agents.when_building(move || {
+        lock(&sessions.peers.sessions).insert(put_back, stale);
+    });
+
+    let (done, second) = std::sync::mpsc::channel();
+    let starter = room.clone();
+    runtime.spawn(async move {
+        let _ = done.send(starter.deliver("ada", "bob", "second question").await);
+    });
+    let finished = second.recv_timeout(std::time::Duration::from_secs(10));
+    runtime.shutdown_background();
+    finished
+        .expect("the second start lets go of the session map")
+        .unwrap();
+    let kept = lock(&room.peers.sessions)
+        .get(&pair)
+        .cloned()
+        .expect("the second peer session is cached");
+    assert!(kept.valid());
 }
 
 /// A peer-only session has two authorities: the caller is allowed to ask, and
@@ -1054,7 +1102,10 @@ async fn a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later() 
         .find(|event| event["requestId"] == request_id)
         .expect("cancellation leaves an expired collaboration card");
     assert_eq!(settled["decision"], "expired");
-    assert!(room.persona("bob").unwrap().allowed_senders.is_empty());
+    assert_eq!(
+        room.persona("bob").unwrap().allowed_senders,
+        [] as [String; 0]
+    );
 }
 
 #[tokio::test]
@@ -1075,7 +1126,7 @@ async fn an_answered_collaboration_cannot_start_after_a_chapter_generation_chang
 
     let error = delivery.await.unwrap().unwrap_err();
     assert!(error.contains("approval expired"), "{error}");
-    assert!(thread_of(&room, "ada~bob").is_empty());
+    assert_eq!(thread_of(&room, "ada~bob"), [] as [Value; 0]);
     assert!(lock(&room.peers.sessions).is_empty());
     assert!(lock(&room.peers.session_grants).is_empty());
 }
@@ -1419,20 +1470,20 @@ mod receipts {
     #[test]
     fn an_error_before_the_model_ran_does_not_read_the_message() {
         let ran = run(vec![user("u1", ""), notice("the backend died")]);
-        assert!(ran.reads.is_empty());
+        assert_eq!(ran.reads, [] as [String; 0]);
         assert_eq!(ran.window.as_ref().map(id_of), Some("u1".to_string()));
     }
 
     #[test]
     fn a_chapter_marker_written_as_the_session_opens_does_not_read_the_message() {
         let ran = run(vec![user("u1", ""), chapter()]);
-        assert!(ran.reads.is_empty());
+        assert_eq!(ran.reads, [] as [String; 0]);
     }
 
     #[test]
     fn nothing_is_read_before_a_message_arrives() {
         let ran = run(vec![thought(""), tool(), agent("a1", ""), turn()]);
-        assert!(ran.reads.is_empty());
+        assert_eq!(ran.reads, [] as [String; 0]);
     }
 
     #[test]
@@ -1509,15 +1560,27 @@ mod receipts {
     #[test]
     fn a_receipt_naming_nothing_or_something_already_read_writes_nothing() {
         let said = stored(&[stamped(agent("a1", ""), Receipt::Read)]);
-        assert!(read_receipt_updates(&said, &["a1".to_string()]).is_empty());
-        assert!(read_receipt_updates(&said, &["no-such-id".to_string()]).is_empty());
-        assert!(read_receipt_updates(&[], &["anything".to_string()]).is_empty());
+        assert_eq!(
+            read_receipt_updates(&said, &["a1".to_string()]),
+            [] as [TranscriptEvent; 0]
+        );
+        assert_eq!(
+            read_receipt_updates(&said, &["no-such-id".to_string()]),
+            [] as [TranscriptEvent; 0]
+        );
+        assert_eq!(
+            read_receipt_updates(&[], &["anything".to_string()]),
+            [] as [TranscriptEvent; 0]
+        );
     }
 
     #[test]
     fn a_receipt_cannot_move_machinery() {
         let machinery = stored(&[thought("")]);
-        assert!(read_receipt_updates(&machinery, &["th".to_string()]).is_empty());
+        assert_eq!(
+            read_receipt_updates(&machinery, &["th".to_string()]),
+            [] as [TranscriptEvent; 0]
+        );
     }
 }
 

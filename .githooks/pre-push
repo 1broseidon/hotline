@@ -1,0 +1,12 @@
+#!/bin/sh
+# make precheck before anything leaves this machine: what only GitHub's
+# runners would otherwise fail (Windows, each window test alone, the
+# workflows). 15 s warm, 4 min cold. docs/development.md#before-pushing.
+set -e
+
+echo "==> make precheck (git push --no-verify skips it, for an emergency)"
+make precheck || {
+    echo "pre-push: make precheck failed, so nothing was pushed."
+    echo "Fix it, or in an emergency push anyway with git push --no-verify."
+    exit 1
+}

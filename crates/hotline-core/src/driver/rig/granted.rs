@@ -13,6 +13,7 @@
 //! they are the teammate's hands, used on nearly every turn.
 
 use super::*;
+use serde_json::Map;
 
 /// Reads one granted tool's description and parameters.
 pub(super) const SCHEMA: &str = "tool_schema";
@@ -152,10 +153,8 @@ fn parameters_of(tool: &mcp::McpTool) -> String {
 /// a model that sent one.
 pub(super) fn inner_arguments(arguments: &Value) -> Result<Value, String> {
     match arguments.get("arguments") {
-        None | Some(Value::Null) => Ok(Value::Object(Default::default())),
-        Some(Value::String(text)) if text.trim().is_empty() => {
-            Ok(Value::Object(Default::default()))
-        }
+        None | Some(Value::Null) => Ok(Value::Object(Map::default())),
+        Some(Value::String(text)) if text.trim().is_empty() => Ok(Value::Object(Map::default())),
         Some(Value::String(text)) => match serde_json::from_str::<Value>(text) {
             Ok(object @ Value::Object(_)) => Ok(object),
             _ => Err(format!(

@@ -34,12 +34,12 @@ const GROK_RATES: [u32; 7] = [8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_
 const OPENAI_RATES: [u32; 1] = [24_000];
 /// xAI ends a session at 120 minutes and OpenAI at 60. A fresh one replaces
 /// it between replies five minutes before, or mid-reply four minutes later.
-const GROK_RENEW_AFTER: Duration = Duration::from_secs(115 * 60);
-const OPENAI_RENEW_AFTER: Duration = Duration::from_secs(55 * 60);
+const GROK_RENEW_AFTER: Duration = Duration::from_mins(115);
+const OPENAI_RENEW_AFTER: Duration = Duration::from_mins(55);
 /// What OpenAI transcribes the person with, for the call's thread; xAI
 /// transcribes without being asked.
 const OPENAI_TRANSCRIBE: &str = "gpt-4o-mini-transcribe";
-const RENEW_GRACE: Duration = Duration::from_secs(4 * 60);
+const RENEW_GRACE: Duration = Duration::from_mins(4);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 /// Unreachable providers are retried this many times, a doubling wait apart.
@@ -376,8 +376,8 @@ impl Driver {
             let next = tokio::select! {
                 command = commands.recv() => Next::Command(command),
                 read = self.voice.read(socket) => Next::Read(read?),
-                _ = sleep_until(renew_at) => Next::Renew,
-                _ = self.events.closed() => return Err(SpeechError::Cancelled),
+                () = sleep_until(renew_at) => Next::Renew,
+                () = self.events.closed() => return Err(SpeechError::Cancelled),
             };
             match next {
                 Next::Command(None) => return Ok(()),

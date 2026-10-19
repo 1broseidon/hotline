@@ -38,6 +38,7 @@ export function Viewer({ src, alt, onClose, actions }: { src: string; alt: strin
 					Close
 				</button>
 			</div>
+			{/* biome-ignore lint/a11y/noStaticElementInteractions: a press beside the picture is the pointer's way out; the keyboard's is Escape or Close. */}
 			<div
 				className={`viewer-stage ${actual ? "viewer-actual" : ""}`}
 				onClick={(event) => {

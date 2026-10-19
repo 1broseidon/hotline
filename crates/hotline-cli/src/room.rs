@@ -334,6 +334,7 @@ mod tests {
                 started_at: "2026-09-30T00:00:00Z".into(),
                 data_dir: root.to_string_lossy().into(),
                 store: "file".into(),
+                capabilities: Vec::new(),
             },
         )
         .unwrap();
@@ -486,7 +487,7 @@ mod tests {
             words(r#"A=1 "B=two words" 'C=$x' D=e\ f "" G="h i""#),
             ["A=1", "B=two words", "C=$x", "D=e f", "", "G=h i"]
         );
-        assert!(words("   ").is_empty());
+        assert_eq!(words("   "), [] as [String; 0]);
     }
 
     #[test]

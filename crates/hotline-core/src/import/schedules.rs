@@ -116,6 +116,7 @@ fn job_from_legacy(value: &Value) -> Option<ScheduledJob> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::SkillPolicy;
     use crate::contract::{McpPolicy, Persona, PolicyMode};
     use crate::log::{Log, StreamId};
     use serde_json::json;
@@ -151,7 +152,7 @@ mod tests {
                 mode: PolicyMode::All,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,

@@ -525,7 +525,7 @@ mod cookie_import_tests {
     #[test]
     fn the_record_is_the_latest_whole_list_per_teammate() {
         let log = scratch("cookie-imports");
-        assert!(cookie_imports(&log, "ada").is_empty());
+        assert_eq!(cookie_imports(&log, "ada"), [] as [CookieImport; 0]);
         let first = vec![import("chrome", "Default", &[("github.com", 3)], 1)];
         record_cookie_imports(&log, "ada", &first).unwrap();
         record_cookie_imports(
@@ -610,6 +610,7 @@ fn with_checkpoints(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contract::SkillPolicy;
     use crate::contract::{McpPolicy, PolicyMode};
     use serde_json::json;
 
@@ -641,7 +642,7 @@ mod tests {
                 mode: PolicyMode::All,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,
@@ -740,7 +741,7 @@ mod tests {
             settled_pins(Some(&json!(["x", "b", "b", "a"])), &team),
             vec!["b".to_string(), "a".to_string()]
         );
-        assert!(settled_pins(None, &team).is_empty());
+        assert_eq!(settled_pins(None, &team), [] as [String; 0]);
     }
 
     #[test]
@@ -752,7 +753,7 @@ mod tests {
         append(&log, &persona_event(&bob));
 
         // A rename is the same id again, and keeps the place it arrived in.
-        let mut renamed = ada.clone();
+        let mut renamed = ada;
         renamed.name = "Ada Lovelace".to_string();
         renamed.updated_at = 1_700_000_001_000;
         append(&log, &persona_event(&renamed));
@@ -794,7 +795,7 @@ mod tests {
         append(&log, &tombstone("persona", "ada"));
         log.compact(&StreamId::Room).unwrap();
         let events = log.load(&StreamId::Room);
-        assert!(personas(&events).is_empty());
+        assert_eq!(personas(&events), [] as [Persona; 0]);
         assert!(has_had_a_teammate(&events));
     }
 
@@ -1126,7 +1127,7 @@ mod tests {
         }
         assert_eq!(
             teammate_schedules(&log, "ada").unwrap(),
-            Some(vec![sweep.clone(), once.clone()])
+            Some(vec![sweep.clone(), once])
         );
         assert_eq!(teammate_schedules(&log, "bob").unwrap(), Some(vec![theirs]));
 
@@ -1154,7 +1155,7 @@ mod tests {
         let error = teammate_schedules(&log, "ada").unwrap_err();
         assert!(error.contains("could not be read"), "{error}");
         assert!(log.try_load(&StreamId::Room).is_err());
-        assert!(log.load(&StreamId::Room).is_empty());
+        assert_eq!(log.load(&StreamId::Room), [] as [Value; 0]);
     }
 
     #[test]

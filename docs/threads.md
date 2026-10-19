@@ -294,7 +294,7 @@ Where this differs from the design above:
   kept.
 - **The run's one turn is `Threads::turn`, not a loop.** A run has no queue, so
   there is one `Turns` and no second turn loop for it to use; the loop over a
-  queue stays in `run_side_turns` until the DM's `run_turns` can share it.
+  queue is `Room::run_queue`, which the DM and a side share (below).
 - **Not moved:** `start_now` (phase 7) and `peer_session` (phase 6) still build
   their own agents. The builder already grants the computer when a kind's policy
   says so, which is the part of `start_now` and `peer_session` they share, but
@@ -684,7 +684,7 @@ the phases built so far.
 | Write helper | `write_value` | `Threads::write` | `Threads::write` (`write_thread`) | `Threads::write` (desk calls: `voice_record`) | `Threads::write` |
 | Agent builder | `Room::thread_agent` (from `start_now`) | `Room::thread_agent` (from `bring_up`) | `peer_session` | dispatcher front | `Room::thread_agent` (from `run_to_end`) |
 | Turn loop | `Room::run_queue` (`Session`) | `Room::run_queue` (`LiveSide`) | `drive` | voice `run` | `Threads::turn` |
-| Resume | persona checkpoints | marker `sessionId` | reseed from thread | `Exchange::from_thread` | none |
+| Resume | persona checkpoints | marker `sessionId` | reseed from thread | none: each front starts from the DM's recent lines (`front_prompt`) | none |
 | Idle | `Room::sweep` (chapters) | `Room::sweep` (3 h) | `Room::sweep` (10 min) | `Room::sweep` (10 min) | `Room::sweep` (none) |
 | Restart | `Room::settle` | `Room::settle` | `Room::settle` + `reconcile_exchanges`, `recover_exchanges` | `Room::settle` (closed) | `Room::settle` |
 | Marker | — | link | `xthread:`, `exchange-paused:` | link (`call`); `voice:` id for desk calls | link |

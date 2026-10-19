@@ -30,6 +30,7 @@ export function usePeople(roster: Parameters<typeof peopleOf>[0]): ReadonlyMap<s
 	const latest = useRef(roster);
 	latest.current = roster;
 	const key = roster.map((entry) => `${entry.persona.id}\u0000${entry.persona.name}\u0000${entry.persona.avatar?.hash ?? ""}`).join("\u0001");
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the key is the roster's names and pictures, which peopleOf reads through latest.
 	return useMemo(() => peopleOf(latest.current), [key]);
 }
 

@@ -5,11 +5,20 @@ import type { FileChunk, VoiceEndReason, VoiceEvent, VoiceFront } from "../gener
 import { type CallAudio, webAudio } from "./audio";
 import { microphoneTrouble } from "./microphone";
 import { TurnDetector, levelFromDb } from "./turn";
-import { type DeviceTranscription, type TranscriptionEvent, deviceTranscription, hearsOnThisMac, rawEquivalentDb } from "./transcription";
+import {
+	type DeviceTranscription,
+	type TranscriptionEvent,
+	UNHEARD,
+	WordlessVoice,
+	deviceTranscription,
+	hearsOnThisMac,
+	rawEquivalentDb,
+} from "./transcription";
 import { hearOnThisMac, subscribeHearing } from "./hearing";
+import { hearsWithDeskModel } from "./desk";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 import { PcmResampler, PcmTurn } from "./stream";
-import { useRawSetting } from "../room";
+import { useModelsRevision, useRawSetting } from "../room";
 
 /**
  * A call belongs to its chosen desk and optional teammate. It lives outside
@@ -29,7 +38,7 @@ export type CallLine =
 	| { kind: "you"; id: string; text: string }
 	| { kind: "desk"; id: string; text: string; from?: string };
 
-export type CallCard = { personaId: string; requestId: string; kind: string };
+type CallCard = { personaId: string; requestId: string; kind: string };
 
 export type EndReason = VoiceEndReason;
 
@@ -43,6 +52,8 @@ export type CallSnapshot = {
 	ended?: EndReason;
 	/** One sentence for a person, when something went wrong. */
 	trouble?: string | undefined;
+	/** This Mac heard no words and the desk would hear the call with its own model, free: worth offering. */
+	deskModel?: boolean;
 };
 
 /** What the desk sends on `{call: id}`: the generated `VoiceEvent`. */
@@ -152,12 +163,12 @@ function afterRecognizedPrefix(text: string, prefix: string): string {
  * both. It is gentler than the curve for your voice, which would hold the
  * mouth wide open through a whole sentence.
  */
-export function speechLevel(rms: number): number {
-	return Math.min(1, Math.pow(rms * 5, 0.65));
+function speechLevel(rms: number): number {
+	return Math.min(1, (rms * 5) ** 0.65);
 }
 
 /** Whether the desk can put a voice front on a call: it says so in `voice.status`. */
-export function offersFront(status: unknown): boolean {
+function offersFront(status: unknown): boolean {
 	const capabilities = (status as { capabilities?: unknown } | null)?.capabilities;
 	return Array.isArray(capabilities) && capabilities.includes("voiceFront");
 }
@@ -238,6 +249,7 @@ export class Call {
 	/** The session's words from before the speaker's onset, which are the room's. */
 	private textIgnored = "";
 	private textSnapshots: { text: string; at: number }[] = [];
+	private readonly wordless = new WordlessVoice();
 	/** The connect chime is not the speaker. */
 	private quietUntil = 0;
 
@@ -683,7 +695,7 @@ export class Call {
 			const frame = this.frontSamples.splice(0, FRONT_FRAME_SAMPLES);
 			const bytes = new Uint8Array(frame.length * 2);
 			const view = new DataView(bytes.buffer);
-			frame.forEach((sample, i) => view.setInt16(i * 2, sample, true));
+			for (const [i, sample] of frame.entries()) view.setInt16(i * 2, sample, true);
 			void this.transport.command("voice.front_audio", { callId: this.id, seq: this.frontSeq++, data: toBase64(bytes) }).catch(() => {});
 		}
 	}
@@ -791,6 +803,7 @@ export class Call {
 				const level = levelFromDb(rawEquivalentDb(event.levelDb));
 				this.level = level;
 				for (const turn of this.detector.push(level, now)) {
+					if (this.wordless.turn(turn)) return this.unheard();
 					switch (turn.kind) {
 						case "start":
 							this.heard = true;
@@ -818,6 +831,7 @@ export class Call {
 			case "partial":
 			case "final": {
 				const text = event.text.trim();
+				this.wordless.heard(text);
 				if (!this.heard) {
 					this.textSnapshots.push({ text, at: this.now() });
 					if (this.textSnapshots.length > 64) this.textSnapshots.shift();
@@ -837,6 +851,21 @@ export class Call {
 				this.listen();
 				return;
 		}
+	}
+
+	/**
+	 * Voice on the meter and never a word: the engine is not recognizing.
+	 * The call ends saying so, and offers the desk's own model when the desk
+	 * would hear an audio call with it, so nothing moves to a paid provider.
+	 */
+	private unheard(): void {
+		this.fail(UNHEARD);
+		void this.transport
+			.command("voice.status", {})
+			.then((status) => {
+				if (hearsWithDeskModel(status)) this.set({ deskModel: true });
+			})
+			.catch(() => {});
 	}
 
 	/** What the speaker has said this turn: nothing until the meter heard a voice, so the room's words are never sent. */
@@ -935,7 +964,7 @@ export class Call {
 		let target = 0;
 		// The reply on the phone's curve; your voice on a perceptual curve, as Spark drew it.
 		if (this.snapshot.phase === "speaking") target = speechLevel(this.audio.outputLevel());
-		else if (this.snapshot.phase === "listening" || this.snapshot.phase === "hearing" || (this.front !== null && this.snapshot.phase === "thinking")) target = Math.min(1, Math.pow(this.level * 9, 0.6));
+		else if (this.snapshot.phase === "listening" || this.snapshot.phase === "hearing" || (this.front !== null && this.snapshot.phase === "thinking")) target = Math.min(1, (this.level * 9) ** 0.6);
 		// Fast attack and slow release.
 		this.shown += (target - this.shown) * (target > this.shown ? 0.5 : 0.12);
 		for (const listener of this.levels) listener(this.shown);
@@ -1025,11 +1054,6 @@ export class Call {
 let active: Call | null = null;
 const holders = new Set<() => void>();
 
-/** The window's call, if one is open or just ended. */
-export function currentCall(): Call | null {
-	return active;
-}
-
 export async function startCall(names?: Names, target?: CallTarget): Promise<Call> {
 	active?.hangUp();
 	const deskId = activeDeskId();
@@ -1076,39 +1100,29 @@ export function useCallSnapshot(call: Call | null): CallSnapshot {
 	);
 }
 
-const supportChecks = new Set<() => void>();
-
-/**
- * Ask every open voice check to look again. Connecting or removing a
- * provider changes whether the desk can take a call, and the desk does not
- * announce it, so whoever changed one says so.
- */
-export function recheckVoiceSupport(): void {
-	for (const check of supportChecks) check();
-}
-
 /**
  * Whether the open desk can take a call: it answers `voice.status` with a
  * speech provider it can use. A desk from before voice refuses the command,
- * and that is a no, not an error. Asked again when a provider changes here,
- * when the voice settings change, and when the window comes back, which is
- * when a change made from the phone shows.
+ * and that is a no, not an error. Asked again when the room says a
+ * connection came, went or found its models (a sign-in during onboarding
+ * included, so the call keys show before the first turn), when the voice
+ * settings change, and when the window comes back.
  */
 export function useVoiceSupport(connection: string): { available: boolean; directCalls: boolean } {
 	const [support, setSupport] = useState({ available: false, directCalls: false });
 	const [asked, setAsked] = useState(0);
 	const voiceSettings = useRawSetting("voice");
+	const modelsRevision = useModelsRevision();
 	useEffect(() => {
 		const again = () => setAsked((n) => n + 1);
-		supportChecks.add(again);
 		const unhear = subscribeHearing(again);
 		window.addEventListener("focus", again);
 		return () => {
-			supportChecks.delete(again);
 			unhear();
 			window.removeEventListener("focus", again);
 		};
 	}, []);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: asked, voiceSettings and modelsRevision are what ask again.
 	useEffect(() => {
 		if (connection !== "open") { setSupport({ available: false, directCalls: false }); return; }
 		let current = true;
@@ -1124,6 +1138,6 @@ export function useVoiceSupport(connection: string): { available: boolean; direc
 		return () => {
 			current = false;
 		};
-	}, [connection, asked, voiceSettings]);
+	}, [connection, asked, voiceSettings, modelsRevision]);
 	return support;
 }

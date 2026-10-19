@@ -24,6 +24,9 @@ fn main() {
         "desk_pair_link",
         "desk_pair_ssh",
         "desk_forget",
+        "desk_move_to_relay",
+        "desk_decline_relay",
+        "relay_forget",
         "desk_list",
         "desk_viewer_token",
         "open_sent_file",
@@ -87,12 +90,11 @@ fn build_speech() {
         let output = command
             .output()
             .unwrap_or_else(|error| panic!("{command:?} did not run: {error}"));
-        if !output.status.success() {
-            panic!(
-                "{command:?} failed:\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
+        assert!(
+            output.status.success(),
+            "{command:?} failed:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         output.stdout
     };
     let sdk = run(Command::new("xcrun").args(["--sdk", "macosx", "--show-sdk-path"]));

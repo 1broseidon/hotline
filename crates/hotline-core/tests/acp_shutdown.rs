@@ -8,11 +8,10 @@
 #![cfg(unix)]
 mod common;
 
-use common::stalled::{self, Client};
+use common::{Client, stalled};
 use hotline_core::wire::Door;
 use serde_json::json;
 use std::sync::Arc;
-use std::time::Duration;
 
 const TOKEN: &str = "disposable-acp-shutdown-test";
 
@@ -31,7 +30,6 @@ async fn ending_every_agent_kills_a_starting_agents_process_group() {
         .call(
             "persona.create",
             json!({"draft": {"name":"Pork Chop", "goal":"Code", "cwd":cwd, "backendId":stalled::BACKEND}}),
-            Duration::from_secs(5),
         )
         .await;
     let pork_chop = made["result"]["id"].as_str().unwrap().to_owned();
@@ -45,11 +43,11 @@ async fn ending_every_agent_kills_a_starting_agents_process_group() {
 
     hotline_core::driver::acp::end_every_agent();
 
-    assert!(stalled::group_gone(group).await, "the launcher was killed");
-    assert!(
-        stalled::process_gone(grandchild).await,
-        "and what it started"
-    );
+    common::until("the launcher is killed", || !stalled::group_alive(group)).await;
+    common::until("and what it started", || {
+        !stalled::process_alive(grandchild)
+    })
+    .await;
 
     drop(client);
     door_task.abort();

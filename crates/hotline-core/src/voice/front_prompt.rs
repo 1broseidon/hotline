@@ -8,6 +8,7 @@
 
 use super::front::Tool;
 use crate::driver::failure::redact_text;
+use std::fmt::Write;
 
 const NAME_CHARS: usize = 60;
 const HANDOFF_CHARS: usize = 600;
@@ -81,23 +82,25 @@ pub fn instructions(behind: &Behind, start: &Start) -> String {
             );
             let voice = clip(&scrub(voice), HANDOFF_CHARS);
             if !voice.is_empty() {
-                text.push_str(&format!(" How it speaks: {voice}"));
+                let _ = write!(text, " How it speaks: {voice}");
             }
             text
         }
         Behind::Desk => DESK_RULES.to_string(),
     };
     if let Some(person) = start.person.map(scrub).filter(|name| !name.is_empty()) {
-        text.push_str(&format!(
+        let _ = write!(
+            text,
             "\n\nThe person's name is {}.",
             clip(&person, NAME_CHARS)
-        ));
+        );
     }
     if let Some(note) = start.handoff.map(scrub).filter(|note| !note.is_empty()) {
-        text.push_str(&format!(
+        let _ = write!(
+            text,
             "\n\nHandoff note from the open chapter:\n{}",
             clip(&note, HANDOFF_CHARS)
-        ));
+        );
     }
     if !start.tools.is_empty() {
         let listed: Vec<String> = start
@@ -111,14 +114,15 @@ pub fn instructions(behind: &Behind, start: &Start) -> String {
                 )
             })
             .collect();
-        text.push_str(&format!(
+        let _ = write!(
+            text,
             "\n\nYour tools, besides send_to_teammate:\n{}",
             listed.join("\n")
-        ));
+        );
     }
     let recent = recent_lines(start.recent);
     if !recent.is_empty() {
-        text.push_str(&format!("\n\nRecent conversation:\n{recent}"));
+        let _ = write!(text, "\n\nRecent conversation:\n{recent}");
     }
     text
 }

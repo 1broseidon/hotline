@@ -6,20 +6,24 @@
 //! asked of the [`RoomHandle`], because a running agent and a vault are not
 //! things to reimplement behind a door.
 
+pub(super) mod models;
+pub(super) mod persona;
+mod settings;
+
 use super::{RoomHandle, threads};
-use crate::contract::{
-    Command, FolderGrant, McpPolicy, Persona, PersonaComputer, PersonaDraft, PolicyMode, Reach,
-    SessionInfo, SessionState, ThreadAnswer,
-};
-use crate::driver::HOTLINE_BACKEND_ID;
+use crate::contract::{Command, ThreadAnswer, ThreadId};
 use crate::log::{Log, StreamId};
 use crate::store::{chapters, search};
-use crate::thread::ThreadId;
 use crate::{paths, room};
+use models::{remember_model, set_config, set_model, welcome};
+use persona::{
+    MobileDraft, apply_persona_update, create_persona, delete_persona, living,
+    mobile_persona_access, mobile_persona_computer, mobile_persona_create, mobile_persona_patch,
+    pin_persona, set_mode,
+};
 use serde_json::{Map, Value, json};
-use std::path::{Path, PathBuf};
+use settings::{update_settings, web_search_status};
 use std::sync::Arc;
-use uuid::Uuid;
 
 // Only the dispatcher sets this scope; wire parameters cannot claim voice origin.
 tokio::task_local! { pub(crate) static VOICE_COMMAND: (); }
@@ -70,23 +74,7 @@ pub(crate) async fn run(
         Command::ImagesStatus {} => Ok(json!(room.images_status())),
         Command::WebsearchStatus {} => web_search_status(log, room),
         Command::WebsearchSetEnabled { provider, enabled } => {
-            let gate = room.policy_update_lock();
-            let _held = gate.lock().await;
-            let mut disabled = crate::websearch::disabled_on_desk(&room::try_settings(log)?);
-            if enabled {
-                disabled.remove(&provider);
-            } else {
-                disabled.insert(provider);
-            }
-            let names: Vec<&str> = crate::websearch::ORDER
-                .into_iter()
-                .filter(|provider| disabled.contains(provider))
-                .map(crate::websearch::id)
-                .collect();
-            let mut patch = Map::new();
-            patch.insert("webSearch".into(), json!({ "disabled": names }));
-            update_settings(log, patch)?;
-            web_search_status(log, room)
+            settings::set_web_search_enabled(log, room, provider, enabled).await
         }
         Command::WebsearchSetKey { provider, key } => {
             room.websearch_set_key(provider, key.as_deref())?;
@@ -108,15 +96,20 @@ pub(crate) async fn run(
             input_mode,
             mode,
             input_rate,
-        } => Ok(json!(voice(room)?.start_call(
-            &call_id,
-            persona_id,
-            stream_audio.unwrap_or_default(),
-            input_mode.unwrap_or_default(),
-            mode.unwrap_or_default(),
-            input_rate,
-            room.clone()
-        )?)),
+        } => {
+            let request = crate::voice::CallRequest {
+                target: persona_id,
+                stream_audio: stream_audio.unwrap_or_default(),
+                input_mode: input_mode.unwrap_or_default(),
+                mode: mode.unwrap_or_default(),
+                mic_rate: input_rate,
+            };
+            Ok(json!(voice(room)?.start_call(
+                &call_id,
+                request,
+                room.clone()
+            )?))
+        }
         Command::VoiceFrontAudio { call_id, seq, data } => {
             voice(room)?.front_audio(&call_id, seq, &data)?;
             Ok(Value::Null)
@@ -202,27 +195,11 @@ pub(crate) async fn run(
         Command::RemoteDevices {} => Ok(json!(remote(room)?.devices())),
         Command::RemoteRevoke { device_id } => Ok(json!(remote(room)?.revoke(&device_id)?)),
         Command::RemoteRelay { desk_id } => Ok(json!(remote(room)?.relay_through(desk_id)?)),
+        Command::RemoteRelays {} => Ok(json!(remote(room)?.relay_servers())),
         Command::RemotePublicUrl { url } => {
             Ok(json!(remote(room)?.set_public_url(url.as_deref())?))
         }
-        Command::RemotePairing { role, id, cancel } => {
-            let remote = remote(room)?;
-            if let Some(id) = id {
-                if role.is_some() {
-                    return Err("A pairing role is chosen when the invitation is created.".into());
-                }
-                if cancel {
-                    remote.cancel_pairing(&id)?;
-                    Ok(Value::Null)
-                } else {
-                    Ok(json!(remote.pairing_result(&id)?))
-                }
-            } else if cancel {
-                Err("Name the pairing invitation to cancel.".into())
-            } else {
-                Ok(json!(remote.pairing_v2(role.unwrap_or_default())?))
-            }
-        }
+        Command::RemotePairing { role, id, cancel } => remote(room)?.pairing(role, id, cancel),
         Command::DesksLinks {} => Ok(json!(remote(room)?.desk_links()?)),
         Command::DesksLink { desk_id } => Ok(json!(remote(room)?.link(&desk_id).await?)),
         Command::DesksLinkAccept { desk_id, name, key } => {
@@ -245,6 +222,9 @@ pub(crate) async fn run(
         Command::MobilePrompt { .. }
         | Command::MobileAttachment { .. }
         | Command::MobilePushRegister { .. } => Err("This command requires a paired phone.".into()),
+        Command::RemoteBecomeRelay {} => {
+            Err("Only a paired device changes its own pairing.".into())
+        }
         Command::MobilePersonaCreate {
             request_id,
             name,
@@ -253,17 +233,14 @@ pub(crate) async fn run(
             model_id,
             effort_id,
         } => {
-            mobile_persona_create(
-                log,
-                room,
-                &request_id,
+            let asked = MobileDraft {
                 name,
                 goal,
                 backend_id,
                 model_id,
                 effort_id,
-            )
-            .await
+            };
+            mobile_persona_create(log, room, &request_id, asked).await
         }
         Command::MobilePersonaUpdate { id, name, goal } => {
             let patch = mobile_persona_patch(name, goal)?;
@@ -293,37 +270,7 @@ pub(crate) async fn run(
             let _held = gate.lock().await;
             pin_persona(log, &id, slot)
         }
-        Command::SettingsUpdate { mut patch } => {
-            for (key, value) in &mut patch {
-                if !value.is_null() {
-                    *value = room::normalize_setting(key, value)?;
-                }
-            }
-            let gate = room.policy_update_lock();
-            let _held = gate.lock().await;
-            if let Some(value) = patch.get_mut("mcpServers")
-                && !value.is_null()
-            {
-                *value = room.protect_mcp_settings(value)?;
-            }
-            let servers = patch.contains_key("mcpServers");
-            if servers {
-                room.invalidate_all()?;
-            }
-            let updated = update_settings(log, patch)?;
-            if servers {
-                forget_removed_servers(log)?;
-                // Replacing or deleting legacy sources also removes their
-                // superseded plaintext values from the room's history.
-                log.migrate_mcp_settings(|value| {
-                    room.protect_mcp_settings(value)
-                        .map_err(std::io::Error::other)
-                })
-                .map_err(|error| error.to_string())?;
-                room.reattach_all().await?;
-            }
-            Ok(updated)
-        }
+        Command::SettingsUpdate { patch } => settings::apply_update(log, room, patch).await,
 
         Command::CredentialCreate {
             provider_id,
@@ -558,8 +505,8 @@ pub(crate) async fn run(
             size,
         } => {
             living(log, &persona_id)?;
-            match size {
-                Some(edge) => crate::sent::read_message_thumb(
+            if let Some(edge) = size {
+                crate::sent::read_message_thumb(
                     log,
                     &persona_id,
                     &event_id,
@@ -568,21 +515,20 @@ pub(crate) async fn run(
                     edge,
                 )
                 .await
-                .map(|chunk| json!(chunk)),
-                None => {
-                    let log = log.clone();
-                    off_the_reactor(move || {
-                        crate::sent::read_message(
-                            &log,
-                            &persona_id,
-                            &event_id,
-                            index.unwrap_or(0),
-                            offset,
-                        )
-                        .map(|chunk| json!(chunk))
-                    })
-                    .await
-                }
+                .map(|chunk| json!(chunk))
+            } else {
+                let log = log.clone();
+                off_the_reactor(move || {
+                    crate::sent::read_message(
+                        &log,
+                        &persona_id,
+                        &event_id,
+                        index.unwrap_or(0),
+                        offset,
+                    )
+                    .map(|chunk| json!(chunk))
+                })
+                .await
             }
         }
         Command::AvatarRead {
@@ -791,6 +737,12 @@ pub(crate) async fn run(
                 .await
                 .map(|()| Value::Null)
         }
+        Command::ComputerRestart { persona_id } => {
+            living(log, &persona_id)?;
+            room.computer_restart(&persona_id)
+                .await
+                .map(|()| Value::Null)
+        }
         Command::ComputerBrowsersList {} => Ok(json!(room.computer_browsers().await)),
         Command::ComputerCookiesPreview {
             browser_id,
@@ -882,895 +834,13 @@ fn voice(room: &Arc<dyn RoomHandle>) -> Result<Arc<crate::voice::Calls>, String>
         .ok_or_else(|| "Voice is not available on this desk.".into())
 }
 
+fn remote(room: &Arc<dyn RoomHandle>) -> Result<Arc<crate::remote::Remote>, String> {
+    room.remote()
+        .ok_or_else(|| "Remote access is not available in this room.".into())
+}
+
 fn now() -> i64 {
     chrono::Utc::now().timestamp_millis()
-}
-
-/// A drafted field that is present and not blank, trimmed.
-fn given(value: Option<String>) -> Option<String> {
-    value
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
-/// The backend a draft takes when it names none: the room's chosen default,
-/// or Hotline Agent itself.
-fn default_backend_id(log: &Log) -> String {
-    room::settings(log)
-        .get("defaultBackendId")
-        .and_then(Value::as_str)
-        .unwrap_or(HOTLINE_BACKEND_ID)
-        .to_string()
-}
-
-/// A teammate as the previous edition's `createPersona` made one: a fresh uuid,
-/// the room's default backend, a workspace under the data directory, and
-/// every capability its policy can give.
-fn create_persona(log: &Log, draft: PersonaDraft) -> Result<Value, String> {
-    build_persona(log, Uuid::new_v4().to_string(), draft)
-}
-
-/// The write behind both `persona.create` and `mobile.persona_create`: the
-/// id is the caller's, a fresh uuid for the desk and a phone's own
-/// `requestId` for a mobile create, so a retried create finds the teammate
-/// already made instead of a second one.
-fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, String> {
-    let stamped = now();
-    let backend_id = given(draft.backend_id).unwrap_or_else(|| default_backend_id(log));
-    // A Hotline Agent draft that leaves the model blank takes the room's
-    // standing choice, so the teammate starts on what Settings named
-    // rather than whichever model happens to lead the catalogue.
-    let model_id = given(draft.model_id).or_else(|| {
-        if backend_id != HOTLINE_BACKEND_ID {
-            return None;
-        }
-        crate::models::preferred_model(&room::settings(log))
-    });
-    let cwd = given(draft.cwd).unwrap_or_else(|| {
-        paths::default_workspace(log.root(), &id)
-            .to_string_lossy()
-            .into_owned()
-    });
-    let folders = checked_folders(draft.folders, &cwd, log.root())?;
-    let persona = Persona {
-        node: None,
-        id: id.clone(),
-        name: given(Some(draft.name)).unwrap_or_else(|| "Untitled".to_string()),
-        goal: given(draft.goal).unwrap_or_default(),
-        avatar: None,
-        team: given(draft.team),
-        backend_id,
-        cwd,
-        // The workspace is the wall unless the draft asked for the machine,
-        // and an absent reach is the workspace, so only the wider one is
-        // written down.
-        reach: draft.reach.filter(|reach| *reach == Reach::Machine),
-        folders,
-        model_id,
-        mode_id: None,
-        effort_id: given(draft.effort_id),
-        harness_override: None,
-        hop_notice: None,
-        mcp_policy: McpPolicy {
-            mode: PolicyMode::None,
-            server_ids: Vec::new(),
-        },
-        skill_policy: Default::default(),
-        background_work: draft.background_work.unwrap_or(false),
-        allowed_senders: Vec::new(),
-        web_search_policy: None,
-        computer: draft.computer,
-        voice: None,
-        session_checkpoints: Vec::new(),
-        last_session_id: None,
-        created_at: stamped,
-        updated_at: stamped,
-    };
-    room::append_persona(log, &persona)?;
-    Ok(json!(persona))
-}
-
-/// `mobile.persona_create`: the phone's own narrow create. `requestId`
-/// becomes the id, so a lost acknowledgement's retry finds the teammate
-/// already made rather than making a second one. Everything the phone
-/// cannot express — reach, cwd, computer, background work — is left at
-/// [`build_persona`]'s safest default by never being named in the draft.
-#[allow(clippy::too_many_arguments)]
-async fn mobile_persona_create(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    request_id: &str,
-    name: String,
-    goal: Option<String>,
-    backend_id: Option<String>,
-    model_id: Option<String>,
-    effort_id: Option<String>,
-) -> Result<Value, String> {
-    let id = Uuid::parse_str(request_id)
-        .map_err(|_| "requestId must be a uuid.".to_string())?
-        .to_string();
-    if let Some(existing) = room::roster(log)
-        .into_iter()
-        .find(|persona| persona.id == id)
-    {
-        return Ok(json!(existing));
-    }
-    let name = name.trim().to_string();
-    if name.is_empty() {
-        return Err("A teammate needs a name.".to_string());
-    }
-    let backend_id = given(backend_id).unwrap_or_else(|| default_backend_id(log));
-    match room
-        .backends()
-        .await
-        .into_iter()
-        .find(|backend| backend.id == backend_id)
-    {
-        None => return Err(format!("There is no harness {backend_id} on this desk.")),
-        Some(backend) if backend.unavailable.is_some() => {
-            return Err(format!(
-                "{} is not ready: {}",
-                backend.name,
-                backend.unavailable.unwrap_or_default()
-            ));
-        }
-        Some(_) => {}
-    }
-    let draft = PersonaDraft {
-        name,
-        goal,
-        team: None,
-        backend_id: Some(backend_id),
-        cwd: None,
-        reach: None,
-        folders: None,
-        model_id,
-        effort_id,
-        computer: None,
-        background_work: None,
-    };
-    build_persona(log, id, draft)
-}
-
-/// `mobile.persona_update`'s whole patch: only `name` and `goal` can be in
-/// it, because the command has nowhere to carry anything else. A name is
-/// trimmed and must not be blank; a goal is trimmed and may be, which
-/// clears it.
-fn mobile_persona_patch(name: Option<String>, goal: Option<String>) -> Result<Value, String> {
-    let mut patch = Map::new();
-    if let Some(name) = name {
-        let name = name.trim();
-        if name.is_empty() {
-            return Err("A teammate needs a name.".to_string());
-        }
-        patch.insert("name".into(), Value::from(name));
-    }
-    if let Some(goal) = goal {
-        patch.insert("goal".into(), Value::from(goal.trim()));
-    }
-    if patch.is_empty() {
-        return Err("Nothing to change: name a new name or goal.".to_string());
-    }
-    Ok(Value::Object(patch))
-}
-
-/// `mobile.persona_access`: the owner phone's access controls. Reach is
-/// Hotline Agent's and a mode a harness's, so each is refused for the other
-/// kind of teammate rather than stored where nothing reads it.
-async fn mobile_persona_access(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    id: &str,
-    reach: Option<Reach>,
-    mode_id: Option<String>,
-    background_work: Option<bool>,
-) -> Result<Value, String> {
-    let persona = living(log, id)?;
-    let hotline = persona.backend_id == HOTLINE_BACKEND_ID;
-    if reach.is_none() && mode_id.is_none() && background_work.is_none() {
-        return Err("Nothing to change: name a reach, a mode or background work.".to_string());
-    }
-    if reach.is_some() && !hotline {
-        return Err(
-            "Only a Hotline Agent teammate has a reach; a harness's access is its mode."
-                .to_string(),
-        );
-    }
-    if mode_id.is_some() && hotline {
-        return Err("A Hotline Agent teammate has no mode; its access is its reach.".to_string());
-    }
-    let mut patch = Map::new();
-    if let Some(reach) = reach {
-        patch.insert("reach".into(), json!(reach));
-    }
-    if let Some(background_work) = background_work {
-        patch.insert("backgroundWork".into(), json!(background_work));
-    }
-    if !patch.is_empty() {
-        apply_persona_update(log, room, id, &Value::Object(patch)).await?;
-    }
-    if let Some(mode_id) = mode_id {
-        set_mode(log, room, id, &mode_id).await?;
-    }
-    living(log, id).map(|persona| json!(persona))
-}
-
-/// Merge only the owner's resource controls while holding the same gate as
-/// desktop patches, so a concurrent image/mount/secret edit cannot be lost.
-async fn mobile_persona_computer(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    id: &str,
-    enabled: Option<bool>,
-    memory: Option<String>,
-    cpus: Option<Option<f64>>,
-) -> Result<Value, String> {
-    if enabled.is_none() && memory.is_none() && cpus.is_none() {
-        return Err("Nothing to change: name enabled, memory or CPUs.".into());
-    }
-    let gate = room.policy_update_lock();
-    let _held = gate.lock().await;
-    let persona = living(log, id)?;
-    // Enabling, disabling and clearing a CPU limit do not need a probe.
-    if memory.is_some() || cpus.flatten().is_some() {
-        let capacity = room.computer_capacity().await;
-        if let Some(Some(cpus)) = cpus {
-            validate_computer_cpus(cpus, capacity.cpus)?;
-        }
-        if let Some(memory) = &memory {
-            validate_computer_memory(memory, capacity.memory_bytes)?;
-        }
-    }
-    let mut computer = persona.computer.unwrap_or(PersonaComputer {
-        enabled: false,
-        image: None,
-        memory: None,
-        cpus: None,
-        pids: None,
-        mounts: None,
-        secrets: None,
-    });
-    if let Some(enabled) = enabled {
-        computer.enabled = enabled;
-    }
-    if let Some(memory) = memory {
-        computer.memory = Some(memory);
-    }
-    if let Some(cpus) = cpus {
-        computer.cpus = cpus;
-    }
-    apply_persona_update_locked(log, room, id, &json!({ "computer": computer })).await
-}
-
-fn validate_computer_cpus(cpus: f64, capacity: u32) -> Result<(), String> {
-    if !cpus.is_finite() || cpus <= 0.0 || cpus > f64::from(capacity) || (cpus * 2.0).fract() != 0.0
-    {
-        return Err(format!(
-            "CPUs must be positive half-core increments, at most {capacity}."
-        ));
-    }
-    Ok(())
-}
-
-/// Whole m/M (MiB) and g/G (GiB) runtime spellings only. In particular,
-/// decimal/fractional values are not rounded into an unintended grant.
-fn validate_computer_memory(memory: &str, capacity: u64) -> Result<(), String> {
-    const STEP: u64 = 512 * 1024 * 1024;
-    let invalid = || {
-        "Memory must be whole MiB or GiB (such as 4608m or 4g), at least 512 MiB and in 512 MiB increments.".to_string()
-    };
-    let (digits, scale) = match memory.as_bytes().last() {
-        Some(b'm' | b'M') => (&memory[..memory.len() - 1], 1024_u64 * 1024),
-        Some(b'g' | b'G') => (&memory[..memory.len() - 1], 1024_u64 * 1024 * 1024),
-        _ => return Err(invalid()),
-    };
-    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(invalid());
-    }
-    let bytes = digits
-        .parse::<u64>()
-        .ok()
-        .and_then(|n| n.checked_mul(scale))
-        .ok_or_else(invalid)?;
-    if bytes < STEP || !bytes.is_multiple_of(STEP) {
-        return Err(invalid());
-    }
-    if bytes > capacity {
-        return Err(format!(
-            "Memory exceeds this computer's capacity of {} MiB.",
-            capacity / (1024 * 1024)
-        ));
-    }
-    Ok(())
-}
-
-/// Switches a harness teammate's mode and keeps it, so the teammate comes
-/// back in it after a restart. A resting teammate advertises no modes, so its
-/// choice is kept unchecked and offered to the harness at its next start,
-/// which refuses one it does not have.
-async fn set_mode(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    persona_id: &str,
-    mode_id: &str,
-) -> Result<SessionInfo, String> {
-    living(log, persona_id)?;
-    if mode_id.trim().is_empty() {
-        return Err("A mode needs an id.".to_string());
-    }
-    let offered = room.info(persona_id);
-    let info = if offered.modes.is_empty() {
-        offered
-    } else {
-        if !offered.modes.iter().any(|mode| mode.id == mode_id) {
-            return Err(format!("{mode_id} is not a mode this teammate offers."));
-        }
-        room.set_mode(persona_id, mode_id).await?
-    };
-    let gate = room.policy_update_lock();
-    let _held = gate.lock().await;
-    if living(log, persona_id)?.mode_id.as_deref() != Some(mode_id) {
-        update_persona(log, room, persona_id, &json!({ "modeId": mode_id }))?;
-    }
-    Ok(info)
-}
-
-/// `persona.update` and `mobile.persona_update` both land here, under the
-/// policy gate, restarting a live session when the patch asks for it.
-async fn apply_persona_update(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    id: &str,
-    patch: &Value,
-) -> Result<Value, String> {
-    let gate = room.policy_update_lock();
-    let _held = gate.lock().await;
-    apply_persona_update_locked(log, room, id, patch).await
-}
-
-/// The caller holds `policy_update_lock` for read/merge/write and effects.
-async fn apply_persona_update_locked(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    id: &str,
-    patch: &Value,
-) -> Result<Value, String> {
-    let (updated, reattaches) = update_persona(log, room, id, patch)?;
-    if reattaches {
-        room.reattach(id).await?;
-    } else if patch.get("computer").is_some() {
-        room.computer_settings_changed(id).await;
-    }
-    Ok(updated)
-}
-
-/// The patch over the record, and the whole record written again: a stream
-/// folds by id, so a line carrying only what changed would leave the fold
-/// holding only what changed.
-fn update_persona(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    id: &str,
-    patch: &Value,
-) -> Result<(Value, bool), String> {
-    let previous = living(log, id)?;
-    if patch.get("avatar").is_some_and(|avatar| !avatar.is_null()) {
-        return Err("A picture can only be cleared here, with `avatar: null`.".into());
-    }
-    let mut record = json!(previous);
-    let fields = record
-        .as_object_mut()
-        .expect("a teammate serializes as an object");
-    for (key, value) in patch
-        .as_object()
-        .ok_or("A patch is an object of fields to change.")?
-    {
-        fields.insert(key.clone(), value.clone());
-    }
-    fields.insert("id".into(), Value::from(id));
-    fields.insert("updatedAt".into(), Value::from(now()));
-
-    let mut updated: Persona = serde_json::from_value(record)
-        .map_err(|error| format!("That patch does not leave a teammate behind: {error}."))?;
-    // Checked here, before anything is revoked or written, so a refused
-    // folder leaves the teammate exactly as it was.
-    if patch.get("folders").is_some() {
-        updated.folders = checked_folders(updated.folders.take(), &updated.cwd, log.root())?;
-    }
-    let reattaches = persona_update_reattaches(patch, &previous, &updated);
-    if reattaches {
-        room.invalidate(id)?;
-    }
-    room::append_persona(log, &updated)?;
-    if updated.avatar.is_none() {
-        crate::session::avatar::remove_except(log.root(), id, None);
-    }
-    Ok((json!(updated), reattaches))
-}
-
-/// Whether this update restarts a live session. The computer's own
-/// settings do not, short of turning it on or off: its limits, mounts and
-/// image take effect when the container is next made, and its secrets are
-/// handed to it where it runs. A turn in flight is not cut short for them.
-fn persona_update_reattaches(patch: &Value, previous: &Persona, updated: &Persona) -> bool {
-    let enabled = |persona: &Persona| {
-        persona
-            .computer
-            .as_ref()
-            .is_some_and(|computer| computer.enabled)
-    };
-    let mut rest = patch.clone();
-    if let Some(fields) = rest.as_object_mut() {
-        fields.remove("computer");
-    }
-    persona_patch_reattaches(&rest) || enabled(previous) != enabled(updated)
-}
-
-/// A patch of these fields rebuilds the driver, so a live session has to
-/// restart for the new tools to take effect. `name`, `team`, `avatar`,
-/// `modelId`, `modeId` and `effortId` do not: model, mode and effort already
-/// switch live. `folders` does because every handle holds the folders it was
-/// opened with: the restart revokes those handles, and the computer is made
-/// again with the new set when the session starts it.
-fn persona_patch_reattaches(patch: &Value) -> bool {
-    const KEYS: [&str; 11] = [
-        "cwd",
-        "reach",
-        "folders",
-        "goal",
-        "mcpPolicy",
-        "skillPolicy",
-        "computer",
-        "backendId",
-        "harnessOverride",
-        "backgroundWork",
-        "allowedSenders",
-    ];
-    patch
-        .as_object()
-        .is_some_and(|fields| KEYS.iter().any(|key| fields.contains_key(*key)))
-}
-
-/// The most extra folders one teammate has. A list longer than this is not
-/// a few repositories beside the work; it is a wish for whole-machine reach.
-const MAX_FOLDERS: usize = 16;
-
-/// A teammate's extra folders, each checked and spelled as the directory it
-/// is, or the first reason one cannot be granted. Empty is none. A folder is
-/// refused when it is not an absolute path to an existing directory, when it
-/// is `/`, the home directory or holds it, Hotline's data directory or holds
-/// it or is inside it — another teammate's workspace there included, whose
-/// `.hotline-home` is that teammate's own — or when it is this teammate's
-/// workspace or inside it. Two folders may not nest; the
-/// same folder named twice is one grant, which may be changed if either said
-/// so.
-fn checked_folders(
-    grants: Option<Vec<FolderGrant>>,
-    cwd: &str,
-    data: &Path,
-) -> Result<Option<Vec<FolderGrant>>, String> {
-    let Some(grants) = grants.filter(|grants| !grants.is_empty()) else {
-        return Ok(None);
-    };
-    let resolved = |path: &Path| dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(|home| resolved(Path::new(&home)));
-    let data = resolved(data);
-    // A teammate's workspace is made when its session first starts, so a
-    // new one may not be on disk yet; its spelling is then what it will be.
-    let workspace = resolved(Path::new(&expand_home(cwd)));
-    let mut checked: Vec<FolderGrant> = Vec::new();
-    for grant in grants {
-        let asked = grant.path.trim();
-        let expanded = PathBuf::from(expand_home(asked));
-        if !expanded.is_absolute() {
-            return Err(format!("{asked} is not an absolute path to a folder."));
-        }
-        let path = dunce::canonicalize(&expanded)
-            .ok()
-            .filter(|path| path.is_dir())
-            .ok_or_else(|| format!("{asked} is not a folder on this machine."))?;
-        let Some(spelled) = path.to_str().map(str::to_string) else {
-            return Err(format!("{asked} is not a path Hotline can spell."));
-        };
-        if path.parent().is_none() {
-            return Err(format!(
-                "{asked} is the whole disk; Whole machine is the switch for that."
-            ));
-        }
-        if home.as_ref().is_some_and(|home| home.starts_with(&path)) {
-            return Err(format!(
-                "{asked} is the home folder or holds it; choose a folder inside it."
-            ));
-        }
-        if data.starts_with(&path) {
-            return Err(format!(
-                "{asked} holds Hotline's own data; choose a folder that does not."
-            ));
-        }
-        if path.starts_with(&data) {
-            return Err(format!(
-                "{asked} is inside Hotline's own data, where each teammate's workspace is its own; choose a folder outside it."
-            ));
-        }
-        if path.starts_with(&workspace) {
-            return Err(format!(
-                "{asked} is this teammate's own workspace or inside it, which it already has."
-            ));
-        }
-        if let Some(same) = checked.iter_mut().find(|folder| folder.path == spelled) {
-            same.writable |= grant.writable;
-            continue;
-        }
-        if let Some(other) = checked.iter().find(|folder| {
-            let other = Path::new(&folder.path);
-            other.starts_with(&path) || path.starts_with(other)
-        }) {
-            return Err(format!(
-                "{asked} and {} overlap; grant one of them.",
-                other.path
-            ));
-        }
-        checked.push(FolderGrant {
-            path: spelled,
-            writable: grant.writable,
-        });
-    }
-    if checked.len() > MAX_FOLDERS {
-        return Err(format!(
-            "A teammate can have up to {MAX_FOLDERS} extra folders."
-        ));
-    }
-    Ok(Some(checked))
-}
-
-/// `~` and `~/…` as the home directory, as a person types a folder.
-fn expand_home(path: &str) -> String {
-    if (path == "~" || path.starts_with("~/"))
-        && let Some(home) = std::env::var_os("HOME")
-    {
-        return format!("{}{}", home.to_string_lossy(), &path[1..]);
-    }
-    path.to_string()
-}
-
-/// The tombstone is the same kind and id again, so the fold finds it instead
-/// of the teammate and a mirror has a line to ship rather than an absence to
-/// notice.
-fn delete_persona(log: &Log, room: &Arc<dyn RoomHandle>, id: &str) -> Result<Value, String> {
-    living(log, id)?;
-    room.invalidate(id)?;
-    append(
-        log,
-        &json!({ "kind": "persona", "id": id, "deleted": true }),
-    )?;
-    // The roster already ignores a pin on a teammate who is gone; settling
-    // the stored list keeps it honest and frees the slot.
-    let settled = room::pinned_teammates(log);
-    let stored = room::settings(log).remove("pinnedTeammates");
-    if stored.unwrap_or_else(|| json!([])) != json!(settled) {
-        write_pins(log, &settled)?;
-    }
-    crate::session::ledger::forget(id);
-    room.forget(id);
-    Ok(Value::Null)
-}
-
-/// Pins `id` at `slot`, or unpins it. The list is the setting's whole value,
-/// so the answer is the list as it now stands.
-fn pin_persona(log: &Log, id: &str, slot: Option<u8>) -> Result<Value, String> {
-    living(log, id)?;
-    let mut pins = room::pinned_teammates(log);
-    let was_pinned = pins.iter().any(|pin| pin == id);
-    pins.retain(|pin| pin != id);
-    if let Some(slot) = slot {
-        if !was_pinned && pins.len() >= room::MAX_PINS {
-            return Err(room::too_many_pins());
-        }
-        pins.insert(usize::from(slot).min(pins.len()), id.to_string());
-    }
-    write_pins(log, &pins)?;
-    Ok(json!(pins))
-}
-
-fn write_pins(log: &Log, pins: &[String]) -> Result<(), String> {
-    let event = if pins.is_empty() {
-        json!({ "kind": "setting", "id": "pinnedTeammates", "deleted": true })
-    } else {
-        json!({ "kind": "setting", "id": "pinnedTeammates", "value": pins })
-    };
-    append(log, &event)
-}
-
-/// One event per key, and `null` clears a key rather than setting it to
-/// nothing — which puts the room's default back, because a deleted setting is
-/// not an override.
-/// Each web search provider as the Tools pane lists it: on or off at the
-/// desk, and whether a key is saved. Never a key.
-fn web_search_status(log: &Log, room: &Arc<dyn RoomHandle>) -> Result<Value, String> {
-    let disabled = crate::websearch::disabled_on_desk(&room::try_settings(log)?);
-    let keyed = room.websearch_keyed();
-    Ok(json!(crate::contract::WebSearchStatus {
-        providers: crate::websearch::ORDER
-            .into_iter()
-            .map(|provider| crate::contract::WebSearchProviderStatus {
-                provider,
-                name: crate::websearch::display_name(provider).to_string(),
-                enabled: !disabled.contains(&provider),
-                has_key: keyed.contains(&provider),
-            })
-            .collect(),
-    }))
-}
-
-fn update_settings(log: &Log, patch: Map<String, Value>) -> Result<Value, String> {
-    for (key, value) in patch {
-        // MCP entries are a settings boundary. Canonicalise them before the
-        // room event is written so a caller cannot persist an OAuth client
-        // secret alongside public server configuration.
-        let value = if key == "mcpServers" && !value.is_null() {
-            Value::Array(crate::mcp::normalize_servers(&value))
-        } else {
-            value
-        };
-        let event = if value.is_null() {
-            json!({ "kind": "setting", "id": key, "deleted": true })
-        } else {
-            json!({ "kind": "setting", "id": key, "value": value })
-        };
-        append(log, &event)?;
-    }
-    let mut settings = room::settings(log);
-    if let Some(servers) = settings.get_mut("mcpServers") {
-        *servers = crate::mcp::public_servers(servers);
-    }
-    Ok(Value::Object(settings))
-}
-
-/// The ids of the room's tool sources, as settings hold them now.
-fn server_ids(log: &Log) -> Vec<String> {
-    room::settings(log)
-        .get("mcpServers")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|server| server["id"].as_str().map(String::from))
-        .collect()
-}
-
-/// A tool source removed from settings leaves every teammate's grant with
-/// it. Removing it was the decision; a policy still naming it would only be
-/// a warning that it is gone, on every teammate that ever had it. Each save
-/// of the list settles every grant against it, so one left behind by an
-/// older build goes too.
-fn forget_removed_servers(log: &Log) -> Result<(), String> {
-    let servers = server_ids(log);
-    for mut persona in room::roster(log) {
-        let granted = persona.mcp_policy.server_ids.len();
-        persona
-            .mcp_policy
-            .server_ids
-            .retain(|id| servers.contains(id));
-        if persona.mcp_policy.server_ids.len() != granted {
-            persona.updated_at = now();
-            room::append_persona(log, &persona)?;
-        }
-    }
-    Ok(())
-}
-
-/// Where a fresh room stands, from what it already knows. A live credential
-/// is a way to run Hotline Agent; a startable harness is a way to run only once
-/// it is the room's default, because that is what the first teammate lands
-/// on. Hotline Agent is not a harness here: it is what the providers are for.
-pub(crate) fn welcome(
-    settings: &Map<String, Value>,
-    teammates: usize,
-    set_up: bool,
-    credentials: &[crate::contract::Credential],
-    backends: Vec<crate::contract::BackendChoice>,
-) -> crate::contract::Welcome {
-    let known = crate::models::providers();
-    let mut providers: Vec<String> = credentials
-        .iter()
-        .filter(|credential| !credential.revoked)
-        .map(|credential| {
-            known
-                .iter()
-                .find(|provider| provider.id == credential.provider_id)
-                .map_or_else(
-                    || credential.label.clone(),
-                    |provider| provider.name.clone(),
-                )
-        })
-        .collect();
-    providers.sort();
-    providers.dedup();
-    let harnesses: Vec<crate::contract::BackendChoice> = backends
-        .into_iter()
-        .filter(|backend| backend.id != HOTLINE_BACKEND_ID && backend.unavailable.is_none())
-        .collect();
-    let default_backend_id = settings
-        .get("defaultBackendId")
-        .and_then(Value::as_str)
-        .unwrap_or(HOTLINE_BACKEND_ID)
-        .to_string();
-    let can_run = !providers.is_empty()
-        || harnesses
-            .iter()
-            .any(|backend| backend.id == default_backend_id);
-    crate::contract::Welcome {
-        providers,
-        harnesses,
-        default_backend_id,
-        can_run,
-        teammates,
-        set_up,
-    }
-}
-
-pub(super) fn living(log: &Log, id: &str) -> Result<Persona, String> {
-    room::roster(log)
-        .into_iter()
-        .find(|persona| persona.id == id)
-        .ok_or_else(|| format!("There is no teammate {id}."))
-}
-
-/// Write the teammate's model first, then switch a live session if there is
-/// one. The persona is the truth; the live switch is a courtesy to the turn
-/// already running. Writing first means an idle teammate keeps the choice,
-/// and a live switch that fails still lands on the next start.
-async fn set_model(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    persona_id: &str,
-    model_id: &str,
-) -> Result<SessionInfo, String> {
-    let persona = living(log, persona_id)?;
-    if persona.backend_id == HOTLINE_BACKEND_ID {
-        if !room.models().iter().any(|choice| choice.id == model_id) {
-            return Err(format!("{model_id} is not a model this desk can reach."));
-        }
-    } else if model_id.is_empty() {
-        return Err("A model needs an id.".to_string());
-    }
-
-    {
-        let gate = room.policy_update_lock();
-        let _held = gate.lock().await;
-        update_persona(log, room, persona_id, &json!({ "modelId": model_id }))?;
-    }
-    // The persisted choice counts as a use, so lastModelId is the id
-    // just written rather than whatever a live session happens to report.
-    if persona.backend_id == HOTLINE_BACKEND_ID {
-        write_last_model(log, model_id)?;
-    }
-
-    if room.info(persona_id).state != SessionState::Idle {
-        return room.set_model(persona_id, model_id).await;
-    }
-    Ok(room.info(persona_id))
-}
-
-/// Write a Hotline Agent teammate's effort first, then switch a live session
-/// if there is one. An ACP teammate has no stored effort: the harness owns
-/// its config ids, and a live session is required.
-async fn set_config(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    persona_id: &str,
-    config_id: &str,
-    value: &str,
-) -> Result<SessionInfo, String> {
-    let persona = living(log, persona_id)?;
-    if persona.backend_id != HOTLINE_BACKEND_ID {
-        // A harness may offer its model as a config; what it reports after
-        // the change is remembered the same way a start's report is.
-        let info = room.set_config(persona_id, config_id, value).await?;
-        remember_model(log, room, &persona).await?;
-        return Ok(info);
-    }
-    if config_id != "effort" {
-        if room.info(persona_id).state != SessionState::Idle {
-            return room.set_config(persona_id, config_id, value).await;
-        }
-        return Err("This agent does not offer that setting.".to_string());
-    }
-
-    let model_id = room
-        .info(persona_id)
-        .current_model_id
-        .or(persona.model_id.clone());
-    if let Some(model_id) = model_id
-        && !value.is_empty()
-    {
-        let listed = crate::models::efforts(&model_id);
-        if !listed.iter().any(|id| id == value) {
-            let label = crate::models::label_of(&model_id).unwrap_or(model_id);
-            return Err(format!("{value} is not an effort {label} offers."));
-        }
-    }
-
-    let effort = if value.is_empty() {
-        Value::Null
-    } else {
-        json!(value)
-    };
-    {
-        let gate = room.policy_update_lock();
-        let _held = gate.lock().await;
-        update_persona(log, room, persona_id, &json!({ "effortId": effort }))?;
-    }
-
-    if room.info(persona_id).state != SessionState::Idle {
-        return room.set_config(persona_id, config_id, value).await;
-    }
-    Ok(room.info(persona_id))
-}
-
-/// The model a Hotline Agent teammate most recently ran on. The wire is the
-/// only writer of the room stream's settings, so this lives here rather
-/// than on the session. A prompt on an idle teammate starts it, so start
-/// and prompt both come through.
-/// What a live session reports it runs on is remembered once the session
-/// is up: for Hotline Agent as the room's last model, for a harness on the
-/// teammate itself, so the band can name the model before the child is
-/// started again. A harness picks its own default and only says so once
-/// running; without this the teammate at rest has no model at all.
-pub(super) async fn remember_model(
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
-    persona: &Persona,
-) -> Result<(), String> {
-    // Every prompt comes through here, and nearly every one has nothing new to
-    // remember. The answer is read again under the lock before anything is
-    // written, so this look is only to keep the lock off the common path.
-    if room
-        .info(&persona.id)
-        .current_model_id
-        .is_none_or(|model_id| model_id.is_empty() || already_remembered(log, persona, &model_id))
-    {
-        return Ok(());
-    }
-    let gate = room.policy_update_lock();
-    let _held = gate.lock().await;
-    let Some(model_id) = room.info(&persona.id).current_model_id else {
-        return Ok(());
-    };
-    if model_id.is_empty() {
-        return Ok(());
-    }
-    if persona.backend_id == HOTLINE_BACKEND_ID {
-        return write_last_model(log, &model_id);
-    }
-    if persona.model_id.as_deref() == Some(model_id.as_str()) {
-        return Ok(());
-    }
-    update_persona(log, room, &persona.id, &json!({ "modelId": model_id })).map(|_| ())
-}
-
-/// Whether `model_id` is already where [`remember_model`] would put it.
-fn already_remembered(log: &Log, persona: &Persona, model_id: &str) -> bool {
-    if persona.backend_id == HOTLINE_BACKEND_ID {
-        room::settings(log)
-            .get("lastModelId")
-            .and_then(Value::as_str)
-            == Some(model_id)
-    } else {
-        persona.model_id.as_deref() == Some(model_id)
-    }
-}
-
-fn write_last_model(log: &Log, model_id: &str) -> Result<(), String> {
-    let settings = room::settings(log);
-    let current = settings.get("lastModelId").and_then(Value::as_str);
-    if current == Some(model_id) {
-        return Ok(());
-    }
-    let mut patch = Map::new();
-    patch.insert("lastModelId".into(), json!(model_id));
-    update_settings(log, patch).map(|_| ())
 }
 
 fn append(log: &Log, event: &Value) -> Result<(), String> {
@@ -1812,115 +882,4 @@ mod path_tests {
             std::path::PathBuf::from("~hotline")
         );
     }
-}
-
-#[cfg(test)]
-mod welcome_tests {
-    use super::welcome;
-    use crate::contract::{BackendChoice, Credential, CredentialKind};
-    use serde_json::{Map, Value};
-
-    fn credential(provider_id: &str, revoked: bool) -> Credential {
-        Credential {
-            id: format!("{provider_id}-key"),
-            provider_id: provider_id.to_string(),
-            credential_kind: CredentialKind::ApiKey,
-            base_url: None,
-            custom: None,
-            label: provider_id.to_string(),
-            revoked,
-            created_at: 0,
-            updated_at: 0,
-        }
-    }
-
-    fn backend(id: &str, unavailable: Option<&str>) -> BackendChoice {
-        BackendChoice {
-            id: id.to_string(),
-            name: id.to_string(),
-            description: String::new(),
-            unavailable: unavailable.map(str::to_string),
-        }
-    }
-
-    fn settings(default_backend_id: &str) -> Map<String, Value> {
-        let mut settings = Map::new();
-        settings.insert("defaultBackendId".into(), Value::from(default_backend_id));
-        settings
-    }
-
-    #[test]
-    fn a_fresh_room_cannot_run_and_a_live_key_is_the_way_in() {
-        let fresh = welcome(
-            &settings("hotline"),
-            0,
-            false,
-            &[],
-            vec![backend("hotline", None)],
-        );
-        assert!(!fresh.can_run);
-        assert!(fresh.providers.is_empty());
-        assert!(fresh.harnesses.is_empty(), "Hotline Agent is not a harness");
-        assert_eq!(fresh.teammates, 0);
-
-        let revoked = welcome(
-            &settings("hotline"),
-            0,
-            false,
-            &[credential("anthropic", true)],
-            vec![backend("hotline", None)],
-        );
-        assert!(!revoked.can_run, "a revoked key runs nothing");
-
-        let keyed = welcome(
-            &settings("hotline"),
-            0,
-            false,
-            &[
-                credential("anthropic", false),
-                credential("anthropic", false),
-            ],
-            vec![backend("hotline", None)],
-        );
-        assert!(keyed.can_run);
-        assert_eq!(
-            keyed.providers,
-            vec!["Anthropic".to_string()],
-            "named once, by its catalogue name"
-        );
-    }
-
-    #[test]
-    fn a_harness_is_a_way_in_only_as_the_rooms_default() {
-        let backends = || {
-            vec![
-                backend("hotline", None),
-                backend("cursor", None),
-                backend("gemini", Some("Not installed")),
-            ]
-        };
-        let installed = welcome(&settings("hotline"), 0, false, &[], backends());
-        assert!(
-            !installed.can_run,
-            "a harness on the machine is not yet the room's"
-        );
-        assert_eq!(installed.harnesses.len(), 1);
-        assert_eq!(installed.harnesses[0].id, "cursor");
-
-        let chosen = welcome(&settings("cursor"), 0, false, &[], backends());
-        assert!(chosen.can_run);
-        assert_eq!(chosen.default_backend_id, "cursor");
-
-        let missing = welcome(&settings("gemini"), 2, true, &[], backends());
-        assert!(
-            !missing.can_run,
-            "a default this machine cannot start is no way in"
-        );
-        assert_eq!(missing.teammates, 2);
-    }
-}
-
-fn remote(room: &Arc<dyn RoomHandle>) -> Result<Arc<crate::remote::Remote>, String> {
-    room.remote()
-        .ok_or_else(|| "Remote access is not available in this room.".into())
 }

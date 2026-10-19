@@ -16,7 +16,7 @@ under Settings → Computer is pressed. That page also offers every published
 release from the floor up as the room's image, with Newest the default; a
 picked release is written as the full image reference and is a pin like any
 other. `COMPUTER_VERSION` in
-`crates/hotline-core/src/computer/mod.rs` is the floor — the release this desk
+`crates/hotline-core/src/computer.rs` is the floor — the release this desk
 was tested with, what a computer is created on offline, and the line under
 which nothing is offered — and never `latest`. A pinned image, the
 teammate's or the room's, is used as written and never looked up. The desk
@@ -145,7 +145,14 @@ turn in flight ends the container is removed and the session reattaches onto
 the new one. The rest of the computer's settings (limits, mounts, a pinned
 image, granted secrets) do not restart the teammate either. The first three
 wait for the next container, and secrets are handed to the running one. Only
-turning the computer on or off restarts the session. What survives an update is what survives a removal — the
+turning the computer on or off restarts the session. Memory and CPUs are taken
+by the runtime when it makes a container, so a container records the limits it
+was made with (`HOTLINE_LIMITS`) and the next start makes it again when they
+differ; one made before the limits were recorded is made again the next time
+it starts from stopped. `computer.status` says `limitsChanged` while the
+running computer has other limits than the teammate's, and the pane offers
+`computer.restart`: the same swap between turns as an update, or for a
+teammate at rest a stop, which the next start makes again. What survives an update is what survives a removal — the
 volumes — and nothing else; the pane says so next to the button.
 
 The runtimes, how they are found, and the fake runtime the tests drive are in

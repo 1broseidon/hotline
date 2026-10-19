@@ -197,8 +197,8 @@ mod tests {
     #[test]
     fn a_thread_nobody_has_opened_is_empty() {
         let (root, log) = scratch("empty");
-        assert!(log.load(&stream("ada~bob")).is_empty());
-        assert!(list_all_keys(&root).is_empty());
+        assert_eq!(log.load(&stream("ada~bob")), [] as [Value; 0]);
+        assert_eq!(list_all_keys(&root), [] as [String; 0]);
     }
 
     #[test]
@@ -208,9 +208,9 @@ mod tests {
         // three spells itself the same way again, so none of them names a file.
         for key in ["bob~ada", "ada~bob~cal", "..~ada", "ada"] {
             assert!(log.append(&stream(key), &user("u1", 1, "no")).is_err());
-            assert!(log.load(&stream(key)).is_empty());
+            assert_eq!(log.load(&stream(key)), [] as [Value; 0]);
         }
-        assert!(list_all_keys(&root).is_empty());
+        assert_eq!(list_all_keys(&root), [] as [String; 0]);
     }
 
     #[test]
@@ -321,7 +321,7 @@ mod tests {
         assert_eq!(events[1]["decision"], "expired");
         assert_eq!(events[1]["ts"], 2000);
         // Once answered, a second startup finds nothing left to expire.
-        assert!(expire_orphaned_permissions(&events, 3000).is_empty());
+        assert_eq!(expire_orphaned_permissions(&events, 3000), [] as [Value; 0]);
     }
 
     /// The bytes below came out of the previous edition's own writer. Produced by

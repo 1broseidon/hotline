@@ -8,7 +8,7 @@
 mod common;
 
 use axum::{Router, body::Bytes, routing::post};
-use futures_util::{SinkExt, StreamExt};
+use common::Client;
 use hotline_core::wire::Door;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -18,12 +18,12 @@ use std::{
     time::Duration,
 };
 use tokio::net::TcpStream;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 
 const TOKEN: &str = "disposable-processes-test";
 
 #[tokio::test(flavor = "multi_thread")]
 async fn running_process_a_server_left_running_ends_the_turn_and_a_later_turn_stops_it() {
+    common::require("python3");
     let mut desk = Desk::open().await;
     let server = "echo $$ > server.pid; exec python3 -m http.server 0 --bind 127.0.0.1";
     desk.script([
@@ -35,7 +35,7 @@ async fn running_process_a_server_left_running_ends_the_turn_and_a_later_turn_st
     assert_eq!(ended["event"]["stopReason"], "end_turn");
     let card = desk
         .client
-        .next_where(Duration::from_secs(15), |frame| {
+        .next_where(common::ANSWER, |frame| {
             frame["event"]["kind"] == "tool"
                 && frame["event"]["toolKind"] == "shell"
                 && frame["event"]["status"] == "completed"
@@ -77,24 +77,19 @@ async fn running_process_a_server_left_running_ends_the_turn_and_a_later_turn_st
 #[tokio::test(flavor = "multi_thread")]
 async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     let mut desk = Desk::open().await;
+    // The command cannot end until the test lets it, so the turn ending first
+    // is an order, not a race against a clock.
+    let build = "while [ ! -e go ]; do sleep 0.05; done; echo done";
     desk.script([
-        tool_call(
-            "shell",
-            json!({"command": "sleep 2; echo done"}),
-            "call_build",
-        ),
+        tool_call("shell", json!({"command": build}), "call_build"),
         text("The build is going."),
         text("The build finished: done."),
     ]);
-    let asked = tokio::time::Instant::now();
     desk.prompt("build it").await;
     desk.request().await;
     desk.request().await;
     assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
-    assert!(
-        asked.elapsed() < Duration::from_secs(2),
-        "the turn ended before the command did"
-    );
+    std::fs::write(desk.workspace.join("go"), "").unwrap();
 
     let woke = desk.request().await;
     let said = woke.to_string();
@@ -106,7 +101,7 @@ async fn running_process_that_ends_on_its_own_wakes_the_teammate_once() {
     assert!(said.contains("succeeded"), "{said}");
     assert_eq!(desk.turn_end().await["event"]["stopReason"], "end_turn");
     desk.client
-        .next_where(Duration::from_secs(15), |frame| {
+        .next_where(common::ANSWER, |frame| {
             frame["event"]["kind"] == "agent"
                 && frame["event"]["text"] == "The build finished: done."
         })
@@ -151,12 +146,69 @@ async fn running_process_dies_when_its_grant_is_revoked() {
     desk.quiet_for(Duration::from_secs(1)).await;
 }
 
+/// A probe for GitHub's macOS runners, run by ci.yml's `shell-probe` job: the
+/// developer shims in /usr/bin find their toolchain through xcode-select, and
+/// at 0.39.0 a hosted Mac's `python3 -m http.server` never listened. Each
+/// shell, unconfined and Seatbelt, says how long each command took, and the
+/// test names any /usr/bin command that hung or failed. The PATH python3 and
+/// its `getfqdn`, which `HTTPServer` runs before it listens, are reported only.
+#[cfg(target_os = "macos")]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "probes a hosted Mac's developer tools; ci.yml's shell-probe job runs it"]
+async fn developer_shims_run_in_both_shells() {
+    let mut desk = Desk::open().await;
+    let machine = desk.probe_shims().await;
+    let updated = desk
+        .call(
+            "persona.update",
+            json!({"id": desk.persona, "patch": {"reach": "workspace"}}),
+        )
+        .await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    let workspace = desk.probe_shims().await;
+    let report = format!("machine reach:\n{machine}workspace reach:\n{workspace}");
+    println!("{report}");
+    let failed: Vec<&str> = report
+        .lines()
+        .filter(|line| line.contains(": /usr/bin/") && !line.starts_with("exit 0 "))
+        .collect();
+    assert!(failed.is_empty(), "{failed:#?}\n{report}");
+}
+
+/// Each probe runs in the background with an eight second watchdog, so a
+/// command that hangs is named rather than stalling the rest. The script
+/// waits for `go`, so it always outlives the shell's yield and the turn ends
+/// before it does.
+#[cfg(target_os = "macos")]
+const PROBE_SHIMS: &str = r#"while [ ! -e go ]; do sleep 0.05; done
+probe() {
+  "$@" > probe.out 2>&1 & pid=$!; tenths=0
+  while kill -0 $pid 2>/dev/null; do
+    if [ $tenths -ge 80 ]; then
+      kill -9 $pid; wait $pid 2>/dev/null
+      echo "hung for 8s: $*: $(head -c 300 probe.out)"; return
+    fi
+    sleep 0.1; tenths=$((tenths + 1))
+  done
+  wait $pid; status=$?
+  echo "exit $status in ~${tenths}00ms: $*: $(head -c 300 probe.out)"
+}
+{
+  echo "DEVELOPER_DIR=${DEVELOPER_DIR-unset} PATH=$PATH"
+  probe /usr/bin/xcode-select -p
+  probe /usr/bin/python3 -c 'print(1)'
+  probe /usr/bin/git --version
+  probe python3 -c 'import sys; print(sys.executable)'
+  probe python3 -c 'import socket; print(socket.getfqdn("127.0.0.1"))'
+} > probe.txt
+mv probe.txt probe.done"#;
+
 /// The session as the roster says it, the next time `wanted` holds of it.
 async fn session_where(desk: &mut Desk, wanted: impl Fn(&Value) -> bool) -> Value {
     let persona = desk.persona.clone();
     let row = desk
         .client
-        .next_where(Duration::from_secs(15), |frame| {
+        .next_where(common::ANSWER, |frame| {
             frame["event"]["persona"]["id"] == persona.as_str()
                 && frame["event"]["session"].is_object()
                 && wanted(&frame["event"]["session"])
@@ -258,7 +310,7 @@ async fn process_chip_output_is_the_latest_of_what_it_wrote() {
     let mut desk = Desk::open().await;
     let command = "echo $$ > sleeper.pid; for i in $(seq 1 3000); do echo line $i; done; echo oops >&2; exec sleep 300";
     let (pid, job_id) = desk.leave_running_as(command).await;
-    let output = tokio::time::timeout(Duration::from_secs(15), async {
+    let output = tokio::time::timeout(common::ANSWER, async {
         loop {
             let read = desk
                 .call(
@@ -293,6 +345,7 @@ async fn process_chip_output_is_the_latest_of_what_it_wrote() {
 /// takes its whole process tree and wakes nobody.
 #[tokio::test(flavor = "multi_thread")]
 async fn running_process_serve_open_and_stop_end_to_end() {
+    common::require("perl");
     let opened = common::browser();
     let mut desk = Desk::open().await;
     desk.client.subscribe(json!({"view": "roster"})).await;
@@ -300,9 +353,9 @@ async fn running_process_serve_open_and_stop_end_to_end() {
     let link = format!("http://127.0.0.1:{port}/chart.html");
     // The shell stays the group's leader and the server its child, so the
     // tree is two processes and the group is the shell's pid. The server is
-    // the system perl, a real binary on every Unix runner: macOS's
-    // /usr/bin/python3 is a shim into the developer tools, and on a hosted
-    // Mac it starts inside the sandbox but never serves.
+    // the system perl, a real binary on every Unix runner: on a hosted Mac,
+    // `python3 -m http.server` in this unconfined shell started but never
+    // listened (`developer_shims_run_in_both_shells` probes why).
     let serve = format!(
         "printf '<h1>The chart</h1>' > chart.html; echo $$ > server.pid; \
          {SERVE} {port} & echo $! > child.pid; wait"
@@ -378,12 +431,12 @@ async fn running_process_serve_open_and_stop_end_to_end() {
     desk.quiet_for(Duration::from_secs(1)).await;
 }
 
-/// A port nothing listens on now, for a server the teammate starts.
 /// A static server for `chart.html` on the port it is given, in perl: it
 /// says when it is listening, answers each request with the page, and runs
 /// until it is killed.
 const SERVE: &str = r#"perl -MIO::Socket::INET -e '$| = 1; my $s = IO::Socket::INET->new(LocalAddr => "127.0.0.1", LocalPort => $ARGV[0], Listen => 5, ReuseAddr => 1) or die "cannot listen: $!\n"; print "listening\n"; while (my $c = $s->accept) { <$c>; open(my $f, "<", "chart.html"); print $c "HTTP/1.0 200 OK\r\n\r\n", <$f>; close $c }'"#;
 
+/// A port nothing listens on now, for a server the teammate starts.
 fn free_port() -> u16 {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.local_addr().unwrap().port()
@@ -413,6 +466,7 @@ async fn fetch(port: u16) -> Option<String> {
 
 /// Whether any process is left in the group `leader` made. Signal 0 only asks.
 fn group_alive(leader: i32) -> bool {
+    // SAFETY: killpg takes no memory.
     unsafe { libc::killpg(leader, 0) == 0 }
 }
 
@@ -465,7 +519,7 @@ impl Desk {
         let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
         let port = door.port();
         tokio::spawn(door.run());
-        let mut client = Client::connect(port).await;
+        let mut client = Client::connect(port, TOKEN).await;
         let saved = client
             .call(
                 "credential.custom_save",
@@ -521,7 +575,7 @@ impl Desk {
     }
 
     async fn request(&mut self) -> Value {
-        tokio::time::timeout(Duration::from_secs(15), self.requests.recv())
+        tokio::time::timeout(common::ANSWER, self.requests.recv())
             .await
             .expect("the model was asked nothing")
             .unwrap()
@@ -529,9 +583,7 @@ impl Desk {
 
     async fn turn_end(&mut self) -> Value {
         self.client
-            .next_where(Duration::from_secs(15), |frame| {
-                frame["event"]["kind"] == "turn"
-            })
+            .next_where(common::ANSWER, |frame| frame["event"]["kind"] == "turn")
             .await
     }
 
@@ -546,16 +598,30 @@ impl Desk {
     /// The pid a command wrote to `file` in the workspace, once it has.
     async fn pid(&self, file: &str) -> i32 {
         let path = self.workspace.join(file);
-        tokio::time::timeout(Duration::from_secs(15), async {
-            loop {
-                if let Some(pid) = read_pid(&path) {
-                    return pid;
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("the command wrote its pid")
+        common::until("the command writes its pid", || read_pid(&path).is_some()).await;
+        read_pid(&path).unwrap()
+    }
+
+    /// What `PROBE_SHIMS` reports in this teammate's shell as it is now.
+    #[cfg(target_os = "macos")]
+    async fn probe_shims(&mut self) -> String {
+        for file in ["go", "probe.done"] {
+            let _ = std::fs::remove_file(self.workspace.join(file));
+        }
+        self.script([
+            tool_call("shell", json!({"command": PROBE_SHIMS}), "call_probe"),
+            text("Probing."),
+            text("Probed."),
+        ]);
+        self.prompt("probe the developer tools").await;
+        self.request().await;
+        self.request().await;
+        assert_eq!(self.turn_end().await["event"]["stopReason"], "end_turn");
+        std::fs::write(self.workspace.join("go"), "").unwrap();
+        // The probe's own end wakes the teammate, which says it is done.
+        self.request().await;
+        assert_eq!(self.turn_end().await["event"]["stopReason"], "end_turn");
+        std::fs::read_to_string(self.workspace.join("probe.done")).unwrap()
     }
 
     /// A turn that leaves a long sleep running and replies; its pid.
@@ -588,17 +654,12 @@ fn read_pid(path: &Path) -> Option<i32> {
 
 /// Whether the process we started is still there. Signal 0 only asks.
 fn alive(pid: i32) -> bool {
+    // SAFETY: kill takes no memory.
     unsafe { libc::kill(pid, 0) == 0 }
 }
 
 async fn until_dead(pid: i32) {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while alive(pid) {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the process was killed");
+    common::until("the process is killed", || !alive(pid)).await;
 }
 
 /// The job id a launch receipt in this request names.
@@ -627,88 +688,4 @@ fn tool_call(name: &str, arguments: Value, call_id: &str) -> Vec<Value> {
         json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":call_id,"type":"function","function":{"name":name,"arguments":arguments.to_string()}}]},"finish_reason":null}]}),
         json!({"id":"chat_test","object":"chat.completion.chunk","created":1,"model":"vendor/coder","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}),
     ]
-}
-
-/// The window's half of the wire, as the harness plays it.
-struct Client {
-    socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    next_id: i64,
-    /// Frames that arrived while waiting for something else.
-    inbox: VecDeque<Value>,
-}
-
-impl Client {
-    async fn connect(port: u16) -> Client {
-        let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token={TOKEN}"))
-            .await
-            .unwrap();
-        Client {
-            socket,
-            next_id: 1,
-            inbox: VecDeque::new(),
-        }
-    }
-
-    async fn read(&mut self) -> Value {
-        loop {
-            match self.socket.next().await.expect("the door closed") {
-                Ok(Message::Text(text)) => return serde_json::from_str(&text).unwrap(),
-                Ok(_) => continue,
-                Err(error) => panic!("the socket failed: {error}"),
-            }
-        }
-    }
-
-    async fn call(&mut self, cmd: &str, params: Value) -> Value {
-        let id = self.next_id;
-        self.next_id += 1;
-        let frame = json!({ "id": id, "cmd": cmd, "params": params });
-        self.socket
-            .send(Message::text(frame.to_string()))
-            .await
-            .unwrap();
-        loop {
-            let frame = self.read().await;
-            if frame.get("id").and_then(Value::as_i64) == Some(id) {
-                return frame;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
-
-    async fn subscribe(&mut self, target: Value) {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.socket
-            .send(Message::text(
-                json!({ "id": id, "sub": target }).to_string(),
-            ))
-            .await
-            .unwrap();
-        loop {
-            let frame = self.read().await;
-            if frame.get("id").and_then(Value::as_i64) == Some(id) {
-                assert_eq!(frame["ok"], true, "{frame}");
-                return;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
-
-    /// The next frame that satisfies `wanted`, from the inbox first.
-    async fn next_where(&mut self, patience: Duration, wanted: impl Fn(&Value) -> bool) -> Value {
-        if let Some(at) = self.inbox.iter().position(&wanted) {
-            return self.inbox.remove(at).unwrap();
-        }
-        let deadline = tokio::time::Instant::now() + patience;
-        loop {
-            let frame = tokio::time::timeout_at(deadline, self.read())
-                .await
-                .unwrap_or_else(|_| panic!("nothing wanted arrived within {patience:?}"));
-            if wanted(&frame) {
-                return frame;
-            }
-            self.inbox.push_back(frame);
-        }
-    }
 }

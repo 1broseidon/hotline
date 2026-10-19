@@ -55,7 +55,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Channel<S> {
     fn drain(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         while !self.pending.is_empty() {
             ready!(Pin::new(&mut self.socket).poll_ready(cx))?;
-            let bytes = self.pending.pop_front().unwrap();
+            let bytes = self
+                .pending
+                .pop_front()
+                .expect("the loop runs while the queue is not empty, and only this pops it");
             Pin::new(&mut self.socket).start_send(Message::Binary(bytes.into()))?;
         }
         Poll::Ready(Ok(()))

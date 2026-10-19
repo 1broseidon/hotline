@@ -32,6 +32,10 @@ pub struct DoorFile {
     pub started_at: String,
     pub data_dir: String,
     pub store: String,
+    /// What the server runs (ADR 0006). Absent from a door written before
+    /// there was a choice, which ran both.
+    #[serde(default)]
+    pub capabilities: Vec<String>,
 }
 
 pub fn path(root: &Path) -> PathBuf {
@@ -162,11 +166,13 @@ pub async fn ask(door: &DoorFile, cmd: &str, params: Value) -> Result<Value, Str
     }
 }
 
-pub(crate) fn runtime() -> tokio::runtime::Runtime {
+/// A runtime for one client command. The OS can refuse one (no threads or
+/// descriptors left), and that is the command's failure, said in a sentence.
+pub(crate) fn runtime() -> Result<tokio::runtime::Runtime, String> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .expect("a runtime starts")
+        .map_err(|error| format!("the async runtime did not start: {error}"))
 }
 
 pub fn status(room: &Room) -> ExitCode {
@@ -177,16 +183,23 @@ pub fn status(room: &Room) -> ExitCode {
             return ExitCode::from(3);
         }
     };
-    let since = chrono::DateTime::parse_from_rfc3339(&door.started_at)
-        .map(|at| describe(chrono::Utc::now().signed_duration_since(at)))
-        .unwrap_or_else(|_| "unknown".into());
+    let since = chrono::DateTime::parse_from_rfc3339(&door.started_at).map_or_else(
+        |_| "unknown".into(),
+        |at| describe(chrono::Utc::now().signed_duration_since(at)),
+    );
     println!(
         "Hotline {} · running · pid {} · up {since}",
         door.version, door.pid
     );
     println!("  data    {}", door.data_dir);
     println!("  store   {}", door.store);
-    match runtime().block_on(ask(&door, "welcome", json!({}))) {
+    if !door.capabilities.is_empty() {
+        println!("  runs    {}", door.capabilities.join(", "));
+    }
+    if !door.capabilities.is_empty() && !door.capabilities.iter().any(|name| name == "agents") {
+        return relay_status(&door);
+    }
+    match runtime().and_then(|runtime| runtime.block_on(ask(&door, "welcome", json!({})))) {
         Ok(welcome) => {
             let providers = welcome["providers"]
                 .as_array()
@@ -216,6 +229,31 @@ pub fn status(room: &Room) -> ExitCode {
         }
         Err(problem) => {
             println!("  ! The desk did not answer: {problem}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// A relay-only server has no teammates or models to report: where it is
+/// reached, and how many desktops may stand in on it.
+fn relay_status(door: &DoorFile) -> ExitCode {
+    match runtime().and_then(|runtime| runtime.block_on(ask(door, "remote.status", json!({})))) {
+        Ok(status) => {
+            println!(
+                "  address {}",
+                status["endpoint"].as_str().unwrap_or("not listening yet")
+            );
+            println!(
+                "  devices {}",
+                status["devices"].as_array().map_or(0, Vec::len)
+            );
+            if let Some(error) = status["error"].as_str() {
+                println!("  ! {error}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(problem) => {
+            println!("  ! The server did not answer: {problem}");
             ExitCode::from(1)
         }
     }
@@ -255,7 +293,7 @@ pub fn wire(room: &Room, cmd: &str) -> ExitCode {
             }
         }
     };
-    match runtime().block_on(ask(&door, cmd, params)) {
+    match runtime().and_then(|runtime| runtime.block_on(ask(&door, cmd, params))) {
         Ok(result) => {
             println!(
                 "{}",

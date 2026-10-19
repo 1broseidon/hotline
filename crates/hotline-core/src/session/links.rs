@@ -16,7 +16,8 @@
 use super::exchanges::Intent;
 use super::{Room, TEAMMATE_MESSAGE_MAX, lock};
 use crate::contract::Persona;
-use crate::linked::{self, CallError, Known, LinkedDelivery, LinkedTeammate, Record};
+use crate::contract::{LinkedDelivery, LinkedTeammate, Profile};
+use crate::linked::{self, CallError, Known, Record};
 use crate::room;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -89,11 +90,7 @@ impl Room {
                         persona_id: known.persona_id.clone(),
                         name: known.name.clone(),
                         state: "offline".into(),
-                        activity: None,
-                        working_on: linked::WorkingOn {
-                            title: String::new(),
-                            last_turn_at: None,
-                        },
+                        ..Default::default()
                     })
                     .collect()
             });
@@ -118,25 +115,41 @@ impl Room {
 
     /// This desk's teammates, as a linked desk is shown them, cut to what it
     /// keeps so the roster fits in one of the link's frames. A row is what
-    /// its teammate's record, session and tape make it, so it is made again
-    /// only when one of those has moved.
+    /// its teammate's record, session and tape make it, with a profile the
+    /// room's settings also feed; the profile is cheap and read every time,
+    /// so the row is made again only when one of those has moved.
     pub(crate) fn federation_roster_entries(&self) -> Vec<LinkedTeammate> {
         let roster = room::roster(&self.log);
-        let made_from = roster
+        let settings = room::settings(&self.log);
+        let profiles: Vec<(&Persona, Profile)> = roster
             .iter()
             .map(|persona| {
+                (
+                    persona,
+                    crate::mcp::server::profile(self, persona, &settings),
+                )
+            })
+            .collect();
+        let made_from = profiles
+            .iter()
+            .map(|(persona, profile)| {
                 let made_from = format!(
-                    "{}:{:?}:{}",
+                    "{}:{:?}:{}:{:?}",
                     persona.updated_at,
                     self.info(&persona.id).state,
                     crate::store::previews::tape_size(self.log.root(), &persona.id),
+                    profile,
                 );
                 (persona.id.clone(), made_from)
             })
             .collect();
         linked::plausible(self.links.rows(made_from, |id| {
-            let persona = roster.iter().find(|persona| persona.id == id)?;
-            Some(crate::mcp::server::roster_row(self, persona.clone()))
+            let (persona, profile) = profiles.iter().find(|(persona, _)| persona.id == id)?;
+            Some(crate::mcp::server::roster_row(
+                self,
+                (*persona).clone(),
+                profile.clone(),
+            ))
         }))
     }
 
@@ -161,7 +174,7 @@ impl Room {
         if self.links.names_to_write(desk_id, &known) {
             linked::update(&self.log, desk_id, |record| {
                 let moved = record.teammates != known;
-                record.teammates = known.clone();
+                record.teammates.clone_from(&known);
                 moved
             })?;
             self.links.names_written(desk_id, known);

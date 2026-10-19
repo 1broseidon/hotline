@@ -2,7 +2,8 @@
 //! holds a key that could read them.
 //!
 //! A desk with no reachable listener dials out to a served desk it is paired
-//! with as an owner, over a sealed control socket (`/v2/relay`), and stands
+//! with, as an owner or only as a relay (ADR 0006), over a sealed control
+//! socket (`/v2/relay`), and stands
 //! in there under its own desk id. A visitor dials `/relay/{deskId}/v2…` on
 //! the served desk exactly as it would dial the desk itself. The served desk
 //! hands the desk a single-use capability over the control socket; the desk
@@ -10,7 +11,7 @@
 //! sockets message for message. The Noise handshake inside runs between the
 //! visitor and the desk, so a relay can drop a session but cannot read,
 //! forge or redirect one: the visitor pins the desk's key, not the relay's.
-use super::client::{Client, OpenError, PairedDesk};
+use super::client::{Client, OpenError, PairedDesk, PairedRelay};
 use super::server::{Purpose, Seat, sealed_session};
 use super::*;
 use futures_util::{SinkExt, StreamExt};
@@ -55,6 +56,10 @@ const BUDGETS_MAX: usize = 1024;
 const RATE_BURST: f64 = 10.0;
 const RATE_PER_SECOND: f64 = 0.5;
 
+/// Every write to `hosts` cancels a generation before dropping it, and
+/// inserts a desk's budget before the desk, so a panic between any two of
+/// them leaves no live desk without a budget and no waiting socket for a
+/// generation that is gone. A poisoned registry is therefore recovered.
 pub(super) struct Hub {
     hosts: Mutex<Hosts>,
     visits: Arc<Semaphore>,
@@ -125,7 +130,7 @@ impl Hub {
         notify: mpsc::Sender<String>,
         cancel: CancellationToken,
     ) -> Option<Uuid> {
-        let mut hosts = self.hosts.lock().unwrap();
+        let mut hosts = lock(&self.hosts);
         if hosts.desks.len() >= HOSTS_MAX && !hosts.desks.contains_key(desk) {
             return None;
         }
@@ -175,7 +180,7 @@ impl Hub {
     /// A replacement may retire its predecessor even when every control
     /// slot is occupied. Its pending TCP permit bounds the wait for cleanup.
     fn retire(&self, desk: &str) -> bool {
-        let mut hosts = self.hosts.lock().unwrap();
+        let mut hosts = lock(&self.hosts);
         let Some(host) = hosts.desks.get(desk) else {
             return false;
         };
@@ -188,7 +193,7 @@ impl Hub {
     }
 
     fn unregister(&self, desk: &str, id: Uuid) {
-        let mut hosts = self.hosts.lock().unwrap();
+        let mut hosts = lock(&self.hosts);
         if hosts
             .desks
             .get(desk)
@@ -204,7 +209,7 @@ impl Hub {
     }
 
     pub(super) fn visit(&self, desk: &str) -> Visit {
-        let mut hosts = self.hosts.lock().unwrap();
+        let mut hosts = lock(&self.hosts);
         let Some(host) = hosts.desks.get(desk) else {
             return Visit::Offline;
         };
@@ -213,7 +218,10 @@ impl Hub {
         }
         let generation = host.generation.clone();
         let notify = host.notify.clone();
-        let budget = hosts.budgets.get_mut(desk).unwrap();
+        let budget = hosts
+            .budgets
+            .get_mut(desk)
+            .expect("a registered desk's budget is made with it and kept while it is active");
         budget.refill(tokio::time::Instant::now());
         if budget.tokens < 1.0 {
             return Visit::RateLimited;
@@ -247,7 +255,7 @@ impl Hub {
         let capability = super::secret();
         let expires_at = tokio::time::Instant::now() + ACCEPT_WITHIN;
         {
-            let mut hosts = self.hosts.lock().unwrap();
+            let mut hosts = lock(&self.hosts);
             if !Self::current(&hosts, &ticket) {
                 return None;
             }
@@ -265,14 +273,14 @@ impl Hub {
         tokio::spawn(async move {
             tokio::time::sleep_until(expires_at).await;
             if let Some(hub) = hub.upgrade() {
-                hub.hosts.lock().unwrap().waiting.remove(&unclaimed);
+                lock(&hub.hosts).waiting.remove(&unclaimed);
             }
         });
         Some(capability)
     }
 
     fn claim(&self, capability: &str, device: &str) -> Option<Waiting> {
-        let mut hosts = self.hosts.lock().unwrap();
+        let mut hosts = lock(&self.hosts);
         let waiting = hosts.waiting.get(capability)?;
         if tokio::time::Instant::now() >= waiting.expires_at
             || !Self::current(&hosts, &waiting.ticket)
@@ -288,9 +296,7 @@ impl Hub {
 
     #[cfg(test)]
     pub(super) fn expire_capability(&self, capability: &str) {
-        self.hosts
-            .lock()
-            .unwrap()
+        lock(&self.hosts)
             .waiting
             .get_mut(capability)
             .unwrap()
@@ -304,7 +310,7 @@ impl Hub {
 
     #[cfg(test)]
     pub(super) fn counts(&self) -> (usize, usize) {
-        let hosts = self.hosts.lock().unwrap();
+        let hosts = lock(&self.hosts);
         (hosts.desks.len(), hosts.waiting.len())
     }
 }
@@ -353,7 +359,7 @@ pub(super) async fn arrive(
     };
     let notice = json!({"type": "visit", "id": capability, "path": path}).to_string();
     if notify.try_send(notice).is_err() {
-        hub.hosts.lock().unwrap().waiting.remove(&capability);
+        lock(&hub.hosts).waiting.remove(&capability);
     }
 }
 
@@ -369,7 +375,7 @@ where
         purpose: String,
         capability: String,
     }
-    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let cancel = lock(&remote.state).cancel.clone();
     let deadline = tokio::time::Instant::now() + ACCEPT_WITHIN;
     let claimed = async {
         let (private, _) = remote.noise_keys().ok()?;
@@ -388,7 +394,7 @@ where
         }
         let public = noise.get_remote_static()?;
         let phone = remote.authenticate_v2(public)?;
-        if phone.role != DeviceRole::Owner {
+        if !Purpose::RelayAccept.admits(phone.role) {
             return None;
         }
         let waiting = remote.relay.claim(&claim.capability, &phone.id)?;
@@ -398,7 +404,7 @@ where
         let n = noise.write_message(&[], &mut payload).ok()?;
         let sent = tokio::select! {
             biased;
-            _ = waiting.ticket.generation.cancel.cancelled() => return None,
+            () = waiting.ticket.generation.cancel.cancelled() => return None,
             sent = socket.send(Message::Binary(payload[..n].to_vec().into())) => sent,
         };
         sent.ok()?;
@@ -406,8 +412,8 @@ where
     };
     let waiting = tokio::select! {
         biased;
-        _ = cancel.cancelled() => return,
-        _ = seat.expired(deadline) => return,
+        () = cancel.cancelled() => return,
+        () = seat.expired(deadline) => return,
         waiting = claimed => waiting,
     };
     drop(seat);
@@ -422,8 +428,8 @@ where
     let generation = ticket.generation.cancel.clone();
     tokio::select! {
         biased;
-        _ = cancel.cancelled() => {},
-        _ = join(visitor, socket, generation) => {},
+        () = cancel.cancelled() => {},
+        () = join(visitor, socket, generation) => {},
     }
 }
 
@@ -455,7 +461,7 @@ where
             }
         }
     };
-    tokio::select! { _ = cancel.cancelled() => {}, _ = forward => {} }
+    tokio::select! { () = cancel.cancelled() => {}, () = forward => {} }
     let _ = tokio::join!(
         tokio::time::timeout(IO_WITHIN, a_out.close()),
         tokio::time::timeout(IO_WITHIN, b_out.close()),
@@ -499,8 +505,8 @@ pub(super) async fn host<S>(
         ControlSlot::Full => return,
         ControlSlot::Replacing => tokio::select! {
             biased;
-            _ = phone.cancel.cancelled() => return,
-            _ = seat.expired(tokio::time::Instant::now() + IO_WITHIN) => return,
+            () = phone.cancel.cancelled() => return,
+            () = seat.expired(tokio::time::Instant::now() + IO_WITHIN) => return,
             host = remote.relay.controls.clone().acquire_owned() => match host {
                 Ok(host) => host,
                 Err(_) => return,
@@ -530,7 +536,7 @@ pub(super) async fn host<S>(
         .served
         .as_ref()
         .map(|options| format!("{}/relay/{desk}", options.public_url.trim_end_matches('/')));
-    let ready = json!({"type": "ready", "url": url}).to_string();
+    let ready = json!({"type": "ready", "url": url, "serves": remote.serves()}).to_string();
     if matches!(
         tokio::time::timeout(IO_WITHIN, control.send(Message::Text(ready.into()))).await,
         Ok(Ok(()))
@@ -540,7 +546,7 @@ pub(super) async fn host<S>(
         loop {
             tokio::select! {
                 biased;
-                _ = generation.cancelled() => break,
+                () = generation.cancelled() => break,
                 notice = notices.recv() => match notice {
                     Some(text) => if !matches!(tokio::time::timeout(IO_WITHIN, control.send(Message::Text(text.into()))).await, Ok(Ok(()))) { break },
                     None => break,
@@ -579,9 +585,28 @@ pub(super) struct Standing {
     cancel: Option<CancellationToken>,
 }
 
-/// The desks this computer has paired with, as the shell keeps them.
+/// The desks this computer has paired with as an owner, as the shell keeps
+/// them in `desks.json`.
 pub(super) fn paired(root: &Path) -> Vec<PairedDesk> {
-    fs::read(root.join("desks.json"))
+    read_list(&root.join("desks.json"))
+}
+
+/// The servers this computer is paired with only as a relay. The shell
+/// keeps them in `relays.json`, apart from the desks, so an older window
+/// never lists one as a desk and dials its `/v2` (ADR 0006).
+fn relay_servers(root: &Path) -> Vec<PairedRelay> {
+    read_list(&root.join("relays.json"))
+}
+
+/// Every server this desk may stand in on: a desk it owns, or a relay.
+fn stand_ins(root: &Path) -> Vec<PairedDesk> {
+    let mut servers = paired(root);
+    servers.extend(relay_servers(root).iter().map(PairedRelay::dialed));
+    servers
+}
+
+fn read_list<T: serde::de::DeserializeOwned>(path: &Path) -> Vec<T> {
+    fs::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
@@ -591,6 +616,11 @@ pub(super) fn paired(root: &Path) -> Vec<PairedDesk> {
 pub(super) const RELAYED_MAX: usize = 32;
 
 impl Remote {
+    /// `remote.relays`: the servers this desk may stand in on as a relay only.
+    pub fn relay_servers(&self) -> Vec<PairedRelay> {
+        relay_servers(&self.root)
+    }
+
     /// Stand in on a paired desk's relay, or stop. The choice is kept, and
     /// the desk stands in whenever Remote is on.
     pub fn relay_through(
@@ -601,12 +631,12 @@ impl Remote {
             return Err("A served desk is a relay; it does not use one.".into());
         }
         if let Some(id) = &desk_id
-            && !paired(&self.root).iter().any(|desk| &desk.desk_id == id)
+            && !stand_ins(&self.root).iter().any(|desk| &desk.desk_id == id)
         {
             return Err("Pair with that desk first.".into());
         }
         {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             s.saved.relay = desk_id;
             self.save(&s.saved)?;
         }
@@ -616,11 +646,13 @@ impl Remote {
 
     pub(super) fn relay_status(&self, s: &Live) -> Option<RemoteRelay> {
         let id = s.saved.relay.as_ref()?;
-        let name = paired(&self.root)
+        let name = stand_ins(&self.root)
             .into_iter()
             .find(|desk| &desk.desk_id == id)
-            .map(|desk| desk.name)
-            .unwrap_or_else(|| "A desk this computer no longer pairs with".into());
+            .map_or_else(
+                || "A desk this computer no longer pairs with".into(),
+                |desk| desk.name,
+            );
         Some(RemoteRelay {
             desk_id: id.clone(),
             name,
@@ -633,7 +665,7 @@ impl Remote {
     /// is on. Called after either changes.
     pub(super) fn stand(self: &Arc<Self>) {
         let (desk, cancel) = {
-            let mut s = self.state.lock().unwrap();
+            let mut s = lock(&self.state);
             if let Some(cancel) = s.relay.cancel.take() {
                 cancel.cancel();
             }
@@ -642,7 +674,7 @@ impl Remote {
             let Some(id) = s.saved.relay.clone().filter(|_| on) else {
                 return;
             };
-            let Some(desk) = paired(&self.root).into_iter().find(|d| d.desk_id == id) else {
+            let Some(desk) = stand_ins(&self.root).into_iter().find(|d| d.desk_id == id) else {
                 s.relay.error = Some("This computer no longer pairs with that desk.".into());
                 return;
             };
@@ -658,7 +690,7 @@ impl Remote {
                 let mut ready = false;
                 let stood = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
+                    () = cancel.cancelled() => return,
                     stood = remote.stand_once(&desk, &visits, &cancel, &mut ready) => stood,
                 };
                 if ready {
@@ -677,7 +709,8 @@ impl Remote {
                                     "That desk no longer accepts this computer. Pair with it again."
                                         .into()
                                 }
-                                OpenError::Unreachable(message) => message,
+                                // A role refusal is not a revocation: keep trying.
+                                other => other.to_string(),
                             }),
                         );
                         if revoked {
@@ -688,15 +721,15 @@ impl Remote {
                         wait
                     }
                 };
-                let jitter = 0.8 + (Uuid::new_v4().as_bytes()[0] as f64 / 255.0) * 0.4;
+                let jitter = 0.8 + (f64::from(Uuid::new_v4().as_bytes()[0]) / 255.0) * 0.4;
                 let wait = wait.mul_f64(jitter);
-                tokio::select! { _ = cancel.cancelled() => return, _ = tokio::time::sleep(wait) => {} }
+                tokio::select! { () = cancel.cancelled() => return, () = tokio::time::sleep(wait) => {} }
             }
         });
     }
 
     fn stood_down(&self, cancel: &CancellationToken, error: Option<String>) {
-        let mut s = self.state.lock().unwrap();
+        let mut s = lock(&self.state);
         if cancel.is_cancelled() {
             return;
         }
@@ -744,7 +777,7 @@ impl Remote {
             match notice.r#type.as_str() {
                 "ready" => {
                     let url = notice.url.ok_or("The relay did not say where it is.")?;
-                    let mut s = self.state.lock().unwrap();
+                    let mut s = lock(&self.state);
                     if cancel.is_cancelled() {
                         return Ok(());
                     }
@@ -774,7 +807,7 @@ impl Remote {
                     tokio::spawn(async move {
                         let dialed = tokio::select! {
                             biased;
-                            _ = cancel.cancelled() => return,
+                            () = cancel.cancelled() => return,
                             dialed = tokio::time::timeout(ACCEPT_WITHIN, client.accept_relay(&desk, &id)) => dialed,
                         };
                         if let Ok(Ok(socket)) = dialed {
@@ -806,6 +839,7 @@ impl Remote {
 #[cfg(test)]
 mod budget_tests {
     use super::*;
+    use crate::remote::poison;
 
     fn register(hub: &Hub, desk: &str) -> Uuid {
         let (notify, _) = mpsc::channel(VISITS_PER_DESK);
@@ -813,7 +847,7 @@ mod budget_tests {
             .unwrap()
     }
     fn replenish(hub: &Hub, desk: &str) {
-        let mut hosts = hub.hosts.lock().unwrap();
+        let mut hosts = lock(&hub.hosts);
         hosts.budgets.get_mut(desk).unwrap().updated -= Duration::from_secs(20);
     }
     fn ticket(hub: &Hub, desk: &str) -> Ticket {
@@ -851,6 +885,22 @@ mod budget_tests {
     }
 
     #[test]
+    fn a_poisoned_registry_still_ends_generations_and_refuses_their_visitors() {
+        let hub = Hub::default();
+        let id = register(&hub, "desk");
+        let visit = ticket(&hub, "desk");
+        poison(&hub.hosts);
+        hub.unregister("desk", id);
+        assert!(visit.generation.cancel.is_cancelled());
+        assert!(matches!(hub.visit("desk"), Visit::Offline));
+        let fresh = register(&hub, "desk");
+        assert!(hub.retire("desk"));
+        assert!(matches!(hub.visit("desk"), Visit::Offline));
+        hub.unregister("desk", fresh);
+        assert_eq!(hub.counts(), (0, 0));
+    }
+
+    #[test]
     fn reregistration_keeps_live_permits_and_invalidates_the_old_generation() {
         let hub = Hub::default();
         let old = register(&hub, "desk");
@@ -862,12 +912,12 @@ mod budget_tests {
         register(&hub, "desk");
         replenish(&hub, "desk");
         assert!(matches!(hub.visit("desk"), Visit::Busy));
-        assert!(!Hub::current(&hub.hosts.lock().unwrap(), &visits[0]));
+        assert!(!Hub::current(&lock(&hub.hosts), &visits[0]));
         hub.unregister("desk", old);
         assert_eq!(hub.counts().0, 1);
         visits.pop();
         let resumed = ticket(&hub, "desk");
-        assert!(Hub::current(&hub.hosts.lock().unwrap(), &resumed));
+        assert!(Hub::current(&lock(&hub.hosts), &resumed));
     }
 
     #[test]

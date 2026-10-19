@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
+import { installDom } from "./dom";
 
 Object.assign(globalThis, { window: { matchMedia: () => ({ matches: false }) } });
 const { CallBar, DeskCallCard, DeskCallKey } = await import("../src/components/Call");
@@ -10,18 +10,11 @@ const { forgetAvatars } = await import("../src/avatars");
 let act: typeof import("react").act;
 let root: Root;
 let container: HTMLDivElement;
-let dom: Window;
-let restores: (() => void)[];
+let teardown: () => Promise<void>;
 
 beforeEach(async () => {
 	forgetAvatars();
-	dom = new Window();
-	restores = [];
-	for (const [key, value] of Object.entries({ window: dom, document: dom.document, navigator: dom.navigator, IS_REACT_ACT_ENVIRONMENT: true })) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => descriptor ? Object.defineProperty(globalThis, key, descriptor) : Reflect.deleteProperty(globalThis, key));
-	}
+	({ teardown } = installDom());
 	act = (await import("react")).act;
 	const { createRoot } = await import("react-dom/client");
 	container = document.createElement("div");
@@ -31,9 +24,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await act(async () => root.unmount());
-	for (const restore of restores.reverse()) restore();
 	forgetAvatars();
-	await dom.happyDOM.close();
+	await teardown();
 });
 
 describe("the call strip's identity", () => {
@@ -147,6 +139,7 @@ describe("a call's trouble", () => {
 		expect(troubleWords("Hotline can't use the microphone. Turn it on for Hotline in System Settings › Privacy & Security › Microphone, then try again.")).toBe("Microphone blocked");
 		expect(troubleWords("Hotline can't hear the microphone any more. Call again when it's back.")).toBe("Microphone lost");
 		expect(troubleWords("This desk needs an update before it can call a teammate directly.")).toBe("Desk needs update");
+		expect(troubleWords("Hotline hears your voice but no words. Allow Hotline under Speech Recognition in System Settings › Privacy & Security.")).toBe("No words heard");
 		expect(troubleWords("Something nobody planned for.")).toBe("Call failed");
 		for (const words of ["No microphone", "Microphone busy", "Desk needs update", "Call failed"]) expect(words.split(" ").length).toBeLessThanOrEqual(3);
 	});

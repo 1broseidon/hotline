@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
+import { installDom } from "./dom";
 
 // Loading the window's modules reads the platform and the media queries it
 // watches from `window`, before any test has a DOM.
@@ -62,30 +62,11 @@ class FakeCore {
 let act: typeof import("react").act;
 let root: Root | null;
 let container: HTMLDivElement;
-let dom: Window;
-let restores: (() => void)[];
+let teardown: () => Promise<void>;
 
 beforeEach(async () => {
-	restores = [];
-	dom = new Window();
 	FakeCore.all = [];
-	const globals = {
-		window: dom,
-		document: dom.document,
-		navigator: dom.navigator,
-		localStorage: dom.localStorage,
-		IS_REACT_ACT_ENVIRONMENT: true,
-		ResizeObserver: NoResize,
-		WebSocket: FakeCore,
-	};
-	for (const [key, value] of Object.entries(globals)) {
-		const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
-		Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-		restores.push(() => {
-			if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-			else Reflect.deleteProperty(globalThis, key);
-		});
-	}
+	({ teardown } = installDom({ ResizeObserver: NoResize, WebSocket: FakeCore }));
 	replaceDesks([{ id: "local", name: "This computer", kind: "local", origin: "ws://core", token: "t" }]);
 	act = (await import("react")).act;
 	const { createRoot } = await import("react-dom/client");
@@ -99,8 +80,7 @@ afterEach(async () => {
 		root = null;
 	});
 	replaceDesks([]);
-	for (const restore of restores.reverse()) restore();
-	await dom.happyDOM.close();
+	await teardown();
 });
 
 /** Opens the window and lets the hello, the roster and `welcome` land. */

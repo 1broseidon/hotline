@@ -1,6 +1,7 @@
 //! Seatbelt is a filesystem and service boundary, not a mount/PID namespace.
 //! Runtime exceptions name installations; PATH never grants host file access.
 
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -314,10 +315,11 @@ fn profile(workspace: &Path, runtimes: &[PathBuf], folders: &[(PathBuf, bool)]) 
 "#,
     );
     for path in runtimes {
-        policy.push_str(&format!(
-            "(allow file-read* file-map-executable (subpath \"{}\"))\n",
+        let _ = writeln!(
+            policy,
+            "(allow file-read* file-map-executable (subpath \"{}\"))",
             quote(path)
-        ));
+        );
     }
     for (path, writable) in folders {
         let operations = if *writable {
@@ -325,15 +327,13 @@ fn profile(workspace: &Path, runtimes: &[PathBuf], folders: &[(PathBuf, bool)]) 
         } else {
             "file-read* file-map-executable"
         };
-        policy.push_str(&format!(
-            "(allow {operations} (subpath \"{}\"))\n",
-            quote(path)
-        ));
+        let _ = writeln!(policy, "(allow {operations} (subpath \"{}\"))", quote(path));
     }
-    policy.push_str(&format!(
-        "(allow file-read* file-write* file-map-executable (subpath \"{}\"))\n",
+    let _ = writeln!(
+        policy,
+        "(allow file-read* file-write* file-map-executable (subpath \"{}\"))",
         quote(workspace)
-    ));
+    );
     // getcwd and runtime path resolution need ancestor metadata, never data.
     for path in runtimes
         .iter()
@@ -342,10 +342,11 @@ fn profile(workspace: &Path, runtimes: &[PathBuf], folders: &[(PathBuf, bool)]) 
         .chain([workspace])
     {
         for ancestor in path.ancestors().skip(1) {
-            policy.push_str(&format!(
-                "(allow file-read-metadata (literal \"{}\"))\n",
+            let _ = writeln!(
+                policy,
+                "(allow file-read-metadata (literal \"{}\"))",
                 quote(ancestor)
-            ));
+            );
         }
     }
     policy
@@ -469,6 +470,13 @@ mod tests {
         // delegate work to an unsandboxed listener.
         let inside = std::os::unix::net::UnixListener::bind(work.join("inside.sock")).unwrap();
         inside.set_nonblocking(true).unwrap();
+        // The python3 line below must fail for the sandbox, not for want of
+        // python3, so first prove it runs here.
+        let python = output(&work, "python3 -c 'import socket'").await;
+        assert!(
+            python.status.success(),
+            "needs python3 in the sandbox: {python:?}"
+        );
         for script in [
             "/usr/bin/open -a Terminal".to_string(),
             "/usr/bin/osascript -e 'tell application \"System Events\" to get name'".to_string(),

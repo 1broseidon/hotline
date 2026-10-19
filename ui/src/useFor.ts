@@ -35,7 +35,7 @@ function modelText(pick: CapabilityPick): string {
 }
 
 /** The first choice: Automatic, and what it comes to now. */
-export function automaticText(job: CapabilityJob): string {
+function automaticText(job: CapabilityJob): string {
 	const automatic = job.automatic;
 	if (automatic === undefined) return "Automatic";
 	return ["Automatic", automatic.providerName, modelText(automatic)].filter((part) => part !== "").join(" · ");
@@ -65,7 +65,7 @@ export function choicesFor(job: CapabilityJob): PickerChoice[] {
 	return choices;
 }
 
-export function selectedId(pick: CapabilityPick | undefined): string {
+function selectedId(pick: CapabilityPick | undefined): string {
 	return pick === undefined ? AUTOMATIC : pickId(pick.providerId, pick.modelId);
 }
 
@@ -82,17 +82,12 @@ export function currentId(job: CapabilityJob): string {
 }
 
 /** The voices the speaking row offers: those of the model in use, automatic's included. */
-export function voicesOf(job: CapabilityJob): string[] {
+function voicesOf(job: CapabilityJob): string[] {
 	const pick = job.selected ?? job.automatic;
 	if (pick === undefined) return [];
 	const provider = job.options.find((one) => one.providerId === pick.providerId);
 	const model = provider?.models.find((one) => one.id === pick.modelId) ?? provider?.models[0];
 	return model?.voices ?? [];
-}
-
-/** The voice in use: the owner's, else the provider's own. */
-export function voiceOf(job: CapabilityJob): string | undefined {
-	return job.selected?.voice ?? (job.selected === undefined ? job.automatic?.voice : undefined);
 }
 
 export function voiceChoices(job: CapabilityJob): PickerChoice[] {
@@ -124,7 +119,7 @@ const EFFORT_LABELS: Record<string, string> = {
 	max: "Max",
 };
 
-export function effortLabel(id: string): string {
+function effortLabel(id: string): string {
 	return EFFORT_LABELS[id] ?? id;
 }
 
@@ -183,7 +178,7 @@ export function parseWords(text: string): string[] {
 /** The words `settings.voice` says to listen for (`listenFor`). */
 export function listenForOf(voice: unknown): string[] {
 	if (voice === null || typeof voice !== "object" || Array.isArray(voice)) return [];
-	const words = (voice as Record<string, unknown>).listenFor;
+	const words = (voice as Record<string, unknown>)["listenFor"];
 	return Array.isArray(words) ? words.filter((word): word is string => typeof word === "string") : [];
 }
 
@@ -191,8 +186,8 @@ export function listenForOf(voice: unknown): string[] {
 export function listenForPatch(current: unknown, words: string[]): Record<string, unknown> | null {
 	const voice: Record<string, unknown> =
 		current !== null && typeof current === "object" && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
-	if (words.length === 0) delete voice.listenFor;
-	else voice.listenFor = words;
+	if (words.length === 0) delete voice["listenFor"];
+	else voice["listenFor"] = words;
 	return Object.keys(voice).length === 0 ? null : voice;
 }
 
@@ -287,7 +282,7 @@ export const LEGACY = "legacy";
 export function frontOf(voice: unknown): FrontSetting {
 	const fallback: FrontSetting = { provider: "grok", voices: {} };
 	if (voice === null || typeof voice !== "object" || Array.isArray(voice)) return fallback;
-	const front = (voice as Record<string, unknown>).front;
+	const front = (voice as Record<string, unknown>)["front"];
 	if (front === null || typeof front !== "object" || Array.isArray(front)) return fallback;
 	const { provider, credential, voices } = front as Record<string, unknown>;
 	const named: Record<string, string> = {};
@@ -313,7 +308,7 @@ export function frontPatch(current: unknown, next: { provider: string; credentia
 		current !== null && typeof current === "object" && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
 	const before = frontOf(current);
 	const voices = { ...before.voices, ...(next.voice ? { [next.voice.provider]: next.voice.voice } : {}) };
-	if (next.provider === "grok" && next.credential === undefined && Object.keys(voices).length === 0) delete voice.front;
-	else voice.front = { provider: next.provider, ...(next.credential !== undefined ? { credential: next.credential } : {}), voices };
+	if (next.provider === "grok" && next.credential === undefined && Object.keys(voices).length === 0) delete voice["front"];
+	else voice["front"] = { provider: next.provider, ...(next.credential !== undefined ? { credential: next.credential } : {}), voices };
 	return Object.keys(voice).length === 0 ? null : voice;
 }

@@ -3,6 +3,11 @@ name = "hotline-core"
 description = "Hotline's core: the log, the room, sessions and their drivers, tools, and the wire. No Tauri dependency by design."
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 rig.workspace = true
@@ -39,7 +44,9 @@ reqwest = { version = "0.13.4", default-features = false, features = ["json", "m
 url = "2.5.8"
 # Agents the ACP registry ships as prebuilt archives: zip, tar.gz and tar.bz2
 # are what it publishes, unpacked in Rust so no unzip or tar has to be installed.
-zip = { version = "4", default-features = false, features = ["deflate"] }
+# ZIP 9 is the first with RUSTSEC-2026-0367..0369 fixed (symlink and set-id
+# extraction), and only extracting needs a decoder, so zopfli stays out.
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 tar = "0.4"
 flate2 = "1"
 bzip2 = "0.6"
@@ -105,13 +112,18 @@ sherpa-onnx = { version = "=1.13.8", default-features = false, features = ["stat
 # A phone's utterance is AAC in MP4; the local engine needs its samples.
 symphonia = { version = "0.6", default-features = false, features = ["aac", "isomp4"] }
 
+# `test-util`: a test whose time the code controls runs on a paused clock, so
+# waiting out a 30 s token lifetime or a 10 s deadline costs nothing.
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Memory", "Win32_System_SystemInformation"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_SystemInformation"] }
 
 # Points its own stdout and stderr at a file, so it runs without libtest.
 [[test]]

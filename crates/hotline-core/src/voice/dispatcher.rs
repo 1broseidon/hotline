@@ -198,7 +198,7 @@ impl Context {
                     }
                 };
                 let result = tokio::select! {
-                    _ = context.cancel.cancelled() => Err("The call ended before the handoff landed.".to_string()),
+                    () = context.cancel.cancelled() => Err("The call ended before the handoff landed.".to_string()),
                     result = tokio::time::timeout(std::time::Duration::from_secs(60), work) => result.unwrap_or_else(|_| Err("The teammate did not start in time.".into())),
                 };
                 if result.is_err()
@@ -285,7 +285,7 @@ pub trait Dispatcher: Send + Sync {
         output: mpsc::Sender<String>,
     ) -> Result<(), String> {
         let answer = self.answer(context, text, ledger).await?;
-        for sentence in super::sentences(&answer) {
+        for sentence in super::synthesis::sentences(&answer) {
             output
                 .send(sentence)
                 .await
@@ -387,7 +387,7 @@ impl ProviderDispatcher {
                 return Err("The dispatcher revised its answer; please repeat the request.".into());
             }
             completed |= matches!(item, MultiTurnStreamItem::FinalResponse(_));
-            for sentence in super::take_sentences(&mut pending, finish) {
+            for sentence in super::synthesis::take_sentences(&mut pending, finish) {
                 output
                     .send(sentence)
                     .await
@@ -489,33 +489,28 @@ impl ProviderDispatcher {
             &vault.account_models(),
             &metadata,
         );
-        let (provider, named, effort) = match &voice.dispatcher {
-            Some(pick) => {
-                if !keys.contains_key(&pick.provider_id) {
-                    return Err(format!(
-                        "Voice is set to use {} for its dispatcher, which is not connected. Connect it in Settings, or clear that choice.",
-                        pick.provider_id
-                    ));
-                }
-                (
-                    pick.provider_id.clone(),
-                    pick.model_id.clone(),
-                    pick.effort.clone(),
-                )
+        let (provider, named, effort) = if let Some(pick) = &voice.dispatcher {
+            if !keys.contains_key(&pick.provider_id) {
+                return Err(format!(
+                    "Voice is set to use {} for its dispatcher, which is not connected. Connect it in Settings, or clear that choice.",
+                    pick.provider_id
+                ));
             }
-            None => {
-                let preferred = crate::models::preferred_model(settings)
-                    .or_else(|| choices.first().map(|choice| choice.id.clone()))
-                    .ok_or(
-                        "Choose a default room model and connect its provider before calling.",
-                    )?;
-                let provider = preferred
-                    .split_once('/')
-                    .ok_or("The room's default model needs a provider.")?
-                    .0
-                    .to_string();
-                (provider, None, None)
-            }
+            (
+                pick.provider_id.clone(),
+                pick.model_id.clone(),
+                pick.effort.clone(),
+            )
+        } else {
+            let preferred = crate::models::preferred_model(settings)
+                .or_else(|| choices.first().map(|choice| choice.id.clone()))
+                .ok_or("Choose a default room model and connect its provider before calling.")?;
+            let provider = preferred
+                .split_once('/')
+                .ok_or("The room's default model needs a provider.")?
+                .0
+                .to_string();
+            (provider, None, None)
         };
         // Provider catalogues do not publish latency. Prefer the newest model in
         // their middle tier; preserve catalogue order within a tier.
@@ -682,19 +677,16 @@ impl AgentHook for Meter {
         }
         let request = serde_json::to_vec(&(event.prompt, event.history))
             .map_or(usize::MAX, |bytes| bytes.len());
-        match self
+        if let Ok(reservation) = self
             .ledger
             .reserve(Kind::Dispatcher, self.estimate(request))
         {
-            Ok(reservation) => {
-                // A reservation left here by a call that never answered stays charged.
-                *super::lock(&self.reservation) = Some(reservation);
-                CompletionCallAction::Continue
-            }
-            Err(_) => {
-                self.denied.store(true, Ordering::SeqCst);
-                CompletionCallAction::stop(BUDGET_ERROR)
-            }
+            // A reservation left here by a call that never answered stays charged.
+            *super::lock(&self.reservation) = Some(reservation);
+            CompletionCallAction::Continue
+        } else {
+            self.denied.store(true, Ordering::SeqCst);
+            CompletionCallAction::stop(BUDGET_ERROR)
         }
     }
 
@@ -901,7 +893,8 @@ pub(super) async fn answer_delegation(
     )
     .await
     .unwrap_or_else(|_| Err("The call assistant did not answer in time.".into()));
-    if let Some(words) = super::lock(&handed).take() {
+    let words = super::lock(&handed).take();
+    if let Some(words) = words {
         let arguments = json!({ "words": words }).to_string();
         return Delegated::HandOff { call_id, arguments };
     }
@@ -932,7 +925,7 @@ fn hand_off(handed: Arc<Mutex<Option<String>>>) -> DynamicTool {
         move |_, arguments| {
             let handed = handed.clone();
             Box::pin(async move {
-                let words = arguments["words"].as_str().map(str::trim).unwrap_or("");
+                let words = arguments["words"].as_str().map_or("", str::trim);
                 if words.is_empty() {
                     return Ok(ToolOutput::text(
                         "send_to_teammate needs the person's words.",
@@ -959,7 +952,7 @@ fn request(context: &Context, text: &str) -> String {
     format!(
         "{}\nSpoken request: {}",
         untrusted(&json!({"roster":roster,"recentConversationNewestFirst":history})),
-        serde_json::to_string(text).expect("text")
+        serde_json::to_string(text).expect("a string always serializes")
     )
 }
 
@@ -996,7 +989,7 @@ fn tools(context: Context) -> Vec<DynamicTool> {
                 let result = context
                     .execute(command)
                     .await
-                    .map_err(|e| ToolExecutionError::other(e.to_string()))?;
+                    .map_err(ToolExecutionError::other)?;
                 Ok(ToolOutput::text(untrusted(&result)))
             })
         },
@@ -1005,6 +998,7 @@ fn tools(context: Context) -> Vec<DynamicTool> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
     #[test]
     fn a_signed_in_or_local_call_assistant_costs_nothing_and_a_key_pays_its_price() {
         let catalogue = ModelCost {
@@ -1037,7 +1031,7 @@ mod tests {
         let anthropic = &crate::models::catalog().providers["anthropic"];
         assert!(!anthropic.models.is_empty());
         for id in anthropic.models.keys() {
-            let price = listed_price(&format!("anthropic/{id}"), &Default::default())
+            let price = listed_price(&format!("anthropic/{id}"), &HashMap::default())
                 .unwrap_or_else(|| panic!("anthropic/{id} has no price"));
             assert!(price.input > 0.0 && price.output > 0.0, "{id}");
             assert!(
@@ -1048,7 +1042,7 @@ mod tests {
         // The call assistant this was found on: Anthropic's published prices
         // for prompts up to 100,000 tokens.
         assert_eq!(
-            listed_price("anthropic/claude-haiku-5-5", &Default::default()),
+            listed_price("anthropic/claude-haiku-5-5", &HashMap::default()),
             Some(ModelCost {
                 input: 0.1,
                 output: 0.5,
@@ -1138,9 +1132,9 @@ mod tests {
 
     #[tokio::test]
     async fn the_estimate_is_a_third_of_the_request_bytes_and_the_whole_output_ceiling() {
-        let (_root, _desk, vault, _) = gateways(&["fast-mini"], &["other-large"]);
+        let (_root, desk, vault, _) = gateways(&["fast-mini"], &["other-large"]);
         let meter = Meter {
-            ledger: Arc::new(Budget::open(_desk.log.clone())),
+            ledger: Arc::new(Budget::open(desk.log.clone())),
             price: ModelCost {
                 input: 0.1,
                 output: 0.5,
@@ -1550,7 +1544,7 @@ mod tests {
                     .is_err()
             );
             let reserved = reserved.lock().unwrap().clone();
-            assert!(!reserved.is_empty());
+            assert_ne!(reserved, [] as [f64; 0]);
             assert!(reserved[0] > 0.0);
             near(
                 ledger.spent().unwrap().day.total(),
@@ -1694,7 +1688,7 @@ mod tests {
                         name: name.into(),
                         base_url: "http://127.0.0.1:9/v1".into(),
                         api: crate::contract::OpenAiApi::ChatCompletions,
-                        models: models.iter().map(|model| model.to_string()).collect(),
+                        models: models.iter().map(ToString::to_string).collect(),
                         // A key, so the fixture bills per token as a paid provider does.
                         secret: Some("fixture-key".into()),
                     },

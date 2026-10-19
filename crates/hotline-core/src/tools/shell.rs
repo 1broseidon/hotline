@@ -25,6 +25,7 @@ use crate::contract::Reach;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
+use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -62,9 +63,14 @@ const WINDOWS_UNCONFINED: &str = "The shell is not confined to the workspace on 
 #[derive(Deserialize)]
 pub struct RunCommandArgs {
     pub(crate) command: String,
-    /// A deadline the agent set for itself. Absent means none.
-    #[serde(default)]
+    /// A deadline the agent set for itself. Absent means none, and so does
+    /// zero: a model that sends 0 means "no deadline", not "stop at once".
+    #[serde(default, deserialize_with = "deadline")]
     timeout_seconds: Option<u64>,
+}
+
+fn deadline<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<u64>, D::Error> {
+    Ok(Option::<u64>::deserialize(deserializer)?.filter(|seconds| *seconds > 0))
 }
 
 /// A shell command, run in the teammate's working directory.
@@ -102,6 +108,7 @@ impl Tool for RunCommand {
                 },
                 "timeout_seconds": {
                     "type": "integer",
+                    "minimum": 1,
                     "description": "Give up after this many seconds. Omit it unless you want a deadline; commands are not otherwise timed."
                 }
             },
@@ -344,8 +351,12 @@ impl RunCommand {
         });
         match state {
             CommandState::Cancelled => text.push_str("\n[Cancelled: the command exited after termination was requested. Existing effects were not rolled back.]"),
-            CommandState::TimedOut => text.push_str(&format!("\nThe command did not finish within {} seconds.", args.timeout_seconds.unwrap_or_default())),
-            _ if status != 0 => text.push_str(&format!("\n[exit status {status}]")),
+            CommandState::TimedOut => {
+                let _ = write!(text, "\nThe command did not finish within {} seconds.", args.timeout_seconds.unwrap_or_default());
+            }
+            _ if status != 0 => {
+                let _ = write!(text, "\n[exit status {status}]");
+            }
             _ => {},
         }
         Ok(CommandOutcome {
@@ -471,7 +482,6 @@ fn path_has_command(name: &str, path: Option<&std::ffi::OsStr>) -> bool {
 /// group is gone, and killing then could only reach whatever the operating
 /// system next gave that number to — so a finished command releases the guard.
 struct ProcessGroup {
-    #[cfg_attr(not(unix), allow(dead_code))]
     id: Option<u32>,
 }
 
@@ -487,7 +497,8 @@ impl ProcessGroup {
     #[cfg(unix)]
     fn terminate(&self) -> std::io::Result<()> {
         let Some(id) = self.id else { return Ok(()) };
-        // The id is captured from the child we spawned in its own group.
+        // SAFETY: killpg takes no memory, and the id is captured from the
+        // child we spawned in its own group.
         if unsafe { libc::killpg(id as libc::pid_t, libc::SIGKILL) } == 0 {
             return Ok(());
         }
@@ -520,6 +531,10 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    /// Two tests in one process may read the same clock; the counter keeps
+    /// their roots apart.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     pub(super) struct TestDirectory(PathBuf);
 
     impl TestDirectory {
@@ -532,7 +547,11 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos();
-            let root = parent.join(format!("hotline-core-shell-{}-{nonce}", std::process::id()));
+            let root = parent.join(format!(
+                "hotline-core-shell-{}-{nonce}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
             fs::create_dir_all(&root).unwrap();
             Self(root)
         }
@@ -569,27 +588,43 @@ mod tests {
             .await
     }
 
+    #[test]
+    fn a_zero_deadline_is_no_deadline() {
+        let args: RunCommandArgs =
+            serde_json::from_value(serde_json::json!({"command": "true", "timeout_seconds": 0}))
+                .unwrap();
+        assert_eq!(args.timeout_seconds, None);
+        let args: RunCommandArgs =
+            serde_json::from_value(serde_json::json!({"command": "true", "timeout_seconds": 5}))
+                .unwrap();
+        assert_eq!(args.timeout_seconds, Some(5));
+        let args: RunCommandArgs =
+            serde_json::from_value(serde_json::json!({"command": "true"})).unwrap();
+        assert_eq!(args.timeout_seconds, None);
+    }
+
     fn finished_ok(output: &str) -> bool {
         !output.contains("[exit status")
     }
 
+    /// The sandbox tests are ignored on Linux, where bubblewrap is a package
+    /// a machine may not have, and run with `--ignored` where it does. Asked
+    /// for without it, they fail here, naming it.
     #[cfg(target_os = "linux")]
-    pub(super) fn skip_without_sandbox() -> bool {
+    pub(super) fn require_sandbox() {
         let probe = std::process::Command::new("bwrap")
             .args(["--ro-bind", "/", "/", "--unshare-pid", "/bin/true"])
             .output();
-        if !probe.is_ok_and(|output| output.status.success()) {
-            eprintln!("skipping: this machine cannot run bubblewrap");
-            return true;
-        }
+        assert!(
+            probe.is_ok_and(|output| output.status.success()),
+            "needs bubblewrap: `bwrap` is missing or cannot make a sandbox here"
+        );
         shell_available(Reach::Workspace).expect("the sandbox policy must work when bwrap works");
-        false
     }
 
     #[cfg(target_os = "macos")]
-    fn skip_without_sandbox() -> bool {
+    fn require_sandbox() {
         shell_available(Reach::Workspace).expect("macOS must enforce the protected shell policy");
-        false
     }
 
     /// A command's own children die with it. Without the group, `sleep` here
@@ -638,10 +673,9 @@ mod tests {
     /// into a test that merely cancels the launcher before it ran anything.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
+    #[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
     async fn cancellation_reaches_a_started_sandbox_and_its_children() {
-        if skip_without_sandbox() {
-            return;
-        }
+        require_sandbox();
         let root = TestDirectory::new();
         let workspace = workspace(root.path(), Reach::Workspace);
         let task = tokio::spawn(async move {
@@ -731,10 +765,9 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
+    #[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
     async fn workspace_reach_writes_inside_the_working_directory() {
-        if skip_without_sandbox() {
-            return;
-        }
+        require_sandbox();
         let root = TestDirectory::new();
         let workspace = workspace(root.path(), Reach::Workspace);
         let output = run(workspace, "echo hi > out.txt && echo hi > /dev/null")
@@ -751,10 +784,9 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
+    #[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
     async fn workspace_reach_refuses_a_write_outside() {
-        if skip_without_sandbox() {
-            return;
-        }
+        require_sandbox();
         let root = TestDirectory::new();
         // The outside directory is not mounted into the sandbox.
         let outside = TestDirectory::in_parent(Path::new("/var/tmp"));
@@ -771,10 +803,9 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
+    #[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
     async fn synthetic_parent_directories_are_read_only() {
-        if skip_without_sandbox() {
-            return;
-        }
+        require_sandbox();
         // Outside /tmp: that mount is intentionally writable private scratch.
         let parent = TestDirectory::in_parent(Path::new("/var/tmp"));
         let root = parent.path().join("workspace");
@@ -816,10 +847,9 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
+    #[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
     async fn workspace_reach_refuses_reads_outside_even_from_child_processes() {
-        if skip_without_sandbox() {
-            return;
-        }
+        require_sandbox();
         let root = TestDirectory::new();
         let outside = TestDirectory::in_parent(Path::new("/var/tmp"));
         let file = outside.path().join("visible.txt");
@@ -847,10 +877,9 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
+    #[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
     async fn workspace_reach_tmp_is_private_scratch() {
-        if skip_without_sandbox() {
-            return;
-        }
+        require_sandbox();
         let root = TestDirectory::new();
         let name = format!(
             "hotline-shell-scratch-{}-{}",
@@ -873,10 +902,9 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
+    #[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
     async fn workspace_shell_has_a_private_persistent_home_and_no_host_environment() {
-        if skip_without_sandbox() {
-            return;
-        }
+        require_sandbox();
         let root = TestDirectory::new();
         let mut command = confined(
             "test -z \"$HOTLINE_TEST_SECRET\" && echo saved > \"$HOME/marker\"",
@@ -911,10 +939,9 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
+    #[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
     async fn a_private_home_symlink_cannot_create_files_outside() {
-        if skip_without_sandbox() {
-            return;
-        }
+        require_sandbox();
         let root = TestDirectory::new();
         let outside = TestDirectory::new();
         let target = outside.path().join("must-not-be-created");
@@ -931,10 +958,9 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[tokio::test]
+    #[cfg_attr(target_os = "linux", ignore = "needs bubblewrap")]
     async fn workspace_shell_runs_installed_toolchains() {
-        if skip_without_sandbox() {
-            return;
-        }
+        require_sandbox();
         let root = TestDirectory::new();
         fs::write(
             root.path().join("main.go"),
@@ -946,7 +972,7 @@ mod tests {
             "fn main() { println!(\"rust-ok\"); }\n",
         )
         .unwrap();
-        for (tool, command, expected) in [
+        let toolchains = [
             (
                 "python3",
                 "python3 -c 'import ssl, sqlite3; print(\"python-ok\")'",
@@ -956,8 +982,11 @@ mod tests {
             ("node", "node -e 'console.log(\"node-ok\")'", "node-ok"),
             ("go", "go run main.go", "go-ok"),
             ("rustc", "rustc main.rs -o app && ./app", "rust-ok"),
-        ] {
+        ];
+        let mut ran_any = false;
+        for (tool, command, expected) in toolchains {
             if !path_has_command(tool, std::env::var_os("PATH").as_deref()) {
+                eprintln!("{tool} is not on PATH");
                 continue;
             }
             #[cfg(target_os = "macos")]
@@ -979,7 +1008,13 @@ mod tests {
                 finished_ok(&output) && output.contains(expected),
                 "{tool}: {output}"
             );
+            ran_any = true;
         }
+        // A machine with none of them would otherwise pass having run nothing.
+        assert!(
+            ran_any,
+            "needs python3, npm, node, go or rustc installed: none was found to run"
+        );
     }
 
     #[tokio::test]

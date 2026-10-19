@@ -5,7 +5,7 @@
 //! join their neighbour. The length of the reply is the prompt's job, not a
 //! fold's.
 //!
-//! The split lives in the funnel ([`super::event_of`]) so both kinds of agent
+//! The split lives in the funnel ([`super::prompt::event_of`]) so both kinds of agent
 //! and a peer thread get it for free. History rejoins consecutive agent events
 //! with a blank line, because the model said one thing.
 
@@ -196,13 +196,14 @@ fn is_ordered_item(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write;
 
     fn bubble(n: u32) -> String {
         format!("Paragraph {n} is long enough to stand as its own bubble in the chat.")
     }
 
     fn chat(units: &[&str]) -> Vec<String> {
-        units.iter().map(|unit| unit.to_string()).collect()
+        units.iter().map(ToString::to_string).collect()
     }
 
     #[test]
@@ -269,7 +270,7 @@ mod tests {
     fn a_short_sentence_plus_a_thirty_line_fence_is_chat() {
         let mut fence = String::from("```\n");
         for i in 1..=30 {
-            fence.push_str(&format!("line {i}\n"));
+            let _ = writeln!(fence, "line {i}");
         }
         fence.push_str("```");
         let text = format!("Here it is.\n\n{fence}");

@@ -22,6 +22,7 @@ import type {
 	LoginStatus,
 	PasskeyRegistration,
 	PeerThreadSummary,
+	PairedRelay,
 	ProcessOutput,
 	Persona,
 	Provider,
@@ -37,7 +38,6 @@ import type {
 	SideThreadSummary,
 	SkillEntry,
 	SpeechModel,
-	StreamDelta,
 	Target,
 	TeammateToolLedger,
 	ThreadSearchHit,
@@ -67,10 +67,10 @@ export type { RosterEntry, Target };
 // ---------------------------------------------------------------------------
 
 /** `search.thread`'s answer: what matched, and whether the index stopped early. */
-export type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean };
+type ThreadSearchResult = { hits: ThreadSearchHit[]; truncated: boolean };
 
 /** `search.all`'s answer: the same hits, each named with whose tape they came from. */
-export type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean };
+type GlobalSearchResult = { hits: GlobalSearchHit[]; truncated: boolean };
 
 /** OAuth gateway status; access and refresh tokens never cross this type. */
 export type McpOAuthStatus = {
@@ -119,6 +119,10 @@ type Results = {
     "remote.devices": RemoteDevice[];
     "remote.revoke": RemoteStatus;
     "remote.relay": RemoteStatus;
+	/** The servers this computer is paired with only as a relay, chosen with `remote.relay`. */
+	"remote.relays": PairedRelay[];
+	/** A paired device's own command to a server; the window never sends it, the shell's `desk_move_to_relay` does. */
+	"remote.become_relay": { role: "relay"; deskName: string; deskId: string; serves: string[] };
     "remote.public_url": RemoteStatus;
     "remote.pairing": SealedPairing | RemoteDevice | null;
 	/** The desks this one is linked with (ADR 0003), and how each link is doing. */
@@ -261,6 +265,7 @@ type Results = {
 	"computer.stop": null;
 	"computer.remove": null;
 	"computer.update": null;
+	"computer.restart": null;
 	"computer.browsers.list": HostBrowser[];
 	"computer.cookies.preview": CookieSite[];
 	"computer.cookies.import": CookieSite[];
@@ -298,11 +303,6 @@ export type Handlers<Item, Ephemeral = never> = {
 	ephemeral?(frame: Ephemeral): void;
 	removed?(id: string): void;
 };
-
-/** What the roster subscription carries. */
-export type RosterHandlers = Handlers<RosterEntry>;
-/** What a tape subscription carries. */
-export type TapeHandlers = Handlers<TranscriptEvent, StreamDelta>;
 
 // ---------------------------------------------------------------------------
 // The door the shell opened for us
@@ -357,6 +357,12 @@ export class Wire {
 	private state: Connection = "closed";
 	/** The core refused or ignored `threads2` on the socket that last dropped. */
 	private outdated = false;
+	/**
+	 * What the desk said it runs (`agents`, `relay`; ADR 0006) in the hello a
+	 * served desk sends its owner first on every session. The local Door sends
+	 * none, and neither does an older server: null is "not said".
+	 */
+	private said: string[] | null = null;
 
 	constructor(private readonly endpoint: Endpoint) {}
 
@@ -371,6 +377,7 @@ export class Wire {
 
 		socket.onopen = () => {
 			this.failures = 0;
+			this.said = null;
 			// The window reads `threads2`: links and one delta for every kind
 			// of thread. The core reads the declaration as each frame is made,
 			// so it is made, and answered, before anything subscribes.
@@ -399,6 +406,11 @@ export class Wire {
 		socket.onmessage = (message) => this.receive(message.data);
 		socket.onclose = () => this.drop();
 		socket.onerror = () => socket.close();
+	}
+
+	/** What the desk's hello on this socket said it runs, or null when it said nothing. */
+	serves(): string[] | null {
+		return this.said;
 	}
 
 	onConnection(watcher: (state: Connection) => void): () => void {
@@ -474,6 +486,12 @@ export class Wire {
 	private receive(data: unknown): void {
 		if (typeof data !== "string") return;
 		const frame = JSON.parse(data) as Record<string, unknown>;
+
+		if (frame["type"] === "hello") {
+			const serves = frame["serves"];
+			this.said = Array.isArray(serves) ? serves.filter((one): one is string => typeof one === "string") : null;
+			return;
+		}
 
 		if (typeof frame["sub"] === "number") {
 			const sub = this.live.get(frame["sub"]);

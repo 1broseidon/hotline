@@ -36,7 +36,10 @@ pub(crate) fn store_path(root: &Path) -> PathBuf {
 /// this node's copy held, and a row may never have had either. The stamp
 /// fields the importer does not read are still the row: the tests assert
 /// them, and dropping them here would be a second, quieter reader.
-#[allow(dead_code)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the stamp fields are read only by the tests")
+)]
 pub struct ResourceRecord {
     pub kind: String,
     pub id: String,

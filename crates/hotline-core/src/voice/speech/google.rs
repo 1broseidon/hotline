@@ -79,7 +79,7 @@ impl Google {
             .json(body)
     }
 
-    fn malformed(&self) -> SpeechError {
+    fn malformed() -> SpeechError {
         SpeechError::Malformed {
             provider_id: PROVIDER_ID.to_string(),
         }
@@ -158,13 +158,13 @@ impl Google {
             TRANSCRIPT_LIMIT,
         )
         .await?;
-        let answer: Value = serde_json::from_slice(&reply.bytes).map_err(|_| self.malformed())?;
+        let answer: Value = serde_json::from_slice(&reply.bytes).map_err(|_| Self::malformed())?;
         // No candidate at all is Gemini declining to answer; a candidate
         // with no text is a clip with nobody in it.
         let candidates = answer
             .get("candidates")
             .and_then(Value::as_array)
-            .ok_or_else(|| self.malformed())?;
+            .ok_or_else(Self::malformed)?;
         let text: String = candidates
             .first()
             .and_then(|candidate| candidate.pointer("/content/parts")?.as_array())
@@ -201,16 +201,16 @@ impl Google {
             AUDIO_LIMIT,
         )
         .await?;
-        let answer: Value = serde_json::from_slice(&reply.bytes).map_err(|_| self.malformed())?;
+        let answer: Value = serde_json::from_slice(&reply.bytes).map_err(|_| Self::malformed())?;
         let audio = answer
             .pointer("/candidates/0/content/parts/0/inlineData")
-            .ok_or_else(|| self.malformed())?;
+            .ok_or_else(Self::malformed)?;
         let data = audio
             .get("data")
             .and_then(Value::as_str)
             .and_then(|data| STANDARD.decode(data).ok())
             .filter(|data| !data.is_empty())
-            .ok_or_else(|| self.malformed())?;
+            .ok_or_else(Self::malformed)?;
         let mime = audio
             .get("mimeType")
             .and_then(Value::as_str)
@@ -224,7 +224,7 @@ impl Google {
                 mime: "audio/wav".to_string(),
                 bytes: wav::pcm16_wav(&data, pcm_rate(mime)),
             }),
-            _ => Err(self.malformed()),
+            _ => Err(Self::malformed()),
         }
     }
 }

@@ -32,7 +32,7 @@ export type MenuEntry =
 	| { kind: "heading"; text: string }
 	| { kind: "rule" };
 
-export function Menu({
+function Menu({
 	anchor,
 	entries,
 	align = "start",
@@ -175,7 +175,7 @@ export function Menu({
 			onMouseLeave={() => setActive(-1)}
 		>
 			{entries.map((entry, at) => {
-				if (entry.kind === "rule") return <div key={`rule-${at}`} className="menu-rule" role="separator" />;
+				if (entry.kind === "rule") return <hr key={`rule-${at}`} className="menu-rule" />;
 				if (entry.kind === "heading") {
 					return (
 						<div key={`heading-${at}`} className="menu-heading" role="presentation">
@@ -271,7 +271,9 @@ export function Picker({
 				aria-haspopup="menu"
 				aria-expanded={open}
 				disabled={disabled}
-				title={current?.name ?? text}
+				// The tooltip names the choice while the menu is shut; open, it
+				// would sit over the menu's first item and hide it.
+				title={open ? undefined : (current?.name ?? text)}
 				onClick={() => setOpen((was) => !was)}
 			>
 				<span className="picker-label" style={current === undefined && value === "" ? { color: "var(--ink-3)" } : undefined}>
@@ -311,7 +313,7 @@ export function MenuButton({
 				type="button"
 				className={className}
 				aria-label={label}
-				title={title ?? label}
+				title={open ? undefined : (title ?? label)}
 				aria-haspopup="menu"
 				aria-expanded={open}
 				onClick={() => setOpen((was) => !was)}

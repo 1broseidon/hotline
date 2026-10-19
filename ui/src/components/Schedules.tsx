@@ -52,6 +52,7 @@ export function Schedules({
 		heading.current?.focus();
 	}, [focus]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new teammate is what closes the form.
 	useEffect(() => {
 		setAdding(false);
 	}, [personaId]);
@@ -251,6 +252,7 @@ function AddJob({ personaId, onDone }: { personaId: string; onDone(): void }) {
 					id="job-prompt"
 					className="field"
 					rows={2}
+					// biome-ignore lint/a11y/noAutofocus: the form opens on a press of Add a schedule, and what to say is the one thing it needs.
 					autoFocus
 					placeholder="What to ask when it fires."
 					value={prompt}

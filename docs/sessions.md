@@ -28,7 +28,7 @@ tape those events land on is [log.md](log.md).
 
 ## The funnel
 
-Every word a teammate says passes one funnel, in `session/mod.rs`. A quiet
+Every word a teammate says passes one funnel, in `session/prompt.rs`. A quiet
 run, a schedule's stamp, a reply and an attachment are rules about the room,
 not about whichever agent ran the turn.
 
@@ -145,9 +145,14 @@ ACP adapters), the ACP registry's published catalogue fetched from
 `cdn.agentclientprotocol.com` and cached for a day at
 `cache/acp-registry.json` in the data directory, and a probe of what is
 actually installed. A locally installed binary always wins over a
-downloadable one. Opening the picker is where the day's fetch happens;
-starting a session reads the cache and does not wait on the network. A
-cached stamp from the future is not the day's. An adapter row is
+downloadable one. Opening the picker and starting a session both answer
+from the cache at once and, when it is a day old, fetch it again in the
+background for the next one (`registry::refresh_in_background`); neither
+waits on the network, so a desk whose picker is never opened still gets new
+adapter versions. A fetch that fails or answers with no agents writes
+nothing, and a good one is written beside the cache and renamed over it, so
+the last good list stays in use however old it is. A cached stamp from the
+future is not the day's. An adapter row is
 unavailable until both the client CLI and its launcher (`npx`, say) are on
 PATH.
 
@@ -171,6 +176,17 @@ session says which with every prompt.
 requests and tool execution. Rig keeps provider construction, authentication,
 request encoding, and response parsing. Every Hotline Agent provider uses that
 loop; `capabilities.activeInput` is true without a provider steering endpoint.
+
+On a desk with no provider connected, the teammate still comes up, with no
+model: its state is `error`, and its conversation gets an error card, "Hotline
+Agent unavailable" (kind `no_provider`), with a button to Settings › Providers.
+That happens when it starts, before anything is sent, so the person learns why
+before a turn can fail. A message sent while it stands is refused before it is
+written, with "Hotline Agent unavailable: connect a provider in Settings ›
+Providers.", and the words go back to the composer. The first message after a
+provider is connected starts the session again on it (`in_this_chapter` in
+`session/prompt.rs`). A side or peer thread is not opened onto an unavailable
+teammate: it is refused with the same sentence.
 
 An operator update interrupts inference, including a request still waiting
 for its first response. The next request includes the update and completed
@@ -256,7 +272,7 @@ announces each subagent on the parent session with `subagent_spawned`,
 sends the subagent's work on a session of its own, and ends it with
 `subagent_state_update`. These are the draft updates from
 agent-client-protocol#1992 that Claude's and Codex's adapters send. The
-Rust SDK does not carry them yet, so `driver/acp.rs` reads `session/update`
+Rust SDK does not carry them yet, so `driver/acp/session.rs` reads `session/update`
 raw: announcements, then updates on a known child session, then everything
 else as before. Each child is reported to the room as a `SubagentReport`
 (`Driver::subscribe_subagents`). `Room::watch_subagents` writes it as a run
@@ -313,7 +329,7 @@ that waits for a turn to end (a chapter's close, a computer joining or
 swapping, the next queued line) still waits, because the turn is running.
 
 The driver says the agent has nothing more to say with `Update::Parked`
-(`driver/mod.rs`), which releases a held line as the report
+(`driver.rs`), which releases a held line as the report
 (`session/narration.rs`). The DM witness (`session/dm.rs`) reads the turn as
 waiting on subagents only when every tool still in flight launched one:
 Hotline Agent's `subagent` call stays running until its run reports, and a
@@ -328,7 +344,7 @@ Hotline Agent parks whenever its jobs are all it has left
 ([Hotline Agent](#hotline-agent)). An ACP agent parks when it closes a cycle
 with a usage report that carries the cycle's cost while one of its subagents
 is open and its last words were a message (`park_for_subagents` in
-`driver/acp.rs`). That report is the only sign an ACP agent gives that a
+`driver/acp/live.rs`). That report is the only sign an ACP agent gives that a
 message is whole. Claude's adapter sends one at the end of every cycle. An
 agent with no subagent open is about to answer the prompt, and one whose last
 output was a tool call or a thought is still working, so neither parks. Codex's
@@ -416,8 +432,8 @@ On each turn it is given:
 | --- | --- | --- |
 | workspace tools | `ls`, `read`, `grep`, `glob`, `write`, `edit` | in-process, on cap-std; a path that leaves the working directory is refused unless reach is the whole machine, except a read under the teammate's own `tool-output` directory and an absolute path into one of its granted `folders`, each its own cap-std handle, changed only where the grant is `writable` |
 | shell | `shell` | in-process. Machine reach is a command in the working directory with no wall. On Linux, workspace reach exposes the working directory and selected read-only installed tools, with a private home and `/tmp`; other host files are hidden. Network stays on: agents install things. The restrictions depend on the OS, as listed below. |
-| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `react`, `send_file`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
-| granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp/mod.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
+| Hotline's own tools | `search_thread`, `list_chapters`, `resume_chapter`, `new_chapter`, `request_human`, `withdraw_request`, `react`, `send_file`, `list_teammates`, `message_teammate`, `schedule`, `loop`, `list_schedules`, `cancel_schedule`, `computer_status`, `web_search` | the same functions, as Rig tools — a transport between two halves of one process would only be a way for this to fail |
+| granted MCP tools | every server the teammate's `mcpPolicy` selects; none by default | Hotline connects them as the client (`mcp.rs`). Each tool is named `{server name as a slug}__{tool}` and listed in the preamble, one line each; the tool list carries only `tool_schema`, which answers one tool's description and parameters, and `call_tool`, which calls it (`driver/rig/granted.rs`). The computer's tools are registered as tools of their own |
 
 Every tool definition goes out with every request, and a large server's can
 outweigh the rest of the request, so Hotline Agent keeps a granted server's
@@ -574,8 +590,9 @@ processes and `/proc`, clean environment, persistent private home, standalone
 PATH tools, installed Python/Node/Go/Rust, and cancellation. The desk harness
 switches reach over the wire and checks the real shell and read tool against
 another project's `.env` and checks the live session's tool ledger. Linux tests
-require working bubblewrap; macOS isolation tests fail rather than skip if
-Seatbelt cannot enforce the policy. Mac-specific tests exercise hostile home
+are ignored unless run with `--ignored`, and then fail by name without working
+bubblewrap; macOS isolation tests always run, and fail if Seatbelt cannot
+enforce the policy. Mac-specific tests exercise hostile home
 and scratch symlinks, shared temporary files, helper services, Unix sockets,
 and missing or ineffective launchers. The explicit network smoke tests
 (`cargo test --workspace tools::shell::macos::tests -- --ignored`) additionally
@@ -883,6 +900,12 @@ same path an expired harness sign-in takes. A message sent to that teammate is
 written to its tape at once, and its turn starts the agent again; if that
 start runs out too, the turn fails with the same card.
 
+A harness that answers that the chosen model needs a newer version of it
+(Codex's "requires a newer version of Codex") fails the turn with kind
+`harness_outdated`, and the card names the harness and the version it gave
+at `initialize` ("Codex 1.12.0 is too old for this model") and says to update
+it or switch model.
+
 A slow or stalled start holds up only that teammate. Starts are behind each
 teammate's own gate, and on the wire every command that names a teammate is
 answered on that teammate's own lane of the socket
@@ -951,7 +974,7 @@ through MCP tools. The container is the machine; the agent is the operator.
 `persona.computer.enabled` is the switch. The image is
 `persona.computer.image`, else the room setting `computerImage`, else the
 pin `ghcr.io/1broseidon/hotline-computer:<COMPUTER_VERSION>` in
-`crates/hotline-core/src/computer/mod.rs`. The computer is **not** part of
+`crates/hotline-core/src/computer.rs`. The computer is **not** part of
 `mcpPolicy`: a teammate that asked for a machine gets it even on a policy
 of none.
 
@@ -1084,9 +1107,25 @@ teammate a `delivery` with `cause: {kind: "answer", actionId, status,
 about}` and the note as its `text`, behind the turn in flight or on a turn
 of its own. The agent hears "The person answered your request (…)" or
 "The person declined your request (…)", then the note fenced, word for word.
-One lock settles a card once, however many answers race for it. A card that
-delivers and goes a day (`ASK_TTL`) without an answer is expired by the
-room's sweep, and the teammate is told the same way.
+One lock settles a card once, however many answers race for it.
+
+A card that delivers lives two hours (`ASK_HOURS`) unless the teammate
+passes `wait_hours`, clamped to 1–24 (`ASK_MAX_HOURS`), for an ask that
+really waits for the person to come back. The card carries the moment it
+goes as `expiresAt`, so a restart keeps the teammate's choice; a card from
+before that field lives the default from its `ts`. Past it, the room's sweep
+expires the card and the teammate is told once, the same way as an answer.
+Two hours, not a day, because a card a teammate has stopped needing keeps
+the conversation reading "needs you" on every desk and phone.
+
+The call's answer names the card's id, and `withdraw_request {id}` takes
+the card back when the teammate no longer needs it. It looks the id up
+among the caller's own cards only, so a teammate can withdraw nothing but its
+own; the card is superseded as `withdrawn` under the same lock as an answer,
+and nothing is delivered back. A card a handoff's running turn raised loses
+its gate on the handoff, so the turn's end returns the result; once the turn
+has ended to wait on the card, only an answer carries the work on, and the
+withdrawal is refused.
 
 A colleague's side session (`TeammateTools::for_peer`) has no conversation
 of its own to be answered in, so there the call still waits, as it always
@@ -1237,9 +1276,15 @@ desk window would show — `idle`, `working`, `waiting` (on the person) or
 costs nothing beyond a tape's tail and never wakes or starts anyone. A
 working colleague's `activity` names the tool still running, and
 `workingOn` says what for: the open chapter's title once a resume has given
-it one, its goal until then, and when it last spoke. None of it is
+it one, its goal until then, and when it last spoke. Beside that is who
+the colleague is and what it can do, so a teammate can find the one that
+has what it needs: its goal, the agent and model it runs, and its
+capabilities as switches, words and names (`mcp/server.rs` `profile`).
+Reach and direct collaboration read `whole machine` and `directly` only for
+a Hotline Agent, because that is where they mean anything. None of it is
 conversation: never a message's text, never what anyone said, never a
-working path or tool inventory, and never the caller. A teammate can check
+working path, a server's address or login, or a tool inventory, and never
+the caller. A teammate can check
 this before `message_teammate` to know whether a colleague is mid-turn. The
 caller may be mid-turn on its own tape while the exchange runs: nothing
 touches the caller's session until the answer is delivered.
@@ -1475,10 +1520,10 @@ search index and the settle read it. It replaces the `side:<id>` and
 `exchange-paused:` stay as they are: the first is the pair's `peer` marker, which
 carries its own exchange count, and the second is a card, not a link.
 
-**Compatibility.** A link is the stored model, not what a client is sent. The
-phone and the window on a current build draw `side` and `subagent` events and
-nothing else of a thread, so the wire turns a link back into the marker its kind
-has always had (`Link::wire`, applied to a tape's snapshot, its pages and its
+**Compatibility.** A link is the stored model, but not every client reads it.
+The phone draws `side` and `subagent` events and nothing else of a thread, so
+for a socket that has not declared `threads2` the wire turns a link back into
+the marker its kind has always had (`Link::wire`, applied to a tape's snapshot, its pages and its
 live events, and to a side thread's or a run's own stream). A phone sees the
 same shape under the same field names; only the id of a thread's line is
 `link:...` for a thread started after this change. The markers already on disk
@@ -1486,10 +1531,10 @@ are read as the links they stand for (`Link::read`), render as they were, and ar
 searched and resumed as before. When such a thread next changes, its line is
 rewritten as a link *under the id it already has*, so it is replaced in place and
 never joined by a second line. A call's link is sent as a `call` marker, which
-is new: a client that does not know the kind skips it, as the phone does. A
-socket that declared `threads2` (`client.hello`) is sent the link itself for
-every kind (`Link::threads2`), the markers on disk read as links included, and
-the contract has `link` for it. See [wire.md](wire.md#threads).
+is new: a client that does not know the kind skips it, as the phone does. The
+window declares `threads2` (`client.hello`), and a socket that does is sent the
+link itself for every kind (`Link::threads2`), the markers on disk read as links
+included, and the contract has `link` for it. See [wire.md](wire.md#threads).
 
 **Deliveries.** A delivery carries where it came from as a field,
 `from: {thread, kind, request}` (`DeliveryFrom`), written beside its `cause`. A

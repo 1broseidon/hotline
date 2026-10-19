@@ -3,6 +3,7 @@
 use super::sides::{HandoffStart, Start};
 use super::turns::HandoffLine;
 use super::{Room, lock, new_id, now_ms, peers};
+use crate::contract::ThreadId;
 use crate::contract::{
     DeliveryCause, DeliveryFrom, ExchangePauseStatus, HumanActionStatus, PeerStatus, SideEnd,
     TranscriptEvent,
@@ -11,7 +12,7 @@ use crate::driver::CapabilityLease;
 use crate::linked;
 use crate::log::{StreamId, thread};
 use crate::paths::{thread_key, thread_participants};
-use crate::thread::{Opener, ThreadId};
+use crate::thread::Opener;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::sync::Arc;
@@ -73,6 +74,12 @@ struct Request {
     #[serde(default)]
     returned: bool,
 }
+/// How the sender of a request hears its answer: inline, while it waits, or
+/// later, in the work thread it was sent from when it was sent from one.
+enum Answer<'a> {
+    Inline,
+    Later(Option<&'a str>),
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct HumanGate {
     id: String,
@@ -129,7 +136,8 @@ impl Room {
         capability: Option<CapabilityLease>,
         sent_from: Option<&str>,
     ) -> Result<peers::Sent, String> {
-        self.enqueue_exchange(from, to, message, intent, capability, false, sent_from)
+        let answer = Answer::Later(sent_from);
+        self.enqueue_exchange(from, to, message, intent, capability, answer)
     }
 
     pub(crate) async fn send_peer_waiting(
@@ -151,7 +159,7 @@ impl Room {
         if self.peers.answering_in(&key).is_some() {
             return Err("That thread is already answering; do not create a circular wait.".into());
         }
-        let sent = self.enqueue_exchange(from, to, message, intent, capability, true, None)?;
+        let sent = self.enqueue_exchange(from, to, message, intent, capability, Answer::Inline)?;
         loop {
             let pair = self.exchange_pair(&key).ok_or("Exchange disappeared")?;
             let request = pair
@@ -173,7 +181,6 @@ impl Room {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn enqueue_exchange(
         self: &Arc<Self>,
         from: &str,
@@ -181,8 +188,7 @@ impl Room {
         message: &str,
         intent: Intent,
         capability: Option<CapabilityLease>,
-        inline: bool,
-        sent_from: Option<&str>,
+        answer: Answer<'_>,
     ) -> Result<peers::Sent, String> {
         let _working = self.working()?;
         if let Some(capability) = &capability {
@@ -218,12 +224,15 @@ impl Room {
                 failed: false,
                 reply_counted: false,
                 request_counted: false,
-                inline,
+                inline: matches!(answer, Answer::Inline),
                 started: false,
                 result_consumed: false,
                 human_actions: vec![],
                 thread: None,
-                reply_thread: sent_from.map(str::to_string),
+                reply_thread: match answer {
+                    Answer::Inline => None,
+                    Answer::Later(sent_from) => sent_from.map(str::to_string),
+                },
                 returned: false,
             });
             self.save_pair(&pair)?;
@@ -319,8 +328,7 @@ impl Room {
                     with_persona_id: other.clone(),
                     with_name: self
                         .participant(other)
-                        .map(|p| super::links::shown(&p))
-                        .unwrap_or_else(|_| other.clone()),
+                        .map_or_else(|_| other.clone(), |p| super::links::shown(&p)),
                     exchanges: pair.exchanges,
                     status,
                 },
@@ -552,6 +560,30 @@ impl Room {
             }
         }
         Err("This handoff was stopped before it could ask the person.".into())
+    }
+
+    /// Lets a handoff stop waiting behind a card its teammate withdrew. While
+    /// the handoff's turn runs, the gate simply goes, so the turn's end hands
+    /// the result back. Once the turn has ended to wait on the card, only an
+    /// answer carries the work on, so the card cannot be withdrawn.
+    pub(super) fn unlink_handoff_human(&self, persona: &str, action: &str) -> Result<(), String> {
+        let _guard = lock(&self.exchange_lock);
+        for mut pair in self.exchange_pairs() {
+            let Some(request) = pair.requests.iter_mut().find(|r| {
+                r.to == persona
+                    && r.human_actions
+                        .iter()
+                        .any(|g| g.id == action && !g.consumed)
+            }) else {
+                continue;
+            };
+            if request.phase != Phase::Running {
+                return Err("A handoff's result is waiting on this request, so it stays up until the person answers it.".into());
+            }
+            request.human_actions.retain(|g| g.id != action);
+            return self.save_pair(&pair);
+        }
+        Ok(())
     }
 
     /// The handoff a card was raised in, if the card is one a handoff waits
@@ -923,7 +955,7 @@ impl Room {
                     pair.paused = pair.exchanges >= EXCHANGE_CAP;
                     self.save_pair(&pair)?;
                     if pair.paused {
-                        self.exchange_card(&pair, ExchangePauseStatus::Pending)
+                        self.exchange_card(&pair, ExchangePauseStatus::Pending);
                     }
                 }
                 let target = self.participant(&request.to)?;
@@ -1253,7 +1285,11 @@ impl Room {
                     })
                 })
                 .ok_or("This desk sent no such request.")?;
-            let request = pair.requests.iter_mut().find(|r| r.id == id).unwrap();
+            let request = pair
+                .requests
+                .iter_mut()
+                .find(|r| r.id == id)
+                .expect("the pair was found by this request, under the exchange lock");
             if !matches!(request.phase, Phase::Queued | Phase::Running) {
                 return Ok(());
             }
@@ -1289,8 +1325,7 @@ impl Room {
                 };
                 let name = self
                     .participant(linked_side)
-                    .map(|persona| persona.name)
-                    .unwrap_or_else(|_| "That teammate".to_string());
+                    .map_or_else(|_| "That teammate".to_string(), |persona| persona.name);
                 self.cancel_handoff(request);
                 request.phase = Phase::Stopped;
                 request.failed = true;

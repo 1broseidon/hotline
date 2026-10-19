@@ -18,12 +18,11 @@ use super::RoomHandle;
 use crate::contract::{
     Attachment, LinkState, Persona, SessionState, SideOpener, ThreadAnswer, ThreadSummary,
 };
+use crate::contract::{ThreadId, ThreadKind};
 use crate::log::Log;
 use crate::paths::thread_participants;
 use crate::store::previews;
-use crate::thread::{
-    Answer, Link, Participant, Policy, Thread, ThreadId, ThreadKind, ThreadState, ThreadStore,
-};
+use crate::thread::{Answer, Link, Participant, Policy, Thread, ThreadState, ThreadStore};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -54,8 +53,8 @@ pub(super) async fn prompt(
         ThreadKind::Dm => {
             room.prompt(&thread.key, text, reply_to, attachments)
                 .await?;
-            if let Ok(persona) = super::commands::living(log, &thread.key) {
-                super::commands::remember_model(log, room, &persona).await?;
+            if let Ok(persona) = super::commands::persona::living(log, &thread.key) {
+                super::commands::models::remember_model(log, room, &persona).await?;
             }
             Ok(Value::Null)
         }
@@ -208,10 +207,10 @@ pub(super) fn page(
     through: Option<&str>,
 ) -> Result<Value, String> {
     if thread.kind == ThreadKind::Dm {
-        super::commands::living(log, &thread.key)?;
+        super::commands::persona::living(log, &thread.key)?;
     }
     let stream = thread.stream().ok_or("That thread has no lines.")?;
-    Ok(super::thread_page(
+    Ok(super::subscribe::thread_page(
         log,
         &stream,
         before,
@@ -240,7 +239,8 @@ pub(super) fn list(
     let mut summaries: Vec<ThreadSummary> = threads
         .iter()
         .filter(|thread| {
-            !companion || (thread.kind() != ThreadKind::Pair && super::phone_may_read(&thread.id))
+            !companion
+                || (thread.kind() != ThreadKind::Pair && super::seat::phone_may_read(&thread.id))
         })
         .map(|thread| summarize(log, room, thread, &roster))
         .collect();
@@ -309,32 +309,29 @@ fn summarize(
 
     // A DM is read from the end of its tape, which can be very long; every
     // other thread is small enough to read whole.
-    let (events, started_at, preview) = match thread.kind() {
-        ThreadKind::Dm => {
-            let tail = previews::tail(log.root(), &thread.id.key);
-            let preview =
-                previews::preview_reaching(log.root(), &thread.id.key, &tail).and_then(|found| {
-                    found
-                        .get("text")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                });
-            let started = roster
-                .iter()
-                .find(|persona| persona.id == thread.id.key)
-                .map_or(0, |persona| persona.created_at);
-            (tail, started, preview)
-        }
-        _ => {
-            let events = thread
-                .id
-                .stream()
-                .map(|stream| log.load(&stream))
-                .unwrap_or_default();
-            let preview = crate::session::preview_line(&events);
-            let started = events.iter().filter_map(ts_of).min().unwrap_or_default();
-            (events, started, preview)
-        }
+    let (events, started_at, preview) = if thread.kind() == ThreadKind::Dm {
+        let tail = previews::tail(log.root(), &thread.id.key);
+        let preview =
+            previews::preview_reaching(log.root(), &thread.id.key, &tail).and_then(|found| {
+                found
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            });
+        let started = roster
+            .iter()
+            .find(|persona| persona.id == thread.id.key)
+            .map_or(0, |persona| persona.created_at);
+        (tail, started, preview)
+    } else {
+        let events = thread
+            .id
+            .stream()
+            .map(|stream| log.load(&stream))
+            .unwrap_or_default();
+        let preview = crate::session::preview_line(&events);
+        let started = events.iter().filter_map(ts_of).min().unwrap_or_default();
+        (events, started, preview)
     };
     let link = Link::find(&events, &thread.id);
     let updated_at = events.iter().filter_map(ts_of).max().unwrap_or(started_at);

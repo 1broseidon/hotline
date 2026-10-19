@@ -1,5 +1,5 @@
 import type MermaidApi from "mermaid";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { type RefObject, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Viewer } from "../ui/Viewer";
 
 /**
@@ -13,10 +13,14 @@ import { Viewer } from "../ui/Viewer";
  * strict mode on top.
  *
  * Mermaid is a few megabytes, so its script is loaded the first time a diagram
- * is on screen and never by a window that shows none. A block still streaming
- * in is not drawn until its source stops changing, and one that does not parse
- * stays the code it was, with a line saying so. A diagram drawn to fit a bubble
- * is often too small to read, so pressing it opens it in the viewer.
+ * is on screen and never by a window that shows none. A long conversation can
+ * hold dozens of diagrams, and drawing them all on opening it would hold the
+ * window up for rows nobody is looking at, so a block is drawn once it comes
+ * within a screen of being seen; one drawn before is shown at once. A block
+ * still streaming in is not drawn until its source stops changing, and one
+ * that does not parse stays the code it was, with a line saying so. A diagram
+ * drawn to fit a bubble is often too small to read, so pressing it opens it in
+ * the viewer.
  */
 export function Mermaid({ source }: { source: string }) {
 	const theme = useResolvedTheme();
@@ -25,8 +29,11 @@ export function Mermaid({ source }: { source: string }) {
 	const [showSource, setShowSource] = useState(false);
 	const [open, setOpen] = useState(false);
 	const key = `${theme}\n${source}`;
+	const block = useRef<HTMLDivElement>(null);
+	const near = useNear(block);
 
 	useEffect(() => {
+		if (!near && !diagrams.has(key)) return;
 		let gone = false;
 		// Settle first: while a message streams, the source changes every few
 		// characters and most of those prefixes are not diagrams yet. One
@@ -47,12 +54,12 @@ export function Mermaid({ source }: { source: string }) {
 			gone = true;
 			window.clearTimeout(timer);
 		};
-	}, [key, source, theme]);
+	}, [key, source, theme, near]);
 
 	const current = drawn?.key === key ? drawn : null;
 	if (current === null || showSource) {
 		return (
-			<div className="mermaid-block">
+			<div ref={block} className="mermaid-block">
 				<pre>
 					<code>{source}</code>
 				</pre>
@@ -70,7 +77,7 @@ export function Mermaid({ source }: { source: string }) {
 		);
 	}
 	return (
-		<div className="mermaid-block">
+		<div ref={block} className="mermaid-block">
 			<button type="button" className="picture-open" title="Open the diagram" onClick={() => setOpen(true)}>
 				<img className="mermaid-diagram" src={current.url} alt="Diagram" draggable={false} />
 			</button>
@@ -83,6 +90,30 @@ export function Mermaid({ source }: { source: string }) {
 }
 
 const SETTLE_MS = 300;
+
+/**
+ * Whether the block has come within a screen of the scroller it sits in. It
+ * stays true: a diagram drawn once is not taken down when it scrolls away.
+ * The scroller is the observer's root because the window's viewport would
+ * clip the block to the scroller and see it only once it was already showing.
+ * A window without the observer draws everything, as it did before.
+ */
+function useNear(block: RefObject<HTMLElement | null>): boolean {
+	const [near, setNear] = useState(() => typeof IntersectionObserver === "undefined");
+	useEffect(() => {
+		const element = block.current;
+		if (near || element === null) return;
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) setNear(true);
+			},
+			{ root: element.closest(".scroller"), rootMargin: "100% 0px" },
+		);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, [block, near]);
+	return near;
+}
 /** How many drawings stay as URLs after their bubble leaves the screen. */
 const KEPT = 40;
 const diagrams = new Map<string, string>();
@@ -155,7 +186,6 @@ function draw(source: string, palette: Palette): Promise<string> {
 			startOnLoad: false,
 			securityLevel: "strict",
 			htmlLabels: false,
-			flowchart: { htmlLabels: false },
 			theme: palette === "dark" ? "dark" : "neutral",
 			themeVariables: { fontFamily: FONT, background: "transparent" },
 			fontFamily: FONT,
@@ -196,6 +226,6 @@ function useResolvedTheme(): Palette {
 			observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 			return () => observer.disconnect();
 		},
-		() => (document.documentElement.dataset.theme === "light" ? "light" : "dark"),
+		() => (document.documentElement.dataset["theme"] === "light" ? "light" : "dark"),
 	);
 }

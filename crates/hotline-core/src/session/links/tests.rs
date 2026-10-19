@@ -12,6 +12,7 @@ use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::paths::thread_key;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
+use crate::test_support::until;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -134,16 +135,6 @@ impl Channel {
         self.laptop.links.closed(GRIZZLY, Some(laptop), None);
         self.grizzly.links.closed(LAPTOP, Some(grizzly), None);
     }
-}
-
-async fn until(what: &str, mut condition: impl FnMut() -> bool) {
-    for _ in 0..1000 {
-        if condition() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("never: {what}");
 }
 
 async fn message(room: &Arc<Room>, from: &str, to: &str, intent: &str) -> Result<String, String> {
@@ -316,7 +307,10 @@ async fn a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_
     assert_eq!(answer["cause"]["status"], "done");
     // A grant given to a teammate of a linked desk ends with the link.
     grizzly.unlinked(LAPTOP).await.unwrap();
-    assert!(grizzly.persona("lou").unwrap().allowed_senders.is_empty());
+    assert_eq!(
+        grizzly.persona("lou").unwrap().allowed_senders,
+        [] as [String; 0]
+    );
     assert!(
         grizzly
             .log
@@ -399,7 +393,7 @@ async fn an_ended_link_fails_what_waited_on_it_and_its_teammates_are_gone() {
         notice["text"],
         "Message to Lou on grizzly (Check the CI runners.): Lou is on grizzly, which isn't linked any more."
     );
-    assert!(list(&laptop, "clementine").await.is_empty());
+    assert_eq!(list(&laptop, "clementine").await, [] as [Value; 0]);
     let refused = message(&laptop, "clementine", "Lou", "ask")
         .await
         .unwrap_err();
@@ -438,7 +432,10 @@ async fn ending_the_link_withdraws_the_card_a_linked_sender_was_waiting_on() {
             .await
             .is_err()
     );
-    assert!(grizzly.persona("lou").unwrap().allowed_senders.is_empty());
+    assert_eq!(
+        grizzly.persona("lou").unwrap().allowed_senders,
+        [] as [String; 0]
+    );
     let stopped = request(&grizzly, &id).unwrap();
     assert_eq!(stopped["failed"], true);
     assert_eq!(
@@ -506,12 +503,32 @@ async fn a_name_two_teammates_share_is_refused_with_every_choice() {
         .unwrap();
 }
 
+/// A linked desk is sent Lou's roster row and profile — his goal, agent,
+/// model and capabilities, a granted server by its name — and lists them
+/// as a local colleague's; never his workspace, the server's address or
+/// login, his grants' ids or his allowed senders.
 #[tokio::test]
 async fn a_linked_desk_is_sent_roster_rows_and_nothing_else() {
     let (laptop, grizzly) = pair("roster-fields");
+    grizzly
+        .log
+        .append(
+            &StreamId::Room,
+            &json!({"kind": "setting", "id": "mcpServers", "value": [
+                {"id": "docs-server-id", "name": "Docs", "type": "http",
+                 "url": "https://mcp.example/sk-live-URLTOKEN",
+                 "auth": {"mode": "header", "name": "X-Leaky-Header"}},
+            ]}),
+        )
+        .unwrap();
     let mut lou = grizzly.persona("lou").unwrap();
-    lou.model_id = Some("secret-model".into());
-    lou.allowed_senders = vec!["someone".into()];
+    lou.cwd = "/Users/lou/sk-live-CWDTOKEN".into();
+    lou.model_id = Some("openai/gpt-5".into());
+    lou.allowed_senders = vec!["someone-allowed".into()];
+    lou.mcp_policy = crate::contract::McpPolicy {
+        mode: crate::contract::PolicyMode::All,
+        server_ids: Vec::new(),
+    };
     crate::room::append_persona(&grizzly.log, &lou).unwrap();
     let published = serde_json::to_value(grizzly.federation_roster_entries()).unwrap();
     for row in published.as_array().unwrap() {
@@ -521,10 +538,21 @@ async fn a_linked_desk_is_sent_roster_rows_and_nothing_else() {
             .keys()
             .map(String::as_str)
             .collect();
-        fields.sort();
+        fields.sort_unstable();
         assert_eq!(
             fields,
-            ["activity", "name", "personaId", "state", "workingOn"]
+            [
+                "activity",
+                "agent",
+                "capabilities",
+                "effort",
+                "goal",
+                "model",
+                "name",
+                "personaId",
+                "state",
+                "workingOn"
+            ]
         );
         let mut working_on: Vec<&str> = row["workingOn"]
             .as_object()
@@ -532,16 +560,30 @@ async fn a_linked_desk_is_sent_roster_rows_and_nothing_else() {
             .keys()
             .map(String::as_str)
             .collect();
-        working_on.sort();
+        working_on.sort_unstable();
         assert_eq!(working_on, ["lastTurnAt", "title"]);
     }
-    assert!(!published.to_string().contains("secret-model"));
-    assert!(
-        !published
-            .to_string()
-            .contains(&*std::env::temp_dir().to_string_lossy())
-    );
-    let _ = laptop;
+    let sent = published.to_string();
+    for never in [
+        "sk-live",
+        "mcp.example",
+        "X-Leaky-Header",
+        "docs-server-id",
+        "someone-allowed",
+        &*std::env::temp_dir().to_string_lossy(),
+    ] {
+        assert!(!sent.contains(never), "{never} crossed the link: {sent}");
+    }
+
+    let _channel = Channel::open(&laptop, &grizzly);
+    let listed = list(&laptop, "clementine").await;
+    assert_eq!(listed[0]["desk"], "grizzly");
+    assert_eq!(listed[0]["goal"], lou.goal);
+    assert_eq!(listed[0]["agent"], "Hotline Agent");
+    assert_eq!(listed[0]["model"], "openai/gpt-5");
+    assert_eq!(listed[0]["capabilities"]["computer"], "none");
+    assert_eq!(listed[0]["capabilities"]["mcpServers"], json!(["Docs"]));
+    assert_eq!(listed[0]["capabilities"]["reach"], "whole machine");
 }
 
 #[tokio::test]

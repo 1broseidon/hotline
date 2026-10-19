@@ -6,6 +6,7 @@ import { callWorking } from "./CallStage";
 import { activeDeskId } from "../desks";
 import type { RosterEntry } from "../wire";
 import { type Call as CallSession, type CallLine, type CallPhase, closeCall, restartCall, useCallSnapshot } from "../voice/call";
+import { setHearOnThisMac } from "../voice/hearing";
 
 const WORDS: Record<CallPhase, string> = {
 	connecting: "Calling",
@@ -162,6 +163,7 @@ export function CallBar({
 				</>
 			) : (
 				<>
+					{state.deskModel === true && <DeskModelKey call={call} />}
 					<button
 						ref={again}
 						type="button"
@@ -192,6 +194,7 @@ export function CallBar({
 function CallTranscript({ lines, name, alone }: { lines: CallLine[]; name: string; alone: boolean }) {
 	const list = useRef<HTMLOListElement>(null);
 	// Its own scroll only: the conversation behind it stays where it is.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: a new line is what scrolls the list.
 	useEffect(() => {
 		if (list.current !== null) list.current.scrollTop = list.current.scrollHeight;
 	}, [lines.length]);
@@ -228,6 +231,7 @@ function CallTrouble({ text }: { text: string }) {
 
 /** A call's trouble named in two or three words, from the sentence the call gave. */
 export function troubleWords(text: string): string {
+	if (/no words/i.test(text)) return "No words heard";
 	if (/no microphone/i.test(text)) return "No microphone";
 	if (/busy or not working/i.test(text)) return "Microphone busy";
 	if (/microphone any more/i.test(text)) return "Microphone lost";
@@ -427,6 +431,7 @@ export function DeskCallCard({ call, roster, compact }: { call: CallSession; ros
 							</>
 						) : (
 							<>
+								{state.deskModel === true && <DeskModelKey call={call} />}
 								<button type="button" className="call-button call-button-start" title="Call again" aria-label="Call again" onClick={() => void restartCall(call)}>
 									<PhoneIcon />
 								</button>
@@ -437,6 +442,26 @@ export function DeskCallCard({ call, roster, compact }: { call: CallSession; ros
 				</>
 			)}
 		</section>
+	);
+}
+
+/**
+ * This Mac heard a voice and no words: call again with the desk's own
+ * model hearing instead, which is this Mac's choice of hearing from now
+ * on, as picking it in Settings would be.
+ */
+function DeskModelKey({ call }: { call: CallSession }) {
+	return (
+		<button
+			type="button"
+			className="control btn"
+			onClick={() => {
+				setHearOnThisMac(false);
+				void restartCall(call);
+			}}
+		>
+			Use desk model
+		</button>
 	);
 }
 

@@ -14,7 +14,8 @@ fails, so a changed archive can never be linked unnoticed.
     scripts/fetch-speech-engine --target x86_64-apple-darwin
 
 Bumping sherpa-onnx means new archives: put their hashes in the pin file
-(`shasum -a 256` of each, from the release page) in the same commit.
+(`shasum -a 256` of each, from the release page) in the same commit, and
+re-read the archive's libraries in THIRD-PARTY-NOTICES.md.
 """
 import argparse
 import hashlib

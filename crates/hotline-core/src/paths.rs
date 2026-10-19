@@ -26,13 +26,11 @@ pub fn data_root() -> PathBuf {
             .join("Hotline")
     } else if cfg!(target_os = "windows") {
         env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("AppData").join("Roaming"))
+            .map_or_else(|| home.join("AppData").join("Roaming"), PathBuf::from)
             .join("Hotline")
     } else {
         env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".local").join("share"))
+            .map_or_else(|| home.join(".local").join("share"), PathBuf::from)
             .join("hotline")
     }
 }
@@ -171,17 +169,6 @@ pub fn default_skills_home() -> Option<PathBuf> {
     env::var_os("HOME")
         .or_else(|| env::var_os("USERPROFILE"))
         .map(|home| PathBuf::from(home).join(".agents").join("skills"))
-}
-
-/// The absolute path of a command, looking on `PATH` and the directories a
-/// packaged Mac app's GUI environment does not include.
-///
-/// Finder and a `.desktop` file spawn with `/usr/bin:/bin:/usr/sbin:/sbin`.
-/// Homebrew, `/usr/local`, and `~/.local/bin` are where `docker` and `podman`
-/// actually live, and a computer that cannot start because Hotline was opened
-/// from the dock is the bug the previous edition shipped.
-pub fn resolve_command(name: &str) -> Option<PathBuf> {
-    resolve_command_in(name, env::var_os("PATH").as_deref(), true)
 }
 
 /// Resolve `name` against an explicit `PATH` value. `extras` is the

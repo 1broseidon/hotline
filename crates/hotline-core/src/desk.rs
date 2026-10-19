@@ -150,7 +150,7 @@ impl Desk {
             store,
             services,
             crate::voice::speech::local::catalogue(),
-            Default::default(),
+            acp::StartBounds::default(),
         )
     }
 
@@ -177,7 +177,7 @@ impl Desk {
         store: Arc<dyn crate::credentials::SecretStore>,
         models: Vec<crate::voice::speech::local::Model>,
     ) -> io::Result<Desk> {
-        Self::open_inner(root, store, None, models, Default::default())
+        Self::open_inner(root, store, None, models, acp::StartBounds::default())
     }
 
     fn open_inner(
@@ -359,14 +359,14 @@ impl RoomHandle for Desk {
         Some(self.room.links())
     }
 
-    fn federation_roster_entries(&self) -> Vec<crate::linked::LinkedTeammate> {
+    fn federation_roster_entries(&self) -> Vec<crate::contract::LinkedTeammate> {
         self.room.federation_roster_entries()
     }
 
     fn federation_roster(
         &self,
         desk_id: &str,
-        teammates: Vec<crate::linked::LinkedTeammate>,
+        teammates: Vec<crate::contract::LinkedTeammate>,
     ) -> Result<(), String> {
         self.room.federation_roster(desk_id, teammates)
     }
@@ -374,7 +374,7 @@ impl RoomHandle for Desk {
     async fn federation_deliver(
         &self,
         desk_id: &str,
-        delivery: crate::linked::LinkedDelivery,
+        delivery: crate::contract::LinkedDelivery,
     ) -> Result<serde_json::Value, String> {
         self.room.federation_deliver(desk_id, delivery)
     }
@@ -668,8 +668,7 @@ impl RoomHandle for Desk {
         let label = crate::models::catalog()
             .providers
             .get(wiring.id)
-            .map(|entry| entry.name.clone())
-            .unwrap_or_else(|| wiring.id.to_string());
+            .map_or_else(|| wiring.id.to_string(), |entry| entry.name.clone());
         let (id, token_dir) = self
             .vault
             .begin_login(provider_id)
@@ -682,11 +681,11 @@ impl RoomHandle for Desk {
         let prompt_tx = Arc::new(Mutex::new(Some(prompt_tx)));
         let login_id = id.clone();
         let emit = move |user_code: String, verification_uri: String| {
-            if let Some(tx) = prompt_tx
+            let tx = prompt_tx
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .take()
-            {
+                .take();
+            if let Some(tx) = tx {
                 let _ = tx.send(LoginPrompt {
                     login_id: login_id.clone(),
                     user_code,
@@ -706,7 +705,7 @@ impl RoomHandle for Desk {
                         .oauth()
                         .auth_file(token_dir.join("auth.json"))
                         .on_device_code(move |prompt| {
-                            emit(prompt.user_code, prompt.verification_uri)
+                            emit(prompt.user_code, prompt.verification_uri);
                         })
                         .allow_device_flow(true)
                         .build()
@@ -718,7 +717,7 @@ impl RoomHandle for Desk {
                         .oauth()
                         .token_dir(&token_dir)
                         .on_device_code(move |prompt| {
-                            emit(prompt.user_code, prompt.verification_uri)
+                            emit(prompt.user_code, prompt.verification_uri);
                         })
                         .allow_device_flow(true)
                         .build()
@@ -733,8 +732,8 @@ impl RoomHandle for Desk {
             };
             let result = tokio::select! {
                 biased;
-                _ = cancel.cancelled() => Err("Sign-in cancelled.".to_string()),
-                result = tokio::time::timeout(Duration::from_secs(10 * 60), authorize) =>
+                () = cancel.cancelled() => Err("Sign-in cancelled.".to_string()),
+                result = tokio::time::timeout(Duration::from_mins(10), authorize) =>
                     result.unwrap_or_else(|_| Err("Sign-in timed out. Try again.".to_string())),
             };
             let recorded = record_login(vault, logins, task_id, provider_id, label, result);
@@ -744,15 +743,12 @@ impl RoomHandle for Desk {
         });
         tokio::select! {
             biased;
-            prompt = prompt_rx => match prompt {
-                Ok(prompt) => Ok(prompt),
-                Err(_) => {
-                    let _ = (&mut task).await;
-                    Err(self.login_error(&id))
-                }
+            prompt = prompt_rx => if let Ok(prompt) = prompt { Ok(prompt) } else {
+                let _ = (&mut task).await;
+                Err(self.login_error(&id))
             },
             _ = &mut task => Err(self.login_error(&id)),
-            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+            () = tokio::time::sleep(Duration::from_secs(30)) => {
                 self.credential_login_cancel(&id)?;
                 Err("Timed out waiting for sign-in instructions.".to_string())
             }
@@ -1104,6 +1100,10 @@ impl RoomHandle for Desk {
         self.room.computer_update(persona_id).await
     }
 
+    async fn computer_restart(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_restart(persona_id).await
+    }
+
     async fn computer_settings_changed(&self, _persona_id: &str) {
         self.room.secrets_changed().await;
     }
@@ -1358,6 +1358,7 @@ pub(crate) fn install_crypto_provider() {
 #[cfg(test)]
 mod tests {
     use super::Desk;
+    use crate::contract::SkillPolicy;
     use crate::contract::{Attachment, McpPolicy, Persona, PolicyMode, Reach};
     use crate::driver::rig::Said;
     use crate::driver::{Driver, DriverInfo, Update};
@@ -1484,7 +1485,7 @@ mod tests {
                 mode: PolicyMode::All,
                 server_ids: Vec::new(),
             },
-            skill_policy: Default::default(),
+            skill_policy: SkillPolicy::default(),
             background_work: false,
             allowed_senders: Vec::new(),
             web_search_policy: None,

@@ -1,14 +1,20 @@
 //! Each bridge is a loopback capability, never the remote device's private key.
+//!
+//! Each lock here guards one value replaced in one step, or a token map whose
+//! check and removal cannot panic between them, so a poisoned one is recovered.
 use super::client::{Client, Discovery, PairedDesk, State};
+use super::lock;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tokio::net::{TcpListener, TcpStream};
+// Tokio's clock, so a test can pause it and let a token expire at once.
+use tokio::time::Instant;
 use tokio_tungstenite::{
     WebSocketStream,
     tungstenite::{
@@ -72,7 +78,7 @@ struct Discoveries {
 }
 impl Discoveries {
     fn publish(&self, discovery: &Discovery) {
-        let mut latest = self.latest.lock().unwrap();
+        let mut latest = lock(&self.latest);
         if discovery.sequence <= *latest {
             return;
         }
@@ -83,7 +89,7 @@ impl Discoveries {
             if *known == discovery.relay {
                 false
             } else {
-                *known = discovery.relay.clone();
+                known.clone_from(&discovery.relay);
                 true
             }
         });
@@ -99,7 +105,7 @@ impl Bridge {
     /// Present it as the `hotline-viewer.<token>` WebSocket subprotocol. A
     /// reconnect needs a fresh token, even if the remote computer was unavailable.
     pub fn viewer_token(&self, persona_id: &str) -> String {
-        self.viewer_tokens.lock().unwrap().mint(persona_id)
+        lock(&self.viewer_tokens).mint(persona_id)
     }
 
     pub async fn start(desk: &PairedDesk) -> Result<Self, String> {
@@ -129,7 +135,7 @@ impl Bridge {
             loop {
                 tokio::select! {
                     biased;
-                    _ = stopped.cancelled() => break,
+                    () = stopped.cancelled() => break,
                     _ = tasks.join_next(), if !tasks.is_empty() => {},
                     accepted = listener.accept() => {
                         let Ok((socket, peer)) = accepted else { break; };
@@ -137,7 +143,7 @@ impl Bridge {
                         let client = client.clone(); let mut desk = desk.clone(); let key = key.clone(); let state = state.clone(); let viewers = viewers.clone(); let discoveries = discoveries.clone();
                         // New command and viewer sessions use what an earlier
                         // authenticated hello taught this bridge.
-                        desk.relay = discoveries.relay.borrow().clone();
+                        desk.relay.clone_from(&discoveries.relay.borrow());
                         tasks.spawn(async move { serve(socket, client, desk, key, viewers, state, discoveries).await; });
                     }
                 }
@@ -214,7 +220,7 @@ fn authorize(
             return Err(());
         }
         let protocol = protocol.parse().map_err(|_| ())?;
-        viewers.lock().unwrap().redeem(token, id)?;
+        lock(viewers).redeem(token, id)?;
         return Ok(Authorization {
             persona,
             protocol: Some(protocol),
@@ -233,7 +239,7 @@ fn authorize(
     })
 }
 
-#[allow(clippy::result_large_err)] // tungstenite fixes the callback error type.
+#[expect(clippy::result_large_err, reason = "tungstenite fixes this error type")]
 async fn serve(
     stream: TcpStream,
     client: Client,
@@ -249,7 +255,7 @@ async fn serve(
         move |request: &Request, mut response: Response| -> Result<Response, ErrorResponse> {
             match authorize(request, &token, &viewers) {
                 Ok(authorization) => {
-                    *selected.lock().unwrap() = authorization.persona;
+                    *lock(&selected) = authorization.persona;
                     if let Some(protocol) = authorization.protocol {
                         response
                             .headers_mut()
@@ -260,7 +266,7 @@ async fn serve(
                 Err(()) => Err(http::Response::builder()
                     .status(403)
                     .body(Some("Forbidden".into()))
-                    .unwrap()),
+                    .expect("a fixed status and no headers make a valid response")),
             }
         };
     let config = WebSocketConfig::default()
@@ -274,7 +280,7 @@ async fn serve(
     else {
         return;
     };
-    let persona = target.lock().unwrap().clone();
+    let persona = lock(&target).clone();
     if let Some(persona) = persona {
         viewer(local, client, desk, &persona).await;
         return;
@@ -349,6 +355,17 @@ async fn viewer(
 #[cfg(test)]
 mod discovery_tests {
     use super::*;
+    use crate::remote::poison;
+
+    #[test]
+    fn a_poisoned_token_map_still_spends_each_viewer_token_once() {
+        let tokens = Mutex::new(ViewerTokens::default());
+        let token = lock(&tokens).mint("ada");
+        poison(&tokens);
+        assert!(lock(&tokens).redeem(&token, "bob").is_err());
+        assert!(lock(&tokens).redeem(&token, "ada").is_ok());
+        assert!(lock(&tokens).redeem(&token, "ada").is_err());
+    }
 
     #[test]
     fn a_delayed_session_cannot_overwrite_a_newer_authenticated_discovery() {

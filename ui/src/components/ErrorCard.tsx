@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { AgentSignIn, type AgentSignInAction } from "./AgentSignIn";
 import { WarningIcon } from "../icons";
+import { Refusal, refused, type Refused } from "../ui/Refusal";
 
 /**
  * The failures a second try can get past: the network, the provider having
- * a bad moment, a limit that has since lifted, a harness that fell over.
+ * a bad moment or turning a working sign-in away, a limit that has since
+ * lifted, a harness that fell over.
  * A refused key, a spent quota or a request the model will not take fails
  * the same way again, so it is not offered.
  */
-const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "rate_limit", "acp", "unknown"]);
+const WORTH_ANOTHER_TRY = new Set(["transport", "provider", "provider_refused", "rate_limit", "acp", "unknown"]);
 
 export function errorDetails(text: string): { title: string; summary: string; details: string; context?: string; signIn?: AgentSignInAction; kind?: string } {
     const start = text.indexOf('{"hotlineFailure":');
@@ -56,15 +58,18 @@ export function ErrorCard({
     personaId,
     onRetry,
     onRunAgain,
+    onProviders,
 }: {
     text: string;
     personaId?: string;
     onRetry?: () => void;
     /** Runs the failed turn again; offered only on the latest one. */
     onRunAgain?: () => Promise<unknown>;
+    /** Opens Settings › Providers, the fix for Hotline Agent with no provider. */
+    onProviders?: () => void;
 }) {
     const error = errorDetails(text);
-    const [again, setAgain] = useState<"idle" | "trying" | string>("idle");
+    const [again, setAgain] = useState<"idle" | "trying" | Refused>("idle");
     const offerAgain = onRunAgain !== undefined && error.kind !== undefined && WORTH_ANOTHER_TRY.has(error.kind);
     return (
         <section className="my-2 min-w-0 max-w-full rounded-lg border border-line bg-raised p-3" aria-label={error.title}>
@@ -73,6 +78,13 @@ export function ErrorCard({
                 <span className="font-medium">{error.title}</span>
             </div>
             <p className="mt-1 text-sm text-ink-2">{error.summary}</p>
+            {error.kind === "no_provider" && onProviders && (
+                <div className="mt-2">
+                    <button type="button" className="control btn btn-sm" onClick={onProviders}>
+                        Settings › Providers
+                    </button>
+                </div>
+            )}
             {error.signIn && personaId && <AgentSignIn personaId={personaId} action={error.signIn} {...(onRetry ? { onRetry } : {})} />}
             {offerAgain && (
                 <div className="mt-2 flex items-center gap-3">
@@ -84,14 +96,14 @@ export function ErrorCard({
                             setAgain("trying");
                             onRunAgain()
                                 .then(() => setAgain("idle"))
-                                .catch((reason: unknown) => setAgain(reason instanceof Error ? reason.message : String(reason)));
+                                .catch((reason: unknown) => setAgain(refused("Couldn't try again", reason)));
                         }}
                     >
                         {again === "trying" ? "Trying again…" : "Try again"}
                     </button>
-                    {again !== "idle" && again !== "trying" && <span className="text-sm text-ink-3">{again}</span>}
                 </div>
             )}
+            {offerAgain && typeof again === "object" && <Refusal {...again} />}
             <details className="mt-2 min-w-0">
                 <summary className="cursor-pointer text-xs text-ink-3 focus-visible:outline focus-visible:outline-2">Error details</summary>
                 {error.context && <p className="mt-2 break-words text-xs text-ink-3" style={{ overflowWrap: "anywhere" }}>{error.context}</p>}

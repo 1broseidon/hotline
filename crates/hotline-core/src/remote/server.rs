@@ -47,7 +47,7 @@ fn response(status: StatusCode, value: Value) -> Response<Full<Bytes>> {
         .header("content-type", "application/json")
         .header("cache-control", "no-store")
         .body(Full::new(Bytes::from(value.to_string())))
-        .unwrap()
+        .expect("a typed status and fixed valid headers make a valid response")
 }
 fn error(status: StatusCode, code: &str) -> Response<Full<Bytes>> {
     response(status, json!({"error": code}))
@@ -60,18 +60,15 @@ pub(super) fn run(
 ) -> futures_util::future::BoxFuture<'static, ()> {
     Box::pin(async move {
         loop {
-            let accepted = tokio::select! { biased; _ = cancel.cancelled() => break, accepted = listener.accept() => accepted };
-            let (socket, peer) = match accepted {
-                Ok(v) => v,
-                Err(_) => {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                    continue;
-                }
+            let accepted = tokio::select! { biased; () = cancel.cancelled() => break, accepted = listener.accept() => accepted };
+            let Ok((socket, peer)) = accepted else {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
             };
             let accepted = tokio::time::Instant::now();
             let slot = tokio::select! {
                 biased;
-                _ = cancel.cancelled() => break,
+                () = cancel.cancelled() => break,
                 slot = remote.admission.accept(peer.ip(), accepted) => slot,
             };
             let remote = remote.clone();
@@ -80,8 +77,8 @@ pub(super) fn run(
             tokio::spawn(async move {
                 let accepted = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return,
-                    _ = slot.expired() => return,
+                    () = cancel.cancelled() => return,
+                    () = slot.expired() => return,
                     accepted = tls.accept(socket) => accepted,
                 };
                 let Ok(socket) = accepted else {
@@ -97,7 +94,7 @@ pub(super) fn run(
                 let connection = builder
                     .serve_connection(TokioIo::new(socket), service)
                     .with_upgrades();
-                tokio::select! { biased; _ = cancel.cancelled() => {}, _ = pending.expired() => {}, _ = connection => {} }
+                tokio::select! { biased; () = cancel.cancelled() => {}, () = pending.expired() => {}, _ = connection => {} }
             });
         }
     })
@@ -126,7 +123,7 @@ async fn handle(
         return Ok(sealed_door(remote, request, slot, &path).await);
     }
     if request.method() == "GET"
-        && remote.served.is_some()
+        && remote.relays()
         && let Some(route) = super::relay::Route::of(&path)
     {
         return Ok(relay_door(remote, request, slot, route).await);
@@ -189,14 +186,14 @@ async fn sealed_door(
         };
         let socket = tokio::select! {
             biased;
-            _ = slot.expired() => return,
+            () = slot.expired() => return,
             socket = socket => socket,
         };
         if let Some(socket) = socket {
             sealed_session(remote, socket, purpose, Seat::Direct(slot)).await;
         }
     });
-    reply.map(|_| Full::new(Bytes::new()))
+    reply.map(|()| Full::new(Bytes::new()))
 }
 
 /// A visitor waits for the registered desk's sealed callback. The upgrade
@@ -215,7 +212,7 @@ async fn relay_door(
         Visit::RateLimited => return error(StatusCode::TOO_MANY_REQUESTS, "desk_busy"),
         Visit::Admitted(notify, permit) => (notify, permit),
     };
-    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let cancel = lock(&remote.state).cancel.clone();
     let upgraded = hyper::upgrade::on(&mut request);
     let Ok(reply) = create_response(&request.map(|_| ())) else {
         return error(StatusCode::BAD_REQUEST, "invalid_upgrade");
@@ -223,8 +220,8 @@ async fn relay_door(
     tokio::spawn(async move {
         let upgraded = tokio::select! {
             biased;
-            _ = cancel.cancelled() => return,
-            _ = slot.expired() => return,
+            () = cancel.cancelled() => return,
+            () = slot.expired() => return,
             upgraded = upgraded => upgraded,
         };
         let Ok(upgraded) = upgraded else {
@@ -239,7 +236,7 @@ async fn relay_door(
         .await;
         super::relay::arrive(remote.relay.clone(), socket, notify, permit, path).await;
     });
-    reply.map(|_| Full::new(Bytes::new()))
+    reply.map(|()| Full::new(Bytes::new()))
 }
 
 /// The initial WebSocket cap prevents allocation of an unbounded handshake.
@@ -249,8 +246,10 @@ pub(super) fn handshake_config() -> WebSocketConfig {
         .max_frame_size(Some(65535))
 }
 
-/// What a sealed socket is for, from its path. Pairing needs an open window;
-/// hosting a relay is a served desk's door only.
+/// What a sealed socket is for, from its path. Pairing needs an open window.
+/// Every other door belongs to a capability (ADR 0006): the wire, the
+/// computer and the link to `agents`, hosting a relay to a served desk's
+/// `relay`. A door of a capability this server does not run is not there.
 #[derive(Clone)]
 pub(super) enum Purpose {
     Wire,
@@ -263,16 +262,33 @@ pub(super) enum Purpose {
 }
 impl Purpose {
     pub(super) fn of(remote: &Remote, path: &str) -> Option<Self> {
-        match path {
-            "/v2" => Some(Self::Wire),
-            "/v2/pair" => remote.pairing_open().then_some(Self::Pair),
-            "/v2/relay" => remote.served.is_some().then_some(Self::Relay),
-            "/v2/relay/accept" => remote.served.is_some().then_some(Self::RelayAccept),
-            "/v2/link" => Some(Self::Link),
-            _ => path
-                .strip_prefix("/v2")
-                .and_then(computer_path)
-                .map(|persona| Self::Computer(persona.to_owned())),
+        let purpose = match path {
+            "/v2" => Self::Wire,
+            "/v2/pair" => return remote.pairing_open().then_some(Self::Pair),
+            "/v2/relay" => Self::Relay,
+            "/v2/relay/accept" => Self::RelayAccept,
+            "/v2/link" => Self::Link,
+            _ => Self::Computer(path.strip_prefix("/v2").and_then(computer_path)?.to_owned()),
+        };
+        let runs = match purpose {
+            Self::Relay | Self::RelayAccept => remote.relays(),
+            _ => remote.agents.is_some(),
+        };
+        runs.then_some(purpose)
+    }
+
+    /// Which grant roles this door opens to (ADR 0006). The wire and the
+    /// computer are the desk's own; the relay is for whoever stands in.
+    /// Pairing and the link authenticate by other means and name no role.
+    pub(super) fn admits(&self, role: DeviceRole) -> bool {
+        match self {
+            Self::Wire | Self::Computer(_) => {
+                matches!(role, DeviceRole::Owner | DeviceRole::Companion)
+            }
+            Self::Relay | Self::RelayAccept => {
+                matches!(role, DeviceRole::Owner | DeviceRole::Relay)
+            }
+            Self::Pair | Self::Link => false,
         }
     }
 }
@@ -292,8 +308,8 @@ impl Seat {
         match self {
             Self::Direct(slot) => slot.expired().await,
             Self::Relayed { cancel, .. } => tokio::select! {
-                _ = cancel.cancelled() => {},
-                _ = tokio::time::sleep_until(deadline) => {},
+                () = cancel.cancelled() => {},
+                () = tokio::time::sleep_until(deadline) => {},
             },
         }
     }
@@ -328,7 +344,7 @@ pub(super) async fn sealed_session<S>(
         desk_id: Option<String>,
     }
 
-    let cancel = remote.state.lock().unwrap().cancel.clone();
+    let cancel = lock(&remote.state).cancel.clone();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     // The same deadline covers TCP acceptance through both Noise messages.
     let handshake = async {
@@ -344,12 +360,18 @@ pub(super) async fn sealed_session<S>(
         let size = noise.read_message(&first, &mut payload).ok()?;
         let public = noise.get_remote_static()?.to_vec();
         let mut desk = None;
-        let (phone, answer) = if let Purpose::Pair = purpose {
-            let role = remote.claim_v2(&public, &payload[..size]).ok()?;
-            (
-                None,
-                serde_json::to_vec(&json!({"role": role, "deskName": desktop_name(), "deskId": remote.status_desktop_id()})).ok()?,
-            )
+        let (phone, answer) = if matches!(purpose, Purpose::Pair) {
+            let claimed = remote.claim_v2(&public, &payload[..size]).ok()?;
+            let answer = match claimed {
+                super::v2::Claimed::Granted(role) => json!({
+                    "role": role,
+                    "deskName": desktop_name(),
+                    "deskId": remote.status_desktop_id(),
+                    "serves": remote.serves(),
+                }),
+                super::v2::Claimed::Refused(invitation) => json!({"refused": invitation}),
+            };
+            (None, serde_json::to_vec(&answer).ok()?)
         } else {
             // A TLS proxy or a relay can rewrite the HTTP target, but not
             // this authenticated Noise payload. Bind it before looking up or
@@ -381,18 +403,14 @@ pub(super) async fn sealed_session<S>(
             if phone.is_none() && cancel.is_cancelled() {
                 return None;
             }
-            // Only an owner's device may stand in for a desk on the relay.
-            let refused = phone.as_ref().is_none_or(|phone| {
-                matches!(purpose, Purpose::Relay) && phone.role != DeviceRole::Owner
-            });
-            let answer = if !refused {
-                Vec::new()
-            } else {
-                // Message 1 decrypted successfully: the initiator knows the
-                // desk key. Seal the refusal under that same Noise identity.
-                sealed::DEVICE_REJECTED.to_vec()
+            // Message 1 decrypted successfully: the initiator knows the desk
+            // key. Seal any refusal under that same Noise identity.
+            let answer = match &phone {
+                None => sealed::DEVICE_REJECTED.to_vec(),
+                Some(phone) if !purpose.admits(phone.role) => sealed::ROLE_REFUSED.to_vec(),
+                Some(_) => Vec::new(),
             };
-            (phone.filter(|_| !refused), answer)
+            (phone.filter(|_| answer.is_empty()), answer)
         };
         let mut response = [0u8; 4096];
         let size = noise.write_message(&answer, &mut response).ok()?;
@@ -425,8 +443,8 @@ pub(super) async fn sealed_session<S>(
     };
     let established = tokio::select! {
         biased;
-        _ = cancel.cancelled() => return,
-        _ = seat.expired(deadline) => return,
+        () = cancel.cancelled() => return,
+        () = seat.expired(deadline) => return,
         result = handshake => result,
     };
     let Some((socket, phone, desk, _authenticated)) = established else {
@@ -439,8 +457,8 @@ pub(super) async fn sealed_session<S>(
         let phone_cancel = phone.cancel.clone();
         Some(tokio::spawn(async move {
             tokio::select! {
-                _ = cancel.cancelled() => phone_cancel.cancel(),
-                _ = phone_cancel.cancelled() => {},
+                () = cancel.cancelled() => phone_cancel.cancel(),
+                () = phone_cancel.cancelled() => {},
             }
         }))
     } else {
@@ -454,25 +472,34 @@ pub(super) async fn sealed_session<S>(
             let revoked = phone.cancel.clone();
             tokio::select! {
                 biased;
-                _ = revoked.cancelled() => {},
-                _ = sealed_computer(remote.clone(), socket, &persona) => {},
+                () = revoked.cancelled() => {},
+                () = sealed_computer(remote.clone(), socket, &persona) => {},
             }
         }
         Purpose::Relay => {
             if let Some(desk) = desk {
-                super::relay::host(remote, socket, phone, desk, seat.take().unwrap()).await;
+                let seat = seat.take().expect("the seat is taken once, here");
+                super::relay::host(remote, socket, phone, desk, seat).await;
             }
         }
         Purpose::RelayAccept | Purpose::Link => {}
         Purpose::Wire | Purpose::Pair => {
+            // The role table above admitted only a role the wire seats.
+            let Some(role) = phone.role.seated() else {
+                return;
+            };
             // The wire owns its writer and subscription tasks and must reach
             // their cleanup on revocation; dropping that future leaks them.
-            let desktop_id = remote.state.lock().unwrap().saved.desktop_id.clone();
+            let Ok(Agents { log, room }) = remote.agents() else {
+                return;
+            };
+            let desktop_id = lock(&remote.state).saved.desktop_id.clone();
             let _ = crate::wire::seated_phone_v2(
                 socket,
-                remote.log.clone(),
-                remote.room.clone(),
+                log.clone(),
+                room.clone(),
                 phone,
+                role,
                 &desktop_id,
             )
             .await;
@@ -500,7 +527,10 @@ async fn sealed_computer<S>(
         r#type: String,
         data: String,
     }
-    let Ok(status) = remote.room.computer_status(persona).await else {
+    let Ok(Agents { log, room }) = remote.agents() else {
+        return;
+    };
+    let Ok(status) = room.computer_status(persona).await else {
         return;
     };
     let Some((port, token)) = computer_target(&status) else {
@@ -519,7 +549,7 @@ async fn sealed_computer<S>(
         return;
     };
     let Ok(mut files) =
-        super::viewer_files::Relay::start(port, token, remote.log.root().join("viewer-uploads"))
+        super::viewer_files::Relay::start(port, token, log.root().join("viewer-uploads"))
     else {
         return;
     };

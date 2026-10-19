@@ -8,6 +8,21 @@ agents changing this tree is `AGENTS.md`; the method for changing what a
 teammate can reach, and the index of the tests that prove each boundary, is
 [security.md](security.md).
 
+Single decisions too large for a section here are recorded as ADRs in
+`docs/adr/`:
+
+- [ADR 0001](adr/0001-threads-are-a-primitive.md): threads are a primitive.
+- [ADR 0002](adr/0002-a-served-desk-relays-sealed-records.md): a served desk
+  relays sealed records.
+- [ADR 0003](adr/0003-linked-desks.md): linked desks trust each other's
+  keys, not each other's owners.
+- [ADR 0004](adr/0004-live-calls-get-a-voice-front.md): live calls get a
+  voice front.
+- [ADR 0005](adr/0005-front-is-a-full-agent.md): the live voice is a full
+  agent on the call.
+- [ADR 0006](adr/0006-relay-only-servers.md): a server can just relay, and a
+  desktop can pair with it only to relay.
+
 George's reasons, in his words: the proof that the thing works is in the
 core of the Bun edition; Rust is for sheer speed and far more control, with
 Rig and our own custom tools; and Tauri is much more actively maintained
@@ -197,6 +212,14 @@ The desk alone resolves the viewer address and supplies its bearer. The proxy
 still sees paths, timing and sizes and can deny service. Protocol and limits
 are in `docs/wire.md`; listener setup is in `docs/serve.md`.
 
+A desktop may also keep a Public address: the https origin of a tunnel,
+proxy or forwarded port that reaches its listener. It is one saved value,
+read by both the pairing QR (as `x`, tried after the network address `u`)
+and the hello (as `publicEndpoint`), so a phone away from home pairs through
+it and then knows which of the desk's endpoints it is. The Remote settings
+hint points the tunnel at `localhost` on all host IPs, and at the one
+address and port when Remote listens on a single address.
+
 A phone that cannot scan opens the pairing link instead. There is no typed
 short code. A fresh desktop install listens on 8788; a busy port falls back to
 an ephemeral one that is saved and reused.
@@ -240,7 +263,8 @@ automatic cleanup); they are additional storage, including for phone uploads.
 
 Types are defined once in Rust with serde and the TypeScript is generated
 (ts-rs), so the window and the core cannot drift. `hotline_core::contract`
-already holds the room's types from the migration and moves over as is.
+holds most of them; [development.md](development.md#the-generated-contract)
+names the few defined beside the module that owns them.
 
 ### 3. One session kind, two drivers
 
@@ -382,13 +406,26 @@ capability leases and expires on session or chapter replacement. Revocation
 clears waits, queued work and cached peer sessions. An authorized reply does
 not grant the reverse direction or any third party.
 
+A card a teammate raised to ask the person is the teammate's to take back.
+`request_human` returns the card's id, and `withdraw_request` supersedes the
+caller's own pending card as `withdrawn` and delivers nothing; a card that is
+neither answered nor withdrawn expires after two hours, or the up-to-a-day
+`wait_hours` the teammate chose, and the teammate is told once. A forgotten
+card otherwise kept the teammate reading "needs you" on the phone for as long
+as it stayed up. The card carries `expiresAt` so the choice survives a
+restart. The status and the field are additions to the `human_action` event:
+every tape the importer brings over still reads as it did, and a card without
+`expiresAt` lives the default from its `ts`.
+
 HTTP MCP servers may opt into OAuth 2.1 in the gateway. Hotline follows
 protected-resource and authorization-server metadata, requires authorization
 code plus PKCE S256, and uses the advertised DCR endpoint when no saved or
 configured client exists. Credentials and registration secrets stay in the
 private vault, bound to the server URL and issuer. Hotline Agent uses rmcp's
 refreshing client; ACP receives a capability checked loopback proxy so its
-child process never sees OAuth tokens. Operator sign-in does not alter a
+child process never sees OAuth tokens. The page the browser lands on after
+sign-in is one escaped card under a Content-Security-Policy that loads
+nothing but its inline style, with no script. Operator sign-in does not alter a
 teammate's MCP grant, and sign-out invalidates live sessions before clearing
 the vault record.
 
@@ -430,7 +467,12 @@ Grok offers subscription device sign-in alongside xAI API keys. Hotline uses
 the OAuth device flow and a private token store; a shared refresh lock keeps
 teammates from spending the same rotated refresh token. Rig's xAI client
 still owns inference, with a bearer-refresh HTTP client that retries a 401
-once and never falls back to an API key. Z.ai Standard and Coding Plan are
+once and never falls back to an API key. A 401 or 403 on a ChatGPT, Copilot
+or xAI sign-in is checked against that sign-in's model list before the card
+goes out (`Failure::checked_against_sign_in`, once per provider a minute):
+if the list answers, the card says the provider is refusing requests
+(`provider_refused`) rather than asking for a sign-in that would not help.
+Z.ai Standard and Coding Plan are
 separate API-key connections using Rig's native Z.ai endpoints.
 Custom OpenAI-compatible connections have stable, separate provider ids, a
 name, base URL, optional key, API choice, and an editable model list. Rig's
@@ -609,38 +651,16 @@ with the teammate's reach and grants, no more.
 
 ## Module map
 
-```
-crates/hotline-core/src/
-  contract.rs            the wire's types (serde + ts-rs)
-  paths.rs               the data directory's layout
-  log/                   streams: append, fold, segments, subscribe
-  store/                 FTS5 over tapes and chapters; chapter list; previews
-  room.rs                the roster fold, settings, and schedules
-  vault.rs               secrets beside the room stream
-  session/               Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
-  driver/                InProcess (Rig) and the ACP child, with its agent registry
-  mcp/                   the client of granted servers, and Hotline's own teammate tools
-  skills/                the catalog: built-in, gateway and workspace skills, copied into a workspace
-  tools/                 workspace tools on cap-std, shell command
-  desk.rs                the room, vault and log behind the wire
-  import.rs              copies an existing Hotline data directory
-  import/                the previous edition's roster and records, read-only
-  wire/                  the door: seats, commands, subscriptions
-  linked.rs              linked desks: their records, qualified ids, the roster that crosses
-  remote/                Remote: the sealed listener, pairing, the relay, a linked desk's channel
-  bin/hotline-import.rs     the importer as a binary
-  bin/hotline-mcp-echo.rs   a one-tool stdio server the MCP harnesses spawn
-crates/hotline-app/     the Tauri shell: plugins, the menu, the door
-ui/                      the window (React, built against the generated contract; ui/src/ui is the design system)
-crates/hotline-core/tests/  headless end-to-end proofs (integration tests driving the wire)
-```
+The tree, and what each module holds, is mapped once in
+[development.md](development.md#layout).
 
 ## Phases
 
-Each phase ends with the app usable for what it covers, `make check`
-green, and a harness proving the phase's behaviour over the wire. Nothing
-needs to be live between phases; `../hotline` on `main` stays the daily driver
-until Phase 1 replaces it.
+This is the order the tree was built in, kept as history. Each phase ended
+with the app usable for what it covered, `make check` green, and a harness
+proving the phase's behaviour over the wire. Nothing needed to be live
+between phases; `../hotline` on `main` stayed the daily driver until Phase 1
+replaced it.
 
 - **Phase 0 — the core, headless.** The log with folds and subscriptions;
   the room stream with teammates and settings; the vault; the index; the

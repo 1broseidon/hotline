@@ -1,9 +1,10 @@
 use super::{Room, files::Source};
+use crate::contract::ImageSettings;
 use crate::contract::Reach;
+use crate::contract::SpendingSettings;
 use crate::driver::CapabilityLease;
-use crate::imagegen::{self, Aspect, ImageError, ImageRequest, ImageSet, ImageSettings, Reference};
+use crate::imagegen::{self, Aspect, ImageError, ImageRequest, ImageSet, Reference};
 use crate::sent;
-use crate::spending::SpendingSettings;
 use crate::tools::Workspace;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -35,19 +36,24 @@ struct Arguments {
     name: Option<String>,
 }
 
+/// Whether these settings have image generation off.
+pub(crate) fn images_off_in(settings: &serde_json::Map<String, Value>) -> bool {
+    settings
+        .get("images")
+        .cloned()
+        .and_then(|images| serde_json::from_value::<ImageSettings>(images).ok())
+        .is_some_and(|images| images.is_off())
+}
+
 impl Room {
-    pub(crate) fn spending_summary(&self) -> Result<crate::spending::SpendingSummary, String> {
+    pub(crate) fn spending_summary(&self) -> Result<crate::contract::SpendingSummary, String> {
         self.spending.summary()
     }
 
     /// Whether the owner has turned image generation off in Settings. A
     /// setting that cannot be read is not off: it fails where it is used.
     pub(crate) fn images_off(&self) -> bool {
-        crate::room::try_settings(self.log())
-            .ok()
-            .and_then(|settings| settings.get("images").cloned())
-            .and_then(|images| serde_json::from_value::<ImageSettings>(images).ok())
-            .is_some_and(|images| images.is_off())
+        crate::room::try_settings(self.log()).is_ok_and(|settings| images_off_in(&settings))
     }
 
     pub(crate) async fn generate_image(
@@ -110,7 +116,7 @@ impl Room {
             image,
             spent_usd,
             subscription,
-        } = self.draw(&request, &capability).await?;
+        } = self.draw(&request, capability.as_ref()).await?;
         if let Some(capability) = &capability {
             capability.check()?;
         }
@@ -170,7 +176,7 @@ impl Room {
     pub(crate) async fn draw(
         &self,
         request: &ImageRequest,
-        capability: &Option<CapabilityLease>,
+        capability: Option<&CapabilityLease>,
     ) -> Result<Drawn, String> {
         let generators = self.image_generators()?;
         let mut spent_usd = 0.0;
@@ -182,7 +188,7 @@ impl Room {
                 break;
             }
             on_plan = subscription;
-            if let Some(capability) = &capability {
+            if let Some(capability) = capability {
                 capability.check()?;
             }
             if request.references.len() > generator.max_references() {
@@ -214,11 +220,11 @@ impl Room {
                         .map_err(|_| "The image's spending could not be reserved.".to_string())??,
                 )
             };
-            if let Some(capability) = &capability {
+            if let Some(capability) = capability {
                 capability.check()?;
             }
             let before_send = || {
-                if let Some(capability) = &capability {
+                if let Some(capability) = capability {
                     capability.check().map_err(|_| ImageError::Revoked)?;
                 }
                 Ok(())
@@ -272,8 +278,11 @@ impl Room {
             return Err(format!("{}.", imagegen::IMAGES_OFF));
         }
         #[cfg(test)]
-        if let Some(generators) = super::lock(&self.image_generators).clone() {
-            return Ok(generators);
+        {
+            let generators = super::lock(&self.image_generators).clone();
+            if let Some(generators) = generators {
+                return Ok(generators);
+            }
         }
         let vault = self
             .vault
@@ -364,7 +373,7 @@ pub(super) fn read_workspace_image(
                     .map_err(|_| ())
             });
         inside
-            .map_err(|_| format!("{noun} must be inside your workspace."))?
+            .map_err(|()| format!("{noun} must be inside your workspace."))?
             .to_string_lossy()
             .into_owned()
     } else {

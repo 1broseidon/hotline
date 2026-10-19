@@ -41,11 +41,11 @@
 //! never hold more than its parent did.
 
 use super::agent::{Opening, lease_of};
+use super::preamble::{folders_sentence, reach_sentence, skills_index};
+use super::prompt::{PendingTool, event_of};
 use super::turns::{Line, Seat};
-use super::{
-    CLOCK, PendingTool, Room, event_of, folders_sentence, narration, new_id, now_ms,
-    reach_sentence, skills_index, timed,
-};
+use super::{CLOCK, Room, narration, new_id, now_ms, timed};
+use crate::contract::{End, ThreadId, ThreadKind};
 use crate::contract::{
     NoticeLevel, Persona, Reach, RunningSubagent, SessionInfo, SubagentStatus, ToolStatus,
     TranscriptEvent,
@@ -54,7 +54,7 @@ use crate::driver::{
     CapabilityLease, Driver, HOTLINE_BACKEND_ID, MessageKind, SubagentReport, Update,
 };
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
-use crate::thread::{End, Link, ThreadId, ThreadKind, ThreadState};
+use crate::thread::{Link, ThreadState};
 use crate::voice::spoken::Shown;
 use futures_util::future::BoxFuture;
 use std::collections::HashMap;
@@ -776,8 +776,8 @@ mod tests {
 
     fn said(replies: &[&str], last_words: &[&str]) -> Driven {
         Driven {
-            replies: replies.iter().map(|line| line.to_string()).collect(),
-            last_words: last_words.iter().map(|line| line.to_string()).collect(),
+            replies: replies.iter().map(ToString::to_string).collect(),
+            last_words: last_words.iter().map(ToString::to_string).collect(),
             ..Driven::default()
         }
     }

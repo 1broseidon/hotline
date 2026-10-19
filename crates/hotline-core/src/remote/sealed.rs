@@ -8,6 +8,9 @@ use snow::{Builder, HandshakeState, TransportState};
 
 // Only an authenticated Noise message 2 may carry this session rejection.
 pub(super) const DEVICE_REJECTED: &[u8] = br#"{"error":"device_not_authorized"}"#;
+/// A known key at a door its role does not open. Not a revocation: the
+/// client keeps the pairing, which still opens the doors its role does.
+pub(super) const ROLE_REFUSED: &[u8] = br#"{"error":"role_not_permitted"}"#;
 
 const PATTERN: &str = "Noise_IK_25519_ChaChaPoly_SHA256";
 const PROLOGUE: &[u8] = b"hotline/2";
@@ -315,7 +318,7 @@ mod tests {
                 assert_eq!(decoded, None);
             }
         }
-        assert!(decoder.pending.is_empty());
+        assert_eq!(decoder.pending, [] as [u8; 0]);
     }
 
     #[test]
@@ -369,7 +372,7 @@ mod tests {
                 .unwrap_err()
                 .contains("byte limit")
         );
-        assert!(decoder.pending.is_empty());
+        assert_eq!(decoder.pending, [] as [u8; 0]);
         assert!(decoder.decode(&mut r, &raw(&mut i, b"\x01ok")).is_err());
     }
 
@@ -456,12 +459,12 @@ mod tests {
                 }
                 3 => ciphertext.clear(),
                 4 => ciphertext.resize(MAX_CIPHERTEXT + 1, 0),
-                _ => unreachable!(),
+                _ => unreachable!("the loop runs which over 0..5"),
             }
             let mut decoder = Decoder::new(usize::MAX);
             assert!(decoder.decode(&mut r, &ciphertext).is_err());
             assert!(decoder.failed);
-            assert!(decoder.pending.is_empty());
+            assert_eq!(decoder.pending, [] as [u8; 0]);
         }
     }
 

@@ -1,6 +1,8 @@
 use super::*;
+use crate::contract::SkillPolicy;
 use crate::contract::{McpPolicy, Persona, PolicyMode};
 use crate::driver::CapabilityEpoch;
+use crate::driver::acp::StartBounds;
 use crate::imagegen::{Aspect, Image, ImageError, ImageGen, ImageId};
 use crate::log::{Log, StreamId};
 use crate::mcp::server::TeammateTools;
@@ -152,7 +154,7 @@ fn room() -> (tempfile::TempDir, Arc<Room>, TeammateTools) {
             mode: PolicyMode::None,
             server_ids: Vec::new(),
         },
-        skill_policy: Default::default(),
+        skill_policy: SkillPolicy::default(),
         background_work: false,
         allowed_senders: Vec::new(),
         web_search_policy: None,
@@ -209,7 +211,7 @@ async fn subscription_images_report_unknown_cost_without_touching_dollar_spendin
     provider.cost = None;
     install(&room, fake, None);
     room.spending
-        .reserve(&crate::spending::BudgetLimits::default(), 1.0)
+        .reserve(&crate::contract::BudgetLimits::default(), 1.0)
         .unwrap()
         .charge(1.0)
         .unwrap();
@@ -345,7 +347,7 @@ async fn subscription_images_cannot_read_references_outside_the_workspace() {
         .await;
     assert!(error.is_err());
     assert!(fake.requests.lock().unwrap().is_empty());
-    assert!(attachments(&room).is_empty());
+    assert_eq!(attachments(&room), [] as [Value; 0]);
 }
 
 #[tokio::test]
@@ -377,7 +379,7 @@ async fn revocation_during_subscription_refresh_prevents_dispatch_and_publicatio
     assert!(error.contains("revoked"), "{error}");
     assert!(fake.requests.lock().unwrap().is_empty());
     assert!(fallback.requests.lock().unwrap().is_empty());
-    assert!(attachments(&room).is_empty());
+    assert_eq!(attachments(&room), [] as [Value; 0]);
     assert!(!dir.path().join("workspace/revoked.png").exists());
     assert!(!room.log().root().join("spending.json").exists());
 }
@@ -528,7 +530,7 @@ async fn only_client_refusals_release_reservations_and_uncertain_errors_keep_the
         let summary = room.spending_summary().unwrap();
         assert_eq!(summary.day_usd, expected);
         assert_eq!(summary.month_usd, expected);
-        assert!(attachments(&room).is_empty());
+        assert_eq!(attachments(&room), [] as [Value; 0]);
     }
 }
 
@@ -680,7 +682,7 @@ async fn custom_avatar_requests_without_style_bypass_the_crew_through_the_handle
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0].prompt, prompt);
         assert_eq!(requests[0].aspect, Aspect::Portrait);
-        assert!(requests[0].references.is_empty());
+        assert_eq!(requests[0].references, [] as [Reference; 0]);
         assert_eq!(requests[1].prompt, photo_prompt);
         assert_eq!(requests[1].aspect, Aspect::Landscape);
         assert_eq!(
@@ -787,7 +789,7 @@ async fn generation_holds_no_room_lock_and_revocation_stops_fallback_and_publica
     release.notify_one();
     assert!(generation.await.unwrap().is_err());
     assert!(fallback.requests.lock().unwrap().is_empty());
-    assert!(attachments(&room).is_empty());
+    assert_eq!(attachments(&room), [] as [Value; 0]);
 }
 
 #[tokio::test]
@@ -837,7 +839,7 @@ async fn a_connected_custom_provider_generates_through_the_real_resolver_and_htt
             },
         )
         .unwrap();
-    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault, Default::default());
+    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault, StartBounds::default());
     let tools = TeammateTools::new(&room, "ada");
     let result: Value = serde_json::from_str(&tools.call("generate_image", &json!({
         "prompt": "a lighthouse", "aspect": "16:9", "transparent": true, "name": "resolved"
@@ -893,7 +895,7 @@ async fn http_400_refusals_leave_the_ledger_unchanged() {
             },
         )
         .unwrap();
-    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault, Default::default());
+    let room = Room::new_with_mcp(log, Arc::new(NoKeys), vault, StartBounds::default());
     let tools = TeammateTools::new(&room, "ada");
     let before = room.spending_summary().unwrap();
     for _ in 0..3 {
@@ -905,7 +907,7 @@ async fn http_400_refusals_leave_the_ledger_unchanged() {
         assert_eq!(room.spending_summary().unwrap(), before);
     }
     assert_eq!(requests.load(Ordering::SeqCst), 3);
-    assert!(attachments(&room).is_empty());
+    assert_eq!(attachments(&room), [] as [Value; 0]);
     server.abort();
 }
 
@@ -940,7 +942,7 @@ async fn corrupt_saved_caps_block_spending_and_generated_files_never_overwrite()
             .is_err()
     );
     assert_eq!(std::fs::read(path).unwrap(), b"existing work");
-    assert!(attachments(&room).is_empty());
+    assert_eq!(attachments(&room), [] as [Value; 0]);
 }
 
 #[tokio::test]

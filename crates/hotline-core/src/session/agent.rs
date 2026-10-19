@@ -24,19 +24,20 @@
 //! offers are taken before it starts. A peer session (`peer_session`) is still
 //! built on its own, and moves onto this when its phase lands.
 
-use super::{
-    COMPUTER_DOWNLOADING, ComputerAtStart, Driving, Room, chapters, computer_failed_note,
-    computer_unavailable, now_ms, said, with_note, without_computer,
+use super::computer::{
+    COMPUTER_DOWNLOADING, ComputerAtStart, Driving, computer_failed_note, computer_unavailable,
+    with_note, without_computer,
 };
+use super::prompt::said;
+use super::{Room, chapters, now_ms};
 use crate::contract::{Persona, Reach, SessionCheckpoint, SharedSecret};
+use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::{
     CapabilityEpoch, CapabilityLease, Driver, DriverInfo, HOTLINE_BACKEND_ID, SubagentReport,
     Update, acp,
 };
 use crate::mcp::server::TeammateTools;
-use crate::thread::{
-    AgentBinding, Computer, Lease, Opener, Policy, Resume, ThreadId, ThreadKind, ThreadStore, Tools,
-};
+use crate::thread::{AgentBinding, Computer, Lease, Opener, Policy, Resume, ThreadStore, Tools};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
@@ -374,6 +375,12 @@ impl Room {
         let mut starting = Starting(Some(driver.clone()));
         let mut info = driver.start(&checkpointed).await?;
         lease.check()?;
+        // Hotline Agent with no provider comes up for the main conversation,
+        // to say so on its tape before anything is sent. A side or peer
+        // thread would only open onto that, so it is refused instead.
+        if in_process && !main && driver.startup_failure().is_some() {
+            return Err(crate::driver::failure::NO_PROVIDER.to_string());
+        }
         // A harness that came up failed (it never answered, or is signed out)
         // was not asked to reopen anything, and starting it over would only
         // wait out the same failure a second time.

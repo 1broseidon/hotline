@@ -10,7 +10,8 @@
 //! thinking, and a file in thinking would reach nobody while the teammate
 //! believed it had been sent.
 
-use super::{Room, lock, new_id, now_ms, quiet, stamped};
+use super::prompt::stamped;
+use super::{Room, lock, new_id, now_ms, quiet};
 use crate::computer::{self, Ready};
 use crate::contract::{Attachment, AttachmentKind, Persona, TranscriptEvent};
 use crate::driver::CapabilityLease;

@@ -352,16 +352,19 @@ impl Jobs {
             let ended = std::panic::AssertUnwindSafe(runner.run(args, job_cancel, &job_tail))
                 .catch_unwind()
                 .await
-                .map(finished)
-                .unwrap_or_else(|_| Finished {
-                    state: JobState::Unknown,
-                    output: "The managed job runner failed; execution outcome is unknown.".into(),
-                });
+                .map_or_else(
+                    |_| Finished {
+                        state: JobState::Unknown,
+                        output: "The managed job runner failed; execution outcome is unknown."
+                            .into(),
+                    },
+                    finished,
+                );
             deliver(&job_route, job_id, ended);
         })
         .abort_handle();
         self.entries.insert(
-            id.clone(),
+            id,
             Job {
                 snapshot: snapshot.clone(),
                 cancel,
@@ -859,6 +862,8 @@ fn title_of(given: Option<&str>, task: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use crate::test_support::until;
     use crate::{contract::Reach, tools::Workspace};
 
     /// Processes for a session that takes none.
@@ -1069,13 +1074,7 @@ mod tests {
                 reason: None,
             })
             .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while processes.holds("a") {
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("a cancelled process ends");
+        until("a cancelled process ends", || !processes.holds("a")).await;
         later
             .launch("e".into(), json!({"command": "sleep 30 # e"}))
             .unwrap();
@@ -1112,13 +1111,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(cancelling["outcome"], "cancelling");
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while processes.holds("server") {
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("the process ends");
+        until("the process ends", || !processes.holds("server")).await;
         assert!(
             wakes.try_recv().is_err(),
             "a stop the teammate asked for wakes nobody"
@@ -1137,7 +1130,7 @@ mod tests {
         jobs.launch("quick".into(), json!({"command": "echo done"}))
             .unwrap();
         // Ended, but not yet read by the turn when the reply hands it on.
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        until("the command reports its end", || !jobs.ended.is_empty()).await;
         assert_eq!(jobs.release().len(), 1);
         let woke = tokio::time::timeout(std::time::Duration::from_secs(5), wakes.recv())
             .await

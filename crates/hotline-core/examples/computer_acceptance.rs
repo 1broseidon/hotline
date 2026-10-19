@@ -75,9 +75,10 @@ async fn provision(
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_millis();
-    let id = passive_persona_id
-        .map(str::to_owned)
-        .unwrap_or_else(|| format!("acceptance-{}-{nonce}", std::process::id()));
+    let id = passive_persona_id.map_or_else(
+        || format!("acceptance-{}-{nonce}", std::process::id()),
+        str::to_owned,
+    );
     let persona: Persona = serde_json::from_value(json!({
         "id": id, "name": "Release acceptance", "goal": "", "backendId": "hotline",
         "cwd": workspace, "mcpPolicy": {"mode":"all", "serverIds":[]},
@@ -95,7 +96,7 @@ async fn provision(
                 eprintln!(
                     "pull {}: {}/{} layers, {:?}",
                     report.image, report.layers_done, report.layers_total, report.outcome
-                )
+                );
             },
         )
         .await?;
@@ -122,7 +123,7 @@ async fn provision(
                 eprintln!(
                     "pull {}: {}/{} layers, {:?}",
                     report.image, report.layers_done, report.layers_total, report.outcome
-                )
+                );
             },
         )
         .await?;

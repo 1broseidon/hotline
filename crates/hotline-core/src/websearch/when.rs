@@ -15,12 +15,12 @@ pub struct Window {
 impl Window {
     /// Whether a date falls in the window, a day either side allowed: a story
     /// is dated in its own timezone and a query is not.
-    pub fn near(&self, date: NaiveDate) -> bool {
+    pub fn near(self, date: NaiveDate) -> bool {
         date >= self.from - Duration::days(1) && date <= self.to + Duration::days(1)
     }
 
     /// Whether a date is clearly before the window: a month or more earlier.
-    pub fn long_before(&self, date: NaiveDate) -> bool {
+    pub fn long_before(self, date: NaiveDate) -> bool {
         date < self.from - Duration::days(30)
     }
 }

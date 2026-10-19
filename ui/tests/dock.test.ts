@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ThreadSummary } from "../src/generated/contract";
+import type { ScheduleEntry, ThreadSummary } from "../src/generated/contract";
 import {
 	clampDock,
 	DOCK_KEY,
@@ -9,6 +9,7 @@ import {
 	dockOverlays,
 	draggedDock,
 	groupThreads,
+	jobRows,
 	type LinkEvent,
 	loadDockWidth,
 	openerWords,
@@ -220,9 +221,15 @@ describe("what a person can do in a thread", () => {
 	});
 
 	test("is only reading in a pair, a run and a call", () => {
-		for (const kind of ["pair", "run", "call"] as const) {
+		for (const kind of ["pair", "run", "call", "dm"] as const) {
 			for (const state of ["live", "parked", "closed"] as const) expect(powersOf(kind, state)).toEqual(read);
 		}
+	});
+
+	test("is speaking in a job's thread until it ends, then only reading", () => {
+		expect(powersOf("job", "live")).toEqual({ ...read, say: true });
+		expect(powersOf("job", "parked")).toEqual({ ...read, say: true });
+		expect(powersOf("job", "closed")).toEqual(read);
 	});
 
 	test("is reading along in a handoff, with only its turn to stop until it ends", () => {
@@ -258,5 +265,24 @@ describe("relative times", () => {
 		expect(relativeTime(now - 3 * 3_600_000, now)).toBe("3h");
 		expect(relativeTime(now - 2 * 86_400_000, now)).toBe("2d");
 		expect(relativeTime(now + 5_000, now)).toBe("now");
+	});
+});
+
+describe("the Jobs group", () => {
+	const entry = (id: string, rest: Partial<ScheduleEntry>) => ({ id, personaId: "ada", name: id, kind: "loop", prompt: "", nextAt: 0, ...rest }) as ScheduleEntry;
+
+	test("lists running jobs soonest first, then ended ones newest first, and leaves reminders out", () => {
+		const listed = jobRows([
+			entry("old", { endedAt: 5 }),
+			entry("later", { nextAt: 90 }),
+			entry("remind", { nextAt: 1, reminder: true }),
+			entry("new", { endedAt: 9 }),
+			entry("soon", { nextAt: 10 }),
+		]);
+		expect(listed.map((one) => one.id)).toEqual(["soon", "later", "new", "old"]);
+	});
+
+	test("is not in the thread list's own groups", () => {
+		expect(groupThreads([thread("j", "job")])).toEqual({ open: [], closed: [] });
 	});
 });

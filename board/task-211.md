@@ -68,3 +68,6 @@ ADR 0007 step 1, first half, in place inside hotline-core: no crate is made here
 - AuthStatus and import::Report become plain data types that can move down with the trait (no methods that reach the core; whatever logic is on them stays where it is as free functions or in the core). If they belong in hotline-contract (they cross the wire), say why in the ADR; contract.ts must stay byte-identical, so if they are exported types, do not change their shape.
 - The three test rooms (CoreHandle and Quiet in wire/tests, Computered in remote/tests) keep implementing RoomHandle.
 No behaviour change, no new trait, no event hop (docs/standards.md). One line in ADR 0007 under step 1 saying it is done and how the wire now receives the three.
+
+## Log
+- 2026-10-19T14:31:49.451Z: [claude] Lead: try 1 ended before committing. It put the full test run in the background and ended its turn, which ends the session. The work is in the worktree uncommitted (61 files, +696/-407, ADR 0007 line included). Next try: do not redo it; review the diff and finish it. Run `cargo test -p hotline-core` unfiltered, then `make check`, `git diff --exit-code -- ui/src/generated/contract.ts` and `make precheck`, all in the foreground and to completion; never background a command and end the turn. Then commit with a one-line invariant message and deliver.

@@ -26,8 +26,13 @@ dispatch:
   by: cli
   at: "2026-10-19T17:32:30.960Z"
   until: review
-  tries: 0
-updatedAt: "2026-10-19T17:32:31.101Z"
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-19T17:32:32.097Z"
+updatedAt: "2026-10-19T17:32:32.097Z"
 ---
 
 ## Description

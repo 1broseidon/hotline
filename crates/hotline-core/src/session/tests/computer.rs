@@ -933,6 +933,80 @@ async fn updating_a_resting_teammates_computer_removes_it_at_once() {
     assert!(room.session("ada").is_err(), "nothing was started");
 }
 
+/// Memory and CPUs are taken when a computer is made, so the pane is told
+/// when the running one has other limits than the teammate's settings, and
+/// a restart pressed while the teammate is working makes it again between
+/// turns, with the new limits, and clears the offer.
+#[tokio::test]
+async fn a_restart_makes_the_computer_again_with_the_limits_set_since() {
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-restart", Some("0.10.3"), TWO_RELEASES, true).await;
+    room.start("ada").await.unwrap();
+    let session = room.session("ada").unwrap();
+    assert!(!room.computer_status("ada").await.unwrap().limits_changed);
+
+    let mut ada = room.persona("ada").unwrap();
+    let computer = ada.computer.as_mut().unwrap();
+    computer.memory = Some("2048m".into());
+    computer.cpus = Some(1.5);
+    enrol(&room.log, &ada);
+    assert!(
+        room.computer_status("ada").await.unwrap().limits_changed,
+        "the running computer still has the old limits"
+    );
+
+    std::fs::write(root.join("argv.log"), "").unwrap();
+    room.computer_restart("ada").await.unwrap();
+    let swapped = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let replaced = room
+                .session("ada")
+                .is_ok_and(|now| !Arc::ptr_eq(&now, &session) && now.computer);
+            if replaced && room.info("ada").state == SessionState::Ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        swapped.is_ok(),
+        "the teammate carries on with the new computer"
+    );
+    let commands = runtime_commands(&root);
+    let create = commands
+        .iter()
+        .find(|line| line.starts_with("create "))
+        .unwrap_or_else(|| panic!("{commands:?}"));
+    assert!(create.contains("--memory 2048m"), "{create}");
+    assert!(create.contains("--cpus 1.5"), "{create}");
+    assert!(!room.computer_status("ada").await.unwrap().limits_changed);
+}
+
+/// With no session running a restart only stops the computer: its next
+/// start finds the limits differ and makes it again.
+#[tokio::test]
+async fn restarting_a_resting_teammates_computer_stops_it_for_the_next_start() {
+    let ComputerRoom { room, root, .. } =
+        computer_room("computer-restart-idle", Some("0.10.3"), TWO_RELEASES, true).await;
+    room.start("ada").await.unwrap();
+    room.stop("ada").unwrap();
+    std::fs::write(root.join("argv.log"), "").unwrap();
+    room.computer_restart("ada").await.unwrap();
+    let commands = runtime_commands(&root);
+    assert!(
+        commands.iter().any(|line| line.starts_with("stop ")),
+        "{commands:?}"
+    );
+    assert!(
+        !commands
+            .iter()
+            .any(|line| line.starts_with("rm ") || line.starts_with("create ")),
+        "nothing is made before it is needed: {commands:?}"
+    );
+    assert!(room.session("ada").is_err(), "nothing was started");
+}
+
 /// A fresh computer is created on the newest published release: the desk
 /// asks once before creating, and a computer already on it is offered
 /// nothing. A pinned image is used as written and the endpoint never hears

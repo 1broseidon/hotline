@@ -1100,6 +1100,10 @@ impl RoomHandle for Desk {
         self.room.computer_update(persona_id).await
     }
 
+    async fn computer_restart(&self, persona_id: &str) -> Result<(), String> {
+        self.room.computer_restart(persona_id).await
+    }
+
     async fn computer_settings_changed(&self, _persona_id: &str) {
         self.room.secrets_changed().await;
     }

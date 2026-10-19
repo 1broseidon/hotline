@@ -440,6 +440,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     async fn computer_stop(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_remove(&self, persona_id: &str) -> Result<(), String>;
     async fn computer_update(&self, persona_id: &str) -> Result<(), String>;
+    async fn computer_restart(&self, persona_id: &str) -> Result<(), String>;
 
     /// The host browsers the operator could bring cookies from. Names only.
     /// Defaults to none: a room without a desk under it offers no host.

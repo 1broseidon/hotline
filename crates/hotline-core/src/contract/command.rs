@@ -753,6 +753,10 @@ pub enum Command {
     /// and starts the teammate again if it was running. The volumes survive.
     #[serde(rename = "computer.update")]
     ComputerUpdate { persona_id: String },
+    /// Makes the computer again with the memory and CPU limits the teammate
+    /// has now, between turns if it is running. The volumes survive.
+    #[serde(rename = "computer.restart")]
+    ComputerRestart { persona_id: String },
     /// The browsers on the host the operator could bring cookies from, with
     /// their profiles. Names only; no cookie store is opened. Owner or local desk only —
     /// this reads the desk host, never a teammate's computer, and no agent

@@ -211,6 +211,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `computer.status` | `{personaId}` | `{state, url?, viewer?}` — a peek, never a wake |
 | `computer.stop` | `{personaId}` | none |
 | `computer.remove` | `{personaId}` | none |
+| `computer.restart` | `{personaId}` | none; makes the teammate's computer again with the memory and CPUs it has now, between turns if it is running, or stops it for the next start if not ([computer.md](computer.md)) |
 | `computer.update` | `{personaId}` | none; recreates the teammate's computer on the release it would be created on now, keeping its volumes, and starts the teammate again if it was running ([computer.md](computer.md)) |
 | `computer.browsers.list` | `{}` | `[{id, name, family, profiles: [{id, name}], blocked}]` — the host browsers cookies could come from; names only. `blocked` marks one that is installed but whose data the host refuses the desk (macOS without Full Disk Access), listed with no profiles so the window can say what to allow |
 | `computer.cookies.preview` | `{browserId, profileId}` | `[{domain, cookies}]` — the sites in that profile and their counts, never a value |
@@ -1301,7 +1302,11 @@ hello. Clients use their normal reconnect backoff.
 The first Noise message is limited to 4096 bytes and WebSocket records to
 65535. Reassembly is capped at 32 MiB; the owner wire permits 32 MiB frames,
 while companions retain the 1 MiB output frame limit. Both use a bounded
-64-frame outbox. These limits never widen a seat or fall back to plaintext.
+256-frame outbox: a full one closes the socket, though live words it cannot
+take are dropped instead. A frame the peer has not taken within 60 seconds
+also closes the socket, on every seat, so a phone that left the network
+without closing is dropped even when it is quiet and never named `lean`.
+These limits never widen a seat or fall back to plaintext.
 Rotation prevents a fixed set of anonymous connections from holding all
 reconnect slots, but cannot guarantee availability under sustained connection
 floods or a proxy that refuses traffic. Public deployments still need edge

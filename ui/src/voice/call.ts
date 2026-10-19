@@ -5,8 +5,17 @@ import type { FileChunk, VoiceEndReason, VoiceEvent, VoiceFront } from "../gener
 import { type CallAudio, webAudio } from "./audio";
 import { microphoneTrouble } from "./microphone";
 import { TurnDetector, levelFromDb } from "./turn";
-import { type DeviceTranscription, type TranscriptionEvent, deviceTranscription, hearsOnThisMac, rawEquivalentDb } from "./transcription";
+import {
+	type DeviceTranscription,
+	type TranscriptionEvent,
+	UNHEARD,
+	WordlessVoice,
+	deviceTranscription,
+	hearsOnThisMac,
+	rawEquivalentDb,
+} from "./transcription";
 import { hearOnThisMac, subscribeHearing } from "./hearing";
+import { hearsWithDeskModel } from "./desk";
 import { WAV_RATE, downsample, encodeWav, rms, toBase64 } from "./wav";
 import { PcmResampler, PcmTurn } from "./stream";
 import { useModelsRevision, useRawSetting } from "../room";
@@ -43,6 +52,8 @@ export type CallSnapshot = {
 	ended?: EndReason;
 	/** One sentence for a person, when something went wrong. */
 	trouble?: string | undefined;
+	/** This Mac heard no words and the desk would hear the call with its own model, free: worth offering. */
+	deskModel?: boolean;
 };
 
 /** What the desk sends on `{call: id}`: the generated `VoiceEvent`. */
@@ -238,6 +249,7 @@ export class Call {
 	/** The session's words from before the speaker's onset, which are the room's. */
 	private textIgnored = "";
 	private textSnapshots: { text: string; at: number }[] = [];
+	private readonly wordless = new WordlessVoice();
 	/** The connect chime is not the speaker. */
 	private quietUntil = 0;
 
@@ -791,6 +803,7 @@ export class Call {
 				const level = levelFromDb(rawEquivalentDb(event.levelDb));
 				this.level = level;
 				for (const turn of this.detector.push(level, now)) {
+					if (this.wordless.turn(turn)) return this.unheard();
 					switch (turn.kind) {
 						case "start":
 							this.heard = true;
@@ -818,6 +831,7 @@ export class Call {
 			case "partial":
 			case "final": {
 				const text = event.text.trim();
+				this.wordless.heard(text);
 				if (!this.heard) {
 					this.textSnapshots.push({ text, at: this.now() });
 					if (this.textSnapshots.length > 64) this.textSnapshots.shift();
@@ -837,6 +851,21 @@ export class Call {
 				this.listen();
 				return;
 		}
+	}
+
+	/**
+	 * Voice on the meter and never a word: the engine is not recognizing.
+	 * The call ends saying so, and offers the desk's own model when the desk
+	 * would hear an audio call with it, so nothing moves to a paid provider.
+	 */
+	private unheard(): void {
+		this.fail(UNHEARD);
+		void this.transport
+			.command("voice.status", {})
+			.then((status) => {
+				if (hearsWithDeskModel(status)) this.set({ deskModel: true });
+			})
+			.catch(() => {});
 	}
 
 	/** What the speaker has said this turn: nothing until the meter heard a voice, so the room's words are never sent. */

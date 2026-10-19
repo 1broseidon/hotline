@@ -52,3 +52,4 @@ ADR 0008 §6 slice 4: peer_session builds through Room::thread_agent and drives 
 
 ## Log
 - 2026-10-19T20:04:29.604Z: [codex] Picked up contract. Scope from cymbal impact: peer_session is called only by peer delivery; shared builder also serves DM/work/run. Preserve dual leases, directional history and linked caller identity; replace pair driving with a Witness on Threads::drive and remove the redundant startup guard. Reserved task-216 paths stay untouched.
+- 2026-10-19T20:06:29.680Z: [codex] Implementation uses the shared Opening/ThreadAgent lifecycle and a pair Witness on Threads::drive. Removed StartingPeer plus unused runner::drive/drive_with/Calls; the written-version test now exercises drive_updates directly with unchanged assertions. Added builder coverage for both history orientations on Hotline and ACP, with home checkpoints stripped. Full check, threads/desk harnesses and precheck are running.

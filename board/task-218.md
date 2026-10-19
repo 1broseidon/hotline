@@ -1,7 +1,7 @@
 ---
 id: task-218
 title: "Slice 4: pair threads on the one builder and loop"
-column: in-progress
+column: review
 position: 14
 priority: medium
 tags:
@@ -12,7 +12,7 @@ relatedFiles:
 parentId: epic-20
 createdAt: "2026-10-19T19:59:31.591Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-core/src/session/peers/sessions.rs
@@ -31,7 +31,9 @@ contract:
     readyAt: "2026-10-19T20:03:13.573Z"
     pickedUpAt: "2026-10-19T20:03:55.078Z"
     reworkCount: 0
-updatedAt: "2026-10-19T20:03:55.078Z"
+    deliveredAt: "2026-10-19T20:08:25.244Z"
+    duration: 270
+updatedAt: "2026-10-19T20:08:25.244Z"
 dispatch:
   agent: codex
   model: gpt-6.1-sol

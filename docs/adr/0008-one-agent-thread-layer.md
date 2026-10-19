@@ -281,7 +281,7 @@ person to keep it posts it.
 becomes a work thread's in what it reaches (the teammate's tools, plus
 `post_to_chat`, less the chapter moves; `Lease::Independent`; the computer
 through the lease; seeded with the DM's tail; resumed by its binding) and
-keeps its own lifecycle (closed after ten quiet minutes, one per teammate).
+keeps its own lifecycle (parked 30 seconds after hang-up once no turn is in flight, one per teammate).
 It is built by `Room::thread_agent` and driven by `Room::run_queue`, as a
 work thread is. On a harness teammate it is an ACP session of the harness's
 own, so Claude Code's edits and Codex's shell are on the call; ADR 0005's
@@ -300,11 +300,16 @@ from; a soft sound covers a turn that says nothing first.
 **Hanging up detaches the modality; it does not end the turn.** A turn in
 flight at hang-up finishes, and its reply is posted to the chat instead of
 said, which replaces today's follow-up of an unanswered question
-(`duplex.rs:292`, `spoken::ENDED_NOTE`). When the thread closes, its closing
-note, the same summariser a work thread's close uses, is posted to the chat
-as the call's summary. The five-minute summaries and the front's mechanical
-`Digest` (`voice/record.rs:116-207`) go: on a long call the person sees the
-transcript on the call card, and what matters is posted as it happens.
+(`duplex.rs:292`, `spoken::ENDED_NOTE`). When the call is over, 30 seconds after hang-up once
+no turn is in flight (a turn still running at hang-up finishes first), its
+closing note, the same summariser a work thread's close uses, is posted to
+the chat as the call's summary, and the thread parks (George, 2026-10-19: ten
+minutes was too long). Parking closes nothing: the thread can still be
+continued by text or picked up by a new call, and if it is, the next hang-up
+posts a note covering what is new since the last one. The five-minute
+summaries and the front's mechanical `Digest` (`voice/record.rs:116-207`)
+go: on a long call the person sees the transcript on the call card, and what
+matters is posted as it happens.
 
 **The live fronts.** A realtime front stops being an agent: its prompt
 (`front_prompt.rs`), its registry (`front_tools.rs`, `FRONT_TOOLS`,

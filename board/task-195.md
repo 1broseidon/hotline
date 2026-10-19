@@ -1,7 +1,7 @@
 ---
 id: task-195
 title: "hotline-websearch: web search as its own crate"
-column: todo
+column: in-progress
 position: 3
 priority: medium
 tags:
@@ -15,9 +15,9 @@ createdAt: "2026-10-19T06:06:59.331Z"
 dependsOn:
   - task-194
   - task-198
-updatedAt: "2026-10-19T08:33:12.898Z"
+updatedAt: "2026-10-19T08:33:27.261Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-websearch/Cargo.toml
@@ -38,6 +38,8 @@ contract:
     - contract.ts byte-identical
   metrics:
     readyAt: "2026-10-19T06:11:05.054Z"
+    pickedUpAt: "2026-10-19T08:33:27.261Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

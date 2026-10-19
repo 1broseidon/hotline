@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/computer/container.rs
   - ui/src/components/settings
   - ui/src/generated/contract.ts
-updatedAt: "2026-10-19T00:31:01.866Z"
+updatedAt: "2026-10-19T00:31:11.284Z"
 contract:
   status: delivered
   validation:
@@ -43,6 +43,8 @@ dispatch:
     runner: cli
     pid: 59290
     at: "2026-10-19T00:15:57.030Z"
+    ended: "2026-10-19T00:31:11.284Z"
+    outcome: review
 assignee: claude
 ---
 

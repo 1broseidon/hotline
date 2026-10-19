@@ -1,8 +1,6 @@
 ---
 id: task-219
 title: "Slice 3: files and images from any thread land in the chat"
-column: review
-position: 15
 priority: medium
 tags:
   - threads
@@ -15,7 +13,7 @@ createdAt: "2026-10-19T19:59:32.080Z"
 dependsOn:
   - task-216
   - task-217
-updatedAt: "2026-10-19T22:22:03.338Z"
+updatedAt: "2026-10-19T22:23:37.461Z"
 contract:
   status: delivered
   deliverables:
@@ -47,6 +45,7 @@ dispatch:
     at: "2026-10-19T22:14:55.793Z"
     ended: "2026-10-19T22:22:03.338Z"
     outcome: review
+completedAt: "2026-10-19T22:23:37.461Z"
 ---
 
 ## Description
@@ -57,3 +56,4 @@ From task-217 (landed on release/0.41.0): the posting gate lives in session/post
 ## Log
 - 2026-10-19T22:14:52.782Z: [claude] Lead: try 1 ended its turn while `make check` was still running in the background, so nothing was validated or committed. Its work is uncommitted in the worktree on dispatch/task-219 (mcp/server.rs, session/files.rs, generate.rs, post.rs, sides.rs, tests/posting.rs, tests/sent_files.rs, tests/mcp/post_to_chat.rs, and design.md, security.md, sessions.md under docs). Next try: keep that work. Run `make check` in the foreground with a generous timeout (never in the background) and wait for it to finish. Fix what fails and commit, then run every contract validation command before delivering. Never end the turn while a command is still running.
 - 2026-10-19T22:22:00.394Z: [claude] Committed try 1's work as 033bd304 on dispatch/task-219, after fixing the one thing make check failed on: a stale security.md citation of the removed quiet-refusal test. send_file and generate_image now take the TeammateTools thread. Every file goes through Room::post stamped `from` its thread. A work thread or pair keeps a "Sent X to the chat." notice, and the file doesn't use up its post_to_chat. On a call (direct voice_origin), the DM's file is stamped from the call. A quiet run's file takes the turn's one post through Room::take_post, which was split out of post_to_chat (no second count), and Room::may_send refuses a file or image before fetching once the post is taken. QUIET and is_quiet are gone. Subagent runs are refused send_file and generate_image (session/tests/posting.rs). Harness: tests/mcp/post_to_chat.rs *_work_threads_file_lands_in_the_chat and *_quiet_runs_file_is_its_one_post, on both drivers. make check, make precheck and the QUIET grep all pass. Left unwired: a voice front's own tools still post with no gate, and calls still open no Posting (both out of scope).
+- 2026-10-19T22:23:37.083Z: Landed on release/0.41.0

@@ -11,7 +11,7 @@ tags:
   - bug
 createdAt: "2026-10-18T21:59:36.514Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-19T00:14:12.170Z"
+updatedAt: "2026-10-19T00:14:22.381Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/session.rs
@@ -57,6 +57,8 @@ dispatch:
     runner: cli
     pid: 59290
     at: "2026-10-19T00:10:43.870Z"
+    ended: "2026-10-19T00:14:22.381Z"
+    outcome: review
 assignee: claude
 ---
 

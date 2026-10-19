@@ -39,3 +39,6 @@ dependsOn:
 Slice of task-14 (items 2-4). driver/acp/registry.rs: 24 h TTL (:36), only the picker refreshes (backends(), desk.rs), session start uses cached_backends, and the hand-pinned codex-acp fallback sits at :198. (a) A failed registry fetch keeps the last known good list. (b) Session start refreshes in the background when the cache is stale, without blocking. (c) A 'model not supported by this harness version' failure becomes a card saying which harness is too old and what to do, not a raw 400. Leave auto-refresh-and-retry for later. Tests for each.
 
 Split from task-14, which keeps the rest and stays deferred.
+
+## Log
+- 2026-10-19T00:08:29.760Z: [claude] Lead, from task-8 (landed): failure.rs has a new Kind::ProviderRefused and probes the provider's model list on a 401/403. A harness that says 'model not supported' (a 400) is neither of those: give it its own wording in set_kind, naming the harness and saying to update it. Don't fold it into Auth, InvalidRequest or ProviderRefused. task-188 also changes failure.rs before you start, so rebase onto release/0.40.0.

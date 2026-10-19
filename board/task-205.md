@@ -20,7 +20,30 @@ parentId: epic-17
 createdAt: "2026-10-19T13:59:39.118Z"
 dependsOn:
   - task-202
-updatedAt: "2026-10-19T20:02:33.787Z"
+updatedAt: "2026-10-19T20:02:38.203Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: ui/tests/team-lead.test.tsx
+      description: badge, menu, pick-a-lead prompt and onboarding line, all from the roster
+    - type: docs
+      path: CHANGELOG.md
+      description: a line under Unreleased on the team lead
+  validation:
+    commands:
+      - test -f ui/tests/team-lead.test.tsx
+      - cd ui && bun test tests/team-lead.test.tsx
+      - grep -qi 'lead' CHANGELOG.md
+      - make check
+      - git diff --exit-code -- ui/src/generated/contract.ts
+      - make verify
+  constraints:
+    - The window never sets a lead on its own; everything reflects the roster's lead
+    - No usage counter added for the suggestion
+    - No core or contract changes beyond what task-202 landed; if one is needed, say so in a note
+  metrics:
+    readyAt: "2026-10-19T20:02:38.203Z"
 ---
 
 ## Description

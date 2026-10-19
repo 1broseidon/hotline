@@ -1,8 +1,6 @@
 ---
 id: task-194
 title: "hotline-contract: the wire and tape types as their own crate"
-column: review
-position: 2
 priority: high
 tags:
   - crate-split
@@ -15,7 +13,7 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:58.782Z"
 dependsOn:
   - task-193
-updatedAt: "2026-10-19T07:48:10.838Z"
+updatedAt: "2026-10-19T07:49:49.235Z"
 contract:
   status: delivered
   deliverables:
@@ -60,6 +58,7 @@ dispatch:
     at: "2026-10-19T07:41:39.477Z"
     ended: "2026-10-19T07:48:10.838Z"
     outcome: review
+completedAt: "2026-10-19T07:49:49.235Z"
 ---
 
 ## Description
@@ -68,3 +67,4 @@ Move contract.rs and contract/ into crates/hotline-contract. It depends on no ot
 ## Log
 - 2026-10-19T07:41:38.946Z: Landing sent back (1 of 1): with release/0.41.0 brought in, `make check` failed: stopped after 15 minutes. Fix it on this branch, commit, and run the checks again.
 - 2026-10-19T07:48:06.797Z: [claude] Re-landing: release/0.41.0 (bdce54fc) is already in dispatch/task-194 and has not moved, so there was nothing to merge and no code to fix; the branch is unchanged at 37cb44f4. Here, make check passes in 4m11s and make precheck in 93s (all 8 legs); contract.ts is byte-identical after both, and all of the contract's validation commands pass. Unlike earlier runs, nothing hung in this one, so the 15-minute stop looks like a cold target/ in the landing checkout (clippy and test both build from cold), not a hang on this branch. If it recurs, warm target/ or raise the limit. The slowest non-cargo step is scripts/test_githooks.py at 57s: its tsc runs through the mise node shim in a temp dir, which took about 50s per call. Same for the tasks after this one: hotline-core keeps `pub use hotline_contract as contract`, so no caller moved; hotline-contract depends on no hotline crate.
+- 2026-10-19T07:49:48.881Z: Landed on release/0.41.0

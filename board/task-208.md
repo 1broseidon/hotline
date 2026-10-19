@@ -26,13 +26,13 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:41.570Z"
 dependsOn:
   - task-211
-updatedAt: "2026-10-19T14:09:47.249Z"
+updatedAt: "2026-10-19T14:10:20.361Z"
 contract:
   status: ready
   deliverables:
     - type: file
       path: crates/hotline-room/Cargo.toml
-      description: the room crate
+      description: the room crate (or the name the ADR gives it)
     - type: docs
       path: docs/adr/0007-split-hotline-core.md
       description: step 1 done, with each moved file's old and new path
@@ -47,7 +47,7 @@ contract:
       - "! test -e crates/hotline-core/src/voice/spoken.rs"
       - "! grep -rq 'pub trait RoomHandle' crates/hotline-core/src"
       - grep -rlq 'pub trait RoomHandle' crates/*/src
-      - "! grep -q 'hotline-core' crates/hotline-room/Cargo.toml 2>/dev/null"
+      - "! grep -lqE '^hotline-core[[:space:]]*=' $(grep -rl 'pub trait RoomHandle' crates/*/src | sed 's#/src/.*#/Cargo.toml#' | sort -u)"
       - make check
       - git diff --exit-code -- ui/src/generated/contract.ts
       - make precheck
@@ -56,7 +56,7 @@ contract:
     - ui/src/generated/contract.ts byte-identical after an unfiltered cargo test
     - The new crate never depends on hotline-core or Tauri
   metrics:
-    readyAt: "2026-10-19T14:09:47.249Z"
+    readyAt: "2026-10-19T14:10:20.361Z"
 ---
 
 ## Description

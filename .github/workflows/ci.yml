@@ -177,6 +177,39 @@ jobs:
       - name: Verify native desktop credential storage
         run: cargo test --workspace native_store_roundtrip --locked -- --ignored
 
+  # A manual run only: whether /usr/bin's developer shims (python3, git) run
+  # in both shells on a hosted Mac, where Xcode is selected, and how long
+  # each took. The test prints its report and names any that hung.
+  shell-probe:
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - name: Fetch the pinned speech engine
+        shell: bash
+        run: python3 scripts/fetch-speech-engine || python scripts/fetch-speech-engine
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ci-macos
+          save-if: false
+
+      - name: Unpack the speech engine again
+        shell: bash
+        run: rm -rf target/sherpa-onnx-prebuilt target/*/build/sherpa-onnx-sys-* target/*/.fingerprint/sherpa-onnx-sys-* target/*/*/build/sherpa-onnx-sys-* target/*/*/.fingerprint/sherpa-onnx-sys-*
+
+      - name: Probe the developer shims in both shells
+        run: |
+          xcode-select -p
+          cargo test -p hotline-core --test processes developer_shims --locked -- --ignored --nocapture
+
   # On a push to main (or a manual run), the release's own build of each target, unsigned and
   # unbundled, saved under the key desktop-release.yml restores. A tag then
   # compiles only what changed since main's last push, not every dependency

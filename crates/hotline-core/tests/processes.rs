@@ -146,6 +146,63 @@ async fn running_process_dies_when_its_grant_is_revoked() {
     desk.quiet_for(Duration::from_secs(1)).await;
 }
 
+/// A probe for GitHub's macOS runners, run by ci.yml's `shell-probe` job: the
+/// developer shims in /usr/bin find their toolchain through xcode-select, and
+/// at 0.39.0 a hosted Mac's `python3 -m http.server` never listened. Each
+/// shell, unconfined and Seatbelt, says how long each command took, and the
+/// test names any /usr/bin command that hung or failed. The PATH python3 and
+/// its `getfqdn`, which `HTTPServer` runs before it listens, are reported only.
+#[cfg(target_os = "macos")]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "probes a hosted Mac's developer tools; ci.yml's shell-probe job runs it"]
+async fn developer_shims_run_in_both_shells() {
+    let mut desk = Desk::open().await;
+    let machine = desk.probe_shims().await;
+    let updated = desk
+        .call(
+            "persona.update",
+            json!({"id": desk.persona, "patch": {"reach": "workspace"}}),
+        )
+        .await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    let workspace = desk.probe_shims().await;
+    let report = format!("machine reach:\n{machine}workspace reach:\n{workspace}");
+    println!("{report}");
+    let failed: Vec<&str> = report
+        .lines()
+        .filter(|line| line.contains(": /usr/bin/") && !line.starts_with("exit 0 "))
+        .collect();
+    assert!(failed.is_empty(), "{failed:#?}\n{report}");
+}
+
+/// Each probe runs in the background with an eight second watchdog, so a
+/// command that hangs is named rather than stalling the rest. The script
+/// waits for `go`, so it always outlives the shell's yield and the turn ends
+/// before it does.
+#[cfg(target_os = "macos")]
+const PROBE_SHIMS: &str = r#"while [ ! -e go ]; do sleep 0.05; done
+probe() {
+  "$@" > probe.out 2>&1 & pid=$!; tenths=0
+  while kill -0 $pid 2>/dev/null; do
+    if [ $tenths -ge 80 ]; then
+      kill -9 $pid; wait $pid 2>/dev/null
+      echo "hung for 8s: $*: $(head -c 300 probe.out)"; return
+    fi
+    sleep 0.1; tenths=$((tenths + 1))
+  done
+  wait $pid; status=$?
+  echo "exit $status in ~${tenths}00ms: $*: $(head -c 300 probe.out)"
+}
+{
+  echo "DEVELOPER_DIR=${DEVELOPER_DIR-unset} PATH=$PATH"
+  probe /usr/bin/xcode-select -p
+  probe /usr/bin/python3 -c 'print(1)'
+  probe /usr/bin/git --version
+  probe python3 -c 'import sys; print(sys.executable)'
+  probe python3 -c 'import socket; print(socket.getfqdn("127.0.0.1"))'
+} > probe.txt
+mv probe.txt probe.done"#;
+
 /// The session as the roster says it, the next time `wanted` holds of it.
 async fn session_where(desk: &mut Desk, wanted: impl Fn(&Value) -> bool) -> Value {
     let persona = desk.persona.clone();
@@ -296,9 +353,9 @@ async fn running_process_serve_open_and_stop_end_to_end() {
     let link = format!("http://127.0.0.1:{port}/chart.html");
     // The shell stays the group's leader and the server its child, so the
     // tree is two processes and the group is the shell's pid. The server is
-    // the system perl, a real binary on every Unix runner: macOS's
-    // /usr/bin/python3 is a shim into the developer tools, and on a hosted
-    // Mac it starts inside the sandbox but never serves.
+    // the system perl, a real binary on every Unix runner: on a hosted Mac,
+    // `python3 -m http.server` in this unconfined shell started but never
+    // listened (`developer_shims_run_in_both_shells` probes why).
     let serve = format!(
         "printf '<h1>The chart</h1>' > chart.html; echo $$ > server.pid; \
          {SERVE} {port} & echo $! > child.pid; wait"
@@ -543,6 +600,28 @@ impl Desk {
         let path = self.workspace.join(file);
         common::until("the command writes its pid", || read_pid(&path).is_some()).await;
         read_pid(&path).unwrap()
+    }
+
+    /// What `PROBE_SHIMS` reports in this teammate's shell as it is now.
+    #[cfg(target_os = "macos")]
+    async fn probe_shims(&mut self) -> String {
+        for file in ["go", "probe.done"] {
+            let _ = std::fs::remove_file(self.workspace.join(file));
+        }
+        self.script([
+            tool_call("shell", json!({"command": PROBE_SHIMS}), "call_probe"),
+            text("Probing."),
+            text("Probed."),
+        ]);
+        self.prompt("probe the developer tools").await;
+        self.request().await;
+        self.request().await;
+        assert_eq!(self.turn_end().await["event"]["stopReason"], "end_turn");
+        std::fs::write(self.workspace.join("go"), "").unwrap();
+        // The probe's own end wakes the teammate, which says it is done.
+        self.request().await;
+        assert_eq!(self.turn_end().await["event"]["stopReason"], "end_turn");
+        std::fs::read_to_string(self.workspace.join("probe.done")).unwrap()
     }
 
     /// A turn that leaves a long sleep running and replies; its pid.

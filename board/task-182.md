@@ -12,7 +12,7 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:54.225Z"
 relatedFiles:
   - crates/hotline-core/src/mcp/oauth.rs
-updatedAt: "2026-10-19T00:33:55.864Z"
+updatedAt: "2026-10-19T00:33:58.587Z"
 contract:
   status: ready
   deliverables:
@@ -33,7 +33,12 @@ dispatch:
   by: lead
   at: "2026-10-19T00:33:55.688Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 59290
+    at: "2026-10-19T00:33:58.587Z"
 assignee: claude
 ---
 

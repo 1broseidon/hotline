@@ -11,7 +11,7 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:56.313Z"
 relatedFiles:
   - crates/hotline-app/src/desks.rs
-updatedAt: "2026-10-19T00:33:56.705Z"
+updatedAt: "2026-10-19T00:34:01.867Z"
 contract:
   status: ready
   deliverables:
@@ -31,7 +31,12 @@ dispatch:
   by: lead
   at: "2026-10-19T00:33:56.531Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 59290
+    at: "2026-10-19T00:34:01.867Z"
 assignee: claude
 ---
 

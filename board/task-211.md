@@ -40,8 +40,8 @@ contract:
     - Do not create the new crate here; task-208 does that
   metrics:
     readyAt: "2026-10-19T14:09:32.259Z"
-    pickedUpAt: "2026-10-19T14:10:45.873Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-19T14:31:59.978Z"
+    reworkCount: 1
 createdAt: "2026-10-19T14:09:32.269Z"
 dispatch:
   agent: claude
@@ -57,7 +57,7 @@ dispatch:
     pid: 94104
     at: "2026-10-19T14:31:51.911Z"
 assignee: claude
-updatedAt: "2026-10-19T14:31:51.911Z"
+updatedAt: "2026-10-19T14:31:59.978Z"
 ---
 
 ## Description

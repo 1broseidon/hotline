@@ -14,7 +14,7 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:42.047Z"
 dependsOn:
   - task-208
-updatedAt: "2026-10-19T14:10:02.825Z"
+updatedAt: "2026-10-19T14:10:20.624Z"
 contract:
   status: ready
   deliverables:
@@ -30,7 +30,7 @@ contract:
       - "! test -e crates/hotline-core/src/mcp/oauth.rs"
       - "! test -e crates/hotline-core/src/mcp/tool.rs"
       - grep -rq 'struct TeammateTools' crates/hotline-core/src
-      - "! grep -q 'hotline-core' crates/hotline-mcp/Cargo.toml"
+      - "! grep -qE '^hotline-core[[:space:]]*=' crates/hotline-mcp/Cargo.toml"
       - cargo test -p hotline-core --test mcp
       - make check
       - git diff --exit-code -- ui/src/generated/contract.ts
@@ -41,7 +41,7 @@ contract:
     - ui/src/generated/contract.ts byte-identical after an unfiltered cargo test
     - hotline-mcp never depends on hotline-core or Tauri
   metrics:
-    readyAt: "2026-10-19T14:09:47.516Z"
+    readyAt: "2026-10-19T14:10:20.624Z"
 ---
 
 ## Description

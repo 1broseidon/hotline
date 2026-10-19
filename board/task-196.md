@@ -20,7 +20,7 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:59.870Z"
 dependsOn:
   - task-194
-updatedAt: "2026-10-19T06:11:04.263Z"
+updatedAt: "2026-10-19T07:50:15.952Z"
 contract:
   status: ready
   deliverables:
@@ -51,3 +51,5 @@ contract:
 One crate for the leaves that hold no Hotline state: credentials (atomic_write and friends, credentials/), process_windows, images, thumbs (reaches images), fence, room_lock, log_file (reaches paths; its harness=false integration test crates/hotline-core/tests/log_file.rs and the [[test]] entry move with it), and paths once its one link to linked (is_linked, a string test) moves into paths itself or into hotline-contract. Use the name ADR 0007 settled (hotline-support unless it says otherwise); keep it one crate, not seven. room_lock is the one-writer-per-data-dir guard (desk.lock): its tests move with it and still prove a second desk is refused. Unsafe code keeps its SAFETY comments.
 
 Lead's note: this runs before task-197 and task-198 (both need it) and alone, because every crate move edits the same lines (workspace members, Cargo.lock, hotline-core's Cargo.toml and lib.rs, docs/standards.md's module map, AGENTS.md).
+
+From task-194: hotline-core keeps `pub use hotline_contract as contract`, so callers still say crate::contract; hotline-contract depends on no hotline crate. Its first landing hit the 15-minute `make check` limit, most likely a cold target/ in the landing checkout rather than a hang (make check ran in 4m11s warm). Don't add to the cold-build cost without cause: no new dev-dependencies or features beyond what the moved code already used.

@@ -1,8 +1,8 @@
 ---
 id: task-180
 title: "A 'needs you' card a teammate no longer needs goes away: withdraw your own request, and a shorter default lifetime"
-column: review
-position: 0
+column: in-progress
+position: 2
 priority: high
 tags:
   - cards
@@ -11,7 +11,7 @@ tags:
   - bug
 createdAt: "2026-10-18T21:59:36.514Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-19T00:10:43.870Z"
+updatedAt: "2026-10-19T00:11:27.792Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/session.rs

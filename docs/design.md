@@ -24,6 +24,8 @@ Single decisions too large for a section here are recorded as ADRs in
   desktop can pair with it only to relay.
 - [ADR 0007](adr/0007-split-hotline-core.md): split hotline-core into
   crates, leaves first.
+- [ADR 0008](adr/0008-one-agent-thread-layer.md): one agent thread layer;
+  modalities attach to it, and the chat is the log of truth (proposed).
 
 George's reasons, in his words: the proof that the thing works is in the
 core of the Bun edition; Rust is for sheer speed and far more control, with

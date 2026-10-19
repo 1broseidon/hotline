@@ -52,6 +52,16 @@ pub(super) fn failure(
     if failure.kind == super::super::failure::Kind::AgentAuth {
         failure.sign_in = descriptor(live);
     }
+    let session = lock(&live.session);
+    failure.name_the_harness(
+        &clip(&session.info.agent_name, 256),
+        session
+            .info
+            .agent_version
+            .as_deref()
+            .map(|version| clip(version, 64))
+            .as_deref(),
+    );
     failure
 }
 

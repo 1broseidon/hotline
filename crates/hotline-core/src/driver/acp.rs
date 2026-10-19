@@ -555,6 +555,9 @@ impl Driver for ChildAgent {
 
     async fn start(&self, persona: &Persona) -> Result<DriverInfo, String> {
         self.check_capability()?;
+        // This start runs on the catalogue it has; a day-old one is fetched
+        // again behind it, for the next.
+        registry::refresh_in_background(&self.root);
         registry::install(&self.root, &self.backend_id).await?;
         let launch = registry::launch(&self.root, &self.backend_id)?;
         *lock(&self.launch) = Some(launch.clone());

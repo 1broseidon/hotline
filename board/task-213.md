@@ -15,7 +15,25 @@ parentId: epic-19
 createdAt: "2026-10-19T17:20:19.224Z"
 dependsOn:
   - task-212
-updatedAt: "2026-10-19T17:20:20.185Z"
+updatedAt: "2026-10-19T17:22:11.096Z"
+contract:
+  status: ready
+  deliverables:
+    - type: design
+      path: docs/adr/0007-split-hotline-core.md
+      description: "a section headed \"The room's side of a call\": the inventory, the proposed trait or values, the command-table answer, the voice agent's footing, and a plain recommendation (move or stop)"
+  validation:
+    commands:
+      - grep -q "^## The room's side of a call" docs/adr/0007-split-hotline-core.md
+      - grep -qiE '^\*\*Recommendation' docs/adr/0007-split-hotline-core.md
+      - git diff --quiet release/0.41.0...HEAD -- crates ui Cargo.toml Cargo.lock
+      - python3 scripts/security-citations
+  constraints:
+    - "Docs only: no change under crates/, ui/, Cargo.toml or Cargo.lock"
+    - "The inventory cites file:line on release/0.41.0 after task-212 for every Weak<Room> call and crate:: reach it counts"
+    - "The recommendation applies George's test in one sentence: move if the room's side is a handful of methods, stop if it mirrors most of the room"
+  metrics:
+    readyAt: "2026-10-19T17:22:11.096Z"
 ---
 
 ## Description

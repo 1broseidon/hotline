@@ -4,7 +4,9 @@
 //! a table of agents Hotline has been taught by hand, the ACP registry's
 //! published catalogue (fetched once a day and cached, so a session start
 //! never waits on the network and an offline machine still gets the table),
-//! and a probe of what is actually installed. A locally installed binary
+//! and a probe of what is actually installed. A day-old catalogue is still
+//! the one used until a fetch replaces it: a fetch that fails leaves the last
+//! good copy where it was. A locally installed binary
 //! always wins over a downloadable one, because the local copy carries the
 //! user's login. An agent the catalogue ships only as a prebuilt archive is
 //! downloaded the first time a session starts it (see `install`).
@@ -240,12 +242,29 @@ fn due_for_a_try(root: &Path) -> bool {
 /// at once and, when that copy is a day old, refreshes it in the background
 /// for the next listing, so nobody opening the picker waits on a fetch.
 pub async fn backends(root: &Path) -> Vec<Backend> {
-    let stale = read_catalogue(root).is_none_or(|catalogue| !fresh(&catalogue, now_ms()));
-    if stale && due_for_a_try(root) {
-        let root = root.to_path_buf();
-        tokio::spawn(async move { refresh_catalogue(&root).await });
-    }
+    refresh_in_background(root);
     cached_backends(root)
+}
+
+/// Fetches the catalogue again in the background when the cached copy is a
+/// day old, and returns at once. Both the picker and a session start ask: a
+/// desk whose picker is never opened would otherwise start its agents from
+/// a catalogue as old as its last look, adapter versions included. The start
+/// that asks still runs on the copy it has; the next one gets the new one.
+pub fn refresh_in_background(root: &Path) {
+    refresh_in_background_from(root, REGISTRY_URL);
+}
+
+fn refresh_in_background_from(root: &Path, url: &str) -> Option<tokio::task::JoinHandle<()>> {
+    let stale = read_catalogue(root).is_none_or(|catalogue| !fresh(&catalogue, now_ms()));
+    if !stale || !due_for_a_try(root) {
+        return None;
+    }
+    let root = root.to_path_buf();
+    let url = url.to_string();
+    Some(tokio::spawn(
+        async move { refresh_catalogue(&root, &url).await },
+    ))
 }
 
 /// The same listing without touching the network, which is what starting a
@@ -593,15 +612,17 @@ fn read_catalogue(root: &Path) -> Option<Catalogue> {
 }
 
 /// Fetches the catalogue when the cached copy is a day old, and says nothing
-/// when it cannot. A failure here costs the agents Hotline was not taught by
-/// hand, and never the ones it was.
-async fn refresh_catalogue(root: &Path) {
+/// when it cannot. A fetch that fails, or answers with anything but a list of
+/// agents, writes nothing, so the last good catalogue stays in use however
+/// old it is; with none ever fetched, the cost is the agents Hotline was not
+/// taught by hand, and never the ones it was.
+async fn refresh_catalogue(root: &Path, url: &str) {
     let cached = read_catalogue(root);
     if cached.is_some_and(|catalogue| fresh(&catalogue, now_ms())) {
         return;
     }
     let fetched = reqwest::Client::new()
-        .get(REGISTRY_URL)
+        .get(url)
         .timeout(FETCH_TIMEOUT)
         .send()
         .await
@@ -623,12 +644,21 @@ async fn refresh_catalogue(root: &Path) {
         fetched_at: now_ms(),
         agents,
     };
+    // Written beside the cache and renamed over it, so a desk stopped
+    // halfway through the write still has the last good copy, not half of
+    // the new one.
     let path = paths::acp_registry_path(root);
-    if let Some(directory) = path.parent()
-        && std::fs::create_dir_all(directory).is_ok()
-        && let Ok(bytes) = serde_json::to_vec(&catalogue)
-    {
-        let _ = std::fs::write(path, bytes);
+    let partial = path.with_extension(format!("{}.partial", uuid::Uuid::new_v4()));
+    let Ok(bytes) = serde_json::to_vec(&catalogue) else {
+        return;
+    };
+    let written = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(&partial, bytes))
+        .and_then(|()| std::fs::rename(&partial, &path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&partial);
     }
 }
 
@@ -859,6 +889,142 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+    }
+
+    /// A catalogue this build wrote two days ago, listing one agent Hotline
+    /// was not taught by hand.
+    fn write_days_old_catalogue(root: &Path, agent_id: &str) {
+        let path = paths::acp_registry_path(root);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            serde_json::to_vec(&serde_json::json!({
+                "format": CATALOGUE_FORMAT,
+                "fetchedAt": now_ms() - 2 * CACHE_TTL_MS,
+                "agents": [{"id": agent_id, "distribution": {"npx": {"package": agent_id}}}],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn lists(root: &Path, agent_id: &str) -> bool {
+        cached_backends(root)
+            .iter()
+            .any(|backend| backend.id == agent_id)
+    }
+
+    /// A catalogue endpoint on this machine that answers one request with
+    /// `status` and `body`, once `hold` lets it when there is one.
+    async fn endpoint(
+        status: u16,
+        body: &str,
+        hold: Option<tokio::sync::oneshot::Receiver<()>>,
+    ) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/registry.json", listener.local_addr().unwrap());
+        let body = body.to_string();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).await;
+            if let Some(hold) = hold {
+                let _ = hold.await;
+            }
+            let reply = format!(
+                "HTTP/1.1 {status} Answer\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = socket.write_all(reply.as_bytes()).await;
+        });
+        url
+    }
+
+    /// A day-old catalogue is the last good one. A fetch that fails — no
+    /// answer, an error status, a body that is not a list of agents, an empty
+    /// list — leaves it in use; only a fetch that brings agents replaces it.
+    #[tokio::test]
+    async fn a_failed_fetch_keeps_the_last_good_list() {
+        let root = scratch("keeps-last-good");
+        write_days_old_catalogue(&root, "amp");
+        assert!(lists(&root, "amp"), "a day-old catalogue is still listed");
+
+        let nobody = {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            format!("http://{}/registry.json", listener.local_addr().unwrap())
+        };
+        refresh_catalogue(&root, &nobody).await;
+        for (status, body) in [
+            (500, r#"{"agents": [{"id": "from-an-error"}]}"#),
+            (200, "<html>maintenance</html>"),
+            (200, r#"{"agents": "not a list"}"#),
+            (200, r#"{"agents": []}"#),
+        ] {
+            refresh_catalogue(&root, &endpoint(status, body, None).await).await;
+            assert!(lists(&root, "amp"), "{status} {body}");
+            assert!(!lists(&root, "from-an-error"));
+        }
+        assert!(!fresh(&read_catalogue(&root).unwrap(), now_ms()));
+
+        let good = r#"{"agents": [{"id": "zed", "distribution": {"npx": {"package": "zed"}}}]}"#;
+        refresh_catalogue(&root, &endpoint(200, good, None).await).await;
+        assert!(lists(&root, "zed"));
+        assert!(!lists(&root, "amp"));
+        assert!(fresh(&read_catalogue(&root).unwrap(), now_ms()));
+        let leftovers: Vec<_> =
+            std::fs::read_dir(paths::acp_registry_path(&root).parent().unwrap())
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .filter(|name| name.to_string_lossy().contains("partial"))
+                .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
+    }
+
+    /// A session start on a day-old catalogue asks for a new one and does not
+    /// wait for it: the refresh is under way while the endpoint is still
+    /// holding its answer, the start's own listing is the old copy, and the
+    /// listing after the answer is the new one. A fresh catalogue is not
+    /// fetched at all, and a stale one is not asked for twice in a row.
+    #[tokio::test]
+    async fn a_stale_catalogue_is_refreshed_behind_a_session_start_without_holding_it_up() {
+        let root = scratch("background-refresh");
+        write_days_old_catalogue(&root, "amp");
+        let (answer, hold) = tokio::sync::oneshot::channel();
+        let good = r#"{"agents": [{"id": "zed", "distribution": {"npx": {"package": "zed"}}}]}"#;
+        let url = endpoint(200, good, Some(hold)).await;
+
+        let asked = Instant::now();
+        let refreshing =
+            refresh_in_background_from(&root, &url).expect("a day-old catalogue is fetched");
+        assert!(
+            asked.elapsed() < Duration::from_secs(1),
+            "{:?}",
+            asked.elapsed()
+        );
+        assert!(lists(&root, "amp"), "the start runs on the copy it has");
+        assert!(
+            refresh_in_background_from(&root, &url).is_none(),
+            "asked once"
+        );
+
+        answer.send(()).unwrap();
+        refreshing.await.unwrap();
+        assert!(lists(&root, "zed"), "the next start gets the new one");
+
+        let fresh_root = scratch("background-refresh-fresh");
+        std::fs::create_dir_all(paths::acp_registry_path(&fresh_root).parent().unwrap()).unwrap();
+        std::fs::write(
+            paths::acp_registry_path(&fresh_root),
+            serde_json::to_vec(&Catalogue {
+                format: CATALOGUE_FORMAT,
+                fetched_at: now_ms(),
+                agents: Vec::new(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(refresh_in_background_from(&fresh_root, &url).is_none());
     }
 
     /// The table Hotline was taught is answered with no catalogue and no network,

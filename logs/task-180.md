@@ -1,8 +1,6 @@
 ---
 id: task-180
 title: "A 'needs you' card a teammate no longer needs goes away: withdraw your own request, and a shorter default lifetime"
-column: review
-position: 2
 priority: high
 tags:
   - cards
@@ -11,7 +9,7 @@ tags:
   - bug
 createdAt: "2026-10-18T21:59:36.514Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-19T00:14:22.381Z"
+updatedAt: "2026-10-19T00:15:17.713Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/session.rs
@@ -60,6 +58,7 @@ dispatch:
     ended: "2026-10-19T00:14:22.381Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-19T00:15:17.713Z"
 ---
 
 ## Description
@@ -83,3 +82,4 @@ Tests: over the wire, a withdrawn card is gone for the desk and phone seats, a c
 - 2026-10-19T00:10:43.314Z: Landing sent back (1 of 1): dispatch/task-180 conflicts with release/0.40.0 in crates/hotline-core/src/wire/tests.rs. On release/0.40.0 since this branch started: 002103b6 A global read answers when it is ready, and the writes behind it keep their order without waiting for it. (task-187). Merge release/0.40.0 into this branch (git merge release/0.40.0), keep what both sides meant, commit the merge, and run the checks: cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test -p hotline-core && cargo test -p hotline-core --test desk && git diff --exit-code ui/src/generated/contract.ts && make ui-check.
 - 2026-10-19T00:11:19.354Z: [claude] Lead: the conflict in wire/tests.rs comes from task-187 (landed 002103b6), which added tests for global reads running in the background, and task-8 also landed. Merge release/0.40.0 into your branch and keep both sets of tests. Then run an unfiltered `cargo test -p hotline-core` so contract.ts is written whole, and check `git diff --exit-code ui/src/generated/contract.ts` is clean before you deliver.
 - 2026-10-19T00:14:14.220Z: [claude] Merged release/0.40.0 into dispatch/task-180 (a7eee4ab). The one conflict, in wire/tests.rs, kept both sides: task-187's slow-read test, and then `mod asks;` with the other test modules. fmt, clippy -D warnings, cargo test -p hotline-core (1889 passed), --test desk, the contract diff and make ui-check (431 pass) are all green. The work is on its branch, ready to land. For the tasks after this one: request_human now returns a card id, withdraw_request{id} exists, and HumanActionStatus has 'withdrawn'.
+- 2026-10-19T00:15:17.283Z: Landed on release/0.40.0

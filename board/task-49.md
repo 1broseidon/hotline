@@ -13,7 +13,7 @@ relatedFiles:
   - ui/src/index.css
 parentId: epic-14
 createdAt: "2026-10-12T04:20:52.535Z"
-updatedAt: "2026-10-18T23:53:55.552Z"
+updatedAt: "2026-10-19T00:43:58.658Z"
 contract:
   status: ready
   deliverables:
@@ -25,6 +25,14 @@ contract:
       - make ui-check
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-19T00:43:58.519Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

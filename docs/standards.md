@@ -22,11 +22,18 @@ module map itself is [development.md](development.md#layout).
   each test process: a type exported from a second crate would erase the
   rest, or be erased. The file is what an unfiltered
   `cargo test -p hotline-contract` writes.
-- A module is `pub` only when the app, the CLI, the harnesses or the examples
-  name it. Otherwise it is `pub(crate)`.
-- No new crates. Revisit that when an incremental
-  `cargo test -p hotline-core --no-run` takes more than 30 seconds, or the
-  contract gets a second consumer.
+- `hotline-support` is the other leaf: the utilities that hold no Hotline
+  state (`credentials`, `paths`, `room_lock`, `log_file`, `images`,
+  `thumbs`, `fence`, `process_windows`). It depends on no Hotline crate, not
+  even `hotline-contract`, and `hotline-core` re-exports each module under
+  its old name, so `crate::paths` still holds there.
+- A new crate comes from the plan in
+  [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
+  direction, its edges only go down, and nothing but the app and the CLI
+  depends on `hotline-core`. It declares the workspace `[lints]`, a license,
+  and a crate doc saying what it owns and what it must never depend on.
+- A module is `pub` only when the app, the CLI, the harnesses, the examples
+  or a crate above its own name it. Otherwise it is `pub(crate)`.
 - Do not break the `session`↔`driver`, `session`↔`voice` and `mcp`↔`session`
   cycles with single-implementation traits. A trait with one implementation
   is indirection that buys nothing here.

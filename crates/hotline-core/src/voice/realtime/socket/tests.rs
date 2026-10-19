@@ -485,11 +485,9 @@ async fn a_lost_provider_is_retried_then_reported_unreachable() {
 #[tokio::test]
 async fn the_grok_login_refreshes_once_when_the_handshake_rejects_it() {
     let dir = tempfile::tempdir().unwrap();
-    let tokens = crate::credentials::CredentialFiles::new(
-        dir.path().into(),
-        crate::credentials::default_store(),
-    )
-    .file(dir.path().join("auth.json"));
+    let tokens =
+        crate::credentials::CredentialFiles::new(dir.path().into(), crate::vault::default_store())
+            .file(dir.path().join("auth.json"));
     crate::providers::xai::sign_in_for_test(&tokens, "first-login");
     let rotate = tokens.clone();
     let (listener, url) = listen().await;
@@ -529,11 +527,9 @@ async fn the_grok_login_refreshes_once_when_the_handshake_rejects_it() {
 #[test]
 fn a_subscription_login_is_only_sent_to_xai() {
     let dir = tempfile::tempdir().unwrap();
-    let tokens = crate::credentials::CredentialFiles::new(
-        dir.path().into(),
-        crate::credentials::default_store(),
-    )
-    .file(dir.path().join("auth.json"));
+    let tokens =
+        crate::credentials::CredentialFiles::new(dir.path().into(), crate::vault::default_store())
+            .file(dir.path().join("auth.json"));
     assert!(
         voice("https://example.com/v1")
             .with_subscription(tokens)
@@ -614,11 +610,9 @@ async fn gpt_realtime_takes_only_24_khz_and_never_a_grok_login() {
         .unwrap();
     assert!(matches!(error, SpeechError::UnsupportedFormat(_)));
     let dir = tempfile::tempdir().unwrap();
-    let tokens = crate::credentials::CredentialFiles::new(
-        dir.path().into(),
-        crate::credentials::default_store(),
-    )
-    .file(dir.path().join("auth.json"));
+    let tokens =
+        crate::credentials::CredentialFiles::new(dir.path().into(), crate::vault::default_store())
+            .file(dir.path().join("auth.json"));
     assert!(openai(BASE_URL).with_subscription(tokens).is_err());
 }
 

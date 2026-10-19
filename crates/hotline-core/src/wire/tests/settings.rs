@@ -342,7 +342,7 @@ fn only_the_desk_and_owner_seats_may_touch_web_search_settings() {
 
 #[tokio::test]
 async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),

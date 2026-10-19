@@ -4,7 +4,7 @@
 //! A fresh process, because pointing stdout and stderr at a file would take
 //! a test runner's own output with it, and because a launch from the Finder or
 //! the Start menu is a process whose stderr is not a terminal from the start.
-use hotline_core::log_file::{self, CAP};
+use hotline_support::log_file::{self, CAP};
 use std::process::{Command, Stdio};
 
 fn main() {

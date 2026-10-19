@@ -35,7 +35,7 @@ impl Drop for Descriptor {
 
 /// Create with a private DACL from the first instant. Existing directories
 /// are repaired through a handle, so a path swap cannot redirect the ACL.
-pub(crate) fn private_directory(path: &Path) -> io::Result<()> {
+pub fn private_directory(path: &Path) -> io::Result<()> {
     if !path.exists() {
         let parent = path
             .parent()
@@ -47,7 +47,7 @@ pub(crate) fn private_directory(path: &Path) -> io::Result<()> {
     protect(path, true)
 }
 
-pub(crate) fn private_file(path: &Path) -> io::Result<()> {
+pub fn private_file(path: &Path) -> io::Result<()> {
     protect(path, false)
 }
 

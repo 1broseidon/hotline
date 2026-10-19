@@ -11,7 +11,7 @@
 //! wrong.
 
 /// `body` inside `<tag>` … `</tag>`, unable to close the tag itself.
-pub(crate) fn fenced(tag: &str, body: &str) -> String {
+pub fn fenced(tag: &str, body: &str) -> String {
     let body = body.replace('<', "\\u003c");
     format!("<{tag}>\n{body}\n</{tag}>")
 }

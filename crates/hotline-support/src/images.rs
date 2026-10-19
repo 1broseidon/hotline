@@ -11,19 +11,19 @@ use std::io::Cursor;
 use tokio::sync::Semaphore;
 
 /// The most an image may weigh before it is decoded at all.
-pub(crate) const MAX_FILE_BYTES: u64 = 20 * 1024 * 1024;
+pub const MAX_FILE_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_PIXELS: u64 = 40_000_000;
 const MAX_EDGE: u32 = 2000;
-pub(crate) const MAX_JPEG_BYTES: usize = 1024 * 1024;
+pub const MAX_JPEG_BYTES: usize = 1024 * 1024;
 
 /// Decoding takes CPU and memory, so at most two run at once, whoever the
 /// image is for. The permit is held by the blocking worker, even if its
 /// caller is stopped.
-pub(crate) static DECODERS: Semaphore = Semaphore::const_new(2);
+pub static DECODERS: Semaphore = Semaphore::const_new(2);
 
 /// Why an image could not be prepared.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Unfit {
+pub enum Unfit {
     TooLarge,
     Invalid,
     Unsupported,
@@ -35,7 +35,7 @@ pub(crate) enum Unfit {
 
 impl Unfit {
     /// What a model reads beside the path it can still open.
-    pub(crate) fn for_model(self) -> &'static str {
+    pub fn for_model(self) -> &'static str {
         match self {
             Self::TooLarge => "image exceeds 20 MiB; on disk only",
             Self::Invalid => "invalid image; on disk only",
@@ -51,7 +51,7 @@ impl Unfit {
 
     /// Why a picture went to the person as a plain file, for the teammate
     /// that sent it.
-    pub(crate) fn plainly(self) -> &'static str {
+    pub fn plainly(self) -> &'static str {
         match self {
             Self::TooLarge => "it is over the 20 MB a picture may be",
             Self::TooManyPixels => "it is over the 40 megapixels a picture may be",
@@ -65,7 +65,7 @@ impl Unfit {
 
 /// Whether these bytes are an image this policy reads: PNG, JPEG, GIF or
 /// WebP, by their first bytes rather than by any name.
-pub(crate) fn readable(bytes: &[u8]) -> bool {
+pub fn readable(bytes: &[u8]) -> bool {
     use image::ImageFormat;
     matches!(
         image::guess_format(bytes),
@@ -74,7 +74,7 @@ pub(crate) fn readable(bytes: &[u8]) -> bool {
 }
 
 /// Width and height, read from the header alone.
-pub(crate) fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+pub fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
     image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
         .ok()?
@@ -83,14 +83,14 @@ pub(crate) fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
 }
 
 /// The image as the policy wants it: an upright JPEG within the limits.
-pub(crate) fn normalize(bytes: &[u8]) -> Result<Vec<u8>, Unfit> {
+pub fn normalize(bytes: &[u8]) -> Result<Vec<u8>, Unfit> {
     shrink(bytes, MAX_EDGE, 85)
 }
 
 /// The same preparation at another size and quality: upright, flattened
 /// onto white, at most `edge` px on its longer side, a JPEG within the
 /// budget. A thumbnail is this at a phone's size.
-pub(crate) fn shrink(bytes: &[u8], edge: u32, quality: u8) -> Result<Vec<u8>, Unfit> {
+pub fn shrink(bytes: &[u8], edge: u32, quality: u8) -> Result<Vec<u8>, Unfit> {
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return Err(Unfit::TooLarge);
     }

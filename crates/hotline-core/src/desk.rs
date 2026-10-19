@@ -128,7 +128,7 @@ impl Desk {
 
     /// Opens the log, the vault and the room over one data directory.
     pub fn open(root: &Path) -> io::Result<Desk> {
-        Self::open_with_store(root, crate::credentials::default_store())
+        Self::open_with_store(root, crate::vault::default_store())
     }
 
     /// Open against an explicitly supplied credential backend.

@@ -184,7 +184,7 @@ impl Vault {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
 
     #[test]
     fn legacy_urls_with_credentials_are_refused_before_connecting() {

@@ -20,7 +20,7 @@ const KEEP: usize = 2000;
 
 /// What kind of picture the copy is of.
 #[derive(Clone, Copy)]
-pub(crate) enum Kind {
+pub enum Kind {
     /// A photo or screenshot: flattened onto white, a JPEG.
     Photo,
     /// A face on a transparent ground: kept transparent, a PNG.
@@ -30,12 +30,7 @@ pub(crate) enum Kind {
 /// The kept copy of `source` at most `edge` px on its longer side, made now
 /// if it was not already. The copy is named by the source's path, length
 /// and modification time, so a replaced source gets a fresh copy.
-pub(crate) async fn copy_of(
-    root: &Path,
-    source: &Path,
-    edge: u32,
-    kind: Kind,
-) -> Result<PathBuf, String> {
+pub async fn copy_of(root: &Path, source: &Path, edge: u32, kind: Kind) -> Result<PathBuf, String> {
     let unreadable = || "That picture could not be read.".to_string();
     let edge = edge.clamp(MIN_EDGE, MAX_EDGE);
     let metadata = fs::symlink_metadata(source).map_err(|_| unreadable())?;

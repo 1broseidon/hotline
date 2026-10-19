@@ -717,7 +717,7 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
 
 #[tokio::test]
 async fn remote_controls_are_denied_to_companions() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
     let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
@@ -815,7 +815,7 @@ async fn remote_controls_are_denied_to_companions() {
 
 #[tokio::test]
 async fn desk_pairing_commands_start_poll_and_cancel_sealed_pairing() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
     let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());

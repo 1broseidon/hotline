@@ -17,6 +17,9 @@
 use crate::contract::{Capabilities, LinkedTeammate, Profile, WorkingOn};
 pub use crate::contract::{DeskLink, DeskLinkState};
 use crate::log::{Log, StreamId};
+// The grammar of a node-qualified id is pure strings, so it lives in `paths`
+// beside the thread key that has to accept one; it is named from here.
+pub(crate) use crate::paths::{is_linked, qualified, split, valid_desk_id, valid_persona_id};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -134,31 +137,6 @@ pub(crate) fn remove(log: &Log, desk_id: &str) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
-/// A desk id as desks give them out: a UUID, or anything as plain.
-pub(crate) fn valid_desk_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-}
-
-/// A teammate id as a room mints them.
-pub(crate) fn valid_persona_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 128
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
-
-/// A linked teammate's id here: its desk's id, a slash, its own id there.
-pub(crate) fn qualified(desk_id: &str, persona_id: &str) -> String {
-    format!("{desk_id}/{persona_id}")
-}
-
-/// The desk and the teammate a node-qualified id names, when it is one.
-pub(crate) fn split(id: &str) -> Option<(&str, &str)> {
-    let (desk, persona) = id.split_once('/')?;
-    (valid_desk_id(desk) && valid_persona_id(persona)).then_some((desk, persona))
-}
-
 /// What a linked teammate is called here, "Name on Desk", from what its
 /// desk's record last heard; none for an id that is not a linked one.
 pub(crate) fn shown_name(log: &Log, id: &str) -> Option<String> {
@@ -169,11 +147,6 @@ pub(crate) fn shown_name(log: &Log, id: &str) -> Option<String> {
         .iter()
         .find(|known| known.persona_id == persona_id)?;
     Some(format!("{} on {}", known.name, record.name))
-}
-
-/// Whether this id names a teammate on another desk.
-pub(crate) fn is_linked(id: &str) -> bool {
-    split(id).is_some()
 }
 
 /// The most MCP server names one linked teammate may carry.
@@ -548,27 +521,6 @@ impl Links {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_qualified_id_names_a_desk_and_a_teammate_and_nothing_else() {
-        assert_eq!(
-            split("2f1c0a9e-desk/lou_1"),
-            Some(("2f1c0a9e-desk", "lou_1"))
-        );
-        assert_eq!(qualified("desk", "lou"), "desk/lou");
-        for not in [
-            "lou",
-            "/lou",
-            "desk/",
-            "desk/lou/again",
-            "de.sk/lou",
-            "desk/l~ou",
-            "../lou",
-            "desk/..",
-        ] {
-            assert_eq!(split(not), None, "{not}");
-        }
-    }
 
     #[test]
     fn a_linked_desk_may_send_a_burst_and_then_only_so_many_frames_a_second() {

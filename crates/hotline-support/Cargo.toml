@@ -1,0 +1,41 @@
+[package]
+name = "hotline-support"
+description = "The utilities Hotline stands on that hold none of its state: credential files, data paths, the desk lock, the log file, images and thumbnails, fences and Windows process jobs. Depends on no other Hotline crate by design."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+# `process` for the Windows job a command is started into, `rt` for the
+# blocking pool a thumbnail is made on.
+tokio = { workspace = true, features = ["process", "rt"] }
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+sha2 = "0.10"
+tempfile = "3"
+getrandom = "0.3"
+hex = "0.4"
+uuid = { version = "1.26.0", features = ["v4", "serde"] }
+# A phone photo is 5 to 10 MB and a 12-megapixel frame; every provider has
+# a ceiling below that, so an attached picture is decoded and shrunk before
+# it is inlined. Only the formats a phone or a screenshot produces.
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects"] }
+
+# Points its own stdout and stderr at a file, so it runs without libtest.
+[[test]]
+name = "log_file"
+harness = false

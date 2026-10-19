@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     contract::{SessionInfo, StreamDelta},
-    credentials::tests::MemoryStore,
+    credentials::MemoryStore,
     desk::Desk,
     wire::Door,
 };

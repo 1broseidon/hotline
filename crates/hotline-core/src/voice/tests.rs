@@ -170,7 +170,7 @@ fn desk(services: Services) -> (tempfile::TempDir, Arc<crate::desk::Desk>, Arc<C
     let desk = Arc::new(
         crate::desk::Desk::open_with_voice_services(
             root.path(),
-            Arc::new(crate::credentials::tests::MemoryStore::default()),
+            Arc::new(crate::credentials::MemoryStore::default()),
             Some(services),
         )
         .unwrap(),

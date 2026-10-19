@@ -729,7 +729,7 @@ async fn computer_room(
         Vault::open_with_store(
             log.root(),
             log.clone(),
-            Arc::new(crate::credentials::tests::MemoryStore::default()),
+            Arc::new(crate::credentials::MemoryStore::default()),
         )
         .unwrap(),
     );

@@ -4317,6 +4317,7 @@ dependencies = [
  "grep-searcher",
  "hex",
  "hotline-contract",
+ "hotline-support",
  "http",
  "http-body-util",
  "hyper",
@@ -4360,6 +4361,24 @@ dependencies = [
  "whatlang",
  "windows-sys 0.61.2",
  "zip",
+]
+
+[[package]]
+name = "hotline-support"
+version = "0.40.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "hex",
+ "image",
+ "keyring",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

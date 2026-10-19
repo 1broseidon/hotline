@@ -19,7 +19,7 @@ createdAt: "2026-10-19T19:59:31.099Z"
 dependsOn:
   - task-216
   - task-218
-updatedAt: "2026-10-19T20:03:13.865Z"
+updatedAt: "2026-10-19T20:32:33.994Z"
 contract:
   status: ready
   deliverables:
@@ -45,3 +45,5 @@ contract:
 
 ## Description
 ADR 0008 §3 and §6 slice 2: post_to_chat(text, wake?) on Hotline's MCP server, same handler in-process for Hotline Agent; the gate (kind, modality, once a turn, one wake a turn, lease, 2,000 chars); a subagent the home agent launched is refused. security.md: default, grant source, enforcement, tests (every refusal row in the ADR's table on both drivers), residual risk. Removes the Escalate trait, escalate_next, the Rig-only tell_person and per-turn arming. An ACP quiet run that posts is proved.
+
+From task-216 (landed on release/0.41.0): Room::post lives in crates/hotline-core/src/session/post.rs, and call_posted, the quiet run's follow-up and send_file from a thread already write through it. post_to_chat and the Escalate path were left alone and still reach the chat their old way: move them onto Room::post (stamp `from` with the thread, `scheduled` where a job asked), so no second door to the chat is left. task-218's pairs build through Room::thread_agent, so wire a pair's thread kind for the gate there, not in peer_session.

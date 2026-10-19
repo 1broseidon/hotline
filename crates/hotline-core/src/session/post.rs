@@ -40,7 +40,8 @@ const LOUD: &str = "Your reply here is already the chat: say it in your reply.";
 
 /// What `post_to_chat` says to a second call in one turn, the wording the
 /// quiet run's one note always had.
-const AGAIN: &str = "Already posted: one per turn. Put everything in that one next time.";
+pub(super) const AGAIN: &str =
+    "Already posted: one per turn. Put everything in that one next time.";
 
 /// What a turn of a thread's agent may post, and whether it has.
 pub(super) struct Posting {
@@ -49,6 +50,17 @@ pub(super) struct Posting {
     /// job's stamp.
     quiet: Option<ScheduledRun>,
     posted: bool,
+}
+
+/// The turn in flight on a thread, as [`Room::take_post`] finds it.
+pub(super) enum Turn {
+    /// None is.
+    Closed,
+    /// The DM's own turn, which the person reads: its reply is the chat.
+    Loud,
+    /// A turn whose one post has just been taken, with the job when it is a
+    /// quiet run's.
+    Taken(Option<ScheduledRun>),
 }
 
 /// A thread's turn, open for `post_to_chat` until it is dropped.
@@ -142,35 +154,60 @@ impl Room {
                     .to_string(),
             );
         }
+        let scheduled = match self.take_post(persona_id, thread)? {
+            Turn::Closed => {
+                return Err(
+                    "post_to_chat posts from a turn in progress, and this thread has none."
+                        .to_string(),
+                );
+            }
+            Turn::Loud => return Err(LOUD.to_string()),
+            Turn::Taken(scheduled) => scheduled,
+        };
+        let posted = self
+            .post_and_wake(persona_id, thread, text, scheduled, wake)
+            .await;
+        if posted.is_err() {
+            self.give_post_back(thread);
+        }
+        posted
+    }
+
+    /// Takes the one post of the turn in flight on `thread`, unless it is
+    /// the DM's own loud turn, which posts nothing. A second is refused.
+    pub(super) fn take_post(&self, persona_id: &str, thread: &ThreadId) -> Result<Turn, String> {
         // A quiet run the person has spoken into since is answering them, out
         // loud: its window is what says whether anyone sees its replies.
         let unseen = thread.kind != ThreadKind::Dm
             || self
                 .session(persona_id)
                 .is_ok_and(|session| quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms()));
-        let scheduled = {
-            let mut posting = lock(&self.posting);
-            let turn = posting.get_mut(thread).ok_or_else(|| {
-                "post_to_chat posts from a turn in progress, and this thread has none.".to_string()
-            })?;
-            if thread.kind == ThreadKind::Dm && (turn.quiet.is_none() || !unseen) {
-                return Err(LOUD.to_string());
-            }
-            if turn.posted {
-                return Err(AGAIN.to_string());
-            }
-            turn.posted = true;
-            turn.quiet.clone()
+        let mut posting = lock(&self.posting);
+        let Some(turn) = posting.get_mut(thread) else {
+            return Ok(Turn::Closed);
         };
-        let posted = self
-            .post_and_wake(persona_id, thread, text, scheduled, wake)
-            .await;
-        if posted.is_err()
-            && let Some(turn) = lock(&self.posting).get_mut(thread)
-        {
+        if thread.kind == ThreadKind::Dm && (turn.quiet.is_none() || !unseen) {
+            return Ok(Turn::Loud);
+        }
+        if turn.posted {
+            return Err(AGAIN.to_string());
+        }
+        turn.posted = true;
+        Ok(Turn::Taken(turn.quiet.clone()))
+    }
+
+    /// Gives the turn in flight on `thread` back the post that never landed.
+    pub(super) fn give_post_back(&self, thread: &ThreadId) {
+        if let Some(turn) = lock(&self.posting).get_mut(thread) {
             turn.posted = false;
         }
-        posted
+    }
+
+    /// Whether the turn in flight on `thread` has had its one post.
+    pub(super) fn has_posted(&self, thread: &ThreadId) -> bool {
+        lock(&self.posting)
+            .get(thread)
+            .is_some_and(|turn| turn.posted)
     }
 
     /// The post the gate let through, and the DM woken for it when asked.

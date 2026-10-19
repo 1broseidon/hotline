@@ -1161,7 +1161,7 @@ a session; the band shows Screen on the same condition. Outside the desk
 caption, and the file arrives as its message: an `agent` event whose `text`
 is the caption, possibly empty, carrying the file in `attachments`. The
 person is told the way they are told of any reply — it counts as unread,
-and a phone is pushed the caption, or "Sent <name>" without one.
+and a phone is pushed the caption and the file's name.
 
 Where the file comes from:
 
@@ -1197,16 +1197,20 @@ script that starts like a PDF is never handed over as one. Any file can be
 saved where the person picks, or shown in its folder.
 `attachments[].origin` says where the file came from, in words.
 
-A file sent from a work thread is in the chat all the same: it is posted
-through the chat's one door (`Room::post`), stamped `from` the thread, and
-pushes as a reply does; the thread keeps a notice naming it. The chat holds
-everything the teammate gave the person, wherever it was working.
+Every file is posted through the chat's one door (`Room::post`), whatever
+thread sent it, so the chat holds everything the teammate gave the person,
+wherever it was working. One sent from a work thread, a pair, or the DM's
+turn on a call is stamped `from` that thread, and the thread keeps a notice
+naming it; one from a call the person is on pushes nothing, as a post from
+it never does. `generate_image` posts the same way.
 
-A quiet scheduled run is refused rather than demoted. Its words become
-thinking, and a file in thinking reaches nobody while the teammate believes
-it was sent, so the tool says it cannot send from a quiet run. A window
-that opens while the file is being fetched is caught when the message is
-stamped, and the kept copy is removed.
+A quiet scheduled run's file is posted too, never demoted to thinking with
+its words: it is stamped with the job, and it is the run's one post under
+`post_to_chat`'s gate, so a second file or a `post_to_chat` after it in the
+same turn is refused. A file or image is refused before it is fetched or
+drawn once the run has posted. A subagent run is refused `send_file` and
+`generate_image` as it is `post_to_chat`: it reports to the teammate that
+launched it.
 
 The model remembers a sent file by name: the conversation a driver is
 seeded with, a chapter's handoff note and the search index read a message

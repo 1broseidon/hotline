@@ -32,3 +32,4 @@ priority: medium
 
 ## Log
 - 2026-10-12T01:51:40.634Z: [claude] Merged task-40 (drawn SVG faces: the risks) into this card: #178 builds on #176, so they are one review. Issues #175 and #177 describe them.
+- 2026-10-19T01:59:21.653Z: [claude] George 2026-10-18: on hold. Not keen on model-generated SVG faces (#178); worth another look if faces could be higher-quality generated video or GIFs. Leave both PRs open for now, no reply yet.

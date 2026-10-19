@@ -655,7 +655,10 @@ async fn the_first_teammate_is_the_lead_and_a_second_leaves_the_lead_alone() {
     assert_eq!(leads_on_the_roster(&mut client).await, [] as [String; 0]);
 
     let ada = made(&mut client, "Ada").await;
-    assert_eq!(leads_on_the_roster(&mut client).await, [ada.clone()]);
+    assert_eq!(
+        leads_on_the_roster(&mut client).await,
+        std::slice::from_ref(&ada)
+    );
 
     made(&mut client, "Bob").await;
     assert_eq!(leads_on_the_roster(&mut client).await, [ada]);
@@ -671,7 +674,10 @@ async fn persona_lead_moves_the_lead_and_clears_it() {
 
     let kept = client.call("persona.lead", json!({})).await;
     assert_eq!(kept["ok"], false, "{kept}");
-    assert_eq!(leads_on_the_roster(&mut client).await, [ada.clone()]);
+    assert_eq!(
+        leads_on_the_roster(&mut client).await,
+        std::slice::from_ref(&ada)
+    );
 
     let bob = made(&mut client, "Bob").await;
     let moved = client.call("persona.lead", json!({ "id": bob })).await;
@@ -692,7 +698,10 @@ async fn deleting_the_lead_leaves_no_lead_until_one_teammate_is_left_to_lead() {
     let ada = made(&mut client, "Ada").await;
     let bob = made(&mut client, "Bob").await;
     let cy = made(&mut client, "Cy").await;
-    assert_eq!(leads_on_the_roster(&mut client).await, [ada.clone()]);
+    assert_eq!(
+        leads_on_the_roster(&mut client).await,
+        std::slice::from_ref(&ada)
+    );
 
     let gone = client.call("persona.delete", json!({ "id": ada })).await;
     assert_eq!(gone["ok"], true, "{gone}");

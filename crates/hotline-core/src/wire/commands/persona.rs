@@ -631,22 +631,18 @@ pub(super) fn pin_persona(log: &Log, id: &str, slot: Option<u8>) -> Result<Value
 /// or clears the lead when no teammate is named. The answer is the lead as
 /// it now stands.
 pub(super) fn lead_persona(log: &Log, id: Option<&str>) -> Result<Value, String> {
-    match id {
-        Some(id) => {
-            living(log, id)?;
-            room::write_lead(log, Some(id))?;
-            Ok(json!(id))
-        }
-        None => {
-            // `settle_lead` would make the one teammate lead again at the
-            // next start, so a cleared lead there would not stay cleared.
-            if room::roster(log).len() == 1 {
-                return Err("A desk with one teammate has it as its lead.".to_string());
-            }
-            room::write_lead(log, None)?;
-            Ok(Value::Null)
-        }
+    if let Some(id) = id {
+        living(log, id)?;
+        room::write_lead(log, Some(id))?;
+        return Ok(json!(id));
     }
+    // `settle_lead` would make the one teammate lead again at the next
+    // start, so a cleared lead there would not stay cleared.
+    if room::roster(log).len() == 1 {
+        return Err("A desk with one teammate has it as its lead.".to_string());
+    }
+    room::write_lead(log, None)?;
+    Ok(Value::Null)
 }
 
 fn write_pins(log: &Log, pins: &[String]) -> Result<(), String> {

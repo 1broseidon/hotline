@@ -15,7 +15,19 @@ createdAt: "2026-10-19T19:59:32.080Z"
 dependsOn:
   - task-216
   - task-217
-updatedAt: "2026-10-19T20:02:52.839Z"
+updatedAt: "2026-10-19T20:03:14.159Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/tests
+      description: a file from a work thread lands in the chat stamped from it; a quiet run's file is its one post
+  validation:
+    commands:
+      - make check
+      - "! git grep -n 'const QUIET:' -- crates/hotline-core/src/session/files.rs"
+  metrics:
+    readyAt: "2026-10-19T20:03:14.159Z"
 ---
 
 ## Description

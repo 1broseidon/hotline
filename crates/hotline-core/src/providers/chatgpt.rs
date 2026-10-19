@@ -85,7 +85,7 @@ async fn installed_codex_version() -> Option<String> {
         .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-async fn list_models_at(
+pub(crate) async fn list_models_at(
     token_dir: &Path,
     url: &str,
     version: &str,

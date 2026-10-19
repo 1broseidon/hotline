@@ -19,7 +19,7 @@ createdAt: "2026-10-19T19:59:31.099Z"
 dependsOn:
   - task-216
   - task-218
-updatedAt: "2026-10-19T20:51:32.525Z"
+updatedAt: "2026-10-19T20:51:44.688Z"
 contract:
   status: in_progress
   deliverables:
@@ -41,8 +41,8 @@ contract:
     - Write through Room::post from task-216; no second door to the chat
   metrics:
     readyAt: "2026-10-19T20:03:13.865Z"
-    pickedUpAt: "2026-10-19T20:32:52.379Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-19T20:51:44.688Z"
+    reworkCount: 1
 dispatch:
   agent: claude
   model: opus

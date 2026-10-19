@@ -1,7 +1,7 @@
 ---
 id: task-183
 title: "Linked desks: the dial-loop exit, an old-desk message, and the other follow-ups from the merge review (items 2-6)"
-column: in-progress
+column: review
 position: 9
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - crates/hotline-core/src/remote/link.rs
   - crates/hotline-core/src/remote/v2.rs
   - crates/hotline-core/src/remote/tests/link.rs
-updatedAt: "2026-10-19T00:05:22.243Z"
+updatedAt: "2026-10-19T00:16:44.367Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/src/remote/tests/link.rs
@@ -30,6 +30,8 @@ contract:
     readyAt: "2026-10-18T23:53:55.554Z"
     pickedUpAt: "2026-10-19T00:05:22.243Z"
     reworkCount: 0
+    deliveredAt: "2026-10-19T00:16:44.367Z"
+    duration: 682
 dispatch:
   agent: claude
   model: opus

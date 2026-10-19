@@ -1,6 +1,7 @@
 //! Only initialized method ids reach this module; executable descriptors stay here.
 use super::*;
-use crate::driver::auth::{Attempt, AuthStatus, SignIn, SignInMethod};
+use crate::driver::auth::{Attempt, SignIn, SignInMethod};
+use crate::wire::AuthStatus;
 use tokio_util::sync::CancellationToken;
 
 fn supported(method: &acp::AuthMethod) -> bool {

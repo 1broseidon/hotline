@@ -125,6 +125,7 @@ async fn a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_throu
                 seat,
                 &room,
                 &desk.log,
+                &desk.parts(),
                 json!({"id": 6, "cmd": cmd, "params": params}),
             )
             .await;

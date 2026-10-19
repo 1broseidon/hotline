@@ -46,7 +46,8 @@ async fn a_work_thread_is_one_conversation_to_old_and_threads2_clients() {
     let workspace = root.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
     let desk = common::open_desk(root.path()).unwrap();
-    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
     let port = door.port();
     let door_task = tokio::spawn(door.run());
 

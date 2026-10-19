@@ -18,8 +18,7 @@ pub use served::ServeOptions;
 
 use crate::contract::{DeviceRole, MobileAttachmentChunk, ThreadId, ThreadKind};
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore, atomic_write};
-use crate::log::Log;
-use crate::wire::RoomHandle;
+use crate::wire::Agents;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -210,11 +209,6 @@ pub struct Remote {
     /// server that runs only a relay (ADR 0006), whose room is never opened.
     agents: Option<Agents>,
 }
-/// The room a Remote opens doors onto when its server runs agents.
-pub struct Agents {
-    pub log: Log,
-    pub room: Arc<dyn RoomHandle>,
-}
 /// Why a relay-only server answers nothing that needs the room.
 pub const RELAY_ONLY: &str = "This server runs only a relay: it has no teammates, links or wire. Serve it with --capabilities agents,relay to use them.";
 #[derive(Clone)]
@@ -397,11 +391,10 @@ impl Phone {
 impl Remote {
     pub fn open_with_store(
         root: &Path,
-        log: Log,
-        room: Arc<dyn RoomHandle>,
+        agents: Agents,
         store: Arc<dyn SecretStore>,
     ) -> io::Result<Arc<Self>> {
-        Self::open_options(root, Some(Agents { log, room }), store, None, None)
+        Self::open_options(root, Some(agents), store, None, None)
     }
     /// A desktop's Remote that serves on `listener`, which the caller bound,
     /// and advertises only its address: a test's loopback socket, so the
@@ -409,12 +402,11 @@ impl Remote {
     pub fn open_on(
         listener: std::net::TcpListener,
         root: &Path,
-        log: Log,
-        room: Arc<dyn RoomHandle>,
+        agents: Agents,
         store: Arc<dyn SecretStore>,
     ) -> io::Result<Arc<Self>> {
         let bound = network::Bound::new(listener)?;
-        Self::open_options(root, Some(Agents { log, room }), store, None, Some(bound))
+        Self::open_options(root, Some(agents), store, None, Some(bound))
     }
     fn open_options(
         root: &Path,

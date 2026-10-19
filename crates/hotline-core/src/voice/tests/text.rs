@@ -70,7 +70,7 @@ async fn text_mode_needs_only_output_configuration_and_legacy_audio_stays_unavai
         )
         .unwrap(),
     );
-    let calls = desk.voice().unwrap();
+    let calls = desk.parts().voice.unwrap();
     calls
         .vault
         .create("openai", "Fixture", "unused-test-key")

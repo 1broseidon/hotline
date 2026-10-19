@@ -14,16 +14,9 @@ async fn served_listener_waits_for_exact_socket_and_has_no_legacy_routes() {
         tls_key: None,
         relay: true,
     };
-    let remote = Remote::open_served_with_store(
-        root.path(),
-        Some(Agents {
-            log: desk.log.clone(),
-            room: desk.clone(),
-        }),
-        store,
-        options.clone(),
-    )
-    .unwrap();
+    let remote =
+        Remote::open_served_with_store(root.path(), Some(agents(&desk)), store, options.clone())
+            .unwrap();
     assert!(!remote.status().enabled);
     tokio::time::timeout(ANSWER, remote.restore())
         .await
@@ -133,10 +126,7 @@ async fn served_listener_uses_supplied_pem_certificate_and_key() {
     let remote = Remote::open_served_on(
         listener,
         root.path(),
-        Some(Agents {
-            log: desk.log.clone(),
-            room: desk,
-        }),
+        Some(agents(&desk)),
         store,
         options.clone(),
     )

@@ -142,13 +142,8 @@ async fn a_public_address_is_advertised_after_this_computers_own_and_never_repla
     let off = h.remote.configure(false, network::ALL).await.unwrap();
     assert_eq!(off.endpoints, [] as [String; 0]);
     assert_eq!(off.public_url.as_deref(), Some("https://desk.example.com"));
-    let restored = Remote::open_with_store(
-        h.root.path(),
-        h.desk.log.clone(),
-        h.desk.clone(),
-        h.store.clone(),
-    )
-    .unwrap();
+    let restored =
+        Remote::open_with_store(h.root.path(), agents(&h.desk), h.store.clone()).unwrap();
     assert_eq!(
         restored.status().public_url.as_deref(),
         Some("https://desk.example.com")
@@ -238,13 +233,8 @@ async fn a_saved_loopback_selection_migrates_to_all_host_ips() {
     let mut saved: Saved = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     saved.host = "127.0.0.1".into();
     atomic_write(&path, &serde_json::to_vec(&saved).unwrap()).unwrap();
-    let restored = Remote::open_with_store(
-        h.root.path(),
-        h.desk.log.clone(),
-        h.desk.clone(),
-        h.store.clone(),
-    )
-    .unwrap();
+    let restored =
+        Remote::open_with_store(h.root.path(), agents(&h.desk), h.store.clone()).unwrap();
     assert_eq!(restored.status().host, network::ALL);
     assert!(!restored.status().enabled);
     assert!(

@@ -67,11 +67,15 @@ async fn seat_snapshot(
         max: usize::MAX,
     };
     let mut subscriptions = HashMap::new();
+    let desk = crate::wire::Agents {
+        log: log.clone(),
+        room: room.clone(),
+        parts: Parts::default(),
+    };
     answer(
         &json!({ "id": 1, "sub": sub }),
         seat,
-        log,
-        room,
+        &desk,
         &outbox,
         &mut subscriptions,
         None,
@@ -161,6 +165,7 @@ async fn a_withdrawn_card_is_gone_for_the_desk_and_the_phone() {
         Seat::Phone,
         &desk,
         &log,
+        &Parts::default(),
         json!({ "id": 9, "cmd": "human.answer", "params": {
             "personaId": "ada", "actionId": action_id, "status": "done",
         }}),

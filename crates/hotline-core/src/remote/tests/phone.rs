@@ -22,7 +22,14 @@ async fn a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk() 
         axum::serve(listener, app).await.unwrap();
     });
     h.desk.credential_custom_save(None, serde_json::from_value(json!({"name":"Fixture", "baseUrl":base, "api":"chat_completions", "secret":"", "models":["test"]})).unwrap()).unwrap();
-    let door = Door::bind(h.desk.log.clone(), "test-desk".into(), h.desk.clone()).unwrap();
+    let parts = h.desk.parts();
+    let door = Door::bind(
+        h.desk.log.clone(),
+        "test-desk".into(),
+        h.desk.clone(),
+        parts,
+    )
+    .unwrap();
     let port = door.port();
     let task = tokio::spawn(door.run());
     let (mut desk, _) =
@@ -351,7 +358,14 @@ async fn a_phone_renames_and_deletes_a_teammate_but_not_through_persona_update()
 #[tokio::test]
 async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away() {
     let h = Harness::new().await;
-    let door = Door::bind(h.desk.log.clone(), "test-desk".into(), h.desk.clone()).unwrap();
+    let parts = h.desk.parts();
+    let door = Door::bind(
+        h.desk.log.clone(),
+        "test-desk".into(),
+        h.desk.clone(),
+        parts,
+    )
+    .unwrap();
     let port = door.port();
     let task = tokio::spawn(door.run());
     let (mut desk, _) =
@@ -569,7 +583,14 @@ async fn a_phone_registers_where_to_notify_it_and_the_room_can_read_it() {
 #[tokio::test]
 async fn an_owner_phone_that_names_lean_is_sent_phone_sized_frames() {
     let h = Harness::new().await;
-    let door = Door::bind(h.desk.log.clone(), "test-desk".into(), h.desk.clone()).unwrap();
+    let parts = h.desk.parts();
+    let door = Door::bind(
+        h.desk.log.clone(),
+        "test-desk".into(),
+        h.desk.clone(),
+        parts,
+    )
+    .unwrap();
     let port = door.port();
     let task = tokio::spawn(door.run());
     let (mut desk, _) =

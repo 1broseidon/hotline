@@ -16,9 +16,9 @@
 use crate::credentials::FileStore;
 use crate::credentials::{Backend, NativeStore, SecretStore, claim_backend};
 use crate::desk::Desk;
-use crate::remote::{Agents, Remote, ServeOptions};
+use crate::remote::{Remote, ServeOptions};
 use crate::room_lock::RoomLock;
-use crate::wire::Door;
+use crate::wire::{Agents, Door, Parts};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -72,21 +72,27 @@ pub async fn boot(
     let room = desk.as_ref().map(|desk| Agents {
         log: desk.log.clone(),
         room: desk.clone(),
+        parts: desk.parts(),
     });
     let remote = match (served, room) {
         (Some(served), room) => Remote::open_served_with_store(root, room, store, served.options),
-        (None, Some(room)) => Remote::open_with_store(root, room.log, room.room, store),
+        (None, Some(room)) => Remote::open_with_store(root, room, store),
         (None, None) => unreachable!("a desk that is not served always opens its room"),
     }
     .map_err(|error| format!("remote access settings did not open: {error}"))?;
-    if let Some(desk) = &desk {
-        desk.set_remote(&remote);
-    }
     remote.restore().await;
 
     let token = token().map_err(|error| format!("no token could be made: {error}"))?;
     let door = match &desk {
-        Some(desk) => Door::bind(desk.log.clone(), token.clone(), desk.clone()),
+        Some(desk) => Door::bind(
+            desk.log.clone(),
+            token.clone(),
+            desk.clone(),
+            Parts {
+                remote: Arc::downgrade(&remote),
+                ..desk.parts()
+            },
+        ),
         None => Door::bind_relay(token.clone(), remote.clone()),
     }
     .map_err(|error| format!("the door did not bind: {error}"))?;

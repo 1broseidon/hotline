@@ -330,7 +330,8 @@ async fn the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data() 
         desk.prepare_restart().is_ok(),
         "An empty installation can update too"
     );
-    let door = Door::bind(desk.log.clone(), TOKEN.into(), desk.clone()).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), desk.clone(), parts).unwrap();
     let port = door.port();
     let door_task = tokio::spawn(door.run());
     let mut client = Client::connect(port, TOKEN).await;

@@ -195,7 +195,7 @@ async fn whole_clip_fallback_cannot_use_a_disconnected_subscription_login() {
         None,
     )
     .unwrap();
-    let calls = desk.voice().unwrap();
+    let calls = desk.parts().voice.unwrap();
     let primary = Arc::new(Fake {
         fail: true,
         ..Fake::default()

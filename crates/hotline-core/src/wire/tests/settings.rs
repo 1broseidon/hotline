@@ -352,8 +352,14 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
     let ask = |cmd: &str, params: Value| json!({"id": 1, "cmd": cmd, "params": params});
     let key = "exa-private-key-0123456789";
 
-    let fresh =
-        remote_control_answer(Seat::Desk, &handle, log, ask("websearch.status", json!({}))).await;
+    let fresh = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        log,
+        &desk.parts(),
+        ask("websearch.status", json!({})),
+    )
+    .await;
     assert_eq!(fresh["ok"], true, "{fresh}");
     assert_eq!(
         fresh["result"]["providers"],
@@ -369,6 +375,7 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
         Seat::Owner,
         &handle,
         log,
+        &desk.parts(),
         ask(
             "websearch.set_enabled",
             json!({"provider": "keenable", "enabled": false}),
@@ -385,6 +392,7 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
         Seat::Desk,
         &handle,
         log,
+        &desk.parts(),
         ask("websearch.set_key", json!({"provider": "exa", "key": key})),
     )
     .await;
@@ -400,6 +408,7 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
         Seat::Desk,
         &handle,
         log,
+        &desk.parts(),
         ask(
             "websearch.set_enabled",
             json!({"provider": "keenable", "enabled": true}),
@@ -416,6 +425,7 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
         Seat::Desk,
         &handle,
         log,
+        &desk.parts(),
         ask("websearch.set_key", json!({"provider": "exa", "key": null})),
     )
     .await;
@@ -428,6 +438,7 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
         Seat::Phone,
         &handle,
         log,
+        &desk.parts(),
         ask("websearch.status", json!({})),
     )
     .await;
@@ -436,6 +447,7 @@ async fn web_search_switches_and_keys_round_trip_without_the_key_ever_leaving() 
         Seat::Desk,
         &handle,
         log,
+        &desk.parts(),
         ask(
             "websearch.set_key",
             json!({"provider": "brave", "key": key}),

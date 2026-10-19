@@ -10,7 +10,7 @@ pub(super) mod models;
 pub(super) mod persona;
 mod settings;
 
-use super::{RoomHandle, threads};
+use super::{Parts, RoomHandle, threads};
 use crate::contract::{Command, ThreadAnswer, ThreadId};
 use crate::log::{Log, StreamId};
 use crate::store::{chapters, search};
@@ -69,6 +69,7 @@ pub(crate) async fn run(
     command: Command,
     log: &Log,
     room: &Arc<dyn RoomHandle>,
+    parts: &Parts,
 ) -> Result<Value, String> {
     match command {
         Command::ImagesStatus {} => Ok(json!(room.images_status())),
@@ -87,7 +88,7 @@ pub(crate) async fn run(
             .await
             .map(|options| json!(options)),
         Command::VoiceStatus { input_mode } => Ok(json!(
-            voice(room)?.status_for(input_mode.unwrap_or_default())
+            voice(parts)?.status_for(input_mode.unwrap_or_default())
         )),
         Command::VoiceCallStart {
             call_id,
@@ -104,22 +105,22 @@ pub(crate) async fn run(
                 mode: mode.unwrap_or_default(),
                 mic_rate: input_rate,
             };
-            Ok(json!(voice(room)?.start_call(
+            Ok(json!(voice(parts)?.start_call(
                 &call_id,
                 request,
                 room.clone()
             )?))
         }
         Command::VoiceFrontAudio { call_id, seq, data } => {
-            voice(room)?.front_audio(&call_id, seq, &data)?;
+            voice(parts)?.front_audio(&call_id, seq, &data)?;
             Ok(Value::Null)
         }
         Command::VoiceFrontBarge { call_id, played_ms } => {
-            voice(room)?.front_barge(&call_id, played_ms).await?;
+            voice(parts)?.front_barge(&call_id, played_ms).await?;
             Ok(Value::Null)
         }
         Command::VoiceText { call_id, seq, text } => {
-            voice(room)?.text(&call_id, seq, &text)?;
+            voice(parts)?.text(&call_id, seq, &text)?;
             Ok(Value::Null)
         }
         Command::VoiceAudio {
@@ -129,7 +130,7 @@ pub(crate) async fn run(
             data,
             r#final,
         } => {
-            voice(room)?.audio(&call_id, seq, index, &data, r#final)?;
+            voice(parts)?.audio(&call_id, seq, index, &data, r#final)?;
             Ok(Value::Null)
         }
         Command::VoiceUtterance {
@@ -139,34 +140,34 @@ pub(crate) async fn run(
             data,
             duration_ms,
         } => {
-            voice(room)?.utterance(&call_id, seq, &mime_type, &data, duration_ms)?;
+            voice(parts)?.utterance(&call_id, seq, &mime_type, &data, duration_ms)?;
             Ok(Value::Null)
         }
         Command::VoiceInterrupt { call_id } => {
-            voice(room)?.interrupt(&call_id)?;
+            voice(parts)?.interrupt(&call_id)?;
             Ok(Value::Null)
         }
         Command::VoiceHold { call_id, hold } => {
-            voice(room)?.hold(&call_id, hold)?;
+            voice(parts)?.hold(&call_id, hold)?;
             Ok(Value::Null)
         }
         Command::VoiceCallEnd { call_id } => {
-            voice(room)?.end(&call_id)?;
+            voice(parts)?.end(&call_id)?;
             Ok(Value::Null)
         }
-        Command::VoiceModels {} => Ok(json!(voice(room)?.speech_models())),
+        Command::VoiceModels {} => Ok(json!(voice(parts)?.speech_models())),
         Command::VoiceModelInstall { model_id } => {
-            Ok(json!(voice(room)?.install_speech_model(&model_id)?))
+            Ok(json!(voice(parts)?.install_speech_model(&model_id)?))
         }
         Command::VoiceModelCancel { model_id } => {
-            Ok(json!(voice(room)?.cancel_speech_model(&model_id)))
+            Ok(json!(voice(parts)?.cancel_speech_model(&model_id)))
         }
         Command::VoiceModelRemove { model_id } => {
-            Ok(json!(voice(room)?.remove_speech_model(&model_id)?))
+            Ok(json!(voice(parts)?.remove_speech_model(&model_id)?))
         }
         Command::VoiceTranscribe { mime_type, data } => {
             Ok(json!(crate::contract::VoiceTranscript {
-                text: voice(room)?.transcribe(&mime_type, &data).await?,
+                text: voice(parts)?.transcribe(&mime_type, &data).await?,
             }))
         }
         Command::FilesBrowse { path } => {
@@ -188,25 +189,25 @@ pub(crate) async fn run(
         | Command::FilesUploadChunk { .. }
         | Command::FilesUploadFinish { .. }
         | Command::FilesUploadCancel { .. } => Err("Uploads need a live desk connection.".into()),
-        Command::RemoteStatus {} => Ok(json!(remote(room)?.status())),
+        Command::RemoteStatus {} => Ok(json!(remote(parts)?.status())),
         Command::RemoteConfigure { enabled, host } => {
-            Ok(json!(remote(room)?.configure(enabled, &host).await?))
+            Ok(json!(remote(parts)?.configure(enabled, &host).await?))
         }
-        Command::RemoteDevices {} => Ok(json!(remote(room)?.devices())),
-        Command::RemoteRevoke { device_id } => Ok(json!(remote(room)?.revoke(&device_id)?)),
-        Command::RemoteRelay { desk_id } => Ok(json!(remote(room)?.relay_through(desk_id)?)),
-        Command::RemoteRelays {} => Ok(json!(remote(room)?.relay_servers())),
+        Command::RemoteDevices {} => Ok(json!(remote(parts)?.devices())),
+        Command::RemoteRevoke { device_id } => Ok(json!(remote(parts)?.revoke(&device_id)?)),
+        Command::RemoteRelay { desk_id } => Ok(json!(remote(parts)?.relay_through(desk_id)?)),
+        Command::RemoteRelays {} => Ok(json!(remote(parts)?.relay_servers())),
         Command::RemotePublicUrl { url } => {
-            Ok(json!(remote(room)?.set_public_url(url.as_deref())?))
+            Ok(json!(remote(parts)?.set_public_url(url.as_deref())?))
         }
-        Command::RemotePairing { role, id, cancel } => remote(room)?.pairing(role, id, cancel),
-        Command::DesksLinks {} => Ok(json!(remote(room)?.desk_links()?)),
-        Command::DesksLink { desk_id } => Ok(json!(remote(room)?.link(&desk_id).await?)),
+        Command::RemotePairing { role, id, cancel } => remote(parts)?.pairing(role, id, cancel),
+        Command::DesksLinks {} => Ok(json!(remote(parts)?.desk_links()?)),
+        Command::DesksLink { desk_id } => Ok(json!(remote(parts)?.link(&desk_id).await?)),
         Command::DesksLinkAccept { desk_id, name, key } => {
-            remote(room)?.accept_link(&desk_id, &name, &key).await
+            remote(parts)?.accept_link(&desk_id, &name, &key).await
         }
         Command::DesksUnlink { desk_id } => {
-            remote(room)?.unlink(&desk_id).await?;
+            remote(parts)?.unlink(&desk_id).await?;
             Ok(Value::Null)
         }
         Command::FederationRoster { .. }
@@ -829,13 +830,17 @@ pub(crate) async fn run(
     }
 }
 
-fn voice(room: &Arc<dyn RoomHandle>) -> Result<Arc<crate::voice::Calls>, String> {
-    room.voice()
+fn voice(parts: &Parts) -> Result<&Arc<crate::voice::Calls>, String> {
+    parts
+        .voice
+        .as_ref()
         .ok_or_else(|| "Voice is not available on this desk.".into())
 }
 
-fn remote(room: &Arc<dyn RoomHandle>) -> Result<Arc<crate::remote::Remote>, String> {
-    room.remote()
+fn remote(parts: &Parts) -> Result<Arc<crate::remote::Remote>, String> {
+    parts
+        .remote
+        .upgrade()
         .ok_or_else(|| "Remote access is not available in this room.".into())
 }
 

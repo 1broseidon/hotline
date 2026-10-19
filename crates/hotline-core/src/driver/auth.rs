@@ -1,4 +1,5 @@
 //! Desktop-owned, ephemeral harness sign-in. Nothing here is a transcript update.
+use crate::wire::AuthStatus;
 use serde::Serialize;
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -19,14 +20,6 @@ pub struct SignInMethod {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-}
-
-#[derive(Clone, Serialize)]
-pub struct AuthStatus {
-    pub state: &'static str,
-    pub output: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
 }
 
 pub(crate) struct Attempt {

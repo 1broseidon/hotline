@@ -357,7 +357,7 @@ impl RoomHandle for CoreHandle {
         Err("catalogues are unavailable in this wire test".to_string())
     }
 
-    fn import(&self, _from: &std::path::Path) -> Result<crate::import::Report, String> {
+    fn import(&self, _from: &std::path::Path) -> Result<crate::contract::Report, String> {
         Err("import is unavailable in this wire test".to_string())
     }
 
@@ -497,9 +497,9 @@ impl RoomHandle for Quiet {
         &self,
         persona_id: &str,
         id: &str,
-    ) -> Result<crate::driver::auth::AuthStatus, String> {
+    ) -> Result<crate::wire::AuthStatus, String> {
         assert_eq!((persona_id, id), ("ada", "fixture-attempt"));
-        Ok(crate::driver::auth::AuthStatus {
+        Ok(crate::wire::AuthStatus {
             state: "running",
             output: "ephemeral fixture output".into(),
             error: None,
@@ -775,8 +775,8 @@ impl RoomHandle for Quiet {
         ))
     }
 
-    fn import(&self, _from: &std::path::Path) -> Result<crate::import::Report, String> {
-        Ok(crate::import::Report::default())
+    fn import(&self, _from: &std::path::Path) -> Result<crate::contract::Report, String> {
+        Ok(crate::contract::Report::default())
     }
 
     fn teammate_tools(&self, _persona_id: &str) -> Option<crate::contract::TeammateToolLedger> {
@@ -917,7 +917,13 @@ fn door(name: &str) -> (PathBuf, Log, u16) {
 fn door_with(name: &str, room: Arc<Quiet>) -> (PathBuf, Log, u16) {
     let root = scratch(name);
     let log = Log::open(&root);
-    let door = Door::bind(log.clone(), "desk-token".to_string(), room).unwrap();
+    let door = Door::bind(
+        log.clone(),
+        "desk-token".to_string(),
+        room,
+        Parts::default(),
+    )
+    .unwrap();
     let port = door.port();
     tokio::spawn(door.run());
     (root, log, port)
@@ -952,6 +958,7 @@ fn core_door(name: &str) -> (PathBuf, Log, u16, Arc<Room>) {
         log.clone(),
         "desk-token".to_string(),
         Arc::new(CoreHandle { room: room.clone() }),
+        Parts::default(),
     )
     .unwrap();
     let port = door.port();
@@ -1026,6 +1033,7 @@ async fn remote_control_answer(
     seat: Seat,
     room: &Arc<dyn RoomHandle>,
     log: &Log,
+    parts: &Parts,
     frame: Value,
 ) -> Value {
     let (tx, mut frames) = mpsc::unbounded_channel();
@@ -1040,7 +1048,12 @@ async fn remote_control_answer(
         max: usize::MAX,
     };
     let mut subscriptions = HashMap::new();
-    answer(&frame, seat, log, room, &outbox, &mut subscriptions, None).await;
+    let desk = crate::wire::Agents {
+        log: log.clone(),
+        room: room.clone(),
+        parts: parts.clone(),
+    };
+    answer(&frame, seat, &desk, &outbox, &mut subscriptions, None).await;
     let response = serde_json::from_str(&frames.recv().await.unwrap()).unwrap();
     for handle in subscriptions.into_values() {
         handle.abort();

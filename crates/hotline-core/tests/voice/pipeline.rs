@@ -142,7 +142,8 @@ async fn check_clip(
         )
         .unwrap(),
     );
-    let door = Door::bind(desk.log.clone(), "voice-check".into(), desk).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), "voice-check".into(), desk, parts).unwrap();
     let port = door.port();
     let server = tokio::spawn(door.run());
     let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=voice-check"))
@@ -222,7 +223,8 @@ async fn voice_reply_is_delivered(reply: &'static str, expected_bubbles: usize) 
         )
         .unwrap(),
     );
-    let door = Door::bind(desk.log.clone(), "voice-test".into(), desk).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), "voice-test".into(), desk, parts).unwrap();
     let port = door.port();
     let server = tokio::spawn(door.run());
     let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=voice-test"))

@@ -82,7 +82,6 @@ enum LoginOutcome {
 /// Everything that runs behind one data directory.
 pub struct Desk {
     voice: Arc<crate::voice::Calls>,
-    remote: Mutex<Weak<crate::remote::Remote>>,
     pub log: Log,
     room: Arc<Room>,
     vault: Arc<Vault>,
@@ -112,7 +111,6 @@ impl Desk {
                 Arc::downgrade(&room),
                 None,
             ),
-            remote: Mutex::default(),
             log,
             room,
             mcp_oauth: Arc::new(McpOAuthService::new(vault.clone())),
@@ -121,9 +119,14 @@ impl Desk {
         }
     }
 
-    /// Remote holds this desk strongly; the controls must not keep it alive in return.
-    pub fn set_remote(&self, remote: &Arc<crate::remote::Remote>) {
-        *self.remote.lock().unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(remote);
+    /// What the wire drives beside this desk: its calls and its links. The
+    /// Remote is opened over the desk, so whoever opens it adds it.
+    pub fn parts(&self) -> crate::wire::Parts {
+        crate::wire::Parts {
+            voice: Some(self.voice.clone()),
+            remote: Weak::new(),
+            links: Some(self.room.links()),
+        }
     }
 
     /// Opens the log, the vault and the room over one data directory.
@@ -230,7 +233,6 @@ impl Desk {
             vault,
             logins: Arc::new(Mutex::new(HashMap::new())),
             mcp_oauth,
-            remote: Mutex::new(Weak::new()),
         })
     }
 
@@ -345,20 +347,6 @@ impl RoomHandle for Desk {
         .await)
     }
 
-    fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
-        Some(self.voice.clone())
-    }
-    fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
-        self.remote
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .upgrade()
-    }
-
-    fn links(&self) -> Option<Arc<crate::linked::Links>> {
-        Some(self.room.links())
-    }
-
     fn federation_roster_entries(&self) -> Vec<crate::contract::LinkedTeammate> {
         self.room.federation_roster_entries()
     }
@@ -397,7 +385,7 @@ impl RoomHandle for Desk {
         &self,
         persona_id: &str,
         id: &str,
-    ) -> Result<crate::driver::auth::AuthStatus, String> {
+    ) -> Result<crate::wire::AuthStatus, String> {
         self.room.agent_auth_poll(persona_id, id)
     }
     fn agent_auth_input(&self, persona_id: &str, id: &str, input: &str) -> Result<(), String> {
@@ -967,7 +955,7 @@ impl RoomHandle for Desk {
         self.models_catalog(provider_id)
     }
 
-    fn import(&self, from: &Path) -> Result<crate::import::Report, String> {
+    fn import(&self, from: &Path) -> Result<crate::contract::Report, String> {
         crate::import::import(from, &self.log, &self.vault).map_err(|error| error.to_string())
     }
 
@@ -1567,14 +1555,14 @@ mod tests {
                 Arc::downgrade(&room),
                 None,
             ),
-            remote: Mutex::default(),
             log: log.clone(),
             room,
             mcp_oauth: Arc::new(crate::mcp::McpOAuthService::new(vault.clone())),
             vault,
             logins: Arc::new(Mutex::new(HashMap::new())),
         };
-        let door = Door::bind(log, TOKEN.to_string(), Arc::new(desk)).unwrap();
+        let parts = desk.parts();
+        let door = Door::bind(log, TOKEN.to_string(), Arc::new(desk), parts).unwrap();
         let port = door.port();
         tokio::spawn(door.run());
         let mut client = Client::connect(port).await;

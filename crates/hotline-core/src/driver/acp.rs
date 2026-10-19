@@ -536,7 +536,7 @@ impl Driver for ChildAgent {
     ) -> Result<String, String> {
         auth::start(self, method, owner).await
     }
-    fn auth_poll(&self, id: &str) -> Result<crate::driver::auth::AuthStatus, String> {
+    fn auth_poll(&self, id: &str) -> Result<crate::wire::AuthStatus, String> {
         auth::poll(self, id)
     }
     fn auth_input(&self, id: &str, input: &str) -> Result<(), String> {

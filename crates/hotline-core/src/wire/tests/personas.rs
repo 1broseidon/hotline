@@ -224,9 +224,16 @@ async fn a_companion_reads_that_a_harness_is_unavailable_not_why() {
     let log = Log::open(root.path());
     let request = json!({"id": 1, "cmd": "backends.list", "params": {}});
     let reason = |answer: &Value| answer["result"][1]["unavailable"].clone();
-    let owner = remote_control_answer(Seat::Owner, &handle, &log, request.clone()).await;
+    let owner = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &log,
+        &Parts::default(),
+        request.clone(),
+    )
+    .await;
     assert_eq!(reason(&owner), "Not signed in.");
-    let phone = remote_control_answer(Seat::Phone, &handle, &log, request).await;
+    let phone = remote_control_answer(Seat::Phone, &handle, &log, &Parts::default(), request).await;
     assert_eq!(phone["ok"], true, "{phone}");
     assert_eq!(reason(&phone), super::PRIVATE_REASON);
     assert!(phone["result"][0].get("unavailable").is_none());

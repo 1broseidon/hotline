@@ -26,3 +26,6 @@ description: |-
   Per-teammate lanes landed in 0.35.2 (wire/mod.rs ~1187-1260). Left: commands not tied to a teammate (models.list, settings.update, search) still run inline (~1226).
 updatedAt: "2026-10-14T20:05:18.890Z"
 ---
+
+## Log
+- 2026-10-19T01:32:26.778Z: [claude] Follow-ups from task-55 (epic-14): (1) A command answered inline that hangs still stops the 90 s silence timer, because the timer isn't selected while an inline command is answered. (2) A stalled seat only has its file descriptor dropped; nothing resets the connection (no SO_LINGER reset).

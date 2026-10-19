@@ -9,13 +9,20 @@ tags:
   - measure
 assignee: claude
 relatedFiles:
-  - docs/adr
+  - docs/adr/0007-split-hotline-core.md
+  - docs/standards.md
+  - docs/security.md
+  - AGENTS.md
 parentId: epic-18
 createdAt: "2026-10-19T14:07:42.521Z"
 dependsOn:
   - task-209
-updatedAt: "2026-10-19T14:07:43.460Z"
+updatedAt: "2026-10-19T14:10:03.099Z"
 ---
 
 ## Description
-Re-run ADR 0007's commands after each move and add the rows beside the earlier ones: cold and incremental build and test build, the core's front-end time, and what got faster and what didn't. Say whether the numbers support going on to the voice engines (step 3), as the ADR's stopping rule asks. Docs only.
+The last child: time stage 2 and check the epic whole against its "done when". Docs only.
+
+Timings: re-run ADR 0007's commands at three commits on this machine, under the same conditions, each in its own worktree: the release/0.41.0 commit before the epic (9e2c01bc, to re-baseline), the merge of task-208 (the room crate), and the merge of task-209 (the MCP client). Add the rows beside the earlier ones: cold and incremental build and test build, the core's front-end time, and what got faster and what didn't. Say whether the numbers support going on to the voice engines (step 3), as the ADR's stopping rule asks.
+
+The whole: on the tip of release/0.41.0, confirm and state in the ADR that (1) hotline-room and hotline-mcp are workspace crates and neither depends on hotline-core; (2) contract.ts is byte-identical to 9e2c01bc's after an unfiltered test run; (3) docs/standards.md's module map, docs/security.md and AGENTS.md name the new paths, not the old (grep for room.rs, linked.rs, session/ledger.rs, wire/room_handle.rs, mcp/oauth.rs, mcp/tool.rs under crates/hotline-core in docs/ and AGENTS.md); (4) make check and make precheck pass. For epic-17 (voice) to start on top: its task-202 names crates/hotline-core/src/room.rs and task-207 names crates/hotline-core/src/voice/spoken.rs, both moved by task-208; make sure ADR 0007's old→new path list covers every file epic-17's children name that moved. If any of (1)-(4) fails, do not fix code here: say what failed in a note on this task.

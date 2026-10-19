@@ -17,7 +17,7 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:42.521Z"
 dependsOn:
   - task-209
-updatedAt: "2026-10-19T14:10:20.086Z"
+updatedAt: "2026-10-19T15:35:43.561Z"
 contract:
   status: ready
   deliverables:
@@ -39,6 +39,14 @@ contract:
     - Timings taken on the same machine and conditions at each of the three commits
   metrics:
     readyAt: "2026-10-19T14:10:20.086Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T15:35:43.429Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

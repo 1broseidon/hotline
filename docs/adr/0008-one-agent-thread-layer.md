@@ -105,6 +105,18 @@ and every future feature is placed among them.
 | **Arm** | The teammate working outside the home thread: a work thread (today's side thread), a subagent, a job, a call, a pair (with another teammate). An arm runs on the home agent's model and workspace, with a lease derived from the home thread's and never wider. |
 | **Ability** | What any arm may use: tools, the computer, skills, MCP servers, as its lease allows. |
 
+**A subagent is a clone with a focus** (George, 2026-10-19). The picture is
+the home agent saying "I need to be in three places at once" and spawning
+clones of itself, each with one focus. A clone is the same teammate, not a
+lesser one: the home agent's model, workspace and abilities, under the same
+permission set (its lease is the home thread's, narrowed only if the home
+agent narrows it for the task). It does not start with the home thread
+poured in, for context and above all for focus: it starts from its brief,
+and reaches back on demand, as the home agent would, into the home thread's
+history, chapters and other threads with the same tools (`search_thread`,
+`list_chapters`, the thread readers), within the same lease. What it learns
+along the way is its own context, kept on its thread.
+
 ### 1. The agent thread
 
 An **agent thread** is a thread (ADR 0001) with an agent bound to it. It is
@@ -416,8 +428,13 @@ one thing with one schema and one runtime:
   firing is a turn on that thread, never the home thread, so the home agent's
   context holds none of it. The person can open the thread and talk to it
   ("skip the next check", "also watch CI").
-- **Same agent.** It runs on the home agent's model and workspace, with a
-  lease derived from the home thread's.
+- **Same agent, a clone with a focus** (§0). It runs on the home agent's
+  model and workspace with the home thread's permission set, starts from its
+  task and running note rather than the home thread, and reaches into the
+  home thread's history, chapters and threads with the same tools when the
+  work needs it. A slice of this ADR inventories what today's subagent runs
+  are given (their lease is scoped narrower than the home thread's today)
+  and brings them to this.
 - **Parked between firings**, its agent released and reopened from its
   binding at the next one, as a work thread parks.
 - **A running note, not a growing context.** Each firing starts from a short

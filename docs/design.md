@@ -423,7 +423,9 @@ code plus PKCE S256, and uses the advertised DCR endpoint when no saved or
 configured client exists. Credentials and registration secrets stay in the
 private vault, bound to the server URL and issuer. Hotline Agent uses rmcp's
 refreshing client; ACP receives a capability checked loopback proxy so its
-child process never sees OAuth tokens. Operator sign-in does not alter a
+child process never sees OAuth tokens. The page the browser lands on after
+sign-in is one escaped card under a Content-Security-Policy that loads
+nothing but its inline style, with no script. Operator sign-in does not alter a
 teammate's MCP grant, and sign-out invalidates live sessions before clearing
 the vault record.
 
@@ -465,7 +467,12 @@ Grok offers subscription device sign-in alongside xAI API keys. Hotline uses
 the OAuth device flow and a private token store; a shared refresh lock keeps
 teammates from spending the same rotated refresh token. Rig's xAI client
 still owns inference, with a bearer-refresh HTTP client that retries a 401
-once and never falls back to an API key. Z.ai Standard and Coding Plan are
+once and never falls back to an API key. A 401 or 403 on a ChatGPT, Copilot
+or xAI sign-in is checked against that sign-in's model list before the card
+goes out (`Failure::checked_against_sign_in`, once per provider a minute):
+if the list answers, the card says the provider is refusing requests
+(`provider_refused`) rather than asking for a sign-in that would not help.
+Z.ai Standard and Coding Plan are
 separate API-key connections using Rig's native Z.ai endpoints.
 Custom OpenAI-compatible connections have stable, separate provider ids, a
 name, base URL, optional key, API choice, and an editable model list. Rig's

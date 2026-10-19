@@ -145,9 +145,14 @@ ACP adapters), the ACP registry's published catalogue fetched from
 `cdn.agentclientprotocol.com` and cached for a day at
 `cache/acp-registry.json` in the data directory, and a probe of what is
 actually installed. A locally installed binary always wins over a
-downloadable one. Opening the picker is where the day's fetch happens;
-starting a session reads the cache and does not wait on the network. A
-cached stamp from the future is not the day's. An adapter row is
+downloadable one. Opening the picker and starting a session both answer
+from the cache at once and, when it is a day old, fetch it again in the
+background for the next one (`registry::refresh_in_background`); neither
+waits on the network, so a desk whose picker is never opened still gets new
+adapter versions. A fetch that fails or answers with no agents writes
+nothing, and a good one is written beside the cache and renamed over it, so
+the last good list stays in use however old it is. A cached stamp from the
+future is not the day's. An adapter row is
 unavailable until both the client CLI and its launcher (`npx`, say) are on
 PATH.
 
@@ -894,6 +899,12 @@ command runs in a terminal."), with the last lines of its stderr. This is the
 same path an expired harness sign-in takes. A message sent to that teammate is
 written to its tape at once, and its turn starts the agent again; if that
 start runs out too, the turn fails with the same card.
+
+A harness that answers that the chosen model needs a newer version of it
+(Codex's "requires a newer version of Codex") fails the turn with kind
+`harness_outdated`, and the card names the harness and the version it gave
+at `initialize` ("Codex 1.12.0 is too old for this model") and says to update
+it or switch model.
 
 A slow or stalled start holds up only that teammate. Starts are behind each
 teammate's own gate, and on the wire every command that names a teammate is

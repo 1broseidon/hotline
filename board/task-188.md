@@ -1,7 +1,7 @@
 ---
 id: task-188
 title: Say 'Hotline Agent unavailable' when no provider is connected
-column: in-progress
+column: review
 position: 14
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig/build.rs
   - crates/hotline-core/src/driver/failure.rs
   - ui/src/components/settings
-updatedAt: "2026-10-19T00:08:42.241Z"
+updatedAt: "2026-10-19T00:23:40.635Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core
@@ -31,6 +31,8 @@ contract:
     readyAt: "2026-10-18T23:53:55.554Z"
     pickedUpAt: "2026-10-19T00:08:42.241Z"
     reworkCount: 0
+    deliveredAt: "2026-10-19T00:23:40.635Z"
+    duration: 898
 dependsOn:
   - task-8
 dispatch:

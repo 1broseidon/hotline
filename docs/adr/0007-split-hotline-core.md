@@ -1,6 +1,7 @@
 # ADR 0007: Split hotline-core into crates, leaves first
 
-- Status: Proposed (0.41, landing over epic-16)
+- Status: The five crates landed on `release/0.41.0` (epic-16). The core's
+  split, under Next, is proposed for George and not started.
 - Date: 2026-10-19
 - Supersedes: the "No new crates" line of [standards.md](../standards.md#module-layout),
   once task-196 rewrites it. The line after it, "Do not break the
@@ -267,8 +268,6 @@ vault -> contract(6), credentials(7+3t), log(1), mcp(6+5t), models(4), providers
 voice -> contract(24+30t), credentials(3+23t), desk(2+21t), driver(11), log(5+7t), mcp(2), models(7+1t), paths(1), pricing(1+1t), providers(3+8t), room(10+8t), session(7+4t), store(0+2t), test_support(0+1t), thread(0+9t), vault(4), wire(14+6t)
 websearch -> contract(1+1t)
 wire -> computer(0+3t), contract(97+81t), credentials(0+18t), desk(0+20t), driver(4+5t), import(1+3t), link_preview(2), linked(3+3t), log(11+7t), mcp(4+2t), models(5+8t), paths(3+2t), remote(15+2t), room(8+11t), sent(2), session(5+5t), skills(4), spending(0+2t), store(3+1t), test_support(0+1t), thread(2), vault(0+2t), voice(9+4t), websearch(6)
-
-## Layers (production edges)
 ```
 
 ### The leaves
@@ -328,6 +327,296 @@ else also implements (the wire already talks to a `RoomHandle`), and each is
 judged by the numbers above. A core split that does not shorten the front end
 of the largest crate does not earn its crate.
 
+## After
+
+Measured on 2026-10-19 on `release/0.41.0` at fd6ddfd1, with all five crates
+landed, on the same machine, toolchain and profile as Before, in a fresh
+worktree with an empty `target/` and the speech-engine archive fetched first.
+Other agents were running again: the load average was 7 to 11 during the cold
+runs, 7 to 10 during the touches and 11 to 15 during the edits, against 5.9 to
+9.8 for Before, so read the edit rows as a ceiling.
+
+The commands are Before's, with two changes the moves forced. The files
+`store.rs` and `contract/command.rs` no longer exist in `hotline-core`: the
+store's root is now `crates/hotline-store/src/lib.rs` and the command enum
+is `crates/hotline-contract/src/command.rs`, so those are what was touched
+and edited. And the probe line as written appends a second `timing_probe`
+on the second run, which does not compile; here the file was restored
+(`git checkout`) before each append, so every run is one fresh edit. Each was
+run twice and the second kept, as before. Two rows are new: a cold build of
+all six crates (`cargo clean` with `-p` for each, then the same build), which
+compiles the same source lines Before's cold row did, and an edit in a moved
+crate tested by that crate alone. `scripts/timings-summary` now counts the
+five crates as the workspace's own units, beside `hotline-core`, and prints
+when each unit started.
+
+| What | build, before | build, after | test build, before | test build, after |
+|---|---|---|---|---|
+| Cold, and the dependencies not yet built (first run) | 71.1 s | 61.8 s | 90.5 s | 75.7 s |
+| Cold, hotline-core only | 41.7 s | 33.5 s | 78.8 s | 65.1 s |
+| Cold, hotline-core and the five crates | | 37.2 s | | 70.2 s |
+| Touch `voice/dispatcher.rs` | 4.9 s | 3.2 s | 12.4 s | 8.6 s |
+| Touch the store's root | 5.0 s | 3.4 s | 12.4 s | 8.7 s |
+| Touch `command.rs` | 5.0 s | 5.0 s | 12.6 s | 10.6 s |
+| Edit `voice/dispatcher.rs` | 5.0 s | 3.4 s | 12.4 s | 9.0 s |
+| Edit the store's root | 5.0 s | 3.8 s | 12.6 s | 9.3 s |
+| Edit `command.rs` | 5.0 s | 5.2 s | 12.6 s | 10.8 s |
+| Edit the store's root, `cargo test -p hotline-store --no-run` | | | (12.6 s, the core's) | 0.7 s |
+| Edit `command.rs`, `cargo test -p hotline-contract --no-run` | | | (12.6 s, the core's) | 2.2 s |
+
+### What got faster
+
+- **The library itself.** `hotline-core`'s library is one unit of 31.8 s
+  (19.7 s front end, 12.0 s code generation), against 40.2 s (26.6 s, 13.7 s).
+  That is 21% off the unit for 15% of its lines (163,049 then; 138,788 now,
+  9,962 more in its tests/), and the front end lost 26%. The contract is why
+  the share is larger than the lines: its serde and ts-rs derives make 4,928
+  lines cost 3.5 s of front end on their own, five times what the core's
+  lines cost apiece. The test-profile library is 64.2 s, against 78.5 s.
+- **A cold build.** 61.8 s against 71.1 s from nothing, and 33.5 s against
+  41.7 s with the dependencies cached. In the first build the five crates
+  compile alongside the external dependencies and are done before
+  `hotline-core` can start (29.3 s in, against 29.7 s), so they cost the
+  critical path nothing there; with the dependencies cached the contract is
+  on it, 3.8 s, which is the difference between the core-only row and the
+  all-six row.
+- **An edit to the core, which Before did not expect.** Before's reading was
+  that a 5 s build and a 12.4 s test build were a floor belonging to the crate
+  and not to the file. The floor fell by about a third (3.2 s and 8.6 s for a
+  touch) though the file edited did not move, so it does scale with the
+  crate. What it is made of is still not taken apart; the likeliest part is
+  the incremental state rustc loads and checks for the whole crate on every
+  build, which is proportional to its size.
+- **An edit to a moved crate, tested alone.** The store's own tests build
+  in 0.7 s and the contract's in 2.2 s, where testing that code meant the
+  core's 12.6 s test build before. That is a different command, not a faster
+  one, and it is what a crate gives for code with tests of its own.
+
+### What did not
+
+- **An edit to the contract, built.** 5.0 s before and after: every crate
+  above it rebuilds, which is by design and why the contract changes least.
+  Its test build fell (12.6 s to 10.6 s) with the core's floor.
+- **The time before the core starts.** A first build still waits about 29 s
+  for external dependencies (aws-lc-sys's build script alone is 16.9 s)
+  before `hotline-core` begins. No workspace split touches that.
+- **The test build's shape.** A cold `cargo test -p hotline-core --no-run`
+  is still the test-profile library and nothing else (64.2 s of 65.1 s); the
+  integration-test binaries (0.6 to 6.1 s each) finish under it.
+- **Most of the direct dependencies.** Counted by name across its manifest's
+  `[dependencies]` and target tables, `hotline-core` names 51 external crates
+  and the five new ones, against 60 then (Before's 58 was counted another
+  way). Nine left with the moves (cap-std, globset, grep-regex,
+  grep-searcher, ignore, keyring, roxmltree, ts-rs, whatlang); the rest are
+  used by the core as well.
+
+No caller moved. `hotline-core` re-exports each crate under its old module
+name (`pub use hotline_contract as contract`, `hotline_support::{credentials,
+log_file, paths, room_lock}` and the private `fence`, `images`, `thumbs`,
+`process_windows`, `hotline_store::log` and `sent`, `hotline_store as store`,
+`hotline_tools as tools`, `hotline_websearch as websearch`), and `driver` and
+`thread` re-export the types that left them, so every `crate::X` path in the
+core and every `hotline_core::X` path in the app, the CLI and the harnesses
+still holds. About 870 references in the core's own source go through those
+re-exports (570 of them `crate::contract`), and some 70 more in its tests/,
+the app and the CLI.
+
+### Sharing a test fixture down the crates
+
+`hotline-websearch`'s mock providers are public only under its
+`test-support` feature, which turns on its optional `axum`, and
+`hotline-core` enables it in `[dev-dependencies]` alone. With the workspace's
+resolver 3, a feature a dev-dependency enables is off in any build that does
+not build tests, so the release app has no mock in it. That is the pattern
+for later crates: a fixture lives in the crate whose code it fakes, under a
+`test-support` feature that only adds code (never changes the behaviour of
+what is already there), with its extra dependencies optional, and turned on
+only from the consumer's `[dev-dependencies]`. A separate fixtures crate is
+the second-caller rule's answer, once two crates above share one fixture,
+not before. A fixture that needs the core (a `Desk`, a `Room`) cannot be
+shared down at all; the test that uses it lives in the core.
+
+### The module map after
+
+`scripts/module-map` reads the core's module tree, so the fourteen modules
+that became crates (`contract`, `credentials`, `fence`, `images`, `log`,
+`log_file`, `paths`, `process_windows`, `room_lock`, `sent`, `store`,
+`thumbs`, `tools`, `websearch`) are not in it, and a reference through a
+re-export is no longer an edge: the map is the core's internal shape alone.
+The planned cuts are made, so it no longer prints layers after them. As of
+fd6ddfd1:
+
+```
+boot -> desk(1), remote(1), wire(1)
+capabilities -> imagegen(2), models(3), room(1), vault(1), voice(5)
+computer -> mcp(1), test_support(0+1t), vault(2), wire(1)
+desk -> capabilities(1), driver(4+2t), imagegen(1), import(2), linked(1), mcp(2+3t), models(15), providers(19), remote(3), room(7+1t), session(3+1t), skills(1), vault(4+1t), voice(12+2t), wire(1+1t)
+driver -> computer(1), mcp(5+9t), models(4), pricing(4), providers(15+6t), room(0+1t), session(16+11t), vault(2), voice(6+4t), wire(1)
+imagegen -> driver(0+1t), providers(4+1t), session(1), vault(1+2t)
+import -> mcp(1), room(3+3t), session(1+1t), vault(1)
+link_preview: (none)
+linked: (none)
+mcp -> computer(0+2t), driver(5+2t), room(2), session(12+6t), vault(3+1t), wire(2)
+models -> imagegen(1), pricing(0+1t), session(1), voice(1)
+pricing -> models(1), session(2)
+providers -> driver(1), models(1), vault(4+3t)
+push -> remote(1)
+remote -> computer(1), desk(0+1t), driver(0+1t), import(0+1t), linked(2+4t), mcp(0+1t), room(0+5t), session(0+3t), test_support(0+1t), wire(5+2t)
+room -> mcp(1), voice(0+1t)
+session -> computer(71+28t), desk(0+2t), driver(26+24t), imagegen(2+4t), linked(3+2t), mcp(7+12t), models(1+1t), push(6+2t), room(17+19t), skills(7+3t), spending(1+1t), test_support(0+7t), thread(6+7t), vault(4+7t), voice(14+25t), wire(13+8t)
+skills: (none)
+spending: (none)
+test_support: (none)
+thread -> room(1), session(1)
+vault -> mcp(6+5t), models(4), providers(1), room(3+7t), session(1)
+voice -> desk(2+21t), driver(11), mcp(2), models(7+1t), pricing(1+1t), providers(3+8t), room(10+8t), session(7+4t), test_support(0+1t), thread(0+9t), vault(4+5t), wire(14+6t)
+wire -> computer(0+3t), desk(0+20t), driver(4+5t), import(1+3t), link_preview(2), linked(3+3t), mcp(4+2t), models(5+8t), remote(15+2t), room(8+11t), session(5+5t), skills(4), spending(0+2t), test_support(0+1t), thread(2), vault(0+2t), voice(9+4t)
+```
+
+Layers: the leaves are `link_preview`, `linked`, `skills`, `spending` (and
+`test_support`); above them the same eighteen modules Before predicted,
+strongly connected; `boot` on top. Two things are new. `linked` is a leaf,
+because its one edge went to `log`, which is a crate now. And the script finds
+a new one-link cut beside `push` → `remote`: **`room` → `mcp`**
+(`room.rs:283`), where the roster's settings fold calls
+`mcp::normalize_servers`, a pure function over the settings' JSON. Cut that and
+`room`, which `session`, `voice`, `wire`, `desk`, `vault`, `mcp` and `import`
+all read, names nothing in the core.
+
+## Next: splitting the core
+
+A proposal for George, not started. It asks what would let `voice`, `remote`
+and `mcp` leave `hotline-core`, what each costs, and in what order, judged by
+two rules this ADR already set: no single-implementation trait to break the
+`session`↔`driver`, `session`↔`voice` or `mcp`↔`session` cycles
+(standards.md), and a crate that does not shorten the core's front end (now
+19.7 s) does not earn itself.
+
+### The seam that exists
+
+The wire talks to the room through `RoomHandle` (`wire/room_handle.rs:29`), a
+trait of about 110 methods, most with a default "this room cannot" body. It is
+a real boundary: `Desk` implements it, and so do three test rooms
+(`CoreHandle` and `Quiet` in the wire's tests, `Computered` in remote's). It
+cannot move below anything yet, because five of its signatures name the core:
+`voice()` returns `voice::Calls`, `remote()` returns `remote::Remote`,
+`links()` returns `linked::Links`, and two methods return
+`driver::auth::AuthStatus` and `import::Report`. Moving the trait down means
+those three accessors leave it (the wire is handed the calls, the remote and
+the links when it is built, as the desk already holds them) and the two
+reports move down as the plain data they are. That is the one piece of work
+every stage below shares.
+
+### First, moves with no seam
+
+Before any trait, the pieces the three modules reach for that hold no live
+state can go down as epic-16's did: `room` with `mcp::normalize_servers`
+beside it (the cut above), `linked` (700 lines, now a leaf), `session::ledger`
+(361 lines, contract only), the `session::ProviderAuth` enum,
+`wire::same_secret`, `driver::clip` and `failure::redact_text`,
+`desk::install_crypto_provider`, `computer::HOME_MOUNT`, and `voice`'s
+`ledger`, `metering` and `spoken`, which name only the contract, the log and
+each other. With `RoomHandle`, the roster fold and `linked`, they would make a
+crate of the room as everything above the core sees it. This is cheap, the
+same work the five moves were, and it gains little time by itself (about
+5,000 lines with their tests); its point is that every stage after it needs it.
+
+### `mcp`: the client leaves, the server stays
+
+`mcp` is two things. The client (`mcp.rs`, `oauth.rs`, `tool.rs`, about 2,500
+lines without their tests) reaches the core only for the vault (six methods:
+the credential store, the token lock, the OAuth registration read and saved,
+a server's secret, and resolving a server), the capability lease (already in
+`hotline-tools`) and `session::ledger` (moved down first). The seam there is
+rmcp's own `CredentialStore` trait, which the vault already implements and
+rmcp implements too; the rest becomes values the core resolves and hands in,
+with the saving of a registration as the one call back. The server
+(`TeammateTools`, holding a `Weak<Room>` and calling some 25 of its methods)
+is the `mcp`↔`session` cycle the standards keep whole, so it stays in the core.
+
+Cost: small; one crate, a few signatures from `&Vault` to resolved values,
+and its tests that use the ledger or the computer's server id follow those
+down. Gain: small, 2% of the core's lines off the front end; no dependency of
+its own leaves (`rmcp` and `axum` are used across the core).
+
+### `voice`: the engines leave, the calls stay
+
+`voice` is the largest prize, 17,900 production lines, and the hardest to
+move whole: its dispatcher runs the wire's whole command table
+(`wire::commands::run`), and its calls report to the room through
+`Weak<Room>` (`call_began`, `call_said`, `call_posted`, `call_ended`,
+`voice_push`). A trait for the room's side would have one implementation and
+is the `session`↔`voice` cycle the standards keep whole, and an event hop in
+its place trades a direct call for a moving part. So moving `voice` whole is
+not proposed.
+
+What can leave is the engines: `speech/` and `realtime/`, about 7,700
+production lines and 3,400 of tests. Their seams already exist and already
+have several implementations: `Speech` (`speech.rs:139`) has five (the
+front's, local, Google, the OpenAI shape, xAI) and `Realtime`
+(`realtime.rs:226`) two. Outside `voice` they reach only for credentials (a
+crate already), `ProviderAuth` and `install_crypto_provider` (moved down
+first), `models::is_custom`, three credential helpers in `providers`
+(ChatGPT's refreshed sign-in, OpenRouter's key, xAI's bearer), and the vault,
+which the dispatcher could resolve and hand in, as for `mcp`. They take
+`voice`'s own dependencies with them: sherpa-onnx, symphonia, webrtc, rtc and
+opus.
+
+Cost: medium; the credential helpers either move down with the engines or
+become values handed in, and the engines' tests that sign in through
+`providers` follow them. Gain: the largest of the three, about 5.5% of the
+core's lines and 3,400 lines of tests out of its test build, and the engine code that changes on its own (a new speech
+provider) is tested alone, as the store's is now.
+
+### `remote`: last, and only with the wire's help
+
+`remote` reaches the fewest modules (production references only to
+`RoomHandle`, `linked`, two wire functions and a constant), and is the most
+work to move, for three reasons. It needs `RoomHandle` below it, the shared
+work above. It calls into the wire to serve a socket once it has accepted
+one (`wire::federation` at `link.rs:557`, `wire::seated_phone_v2` at
+`server.rs:497`), and the wire names it back fifteen times (`remote::Phone`,
+`WireRole`, the commands that drive a `Remote`). The plain answer is for
+remote to hand the accepted, authenticated socket back to the core to serve,
+rather than call into the wire: a change in control flow, not a trait, and
+the riskiest one here, since it is the path a phone and a linked desk take.
+And half of `remote` is its tests (6,576 of 13,380 lines), most of which open
+a real `Desk` and `Door`; those would move up into the core's tests.
+
+Cost: large. Gain: about 6,800 production lines (5%), and its own
+dependencies leave the core's list (snow, rcgen, hyper, hyper-util,
+http-body-util, if-addrs, socket2, qrcode). `push` → `remote` (one call to
+`remote::push_targets`) is cut on the way.
+
+### The re-exports
+
+The five crates' re-exports are about 870 references in the core's source,
+and a cleanup that renames them to `hotline_contract::` and the rest buys no
+time and touches every file. The proposal is not to do it as a stage, but to
+let each module rename its own as it leaves: a module moved out of the core
+cannot say `crate::contract` anyway, so that renaming is part of the cost of
+`mcp`, `voice` and `remote` above, and the re-exports go when the last caller
+in the core does.
+
+### The order, and when to stop
+
+1. The room and the pure pieces down, with `RoomHandle` (moves only; the
+   shared precondition).
+2. The `mcp` client (the cheapest seam, an external trait).
+3. The `voice` engines (the largest gain, through traits with five and two
+   implementations).
+4. `remote`, only if the numbers after 3 say the core's front end is still the
+   bottleneck, because it is the one stage that changes control flow on a
+   network path.
+
+After each, re-run this ADR's commands. The After figures show the incremental
+floor follows the crate's size, so each stage's expected gain is roughly its
+share of the core's lines off the 3.2 s and 8.6 s floors and the 19.7 s front
+end; a stage that does not show that does not get the next one started. What
+none of them can change is the 29 s of external dependencies before the core
+begins, and the test build being the test-profile library: a smaller core
+shortens both of those only in proportion.
+
 ## Consequences
 
 - Five new workspace crates, each with the workspace lints, a license and a
@@ -338,6 +627,6 @@ of the largest crate does not earn its crate.
 - `pub(crate)` becomes `pub` where an item crosses a boundary. `hotline-core`
   may `pub use` the moved paths while callers move; nothing here widens what a
   teammate can reach, and task-198 states the one place that comes close.
-- `ui/src/generated/contract.ts` stays byte-identical, written by an unfiltered
-  `cargo test -p hotline-core` (a filtered run truncates it) or by the new
-  crate's own tests once the types live there.
+- `ui/src/generated/contract.ts` stays byte-identical, written by an
+  unfiltered `cargo test -p hotline-contract`, where the types live now (a
+  filtered run truncates it).

@@ -1,7 +1,7 @@
 ---
 id: task-211
 title: "RoomHandle names nothing in the core: voice(), remote() and links() leave the trait, AuthStatus and import::Report become plain data"
-column: in-progress
+column: review
 position: 12
 description: |-
   ADR 0007 step 1, first half, in place inside hotline-core: no crate is made here (task-208 does that on top). RoomHandle (wire/room_handle.rs) has five signatures that name the core: voice() -> voice::Calls (line 51), remote() -> remote::Remote (55), links() -> linked::Links (60), a method returning driver::auth::AuthStatus (119) and import() returning import::Report (370). Cut them so the trait names only the contract and plain data:
@@ -26,7 +26,7 @@ relatedFiles:
   - docs/adr/0007-split-hotline-core.md
 parentId: epic-18
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - "! grep -nE 'fn (voice|remote|links)\\(&self\\)' crates/hotline-core/src/wire/room_handle.rs"
@@ -42,6 +42,8 @@ contract:
     readyAt: "2026-10-19T14:09:32.259Z"
     pickedUpAt: "2026-10-19T14:31:59.978Z"
     reworkCount: 1
+    deliveredAt: "2026-10-19T14:38:57.629Z"
+    duration: 418
 createdAt: "2026-10-19T14:09:32.269Z"
 dispatch:
   agent: claude
@@ -57,7 +59,7 @@ dispatch:
     pid: 94104
     at: "2026-10-19T14:31:51.911Z"
 assignee: claude
-updatedAt: "2026-10-19T14:31:59.978Z"
+updatedAt: "2026-10-19T14:38:57.629Z"
 ---
 
 ## Description

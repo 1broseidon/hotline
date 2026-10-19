@@ -15,7 +15,7 @@ createdAt: "2026-10-19T19:59:32.080Z"
 dependsOn:
   - task-216
   - task-217
-updatedAt: "2026-10-19T22:14:36.432Z"
+updatedAt: "2026-10-19T22:14:53.846Z"
 contract:
   status: in_progress
   deliverables:
@@ -35,16 +35,9 @@ dispatch:
   model: opus
   effort: high
   by: lead
-  at: "2026-10-19T22:06:02.591Z"
+  at: "2026-10-19T22:14:53.718Z"
   until: done
   tries: 1
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 94104
-    at: "2026-10-19T22:06:04.078Z"
-    ended: "2026-10-19T22:14:36.432Z"
-    outcome: review
 ---
 
 ## Description

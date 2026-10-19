@@ -88,6 +88,9 @@ struct PendingStop {
 
 struct Quiet {
     pending_stop: Option<Arc<PendingStop>>,
+    /// When set, `capabilities.options` answers only once it is cancelled:
+    /// a provider slow to say what it can do.
+    slow_read: Option<tokio_util::sync::CancellationToken>,
     auth_owner: Mutex<Option<tokio_util::sync::CancellationToken>>,
     infos: broadcast::Sender<SessionInfo>,
     deltas: broadcast::Sender<StreamDelta>,
@@ -105,6 +108,7 @@ impl Quiet {
     fn new() -> Self {
         Self {
             pending_stop: None,
+            slow_read: None,
             auth_owner: Mutex::new(None),
             infos: broadcast::channel(16).0,
             deltas: broadcast::channel(16).0,
@@ -440,6 +444,13 @@ impl RoomHandle for CoreHandle {
 impl RoomHandle for Quiet {
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.thread_cards.lock().unwrap().contains(persona_id)
+    }
+
+    async fn capability_options(&self) -> Result<crate::contract::CapabilityOptions, String> {
+        if let Some(release) = &self.slow_read {
+            release.cancelled().await;
+        }
+        Err("This room cannot list what its providers can do.".into())
     }
 
     async fn computer_cookies_push(
@@ -1026,6 +1037,48 @@ async fn remote_control_answer(
         handle.abort();
     }
     response
+}
+
+#[tokio::test]
+async fn a_slow_read_answers_after_the_writes_behind_it_which_keep_their_order() {
+    let release = tokio_util::sync::CancellationToken::new();
+    let mut room = Quiet::new();
+    room.slow_read = Some(release.clone());
+    let (_root, log, port) = door_with("slow-read", Arc::new(room));
+    let mut socket = desk(port).await;
+
+    ask(
+        &mut socket,
+        json!({ "id": 1, "cmd": "capabilities.options" }),
+    )
+    .await;
+    for (id, theme) in [(2, "dark"), (3, "light")] {
+        ask(
+            &mut socket,
+            json!({ "id": id, "cmd": "settings.update", "params": { "patch": { "theme": theme } } }),
+        )
+        .await;
+    }
+    ask(&mut socket, json!({ "id": 4, "cmd": "ping" })).await;
+
+    // The writes and the ping come back in the order they were asked,
+    // while the read ahead of them is still waiting on its provider.
+    let mut order = Vec::new();
+    while order.len() < 3 {
+        let frame = tokio::time::timeout(Duration::from_secs(5), heard(&mut socket))
+            .await
+            .expect("the commands behind a slow read were held up");
+        if let Some(id) = frame["id"].as_i64() {
+            assert_eq!(frame["ok"], true, "{frame}");
+            order.push(id);
+        }
+    }
+    assert_eq!(order, [2, 3, 4]);
+    assert_eq!(room::settings(&log)["theme"], "light");
+
+    release.cancel();
+    let read = answered(&mut socket, 1).await;
+    assert_eq!(read["ok"], false, "{read}");
 }
 
 mod capabilities;

@@ -22,6 +22,16 @@ nobody else's. Starting an agent can take a while, or never finish, and it
 holds up only the commands about that teammate. Its answer may therefore
 arrive after the answers to commands sent after it.
 
+A read of the whole room that changes nothing — `voice.status`,
+`voice.models`, `images.status`, `websearch.status`, `capabilities.options`,
+`remote.status`, `remote.relays`, `desks.links`, `credential.list`,
+`skills.list` without a teammate, `providers.list`, `models.list`,
+`models.catalog`, `models.efforts`, `search.all`, `schedule.list` — and
+`file.read` and `avatar.read` start once the commands before them have
+finished and answer when they are ready, without holding up the commands
+behind them. Every command that writes keeps its place in the order, and so
+does `ping`, which is how a client learns that what it asked before landed.
+
 A frame with no `id` is dropped. `id` is a JSON number (`i64`).
 
 ## Three frames a client may send

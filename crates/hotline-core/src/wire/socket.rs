@@ -459,7 +459,33 @@ async fn command(
         // A picture is read from disk, and a conversation full of them
         // asks for many at once; none of them may hold up the commands
         // behind it, such as the thread list of the teammate just opened.
-        Ok(command @ (Command::FileRead { .. } | Command::AvatarRead { .. })) => {
+        // A global read changes nothing, so it has no place in the order:
+        // a search through every tape or a provider slow to say what it
+        // can do answers when it is ready, and the commands behind it go
+        // on. It starts only once everything asked before it has finished,
+        // so it never sees the room older than its asker did. Anything that
+        // writes stays in order: `mcp.auth_status` may refresh a token, and
+        // `ping` is how a client learns that what it asked before has landed.
+        Ok(
+            command @ (Command::FileRead { .. }
+            | Command::AvatarRead { .. }
+            | Command::VoiceStatus { .. }
+            | Command::VoiceModels {}
+            | Command::ImagesStatus {}
+            | Command::WebsearchStatus {}
+            | Command::CapabilitiesOptions {}
+            | Command::RemoteStatus {}
+            | Command::RemoteRelays {}
+            | Command::DesksLinks {}
+            | Command::CredentialList {}
+            | Command::SkillsList { persona_id: None }
+            | Command::ProvidersList {}
+            | Command::ModelsList {}
+            | Command::ModelsCatalog { .. }
+            | Command::ModelsEfforts { .. }
+            | Command::SearchAll { .. }
+            | Command::ScheduleList {}),
+        ) => {
             let (sender, log, room) = (sender.clone(), log.clone(), Arc::clone(room));
             tokio::spawn(async move {
                 let result = commands::run(command, &log, &room).await;

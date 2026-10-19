@@ -1,7 +1,7 @@
 ---
 id: task-217
 title: "Slice 2: post_to_chat on the desk's MCP server for both drivers; tell_person and Escalate go"
-column: todo
+column: in-progress
 position: 13
 priority: high
 tags:
@@ -19,9 +19,9 @@ createdAt: "2026-10-19T19:59:31.099Z"
 dependsOn:
   - task-216
   - task-218
-updatedAt: "2026-10-19T20:32:37.885Z"
+updatedAt: "2026-10-19T20:32:52.379Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: test
       path: crates/hotline-core/tests
@@ -41,6 +41,8 @@ contract:
     - Write through Room::post from task-216; no second door to the chat
   metrics:
     readyAt: "2026-10-19T20:03:13.865Z"
+    pickedUpAt: "2026-10-19T20:32:52.379Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

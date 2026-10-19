@@ -53,6 +53,7 @@ test("the rail shows pinned faces first, and a drop on a face asks for that slot
 					onEdit={() => {}}
 					onDelete={() => {}}
 					onPin={(id, slot) => pins.push([id, slot])}
+					onLead={() => {}}
 					onAddDesk={() => {}}
 					search={null}
 					deskKey={null}

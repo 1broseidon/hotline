@@ -74,6 +74,7 @@ test("one rail lists every desk's teammates with their desk, dims an unreachable
 				onEdit={() => {}}
 				onDelete={() => {}}
 				onPin={() => {}}
+				onLead={() => {}}
 				onAddDesk={() => {}}
 				search={null}
 				deskKey={null}

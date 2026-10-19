@@ -295,3 +295,10 @@ export const HangUpIcon = ({ className }: IconProps) => (
 		/>
 	</Icon>
 );
+
+/** The team lead's mark: a star, filled, so it still reads at the size of a dot. */
+export const LeadIcon = ({ className }: IconProps) => (
+	<Icon className={className} strokeWidth={1}>
+		<path fill="currentColor" d="M8 1.75l1.84 3.73 4.11.6-2.97 2.9.7 4.09L8 11.13l-3.68 1.94.7-4.09-2.97-2.9 4.11-.6z" />
+	</Icon>
+);

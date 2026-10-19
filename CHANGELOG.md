@@ -8,6 +8,15 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+### Added
+
+- A desk has a team lead: one teammate that leads the rest, marked with a
+  star in the team list. It keeps its own model, memory and tools. Your
+  first teammate leads; to pick another, right-click a teammate (or use
+  its pane) and choose Make team lead. With two or more teammates and no
+  lead, the window asks you to pick one and suggests whoever has been on
+  the team longest.
+
 ## [0.40.0] - 2026-10-19
 
 ### Added

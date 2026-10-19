@@ -10,7 +10,7 @@ tags:
   - shell
 createdAt: "2026-10-16T22:26:28.277Z"
 parentId: epic-14
-updatedAt: "2026-10-19T00:56:48.766Z"
+updatedAt: "2026-10-19T00:56:53.580Z"
 relatedFiles:
   - crates/hotline-core/src/tools/shell/macos.rs
   - crates/hotline-core/tests/processes.rs
@@ -42,6 +42,8 @@ dispatch:
     runner: cli
     pid: 59290
     at: "2026-10-19T00:46:15.778Z"
+    ended: "2026-10-19T00:56:53.580Z"
+    outcome: review
 assignee: claude
 ---
 

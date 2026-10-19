@@ -1,7 +1,7 @@
 ---
 id: task-194
 title: "hotline-contract: the wire and tape types as their own crate"
-column: todo
+column: in-progress
 position: 2
 priority: high
 tags:
@@ -15,9 +15,9 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:58.782Z"
 dependsOn:
   - task-193
-updatedAt: "2026-10-19T06:38:59.896Z"
+updatedAt: "2026-10-19T06:39:08.140Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-contract/Cargo.toml
@@ -41,6 +41,8 @@ contract:
     - Tape event shapes unchanged
   metrics:
     readyAt: "2026-10-19T06:11:03.996Z"
+    pickedUpAt: "2026-10-19T06:39:08.140Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

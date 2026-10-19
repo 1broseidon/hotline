@@ -1,7 +1,7 @@
 ---
 id: task-193
 title: "Baseline: build timings and the module map, in an ADR"
-column: todo
+column: in-progress
 position: 1
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - docs/adr
 parentId: epic-16
 createdAt: "2026-10-19T06:06:19.521Z"
-updatedAt: "2026-10-19T06:11:20.001Z"
+updatedAt: "2026-10-19T06:11:28.590Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: docs
       path: docs/adr/0007-split-hotline-core.md
@@ -36,6 +36,8 @@ contract:
     - Each timing run twice, the second kept, on this Mac
   metrics:
     readyAt: "2026-10-19T06:11:03.728Z"
+    pickedUpAt: "2026-10-19T06:11:28.590Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: sonnet

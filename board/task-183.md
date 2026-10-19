@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/remote/link.rs
   - crates/hotline-core/src/remote/v2.rs
   - crates/hotline-core/src/remote/tests/link.rs
-updatedAt: "2026-10-19T00:16:44.367Z"
+updatedAt: "2026-10-19T00:16:51.931Z"
 contract:
   status: delivered
   deliverables:
@@ -44,6 +44,8 @@ dispatch:
     runner: cli
     pid: 59290
     at: "2026-10-19T00:05:12.995Z"
+    ended: "2026-10-19T00:16:51.931Z"
+    outcome: review
 assignee: claude
 ---
 

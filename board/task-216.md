@@ -1,7 +1,7 @@
 ---
 id: task-216
 title: "Slice 1: Room::post, one door to the chat, posts stamped with where they came from"
-column: todo
+column: in-progress
 position: 12
 priority: high
 tags:
@@ -15,7 +15,7 @@ relatedFiles:
 parentId: epic-20
 createdAt: "2026-10-19T19:59:30.596Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: test
       path: crates/hotline-core/tests
@@ -35,7 +35,9 @@ contract:
     - "Do not touch session/peers or runner.rs: task-218 runs alongside"
   metrics:
     readyAt: "2026-10-19T20:03:13.285Z"
-updatedAt: "2026-10-19T20:03:31.889Z"
+    pickedUpAt: "2026-10-19T20:03:43.502Z"
+    reworkCount: 0
+updatedAt: "2026-10-19T20:03:43.502Z"
 dispatch:
   agent: claude
   model: opus

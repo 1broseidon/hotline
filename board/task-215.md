@@ -19,6 +19,15 @@ relatedFiles:
   - docs/sessions.md
 parentId: epic-20
 createdAt: "2026-10-19T17:32:28.780Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: cli
+  at: "2026-10-19T17:32:30.960Z"
+  until: review
+  tries: 0
+updatedAt: "2026-10-19T17:32:31.101Z"
 ---
 
 ## Description

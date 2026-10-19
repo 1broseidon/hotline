@@ -39,7 +39,7 @@ contract:
     reworkCount: 1
     deliveredAt: "2026-10-19T20:30:24.113Z"
     duration: 435
-updatedAt: "2026-10-19T20:30:24.113Z"
+updatedAt: "2026-10-19T20:30:31.304Z"
 dispatch:
   agent: claude
   model: opus
@@ -53,6 +53,8 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-19T20:22:58.046Z"
+    ended: "2026-10-19T20:30:31.303Z"
+    outcome: review
 ---
 
 ## Description

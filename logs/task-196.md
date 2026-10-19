@@ -1,8 +1,6 @@
 ---
 id: task-196
 title: "hotline-support: the small leaf utilities as one crate"
-column: review
-position: 4
 priority: medium
 tags:
   - crate-split
@@ -20,7 +18,7 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:59.870Z"
 dependsOn:
   - task-194
-updatedAt: "2026-10-19T08:02:16.093Z"
+updatedAt: "2026-10-19T08:03:53.702Z"
 contract:
   status: delivered
   deliverables:
@@ -64,6 +62,7 @@ dispatch:
     at: "2026-10-19T07:56:00.115Z"
     ended: "2026-10-19T08:02:16.093Z"
     outcome: review
+completedAt: "2026-10-19T08:03:53.702Z"
 ---
 
 ## Description
@@ -76,3 +75,4 @@ From task-194: hotline-core keeps `pub use hotline_contract as contract`, so cal
 ## Log
 - 2026-10-19T07:55:56.948Z: [claude] [lead] The last run ended its turn while `make check` was still running in the background, so nothing reached Review. The move is committed on dispatch/task-196; don't redo it. Run `make check` and then `make precheck` in the foreground (one call each, with a long timeout), fix anything they find, check the contract's validation commands, and end your turn only once they have passed and the task is in Review.
 - 2026-10-19T08:02:13.029Z: [claude] On dispatch/task-196 (54e9f6b7 the move, ebe6d1cf the Cargo.lock that drops keyring from hotline-core, since only hotline-support uses it now). In the foreground here: make check passes in 4m02s and make precheck in 99s (all 8 legs). contract.ts is byte-identical to release/0.41.0, every one of the contract's validation commands passes, the 22 unsafe/SAFETY lines are all still there, and the room_lock tests (a second writer is refused) run under hotline-support. For task-197/198: hotline-support depends on no Hotline crate; hotline-core re-exports each module under its old name (crate::paths, crate::credentials, …), so no caller moved; is_linked's string grammar now lives in paths. Nothing is left unwired.
+- 2026-10-19T08:03:53.357Z: Landed on release/0.41.0

@@ -1,8 +1,6 @@
 ---
 id: task-8
 title: A provider refusing turns shouldn't read as "sign in again" when the sign-in is fine
-column: review
-position: 2
 priority: high
 tags:
   - bug
@@ -34,7 +32,7 @@ description: |-
   Migrated from Linear BRO-126: https://linear.app/1broseidon/issue/BRO-126/a-provider-refusing-turns-shouldnt-read-as-sign-in-again-when-the-sign (2026-10-11).
 
   0.40 triage (2026-10-18): In scope as is: the wording plus a one-off discovery probe. driver/failure.rs:273-275 still says 'Provider sign-in required… Check its credentials' for every Kind::Auth. Probe providers/chatgpt.rs list_models_at once per failure, cache the verdict briefly, and say 'ChatGPT is refusing requests' (or the provider's name) when the sign-in still lists models.
-updatedAt: "2026-10-19T00:05:35.770Z"
+updatedAt: "2026-10-19T00:07:33.218Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/driver/failure.rs
@@ -75,7 +73,9 @@ dispatch:
     ended: "2026-10-19T00:05:35.770Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-19T00:07:33.218Z"
 ---
 
 ## Log
 - 2026-10-19T00:05:31.884Z: [claude] Done on branch dispatch/task-8 (c3d30f8c). Before a turn's notice goes out, a 401/403 (Kind::Auth) on a ChatGPT, Copilot or xAI-subscription sign-in runs Failure::checked_against_sign_in (driver/rig.rs). That asks the provider's model list once, within a 10s bound, and caches the verdict per provider for 60s. If the list answers, the failure becomes the new Kind::ProviderRefused: '<Provider> is refusing requests', 'Your sign-in still works, so signing in again won't help…', raw error kept in details. Otherwise it stays 'Provider sign-in required'. API keys and other providers keep today's wording. Nothing marks the credential in Settings. The UI offers 'Run again' for provider_refused. For later tasks: Kind serializes as "provider_refused", and chatgpt::list_models_at is now pub(crate) so tests can point it at a stub. Tests in driver/failure.rs: a stub that lists models but answers /responses with 401 vs a revoked token, one probe for a run of failures, and only sign-ins get probed. fmt, clippy, the full hotline-core tests and the contract.ts diff all pass.
+- 2026-10-19T00:07:32.707Z: Landed on release/0.40.0

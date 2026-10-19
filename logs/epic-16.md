@@ -2,8 +2,6 @@
 id: epic-16
 title: "Split hotline-core into crates: leaves first, then store and tools, with the core's seams planned (0.41)"
 type: epic
-column: todo
-position: 0
 priority: high
 tags:
   - crate-split
@@ -13,20 +11,8 @@ tags:
 assignee: claude
 createdAt: "2026-10-19T06:05:38.189Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-19T06:38:53.741Z"
-dispatch:
-  agent: claude
-  model: opus
-  effort: high
-  by: cli
-  at: "2026-10-19T06:07:30.442Z"
-  until: done
-  role: lead
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 54892
-    at: "2026-10-19T06:07:33.246Z"
+updatedAt: "2026-10-19T09:15:40.295Z"
+completedAt: "2026-10-19T09:15:40.295Z"
 ---
 
 ## Description
@@ -54,3 +40,13 @@ Not started without George: anything in the core cycle beyond the plan.
 - 2026-10-19T06:38:54.744Z: [claude] Watch: release/0.41.0 was checked out in hotline-wt-041 (mine); detached it, landed task-193, resumed the lead. That worktree stays detached.
 - 2026-10-19T07:43:58.284Z: [claude] Watch 02:40: task-194's landing hung 12+ min in make check's git-hook test: the hook's tsc ran through ~/.local/bin/node, a wrapper that called 'mise exec -- node' and re-exec'd itself forever (mise's PATH bug). Fixed the node/npm/npx wrappers on this Mac to exec 'mise which' directly; reproduced the hang before and confirmed the fix after. The landing failed meanwhile and task-194 is back with its agent re-running make check; nothing in the repo changed.
 - 2026-10-19T09:13:03.668Z: [claude] From task-199's integration check: all five crates meet the bar. Each has workspace [lints], a license and a crate doc, and standards.md and AGENTS.md name each. hotline-core has no Tauri. make check, verify and precheck pass, and contract.ts is byte-identical. One code-comment drift for the lead, left alone because task-199 is docs-only: crates/hotline-contract/src/lib.rs:23 says "the core's store tests (`store/tests.rs`)", but those tests are now crates/hotline-store/src/tests.rs. The core-split proposal is ADR 0007's "Next" section, for George to decide.
+
+## Child Tasks
+Summary: 7/7 children completed.
+- task-193: Baseline: build timings and the module map, in an ADR (completed)
+- task-194: hotline-contract: the wire and tape types as their own crate (completed)
+- task-195: hotline-websearch: web search as its own crate (completed)
+- task-196: hotline-support: the small leaf utilities as one crate (completed)
+- task-197: hotline-store: the tape, the log and the search index as their own crate (completed)
+- task-198: hotline-tools: the shell and workspace tools as their own crate (completed)
+- task-199: After: timings again, and the plan for splitting the core (completed)

@@ -20,7 +20,7 @@ parentId: epic-17
 createdAt: "2026-10-19T13:59:39.118Z"
 dependsOn:
   - task-202
-updatedAt: "2026-10-19T20:02:38.203Z"
+updatedAt: "2026-10-19T20:02:51.009Z"
 contract:
   status: ready
   deliverables:
@@ -44,6 +44,14 @@ contract:
     - No core or contract changes beyond what task-202 landed; if one is needed, say so in a note
   metrics:
     readyAt: "2026-10-19T20:02:38.203Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T20:02:50.866Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

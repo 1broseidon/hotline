@@ -595,7 +595,7 @@ bubblewrap; macOS isolation tests always run, and fail if Seatbelt cannot
 enforce the policy. Mac-specific tests exercise hostile home
 and scratch symlinks, shared temporary files, helper services, Unix sockets,
 and missing or ineffective launchers. The explicit network smoke tests
-(`cargo test --workspace tools::shell::macos::tests -- --ignored`) additionally
+(`cargo test -p hotline-tools shell::macos::tests -- --ignored`) additionally
 check public DNS/HTTPS and npm/Go downloads into private caches; they require
 access to public package registries.
 

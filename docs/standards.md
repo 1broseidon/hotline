@@ -34,6 +34,14 @@ module map itself is [development.md](development.md#layout).
   crate. `hotline-core` re-exports `log` and `sent` under their old names
   and the crate as `store`, so `crate::store::search` still holds there,
   and `thread` re-exports the link's types.
+- `hotline-tools` is a teammate's workspace and shell tools, with the
+  `CapabilityLease` and `CapabilityEpoch` each tool checks in its
+  `capability` module. It stands on `hotline-contract` and
+  `hotline-support` and on no other Hotline crate. The lease's fields are
+  private to that module, so no other crate can forge or revive one.
+  `hotline-core` re-exports the crate as `tools` and `driver` re-exports
+  the two types, so `crate::tools::Workspace` and
+  `crate::driver::CapabilityLease` still hold there.
 - A new crate comes from the plan in
   [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
   direction, its edges only go down, and nothing but the app and the CLI

@@ -197,7 +197,8 @@ leg_linux() {
         set -ex
         cargo clippy --workspace --all-targets --locked -- -D warnings
         cargo test --workspace --locked --no-fail-fast
-        cargo test -p hotline-core --locked --no-fail-fast -- --ignored tools::shell workspace_reach_keeps_another_projects_env_out_of_the_tools"' chown "${owned[@]}"
+        cargo test -p hotline-tools --locked --no-fail-fast -- --ignored shell
+        cargo test -p hotline-core --locked --no-fail-fast --test desk -- --ignored workspace_reach_keeps_another_projects_env_out_of_the_tools"' chown "${owned[@]}"
 }
 
 # The integration tests with the PATH a runner has, so a test that finds a

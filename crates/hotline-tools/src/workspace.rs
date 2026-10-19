@@ -1,6 +1,5 @@
 use super::ToolError;
-use crate::contract::{FolderGrant, Reach};
-use crate::driver::CapabilityLease;
+use crate::capability::CapabilityLease;
 use cap_std::{
     ambient_authority,
     fs::{Dir, OpenOptions},
@@ -8,6 +7,7 @@ use cap_std::{
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, SearcherBuilder, sinks::UTF8};
+use hotline_contract::{FolderGrant, Reach};
 use ignore::WalkBuilder;
 use serde::Deserialize;
 use std::{
@@ -88,7 +88,7 @@ impl Workspace {
         Self::open_with_capability(cwd, reach, overflow, &[], None)
     }
 
-    pub(crate) fn open_with_capability(
+    pub fn open_with_capability(
         cwd: PathBuf,
         reach: Reach,
         overflow: PathBuf,
@@ -150,7 +150,7 @@ impl Workspace {
     /// Checks the authority immediately before a built-in operation starts.
     /// Cloned tools retain the same lease, so changing reach or revoking a
     /// session closes every already-built workspace too.
-    pub(crate) fn check_capability(&self) -> Result<(), ToolError> {
+    pub fn check_capability(&self) -> Result<(), ToolError> {
         self.inner.capability.as_ref().map_or(Ok(()), |capability| {
             capability.check().map_err(ToolError::permission_denied)
         })
@@ -170,7 +170,7 @@ impl Workspace {
     /// paths, so this adapter accepts an absolute path only when it names a
     /// file inside this workspace. Resolution still goes through the same
     /// canonical cap-std directory as every other read.
-    pub(crate) fn read_text_path(
+    pub fn read_text_path(
         &self,
         path: &Path,
         line: Option<u32>,
@@ -209,10 +209,7 @@ impl Workspace {
     /// Reads an optional managed file without following its final symlink.
     /// The distinction between absent and inaccessible matters to callers
     /// that preserve handwritten files, such as the ACP identity materializer.
-    pub(crate) fn read_text_if_exists_path(
-        &self,
-        path: &Path,
-    ) -> Result<Option<String>, ToolError> {
+    pub fn read_text_if_exists_path(&self, path: &Path) -> Result<Option<String>, ToolError> {
         self.check_capability()?;
         let requested = self.callback_path(path)?;
         let (place, relative) = self.locate(&requested, false)?;
@@ -228,7 +225,7 @@ impl Workspace {
     /// checks as the built-in write tool. Parent directories are made one at
     /// a time after rejecting symlinks, so an ACP request cannot create a
     /// directory through a link that points outside the workspace.
-    pub(crate) fn write_text_path(&self, path: &Path, content: &str) -> Result<(), ToolError> {
+    pub fn write_text_path(&self, path: &Path, content: &str) -> Result<(), ToolError> {
         self.check_capability()?;
         if content.len() > MAX_WRITE_BYTES {
             return Err(ToolError::new(format!(
@@ -617,7 +614,7 @@ impl Workspace {
     /// is found where the read tools find one, so what a teammate may send
     /// is exactly what it may read. Answers the open file, its size, and
     /// where it is.
-    pub(crate) fn open_to_send(
+    pub fn open_to_send(
         &self,
         requested: &str,
     ) -> Result<(std::fs::File, u64, PathBuf), ToolError> {
@@ -633,11 +630,7 @@ impl Workspace {
         Ok((file.into_std(), metadata.len(), root.join(relative)))
     }
 
-    pub(crate) fn create_file_path(
-        &self,
-        requested: &str,
-        bytes: &[u8],
-    ) -> Result<PathBuf, ToolError> {
+    pub fn create_file_path(&self, requested: &str, bytes: &[u8]) -> Result<PathBuf, ToolError> {
         self.check_capability()?;
         if bytes.len() > MAX_WRITE_BYTES {
             return Err(ToolError::new("The file is too large to write."));

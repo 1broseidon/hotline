@@ -2,7 +2,7 @@
 """Every test docs/security.md cites exists in the file it names."""
 import re, os, sys
 s = open('docs/security.md').read()
-roots = ['crates/hotline-core/src', 'crates/hotline-store/src', 'crates/hotline-core', 'crates/hotline-cli', 'crates/hotline-app/src', 'crates/hotline-app', 'ui', '.']
+roots = ['crates/hotline-core/src', 'crates/hotline-store/src', 'crates', 'crates/hotline-core', 'crates/hotline-cli', 'crates/hotline-app/src', 'crates/hotline-app', 'ui', '.']
 missing = []; checked = 0
 for line_no, row in enumerate(s.splitlines(), 1):
     if not row.startswith('|'): continue

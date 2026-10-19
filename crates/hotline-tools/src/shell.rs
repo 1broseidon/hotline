@@ -21,7 +21,7 @@ mod linux;
 mod macos;
 
 use super::{ToolError, Workspace};
-use crate::contract::Reach;
+use hotline_contract::Reach;
 use rig::tool::{Tool, ToolContext, ToolExecutionError};
 use serde::Deserialize;
 use serde_json::json;
@@ -62,7 +62,7 @@ const WINDOWS_UNCONFINED: &str = "The shell is not confined to the workspace on 
 
 #[derive(Deserialize)]
 pub struct RunCommandArgs {
-    pub(crate) command: String,
+    pub command: String,
     /// A deadline the agent set for itself. Absent means none, and so does
     /// zero: a model that sends 0 means "no deadline", not "stop at once".
     #[serde(default, deserialize_with = "deadline")]
@@ -141,7 +141,7 @@ impl Tool for RunCommand {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum CommandState {
+pub enum CommandState {
     Succeeded,
     Failed,
     Cancelled,
@@ -149,13 +149,13 @@ pub(crate) enum CommandState {
     Interrupted,
 }
 
-pub(crate) struct CommandOutcome {
+pub struct CommandOutcome {
     pub state: CommandState,
     pub output: String,
 }
 
 /// The line between a command's stdout and its stderr in its output.
-pub(crate) const STDERR_LINE: &str = "\n[stderr]\n";
+pub const STDERR_LINE: &str = "\n[stderr]\n";
 
 /// How much of a running command's latest output is kept to be read while it
 /// runs: a screen or two, which is what anyone checking on a server reads.
@@ -165,7 +165,7 @@ const TAIL_BYTES: usize = 16 * 1024;
 /// in the order they arrived. The whole output is still the outcome's; this
 /// is only so that somebody can look before the command ends.
 #[derive(Default)]
-pub(crate) struct OutputTail(std::sync::Mutex<std::collections::VecDeque<u8>>);
+pub struct OutputTail(std::sync::Mutex<std::collections::VecDeque<u8>>);
 
 impl OutputTail {
     fn push(&self, bytes: &[u8]) {
@@ -178,7 +178,7 @@ impl OutputTail {
         tail.drain(..excess);
     }
 
-    pub(crate) fn text(&self) -> String {
+    pub fn text(&self) -> String {
         let mut tail = self
             .0
             .lock()
@@ -216,7 +216,7 @@ async fn drain(
 }
 
 impl RunCommand {
-    pub(crate) fn boundary(&self) -> String {
+    pub fn boundary(&self) -> String {
         let folders = self.workspace.folders();
         if self.workspace.reach() == Reach::Workspace && !folders.is_empty() {
             let named: Vec<String> = folders
@@ -253,7 +253,7 @@ impl RunCommand {
     /// Cancellation owns the same process group as Stop, but keeps waiting
     /// after signalling it so the caller can distinguish a request from exit.
     /// The output reaches `tail` as it is written.
-    pub(crate) async fn run(
+    pub async fn run(
         &self,
         args: RunCommandArgs,
         cancel: CancellationToken,
@@ -279,7 +279,7 @@ impl RunCommand {
         #[cfg(unix)]
         process.process_group(0);
         #[cfg(windows)]
-        crate::process_windows::prepare(&mut process);
+        hotline_support::process_windows::prepare(&mut process);
         self.workspace.check_capability()?;
         if cancel.is_cancelled() {
             return Ok(CommandOutcome {
@@ -291,7 +291,7 @@ impl RunCommand {
             .spawn()
             .map_err(|error| ToolError::other(format!("The command could not start: {error}")))?;
         #[cfg(windows)]
-        let job = crate::process_windows::Job::attach(child.id()).map_err(|error| {
+        let job = hotline_support::process_windows::Job::attach(child.id()).map_err(|error| {
             ToolError::other(format!(
                 "Could not contain the command process tree: {error}"
             ))

@@ -65,6 +65,10 @@ crates/hotline-store/src/     what is kept on disk and rebuilt from it; on the t
   previews.rs                a tape's last line, for the roster
   link.rs                    the line a thread leaves on its parent, and where a thread stands
   sent/                      files teammates send the person, and their readback
+crates/hotline-tools/src/     a teammate's workspace and shell tools; on the two leaves and nothing else
+  capability.rs              the session's lease every tool checks, and the epoch that revokes it
+  workspace.rs               workspace tools on cap-std: the wall, granted folders, read, grep, edit
+  shell.rs                   the shell command, confined: Seatbelt on macOS, bubblewrap on Linux
 crates/hotline-core/src/
   room.rs                    the roster fold, settings, and schedules
   thread/                    the one name for a conversation, its store and its policy
@@ -78,7 +82,6 @@ crates/hotline-core/src/
   spending.rs                the spending ledger and the budget it enforces
   mcp/                       the client of granted servers, and Hotline's own teammate tools
   skills.rs                  the catalog: built-in, gateway and workspace skills, copied into a workspace
-  tools/                     workspace tools on cap-std, shell command
   computer/                  runtime detection and one container per teammate
   voice/                     the owner's call: speech in and out, the front, realtime, metering
   websearch/                 web search for every teammate, keyless by default, ranked and cleaned

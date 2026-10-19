@@ -7,8 +7,8 @@ use std::fmt::Write;
 // The extra-folder tests build their fixture with symlinks, so they run where those do.
 #[cfg(unix)]
 use super::{FolderGrant, ListDirectoryArgs};
-use crate::driver::CapabilityEpoch;
-use crate::tools::RunCommand;
+use crate::RunCommand;
+use crate::capability::CapabilityEpoch;
 use rig::tool::Tool;
 use std::{
     fs,
@@ -347,7 +347,11 @@ impl Granted {
         ]
     }
 
-    fn open(&self, reach: Reach, capability: Option<crate::driver::CapabilityLease>) -> Workspace {
+    fn open(
+        &self,
+        reach: Reach,
+        capability: Option<crate::capability::CapabilityLease>,
+    ) -> Workspace {
         Workspace::open_with_capability(
             self.workspace.clone(),
             reach,

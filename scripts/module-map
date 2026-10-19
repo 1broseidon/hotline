@@ -22,13 +22,6 @@ import sys
 
 SRC = Path("crates/hotline-core/src")
 
-# The edges docs/adr/0007 plans to cut so that tools can leave the strongly
-# connected core. A cut's entry goes in the change that makes it,
-# because a module that has left this crate is not in the map to cut from.
-PLANNED_CUTS = [
-    ("tools", "driver"),
-]
-
 # One alternative per lexical form that can hide braces or `crate::`; a match is
 # replaced by spaces (newlines kept, so line numbers survive).
 BLANKED = re.compile(
@@ -325,28 +318,6 @@ def print_cuts(modules, edges, successors):
     print()
 
 
-def print_after_cuts(modules, edges):
-    successors = successors_of(modules, edges, ("production",))
-    for origin, target in PLANNED_CUTS:
-        successors[origin].discard(target)
-    components = strongly_connected(modules, successors)
-    depth = layers(components, successors)
-    print("## Layers after the planned cuts")
-    print()
-    print("Cuts: " + ", ".join(f"{o} -> {t}" for o, t in PLANNED_CUTS) + ".")
-    print()
-    by_depth = defaultdict(list)
-    for component in components:
-        by_depth[depth[tuple(component)]].append(component)
-    for level in sorted(by_depth):
-        for component in sorted(by_depth[level]):
-            tag = f"layer {level}"
-            if len(component) > 1:
-                tag += f", strongly connected, {len(component)} modules"
-            print(f"- {tag}: {', '.join(component)}")
-    print()
-
-
 def main():
     modules, edges = collect()
     print(f"# hotline-core module map ({len(modules)} top-level modules)")
@@ -356,7 +327,6 @@ def main():
     everything = successors_of(modules, edges, ("production", "test"))
     components = print_layers(modules, production)
     print_cuts(modules, edges, production)
-    print_after_cuts(modules, edges)
     print("## Test-only edges")
     print()
     print("Edges that exist only in `#[cfg(test)]` code, and so would be")

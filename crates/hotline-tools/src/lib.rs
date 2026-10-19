@@ -1,3 +1,10 @@
+//! The tools a teammate works with on the desk's own machine: reading, searching
+//! and editing files inside its reach, and running a shell command confined to
+//! it. Each tool checks the session's [`capability::CapabilityLease`] before it
+//! acts, so a stopped or re-policied session's handles do nothing. Depends on
+//! hotline-contract and hotline-support and no other Hotline crate by design.
+
+pub mod capability;
 mod shell;
 mod workspace;
 
@@ -7,7 +14,7 @@ use std::{
     fmt::{self, Display},
 };
 
-pub(crate) use shell::{CommandOutcome, CommandState, OutputTail, RunCommandArgs, STDERR_LINE};
+pub use shell::{CommandOutcome, CommandState, OutputTail, RunCommandArgs, STDERR_LINE};
 pub use shell::{RunCommand, shell_available};
 pub use workspace::{
     EditFile, FindFiles, ListDirectory, ReadFile, SearchFiles, Workspace, WriteFile,

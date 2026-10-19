@@ -16,7 +16,7 @@ parentId: epic-20
 createdAt: "2026-10-19T19:59:33.081Z"
 dependsOn:
   - task-220
-updatedAt: "2026-10-19T23:20:46.787Z"
+updatedAt: "2026-10-19T23:20:50.853Z"
 contract:
   status: ready
   deliverables:
@@ -34,6 +34,14 @@ contract:
     - A clone's lease is never wider than the home thread's
   metrics:
     readyAt: "2026-10-19T20:03:14.742Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T23:20:50.726Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

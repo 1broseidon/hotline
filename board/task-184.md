@@ -1,7 +1,7 @@
 ---
 id: task-184
 title: "Teammate card: the threads list reads thread.list, not peers.list"
-column: todo
+column: in-progress
 position: 10
 priority: high
 tags:
@@ -11,14 +11,16 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:55.296Z"
 relatedFiles:
   - ui/src/components/teammate/Threads.tsx
-updatedAt: "2026-10-19T00:43:58.000Z"
+updatedAt: "2026-10-19T00:44:13.581Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - make ui-check
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+    pickedUpAt: "2026-10-19T00:44:13.581Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: sonnet

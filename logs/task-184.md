@@ -1,8 +1,6 @@
 ---
 id: task-184
 title: "Teammate card: the threads list reads thread.list, not peers.list"
-column: review
-position: 10
 priority: high
 tags:
   - threads
@@ -11,7 +9,7 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:55.296Z"
 relatedFiles:
   - ui/src/components/teammate/Threads.tsx
-updatedAt: "2026-10-19T00:45:04.806Z"
+updatedAt: "2026-10-19T00:46:09.296Z"
 contract:
   status: delivered
   validation:
@@ -38,6 +36,7 @@ dispatch:
     ended: "2026-10-19T00:45:04.806Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-19T00:46:09.296Z"
 ---
 
 ## Description
@@ -47,3 +46,4 @@ Split from task-35, which keeps the rest and stays deferred.
 
 ## Log
 - 2026-10-19T00:44:58.475Z: [claude] Threads.tsx now reads thread.list (pair rows only, name from withName or the roster, Threads takes a roster prop), falling back to peers.list if the command fails. Markers/aliases remain in task-35. make ui-check passes. On branch dispatch/task-184.
+- 2026-10-19T00:46:08.895Z: Landed on release/0.40.0

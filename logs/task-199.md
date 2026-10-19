@@ -1,8 +1,6 @@
 ---
 id: task-199
 title: "After: timings again, and the plan for splitting the core"
-column: review
-position: 7
 priority: medium
 tags:
   - crate-split
@@ -16,7 +14,7 @@ dependsOn:
   - task-195
   - task-197
   - task-198
-updatedAt: "2026-10-19T09:13:15.086Z"
+updatedAt: "2026-10-19T09:15:36.712Z"
 contract:
   status: delivered
   deliverables:
@@ -58,6 +56,7 @@ dispatch:
     at: "2026-10-19T08:46:38.918Z"
     ended: "2026-10-19T09:13:15.086Z"
     outcome: review
+completedAt: "2026-10-19T09:15:36.712Z"
 ---
 
 ## Description
@@ -75,3 +74,4 @@ After: Before's commands re-run on fd6ddfd1. The core lib unit went from 40.2s t
 Next: a proposal only, in this order. (1) Move room, the pure pieces and RoomHandle down; RoomHandle's five core-typed accessors must leave it. (2) The mcp client out, through rmcp's CredentialStore; the server stays. (3) The voice engines out (speech/realtime, through the existing Speech and Realtime traits); the calls stay. (4) remote, last and conditional. The re-exports are renamed per module as each one leaves, not cleaned up as a stage.
 
 make check, make verify and make precheck (8 legs, 131s) pass in the foreground; contract.ts is byte-identical. The one piece of code-comment drift is noted on epic-16.
+- 2026-10-19T09:15:36.349Z: Landed on release/0.41.0

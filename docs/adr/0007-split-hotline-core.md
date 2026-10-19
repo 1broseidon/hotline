@@ -602,6 +602,15 @@ in the core does.
 
 1. The room and the pure pieces down, with `RoomHandle` (moves only; the
    shared precondition).
+   Its signatures are cut (task-211): `voice()`, `remote()` and `links()`
+   left the trait, and the wire is handed a `wire::Parts` (the calls, the
+   Remote held weakly, the links) beside the room handle, in a `wire::Agents`
+   with the log, by whoever builds it: `Door::bind`, a Remote's phone seat
+   (which adds itself), a call's dispatcher (the calls alone), and the test
+   rooms with none. `import` answers the contract's `Report`, and
+   `AuthStatus` moved beside the trait rather than into the contract, because
+   `agent.auth.poll` is typed by hand in the window and exporting it would
+   change `contract.ts`.
 2. The `mcp` client (the cheapest seam, an external trait).
 3. The `voice` engines (the largest gain, through traits with five and two
    implementations).

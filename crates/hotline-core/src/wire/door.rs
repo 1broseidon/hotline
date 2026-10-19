@@ -2,7 +2,7 @@
 
 use super::seat::Seat;
 use super::socket::seated;
-use super::{RoomHandle, relay_door, same_secret};
+use super::{Agents, Parts, RoomHandle, relay_door, same_secret};
 use crate::log::Log;
 use std::io;
 use std::net::{Ipv4Addr, TcpListener as StdTcpListener};
@@ -27,13 +27,18 @@ pub struct Door {
 /// that runs only a relay, the four commands that administer it (ADR 0006).
 #[derive(Clone)]
 enum Behind {
-    Room { log: Log, room: Arc<dyn RoomHandle> },
+    Room(Agents),
     Relay(Arc<crate::remote::Remote>),
 }
 
 impl Door {
-    pub fn bind(log: Log, desk_token: String, room: Arc<dyn RoomHandle>) -> io::Result<Self> {
-        Self::bind_to(desk_token, Behind::Room { log, room })
+    pub fn bind(
+        log: Log,
+        desk_token: String,
+        room: Arc<dyn RoomHandle>,
+        parts: Parts,
+    ) -> io::Result<Self> {
+        Self::bind_to(desk_token, Behind::Room(Agents { log, room, parts }))
     }
 
     /// The door of a server that runs only a relay: no room behind it.
@@ -163,7 +168,7 @@ async fn serve(stream: TcpStream, desk_token: &str, behind: Behind) -> Result<()
     })
     .await?;
     match behind {
-        Behind::Room { log, room } => seated(socket, Seat::Desk, log, room).await,
+        Behind::Room(desk) => seated(socket, Seat::Desk, desk).await,
         Behind::Relay(remote) => relay_door::serve(socket, remote).await,
     }
 }

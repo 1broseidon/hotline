@@ -13,11 +13,9 @@ async fn served_running(agents: bool, relay: bool) -> (tempfile::TempDir, Arc<Re
     let listen = listener.local_addr().unwrap();
     let store = Arc::new(MemoryStore::default());
     let agents = agents.then(|| {
-        let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
-        Agents {
-            log: desk.log.clone(),
-            room: desk,
-        }
+        super::agents(&Arc::new(
+            Desk::open_with_store(root.path(), store.clone()).unwrap(),
+        ))
     });
     let options = ServeOptions {
         listen,

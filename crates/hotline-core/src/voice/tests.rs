@@ -175,7 +175,7 @@ fn desk(services: Services) -> (tempfile::TempDir, Arc<crate::desk::Desk>, Arc<C
         )
         .unwrap(),
     );
-    let calls = desk.voice().unwrap();
+    let calls = desk.parts().voice.unwrap();
     (root, desk, calls)
 }
 fn wav() -> Vec<u8> {
@@ -230,7 +230,7 @@ async fn mack(desk: &Arc<crate::desk::Desk>) -> String {
     use crate::contract::Command;
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Keep the build green","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
-    crate::wire::commands::run(create, &desk.log, &handle)
+    crate::wire::commands::run(create, &desk.log, &handle, &desk.parts())
         .await
         .unwrap()["id"]
         .as_str()

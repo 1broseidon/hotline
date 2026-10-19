@@ -1,6 +1,6 @@
 //! What a socket may do, decided by the token it presented.
 
-use super::RoomHandle;
+use super::Parts;
 use super::socket::PHONE_CAPABILITIES;
 use crate::contract::ThreadKind;
 use crate::contract::{Command, Target, ViewName};
@@ -148,10 +148,10 @@ impl Seat {
         capabilities
     }
 
-    pub(super) fn capabilities_for(self, room: &dyn RoomHandle) -> Vec<&'static str> {
+    pub(super) fn capabilities_for(self, parts: &Parts) -> Vec<&'static str> {
         let mut capabilities = self.capabilities();
         if matches!(self, Seat::Owner | Seat::Desk)
-            && let Some(voice) = room.voice()
+            && let Some(voice) = &parts.voice
         {
             let audio = voice.status().direct_available;
             let text = voice

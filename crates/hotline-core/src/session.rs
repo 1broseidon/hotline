@@ -864,7 +864,7 @@ impl Room {
         &self,
         persona_id: &str,
         id: &str,
-    ) -> Result<crate::driver::auth::AuthStatus, String> {
+    ) -> Result<crate::wire::AuthStatus, String> {
         self.session(persona_id)?.driver.auth_poll(id)
     }
 

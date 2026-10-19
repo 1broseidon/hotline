@@ -393,7 +393,14 @@ async fn a_companions_thread_list_leaves_out_calls_and_pairs() {
     };
     for params in [json!({ "personaId": ada }), json!({})] {
         let request = json!({ "id": 1, "cmd": "thread.list", "params": params });
-        let phone = remote_control_answer(Seat::Phone, &handle, &log, request.clone()).await;
+        let phone = remote_control_answer(
+            Seat::Phone,
+            &handle,
+            &log,
+            &Parts::default(),
+            request.clone(),
+        )
+        .await;
         assert!(
             !phone.to_string().contains("said in c1"),
             "a call's words are not a companion's to list: {phone}"
@@ -404,7 +411,8 @@ async fn a_companions_thread_list_leaves_out_calls_and_pairs() {
                 .any(|kind| kind == "call" || kind == "pair")
         );
         assert!(kinds(&phone).iter().any(|kind| kind == "side"));
-        let owner = remote_control_answer(Seat::Owner, &handle, &log, request).await;
+        let owner =
+            remote_control_answer(Seat::Owner, &handle, &log, &Parts::default(), request).await;
         assert!(kinds(&owner).iter().any(|kind| kind == "call"));
         assert!(kinds(&owner).iter().any(|kind| kind == "pair"));
     }

@@ -21,7 +21,8 @@ async fn ending_every_agent_kills_a_starting_agents_process_group() {
     std::fs::create_dir_all(root.join("workspace")).unwrap();
     let pids = stalled::install(&root);
     let desk = common::open_desk(&root).unwrap();
-    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
     let port = door.port();
     let door_task = tokio::spawn(door.run());
     let mut client = Client::connect(port, TOKEN).await;

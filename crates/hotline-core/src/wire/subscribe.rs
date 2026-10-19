@@ -3,7 +3,7 @@
 use super::phone::{PHONE_WINDOW, link_as_sent, phone_event, snapshot_shaped};
 use super::seat::Seat;
 use super::socket::{FORBIDDEN, Outbox, Refused, UNKNOWN_TEAMMATE, UNREADABLE, reply};
-use super::{RoomHandle, roster, schedules, send};
+use super::{Agents, RoomHandle, roster, schedules, send};
 use crate::contract::{DeltaKind, StreamDelta, Target, ViewName};
 use crate::contract::{ThreadId, ThreadKind};
 use crate::log::{Log, StreamId};
@@ -24,11 +24,11 @@ pub(super) fn subscribe(
     id: i64,
     frame: &Value,
     seat: Seat,
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
+    desk: &Agents,
     sender: &Outbox,
     subscriptions: &mut HashMap<i64, JoinHandle<()>>,
 ) -> Result<(), Refused> {
+    let Agents { log, room, parts } = desk;
     let target: Target = serde_json::from_value(frame["sub"].clone())
         .map_err(|error| format!("That is not something to subscribe to: {error}."))?;
     if !seat.permits_sub(&target) {
@@ -51,8 +51,9 @@ pub(super) fn subscribe(
 
     let stream = match target {
         Target::Call(call_id) => {
-            let voice = room
-                .voice()
+            let voice = parts
+                .voice
+                .as_ref()
                 .ok_or_else(|| "Voice is not available on this desk.".to_string())?;
             let (snapshot, mut events) = voice.subscribe(&call_id)?;
             reply(sender, id, Ok(Value::Null));

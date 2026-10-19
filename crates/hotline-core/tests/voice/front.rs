@@ -522,7 +522,6 @@ async fn a_fronts_minutes_are_counted_by_login_kind() {
     use async_trait::async_trait;
     use hotline_core::voice::realtime::{Realtime, RealtimeConfig, RealtimeSession};
     use hotline_core::voice::speech::{SpeechError, SpeechId};
-    use hotline_core::wire::RoomHandle;
 
     struct Front {
         provider: &'static str,
@@ -552,7 +551,7 @@ async fn a_fronts_minutes_are_counted_by_login_kind() {
         Some(services()),
     )
     .unwrap();
-    let calls = desk.voice().unwrap();
+    let calls = desk.parts().voice.unwrap();
     let grok = Front {
         provider: "xai",
         subscription: false,
@@ -627,7 +626,8 @@ async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
         .unwrap(),
     );
     let log = desk.log.clone();
-    let door = Door::bind(log.clone(), "front-test".into(), desk).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(log.clone(), "front-test".into(), desk, parts).unwrap();
     let port = door.port();
     tokio::spawn(door.run());
     let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=front-test"))

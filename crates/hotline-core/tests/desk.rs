@@ -37,7 +37,8 @@ async fn open(name: &str) -> (PathBuf, u16) {
 /// The same, on a data directory somebody has already put something in.
 fn open_at(root: &Path) -> u16 {
     let desk = common::open_desk(root).unwrap();
-    let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk)).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk), parts).unwrap();
     let port = door.port();
     tokio::spawn(door.run());
     port

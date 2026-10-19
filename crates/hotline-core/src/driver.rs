@@ -223,7 +223,7 @@ pub trait Driver: Send + Sync {
     ) -> Result<String, String> {
         Err("This agent does not offer sign-in.".into())
     }
-    fn auth_poll(&self, _id: &str) -> Result<auth::AuthStatus, String> {
+    fn auth_poll(&self, _id: &str) -> Result<crate::wire::AuthStatus, String> {
         Err("That sign-in is no longer available.".into())
     }
     fn auth_input(&self, _id: &str, _input: &str) -> Result<(), String> {

@@ -55,7 +55,8 @@ fn scratch(name: &str) -> PathBuf {
 async fn open(name: &str) -> (PathBuf, u16) {
     let root = scratch(name);
     let desk = common::open_desk(&root).unwrap();
-    let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk)).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.to_string(), Arc::new(desk), parts).unwrap();
     let port = door.port();
     tokio::spawn(door.run());
     (root, port)

@@ -9,7 +9,7 @@
 //! cargo run --release -p hotline-core --example local_speech_check -- parakeet-tdt-110m-en [clip.wav ...]
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use hotline_core::{contract::SpeechModelState, desk::Desk, wire::RoomHandle};
+use hotline_core::{contract::SpeechModelState, desk::Desk};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -21,7 +21,7 @@ async fn main() {
     let clips: Vec<std::path::PathBuf> = std::env::args().skip(2).map(Into::into).collect();
     let root = tempfile::tempdir().expect("a scratch data directory");
     let desk = Desk::open(root.path()).expect("a desk on the scratch directory");
-    let voice = desk.voice().expect("the desk's voice");
+    let voice = desk.parts().voice.expect("the desk's voice");
 
     let started = Instant::now();
     voice.install_speech_model(&id).expect("an offered model");

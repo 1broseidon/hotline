@@ -131,7 +131,8 @@ async fn open(root: &Path, models: Vec<Model>) -> Client {
     let desk = std::sync::Arc::new(
         hotline_core::desk::Desk::open_with_speech_models(root, common::store(), models).unwrap(),
     );
-    let door = Door::bind(desk.log.clone(), "local-speech".into(), desk).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), "local-speech".into(), desk, parts).unwrap();
     let port = door.port();
     tokio::spawn(door.run());
     Client::connect(port, "local-speech").await

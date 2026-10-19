@@ -134,10 +134,7 @@ async fn relay_server() -> (tempfile::TempDir, Arc<Remote>, String) {
     let remote = Remote::open_served_on(
         listener,
         root.path(),
-        Some(Agents {
-            log: desk.log.clone(),
-            room: desk,
-        }),
+        Some(agents(&desk)),
         store,
         ServeOptions {
             listen,

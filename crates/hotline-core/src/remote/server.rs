@@ -490,19 +490,15 @@ pub(super) async fn sealed_session<S>(
             };
             // The wire owns its writer and subscription tasks and must reach
             // their cleanup on revocation; dropping that future leaks them.
-            let Ok(Agents { log, room }) = remote.agents() else {
+            let Ok(agents) = remote.agents() else {
                 return;
             };
+            // The desk's parts were handed over before this Remote opened;
+            // a phone's seat reaches the Remote it came in through.
+            let mut desk = agents.clone();
+            desk.parts.remote = Arc::downgrade(&remote);
             let desktop_id = lock(&remote.state).saved.desktop_id.clone();
-            let _ = crate::wire::seated_phone_v2(
-                socket,
-                log.clone(),
-                room.clone(),
-                phone,
-                role,
-                &desktop_id,
-            )
-            .await;
+            let _ = crate::wire::seated_phone_v2(socket, desk, phone, role, &desktop_id).await;
         }
     }
     if let Some(cancellation) = cancellation {
@@ -527,7 +523,7 @@ async fn sealed_computer<S>(
         r#type: String,
         data: String,
     }
-    let Ok(Agents { log, room }) = remote.agents() else {
+    let Ok(Agents { log, room, .. }) = remote.agents() else {
         return;
     };
     let Ok(status) = room.computer_status(persona).await else {

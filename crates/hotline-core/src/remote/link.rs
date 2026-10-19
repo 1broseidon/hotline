@@ -38,8 +38,9 @@ const FRAME_MAX: usize = 1024 * 1024;
 impl Remote {
     fn link_registry(&self) -> Result<Arc<linked::Links>, String> {
         self.agents()?
-            .room
-            .links()
+            .parts
+            .links
+            .clone()
             .ok_or_else(|| "This desk cannot link with another.".to_string())
     }
 
@@ -163,7 +164,7 @@ impl Remote {
     /// identity, for `/v2/link`. Asked over an owner seat here, so it is the
     /// owner's decision on this desk too.
     pub async fn accept_link(&self, desk_id: &str, name: &str, key: &str) -> Result<Value, String> {
-        let Agents { log, room } = self.agents()?;
+        let Agents { log, room, .. } = self.agents()?;
         let name = linked::plain(name, 80);
         if !linked::valid_desk_id(desk_id) || desk_id == self.status_desktop_id() {
             return Err("That is not another desk's id.".into());
@@ -207,7 +208,7 @@ impl Remote {
     /// ends it now whatever the other says.
     pub async fn unlink(self: &Arc<Self>, desk_id: &str) -> Result<(), String> {
         let links = self.link_registry()?;
-        let Agents { log, room } = self.agents()?;
+        let Agents { log, room, .. } = self.agents()?;
         let record =
             linked::record(log, desk_id).ok_or("This desk is not linked with that one.")?;
         if links.is_open(desk_id) {
@@ -281,7 +282,7 @@ impl Remote {
         };
         let remote = self.clone();
         tokio::spawn(async move {
-            let Ok(Agents { log, room }) = remote.agents() else {
+            let Ok(Agents { log, room, .. }) = remote.agents() else {
                 return;
             };
             let mut tries = 0u32;
@@ -348,10 +349,10 @@ impl Remote {
             return None;
         }
         let public = URL_SAFE_NO_PAD.encode(public);
-        let Agents { log, room } = self.agents().ok()?;
+        let Agents { log, parts, .. } = self.agents().ok()?;
         linked::record(log, desk_id)
             .filter(|record| !record.dials && record.key.as_deref() == Some(public.as_str()))?;
-        Some(room.links()?.token(desk_id).child_token())
+        Some(parts.links.as_ref()?.token(desk_id).child_token())
     }
 }
 
@@ -483,12 +484,13 @@ async fn session<S>(
 ) where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
-    let Ok(room) = remote.agents().map(|agents| agents.room.clone()) else {
+    let Ok(Agents { room, parts, .. }) = remote.agents() else {
         return;
     };
-    let Some(links) = room.links() else {
+    let Some(links) = parts.links.clone() else {
         return;
     };
+    let room = room.clone();
     let mut channel = channel.limited(FRAME_MAX);
     let mut throttled = false;
     let (calls, mut waiting) = mpsc::channel::<Call>(32);

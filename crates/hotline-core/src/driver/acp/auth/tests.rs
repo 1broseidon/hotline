@@ -67,7 +67,7 @@ fn fixture(
     }
 }
 
-async fn finished(driver: &ChildAgent, id: &str) -> crate::driver::auth::AuthStatus {
+async fn finished(driver: &ChildAgent, id: &str) -> crate::wire::AuthStatus {
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
             let status = driver.auth_poll(id).unwrap();

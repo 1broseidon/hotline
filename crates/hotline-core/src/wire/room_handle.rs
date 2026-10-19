@@ -3,9 +3,20 @@
 use super::socket::NOT_LINKED;
 use crate::contract::{SessionInfo, StreamDelta};
 use async_trait::async_trait;
+use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+
+/// How far a harness sign-in has got, as `agent.auth.poll` answers it: the
+/// state, the sign-in's output so far, and why it failed when it did.
+#[derive(Clone, Serialize)]
+pub struct AuthStatus {
+    pub state: &'static str,
+    pub output: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
 
 /// The live half of the room, which the wire calls but does not own: the
 /// sessions and the vault.
@@ -48,18 +59,6 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("This room cannot make images.".into())
     }
 
-    fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
-        None
-    }
-    /// Remote owns a room handle, so implementations retain only a weak reference.
-    fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
-        None
-    }
-    /// The live half of this desk's links (ADR 0003): which linked desks are
-    /// reachable now, the calls waiting for them, and their teammates.
-    fn links(&self) -> Option<Arc<crate::linked::Links>> {
-        None
-    }
     /// This desk's teammates as a linked desk is shown them: the rows
     /// `list_teammates` gives a local colleague, and nothing more.
     fn federation_roster_entries(&self) -> Vec<crate::contract::LinkedTeammate> {
@@ -112,11 +111,7 @@ pub trait RoomHandle: Send + Sync + 'static {
     ) -> Result<String, String> {
         Err("This room does not offer agent sign-in.".into())
     }
-    fn agent_auth_poll(
-        &self,
-        _persona_id: &str,
-        _id: &str,
-    ) -> Result<crate::driver::auth::AuthStatus, String> {
+    fn agent_auth_poll(&self, _persona_id: &str, _id: &str) -> Result<AuthStatus, String> {
         Err("That sign-in is no longer available.".into())
     }
     fn agent_auth_input(&self, _persona_id: &str, _id: &str, _input: &str) -> Result<(), String> {
@@ -367,7 +362,7 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     /// Copies an existing Hotline data directory into this room. The source is
     /// never written.
-    fn import(&self, from: &std::path::Path) -> Result<crate::import::Report, String>;
+    fn import(&self, from: &std::path::Path) -> Result<crate::contract::Report, String>;
 
     /// What tools this teammate was given the last time it started.
     fn teammate_tools(&self, persona_id: &str) -> Option<crate::contract::TeammateToolLedger>;

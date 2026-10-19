@@ -250,7 +250,8 @@ async fn front_desk_with(front: bool, queue: usize, delegates: bool) -> FrontDes
         .unwrap(),
     );
     let log = desk.log.clone();
-    let door = Door::bind(log.clone(), "front-test".into(), desk).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(log.clone(), "front-test".into(), desk, parts).unwrap();
     let port = door.port();
     tokio::spawn(door.run());
     let (socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=front-test"))

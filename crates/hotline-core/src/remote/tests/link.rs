@@ -4,7 +4,7 @@
 use super::*;
 use crate::driver::{MessageKind, Update};
 use crate::linked::DeskLinkState;
-use crate::log::StreamId;
+use crate::log::{Log, StreamId};
 use crate::mcp::server::TeammateTools;
 use crate::session::Room;
 use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona};
@@ -59,15 +59,7 @@ async fn open(root: tempfile::TempDir, store: Arc<MemoryStore>) -> Linked {
         Fake::new(answers("teammate")),
     );
     let desk = Arc::new(Desk::with_room(log.clone(), room.clone()));
-    let remote = Remote::open_on(
-        loopback(),
-        root.path(),
-        desk.log.clone(),
-        desk.clone(),
-        store.clone(),
-    )
-    .unwrap();
-    desk.set_remote(&remote);
+    let remote = Remote::open_on(loopback(), root.path(), agents(&desk), store.clone()).unwrap();
     remote.configure(true, network::ALL).await.unwrap();
     remote.restore().await;
     Linked {

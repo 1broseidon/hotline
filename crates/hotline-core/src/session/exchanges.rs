@@ -3,11 +3,11 @@
 use super::sides::{HandoffStart, Start};
 use super::turns::HandoffLine;
 use super::{Room, lock, new_id, now_ms, peers};
-use crate::contract::ThreadId;
 use crate::contract::{
     DeliveryCause, DeliveryFrom, ExchangePauseStatus, HumanActionStatus, PeerStatus, SideEnd,
     TranscriptEvent,
 };
+use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::CapabilityLease;
 use crate::linked;
 use crate::log::{StreamId, thread};
@@ -69,16 +69,20 @@ struct Request {
     /// the answer comes back there instead of to the sender's DM.
     #[serde(default)]
     reply_thread: Option<String>,
+    /// The job whose thread the request was sent from, when it was: the
+    /// answer comes back there while the job lives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reply_job: Option<String>,
     /// For a request from a teammate on a linked desk that was stopped here:
     /// its desk has been told, so its sender is not left waiting.
     #[serde(default)]
     returned: bool,
 }
 /// How the sender of a request hears its answer: inline, while it waits, or
-/// later, in the work thread it was sent from when it was sent from one.
+/// later, in the thread it was sent from.
 enum Answer<'a> {
     Inline,
-    Later(Option<&'a str>),
+    Later(&'a ThreadId),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct HumanGate {
@@ -134,7 +138,7 @@ impl Room {
         message: &str,
         intent: Intent,
         capability: Option<CapabilityLease>,
-        sent_from: Option<&str>,
+        sent_from: &ThreadId,
     ) -> Result<peers::Sent, String> {
         let answer = Answer::Later(sent_from);
         self.enqueue_exchange(from, to, message, intent, capability, answer)
@@ -230,8 +234,16 @@ impl Room {
                 human_actions: vec![],
                 thread: None,
                 reply_thread: match answer {
-                    Answer::Inline => None,
-                    Answer::Later(sent_from) => sent_from.map(str::to_string),
+                    Answer::Later(sent_from) if sent_from.kind == ThreadKind::Side => {
+                        Some(sent_from.key.clone())
+                    }
+                    _ => None,
+                },
+                reply_job: match answer {
+                    Answer::Later(sent_from) if sent_from.kind == ThreadKind::Job => {
+                        Some(sent_from.key.clone())
+                    }
+                    _ => None,
                 },
                 returned: false,
             });
@@ -922,16 +934,18 @@ impl Room {
                 // The card is durable before dispatch. Repair an answer saved
                 // just before the desk stopped, without replaying an old turn.
                 for gate in request.human_actions.iter().filter(|g| !g.consumed) {
-                    if let Some(TranscriptEvent::HumanAction {
-                        reason,
-                        status,
-                        note,
-                        thread,
-                        ..
-                    }) = self.human_card(&request.to, &gate.id)
+                    if let Some((
+                        TranscriptEvent::HumanAction {
+                            reason,
+                            status,
+                            note,
+                            ..
+                        },
+                        home,
+                    )) = self.human_card(&request.to, &gate.id)
                         && status != HumanActionStatus::Pending
                     {
-                        self.hand_over_answer(&request.to, &gate.id, &reason, status, note, thread)
+                        self.hand_over_answer(&request.to, &gate.id, &reason, status, note, home)
                             .await?;
                     }
                 }
@@ -994,13 +1008,21 @@ impl Room {
                 } else if !request.inline {
                     let from = self.delivery_source(&request.from, &cause);
                     let id = format!("exchange-result:{}", request.id);
-                    match request
+                    let job = request
+                        .reply_job
+                        .as_deref()
+                        .filter(|job_id| self.job_lives(job_id));
+                    let work = request
                         .reply_thread
                         .as_deref()
-                        .filter(|thread| self.work_is_open(thread))
-                    {
-                        // Sent from a work thread: the answer is its to hear.
-                        Some(thread) => {
+                        .filter(|thread| self.work_is_open(thread));
+                    match (job, work) {
+                        // Sent from a job that still lives, or a work thread:
+                        // the answer is its to hear.
+                        (Some(job_id), _) => {
+                            self.deliver_into_job(job_id, &id, cause, from, request.reply.clone())?;
+                        }
+                        (None, Some(thread)) => {
                             self.deliver_into_work(
                                 thread,
                                 &id,
@@ -1011,7 +1033,7 @@ impl Room {
                             )
                             .await?;
                         }
-                        None => {
+                        (None, None) => {
                             self.deliver_identified(
                                 &request.from,
                                 &id,
@@ -1251,6 +1273,7 @@ impl Room {
                 human_actions: vec![],
                 thread: None,
                 reply_thread: None,
+                reply_job: None,
                 returned: false,
             });
             self.save_pair(&pair)?;

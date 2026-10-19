@@ -49,7 +49,8 @@ async fn a_subagent_run_may_not_post() {
 
 /// A job is a subagent on a schedule that the person asked for: unlike a
 /// plain run it is offered the doors to the chat and posts through them,
-/// once a turn, stamped with its job and from its thread.
+/// once a turn, stamped with its job and from its thread. It has the home
+/// thread's tools but the few that are the DM's or would schedule more.
 #[tokio::test]
 async fn a_jobs_thread_posts_where_a_run_may_not() {
     let room = room("post-job", Fake::new(Scripted::new(Vec::new())));
@@ -72,14 +73,20 @@ async fn a_jobs_thread_posts_where_a_run_may_not() {
         "send_file",
         "generate_image",
         "cancel_schedule",
+        "request_human",
+        "withdraw_request",
+        "message_teammate",
+        "computer_status",
     ] {
         assert!(offered.iter().any(|name| name == tool), "{offered:?}");
     }
     for tool in [
-        "request_human",
-        "message_teammate",
         "schedule",
+        "loop",
         "new_chapter",
+        "resume_chapter",
+        "react",
+        "open_link",
     ] {
         assert!(!offered.iter().any(|name| name == tool), "{offered:?}");
         let refused = tools.call(tool, &json!({})).await.unwrap_err();

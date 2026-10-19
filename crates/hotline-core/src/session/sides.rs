@@ -1356,21 +1356,25 @@ impl Room {
     /// The human-action cards that sit in this teammate's work threads, for the
     /// ones a thread's agent parked on the person and went on from. A thread
     /// that is closed holds none that are waiting.
-    pub(super) fn cards_in_work(&self, persona_id: &str) -> Vec<Value> {
+    pub(super) fn cards_in_work(&self, persona_id: &str) -> Vec<(Value, ThreadId)> {
         let mut cards = Vec::new();
         for id in self.stored_side_ids() {
+            let thread = ThreadId::side(&id);
             let stream = StreamId::Side(id.clone());
             let events = self.log.load(&stream);
-            let Some(link) = Link::find(&events, &ThreadId::side(&id)) else {
+            let Some(link) = Link::find(&events, &thread) else {
                 continue;
             };
             if link.persona_id.as_deref() != Some(persona_id) {
                 continue;
             }
             cards.extend(
-                events.into_iter().filter(|event| {
-                    event.get("kind").and_then(Value::as_str) == Some("human_action")
-                }),
+                events
+                    .into_iter()
+                    .filter(|event| {
+                        event.get("kind").and_then(Value::as_str) == Some("human_action")
+                    })
+                    .map(|event| (event, thread.clone())),
             );
         }
         cards

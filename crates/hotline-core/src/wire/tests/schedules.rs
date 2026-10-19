@@ -19,6 +19,7 @@ fn scheduled(
         goal: None,
         until: None,
         times: None,
+        without: None,
         operator_created: true,
         next_at,
         created_at: 1_700_000_000_000,

@@ -299,7 +299,10 @@ mod tests {
             persona_id: "ada".to_string(),
             run_id: run_id.to_string(),
             title: "Check the crane".to_string(),
-            task: "Find out why the crane stopped.".to_string(),
+            brief: crate::session::Brief::subagent(
+                "Find out why the crane stopped.".to_string(),
+                Vec::new(),
+            ),
             capability: room.capability_lease("ada"),
         }
     }

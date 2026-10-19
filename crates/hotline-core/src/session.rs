@@ -52,7 +52,7 @@ mod peers;
 mod post;
 mod preamble;
 pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
-pub(crate) use preamble::{CLOCK, preamble};
+pub(crate) use preamble::preamble;
 mod prompt;
 pub(crate) mod runner;
 pub(crate) mod schedule;

@@ -460,6 +460,7 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
             .get("times")
             .and_then(Value::as_u64)
             .and_then(|times| u32::try_from(times).ok()),
+        without: event.get("without").map(without_of),
         operator_created: event
             .get("operatorCreated")
             .and_then(Value::as_bool)
@@ -471,6 +472,15 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
             .and_then(|post| serde_json::from_value(post.clone()).ok()),
         ended_at: event.get("endedAt").and_then(Value::as_i64),
     })
+}
+
+/// What a job was narrowed by. A list this desk cannot read, written by a
+/// newer one with an ability it does not know, leaves every ability out:
+/// a narrowing it misread must not become a job with more than it was given.
+fn without_of(value: &Value) -> Vec<hotline_contract::Ability> {
+    use hotline_contract::Ability;
+    serde_json::from_value(value.clone())
+        .unwrap_or_else(|_| vec![Ability::Computer, Ability::Folders, Ability::McpServers])
 }
 
 /// What has been brought over to a teammate's computer from the host's
@@ -1064,6 +1074,7 @@ mod tests {
             goal: None,
             until: None,
             times: None,
+            without: None,
             operator_created: false,
             next_at: 1_700_000_100_000,
             created_at: 1_700_000_000_000,

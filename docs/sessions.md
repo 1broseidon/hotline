@@ -224,23 +224,30 @@ the work goes on.
 ### Subagents
 
 A Hotline Agent teammate's own session can hand a task to a **subagent**
-with the `subagent` tool: `task` is everything the worker will know, and
-`title` is the short label the person sees. A subagent is a managed job
+with the `subagent` tool: `task` is where the clone starts, `title` is the
+short label the person sees, and `without` leaves abilities out for the task
+(`computer`, `folders`, `mcp_servers`). A subagent is a managed job
 like a shell command — the call returns a receipt at once, `inspect_job`,
 `wait_jobs` and `cancel_job` work on it, up to four run at a time, and its
 report arrives later as the job's result — so the teammate keeps talking
 with the person while it works, and a message from the person reaches the
 teammate without waiting for any subagent.
 
-A Hotline Agent subagent is the teammate's agent started fresh by
-`Room::run` (`session/runner.rs`): the teammate's working directory, reach,
-granted MCP servers, and the model and effort its session is on at that
-moment, with a system prompt of its own that makes it a worker reporting
-back rather than the teammate talking to the person. It gets none of the
-conversation, no checkpoint to reopen, no computer, and of Hotline's own
-tools only `search_thread` and `list_chapters`. It cannot start subagents.
-Its report is what it said after its last tool call; a run that ends on an
-error or a cancel says so and keeps what it had said.
+A subagent is a **clone** of the home agent (ADR 0008 §0), started fresh by
+`Room::run` (`session/runner.rs`) on whichever driver the teammate runs: the
+teammate itself, with its working directory, reach, folders, granted MCP
+servers, skills and computer, on the model and effort its session is on at
+that moment (`clone_of`, `session/agent.rs`), less what the home agent left
+out. Its system prompt is the teammate's own, with a brief that says it is a
+run, starts from its task, and reports back rather than talking to the
+person. It gets none of the conversation and no checkpoint to reopen; it
+reaches back into the conversation with `search_thread` and
+`list_chapters`, and of Hotline's own tools it has only the reading ones
+(`list_teammates`, `list_schedules`, `computer_status`, `web_search` too).
+It cannot start subagents. Its report is what it said after its last tool
+call; a run that ends on an error or a cancel says so and keeps what it had
+said. A run is the brief that starts now and reports to whoever asked; a
+brief for later is a job's, and `Room::run` refuses it.
 
 A run writes to its own stream, `runs/<runId>.jsonl`, the way a tape is
 written. On the teammate's tape it leaves one link (see
@@ -1812,14 +1819,17 @@ for a quiet job). The thread is listed with the teammate's threads
 (`thread.list`) and its jobs (the `schedules` view: name, next run, last
 post, end), and its link heads its own stream rather than a line on the DM.
 
-**Its agent** is built by `Room::thread_agent` under the job kind's policy
-row, on either driver, with the job's tools: what a run has, plus
-`post_to_chat`, `send_file`, `generate_image`, `list_teammates`,
-`list_schedules` and `cancel_schedule`. It asks the person nothing through a
-card, messages no colleague and schedules no more work. Its authority is
-today's run lease, a child of the teammate's, made with the agent and revoked
-when it is let go of; the clone model of ADR 0008 §0, with the home thread's
-permission set and computer, is task-221's.
+**Its agent** is a clone of the home agent (ADR 0008 §0), built by
+`Room::thread_agent` under the job kind's policy row, on either driver: the
+teammate on the model its home session is on, with the home thread's
+permission set and the computer, less what the teammate left out when it
+made the job (`without` on `schedule` and `loop`, kept on the job). It has
+the home thread's tools but the chapter moves, `react`, `open_link`,
+`schedule` and `loop`: a `request_human` card it raises is on its own
+thread, and the person's answer, like a colleague's answer to its
+`message_teammate`, comes back to it there as a turn while the job lives
+(after it ends, to the DM). Its authority is a child of the teammate's, made
+with the agent and revoked when it is let go of.
 
 **Parked between firings.** Once a firing's turn is over and nothing waits
 behind it, the agent is let go of and the thread's link says `parked`; the

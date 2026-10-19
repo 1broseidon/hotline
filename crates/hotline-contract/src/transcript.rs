@@ -619,6 +619,23 @@ pub enum ScheduleKind {
     Loop,
 }
 
+/// One of the abilities a teammate's home agent may leave out of a clone it
+/// starts, a subagent or a job, for that one task (ADR 0008 §0). A clone has
+/// the home thread's whole permission set unless it is narrowed with these;
+/// nothing can widen it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export, export_to = "contract.ts")]
+pub enum Ability {
+    /// The teammate's computer.
+    Computer,
+    /// Anything outside the working directory: the granted folders, and
+    /// whole-machine reach, which becomes the working directory's.
+    Folders,
+    /// The app's MCP servers the teammate is granted.
+    McpServers,
+}
+
 /// Work a teammate has asked Hotline to do later: a job (ADR 0008 §7).
 ///
 /// `schedule` is once. `loop` is every `every` milliseconds until cancelled
@@ -663,6 +680,10 @@ pub struct ScheduledJob {
     /// How many more times a loop fires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub times: Option<u32>,
+    /// What the teammate left out of the job's permission set when it made
+    /// it. Absent means none: the job has the home thread's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub without: Option<Vec<Ability>>,
     /// True only when the authenticated desk created this job. Jobs created by
     /// a teammate, and jobs written by older versions without provenance,
     /// require that teammate's current background-work grant at every wake.

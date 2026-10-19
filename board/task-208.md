@@ -26,7 +26,37 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:41.570Z"
 dependsOn:
   - task-211
-updatedAt: "2026-10-19T14:09:46.980Z"
+updatedAt: "2026-10-19T14:09:47.249Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-room/Cargo.toml
+      description: the room crate
+    - type: docs
+      path: docs/adr/0007-split-hotline-core.md
+      description: step 1 done, with each moved file's old and new path
+  validation:
+    commands:
+      - "! test -e crates/hotline-core/src/room.rs"
+      - "! test -e crates/hotline-core/src/linked.rs"
+      - "! test -e crates/hotline-core/src/session/ledger.rs"
+      - "! test -e crates/hotline-core/src/wire/room_handle.rs"
+      - "! test -e crates/hotline-core/src/voice/ledger.rs"
+      - "! test -e crates/hotline-core/src/voice/metering.rs"
+      - "! test -e crates/hotline-core/src/voice/spoken.rs"
+      - "! grep -rq 'pub trait RoomHandle' crates/hotline-core/src"
+      - grep -rlq 'pub trait RoomHandle' crates/*/src
+      - "! grep -q 'hotline-core' crates/hotline-room/Cargo.toml 2>/dev/null"
+      - make check
+      - git diff --exit-code -- ui/src/generated/contract.ts
+      - make precheck
+  constraints:
+    - Moves only, no behaviour change, no single-implementation trait (docs/standards.md)
+    - ui/src/generated/contract.ts byte-identical after an unfiltered cargo test
+    - The new crate never depends on hotline-core or Tauri
+  metrics:
+    readyAt: "2026-10-19T14:09:47.249Z"
 ---
 
 ## Description

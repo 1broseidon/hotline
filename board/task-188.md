@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/driver/rig/build.rs
   - crates/hotline-core/src/driver/failure.rs
   - ui/src/components/settings
-updatedAt: "2026-10-18T23:53:55.552Z"
+updatedAt: "2026-10-19T00:08:30.905Z"
 contract:
   status: ready
   deliverables:
@@ -31,6 +31,14 @@ contract:
     readyAt: "2026-10-18T23:53:55.554Z"
 dependsOn:
   - task-8
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-19T00:08:30.763Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

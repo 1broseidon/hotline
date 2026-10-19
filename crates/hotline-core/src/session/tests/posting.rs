@@ -17,8 +17,8 @@ fn posts(room: &Room) -> Vec<Value> {
 }
 
 /// A run reports to the teammate that launched it: it is not offered the
-/// tool, and a call to it is refused in a sentence that says where its words
-/// go instead.
+/// tool, nor `send_file` or `generate_image`, and a call to any of them is
+/// refused in a sentence that says where its words go instead.
 #[tokio::test]
 async fn a_subagent_run_may_not_post() {
     let room = room("post-run", Fake::new(Scripted::new(Vec::new())));
@@ -31,15 +31,19 @@ async fn a_subagent_run_may_not_post() {
         .iter()
         .map(|tool| tool.name().to_string())
         .collect();
-    assert!(
-        !offered.iter().any(|name| name == "post_to_chat"),
-        "{offered:?}"
-    );
-    let refused = tools
-        .call("post_to_chat", &json!({"text": "Found it."}))
-        .await
-        .unwrap_err();
-    assert_eq!(refused, crate::session::SUBAGENT);
+    let posting = [
+        ("post_to_chat", json!({"text": "Found it."})),
+        (
+            "send_file",
+            json!({"source": "workspace", "path": "notes.txt"}),
+        ),
+        ("generate_image", json!({"prompt": "A crane at dusk."})),
+    ];
+    for (tool, arguments) in posting {
+        assert!(!offered.iter().any(|name| name == tool), "{offered:?}");
+        let refused = tools.call(tool, &arguments).await.unwrap_err();
+        assert_eq!(refused, crate::session::SUBAGENT, "{tool}");
+    }
     assert_eq!(posts(&room), [] as [Value; 0]);
 }
 

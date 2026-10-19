@@ -425,8 +425,9 @@ every tape the importer brings over still reads as it did, and a card without
 
 Whatever a teammate says somewhere other than its DM reaches the DM through
 one door, `Room::post` ([ADR 0008](adr/0008-one-agent-thread-layer.md) §3):
-a call's summary and its `post_to_chat`, a quiet run's note, a file sent from
-a work thread. Each is one `agent` event stamped with where it came from, in
+a call's summary and its `post_to_chat`, a quiet run's note, and every file
+`send_file` or `generate_image` sends, from any thread; a quiet run's file is
+its one post. Each is one `agent` event stamped with where it came from, in
 two optional fields: `from` (the thread and its kind, the shape a delivery's
 `from` already has) and `scheduled` (the job, the shape a user event's
 `scheduled` already has). They replace the `call:<id>:` event id and the

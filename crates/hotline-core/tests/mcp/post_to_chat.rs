@@ -1,4 +1,5 @@
-//! `post_to_chat` through the real core, on both drivers, read off the wire.
+//! `post_to_chat` through the real core, on both drivers, read off the wire,
+//! and the files `send_file` posts the same way.
 //!
 //! Each teammate does what its line says: a line `CALL <tool> <json>` is one
 //! call to one of Hotline's own tools, made in order, and the turn's reply is
@@ -410,6 +411,127 @@ async fn a_pair_posts_to_its_targets_own_chat(driver: Driver) {
             .count(),
         1
     );
+}
+
+/// A file sent from a work thread lands in the chat stamped from the
+/// thread, which keeps a line naming it. It is not the turn's post: the
+/// thread may still post once.
+async fn a_work_threads_file_lands_in_the_chat(driver: Driver) {
+    let mut desk = open().await;
+    std::fs::write(
+        std::path::Path::new(&desk.workspace).join("winch.txt"),
+        "cable snapped\n",
+    )
+    .unwrap();
+    let (ada, tape) = desk.teammate("Ada", driver, false).await;
+
+    let text = [
+        r#"CALL send_file {"source":"workspace","path":"winch.txt","caption":"The winch log."}"#,
+        r#"CALL post_to_chat {"text":"The winch log is in the chat."}"#,
+    ]
+    .join("\n");
+    let opened = desk
+        .client
+        .call("thread.open", json!({"personaId": ada, "text": text}))
+        .await;
+    assert_eq!(opened["ok"], true, "{opened}");
+    let thread = opened["result"]["thread"].clone();
+    let side = desk.client.subscribe(json!({"threadId": thread})).await;
+
+    let posted = desk
+        .event(tape, |event| {
+            event["kind"] == "agent" && event["text"] == "The winch log."
+        })
+        .await;
+    assert_eq!(posted["attachments"][0]["name"], "winch.txt", "{posted}");
+    assert_eq!(
+        posted["from"],
+        json!({"thread": thread["key"], "kind": "side"}),
+        "{posted}"
+    );
+    desk.event(side, |event| {
+        event["kind"] == "notice" && event["text"] == "Sent winch.txt to the chat."
+    })
+    .await;
+    let results = desk.results(side).await;
+    says(&results, 0, "Sent winch.txt (14 bytes).");
+    says(&results, 1, "Posted to the chat.");
+}
+
+/// A quiet run's file is posted, stamped with its job, and is the run's one
+/// post: a `post_to_chat` after it in the same turn is refused and lands
+/// nowhere.
+async fn a_quiet_runs_file_is_its_one_post(driver: Driver) {
+    let mut desk = open().await;
+    std::fs::write(
+        std::path::Path::new(&desk.workspace).join("winch.txt"),
+        "cable snapped\n",
+    )
+    .unwrap();
+    let (ada, tape) = desk.teammate("Ada", driver, false).await;
+
+    let prompt = [
+        r#"CALL send_file {"source":"workspace","path":"winch.txt","caption":"The winch log."}"#,
+        r#"CALL post_to_chat {"text":"And a note besides."}"#,
+    ]
+    .join("\n");
+    let job = desk
+        .client
+        .call(
+            "schedule.create",
+            json!({
+                "personaId": ada,
+                "kind": "schedule",
+                "when": chrono::Utc::now().timestamp_millis() + 1_500,
+                "quiet": true,
+                "prompt": prompt,
+            }),
+        )
+        .await;
+    assert_eq!(job["ok"], true, "{job}");
+    let job_id = job["result"]["id"].as_str().unwrap().to_owned();
+    let posted = desk
+        .event(tape, |event| {
+            event["kind"] == "agent" && event["text"] == "The winch log."
+        })
+        .await;
+    assert_eq!(posted["attachments"][0]["name"], "winch.txt", "{posted}");
+    assert_eq!(posted["scheduled"]["jobId"], job_id.as_str());
+    assert!(posted.get("from").is_none(), "the DM's own turn: {posted}");
+    let quiet = desk.results(tape).await;
+    says(&quiet, 0, "Sent winch.txt (14 bytes).");
+    says(&quiet, 1, "one per turn");
+
+    let chat: Vec<Value> = desk
+        .chat(&ada)
+        .into_iter()
+        .map(|event| event["text"].clone())
+        .collect();
+    assert_eq!(
+        chat,
+        [json!("The winch log.")],
+        "the file is the only message; the note after it landed nowhere"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hotline_agent_work_threads_file_lands_in_the_chat() {
+    a_work_threads_file_lands_in_the_chat(Driver::HotlineAgent).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_acp_work_threads_file_lands_in_the_chat() {
+    a_work_threads_file_lands_in_the_chat(Driver::Acp).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hotline_agent_quiet_runs_file_is_its_one_post() {
+    a_quiet_runs_file_is_its_one_post(Driver::HotlineAgent).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_acp_quiet_runs_file_is_its_one_post() {
+    a_quiet_runs_file_is_its_one_post(Driver::Acp).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]

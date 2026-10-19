@@ -20,7 +20,7 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:59.870Z"
 dependsOn:
   - task-194
-updatedAt: "2026-10-19T07:56:00.115Z"
+updatedAt: "2026-10-19T07:56:09.596Z"
 contract:
   status: in_progress
   deliverables:
@@ -45,8 +45,8 @@ contract:
     - contract.ts byte-identical
   metrics:
     readyAt: "2026-10-19T06:11:04.263Z"
-    pickedUpAt: "2026-10-19T07:50:24.775Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-19T07:56:09.596Z"
+    reworkCount: 1
 dispatch:
   agent: claude
   model: opus

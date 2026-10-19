@@ -20,10 +20,10 @@ use images::Input;
 #[cfg(test)]
 use images::user_message;
 pub(crate) use tool_output::publish_ledger;
-use tool_output::{describe_tool, mcp_dynamic, result_of, rig_output, tell_person};
+use tool_output::{describe_tool, mcp_dynamic, result_of, rig_output};
 pub(crate) use turn::process_ended;
 
-use super::{CapabilityLease, Driver, DriverInfo, Escalate, MessageKind, ToolImage, Update, clip};
+use super::{CapabilityLease, Driver, DriverInfo, MessageKind, ToolImage, Update, clip};
 use crate::contract::{
     Attachment, AttachmentKind, ConfigChoice, FolderGrant, NoticeLevel, Persona, Reach, TokenUsage,
 };
@@ -237,8 +237,6 @@ pub struct InProcess {
     /// are the functions themselves, not a server reached over a transport:
     /// Hotline Agent and Hotline's MCP server are two halves of one program.
     teammate: TeammateTools,
-    /// Armed for the next turn only: a quiet scheduled run's `tell_person`.
-    escalation: Mutex<Option<Arc<dyn Escalate>>>,
     /// Shared with every tool handle this session created.
     capability: Option<CapabilityLease>,
     /// Protected MCP OAuth registrations and tokens. None is retained for
@@ -281,7 +279,6 @@ impl InProcess {
             mcp_missing: Vec::new(),
             mcp: Mutex::new(None),
             teammate,
-            escalation: Mutex::new(None),
             capability: None,
             mcp_vault: None,
             processes: crate::session::jobs::Processes::new(output_dir),
@@ -409,10 +406,6 @@ impl Driver for InProcess {
         }
         *lock(&self.mcp) = Some(connected);
         Ok(self.info(&keys))
-    }
-
-    fn escalate_next(&self, escalation: Option<Arc<dyn Escalate>>) {
-        *lock(&self.escalation) = escalation;
     }
 
     async fn prompt(
@@ -610,10 +603,6 @@ impl InProcess {
         let index = granted::index(&granted);
         if !granted.is_empty() {
             mcp_tools.extend(granted::tools(granted));
-        }
-        let escalation = lock(&self.escalation).take();
-        if let Some(escalation) = escalation {
-            mcp_tools.push(tell_person(escalation));
         }
         let model = lock(&self.model).clone();
         let metadata = self.keys.model_metadata();

@@ -41,7 +41,6 @@ mod chapters;
 mod computer;
 mod dm;
 mod driver_info;
-mod escalation;
 pub(crate) mod exchanges;
 pub(crate) mod files;
 pub(crate) mod generate;
@@ -54,7 +53,7 @@ mod pacing;
 mod peers;
 mod post;
 mod preamble;
-pub(crate) use post::Post;
+pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
 pub(crate) use preamble::{CLOCK, preamble};
 mod prompt;
 mod quiet;
@@ -595,6 +594,9 @@ pub struct Room {
     /// a picture is drawn whether or not a session is running, and nothing
     /// about it survives a restart, so it lives here and not in the room.
     drawing: Mutex<HashSet<String>>,
+    /// The turns in flight that `post_to_chat` may post from, by thread, and
+    /// whether each has (`session/post.rs`).
+    posting: Mutex<HashMap<ThreadId, post::Posting>>,
     /// Subagents running now, by teammate, for the roster row. Like a
     /// drawing, nothing about a run survives a restart.
     subagents: Mutex<HashMap<String, Vec<crate::contract::RunningSubagent>>>,
@@ -746,6 +748,7 @@ impl Room {
             computer_update_failures: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             drawing: Mutex::new(HashSet::new()),
+            posting: Mutex::new(HashMap::new()),
             subagents: Mutex::new(HashMap::new()),
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),

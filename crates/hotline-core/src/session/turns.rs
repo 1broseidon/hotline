@@ -187,6 +187,7 @@ impl Threads<'_> {
         open: impl Fn() -> bool,
     ) -> Driven {
         let driver = seat.driver;
+        let _posting = self.room.open_posting(seat.thread, None);
         let mut told = Told {
             threads: Threads { room: self.room },
             seat,

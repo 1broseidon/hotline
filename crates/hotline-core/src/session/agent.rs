@@ -475,7 +475,7 @@ fn tools_of(
         Tools::Teammate => tools.with_subagents(),
         Tools::Work => tools.for_work(thread.key.clone()),
         Tools::Run => tools.for_run(),
-        Tools::Peer => tools.for_peer(),
+        Tools::Peer => tools.for_peer(thread.clone()),
         Tools::None => tools,
     }
 }

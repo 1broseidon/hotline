@@ -200,7 +200,9 @@ impl Room {
             return Err("That peer session's capabilities have been revoked.".to_string());
         }
         // The same funnel as a tape: what the peer says between its tool
-        // calls is thinking, and the asker hears the report.
+        // calls is thinking, and the asker hears the report. What it posts
+        // goes to its own chat, the target's.
+        let _posting = self.open_posting(&ThreadId::pair(&key), None);
         let driven = self
             .threads()
             .drive(

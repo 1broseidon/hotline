@@ -17,16 +17,13 @@ use crate::contract::ThreadId;
 use crate::driver::CapabilityLease;
 use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer, McpTool};
-use crate::session::{FrontReach, Post, Room};
+use crate::session::{FrontReach, POST_CHARS, Post, Room};
 use rig::tool::{DynamicTool, ToolOutput};
 use serde_json::{Map, Value, json};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 pub const POST_TO_CHAT: &str = "post_to_chat";
-/// The most one post to the chat may say; a long account is the working
-/// session's to write.
-const POST_CHARS: usize = 2_000;
 
 /// The most a tool's output may be before the model hears it. A voice cannot
 /// use more, and the model's context is spent on what it reads.

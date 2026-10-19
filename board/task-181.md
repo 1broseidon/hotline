@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/desk.rs
   - crates/hotline-core/src/wire/room_handle.rs
   - crates/hotline-core/src/driver/failure.rs
-updatedAt: "2026-10-19T00:37:19.524Z"
+updatedAt: "2026-10-19T00:37:24.565Z"
 contract:
   status: in_progress
   deliverables:
@@ -41,7 +41,12 @@ dispatch:
   by: lead
   at: "2026-10-19T00:37:19.220Z"
   until: done
-  tries: 1
+  tries: 2
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 59290
+    at: "2026-10-19T00:37:24.565Z"
 assignee: claude
 ---
 

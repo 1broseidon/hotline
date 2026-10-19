@@ -767,6 +767,22 @@ is recorded before calling the driver, so an interrupted continuation is still
 uncertain work, never a replay. Old requests without action ids retain the old
 settlement rules; no route is guessed from conversation text.
 
+### The team lead
+
+A desk has at most one lead: a teammate's id, kept in the room stream as
+the `teamLead` setting and carried on that teammate's roster row. The core
+alone names one unasked, by one rule: a desk with exactly one teammate and
+no lead makes that one lead, at create, at delete and when the desk opens.
+So onboarding's first teammate leads, a desk upgraded with one teammate gets
+its lead, and deleting down to one leaves that one leading. Deleting the lead
+clears it, and among two or more nobody is ever picked: the person makes a
+teammate lead (which moves the role) or clears it with `persona.lead`, owner
+only. Clearing a desk of one is refused, since the next open would put it
+back, and `settings.update` cannot name a lead around these rules. Being lead
+changes nothing else about a teammate: its own model, memory and tools stay
+its own. Desk calls reach the lead, and the lead hands work on, in later
+work ([ADR 0008](adr/0008-one-agent-thread-layer.md#5-voice-under-this-design)).
+
 ### Linked desks
 
 The window can show several desks; linking two of them lets their

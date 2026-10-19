@@ -165,6 +165,113 @@ fn only_a_desk_or_owner_seat_may_pin() {
 }
 
 #[tokio::test]
+async fn the_lead_is_set_moved_and_cleared_and_the_roster_rows_carry_it() {
+    let (_root, log, port) = door("lead");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+
+    ask(&mut socket, json!({ "id": 2, "sub": { "view": "roster" } })).await;
+    let snapshot = heard_where(&mut socket, |frame| frame["snapshot"].is_array()).await;
+    assert_eq!(snapshot["snapshot"][0]["lead"], true, "{snapshot}");
+
+    // A desk of one keeps its lead: clearing it there is refused.
+    let lead = |id: i64, who: Option<&Value>| match who {
+        Some(who) => json!({ "id": id, "cmd": "persona.lead", "params": { "id": who["id"] } }),
+        None => json!({ "id": id, "cmd": "persona.lead", "params": {} }),
+    };
+    ask(&mut socket, lead(3, None)).await;
+    let refused = heard_where(&mut socket, |f| f["id"] == 3).await;
+    assert_eq!(
+        refused["error"],
+        "A desk with one teammate has it as its lead."
+    );
+
+    let bob = create(&mut socket, 4, "Bob").await;
+    let row = heard_where(&mut socket, |f| f["event"]["persona"]["id"] == bob["id"]).await;
+    assert!(row["event"].get("lead").is_none(), "{row}");
+
+    // Making Bob lead moves the role: both rows are sent again.
+    ask(&mut socket, lead(5, Some(&bob))).await;
+    assert_eq!(
+        heard_where(&mut socket, |f| f["id"] == 5).await["result"],
+        bob["id"]
+    );
+    heard_where(&mut socket, |f| {
+        f["event"]["persona"]["id"] == bob["id"] && f["event"]["lead"] == true
+    })
+    .await;
+    heard_where(&mut socket, |f| {
+        f["event"]["persona"]["id"] == ada["id"] && f["event"].get("lead").is_none()
+    })
+    .await;
+    assert_eq!(room::team_lead(&log).as_deref(), bob["id"].as_str());
+
+    ask(&mut socket, lead(6, None)).await;
+    assert_eq!(
+        heard_where(&mut socket, |f| f["id"] == 6).await["result"],
+        Value::Null
+    );
+    heard_where(&mut socket, |f| {
+        f["event"]["persona"]["id"] == bob["id"] && f["event"].get("lead").is_none()
+    })
+    .await;
+    assert_eq!(room::team_lead(&log), None);
+
+    ask(&mut socket, lead(7, Some(&json!({ "id": "nobody" })))).await;
+    assert_eq!(
+        heard_where(&mut socket, |f| f["id"] == 7).await["error"],
+        "There is no teammate nobody."
+    );
+
+    // A settings patch cannot name a lead around those rules.
+    ask(
+        &mut socket,
+        json!({ "id": 8, "cmd": "settings.update", "params": { "patch": { "teamLead": ada["id"] } } }),
+    )
+    .await;
+    assert_eq!(
+        heard_where(&mut socket, |f| f["id"] == 8).await["error"],
+        "The lead is set with persona.lead."
+    );
+    assert_eq!(room::team_lead(&log), None);
+}
+
+#[tokio::test]
+async fn deleting_the_lead_clears_it_unless_one_teammate_is_left_to_lead() {
+    let (_root, log, port) = door("lead-delete");
+    let mut socket = desk(port).await;
+    let ada = create(&mut socket, 1, "Ada").await;
+    let bob = create(&mut socket, 2, "Bob").await;
+    let cy = create(&mut socket, 3, "Cy").await;
+    assert_eq!(room::team_lead(&log).as_deref(), ada["id"].as_str());
+
+    let delete = |id: i64, who: &Value| json!({ "id": id, "cmd": "persona.delete", "params": { "id": who["id"] } });
+    ask(&mut socket, delete(4, &ada)).await;
+    assert_eq!(heard_where(&mut socket, |f| f["id"] == 4).await["ok"], true);
+    assert_eq!(room::team_lead(&log), None);
+    assert!(!room::is_set(&log, room::TEAM_LEAD));
+
+    ask(&mut socket, delete(5, &cy)).await;
+    assert_eq!(heard_where(&mut socket, |f| f["id"] == 5).await["ok"], true);
+    assert_eq!(room::team_lead(&log).as_deref(), bob["id"].as_str());
+}
+
+#[test]
+fn only_a_desk_or_owner_seat_may_change_the_lead() {
+    for lead in [
+        Command::PersonaLead {
+            id: Some("ada".to_string()),
+        },
+        Command::PersonaLead { id: None },
+    ] {
+        assert!(Seat::Desk.permits(&lead));
+        assert!(Seat::Owner.permits(&lead));
+        assert!(!Seat::Phone.permits(&lead));
+        assert!(!Seat::Link.permits(&lead));
+    }
+}
+
+#[tokio::test]
 async fn a_line_in_a_tape_is_the_rosters_preview_of_that_teammate() {
     let (_root, log, port) = door("roster-preview");
     let mut socket = desk(port).await;

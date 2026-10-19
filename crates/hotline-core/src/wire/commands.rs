@@ -17,7 +17,7 @@ use crate::store::{chapters, search};
 use crate::{paths, room};
 use models::{remember_model, set_config, set_model, welcome};
 use persona::{
-    MobileDraft, apply_persona_update, create_persona, delete_persona, living,
+    MobileDraft, apply_persona_update, create_persona, delete_persona, lead_persona, living,
     mobile_persona_access, mobile_persona_computer, mobile_persona_create, mobile_persona_patch,
     pin_persona, set_mode,
 };
@@ -270,6 +270,11 @@ pub(crate) async fn run(
             let gate = room.policy_update_lock();
             let _held = gate.lock().await;
             pin_persona(log, &id, slot)
+        }
+        Command::PersonaLead { id } => {
+            let gate = room.policy_update_lock();
+            let _held = gate.lock().await;
+            lead_persona(log, id.as_deref())
         }
         Command::SettingsUpdate { patch } => settings::apply_update(log, room, patch).await,
 

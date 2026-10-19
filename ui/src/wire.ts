@@ -142,6 +142,8 @@ type Results = {
 	"persona.update": Persona;
 	"persona.delete": null;
 	"persona.pin": string[];
+	/** The desk's lead id, or null when it has none. */
+	"persona.lead": string | null;
 	"settings.update": Record<string, unknown>;
 	"images.status": ImagesStatus;
 	/** Each web search provider, on or off at the desk and whether a key is saved; never the key. */

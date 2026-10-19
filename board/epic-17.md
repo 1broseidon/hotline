@@ -30,3 +30,6 @@ George's decisions:
 - Acknowledgements are generated, not chosen from a list: a few words naming what was asked ("Let me look at the voice code"), with bad examples rather than good ones in the prompt, the call's recent acknowledgements fed back so it can't repeat itself, and a soft sound rather than words if a hand-off goes out with nothing said.
 
 Until a lead exists (an old phone, or a desk mid-choice), desk calls behave as today. Children land on release/0.41.0; the phone part is on hotline-mobile's board.
+
+## Log
+- 2026-10-19T17:20:45.934Z: [claude] George, 2026-10-19 12:20: voice is a modality, not a separate agent (see task-213 in epic-19). Calling a teammate means talking to the full agent itself, speech in and out; the separate live-voice front answering on its behalf goes. epic-17 waits for epic-19's design: its 'one voice path' and acknowledgement tasks get rewritten against it; the team lead role (calling the desk reaches the lead) stands as is.

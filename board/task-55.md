@@ -7,7 +7,7 @@ priority: low
 tags:
   - remote
 createdAt: "2026-10-14T19:29:48.338Z"
-updatedAt: "2026-10-19T00:05:08.591Z"
+updatedAt: "2026-10-19T00:20:19.932Z"
 parentId: epic-14
 relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
@@ -30,6 +30,14 @@ contract:
 dependsOn:
   - task-187
   - task-183
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-19T00:20:19.785Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

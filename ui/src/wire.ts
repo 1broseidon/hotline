@@ -265,6 +265,7 @@ type Results = {
 	"computer.stop": null;
 	"computer.remove": null;
 	"computer.update": null;
+	"computer.restart": null;
 	"computer.browsers.list": HostBrowser[];
 	"computer.cookies.preview": CookieSite[];
 	"computer.cookies.import": CookieSite[];

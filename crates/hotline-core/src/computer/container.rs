@@ -71,14 +71,16 @@ pub(super) fn create_args(
             pids_of(persona),
         ]);
     }
+    let memory = memory_of(persona)?;
+    let cpus = cpus_of(persona, runtime)?;
     args.extend([
         "--memory".into(),
-        memory_of(persona)?,
+        memory.clone(),
         "--shm-size".into(),
         "1g".into(),
     ]);
-    if let Some(cpus) = cpus_of(persona, runtime)? {
-        args.extend(["--cpus".into(), cpus]);
+    if let Some(cpus) = &cpus {
+        args.extend(["--cpus".into(), cpus.clone()]);
     }
     // Named volumes are Docker's and Podman's; Apple container gets the
     // bind mounts only, and its rw layer is what it has.
@@ -113,6 +115,8 @@ pub(super) fn create_args(
         format!("TZ={}", host_time_zone()),
         "-e".into(),
         format!("{FOLDERS_ENV}={}", folders.join("\n")),
+        "-e".into(),
+        format!("{LIMITS_ENV}={}", limits_record(&memory, cpus.as_deref())),
         "-v".into(),
         format!("{cwd}:{WORKSPACE_MOUNT}"),
         image.into(),
@@ -140,7 +144,24 @@ fn scratch_volume(persona_id: &str) -> String {
     format!("hotline-src-{persona_id}")
 }
 
-/// CPU limits, like memory, only apply when the container is next created.
+/// The limits a container is made with, as it records them: what the
+/// runtime was told, so a start can tell whether the teammate's settings
+/// have moved since.
+fn limits_record(memory: &str, cpus: Option<&str>) -> String {
+    format!("memory={memory} cpus={}", cpus.unwrap_or("all"))
+}
+
+/// The record a container made now with the teammate's settings would
+/// carry, or why those settings cannot make one.
+pub(super) fn limits_of(persona: &Persona, runtime: Runtime) -> Result<String, String> {
+    Ok(limits_record(
+        &memory_of(persona)?,
+        cpus_of(persona, runtime)?.as_deref(),
+    ))
+}
+
+/// CPU limits, like memory, only apply when the container is created, so a
+/// start remakes one whose recorded limits differ (see [`limits_of`]).
 /// Apple assigns whole virtual CPUs; Docker/Podman accept fractional quotas.
 fn cpus_of(persona: &Persona, runtime: Runtime) -> Result<Option<String>, String> {
     let Some(cpus) = persona.computer.as_ref().and_then(|computer| computer.cpus) else {
@@ -537,6 +558,7 @@ pub(super) async fn inspect_within(
             mcp_port: None,
             token: None,
             folders: String::new(),
+            limits: None,
         }),
         Err(error) => Err(error),
     }
@@ -568,6 +590,7 @@ fn parse_docker(object: &Value) -> Result<Inspection, String> {
         mcp_port: docker_host_port(object, MCP_PORT),
         token: token_from_environment(object.pointer("/Config/Env")),
         folders: from_environment(object.pointer("/Config/Env"), FOLDERS_ENV).unwrap_or_default(),
+        limits: from_environment(object.pointer("/Config/Env"), LIMITS_ENV),
     })
 }
 
@@ -651,6 +674,10 @@ pub(super) fn parse_apple(object: &Value) -> Result<Inspection, String> {
             FOLDERS_ENV,
         )
         .unwrap_or_default(),
+        limits: from_environment(
+            object.pointer("/configuration/initProcess/environment"),
+            LIMITS_ENV,
+        ),
     })
 }
 

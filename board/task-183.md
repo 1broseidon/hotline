@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/remote/link.rs
   - crates/hotline-core/src/remote/v2.rs
   - crates/hotline-core/src/remote/tests/link.rs
-updatedAt: "2026-10-19T00:05:10.245Z"
+updatedAt: "2026-10-19T00:05:12.995Z"
 contract:
   status: ready
   deliverables:
@@ -34,7 +34,12 @@ dispatch:
   by: lead
   at: "2026-10-19T00:05:10.035Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 59290
+    at: "2026-10-19T00:05:12.995Z"
 assignee: claude
 ---
 

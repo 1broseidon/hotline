@@ -17,7 +17,7 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:42.521Z"
 dependsOn:
   - task-209
-updatedAt: "2026-10-19T14:10:03.360Z"
+updatedAt: "2026-10-19T14:10:20.086Z"
 contract:
   status: ready
   deliverables:
@@ -29,7 +29,8 @@ contract:
       - test -z "$(git diff --name-only $(git merge-base HEAD release/0.41.0) HEAD -- . ':!docs')"
       - grep -q 'hotline-mcp' docs/adr/0007-split-hotline-core.md
       - grep -q 'hotline-room\|room crate' docs/adr/0007-split-hotline-core.md
-      - "! grep -rnE 'crates/hotline-core/src/(room|linked|session/ledger|wire/room_handle|mcp/oauth|mcp/tool)\\.rs' docs AGENTS.md"
+      - "! grep -rnE --exclude-dir=adr 'crates/hotline-core/src/(room|linked|session/ledger|wire/room_handle|mcp/oauth|mcp/tool)\\.rs' docs AGENTS.md"
+      - "! grep -qE '^hotline-core[[:space:]]*=' crates/hotline-mcp/Cargo.toml"
       - make check
       - git diff --exit-code 9e2c01bc -- ui/src/generated/contract.ts
       - make precheck
@@ -37,7 +38,7 @@ contract:
     - "Docs only: no change outside docs/"
     - Timings taken on the same machine and conditions at each of the three commits
   metrics:
-    readyAt: "2026-10-19T14:10:03.360Z"
+    readyAt: "2026-10-19T14:10:20.086Z"
 ---
 
 ## Description

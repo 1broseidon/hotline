@@ -22,6 +22,8 @@ Single decisions too large for a section here are recorded as ADRs in
   agent on the call.
 - [ADR 0006](adr/0006-relay-only-servers.md): a server can just relay, and a
   desktop can pair with it only to relay.
+- [ADR 0007](adr/0007-split-hotline-core.md): split hotline-core into
+  crates, leaves first.
 
 George's reasons, in his words: the proof that the thing works is in the
 core of the Bun edition; Rust is for sheer speed and far more control, with

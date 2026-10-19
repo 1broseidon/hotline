@@ -1,7 +1,7 @@
 ---
 id: task-205
 title: "Desktop: Make team lead, the lead's badge, and the pick-a-lead prompt"
-column: todo
+column: in-progress
 position: 5
 priority: medium
 tags:
@@ -20,9 +20,9 @@ parentId: epic-17
 createdAt: "2026-10-19T13:59:39.118Z"
 dependsOn:
   - task-202
-updatedAt: "2026-10-19T20:54:27.843Z"
+updatedAt: "2026-10-19T20:54:39.606Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: test
       path: ui/tests/team-lead.test.tsx
@@ -44,6 +44,8 @@ contract:
     - No core or contract changes beyond what task-202 landed; if one is needed, say so in a note
   metrics:
     readyAt: "2026-10-19T20:02:38.203Z"
+    pickedUpAt: "2026-10-19T20:54:39.606Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

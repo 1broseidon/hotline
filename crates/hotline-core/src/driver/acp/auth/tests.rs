@@ -215,6 +215,29 @@ fn auth_prompt_failures_only_expose_safe_initialized_descriptors() {
     );
 }
 
+/// The card for a harness too old for its model names the harness and the
+/// version it reported at `initialize`, which is what has to be updated.
+#[test]
+fn a_harness_too_old_for_its_model_is_named_on_its_card() {
+    let live = Live::default();
+    {
+        let mut session = lock(&live.session);
+        session.info.agent_name = "Codex".into();
+        session.info.agent_version = Some("1.12.0".into());
+    }
+    let notice = auth::failure(
+        &live,
+        "Internal error: The 'gpt-5.5-codex' model requires a newer version of Codex.",
+        "acp_prompt",
+    )
+    .notice();
+    assert!(
+        notice.starts_with("Codex 1.12.0 is too old for this model: Update"),
+        "{notice}"
+    );
+    assert!(notice.contains(r#""kind":"harness_outdated""#), "{notice}");
+}
+
 #[test]
 fn auth_legacy_terminal_metadata_is_not_an_agent_flow() {
     for marker in [

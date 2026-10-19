@@ -1154,3 +1154,143 @@ async fn a_copilot_teammate_hears_its_own_last_reply_on_the_next_turn() {
     assert_eq!(said, [&json!("On it."), &json!("Today — Mon 5 Oct")]);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The eight desktop tools, as the computer image lists them.
+const COMPUTER_TOOLS: [&str; 8] = [
+    "capture", "input", "browser", "shell", "files", "windows", "wait", "state",
+];
+
+struct Desktop;
+
+impl rmcp::handler::server::ServerHandler for Desktop {
+    fn get_info(&self) -> rmcp::model::ServerInfo {
+        rmcp::model::ServerInfo::new(
+            rmcp::model::ServerCapabilities::builder()
+                .enable_tools()
+                .build(),
+        )
+    }
+
+    fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> impl Future<Output = Result<rmcp::model::ListToolsResult, rmcp::ErrorData>> + Send + '_
+    {
+        let schema = Arc::new(
+            json!({"type": "object"})
+                .as_object()
+                .expect("an object")
+                .clone(),
+        );
+        std::future::ready(Ok(rmcp::model::ListToolsResult::with_all_items(
+            COMPUTER_TOOLS
+                .iter()
+                .map(|name| rmcp::model::Tool::new(*name, *name, schema.clone()))
+                .collect(),
+        )))
+    }
+}
+
+fn test_persona(id: &str) -> crate::contract::Persona {
+    crate::contract::Persona {
+        node: None,
+        id: id.to_string(),
+        name: "Ada".to_string(),
+        goal: String::new(),
+        avatar: None,
+        team: None,
+        backend_id: "hotline".to_string(),
+        cwd: "/".to_string(),
+        reach: Some(crate::contract::Reach::Machine),
+        model_id: None,
+        mode_id: None,
+        effort_id: None,
+        harness_override: None,
+        hop_notice: None,
+        mcp_policy: crate::contract::McpPolicy {
+            mode: crate::contract::PolicyMode::All,
+            server_ids: Vec::new(),
+        },
+        skill_policy: crate::contract::SkillPolicy::default(),
+        background_work: false,
+        allowed_senders: Vec::new(),
+        web_search_policy: None,
+        folders: None,
+        computer: None,
+        voice: None,
+        session_checkpoints: Vec::new(),
+        last_session_id: None,
+        created_at: 1,
+        updated_at: 1,
+    }
+}
+
+/// The computer is a granted server like any other: its eight desktop tools,
+/// served over HTTP as the image serves them, land on the ledger under the
+/// origin `computer`, verified.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_computer_server_writes_its_eight_tools_on_the_ledger_under_origin_computer() {
+    use crate::contract::{ToolSourceKind, ToolState};
+    use crate::mcp::{HttpAuth, McpServer, McpTransport};
+    use rmcp::transport::streamable_http_server::{
+        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+    };
+
+    let persona_id = "mcp-computer-ledger";
+    let service: StreamableHttpService<Desktop, LocalSessionManager> = StreamableHttpService::new(
+        || Ok(Desktop),
+        Arc::new(LocalSessionManager::default()),
+        StreamableHttpServerConfig::default(),
+    );
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("loopback listener");
+    let url = format!("http://{}/mcp", listener.local_addr().expect("address"));
+    let served = tokio::spawn(async move {
+        let _ = axum::serve(listener, axum::Router::new().nest_service("/mcp", service)).await;
+    });
+    let connected = mcp::connect(
+        persona_id,
+        &[McpServer {
+            id: crate::computer::SERVER_ID.to_string(),
+            name: "Computer".to_string(),
+            transport: McpTransport::Http {
+                url,
+                auth: HttpAuth::None,
+            },
+            refuse: None,
+        }],
+    )
+    .await;
+    assert!(connected.failed.is_empty(), "{:?}", connected.failed);
+    assert_eq!(connected.tools.len(), 8, "{}", connected.tools.len());
+
+    publish_ledger(
+        &test_persona(persona_id),
+        &[],
+        &connected,
+        false,
+        &crate::mcp::server::TOOL_NAMES,
+    );
+    let rows = crate::session::ledger::teammate_tools(persona_id)
+        .expect("published")
+        .rows;
+    let computer: Vec<_> = rows
+        .iter()
+        .filter(|row| row.origin == crate::computer::SERVER_ID)
+        .collect();
+    assert_eq!(computer.len(), 8, "{rows:?}");
+    for name in COMPUTER_TOOLS {
+        let row = computer
+            .iter()
+            .find(|row| row.name == format!("computer__{name}"))
+            .unwrap_or_else(|| panic!("computer__{name} is on the ledger: {rows:?}"));
+        assert_eq!(row.source, ToolSourceKind::Mcp);
+        assert_eq!(row.state, ToolState::Verified);
+        assert_ne!(row.reason, "");
+    }
+
+    drop(connected);
+    served.abort();
+}

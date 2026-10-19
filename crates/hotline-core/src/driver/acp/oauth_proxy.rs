@@ -66,8 +66,9 @@ pub(super) async fn start_oauth_proxy(
             .ok_or_else(|| mcp::NO_SAVED_TOKEN.to_string())?;
         ProxyCredential::Fixed(mcp::Presented::new(header.as_deref(), &token)?)
     } else {
-        let token_lock = vault.mcp_token_lock(&server.id);
-        let manager = mcp::manager_for_server(server, vault, None).await?;
+        let oauth = mcp::oauth_vault(&vault, server);
+        let manager = mcp::manager_for_server(server, &oauth, None).await?;
+        let token_lock = oauth.token_lock;
         {
             let _token_guard = token_lock.lock().await;
             manager

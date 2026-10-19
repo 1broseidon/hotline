@@ -1388,6 +1388,11 @@ mod tests {
     }
 
     #[test]
+    fn how_to_use_says_granted_tools_are_named_server_tool() {
+        assert!(HOW_TO_USE.contains("<server>__<tool>"), "{HOW_TO_USE}");
+    }
+
+    #[test]
     fn avatar_guidance_defaults_to_crew_but_respects_operator_overrides() {
         assert!(HOW_TO_USE.contains("default avatar request"));
         assert!(HOW_TO_USE.contains("style `avatar`"));

@@ -1,8 +1,6 @@
 ---
 id: task-187
 title: Run read-only global commands without blocking the socket
-column: review
-position: 13
 priority: high
 tags:
   - wire
@@ -12,7 +10,7 @@ createdAt: "2026-10-18T23:40:56.843Z"
 relatedFiles:
   - crates/hotline-core/src/wire/socket.rs
   - crates/hotline-core/src/wire/tests.rs
-updatedAt: "2026-10-19T00:03:20.470Z"
+updatedAt: "2026-10-19T00:04:19.752Z"
 contract:
   status: delivered
   deliverables:
@@ -46,6 +44,7 @@ dispatch:
     ended: "2026-10-19T00:03:20.470Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-19T00:04:19.752Z"
 ---
 
 ## Description
@@ -55,3 +54,4 @@ Split from task-20, which keeps the rest and stays deferred.
 
 ## Log
 - 2026-10-19T00:03:13.966Z: [claude] Done on branch dispatch/task-187 (002103b6). wire/socket.rs command(): the existing file.read/avatar.read spawn arm now also spawns voice.status, voice.models, images.status, websearch.status, capabilities.options, remote.status, remote.relays, desks.links, credential.list, skills.list{personaId:None}, providers.list, models.list, models.catalog, models.efforts, search.all, schedule.list. Kept in order on purpose: ping (a client's barrier), mcp.auth_status (may refresh a token), backends.list and remote.devices (phone-specific shaping in the inline match). A spawned read starts only after earlier commands finish. Test: wire/tests.rs a_slow_read_answers_after_the_writes_behind_it_which_keep_their_order (Quiet gained a slow_read gate on capability_options; fails without the change). docs/wire.md lists the set. fmt, clippy -D warnings, full cargo test -p hotline-core green, contract.ts unchanged. Note for task-20: the worktree needs .speech-engine/ copied from the main checkout to build.
+- 2026-10-19T00:04:19.230Z: Landed on release/0.40.0

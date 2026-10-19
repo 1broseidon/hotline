@@ -1,7 +1,7 @@
 ---
 id: task-185
 title: Computer settings say 'applies after restart' for memory and CPUs
-column: todo
+column: in-progress
 position: 11
 priority: high
 tags:
@@ -13,9 +13,9 @@ relatedFiles:
   - crates/hotline-core/src/computer/container.rs
   - ui/src/components/settings
   - ui/src/generated/contract.ts
-updatedAt: "2026-10-19T00:15:57.030Z"
+updatedAt: "2026-10-19T00:16:08.580Z"
 contract:
-  status: ready
+  status: in_progress
   validation:
     commands:
       - cargo fmt --all --check
@@ -25,6 +25,8 @@ contract:
       - make ui-check
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+    pickedUpAt: "2026-10-19T00:16:08.580Z"
+    reworkCount: 0
 dependsOn:
   - task-180
 dispatch:

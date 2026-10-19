@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/computer/container.rs
   - ui/src/components/settings
   - ui/src/generated/contract.ts
-updatedAt: "2026-10-18T23:53:55.552Z"
+updatedAt: "2026-10-19T00:15:54.806Z"
 contract:
   status: ready
   validation:
@@ -27,6 +27,14 @@ contract:
     readyAt: "2026-10-18T23:53:55.554Z"
 dependsOn:
   - task-180
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-19T00:15:54.638Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

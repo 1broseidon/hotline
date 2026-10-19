@@ -1,7 +1,7 @@
 ---
 id: task-186
 title: Start paired desks concurrently at launch
-column: todo
+column: in-progress
 position: 12
 priority: high
 tags:
@@ -11,9 +11,9 @@ parentId: epic-14
 createdAt: "2026-10-18T23:40:56.313Z"
 relatedFiles:
   - crates/hotline-app/src/desks.rs
-updatedAt: "2026-10-19T00:34:01.867Z"
+updatedAt: "2026-10-19T00:34:14.269Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: test
       path: crates/hotline-app/src/desks.rs
@@ -25,6 +25,8 @@ contract:
       - cargo test -p hotline-app
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+    pickedUpAt: "2026-10-19T00:34:14.269Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

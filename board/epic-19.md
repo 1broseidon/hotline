@@ -36,3 +36,6 @@ ADR 0007 planned only the engines (its step 3) and kept the calls in the core, b
 Order: the engines move (mechanical); the call-interface design (stops in Review for George); the calls move only after he approves it; epic-17 (team lead and one voice path) runs after this epic, inside hotline-voice.
 
 Same rules as epics 16 and 18: moves only, no behaviour change, contract.ts byte-identical, security.md citations and the module map follow, workspace lints, make check and make precheck before landing; a module that leaves renames its own crate:: paths.
+
+## Log
+- 2026-10-19T17:21:00.198Z: [claude] Lead: hand off task-212 (engines) and land it. task-213 (design) is handed off --until review and is not landed: it waits in Review for George, and task-214 does not start until he approves it. If the design recommends stopping (the room's side isn't narrow), task-214 is not started either.

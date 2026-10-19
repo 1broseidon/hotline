@@ -1,7 +1,7 @@
 ---
 id: task-189
 title: "0.40 easy wins land together: the release branch passes check, verify and precheck with every slice in"
-column: in-progress
+column: review
 position: 15
 description: |-
   The last child of epic-14. Every other child has landed on release/0.40.0 by the time this starts. The slices were built apart, several of them in the same files (failure.rs wording from task-8, task-188 and task-181; wire/socket.rs from task-187 and task-55; the generated contract from task-180, task-185 and the failure kinds).
@@ -24,7 +24,7 @@ relatedFiles:
 parentId: epic-14
 createdAt: "2026-10-18T23:53:30.443Z"
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - make check
@@ -34,7 +34,9 @@ contract:
     readyAt: "2026-10-18T23:53:55.554Z"
     pickedUpAt: "2026-10-19T00:58:13.337Z"
     reworkCount: 0
-updatedAt: "2026-10-19T00:58:13.337Z"
+    deliveredAt: "2026-10-19T01:07:22.869Z"
+    duration: 550
+updatedAt: "2026-10-19T01:07:22.869Z"
 dependsOn:
   - task-8
   - task-37

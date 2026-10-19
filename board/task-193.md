@@ -13,7 +13,7 @@ relatedFiles:
   - docs/adr
 parentId: epic-16
 createdAt: "2026-10-19T06:06:19.521Z"
-updatedAt: "2026-10-19T06:11:18.289Z"
+updatedAt: "2026-10-19T06:11:20.001Z"
 contract:
   status: ready
   deliverables:
@@ -43,7 +43,12 @@ dispatch:
   by: lead
   at: "2026-10-19T06:11:18.158Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 54892
+    at: "2026-10-19T06:11:20.001Z"
 ---
 
 ## Description

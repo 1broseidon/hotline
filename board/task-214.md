@@ -1,8 +1,8 @@
 ---
 id: task-214
 title: The calls move into hotline-voice behind the approved interface
-column: todo
-position: 11
+column: backlog
+position: 43
 priority: high
 tags:
   - crate-split
@@ -14,7 +14,7 @@ parentId: epic-21
 createdAt: "2026-10-19T17:20:19.714Z"
 dependsOn:
   - task-225
-updatedAt: "2026-10-19T20:00:14.204Z"
+updatedAt: "2026-10-19T20:00:18.117Z"
 contract:
   status: ready
   deliverables:

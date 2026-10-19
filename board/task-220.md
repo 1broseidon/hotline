@@ -14,6 +14,9 @@ relatedFiles:
   - docs/sessions.md
 parentId: epic-20
 createdAt: "2026-10-19T19:59:32.588Z"
+dependsOn:
+  - task-217
+updatedAt: "2026-10-19T19:59:35.036Z"
 ---
 
 ## Description

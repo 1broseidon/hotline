@@ -1,8 +1,6 @@
 ---
 id: task-220
 title: "Jobs are subagents on a schedule: one schema, a thread per job, a running note"
-column: review
-position: 16
 priority: high
 tags:
   - threads
@@ -18,7 +16,7 @@ dependsOn:
   - task-217
   - task-218
   - task-219
-updatedAt: "2026-10-19T23:18:30.071Z"
+updatedAt: "2026-10-19T23:20:11.483Z"
 contract:
   status: delivered
   deliverables:
@@ -54,6 +52,7 @@ dispatch:
     at: "2026-10-19T22:24:00.605Z"
     ended: "2026-10-19T23:18:30.071Z"
     outcome: review
+completedAt: "2026-10-19T23:20:11.483Z"
 ---
 
 ## Description
@@ -67,3 +66,4 @@ Run `make check` in the foreground with a generous timeout and wait for it to fi
 - 2026-10-19T23:18:15.371Z: [claude] Done on dispatch/task-220 (b5286499, e5c3297f, plus a tool-text fix). Jobs fire on their own thread, ThreadKind::Job in jobs/<id>.jsonl, through session/job_thread.rs (LiveJob on Room::run_queue). One schema is session::Brief (task, Trigger Now/At/Every, Report, Ends goal/date/count), written by the subagent, schedule and loop tools. The agent is parked after each firing and starts from a running note read off its thread. An overlapping firing is skipped with a notice on the thread, and the person is told once after two skips. Cancel posts where the job stood; a goal end is cancel_schedule with a report. A reminder is one post with no arm. The person can talk to a job via thread.prompt. Old schedules fire on job threads unchanged. Removed: the DM quiet run, session/quiet.rs, Session.quiet/pending_scheduled, prompt_scheduled, Wired.scheduled. Posting: Threads::turn opens Posting with the job; a job's file/image takes the turn's one post; a run is still refused. make check, make precheck (all 8 legs), the schedule harness (12 tests) and the quiet_run grep all pass.
 - 2026-10-19T23:18:19.193Z: [claude] For task-221 (clone model): today a job runs on the run lease, lease_of(ThreadKind::Job, room.capability_lease(persona)), a scoped child made in Room::job_agent and revoked in LiveJob::let_go. Its tools are JOB_TOOLS in mcp/server.rs: the run's three plus post_to_chat, send_file, generate_image, list_teammates, list_schedules and cancel_schedule. Its Policy row (thread/policy.rs, ThreadKind::Job) is Computer::No and Tools::Job. task-221 must: give it the home thread's permission set and the computer (Computer::Lease); widen JOB_TOOLS, routing request_human cards and message_teammate replies to the job thread (both are keyed by side id today via TeammateTools.work); choose its model, since a job uses the persona's recorded model rather than the session's live one as runs do (on_the_sessions_model); and run subagents on ACP too, since Brief::subagent is written but runner.rs still refuses non-Hotline teammates and ignores trigger and report.
 - 2026-10-19T23:18:22.488Z: [claude] For task-226 (Jobs group): the {"schedules": personaId} view sends ScheduleEntry {name, nextAt, lastPost{at,text}, endedAt, reminder, quiet}, with ended jobs included; schedule.cancel on an ended job removes it from the list. The thread id is {kind:"job", key: job id}. thread.list includes job threads (live, parked or closed). thread.prompt, cancel and answer work on a job; thread.close cancels it, and a phone may read a job but not prompt or close it. The only UI changes are dock.ts (job rank 5, word "Job"; powersOf(job) is still READ) and room.ts, whose fold now skips ended jobs. Left unwired: the search index rebuild (hotline-store search.rs threads_on) does not find job threads, since they have no tape link, so only live writes are indexed. The overrun count and its told-once flag are in memory. goal, until and times can be set by the loop tool only, not by schedule.create on the wire.
+- 2026-10-19T23:20:11.105Z: Landed on release/0.41.0

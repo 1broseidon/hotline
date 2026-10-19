@@ -76,6 +76,10 @@ jobs:
           uname -a
           if [ "$(uname)" = Darwin ]; then sw_vers; fi
           for tool in python3 node npm go rustc; do command -v "$tool" || true; done
+      # make check runs these at the versions the Makefile pins.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete@0.9.2,cargo-deny@0.20.2
       - name: Check core, desktop, window and isolation
         run: make check
       # The sandbox tests are ignored on Linux unless asked for, since a

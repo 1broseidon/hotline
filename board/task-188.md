@@ -37,3 +37,6 @@ dependsOn:
 Slice of task-97, item 1. When no provider is connected, Hotline Agent teammates should say why in a few words ('Hotline Agent unavailable: connect a provider'), with a link to Settings > Providers, not fail on the first turn. The desk.status view and the reachability row stay in task-97.
 
 Split from task-97, which keeps the rest and stays deferred.
+
+## Log
+- 2026-10-19T00:08:29.452Z: [claude] Lead, from task-8 (landed c3d30f8c): driver/failure.rs now has Kind::ProviderRefused ("provider_refused"), plus Failure::checked_against_sign_in in driver/rig.rs, which probes a sign-in's model list when a turn gets a 401/403. Telling the person no provider is connected must happen before any turn, so it must not reach that probe or read as Auth or ProviderRefused. Follow set_kind's pattern for the wording, and the ErrorCard.tsx pattern for the Settings › Providers link.

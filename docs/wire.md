@@ -1301,7 +1301,11 @@ hello. Clients use their normal reconnect backoff.
 The first Noise message is limited to 4096 bytes and WebSocket records to
 65535. Reassembly is capped at 32 MiB; the owner wire permits 32 MiB frames,
 while companions retain the 1 MiB output frame limit. Both use a bounded
-64-frame outbox. These limits never widen a seat or fall back to plaintext.
+256-frame outbox: a full one closes the socket, though live words it cannot
+take are dropped instead. A frame the peer has not taken within 60 seconds
+also closes the socket, on every seat, so a phone that left the network
+without closing is dropped even when it is quiet and never named `lean`.
+These limits never widen a seat or fall back to plaintext.
 Rotation prevents a fixed set of anonymous connections from holding all
 reconnect slots, but cannot guarantee availability under sustained connection
 floods or a proxy that refuses traffic. Public deployments still need edge

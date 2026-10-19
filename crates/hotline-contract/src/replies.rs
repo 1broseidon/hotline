@@ -203,6 +203,11 @@ pub struct RosterEntry {
     /// the same pins as the desk.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin: Option<u8>,
+    /// This teammate is the desk's lead. Absent when it is not, so a client
+    /// that predates the role reads the row as it always did.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(as = "Option<bool>", optional)]
+    pub lead: bool,
     /// Subagents this teammate has running, oldest first, so the
     /// conversation can show them without scrolling back to their lines.
     /// Absent when there are none.

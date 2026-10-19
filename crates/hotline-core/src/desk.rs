@@ -194,6 +194,9 @@ impl Desk {
         install_crypto_provider();
         let log = Log::open(root);
         log.migrate_backend_id()?;
+        // A desk from before the lead, with one teammate, gets that one as
+        // its lead here, by the rule creating and deleting follow.
+        room::settle_lead(&log).map_err(io::Error::other)?;
         let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
         // One budget for the desk: voice, the call assistant and teammates'
         // turns all reserve through it, so none can spend what another did.

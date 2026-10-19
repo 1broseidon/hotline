@@ -114,6 +114,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `persona.update` | `{id, patch}` | the teammate after the patch |
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
+| `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
 | `settings.update` | `{patch}` | every setting, defaults included |
 | `images.status` | `{}` | `ImagesStatus` `{available, unavailable?, provider?, model?, spending?, spendingUnavailable?}`; owner or local desk only |
 | `websearch.status` | `{}` | `WebSearchStatus` `{providers: [{provider, name, enabled, hasKey}]}` — each web search provider, whether the desk has it on and whether a key is saved, never the key; owner or local desk only |
@@ -408,6 +409,17 @@ ids, repeats dropped, more than three refused). Deleting a teammate takes its
 pin with it, and a stored list that names someone no longer on the team reads
 as if they were not in it. Companion phones cannot read settings, so the
 roster carries each teammate's slot as `pin`.
+
+`teamLead` is the desk's lead: one persona id, or absent. `persona.lead` is
+how a person writes it, and a `settings.update` patch that names it is
+refused. The core writes it too, by one rule: a desk with exactly one
+teammate and no lead makes that one lead, after `persona.create` and
+`mobile.persona_create`, after `persona.delete`, and when the desk opens. So
+a desk's first teammate leads, and a desk from before the lead with one
+teammate opens with that one leading. Deleting the lead clears it; with two
+or more left nobody is picked. A stored id that names someone no longer on
+the team reads as no lead. The roster carries it as `lead` on that
+teammate's row.
 
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after
@@ -949,7 +961,10 @@ still pending — so a phone can say who needs the person from one roster; it is
 always written, so `false` is told apart from a desk that predates it.
 `drawing` is true while `avatar.generate` draws the teammate's picture. `pin` is the teammate's 0-based slot among the desk's pinned
 teammates, absent when it is not pinned; the affected rows are sent again when
-the `pinnedTeammates` setting changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
+the `pinnedTeammates` setting changes. `lead` is `true` on the desk's lead and
+absent on every other row, so a client that predates it reads the row as
+before; the rows that lost and gained it are sent again when `teamLead`
+changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 `ready`, `thinking`, `error`, or `stopped`). While a turn is `thinking`,
 `awaitingSubagents: true` says it is open only for subagents it started and
 reads as done: the reply is in the conversation and the composer is as it is

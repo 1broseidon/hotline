@@ -142,6 +142,59 @@ pub fn pinned_teammates(log: &Log) -> Vec<String> {
     )
 }
 
+/// The setting naming the desk's lead: one teammate's id.
+pub const TEAM_LEAD: &str = "teamLead";
+
+/// The lead out of the `teamLead` setting's stored value, if it names
+/// somebody still on the team.
+pub fn settled_lead(value: Option<&Value>, team: &[Persona]) -> Option<String> {
+    let id = value?.as_str()?;
+    team.iter()
+        .any(|persona| persona.id == id)
+        .then(|| id.to_string())
+}
+
+/// The desk's lead.
+pub fn team_lead(log: &Log) -> Option<String> {
+    let events = log.load(&StreamId::Room);
+    settled_lead(
+        settings_from_events(&events).get(TEAM_LEAD),
+        &personas(&events),
+    )
+}
+
+/// Writes the lead the team implies, and answers it.
+///
+/// A lead who has left is cleared, and a desk with exactly one teammate and
+/// no lead makes that one lead: so the first teammate leads, a desk upgraded
+/// with one teammate gets its lead, and deleting down to one leaves that one
+/// leading. Among two or more nobody is picked; that is the person's choice.
+/// Nothing is written when the stored value already says it.
+pub fn settle_lead(log: &Log) -> Result<Option<String>, String> {
+    let events = log.load(&StreamId::Room);
+    let team = personas(&events);
+    let stored = settings_from_events(&events).remove(TEAM_LEAD);
+    let lead = settled_lead(stored.as_ref(), &team).or_else(|| match team.as_slice() {
+        [only] => Some(only.id.clone()),
+        _ => None,
+    });
+    if stored.as_ref().and_then(Value::as_str) != lead.as_deref() {
+        write_lead(log, lead.as_deref())?;
+    }
+    Ok(lead)
+}
+
+/// The `teamLead` setting set to `id`, or deleted when there is none.
+pub fn write_lead(log: &Log, id: Option<&str>) -> Result<(), String> {
+    let event = match id {
+        Some(id) => json!({ "kind": "setting", "id": TEAM_LEAD, "value": id }),
+        None => json!({ "kind": "setting", "id": TEAM_LEAD, "deleted": true }),
+    };
+    log.append(&StreamId::Room, &event)
+        .map(|_| ())
+        .map_err(|error| format!("The room's stream could not be written: {error}."))
+}
+
 /// The one id every `models` event shares.
 pub const MODELS_CHANGED: &str = "models-changed";
 

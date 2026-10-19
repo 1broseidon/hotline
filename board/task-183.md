@@ -13,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/src/remote/link.rs
   - crates/hotline-core/src/remote/v2.rs
   - crates/hotline-core/src/remote/tests/link.rs
-updatedAt: "2026-10-18T23:53:55.552Z"
+updatedAt: "2026-10-19T00:05:10.245Z"
 contract:
   status: ready
   deliverables:
@@ -28,6 +28,14 @@ contract:
       - git diff --exit-code ui/src/generated/contract.ts
   metrics:
     readyAt: "2026-10-18T23:53:55.554Z"
+dispatch:
+  agent: claude
+  model: opus
+  by: lead
+  at: "2026-10-19T00:05:10.035Z"
+  until: done
+  tries: 0
+assignee: claude
 ---
 
 ## Description

@@ -1,8 +1,8 @@
 ---
 id: task-202
 title: "Core + contract: the team lead role, set, moved and kept"
-column: in-progress
-position: 2
+column: review
+position: 0
 priority: high
 tags:
   - core
@@ -23,7 +23,7 @@ relatedFiles:
   - docs/design.md
 parentId: epic-17
 createdAt: "2026-10-19T13:59:37.690Z"
-updatedAt: "2026-10-19T20:27:36.896Z"
+updatedAt: "2026-10-19T20:49:57.084Z"
 contract:
   status: in_progress
   deliverables:

@@ -1,7 +1,7 @@
 ---
 id: task-196
 title: "hotline-support: the small leaf utilities as one crate"
-column: todo
+column: in-progress
 position: 4
 priority: medium
 tags:
@@ -20,9 +20,9 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:59.870Z"
 dependsOn:
   - task-194
-updatedAt: "2026-10-19T07:50:18.405Z"
+updatedAt: "2026-10-19T07:50:24.775Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-support/Cargo.toml
@@ -45,6 +45,8 @@ contract:
     - contract.ts byte-identical
   metrics:
     readyAt: "2026-10-19T06:11:04.263Z"
+    pickedUpAt: "2026-10-19T07:50:24.775Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

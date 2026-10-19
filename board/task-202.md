@@ -23,7 +23,7 @@ relatedFiles:
   - docs/design.md
 parentId: epic-17
 createdAt: "2026-10-19T13:59:37.690Z"
-updatedAt: "2026-10-19T20:02:49.756Z"
+updatedAt: "2026-10-19T20:02:51.811Z"
 contract:
   status: ready
   deliverables:
@@ -58,7 +58,12 @@ dispatch:
   by: lead
   at: "2026-10-19T20:02:49.610Z"
   until: done
-  tries: 0
+  tries: 1
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-19T20:02:51.811Z"
 ---
 
 ## Description

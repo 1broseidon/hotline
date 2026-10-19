@@ -1,8 +1,6 @@
 ---
 id: task-198
 title: "hotline-tools: the shell and workspace tools as their own crate"
-column: review
-position: 6
 priority: medium
 tags:
   - crate-split
@@ -19,7 +17,7 @@ dependsOn:
   - task-194
   - task-196
   - task-197
-updatedAt: "2026-10-19T08:31:06.669Z"
+updatedAt: "2026-10-19T08:32:51.478Z"
 contract:
   status: delivered
   deliverables:
@@ -70,6 +68,7 @@ dispatch:
     at: "2026-10-19T08:16:34.483Z"
     ended: "2026-10-19T08:31:06.669Z"
     outcome: review
+completedAt: "2026-10-19T08:32:51.478Z"
 ---
 
 ## Description
@@ -83,3 +82,4 @@ From task-194, task-196 and task-197 (all landed on release/0.41.0): hotline-cor
 
 ## Log
 - 2026-10-19T08:30:57.081Z: [claude] On dispatch/task-198 (c3d6eef4). crates/hotline-tools holds the workspace and shell tools plus a `capability` module with CapabilityLease/CapabilityEpoch and their 7 tests, moved out of driver.rs. Its only Hotline deps are hotline-contract and hotline-support (process_windows). Callers stayed put: core has `pub use hotline_tools as tools`, and driver has `pub(crate) use hotline_tools::capability::{CapabilityEpoch, CapabilityLease}`. Security: the default, grant source, enforcement points and revocation are unchanged. What widened (the residual risk, in the commit): the lease types and their methods, the shell types (CommandOutcome/State, OutputTail, RunCommandArgs, STDERR_LINE) and the Workspace methods core calls went from pub(crate) to pub, so app and cli can reach them via hotline_core::tools. Every field stays private, so no crate can forge or revive a lease. cap-std, ignore, grep-*, globset moved from core to tools. scripts/module-map: ("tools","driver") was the last planned cut, so I deleted PLANNED_CUTS and print_after_cuts. security-citations gained a `crates` root, and security.md now cites `hotline-tools/src/...`. workspace-isolation.yml and scripts/precheck run `cargo test -p hotline-tools -- --ignored shell` and the desk test via `--test desk`. Docs updated: standards, development layout, AGENTS.md, ADR 0007 cut 3, sessions.md, security.md grant lifecycle. On this Mac, the shell --ignored tests (2) and workspace_reach_keeps_another_projects_env_out_of_the_tools pass. The desk test is not #[ignore] on macOS, so with --ignored it filters to 0 and passes; I ran it plainly. make check passes (3m13s), make precheck passes (98s, all 8 legs, Windows included), and contract.ts is byte-identical. For task-199: nothing is left unwired; the core no longer depends on cap-std or ignore directly.
+- 2026-10-19T08:32:51.118Z: Landed on release/0.41.0

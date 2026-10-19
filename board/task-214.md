@@ -13,8 +13,8 @@ relatedFiles:
 parentId: epic-21
 createdAt: "2026-10-19T17:20:19.714Z"
 dependsOn:
-  - task-213
-updatedAt: "2026-10-19T20:00:10.343Z"
+  - task-225
+updatedAt: "2026-10-19T20:00:14.204Z"
 contract:
   status: ready
   deliverables:

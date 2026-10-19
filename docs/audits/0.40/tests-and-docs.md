@@ -101,7 +101,7 @@ nothing, and the workspace's tokio has no `test-util` feature
 clock; together that is about 40 s of the suite's 98 s.
 
 **T6. Medium, small: upper bounds on elapsed time.**
-`crates/hotline-core/src/voice/speech/mod.rs:421` already states the house
+`crates/hotline-voice/src/speech.rs:421` already states the house
 rule ("assert the floors and the order, never a ceiling"). These break it:
 `providers/copilot.rs:800` (< 50 ms), `websearch/tests.rs:896` (< 400 ms) and
 `:942` (< 600 ms), `voice/tests.rs:2713` (≤ 200 ms),

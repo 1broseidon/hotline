@@ -1,7 +1,7 @@
 ---
 id: task-199
 title: "After: timings again, and the plan for splitting the core"
-column: todo
+column: in-progress
 position: 7
 priority: medium
 tags:
@@ -16,9 +16,9 @@ dependsOn:
   - task-195
   - task-197
   - task-198
-updatedAt: "2026-10-19T08:46:38.918Z"
+updatedAt: "2026-10-19T08:46:47.051Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: docs
       path: docs/adr/0007-split-hotline-core.md
@@ -39,6 +39,8 @@ contract:
     - The core-split stage is a proposal for George, not started
   metrics:
     readyAt: "2026-10-19T06:11:05.319Z"
+    pickedUpAt: "2026-10-19T08:46:47.051Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

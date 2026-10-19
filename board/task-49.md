@@ -13,7 +13,7 @@ relatedFiles:
   - ui/src/index.css
 parentId: epic-14
 createdAt: "2026-10-12T04:20:52.535Z"
-updatedAt: "2026-10-19T00:49:37.179Z"
+updatedAt: "2026-10-19T00:49:49.098Z"
 contract:
   status: delivered
   deliverables:
@@ -58,3 +58,4 @@ Related Files:
 
 ## Log
 - 2026-10-19T00:49:20.366Z: [claude] Done on branch dispatch/task-49 (27abcc65): Mermaid.tsx draws a block only once an IntersectionObserver rooted on the .scroller sees it within a screen (cached diagrams still show at once); computer frames moved to transcript/ComputerFrame.tsx, decoded once to a blob URL keyed by event id, ref-counted so a shown URL is never revoked, trimmed to 24 unshown on unmount; the older-lines scroll anchor in Transcript.tsx was cleared by a .finally comparing a stale `events` closure (worked only by React's microtask commit order) — now cleared a frame later only if still held. ui/tests/long-tape.test.tsx proves all three (the anchor test fails on the old code). Not done: virtualization and a time-to-first-usable measurement, out of the 0.40 narrowed scope. Note for later tasks: WebKit has no CSS overflow-anchor, so height changes above the view (a diagram drawing late) can still shift a reader who is not pinned.
+- 2026-10-19T00:49:49.098Z: Landed on release/0.40.0

@@ -35,7 +35,15 @@ contract:
     - "Do not touch session/peers or runner.rs: task-218 runs alongside"
   metrics:
     readyAt: "2026-10-19T20:03:13.285Z"
-updatedAt: "2026-10-19T20:03:13.285Z"
+updatedAt: "2026-10-19T20:03:29.143Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-19T20:03:29.011Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

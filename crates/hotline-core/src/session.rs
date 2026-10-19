@@ -52,7 +52,9 @@ mod links;
 mod narration;
 mod pacing;
 mod peers;
+mod post;
 mod preamble;
+pub(crate) use post::Post;
 pub(crate) use preamble::{CLOCK, preamble};
 mod prompt;
 mod quiet;
@@ -392,11 +394,11 @@ struct Session {
     input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,
-    /// What the teammate has said of its calls since its last turn began. A
-    /// live session's context was read from the tape when it started, so
-    /// these ride on its next message; a session that starts later reads
-    /// them from the tape.
-    pending_calls: Mutex<Vec<String>>,
+    /// What the teammate's other threads posted to the chat since its last
+    /// line ([`Room::post`]). A live session's context was read from the tape
+    /// when it started, so these ride on its next line; a session that starts
+    /// later reads them from the tape.
+    pending_posts: Mutex<Vec<String>>,
     /// The firing the next user line belongs to.
     pending_scheduled: Mutex<Option<Mark<ScheduledRun>>>,
     /// The user lines the driver has taken and not yet shown it read.
@@ -1008,27 +1010,6 @@ impl Room {
         Ok(id)
     }
 
-    /// Posts `text` to the teammate's DM as the teammate saying it, tagged as
-    /// from its call: a summary of the call, or what the front was asked to
-    /// put in the chat. It is the teammate's own message, so its next turn
-    /// carries on from it. The call's own turns are never posted; they stay
-    /// on its thread.
-    pub(crate) fn call_posted(&self, persona_id: &str, call_id: &str, text: &str) {
-        self.write_value(
-            persona_id,
-            &json!({
-                "kind": "agent", "id": format!("call:{call_id}:{}", new_id()),
-                "ts": now_ms(), "text": text,
-            }),
-        );
-        if let Ok(session) = self.session(persona_id) {
-            let mut calls = lock(&session.pending_calls);
-            calls.push(text.to_string());
-            let excess = calls.len().saturating_sub(MAX_PENDING_CALLS);
-            calls.drain(..excess);
-        }
-    }
-
     /// Keeps `spoken` as what a call to the teammate said for its reply
     /// `event_id`, on the reply's first bubble: the call assistant's rewrite
     /// of a reply that wrote no spoken version ([`crate::voice::spoken`]).
@@ -1347,9 +1328,6 @@ impl Room {
         Ok(session)
     }
 }
-
-/// How many call summaries ride on the next message of a live session.
-const MAX_PENDING_CALLS: usize = 6;
 
 fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
     held.lock().unwrap_or_else(PoisonError::into_inner)

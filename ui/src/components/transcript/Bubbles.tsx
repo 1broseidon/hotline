@@ -20,10 +20,31 @@ function runClass(run: Run): string {
 }
 
 /**
+ * Where a message the teammate posted from elsewhere came from: its call, a
+ * work thread, a scheduled job. The stamp says it; the words do not.
+ */
+function postedFrom(event: Extract<TranscriptEvent, { kind: "agent" }>): string | null {
+	if (event.scheduled !== undefined) return "From a scheduled job";
+	switch (event.from?.kind) {
+		case "call":
+			return "From the call";
+		case "side":
+			return "From a work thread";
+		case "pair":
+			return "From a pair thread";
+		case "run":
+			return "From a subagent";
+		default:
+			return null;
+	}
+}
+
+/**
  * An agent's line, focusable so R can answer it without a pointer. A file
  * it sent sits under its words, or is the whole bubble when it came alone.
  * A reply to a call is the version written to be read; what was said aloud
- * for it rides above it as a transcript line.
+ * for it rides above it as a transcript line. A post from another of the
+ * teammate's threads names where it came from above it.
  */
 export function AgentSay({
 	personaId,
@@ -48,8 +69,10 @@ export function AgentSay({
 		...(onReply !== undefined ? { reply } : {}),
 		...(onReact !== undefined ? { react: (emoji: string) => onReact({ eventId: event.id, text: event.text || lineOf(event) }, emoji) } : {}),
 	};
+	const origin = postedFrom(event);
 	return (
 		<div className={`said-group relative ${run.top ? "mt-1" : "mt-3"}`}>
+			{origin !== null && <p className="said-name">{origin}</p>}
 			{event.spoken !== undefined && event.spoken.trim() !== "" && <SaidAloud text={event.spoken} />}
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: the bubble is text; focus is there so R replies and the menu key opens its menu. */}
 			<div

@@ -244,7 +244,7 @@ mod tests {
     use crate::contract::SideEnd;
     use crate::driver::{MessageKind, Update};
     use crate::session::runner::{RunEnd, RunSpec};
-    use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
+    use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, pair_a_phone, persona, scratch};
     use crate::test_support::until;
     use crate::thread::{AgentBinding, Participant, ThreadLink, ThreadState, ThreadStore};
     use serde_json::json;
@@ -288,24 +288,6 @@ mod tests {
                 kind: Some(option_kind.to_string()),
             }],
         }
-    }
-
-    /// A phone paired with the desk, so a push has somewhere to go.
-    fn pair_a_phone(room: &Room) {
-        std::fs::write(
-            room.log.root().join("remote.json"),
-            json!({
-                "desktopId": "desk-1",
-                "host": "desk.local",
-                "enabled": true,
-                "grants": [{
-                    "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0, "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
-                    "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
-                }]
-            })
-            .to_string(),
-        )
-        .unwrap();
     }
 
     fn spec(room: &Room, run_id: &str) -> RunSpec {

@@ -157,20 +157,17 @@ async fn a_person_typing_during_a_quiet_run_gets_a_bubble_back() {
 }
 
 /// A quiet run that finds something asks to be heard, once, and is: once its
-/// silent turn is over, the teammate is prompted with the finding in the open
-/// and answers the person as any reply is answered. Only the quiet turn was
-/// armed.
+/// silent turn is over, what it wrote for the person is posted to the chat as
+/// it wrote it, stamped with its job, and no second turn re-says it.
 #[tokio::test]
-async fn a_quiet_run_that_asks_has_its_teammate_tell_the_person() {
+async fn a_quiet_run_that_asks_has_its_note_posted_as_written() {
     let gate = Arc::new(Semaphore::new(0));
-    let mut driver = Scripted::turns(vec![
-        saying("quiet", "Checked the page; it moved."),
-        saying("loud", "Your Apple order shipped this morning."),
-    ]);
+    let mut driver = Scripted::turns(vec![saying("quiet", "Checked the page; it moved.")]);
     driver.gate = Some(gate.clone());
     let armed = driver.escalations.clone();
     let prompts = driver.prompts.clone();
     let room = room("quiet-escalates", Fake::new(driver));
+    pair_a_phone(&room);
     room.start("ada").await.unwrap();
 
     room.prompt_scheduled(
@@ -182,33 +179,25 @@ async fn a_quiet_run_that_asks_has_its_teammate_tell_the_person() {
     .unwrap();
     heard(&prompts, 1).await;
     let escalation = lock(&armed)[0].clone().expect("a quiet run is armed");
-    escalation.escalate("The order shipped.").unwrap();
+    escalation.escalate("Your Apple order shipped.").unwrap();
     let refused = escalation.escalate("And another thing.").unwrap_err();
     assert!(refused.contains("one per run"), "{refused}");
 
     gate.add_permits(6);
-    let events = settled(&room, "ada", 6).await;
+    let events = settled(&room, "ada", 4).await;
     assert_eq!(
         kinds(&events),
-        ["user", "thought", "turn", "user", "agent", "turn"],
-        "the run stayed thinking; the teammate's answer is a reply"
+        ["user", "thought", "turn", "agent"],
+        "the run stayed thinking; its note is the teammate's message"
     );
     assert_eq!(events[1]["text"], "Checked the page; it moved.");
-    assert_eq!(events[3]["text"], "The order shipped.");
+    assert_eq!(events[3]["text"], "Your Apple order shipped.");
     assert_eq!(events[3]["scheduled"]["jobId"], "job-1");
-    assert_eq!(events[3]["scheduled"].get("quiet"), None);
-    assert_eq!(events[4]["text"], "Your Apple order shipped this morning.");
+    assert_eq!(events[3].get("from"), None, "the DM's own turn posted it");
+    assert_eq!(room.sent_voice_pushes().len(), 1, "it wakes the person");
 
-    let prompts = heard(&prompts, 2).await;
-    assert!(
-        prompts[1].contains("\"Apple order check\" found something")
-            && prompts[1].contains("The order shipped."),
-        "{}",
-        prompts[1]
-    );
-    let armed = lock(&armed);
-    assert_eq!(armed.len(), 2);
-    assert!(armed[1].is_none(), "the answer is not a quiet run");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(lock(&prompts).len(), 1, "no turn follows to re-say it");
 }
 
 /// A quiet run that does not ask is not followed by anything.

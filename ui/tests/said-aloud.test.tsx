@@ -40,6 +40,18 @@ describe("a reply said on a call", () => {
 	});
 });
 
+describe("a post from another thread", () => {
+	test("names where it came from above it, from the stamp", () => {
+		const posted = { kind: "agent", id: "p1", ts: 2, text: "the scheduler fix is in" } as const;
+		const fromCall = transcript([{ ...posted, from: { thread: "c1", kind: "call" } }]);
+		expect(fromCall).toContain("From the call");
+		expect(fromCall.indexOf("From the call")).toBeLessThan(fromCall.indexOf("speech said-them"));
+		const scheduled = { jobId: "j1", kind: "loop", name: "Crane check", operatorCreated: true, quiet: true } as const;
+		expect(transcript([{ ...posted, scheduled }])).toContain("From a scheduled job");
+		expect(transcript([posted])).not.toContain("From ");
+	});
+});
+
 describe("the transcript line", () => {
 	let act: typeof import("react").act;
 	let root: Root;

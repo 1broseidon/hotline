@@ -147,7 +147,7 @@ impl Room {
             turns: Mutex::new(Turns::default()),
             input_ready: Notify::new(),
             pending_reply: Mutex::new(None),
-            pending_calls: Mutex::new(Vec::new()),
+            pending_posts: Mutex::new(Vec::new()),
             pending_scheduled: Mutex::new(None),
             unread: Mutex::new(Vec::new()),
             voice_origin: Mutex::new(None),

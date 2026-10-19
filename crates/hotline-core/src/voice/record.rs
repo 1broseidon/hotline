@@ -154,7 +154,8 @@ impl Digest {
     }
 
     /// The summary of what has happened since the last one, as the teammate
-    /// would say it, tagged as from the call, or `None` when nothing has.
+    /// would say it, or `None` when nothing has. The post is stamped as from
+    /// the call; the words do not say so.
     /// `open` is what the person last asked that nothing has answered. Words
     /// are scrubbed and clipped as the front's own starting context is, since
     /// the summary becomes part of the teammate's history.
@@ -198,7 +199,7 @@ impl Digest {
             ));
         }
         *self = Self::default();
-        Some(format!("From the call: {}", sentences.join(" ")))
+        Some(sentences.join(" "))
     }
 }
 
@@ -216,7 +217,7 @@ mod tests {
         digest.answered("The scheduler fix is in.");
         digest.handed("check the failing PR");
         let summary = digest.summary(Some("and the release?")).unwrap();
-        assert!(summary.starts_with("From the call: You asked"), "{summary}");
+        assert!(summary.starts_with("You asked"), "{summary}");
         assert!(summary.contains("\"what is on the PR?\" and I said \"The scheduler fix is in.\""));
         assert!(summary.contains("I'm still working on this: \"check the failing PR\""));
         assert!(summary.contains("I have not answered \"and the release?\" yet."));

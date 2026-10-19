@@ -13,10 +13,11 @@
 //! delegations from it.
 
 use super::front::Tool;
+use crate::contract::ThreadId;
 use crate::driver::CapabilityLease;
 use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer, McpTool};
-use crate::session::{FrontReach, Room};
+use crate::session::{FrontReach, Post, Room};
 use rig::tool::{DynamicTool, ToolOutput};
 use serde_json::{Map, Value, json};
 use std::sync::{Arc, Weak};
@@ -180,7 +181,8 @@ impl FrontTools {
 }
 
 impl FrontTools {
-    /// Posts the person's request to the teammate's DM, tagged as from the call.
+    /// Posts the person's request to the teammate's DM, stamped as from the
+    /// call.
     fn post(&self, arguments: &Value) -> String {
         let Some(text) = arguments["text"]
             .as_str()
@@ -193,12 +195,14 @@ impl FrontTools {
             return "The chat is not available.".into();
         };
         let text = crate::driver::clip(text, POST_CHARS);
-        room.call_posted(
+        match room.post(
             &self.persona_id,
-            &self.call_id,
-            &format!("From the call: {text}"),
-        );
-        "Posted to the chat.".into()
+            &ThreadId::call(&self.call_id),
+            Post::words(&text),
+        ) {
+            Ok(()) => "Posted to the chat.".into(),
+            Err(error) => error,
+        }
     }
 }
 

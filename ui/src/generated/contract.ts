@@ -1843,7 +1843,18 @@ ring?: RingIntent, receipt?: Receipt,
  * first bubble of the reply only. A client that does not know it
  * shows `text`, which stands alone.
  */
-spoken?: string, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
+spoken?: string, 
+/**
+ * A post from one of the teammate's other threads (a call, a work
+ * thread): where it was said. A client draws "From the call" from
+ * it. Absent from what the DM's own turns say, and from every tape
+ * written before posts were stamped.
+ */
+from?: DeliveryFrom, 
+/**
+ * A post from a scheduled run: which job it came from.
+ */
+scheduled?: ScheduledRun, } | { "kind": "thought", id: string, ts: number, text: string, } | { "kind": "tool", id: string, ts: number, toolCallId: string, title: string, toolKind?: string, status: ToolStatus, locations?: Array<string>, output?: Array<ToolOutput>, } | { "kind": "permission", id: string, ts: number, requestId: string, title: string, options: Array<PermissionOption>, decision?: string, decidedOptionName?: string, } | { "kind": "plan", id: string, ts: number, entries: Array<PlanEntry>, } | { "kind": "notice", id: string, ts: number, level: NoticeLevel, text: string, } | { "kind": "computer_pull", id: string, ts: number, image: string, layersDone: number, layersTotal: number, status: PullStatus, 
 /**
  * How long the pull took, once it is done.
  */

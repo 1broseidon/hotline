@@ -1196,6 +1196,11 @@ script that starts like a PDF is never handed over as one. Any file can be
 saved where the person picks, or shown in its folder.
 `attachments[].origin` says where the file came from, in words.
 
+A file sent from a work thread is in the chat all the same: it is posted
+through the chat's one door (`Room::post`), stamped `from` the thread, and
+pushes as a reply does; the thread keeps a notice naming it. The chat holds
+everything the teammate gave the person, wherever it was working.
+
 A quiet scheduled run is refused rather than demoted. Its words become
 thinking, and a file in thinking reaches nobody while the teammate believes
 it was sent, so the tool says it cannot send from a quiet run. A window
@@ -1450,8 +1455,9 @@ variant of the teammate's (`TeammateTools::for_work`): all of them but
 `new_chapter` and `resume_chapter`, plus `archive_thread {summary}`.
 `search_thread` and `list_chapters` read the main conversation (and
 `search_thread` the teammate's other threads and runs too); `react` and
-`open_link` act on this thread; `send_file`, `generate_image` and
-`request_human` post in the thread, and `request_human` pushes to the person
+`open_link` act on this thread; `send_file` and `generate_image` post their
+file to the chat, stamped `from` the thread, and leave a notice in the
+thread; `request_human` posts in the thread and pushes to the person
 (answered by side id, `side.answer_permission`, or `human.answer`);
 `message_teammate` replies come back to the thread. Schedules and loops are the
 teammate's and wake the main conversation.
@@ -1803,15 +1809,15 @@ cannot mute a teammate forever — the window expires after thirty minutes.
 A quiet run that finds something has one way to be heard, and has to ask
 for it by name. Its turn, and only that turn, is handed a `tell_person` tool
 (`session/escalation.rs`, armed through `Driver::escalate_next`). A call
-does not post anything: it hands the teammate a note, once per run (a
-second call is refused). When the quiet turn is over, the room writes the
-note as a `user` line stamped with the job's `scheduled` (not quiet, so no
-window opens) and queues it ahead of anything else waiting. The teammate
-hears which job found what and is asked to tell the person, so the answer
-is an ordinary reply in its own voice: it lands in the chat, lights the
-rail, and pushes like any other. A run that finds nothing is exactly as
-silent as before, and the desktop toast skips a turn whose last visible
-line is the person's own. Hotline Agent teammates get the tool; an ACP agent
+hands over the message to the person, once per run (a second call is
+refused). When the quiet turn is over, the room posts it as the teammate
+wrote it, through the chat's one door (`Room::post`, `session/post.rs`): an
+`agent` message stamped with the job's `scheduled`, written past the quiet
+window rather than through it. Nothing re-says it; the words were already
+the teammate's own, in the teammate's own session. It lands in the chat,
+lights the rail, and pushes like any reply. A run that finds nothing is
+exactly as silent as before, and the desktop toast skips a turn whose last
+visible line is the person's own. Hotline Agent teammates get the tool; an ACP agent
 brings its own tools and is not offered one, so its quiet runs stay silent.
 A subagent never gets it: it reports to its teammate, which decides.
 

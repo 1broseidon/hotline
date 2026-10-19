@@ -70,3 +70,6 @@ One crate for the leaves that hold no Hotline state: credentials (atomic_write a
 Lead's note: this runs before task-197 and task-198 (both need it) and alone, because every crate move edits the same lines (workspace members, Cargo.lock, hotline-core's Cargo.toml and lib.rs, docs/standards.md's module map, AGENTS.md).
 
 From task-194: hotline-core keeps `pub use hotline_contract as contract`, so callers still say crate::contract; hotline-contract depends on no hotline crate. Its first landing hit the 15-minute `make check` limit, most likely a cold target/ in the landing checkout rather than a hang (make check ran in 4m11s warm). Don't add to the cold-build cost without cause: no new dev-dependencies or features beyond what the moved code already used.
+
+## Log
+- 2026-10-19T07:55:56.948Z: [claude] [lead] The last run ended its turn while `make check` was still running in the background, so nothing reached Review. The move is committed on dispatch/task-196; don't redo it. Run `make check` and then `make precheck` in the foreground (one call each, with a long timeout), fix anything they find, check the contract's validation commands, and end your turn only once they have passed and the task is in Review.

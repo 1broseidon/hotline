@@ -739,3 +739,50 @@ async fn a_poisoned_remote_still_admits_its_phones_and_still_revokes_them() {
 
     h.remote.configure(false, network::ALL).await.unwrap();
 }
+
+/// A phone that leaves the network stops reading without closing, and TCP
+/// may keep its socket up for many minutes. The desk ends the seat itself
+/// once a frame has waited past the write bound, though the seat is quiet
+/// (its queue never fills) and never asked for the silence timer (no `lean`).
+#[tokio::test]
+async fn a_seat_that_stops_reading_is_closed_once_a_frame_waits_past_the_bound() {
+    let h = Harness::new().await;
+    let grant = h.pair().await;
+    let mut phone = h.socket(&grant.private).await.unwrap();
+    assert_eq!(read(&mut phone).await["protocolVersion"], 2);
+    send(&mut phone, json!({"id":1,"cmd":"mobile.persona_create","params":{"requestId":Uuid::new_v4(),"name":"Ada"}})).await;
+    let created = read(&mut phone).await;
+    assert_eq!(created["ok"], true, "{created}");
+    let persona = created["result"]["id"].as_str().unwrap().to_owned();
+    send(&mut phone, json!({"id":2,"sub":{"tape":persona}})).await;
+    assert_eq!(read(&mut phone).await, json!({"id":2,"ok":true}));
+    assert_eq!(read(&mut phone).await["sub"], 2);
+    assert_eq!(h.remote.admission.counts(), (0, 1));
+
+    // One frame larger than both ends' socket buffers, which the phone never
+    // reads: the desk's writer is left holding the rest of it.
+    h.desk
+        .log
+        .append(
+            &crate::log::StreamId::Tape(persona),
+            &json!({"id":"big","kind":"agent","ts":1,"text":"x".repeat(24 * 1024 * 1024)}),
+        )
+        .unwrap();
+    // The writer's bound runs on a paused clock, moved past it once the
+    // frame is stuck; the sockets around it read real time, so the test's own
+    // bound is a count of real waits, not a timer on the clock it moves.
+    let mut waits = 0;
+    while h.remote.admission.counts() != (0, 0) {
+        assert!(
+            waits < 75,
+            "a seat whose writes back up is ended by the desk"
+        );
+        waits += 1;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        tokio::time::pause();
+        tokio::time::advance(crate::wire::WRITE_STALL).await;
+        tokio::time::resume();
+    }
+    drop(phone);
+    h.remote.configure(false, network::ALL).await.unwrap();
+}

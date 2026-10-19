@@ -1,12 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { pairWith } from "../../dock";
 import type { PeerThreadSummary } from "../../generated/contract";
 import { firstLine } from "../../room";
 import { storedNumbers, storeNumbers } from "../../storage";
-import { wire } from "../../wire";
+import { type RosterEntry, wire } from "../../wire";
 import type { ThreadRef } from "../Transcript";
 import { FoldRow, NESTED, RowText } from "./rows";
 
 const THREAD_SEEN_KEY = "hotline.threads.seen";
+
+/** One row of the list, whichever command the desk answered. */
+type ThreadRow = { threadKey: string; withName: string; line: string; lastAt: number };
+
+function fromPeers(list: PeerThreadSummary[]): ThreadRow[] {
+	return list.map((thread) => ({
+		threadKey: thread.threadKey,
+		withName: thread.withName,
+		line: thread.preview
+			? `${thread.preview.fromName}: ${firstLine(thread.preview.text)}`
+			: thread.exchanges === 1
+				? "1 exchange"
+				: `${thread.exchanges} exchanges`,
+		lastAt: thread.lastAt,
+	}));
+}
 
 /**
  * This teammate's conversations with other teammates, behind one row that
@@ -14,18 +31,42 @@ const THREAD_SEEN_KEY = "hotline.threads.seen";
  * Unread is lastAt against the latest the window has shown, the same way
  * the rail counts a tape.
  */
-export function Threads({ personaId, onOpen }: { personaId: string; onOpen(thread: ThreadRef): void }) {
-	const [threads, setThreads] = useState<PeerThreadSummary[] | undefined>(undefined);
+export function Threads({
+	personaId,
+	roster,
+	onOpen,
+}: {
+	personaId: string;
+	roster: RosterEntry[];
+	onOpen(thread: ThreadRef): void;
+}) {
+	const [threads, setThreads] = useState<ThreadRow[] | undefined>(undefined);
 	const [seen, setSeen] = useState(() => storedNumbers(THREAD_SEEN_KEY));
 	const [open, setOpen] = useState(false);
+
+	const rosterRef = useRef(roster);
+	rosterRef.current = roster;
 
 	useEffect(() => {
 		let cancelled = false;
 		setOpen(false);
+		const nameOf = (id: string | undefined) => rosterRef.current.find((one) => one.persona.id === id)?.persona.name;
 		void wire
-			.command("peers.list", { personaId })
-			.then((list) => {
-				if (!cancelled) setThreads(list);
+			.command("thread.list", { personaId })
+			.then((list) =>
+				list
+					.filter((thread) => thread.thread.kind === "pair")
+					.map((thread) => ({
+						threadKey: thread.thread.key,
+						withName: thread.withName ?? nameOf(pairWith(thread.thread.key, personaId)) ?? "a teammate",
+						line: thread.preview ?? "Nothing said yet",
+						lastAt: thread.updatedAt,
+					})),
+			)
+			// A desk older than `thread.list` still answers the pairs it always did.
+			.catch(() => wire.command("peers.list", { personaId }).then(fromPeers))
+			.then((rows) => {
+				if (!cancelled) setThreads(rows);
 			})
 			.catch(() => {
 				if (!cancelled) setThreads([]);
@@ -54,11 +95,11 @@ export function Threads({ personaId, onOpen }: { personaId: string; onOpen(threa
 
 	if (threads === undefined) return null;
 
-	const isUnread = (thread: PeerThreadSummary) => thread.lastAt > (seen[thread.threadKey] ?? 0);
+	const isUnread = (thread: ThreadRow) => thread.lastAt > (seen[thread.threadKey] ?? 0);
 	const unread = threads.filter(isUnread).length;
 	const total = threads.length;
 
-	const openThread = (thread: PeerThreadSummary) => {
+	const openThread = (thread: ThreadRow) => {
 		setSeen((current) => {
 			const next = { ...current, [thread.threadKey]: thread.lastAt };
 			storeNumbers(THREAD_SEEN_KEY, next);
@@ -87,11 +128,6 @@ export function Threads({ personaId, onOpen }: { personaId: string; onOpen(threa
 				)}
 				{open &&
 					threads.map((thread) => {
-						const line = thread.preview
-							? `${thread.preview.fromName}: ${firstLine(thread.preview.text)}`
-							: thread.exchanges === 1
-								? "1 exchange"
-								: `${thread.exchanges} exchanges`;
 						return (
 							<button
 								key={thread.threadKey}
@@ -101,7 +137,7 @@ export function Threads({ personaId, onOpen }: { personaId: string; onOpen(threa
 							>
 								<span className="group-row-text">
 									<span className="group-row-title">{thread.withName}</span>
-									<span className="group-row-detail">{line}</span>
+									<span className="group-row-detail">{thread.line}</span>
 								</span>
 								{isUnread(thread) && dot}
 								<span className="shrink-0 text-xs text-ink-3">{threadStamp(thread.lastAt)}</span>

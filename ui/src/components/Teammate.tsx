@@ -368,7 +368,7 @@ export function Teammate({
 						focus={focusSchedules}
 					/>
 
-					<Threads personaId={persona.id} onOpen={onOpenThread} />
+					<Threads personaId={persona.id} roster={roster} onOpen={onOpenThread} />
 
 					<div className="flex items-center gap-1 border-t border-line pt-3">
 						<button type="button" className="control btn-danger -ml-2.5" disabled={busy} onClick={() => void remove()}>

@@ -5,6 +5,7 @@ use crate::session::ProviderAuth;
 use rig::completion::CompletionError;
 use serde::Serialize;
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -31,6 +32,10 @@ pub(crate) enum Kind {
     /// expired. Nothing in Hotline's Settings fixes it; the harness's login
     /// does.
     AgentAuth,
+    /// An ACP harness answered that the model needs a newer version of it:
+    /// Codex's "requires a newer version of Codex", sent as a 400. The model
+    /// and the sign-in are fine; the harness on this computer is behind.
+    HarnessOutdated,
     Context,
     Replay,
     Configuration,
@@ -65,7 +70,9 @@ pub(crate) const NO_PROVIDER: &str =
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Failure {
     pub kind: Kind,
-    pub title: &'static str,
+    /// Named for the harness when the harness is the problem, so it is not
+    /// always a literal.
+    pub title: Cow<'static, str>,
     pub summary: &'static str,
     pub details: String,
     pub phase: &'static str,
@@ -196,10 +203,26 @@ impl Failure {
         } else {
             Kind::Unknown
         };
-        // A harness that lost its sign-in says so in its own words, and ACP's
+        // A harness too old for the model it was asked to run says so in a
+        // 400 that would otherwise read as the model's settings or a bad
+        // request; it is the harness that has to be updated. A harness that
+        // lost its sign-in says so in its own words, and ACP's
         // `auth_required` is code -32000. Either way it is the harness's
         // login that has to run again, not a Hotline credential.
         let kind = if phase.starts_with("acp")
+            && matches!(
+                kind,
+                Kind::Configuration | Kind::InvalidRequest | Kind::Acp | Kind::Unknown
+            )
+            && contains(&[
+                "requires a newer version",
+                "not supported by this version",
+                "not supported in this version",
+                "not supported by this harness version",
+                "upgrade to the latest",
+            ]) {
+            Kind::HarnessOutdated
+        } else if phase.starts_with("acp")
             && (kind == Kind::Auth
                 || contains(&[
                     "auth_required",
@@ -210,7 +233,8 @@ impl Failure {
                     "not logged in",
                     "please run /login",
                     "\"code\":-32000",
-                ])) {
+                ]))
+        {
             Kind::AgentAuth
         } else {
             kind
@@ -218,7 +242,7 @@ impl Failure {
         let retry_after_seconds = value.as_ref().and_then(|value| retry_hint(value, 0));
         let mut failure = Self {
             kind,
-            title: "",
+            title: Cow::Borrowed(""),
             summary: "",
             details: sanitize(body),
             phase,
@@ -236,7 +260,7 @@ impl Failure {
     pub fn budget(refused: crate::voice::ledger::Exhausted) -> Self {
         let mut failure = Self {
             kind: Kind::Budget,
-            title: "",
+            title: Cow::Borrowed(""),
             summary: "",
             details: refused.to_string(),
             phase: "budget",
@@ -256,7 +280,7 @@ impl Failure {
     pub fn startup(details: String) -> Self {
         let mut failure = Self {
             kind: Kind::Startup,
-            title: "",
+            title: Cow::Borrowed(""),
             summary: "",
             details: sanitize(&details),
             phase: "acp_start",
@@ -275,7 +299,7 @@ impl Failure {
     pub fn no_provider() -> Self {
         let mut failure = Self {
             kind: Kind::NoProvider,
-            title: "",
+            title: Cow::Borrowed(""),
             summary: "",
             details: "No provider is connected on this desk, so there is no model to run.".into(),
             phase: "start",
@@ -363,7 +387,7 @@ impl Failure {
         };
         if listed {
             self.set_kind(Kind::ProviderRefused);
-            self.title = title;
+            self.title = title.into();
         }
         self
     }
@@ -383,9 +407,24 @@ impl Failure {
         }
     }
 
+    /// The card for a harness too old for its model names the harness, and
+    /// the version it reported when it started, so the person knows what to
+    /// update.
+    pub fn name_the_harness(&mut self, name: &str, version: Option<&str>) {
+        if self.kind != Kind::HarnessOutdated || name.trim().is_empty() {
+            return;
+        }
+        self.title = match version.filter(|version| !version.trim().is_empty()) {
+            Some(version) => format!("{name} {version} is too old for this model"),
+            None => format!("{name} is too old for this model"),
+        }
+        .into();
+    }
+
     fn set_kind(&mut self, kind: Kind) {
         self.kind = kind;
-        (self.title, self.summary) = match kind {
+        let title;
+        (title, self.summary) = match kind {
             Kind::RateLimit => (
                 "Provider rate limit",
                 "The provider is temporarily limiting requests.",
@@ -405,6 +444,10 @@ impl Failure {
             Kind::AgentAuth => (
                 "Agent sign-in expired",
                 "This teammate's harness is signed out. Sign in to it again on the computer running Hotline, then send another message.",
+            ),
+            Kind::HarnessOutdated => (
+                "Agent too old for this model",
+                "Update this teammate's harness on the computer running Hotline, or switch it to a model its version supports, then send another message.",
             ),
             Kind::Context => (
                 "Context limit reached",
@@ -455,6 +498,7 @@ impl Failure {
                 "The activity could not finish. Expand the details for the reported error.",
             ),
         };
+        self.title = Cow::Borrowed(title);
     }
 
     pub fn retry_delay(&self, attempt: u32) -> Option<Duration> {
@@ -675,6 +719,43 @@ mod tests {
         assert_eq!(provider.kind, Kind::Auth);
         let other = Failure::classify("Internal error: tool crashed", None, "acp_prompt");
         assert_eq!(other.kind, Kind::Acp);
+    }
+
+    /// Codex asked for a model newer than itself answers with a 400 that says
+    /// so. That is the harness's version, not the model's settings, the
+    /// request's shape or a sign-in, and the card says to update it.
+    #[test]
+    fn a_harness_too_old_for_its_model_says_to_update_it() {
+        let codex = r#"Internal error: unexpected status 400 Bad Request: {"detail":"The 'gpt-5.5-codex' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."}"#;
+        let mut outdated = Failure::classify(codex, None, "acp_prompt");
+        assert_eq!(outdated.kind, Kind::HarnessOutdated);
+        assert!(outdated.summary.contains("Update"), "{}", outdated.summary);
+        assert!(outdated.retry_delay(0).is_none());
+        outdated.name_the_harness("Codex", Some("1.12.0"));
+        assert_eq!(outdated.title, "Codex 1.12.0 is too old for this model");
+        assert!(outdated.notice().contains(r#""kind":"harness_outdated""#));
+
+        let with_status = Failure::classify(
+            r#"{"error":{"message":"model not supported by this harness version"}}"#,
+            Some(400),
+            "acp_prompt",
+        );
+        assert_eq!(with_status.kind, Kind::HarnessOutdated);
+
+        // Outside an ACP harness the same words are the provider's, and an
+        // ordinary unsupported model is still the model's settings.
+        assert_eq!(
+            Failure::classify(codex, Some(400), "request").kind,
+            Kind::InvalidRequest
+        );
+        assert_eq!(
+            Failure::classify("unsupported model: nonesuch", None, "acp_prompt").kind,
+            Kind::Configuration
+        );
+        // And a name is only put on that card.
+        let mut other = Failure::classify("Internal error: tool crashed", None, "acp_prompt");
+        other.name_the_harness("Codex", Some("1.12.0"));
+        assert_eq!(other.title, "Agent connection failed");
     }
 
     /// OpenAI's 25 September 2026 outage: a ChatGPT sign-in that still listed

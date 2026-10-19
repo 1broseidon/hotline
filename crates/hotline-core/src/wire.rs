@@ -44,6 +44,8 @@ pub use door::Door;
 pub use room_handle::RoomHandle;
 pub(crate) use roster::{activity_on, waiting_on};
 use socket::Outbox;
+#[cfg(test)]
+pub(crate) use socket::WRITE_STALL;
 pub(crate) use socket::{federation, seated_phone_v2};
 
 #[cfg(test)]

@@ -220,7 +220,9 @@ async fn stream_events(
 ) {
     let mut events = log.subscribe(&stream);
     let mut deltas = match &stream {
-        StreamId::Tape(_) | StreamId::Side(_) | StreamId::Run(_) => Some(room.subscribe_deltas()),
+        StreamId::Tape(_) | StreamId::Side(_) | StreamId::Run(_) | StreamId::Job(_) => {
+            Some(room.subscribe_deltas())
+        }
         _ => None,
     };
     let scope = delta_scope(&stream);
@@ -281,13 +283,14 @@ async fn stream_events(
 }
 
 /// The thread whose words a stream's subscription hears live: a tape is the
-/// teammate's DM, a side thread and a run their own. None for a stream that
-/// has no live words.
+/// teammate's DM, a side thread, a run and a job their own. None for a stream
+/// that has no live words.
 fn delta_scope(stream: &StreamId) -> Option<ThreadId> {
     match stream {
         StreamId::Tape(persona_id) => Some(ThreadId::dm(persona_id)),
         StreamId::Side(side_id) => Some(ThreadId::side(side_id)),
         StreamId::Run(run_id) => Some(ThreadId::run(run_id)),
+        StreamId::Job(job_id) => Some(ThreadId::job(job_id)),
         _ => None,
     }
 }

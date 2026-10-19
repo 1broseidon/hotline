@@ -116,11 +116,12 @@ pub(crate) struct SubagentArgs {
     pub title: Option<String>,
 }
 
-/// What a subagent is handed once the arguments have been read: the task in
-/// full and a label short enough for a line on the tape.
+/// What a subagent is handed once the arguments have been read: the brief,
+/// in the one schema a job is written in too (it runs now and reports to the
+/// agent that asked), and a label short enough for a line on the tape.
 #[derive(Clone, Debug)]
 pub(crate) struct SubagentTask {
-    pub task: String,
+    pub brief: crate::session::Brief,
     pub title: String,
 }
 
@@ -413,7 +414,14 @@ impl Jobs {
             output: None,
         };
         let job_id = id.clone();
-        let run = delegate.run(id.clone(), SubagentTask { task, title }, cancel.clone());
+        let run = delegate.run(
+            id.clone(),
+            SubagentTask {
+                brief: crate::session::Brief::subagent(task),
+                title,
+            },
+            cancel.clone(),
+        );
         let task_id = self.tasks.spawn(async move { (job_id, run.await) }).id();
         self.entries.insert(
             id,
@@ -883,7 +891,7 @@ mod tests {
             cancel: CancellationToken,
         ) -> BoxFuture<'static, Finished> {
             Box::pin(async move {
-                if task.task == "wait" {
+                if task.brief.task == "wait" {
                     cancel.cancelled().await;
                     return Finished {
                         state: JobState::Cancelled,
@@ -892,7 +900,7 @@ mod tests {
                 }
                 Finished {
                     state: JobState::Succeeded,
-                    output: format!("{run_id}: {}", task.task),
+                    output: format!("{run_id}: {}", task.brief.task),
                 }
             })
         }

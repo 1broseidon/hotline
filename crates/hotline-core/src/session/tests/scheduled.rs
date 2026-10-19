@@ -1,7 +1,9 @@
-//! The funnel's own rules: what a line carries, whose voice is held, and how
-//! a schedule fires.
+//! The funnel's own rules: what a line carries, and how a job fires on its
+//! own thread rather than the DM's.
 
 use super::*;
+use crate::contract::{End, ScheduleKind, ThreadId};
+use crate::session::Brief;
 
 /// The index is written as the tape is, and a search finds the turn without
 /// anything having asked for a rebuild.
@@ -21,17 +23,6 @@ async fn what_is_appended_is_indexed() {
     );
 }
 
-/// A schedule's firing, as the scheduler will hand one over.
-fn firing(kind: ScheduleKind, quiet: bool) -> ScheduledRun {
-    ScheduledRun {
-        job_id: "job-1".to_string(),
-        kind,
-        name: "Apple order check".to_string(),
-        operator_created: false,
-        quiet: quiet.then_some(true),
-    }
-}
-
 fn attachment(name: &str, path: &str) -> Attachment {
     Attachment {
         kind: AttachmentKind::File,
@@ -45,255 +36,19 @@ fn attachment(name: &str, path: &str) -> Attachment {
     }
 }
 
-/// The whole point of a quiet run: the agent said something and the chat has
-/// nothing in it, and the teammate speaks normally the moment it is over.
-#[tokio::test]
-async fn a_quiet_runs_words_are_thinking_and_the_next_plain_prompt_speaks() {
-    let agents = Fake::new(Scripted::turns(vec![
-        saying("quiet", "No change — staying silent per protocol."),
-        saying("loud", "It moved."),
-    ]));
-    let prompts = agents.driver.prompts.clone();
-    let room = room("quiet-run", agents);
-    let mut deltas = room.subscribe_deltas();
-    room.start("ada").await.unwrap();
-
-    room.prompt_scheduled(
-        "ada",
-        "check the order page",
-        firing(ScheduleKind::Loop, true),
-    )
-    .await
-    .unwrap();
-    let events = settled(&room, "ada", 3).await;
-    assert_eq!(kinds(&events), ["user", "thought", "turn"]);
-    assert_eq!(
-        events[1]["id"], "m-quiet",
-        "the words were demoted, not destroyed"
-    );
-    assert_eq!(
-        events[1]["text"],
-        "No change — staying silent per protocol."
-    );
-
-    // The tape keeps the bare prompt and the stamp naming the job; the agent
-    // heard the framing that says a quiet schedule woke it.
-    assert_eq!(events[0]["text"], "check the order page");
-    assert_eq!(events[0]["scheduled"]["jobId"], "job-1");
-    assert_eq!(events[0]["scheduled"]["quiet"], true);
-    assert_eq!(*lock(&prompts), ["quiet loop · check the order page"]);
-
-    room.prompt("ada", "and now?", None, None).await.unwrap();
-    let events = settled(&room, "ada", 6).await;
-    assert_eq!(
-        kinds(&events),
-        ["user", "thought", "turn", "user", "agent", "turn"],
-        "the run's own turn boundary closed the window"
-    );
-    assert_eq!(events[4]["text"], "It moved.");
-
-    // The live stream was muted exactly as long as the tape was: an indicator
-    // that types and then produces nothing reads as a bug, not as silence.
-    let mut streamed = Vec::new();
-    while let Ok(delta) = deltas.try_recv() {
-        streamed.push(delta);
-    }
-    assert_eq!(
-        streamed,
-        [
-            StreamDelta::ThreadDelta {
-                thread: ThreadId::dm("ada"),
-                message_id: "m-quiet".to_string(),
-                kind: DeltaKind::Thought,
-                text: "No change — staying silent per protocol.".to_string(),
-            },
-            StreamDelta::ThreadDelta {
-                thread: ThreadId::dm("ada"),
-                message_id: "m-loud".to_string(),
-                kind: DeltaKind::Text,
-                text: "It moved.".to_string(),
-            },
-        ]
-    );
+fn brief(
+    kind: ScheduleKind,
+    when: Option<i64>,
+    every: Option<i64>,
+    prompt: &str,
+    quiet: bool,
+) -> Brief {
+    Brief::job(kind, when, every, prompt, quiet).unwrap()
 }
 
-/// A person who types during a quiet run is owed an answer they can read; the
-/// schedule's silence was never about them.
-#[tokio::test]
-async fn a_person_typing_during_a_quiet_run_gets_a_bubble_back() {
-    let gate = Arc::new(Semaphore::new(0));
-    let mut driver = Scripted::turns(vec![
-        saying("quiet", "the scheduled run's own words"),
-        saying("loud", "It moved."),
-    ]);
-    driver.gate = Some(gate.clone());
-    let room = room("quiet-interrupted", Fake::new(driver));
-    room.start("ada").await.unwrap();
-
-    room.prompt_scheduled(
-        "ada",
-        "check the order page",
-        firing(ScheduleKind::Loop, true),
-    )
-    .await
-    .unwrap();
-    let events = settled(&room, "ada", 1).await;
-    assert_eq!(events[0]["scheduled"]["quiet"], true);
-
-    // The window is open and the run's turn is still gated when a person types.
-    room.prompt("ada", "wait, what did you find?", None, None)
-        .await
-        .unwrap();
-    settled(&room, "ada", 2).await;
-
-    // One permit per update: the delta, the message, the turn.
-    gate.add_permits(3);
-    let events = settled(&room, "ada", 4).await;
-    assert_eq!(
-        kinds(&events),
-        ["user", "user", "agent", "turn"],
-        "the human closed the window, so the run's words are a bubble"
-    );
-}
-
-/// A quiet run that finds something posts it, once, and is heard: its note
-/// is in the chat as it wrote it, stamped with its job, while its turn stays
-/// thinking, and no second turn re-says it.
-#[tokio::test]
-async fn a_quiet_run_that_posts_is_heard_once_as_written() {
-    let gate = Arc::new(Semaphore::new(0));
-    let mut driver = Scripted::turns(vec![saying("quiet", "Checked the page; it moved.")]);
-    driver.gate = Some(gate.clone());
-    let prompts = driver.prompts.clone();
-    let room = room("quiet-posts", Fake::new(driver));
-    pair_a_phone(&room);
-    room.start("ada").await.unwrap();
-
-    room.prompt_scheduled(
-        "ada",
-        "check the order page",
-        firing(ScheduleKind::Loop, true),
-    )
-    .await
-    .unwrap();
-    heard(&prompts, 1).await;
-    let tools = TeammateTools::new(&room, "ada");
-    let posted = tools
-        .call(
-            "post_to_chat",
-            &json!({"text": "Your Apple order shipped."}),
-        )
-        .await;
-    assert_eq!(posted.as_deref(), Ok("Posted to the chat."));
-    let refused = tools
-        .call("post_to_chat", &json!({"text": "And another thing."}))
-        .await
-        .unwrap_err();
-    assert!(refused.contains("one per turn"), "{refused}");
-
-    gate.add_permits(6);
-    let events = settled(&room, "ada", 4).await;
-    assert_eq!(
-        kinds(&events),
-        ["user", "agent", "thought", "turn"],
-        "the run stayed thinking; its note is the teammate's message"
-    );
-    assert_eq!(events[1]["text"], "Your Apple order shipped.");
-    assert_eq!(events[1]["scheduled"]["jobId"], "job-1");
-    assert_eq!(events[1].get("from"), None, "the DM's own turn posted it");
-    assert_eq!(events[2]["text"], "Checked the page; it moved.");
-    assert_eq!(room.sent_voice_pushes().len(), 1, "it wakes the person");
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert_eq!(lock(&prompts).len(), 1, "no turn follows to re-say it");
-    let after = tools
-        .call("post_to_chat", &json!({"text": "Once the run is over."}))
-        .await
-        .unwrap_err();
-    assert!(after.contains("turn in progress"), "{after}");
-}
-
-/// A quiet run that does not ask is not followed by anything.
-#[tokio::test]
-async fn a_quiet_run_that_does_not_ask_stays_silent() {
-    let driver = Scripted::new(saying("quiet", "No change."));
-    let prompts = driver.prompts.clone();
-    let room = room("quiet-no-escalation", Fake::new(driver));
-    room.start("ada").await.unwrap();
-
-    room.prompt_scheduled(
-        "ada",
-        "check the order page",
-        firing(ScheduleKind::Loop, true),
-    )
-    .await
-    .unwrap();
-    let events = settled(&room, "ada", 3).await;
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert_eq!(
-        kinds(&settled(&room, "ada", 3).await),
-        ["user", "thought", "turn"]
-    );
-    assert_eq!(events[1]["text"], "No change.");
-    assert_eq!(lock(&prompts).len(), 1);
-}
-
-/// A loud run already speaks in the chat, so it has nothing to post.
-#[tokio::test]
-async fn a_loud_schedule_may_not_post() {
-    let gate = Arc::new(Semaphore::new(0));
-    let mut driver = Scripted::new(saying("s", "Standup is at ten."));
-    driver.gate = Some(gate.clone());
-    let prompts = driver.prompts.clone();
-    let room = room("scheduled-loud-posts", Fake::new(driver));
-    room.start("ada").await.unwrap();
-
-    room.prompt_scheduled(
-        "ada",
-        "post the standup",
-        firing(ScheduleKind::Schedule, false),
-    )
-    .await
-    .unwrap();
-    heard(&prompts, 1).await;
-    let refused = TeammateTools::new(&room, "ada")
-        .call("post_to_chat", &json!({"text": "Standup is at ten."}))
-        .await
-        .unwrap_err();
-    assert!(refused.contains("already the chat"), "{refused}");
-    gate.add_permits(6);
-    assert_eq!(
-        kinds(&settled(&room, "ada", 3).await),
-        ["user", "agent", "turn"]
-    );
-}
-
-/// A schedule that is not quiet is stamped and framed all the same; only the
-/// voice is left alone.
-#[tokio::test]
-async fn a_loud_schedule_is_stamped_and_framed_and_keeps_its_voice() {
-    let agents = Fake::new(Scripted::new(saying("s", "Standup is at ten.")));
-    let prompts = agents.driver.prompts.clone();
-    let room = room("scheduled-loud", agents);
-    room.start("ada").await.unwrap();
-
-    room.prompt_scheduled(
-        "ada",
-        "post the standup",
-        firing(ScheduleKind::Schedule, false),
-    )
-    .await
-    .unwrap();
-    let events = settled(&room, "ada", 3).await;
-
-    assert_eq!(kinds(&events), ["user", "agent", "turn"]);
-    assert_eq!(events[0]["text"], "post the standup");
-    assert_eq!(events[0]["scheduled"]["name"], "Apple order check");
-    assert_eq!(events[0]["scheduled"].get("quiet"), None);
-    assert_eq!(*lock(&prompts), ["scheduled · post the standup"]);
-}
-
-/// Creating, silencing and cancelling a job go through the room, not around it.
+/// Creating, silencing and cancelling a job go through the room, not around
+/// it. A cancelled job that never ran ends without a post, and is listed as
+/// ended until it is cancelled again.
 #[tokio::test]
 async fn a_job_is_created_silenced_and_cancelled_on_the_room() {
     let room = room("schedule-api", Fake::new(Scripted::new(Vec::new())));
@@ -301,11 +56,14 @@ async fn a_job_is_created_silenced_and_cancelled_on_the_room() {
     let job = room
         .schedule_create(
             "ada",
-            ScheduleKind::Schedule,
-            Some(when),
-            None,
-            "check the crane",
-            true,
+            brief(
+                ScheduleKind::Schedule,
+                Some(when),
+                None,
+                "check the crane",
+                true,
+            ),
+            false,
         )
         .unwrap();
     assert_eq!(job.prompt, "check the crane");
@@ -318,6 +76,41 @@ async fn a_job_is_created_silenced_and_cancelled_on_the_room() {
 
     room.schedule_cancel(&job.id).unwrap();
     assert_eq!(room.schedule_list(), [] as [ScheduledJob; 0]);
+    let ended = crate::room::all_jobs(&room.log);
+    assert_eq!(ended.len(), 1);
+    assert!(ended[0].ended_at.is_some());
+    assert!(
+        tape(&room, "ada")
+            .iter()
+            .all(|event| event["kind"] != "agent"),
+        "a job that never ran has nothing to say for itself"
+    );
+
+    room.schedule_cancel(&job.id).unwrap();
+    assert_eq!(crate::room::all_jobs(&room.log), [] as [ScheduledJob; 0]);
+}
+
+/// The one schema refuses what a job cannot be: a subagent's trigger, an
+/// end on a one-shot, an empty count.
+#[tokio::test]
+async fn a_job_is_a_brief_that_runs_later() {
+    let room = room("schedule-brief", Fake::new(Scripted::new(Vec::new())));
+    let refused = room
+        .schedule_create("ada", Brief::subagent("check now".to_string()), false)
+        .unwrap_err();
+    assert!(refused.contains("subagent runs now"), "{refused}");
+    let mut once = brief(
+        ScheduleKind::Schedule,
+        Some(now_ms() + 60_000),
+        None,
+        "once",
+        false,
+    );
+    once.ends.after = Some(2);
+    assert!(room.schedule_create("ada", once, false).is_err());
+    let mut never = brief(ScheduleKind::Loop, None, Some(60_000), "loop", false);
+    never.ends.after = Some(0);
+    assert!(room.schedule_create("ada", never, false).is_err());
 }
 
 /// A job that is already due, planted on the stream before the room opens so
@@ -339,9 +132,15 @@ fn due_job(
         every: (kind == ScheduleKind::Loop).then_some(15_000),
         prompt: prompt.to_string(),
         quiet: quiet.then_some(true),
+        reminder: None,
+        goal: None,
+        until: None,
+        times: None,
         operator_created: false,
         next_at: now - overdue_by,
         created_at: now - overdue_by - 60_000,
+        last_post: None,
+        ended_at: None,
     }
 }
 
@@ -363,40 +162,79 @@ fn room_due_with_grant(
     Room::with_agents(log, Arc::new(DeskKeys), agents)
 }
 
-/// A loop that fires writes the bare prompt on the tape and the framed line
-/// to the driver, and a fire for a teammate that is not running starts it.
+/// What a job's thread holds, its link left out, once it holds `count`.
+async fn job_thread(room: &Room, job_id: &str, count: usize) -> Vec<Value> {
+    let events = || -> Vec<Value> {
+        room.log
+            .load(&StreamId::Job(job_id.to_string()))
+            .into_iter()
+            .filter(|event| event["kind"] != "link")
+            .collect()
+    };
+    until(&format!("the job's thread reaches {count} events"), || {
+        events().len() >= count
+    })
+    .await;
+    events()
+}
+
+/// The job's thread as its link says it stands.
+fn job_state(room: &Room, job_id: &str) -> Option<crate::thread::ThreadState> {
+    crate::thread::ThreadStore::new(&room.log)
+        .load(&ThreadId::job(job_id))
+        .map(|thread| thread.state)
+}
+
+/// A loop fires on its own thread: the bare prompt stamped with the job, and
+/// the agent's turn. The DM's tape holds none of it but the report, posted
+/// as the teammate's message from the job; and the job is parked after.
 #[tokio::test]
-async fn a_loop_job_fires_with_the_bare_prompt_on_the_tape_and_the_framed_text_on_the_wire() {
+async fn a_loop_fires_on_its_own_thread_and_its_report_is_posted() {
     let agents = Fake::new(Scripted::new(saying("s", "nothing changed")));
     let prompts = agents.driver.prompts.clone();
     let job = due_job("job-loop", ScheduleKind::Loop, "check the crane", false, 1);
     let room = room_due("schedule-loop-fire", agents, job);
 
-    let events = settled(&room, "ada", 3).await;
+    let events = job_thread(&room, "job-loop", 3).await;
     assert_eq!(kinds(&events), ["user", "agent", "turn"]);
     assert_eq!(events[0]["text"], "check the crane");
     assert_eq!(events[0]["scheduled"]["jobId"], "job-loop");
     assert_eq!(events[0]["scheduled"]["kind"], "loop");
-    assert_eq!(events[0]["scheduled"].get("quiet"), None);
-    assert_eq!(*lock(&prompts), ["loop · check the crane"]);
+    let heard = heard(&prompts, 1).await;
+    assert!(heard[0].ends_with("loop · check the crane"), "{heard:?}");
 
+    let posted = settled(&room, "ada", 1).await;
+    assert_eq!(kinds(&posted), ["agent"], "only the report reached the DM");
+    assert_eq!(posted[0]["text"], "nothing changed");
+    assert_eq!(posted[0]["scheduled"]["jobId"], "job-loop");
+    assert_eq!(posted[0]["from"]["kind"], "job");
+    assert_eq!(
+        room.info("ada").state,
+        SessionState::Idle,
+        "the DM never woke"
+    );
+
+    until("the job is parked", || {
+        job_state(&room, "job-loop") == Some(crate::thread::ThreadState::Parked)
+    })
+    .await;
     let living = crate::room::schedules(&room.log);
     assert_eq!(living.len(), 1);
-    assert_eq!(living[0].id, "job-loop");
     assert!(
         living[0].next_at > now_ms(),
         "a loop re-arms into the future, not onto the tick it just fired"
     );
+    assert_eq!(
+        living[0].last_post.as_ref().map(|post| post.text.as_str()),
+        Some("nothing changed")
+    );
 }
 
-/// The whole point of a quiet job, through the clock rather than a direct
-/// prompt_scheduled: the agent's words land as thinking.
+/// A quiet job's words stay in its thread: a firing that finds nothing puts
+/// nothing in the chat.
 #[tokio::test]
-async fn a_quiet_jobs_reply_lands_as_a_thought() {
-    let agents = Fake::new(Scripted::new(saying(
-        "quiet",
-        "No change — staying silent per protocol.",
-    )));
+async fn a_quiet_jobs_words_stay_in_its_thread() {
+    let agents = Fake::new(Scripted::new(saying("quiet", "No change.")));
     let job = due_job(
         "job-quiet",
         ScheduleKind::Loop,
@@ -406,29 +244,63 @@ async fn a_quiet_jobs_reply_lands_as_a_thought() {
     );
     let room = room_due("schedule-quiet-fire", agents, job);
 
-    let events = settled(&room, "ada", 3).await;
-    assert_eq!(kinds(&events), ["user", "thought", "turn"]);
+    let events = job_thread(&room, "job-quiet", 3).await;
+    assert_eq!(kinds(&events), ["user", "agent", "turn"]);
     assert_eq!(events[0]["scheduled"]["quiet"], true);
-    assert_eq!(
-        events[1]["text"],
-        "No change — staying silent per protocol."
-    );
+    assert_eq!(events[1]["text"], "No change.");
+    until("the job is parked", || {
+        job_state(&room, "job-quiet") == Some(crate::thread::ThreadState::Parked)
+    })
+    .await;
+    assert!(tape(&room, "ada").is_empty(), "{:?}", tape(&room, "ada"));
 }
 
-/// A one-shot fires once and tombstones itself.
+/// A one-shot fires once and ends; it stays on the list, ended, and its
+/// thread is closed and kept.
 #[tokio::test]
-async fn a_one_shot_fires_once_and_is_gone() {
+async fn a_one_shot_fires_once_and_ends() {
     let agents = Fake::new(Scripted::new(saying("s", "the word")));
     let job = due_job("job-once", ScheduleKind::Schedule, "say the word", false, 1);
     let room = room_due("schedule-once-fire", agents, job);
 
-    let events = settled(&room, "ada", 3).await;
+    let events = job_thread(&room, "job-once", 3).await;
     assert_eq!(events[0]["text"], "say the word");
     assert_eq!(events[0]["scheduled"]["kind"], "schedule");
+    assert_eq!(crate::room::schedules(&room.log), [] as [ScheduledJob; 0]);
+    until("the one-shot's thread is closed", || {
+        matches!(
+            job_state(&room, "job-once"),
+            Some(crate::thread::ThreadState::Closed(End::Done))
+        )
+    })
+    .await;
+    let listed = crate::room::all_jobs(&room.log);
+    assert_eq!(listed.len(), 1);
+    assert!(listed[0].ended_at.is_some());
+}
+
+/// A plain reminder does no work: it is one post to the DM, stamped with its
+/// job, and no agent is asked anything.
+#[tokio::test]
+async fn a_reminder_is_one_post_and_no_work() {
+    let agents = Fake::new(Scripted::new(saying("s", "should not run")));
+    let prompts = agents.driver.prompts.clone();
+    let mut job = due_job("job-remind", ScheduleKind::Schedule, "Call Sam.", false, 1);
+    job.reminder = Some(true);
+    let room = room_due("schedule-reminder", agents, job);
+
+    let posted = settled(&room, "ada", 1).await;
+    assert_eq!(posted[0]["kind"], "agent");
+    assert_eq!(posted[0]["text"], "Call Sam.");
+    assert_eq!(posted[0]["scheduled"]["jobId"], "job-remind");
+    assert!(posted[0].get("from").is_none(), "{posted:?}");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(lock(&prompts).is_empty(), "a reminder asked an agent");
     assert!(
-        crate::room::schedules(&room.log)
-            .iter()
-            .all(|job| job.id != "job-once")
+        room.log
+            .load(&StreamId::Job("job-remind".to_string()))
+            .is_empty(),
+        "a reminder has no thread"
     );
 }
 
@@ -446,23 +318,16 @@ async fn a_missed_job_fires_once_at_startup() {
     );
     let room = room_due("schedule-missed-fire", agents, job);
 
-    let events = settled(&room, "ada", 3).await;
-    let users = events
-        .iter()
-        .filter(|event| event["kind"] == "user")
-        .count();
-    assert_eq!(
-        users, 1,
-        "a missed loop is one firing, not five: {events:?}"
-    );
-
+    job_thread(&room, "job-missed", 3).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
-    let later = tape(&room, "ada")
+    let firings = room
+        .log
+        .load(&StreamId::Job("job-missed".to_string()))
         .into_iter()
         .filter(|event| event["kind"] == "user")
         .count();
     assert_eq!(
-        later, 1,
+        firings, 1,
         "the clock did not catch up the intervals it slept through"
     );
 }
@@ -491,10 +356,10 @@ async fn a_due_agent_job_waits_for_a_grant_then_fires_once() {
     enrol(&room.log, &teammate);
     room.reattach("ada").await.unwrap();
 
-    let events = settled(&room, "ada", 3).await;
+    let events = job_thread(&room, "job-paused", 3).await;
     assert_eq!(events[0]["text"], "say the word");
     assert_eq!(events[0]["scheduled"]["operatorCreated"], false);
-    assert_eq!(*lock(&prompts), ["scheduled · say the word"]);
+    assert_eq!(heard(&prompts, 1).await.len(), 1);
     assert_eq!(crate::room::schedules(&room.log), [] as [ScheduledJob; 0]);
 }
 
@@ -503,7 +368,6 @@ async fn a_due_agent_job_waits_for_a_grant_then_fires_once() {
 #[tokio::test]
 async fn a_due_operator_job_runs_without_a_background_grant() {
     let agents = Fake::new(Scripted::new(saying("s", "the word")));
-    let prompts = agents.driver.prompts.clone();
     let mut job = due_job(
         "job-operator",
         ScheduleKind::Schedule,
@@ -514,65 +378,105 @@ async fn a_due_operator_job_runs_without_a_background_grant() {
     job.operator_created = true;
     let room = room_due_with_grant("schedule-operator", agents, job, false);
 
-    let events = settled(&room, "ada", 3).await;
+    let events = job_thread(&room, "job-operator", 3).await;
     assert_eq!(events[0]["text"], "say the word");
     assert_eq!(events[0]["scheduled"]["operatorCreated"], true);
-    assert_eq!(*lock(&prompts), ["scheduled · say the word"]);
     assert_eq!(crate::room::schedules(&room.log), [] as [ScheduledJob; 0]);
 }
 
-/// A scheduled line can be queued behind a turn while its one-shot job is
-/// already gone from the room stream. The final dispatch check still reads
-/// the live grant and drops an agent-created line that lost permission.
+/// The person talks to a job's thread: a turn on it like a firing's, and
+/// nothing in the DM.
 #[tokio::test]
-async fn a_queued_scheduled_line_is_dropped_when_background_work_is_revoked() {
+async fn the_person_talks_to_a_jobs_thread() {
+    let agents = Fake::new(Scripted::turns(vec![
+        saying("fired", "Order still processing."),
+        saying("asked", "Will skip the next check."),
+    ]));
+    let prompts = agents.driver.prompts.clone();
+    let job = due_job("job-talk", ScheduleKind::Loop, "check the order", true, 1);
+    let room = room_due("schedule-talk", agents, job);
+    job_thread(&room, "job-talk", 3).await;
+    until("the job is parked", || {
+        job_state(&room, "job-talk") == Some(crate::thread::ThreadState::Parked)
+    })
+    .await;
+
+    room.prompt_job("job-talk", "skip the next one", None)
+        .await
+        .unwrap();
+    let events = job_thread(&room, "job-talk", 6).await;
+    assert_eq!(events[3]["text"], "skip the next one");
+    assert_eq!(events[4]["text"], "Will skip the next check.");
+    let heard = heard(&prompts, 2).await;
+    assert!(
+        heard[1].contains("Order still processing.") && heard[1].ends_with("skip the next one"),
+        "a parked job's fresh agent is told where it stood: {heard:?}"
+    );
+    assert_eq!(
+        tape(&room, "ada"),
+        [] as [Value; 0],
+        "nothing reached the DM"
+    );
+}
+
+/// A firing can wait behind a turn the person started in the job's thread.
+/// The check as its turn begins still reads the live grant, and drops an
+/// agent-created firing that lost permission while it waited.
+#[tokio::test]
+async fn a_queued_firing_is_dropped_when_background_work_is_revoked() {
     let gate = Arc::new(Semaphore::new(0));
     let mut driver = Scripted::turns(vec![
-        vec![Update::Turn {
-            stop_reason: "end_turn".to_string(),
-            usage: None,
-        }],
-        vec![Update::Turn {
-            stop_reason: "end_turn".to_string(),
-            usage: None,
-        }],
+        saying("asked", "Looking."),
+        saying("fired", "No change."),
     ]);
     driver.gate = Some(gate.clone());
     let agents = Fake::new(driver);
     let prompts = agents.driver.prompts.clone();
-    let room = room("scheduled-queue-revoked", agents);
-    room.start("ada").await.unwrap();
+    let mut job = due_job(
+        "job-revoked",
+        ScheduleKind::Loop,
+        "check the crane",
+        true,
+        0,
+    );
+    job.next_at = now_ms() + 3_600_000;
+    let room = room_due("schedule-queue-revoked", agents, job.clone());
 
-    room.prompt("ada", "first", None, None).await.unwrap();
-    until_state(&room, "ada", SessionState::Thinking).await;
-    room.prompt_scheduled(
-        "ada",
-        "old scheduled work",
-        firing(ScheduleKind::Schedule, false),
-    )
-    .await
-    .unwrap();
-    let queued = settled(&room, "ada", 2).await;
-    assert_eq!(queued[1]["scheduled"]["operatorCreated"], false);
+    room.prompt_job("job-revoked", "how is it going?", None)
+        .await
+        .unwrap();
+    heard(&prompts, 1).await;
+    room.fire_job(&job).unwrap();
+    job_thread(&room, "job-revoked", 2).await;
 
-    // This mirrors the live record changing before the old turn gives the
-    // queue its next dispatch opportunity. Policy update callers also revoke
-    // the session, which clears the queue earlier; this check closes the
-    // remaining race where a queued one-shot survives its room tombstone.
     let mut teammate = persona("ada");
     teammate.background_work = false;
     enrol(&room.log, &teammate);
-    gate.add_permits(1);
-    until_state(&room, "ada", SessionState::Ready).await;
+    // One permit lets out one update; the firing's turn would need its own.
+    gate.add_permits(10);
+    until("the person's turn ended", || {
+        room.log
+            .load(&StreamId::Job("job-revoked".to_string()))
+            .iter()
+            .any(|event| event["kind"] == "turn")
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
-    assert_eq!(*lock(&prompts), ["first"]);
     assert_eq!(
-        tape(&room, "ada")
-            .into_iter()
-            .filter(|event| event["kind"] == "user")
-            .count(),
-        2,
-        "the queued line remains a durable user fact even though no turn ran"
+        lock(&prompts).len(),
+        1,
+        "the firing never reached the agent"
+    );
+    let firings = room
+        .log
+        .load(&StreamId::Job("job-revoked".to_string()))
+        .into_iter()
+        .filter(|event| event["kind"] == "user" && event.get("scheduled").is_some())
+        .count();
+    assert_eq!(
+        firings, 1,
+        "the firing remains a durable fact though no turn ran"
     );
 }
 

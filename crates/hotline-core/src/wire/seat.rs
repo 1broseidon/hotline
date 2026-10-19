@@ -216,32 +216,35 @@ fn federation_command(command: &Command) -> bool {
 /// with the same thing under the older name: the person speaks to a teammate
 /// from the phone through `mobile.prompt`, so `thread.prompt` is for a work
 /// thread only; a card in a pair is the owner's to answer, as
-/// `peers.answer_permission` is; and a thread it could not subscribe to it
+/// `peers.answer_permission` is; a job is cancelled only where
+/// `schedule.cancel` is run; and a thread it could not subscribe to it
 /// cannot page. `thread.list` leaves out what it could not read, and pairs for
 /// the same reason `peers.list` is refused.
 fn phone_thread_command(command: &Command) -> bool {
     match command {
         Command::ThreadPrompt { thread, .. } => thread.kind == ThreadKind::Side,
         Command::ThreadAnswer { thread, .. } => thread.kind != ThreadKind::Pair,
+        // Closing a job cancels it, which `schedule.cancel` never let a
+        // companion do.
+        Command::ThreadClose { thread } => thread.kind != ThreadKind::Job,
         Command::ThreadPage { thread, .. } => phone_may_read(thread),
         Command::ClientHello { .. }
         | Command::ThreadList { .. }
         | Command::ThreadOpen { .. }
         | Command::ThreadCancel { .. }
         | Command::ThreadPark { .. }
-        | Command::ThreadClose { .. }
         | Command::ThreadContinue { .. } => true,
         _ => false,
     }
 }
 
 /// Whether a companion may read this thread: the way it reads a tape, a pair,
-/// a work thread and a run, but never the voice dispatcher's tape, and never a
+/// a work thread, a run and a job, but never the voice dispatcher's tape, and never a
 /// call, which is a voice surface it is not seated on.
 pub(super) fn phone_may_read(thread: &crate::contract::ThreadId) -> bool {
     match thread.kind {
         ThreadKind::Dm => thread.key != crate::voice::TAPE_ID,
         ThreadKind::Call => false,
-        ThreadKind::Side | ThreadKind::Pair | ThreadKind::Run => true,
+        ThreadKind::Side | ThreadKind::Pair | ThreadKind::Run | ThreadKind::Job => true,
     }
 }

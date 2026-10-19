@@ -232,8 +232,9 @@ until delete takes it.
 
 A job, as the contract serializes it, with `"kind": "schedule"` beside it
 — that slot is the stream's. The job's own kind (`schedule` once, `loop`
-every interval) is recovered from `every` being present. Jobs still
-waiting to fire, soonest first:
+every interval) is recovered from `every` being present. `room::schedules`
+is the jobs still waiting to fire, soonest first; `room::all_jobs` adds the
+ones that have ended:
 
 ```json
 {
@@ -248,9 +249,17 @@ waiting to fire, soonest first:
 }
 ```
 
-A loop carries `every` (milliseconds) instead of `when`. `quiet` is stored
-only when true. A tombstone is `{"kind": "schedule", "id": "…", "deleted": true}`.
-The clock that fires these is [sessions.md](sessions.md).
+A loop carries `every` (milliseconds) instead of `when`. `quiet` and
+`reminder` are stored only when true. A loop may carry its end: `goal` (a
+sentence), `until` (milliseconds since epoch) and `times` (firings left).
+The core adds `lastPost` (`{at, text}`, what the job last posted to the
+chat) and, once the job has fired its last or been cancelled, `endedAt`: an
+ended job is written again rather than tombstoned, because its thread stays
+readable. Every one of these is optional, so a job written before them reads
+as it did. A tombstone is `{"kind": "schedule", "id": "…", "deleted": true}`.
+The clock that fires these is [sessions.md](sessions.md#the-scheduler);
+each job's firings are turns on its thread, `jobs/<id>.jsonl`, headed by the
+thread's link.
 
 Import reads the previous edition's `schedules.json` and appends each job
 for a teammate in this room as a `schedule` event, the same shape

@@ -263,12 +263,12 @@ impl Occupant for LiveSide {
         ThreadId::side(&self.id)
     }
 
-    fn holder(&self) -> &crate::computer::gate::Holder {
-        &self
-            .up
+    fn holder(&self) -> crate::computer::gate::Holder {
+        self.up
             .get()
             .expect("turns run only once the agent is up")
             .holder
+            .clone()
     }
 
     fn answering(self: &Arc<Self>, _room: &Room) -> bool {
@@ -325,6 +325,7 @@ impl Occupant for LiveSide {
                 },
                 line,
                 room.reach_of(&self.persona_id),
+                None,
                 None,
                 || !self.closed.load(Ordering::SeqCst),
             )

@@ -575,6 +575,29 @@ impl RoomHandle for Desk {
         self.room.cancel_side(side_id)
     }
 
+    async fn job_prompt(
+        &self,
+        job_id: &str,
+        text: &str,
+        attachments: Option<Vec<crate::contract::Attachment>>,
+    ) -> Result<(), String> {
+        self.room.prompt_job(job_id, text, attachments).await
+    }
+
+    fn job_cancel(&self, job_id: &str) -> Result<(), String> {
+        self.room.cancel_job_turn(job_id)
+    }
+
+    async fn job_answer_permission(
+        &self,
+        job_id: &str,
+        request_id: &str,
+        option_id: &str,
+    ) -> Result<(), String> {
+        self.room
+            .answer_job_permission(job_id, request_id, option_id)
+    }
+
     fn side_archive(&self, side_id: &str) -> Result<(), String> {
         self.room
             .archive_side(side_id, crate::contract::SideEnd::Person, None)
@@ -975,9 +998,13 @@ impl RoomHandle for Desk {
         every: Option<i64>,
         prompt: &str,
         quiet: bool,
+        reminder: bool,
     ) -> Result<crate::contract::ScheduledJob, String> {
-        self.room
-            .schedule_create(persona_id, kind, when, every, prompt, quiet)
+        self.room.schedule_create(
+            persona_id,
+            crate::session::Brief::job(kind, when, every, prompt, quiet)?,
+            reminder,
+        )
     }
 
     fn schedule_list(&self) -> Vec<crate::contract::ScheduledJob> {

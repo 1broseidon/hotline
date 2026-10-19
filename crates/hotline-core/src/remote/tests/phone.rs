@@ -493,12 +493,29 @@ async fn a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_whil
     send(&mut phone, json!({"id": 1, "sub": {"schedules": ada}})).await;
     assert_eq!(read(&mut phone).await, json!({"id": 1, "ok": true}));
     let now = read(&mut phone).await;
-    let jobs = now["snapshot"].as_array().unwrap();
+    let jobs: Vec<&Value> = now["snapshot"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|job| job.get("endedAt").is_none())
+        .collect();
     assert_eq!(jobs.len(), 1, "{now}");
     assert_eq!(jobs[0]["id"], once["id"]);
     assert_eq!(jobs[0]["kind"], "schedule");
     assert_eq!(jobs[0]["when"], when);
     assert_eq!(jobs[0]["nextAt"], when);
+    let ended: Vec<&Value> = now["snapshot"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|job| job.get("endedAt").is_some())
+        .collect();
+    assert_eq!(
+        ended.len(),
+        1,
+        "the cancelled loop is listed as ended: {now}"
+    );
+    assert_eq!(ended[0]["id"], sweep["id"]);
 
     // Revoked, the phone's socket closes and cannot be opened again.
     h.remote.revoke(&grant.id).unwrap();

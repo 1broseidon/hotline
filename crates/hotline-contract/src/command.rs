@@ -655,6 +655,8 @@ pub enum Command {
     /// Times are milliseconds. `when` is a one-shot's fire, milliseconds
     /// since epoch; `every` is a loop's interval. The parsers that take a
     /// string live with the scheduler, for the tool that will speak them.
+    /// `reminder` makes it a plain reminder: the prompt is posted to the chat
+    /// when it fires, and no work is done.
     #[serde(rename = "schedule.create")]
     ScheduleCreate {
         persona_id: String,
@@ -663,9 +665,13 @@ pub enum Command {
         every: Option<i64>,
         prompt: String,
         quiet: Option<bool>,
+        #[serde(default)]
+        reminder: Option<bool>,
     },
     #[serde(rename = "schedule.list")]
     ScheduleList {},
+    /// Ends a living job, with a final post saying where it stood, or takes
+    /// an ended one off the list. Its thread stays readable either way.
     #[serde(rename = "schedule.cancel")]
     ScheduleCancel { id: String },
     #[serde(rename = "schedule.set_quiet")]
@@ -893,8 +899,9 @@ pub enum Command {
     ThreadOpen { persona_id: String, text: String },
     /// Says something in a thread, and returns at once: the answer arrives on
     /// the thread's `{"threadId": …}` subscription. A parked work thread is
-    /// brought back first. The person speaks in the main conversation and in
-    /// a work thread; a pair, a run and a call are not spoken in.
+    /// brought back first. The person speaks in the main conversation, in a
+    /// work thread and in a job's thread, until the job has ended; a pair, a
+    /// run and a call are not spoken in.
     #[serde(rename = "thread.prompt")]
     ThreadPrompt {
         thread: ThreadId,

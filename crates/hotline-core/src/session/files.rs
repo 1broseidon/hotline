@@ -8,10 +8,9 @@
 //!
 //! Whatever thread sends it, the file is posted to the chat through its one
 //! door ([`Room::post`]), stamped with where it came from: a work thread, a
-//! pair, or the call the DM's turn was said on, which keeps a line naming it.
-//! A quiet scheduled run's file is posted too, never demoted to thinking with
-//! its words: it is the run's one post, stamped with its job, and counts
-//! against the turn's `post_to_chat` gate like a note would.
+//! pair, a job, or the call the DM's turn was said on, which keeps a line
+//! naming it. A job's file is its turn's one post, stamped with the job, and
+//! counts against the turn's `post_to_chat` gate like a note would.
 
 use super::post::{AGAIN, Turn};
 use super::{Post, Room, lock, new_id, now_ms};
@@ -166,9 +165,9 @@ impl Room {
     }
 
     /// Refuses a file before it is fetched, or an image before it is drawn,
-    /// when the quiet run sending it from `thread` has had its one post.
+    /// when the job's turn sending it from `thread` has had its one post.
     pub(super) fn may_send(&self, thread: &ThreadId) -> Result<(), String> {
-        if thread.kind == ThreadKind::Dm && self.has_posted(thread) {
+        if thread.kind == ThreadKind::Job && self.has_posted(thread) {
             return Err(AGAIN.to_string());
         }
         Ok(())
@@ -176,8 +175,8 @@ impl Room {
 
     /// Posts the file's message to the chat from where it was sent, and says
     /// whether it landed: the teammate is about to be told the person has
-    /// the file. A quiet run's takes the turn's one post; anywhere else the
-    /// thread keeps a line naming it.
+    /// the file. The DM's own is its reply; a job's takes the turn's one
+    /// post; and any thread but the DM keeps a line naming it.
     fn post_file(
         &self,
         persona_id: &str,
@@ -195,20 +194,22 @@ impl Room {
             scheduled: None,
         };
         if from.kind == ThreadKind::Dm {
-            let taken = match self.take_post(persona_id, &from)? {
+            return self.post(persona_id, &from, post);
+        }
+        let taken = from.kind == ThreadKind::Job
+            && match self.take_post(&from)? {
                 Turn::Taken(scheduled) => {
                     post.scheduled = scheduled;
                     true
                 }
                 Turn::Closed | Turn::Loud => false,
             };
-            let posted = self.post(persona_id, &from, post);
-            if posted.is_err() && taken {
+        if let Err(error) = self.post(persona_id, &from, post) {
+            if taken {
                 self.give_post_back(&from);
             }
-            return posted;
+            return Err(error);
         }
-        self.post(persona_id, &from, post)?;
         let line = TranscriptEvent::Notice {
             id: new_id(),
             ts: now_ms(),

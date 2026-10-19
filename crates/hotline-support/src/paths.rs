@@ -389,6 +389,23 @@ pub fn side_path(root: &Path, id: &str) -> Option<PathBuf> {
     plausible.then(|| sides_dir(root).join(format!("{id}.jsonl")))
 }
 
+/// Where jobs keep their threads, one file per job.
+pub fn jobs_dir(root: &Path) -> PathBuf {
+    root.join("jobs")
+}
+
+/// The file one job's thread is written to, named by the job's id. A job id
+/// is minted by the room as a UUID, so anything with a character a UUID
+/// never has names no file.
+pub fn job_path(root: &Path, id: &str) -> Option<PathBuf> {
+    let plausible = !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-');
+    plausible.then(|| jobs_dir(root).join(format!("{id}.jsonl")))
+}
+
 /// Where voice calls keep their transcripts, one file per call.
 pub fn calls_dir(root: &Path) -> PathBuf {
     root.join("calls")

@@ -9,7 +9,7 @@
 //! roster's `waiting`; one that nobody may answer is expired on the spot and
 //! handed back, so the agent behind it is refused instead of left waiting.
 //!
-//! Sides, runs, calls and pairs are written here. A pair's `persona_id` is the
+//! Sides, runs, calls, jobs and pairs are written here. A pair's `persona_id` is the
 //! teammate who answers in it: that teammate is the one its cards are pushed
 //! and counted for, and its words are indexed under both participants. The
 //! DM's tape keeps its own door ([`Room::write_value`]) until it is ported:
@@ -130,7 +130,11 @@ impl Threads<'_> {
                 self.room.write_value(persona_id, &event);
                 return Written::default();
             }
-            ThreadKind::Side | ThreadKind::Run | ThreadKind::Call | ThreadKind::Pair => {}
+            ThreadKind::Side
+            | ThreadKind::Run
+            | ThreadKind::Call
+            | ThreadKind::Pair
+            | ThreadKind::Job => {}
         }
         let Some(stream) = StreamId::of_thread(thread) else {
             return Written::default();

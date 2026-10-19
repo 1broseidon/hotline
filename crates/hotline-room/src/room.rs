@@ -342,7 +342,7 @@ pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
     settings
 }
 
-/// The jobs still waiting to fire, soonest first.
+/// The jobs still waiting to fire, soonest first: neither deleted nor ended.
 ///
 /// The event's `kind` is always `schedule` — that is the stream's kind, and
 /// overwriting a job's own `kind` is what lets a loop share the kind with a
@@ -350,6 +350,15 @@ pub fn settings_from_events(events: &[Value]) -> Map<String, Value> {
 /// does not read as a job is skipped rather than fatal, the same as a
 /// teammate that does not read as a persona.
 pub fn schedules(log: &Log) -> Vec<ScheduledJob> {
+    jobs(&log.load(&StreamId::Room))
+        .into_iter()
+        .filter(|job| job.ended_at.is_none())
+        .collect()
+}
+
+/// Every job not deleted, ended ones included, soonest first: an ended job's
+/// thread stays readable, so it is still listed.
+pub fn all_jobs(log: &Log) -> Vec<ScheduledJob> {
     jobs(&log.load(&StreamId::Room))
 }
 
@@ -363,8 +372,8 @@ fn jobs(events: &[Value]) -> Vec<ScheduledJob> {
     jobs
 }
 
-/// One teammate's jobs, soonest first, for a reader that will take the
-/// answer as the whole truth: `None` when the room holds no living teammate
+/// One teammate's jobs, ended ones included, soonest first, for a reader
+/// that will take the answer as the whole truth: `None` when the room holds no living teammate
 /// by that id, and an error when the room could not be read. Neither may
 /// come back looking like a teammate with nothing scheduled.
 pub fn teammate_schedules(
@@ -438,12 +447,29 @@ fn job_from_event(event: &Value) -> Option<ScheduledJob> {
             .get("quiet")
             .and_then(Value::as_bool)
             .filter(|quiet| *quiet),
+        reminder: event
+            .get("reminder")
+            .and_then(Value::as_bool)
+            .filter(|reminder| *reminder),
+        goal: event
+            .get("goal")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        until: event.get("until").and_then(Value::as_i64),
+        times: event
+            .get("times")
+            .and_then(Value::as_u64)
+            .and_then(|times| u32::try_from(times).ok()),
         operator_created: event
             .get("operatorCreated")
             .and_then(Value::as_bool)
             .unwrap_or(false),
         next_at: event.get("nextAt")?.as_i64()?,
         created_at: event.get("createdAt")?.as_i64()?,
+        last_post: event
+            .get("lastPost")
+            .and_then(|post| serde_json::from_value(post.clone()).ok()),
+        ended_at: event.get("endedAt").and_then(Value::as_i64),
     })
 }
 
@@ -1034,9 +1060,15 @@ mod tests {
             every: (kind == ScheduleKind::Loop).then_some(15_000),
             prompt: prompt.to_string(),
             quiet: quiet.then_some(true),
+            reminder: None,
+            goal: None,
+            until: None,
+            times: None,
             operator_created: false,
             next_at: 1_700_000_100_000,
             created_at: 1_700_000_000_000,
+            last_post: None,
+            ended_at: None,
         }
     }
 
@@ -1088,6 +1120,25 @@ mod tests {
         assert_eq!(log.load(&StreamId::Room)[0]["kind"], "schedule");
         assert_eq!(log.load(&StreamId::Room)[0]["every"], 15_000);
         assert_eq!(log.load(&StreamId::Room)[0]["quiet"], true);
+    }
+
+    /// An ended job no longer fires, and is still listed: its thread stays
+    /// readable. Its end and its last post survive the fold.
+    #[test]
+    fn an_ended_job_leaves_the_clock_and_stays_on_the_list() {
+        let log = scratch("schedule-ended");
+        let mut ended = job("job-3", "ada", ScheduleKind::Loop, "watch CI", false);
+        ended.goal = Some("CI is green".to_string());
+        ended.times = Some(2);
+        ended.last_post = Some(hotline_contract::JobPost {
+            at: 1_700_000_050_000,
+            text: "CI is green.".to_string(),
+        });
+        ended.ended_at = Some(1_700_000_060_000);
+        append_schedule(&log, &ended).unwrap();
+
+        assert_eq!(schedules(&log), []);
+        assert_eq!(all_jobs(&log), vec![ended]);
     }
 
     /// A teammate whose id names no file could never be opened, and the

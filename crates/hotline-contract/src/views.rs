@@ -266,11 +266,14 @@ pub enum ThreadKind {
     Call,
     /// A subagent's run of one task.
     Run,
+    /// A scheduled job of a teammate's: an arm with its own thread, one turn
+    /// per firing, kept in `jobs/<id>.jsonl` under the job's id.
+    Job,
 }
 
 /// Which thread: its kind and the key its stream is named by. A teammate's id
-/// for a DM, the minted id for a side thread, run or call, and the pair key
-/// (the core's `paths::thread_key`) for a pair.
+/// for a DM, the minted id for a side thread, run or call, the job's id for a
+/// job, and the pair key (the core's `paths::thread_key`) for a pair.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "contract.ts")]
 pub struct ThreadId {
@@ -287,13 +290,21 @@ impl ThreadKind {
             Self::Pair => "pair",
             Self::Call => "call",
             Self::Run => "run",
+            Self::Job => "job",
         }
     }
 
     pub fn parse(name: &str) -> Option<Self> {
-        [Self::Dm, Self::Side, Self::Pair, Self::Call, Self::Run]
-            .into_iter()
-            .find(|kind| kind.name() == name)
+        [
+            Self::Dm,
+            Self::Side,
+            Self::Pair,
+            Self::Call,
+            Self::Run,
+            Self::Job,
+        ]
+        .into_iter()
+        .find(|kind| kind.name() == name)
     }
 }
 
@@ -316,6 +327,10 @@ impl ThreadId {
 
     pub fn call(call_id: impl Into<String>) -> Self {
         Self::of(ThreadKind::Call, call_id)
+    }
+
+    pub fn job(job_id: impl Into<String>) -> Self {
+        Self::of(ThreadKind::Job, job_id)
     }
 
     pub fn new(kind: ThreadKind, key: impl Into<String>) -> Self {

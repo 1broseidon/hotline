@@ -69,6 +69,8 @@ pub(super) struct Driven {
     pub cancelled: bool,
     /// How the driver said the turn ended.
     pub stop_reason: Option<String>,
+    /// Whether the turn had its one post to the chat.
+    pub posted: bool,
 }
 
 /// What a kind does about each thing its agent does in a turn, the one place
@@ -364,6 +366,7 @@ impl Room {
                 },
                 reach,
                 Some(cancel),
+                None,
                 || true,
             )
             .await;
@@ -673,7 +676,7 @@ impl Delegate for Subagents {
                         persona_id,
                         run_id,
                         title: task.title,
-                        task: task.task,
+                        task: task.brief.task,
                         capability,
                     },
                     cancel,

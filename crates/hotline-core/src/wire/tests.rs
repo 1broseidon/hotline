@@ -373,9 +373,13 @@ impl RoomHandle for CoreHandle {
         every: Option<i64>,
         prompt: &str,
         quiet: bool,
+        reminder: bool,
     ) -> Result<crate::contract::ScheduledJob, String> {
-        self.room
-            .schedule_create(persona_id, kind, when, every, prompt, quiet)
+        self.room.schedule_create(
+            persona_id,
+            crate::session::Brief::job(kind, when, every, prompt, quiet)?,
+            reminder,
+        )
     }
 
     fn schedule_list(&self) -> Vec<crate::contract::ScheduledJob> {
@@ -791,6 +795,7 @@ impl RoomHandle for Quiet {
         _every: Option<i64>,
         _prompt: &str,
         _quiet: bool,
+        _reminder: bool,
     ) -> Result<crate::contract::ScheduledJob, String> {
         Err("Nothing runs in this room, so nothing is scheduled.".to_string())
     }

@@ -261,6 +261,31 @@ pub trait RoomHandle: Send + Sync + 'static {
         Err("Side threads are unavailable on this room.".to_string())
     }
 
+    /// Says something in a job's thread: a turn on the job's agent.
+    async fn job_prompt(
+        &self,
+        _job_id: &str,
+        _text: &str,
+        _attachments: Option<Vec<hotline_contract::Attachment>>,
+    ) -> Result<(), String> {
+        Err("Jobs are unavailable on this room.".to_string())
+    }
+
+    /// Stops the turn in flight in a job's thread; the job goes on firing.
+    fn job_cancel(&self, _job_id: &str) -> Result<(), String> {
+        Err("Jobs are unavailable on this room.".to_string())
+    }
+
+    /// Answers a permission card raised inside a job's thread.
+    async fn job_answer_permission(
+        &self,
+        _job_id: &str,
+        _request_id: &str,
+        _option_id: &str,
+    ) -> Result<(), String> {
+        Err("Jobs are unavailable on this room.".to_string())
+    }
+
     /// Lets go of a side thread's agent and keeps the thread open.
     fn side_park(&self, _side_id: &str) -> Result<(), String> {
         Err("Side threads are unavailable on this room.".to_string())
@@ -372,6 +397,11 @@ pub trait RoomHandle: Send + Sync + 'static {
 
     /// Writes a job onto the room stream and wakes the clock. Times are
     /// milliseconds; `when` is a one-shot's fire, `every` a loop's interval.
+    /// A reminder posts its prompt when it fires and does no work.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one argument for each field of the wire's schedule.create"
+    )]
     fn schedule_create(
         &self,
         persona_id: &str,
@@ -380,6 +410,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         every: Option<i64>,
         prompt: &str,
         quiet: bool,
+        reminder: bool,
     ) -> Result<hotline_contract::ScheduledJob, String>;
 
     fn schedule_list(&self) -> Vec<hotline_contract::ScheduledJob>;

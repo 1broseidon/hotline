@@ -3,7 +3,8 @@
 A thread is a conversation the room keeps: an append-only stream with the
 people and teammates in it, a parent it belongs to, a state, and the agent
 that answers in it. The DM with a teammate, a side thread, an exchange
-between two teammates, a voice call and a subagent run are all threads.
+between two teammates, a voice call, a subagent run and a job are all
+threads.
 They differ only in policy. The decision and its trade-offs are in
 [ADR 0001](adr/0001-threads-are-a-primitive.md); this document is the
 design and the plan.
@@ -107,16 +108,16 @@ side-thread pane reuses. On the phone it is one hook and one sheet in place of
 
 ## Kinds as policy
 
-| | DM | Side (work thread) | Pair (ask) | Call | Run |
-| --- | --- | --- | --- | --- | --- |
-| Parent | — | DM, and the opener's DM when a teammate opened it | both DMs | DM | DM |
-| Agent | main session | the teammate's own agent, full tools | target's peer agent | voice front, hands off to the DM | child agent |
-| Lease | the teammate's | the teammate's; the computer through an exclusive lease | dual, scoped; the same computer lease | none of its own | scoped child |
-| Idle | chapters (setting) | park at 3 h | park at 10 min (`Room::sweep` row) | end at 10 min | ends with the run |
-| Restart | resume | park | park; cut-off told to the sender | close, transcript kept | cancel |
-| Limit | one | three live per teammate, park the idlest; a handoff queues when all are mid-turn | one turn in flight per pair | one call | job limits |
-| Cards | person | person, pushed; `request_human` lands here | person, pushed, `peers.answer_permission` | signalled, never answered by voice | expire |
-| Search | indexed | indexed | indexed under both teammates | indexed | indexed |
+| | DM | Side (work thread) | Pair (ask) | Call | Run | Job |
+| --- | --- | --- | --- | --- | --- | --- |
+| Parent | — | DM, and the opener's DM when a teammate opened it | both DMs | DM | DM | DM, listed with the teammate's jobs rather than drawn on it |
+| Agent | main session | the teammate's own agent, full tools | target's peer agent | voice front, hands off to the DM | child agent | the teammate's own agent, a run's tools and the doors to the chat; built per firing from its running note |
+| Lease | the teammate's | the teammate's; the computer through an exclusive lease | dual, scoped; the same computer lease | none of its own | scoped child | scoped child of the teammate's, revoked when its agent is let go of (task-221 brings the clone model) |
+| Idle | chapters (setting) | park at 3 h | park at 10 min (`Room::sweep` row) | end at 10 min | ends with the run | park after each firing; a person's turn parks at 10 min |
+| Restart | resume | park | park; cut-off told to the sender | close, transcript kept | cancel | park |
+| Limit | one | three live per teammate, park the idlest; a handoff queues when all are mid-turn | one turn in flight per pair | one call | job limits | one firing at a time; an overlapping one is skipped and said |
+| Cards | person | person, pushed; `request_human` lands here | person, pushed, `peers.answer_permission` | signalled, never answered by voice | expire | person, pushed, `thread.answer` |
+| Search | indexed | indexed | indexed under both teammates | indexed | indexed | indexed as written |
 
 A handoff is a side thread: opened by a teammate instead of the person, with the
 sender as its opener. Its result returns to the opener as a delivery.
@@ -135,6 +136,7 @@ The stream files stay where they are, and no history is migrated:
 | Pair | `threads/<key>.jsonl` + sidecar; renamed `Pair` in code. A pair with a teammate on a linked desk is keyed by its `deskId/personaId` (the `/` escaped in the file name), and each desk keeps its own copy (ADR 0003) |
 | Run | `runs/<id>.jsonl` |
 | Call | `calls/<id>.jsonl` (new) |
+| Job | `jobs/<id>.jsonl`, under the job's id on the room stream (new) |
 
 The thread records themselves (state, binding, title, note) live where each
 kind keeps them today: the marker line, the sidecar, the persona record. They
@@ -414,7 +416,7 @@ Where this differs from the design above:
   the thread, pushed with the thread's id; `send_file` and `generate_image`
   post their file to the chat, stamped `from` the thread (`Room::post`), and
   leave a notice naming it there; `message_teammate` replies there. Schedules and loops stay with the
-  persona and wake the DM.
+  persona, and each fires on a job thread of its own.
 - **Cap.** `MAX_LIVE` is 3 live work threads per teammate, operator- and
   teammate-opened together; parked ones do not count. At the cap the idlest
   non-working thread parks. A handoff arriving at a teammate whose places are
@@ -485,10 +487,10 @@ Where this differs from the design above:
 Where this differs from the design above:
 
 - **The DM's and a work thread's lines are still two types.** `Wired` carries
-  what a schedule, a call and a delivery stamp on a line, and a work thread's
-  `Line` carries a handoff. The loop is generic over the line, so one type was
-  not needed to share it, and merging them would have put a schedule's authority
-  on every thread's line.
+  what a call and a delivery stamp on a line, and a work thread's `Line`
+  carries a handoff; a job's `JobLine` carries its firing's authority. The
+  loop is generic over the line, so one type was not needed to share it, and
+  merging them would have put a firing's authority on every thread's line.
 - **The DM's witness is its own.** The tape's write door stays
   `Room::write_value`: `Threads::write` hands a DM to it and does no push, call
   mirror or `wake_roster` for a DM. Those are the turn's (`Heard`), because the

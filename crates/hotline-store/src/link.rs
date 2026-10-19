@@ -354,7 +354,8 @@ impl Link {
                 duration_ms: self.at.map(|at| (at - self.ts).max(0)),
                 outcome: self.outcome.clone(),
             }),
-            ThreadKind::Dm | ThreadKind::Pair => None,
+            // A job is listed with its teammate's jobs, not drawn on the DM.
+            ThreadKind::Dm | ThreadKind::Pair | ThreadKind::Job => None,
         }
     }
 

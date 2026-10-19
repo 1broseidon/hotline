@@ -177,9 +177,9 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `skills.add` | `{path}` | the `SkillEntry`; copies the skill folder at `path` into the gateway under its own name. Refused when it is not a skill or the gateway has one of that name |
 | `skills.remove` | `{name}` | none; removes a gateway skill. A teammate granted it loses it at its next start |
 | `skills.offer` | `{name, offered}` | the `SkillEntry`; offers one of the person's own skills to teammates, or withdraws it. Nothing is copied: the skill is read from the person's folder at every start |
-| `schedule.create` | `{personaId, kind, when?, every?, prompt, quiet?}` | the created `ScheduledJob` |
-| `schedule.list` | `{}` | `ScheduledJob[]`, soonest first |
-| `schedule.cancel` | `{id}` | none |
+| `schedule.create` | `{personaId, kind, when?, every?, prompt, quiet?, reminder?}` | the created `ScheduledJob` |
+| `schedule.list` | `{}` | `ScheduledJob[]` still to fire, soonest first |
+| `schedule.cancel` | `{id}` | none; a living job ends with a final post, an ended one leaves the list |
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
@@ -702,8 +702,9 @@ teammate's file.
 
 An `agent` event the teammate posted from somewhere other than the
 conversation itself carries where it came from: `from`, `{thread, kind}` as
-on a delivery, for a call or a work thread, and `scheduled`, the job's
-stamp as on a user event, for a quiet scheduled run's note. A client says
+on a delivery, for a call, a work thread or a job's thread, and
+`scheduled`, the job's stamp as on a user event, for anything a job or a
+reminder posted. A client says
 "From the call", "From a scheduled job" from them; the text does not. Both
 are optional, and absent from everything the conversation's own turns say.
 
@@ -762,9 +763,12 @@ when it has never started under a Hotline that keeps a ledger, sent as
 `schedule.create`'s `kind` is `"schedule"` (once) or `"loop"` (every
 interval until cancelled). Times are milliseconds: `when` is a one-shot's
 fire, milliseconds since epoch; `every` is a loop's interval. `quiet`
-defaults to false. A one-shot cannot carry `every`; a loop cannot carry
-`when`. The job is an event on the room stream; the clock that fires it is
-[sessions.md](sessions.md).
+defaults to false; `reminder` makes the job a plain reminder, its prompt
+posted to the chat when it fires and no work done. A one-shot cannot carry
+`every`; a loop cannot carry `when`. The job is an event on the room stream;
+each firing is a turn on the job's own thread, `{"kind": "job", "key": id}`,
+which `thread.prompt` speaks in, `thread.cancel` stops and `thread.close`
+cancels; the clock that fires it is [sessions.md](sessions.md#jobs).
 
 The desk's `schedule.create` is an operator instruction and writes
 `operatorCreated: true`; callers do not supply that field. These jobs may
@@ -790,11 +794,11 @@ not subscribe to that."` Both seat refusals carry `"code": "forbidden"`.
 | `"room"` | the room stream's fold | each room event as it lands |
 | `{"tape": id}` | that tape's last 400 lines, or further back to the last thing said when those are all steps | each tape event; `ephemeral` for streaming deltas |
 | `{"thread": key}` | that pair's fold | each thread event |
-| `{"threadId": {kind, key}}` | that thread's fold, whatever its kind: the teammate's tape for a `dm`, and the stream of that name for a `side`, `pair`, `run` or `call` | each event; `ephemeral` for streaming deltas |
+| `{"threadId": {kind, key}}` | that thread's fold, whatever its kind: the teammate's tape for a `dm`, and the stream of that name for a `side`, `pair`, `run`, `call` or `job` | each event; `ephemeral` for streaming deltas |
 | `{"side": id}` | that side thread's fold, headed by its `side` marker | each event; `ephemeral` for its streaming deltas |
 | `{"call": id}` | the call's `state` event, alone | each call event ([Voice calls](#voice-calls)) |
 | `{"view": "roster"}` | every living teammate's row | `event` for a changed row, `removed` for a tombstone |
-| `{"schedules": id}` | that teammate's jobs and loops | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
+| `{"schedules": id}` | that teammate's jobs as `ScheduleEntry`s: name, next run, last post, and `endedAt` for one that has ended | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
 
 An `agent` event on a tape may carry `spoken`, what was said on a call for
 it ([Voice calls](#voice-calls)).

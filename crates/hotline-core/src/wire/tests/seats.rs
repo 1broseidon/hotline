@@ -534,6 +534,7 @@ fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
         every: Some(60_000),
         prompt: "sweep the inbox".to_string(),
         quiet: None,
+        reminder: None,
     };
     let cancel = Command::ScheduleCancel {
         id: "job-1".to_string(),

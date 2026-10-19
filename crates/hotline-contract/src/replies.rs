@@ -110,27 +110,30 @@ pub enum Target {
     Schedules(String),
 }
 
-/// One of a teammate's scheduled jobs as the schedules view shows it: what a
-/// person reading the list needs, and nothing that decides what the job may
-/// do.
+/// One of a teammate's jobs as the schedules view shows it: what a person
+/// reading the list needs, and nothing that decides what the job may do.
 ///
-/// `kind` is `schedule` for once and `loop` for every `every` milliseconds.
-/// `when` is a one-shot's original time, milliseconds since the epoch.
-/// `nextAt` is when the desk next means to wake the teammate for it, also
-/// milliseconds since the epoch, and a plan rather than a promise: a desk
-/// that is closed or asleep then fires it once when it can, a fire that
-/// could not start tries again a minute later, and a loop counts its next
-/// interval from when a run ends. There is no paused or failed job — a job
-/// is listed until it has fired for the last time or is cancelled.
+/// `name` is the job's label, the first breath of its prompt. `kind` is
+/// `schedule` for once and `loop` for every `every` milliseconds. `when` is a
+/// one-shot's original time, milliseconds since the epoch. `nextAt` is when
+/// the desk next means to fire it, also milliseconds since the epoch, and a
+/// plan rather than a promise: a desk that is closed or asleep then fires it
+/// once when it can, a fire that could not start tries again a minute later,
+/// and a loop counts its next interval from when a firing starts. A job's
+/// firings are turns on its own thread, `{"kind": "job", "key": id}`.
+/// `lastPost` is what it last posted to the chat. A job that has fired for
+/// the last time, been cancelled or met its goal is still listed, with
+/// `endedAt`, because its thread stays readable; `schedule.cancel` on an
+/// ended job takes it off the list.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct ScheduleEntry {
     pub id: String,
     pub persona_id: String,
+    pub name: String,
     pub kind: ScheduleKind,
-    /// What the teammate is asked when the job fires, which is also the only
-    /// name a job has.
+    /// What the teammate is asked when the job fires.
     pub prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub when: Option<i64>,
@@ -141,21 +144,14 @@ pub struct ScheduleEntry {
     /// unless it finds something worth saying.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quiet: Option<bool>,
-}
-
-impl From<ScheduledJob> for ScheduleEntry {
-    fn from(job: ScheduledJob) -> Self {
-        Self {
-            id: job.id,
-            persona_id: job.persona_id,
-            kind: job.kind,
-            prompt: job.prompt,
-            when: job.when,
-            every: job.every,
-            next_at: job.next_at,
-            quiet: job.quiet,
-        }
-    }
+    /// Present and true for a plain reminder, which posts its prompt and
+    /// does no work.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reminder: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_post: Option<JobPost>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<i64>,
 }
 
 /// The views the core maintains. One so far.

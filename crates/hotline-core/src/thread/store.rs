@@ -3,7 +3,8 @@
 //! Nothing here writes, and nothing is a new record. A DM is the teammate's
 //! persona and its tape; a side thread is the link at the head of its stream;
 //! a run is its link, and the tape that holds the line the person presses to
-//! open it; a call is its link too, at the head of its own stream; a pair is
+//! open it; a call is its link too, at the head of its own stream, and so is
+//! a job, whose record on the room stream says it is the teammate's; a pair is
 //! its sidecar and, on the room stream, the `exchange_pair` that says whether a
 //! request is being answered. The folding of those into a [`Thread`] is the
 //! whole of this module.
@@ -44,12 +45,13 @@ impl ThreadStore {
                 self.run(&id.key, owner.as_deref())
             }
             ThreadKind::Call => self.call(&id.key),
+            ThreadKind::Job => self.job(&id.key),
         }
     }
 
-    /// The threads a teammate is in: its DM, its side threads, runs and calls, then
-    /// the pairs it is one side of. Empty for a teammate the room does not
-    /// hold.
+    /// The threads a teammate is in: its DM, its side threads, runs, calls
+    /// and jobs, then the pairs it is one side of. Empty for a teammate the
+    /// room does not hold.
     pub fn list(&self, persona_id: &str) -> Vec<Thread> {
         let Some(dm) = self.dm(persona_id) else {
             return Vec::new();
@@ -73,6 +75,12 @@ impl ThreadStore {
             self.call_ids_on_tape(persona_id)
                 .iter()
                 .filter_map(|call_id| self.call(call_id)),
+        );
+        threads.extend(
+            room::all_jobs(&self.log)
+                .iter()
+                .filter(|job| job.persona_id == persona_id)
+                .filter_map(|job| self.job(&job.id)),
         );
         threads.extend(
             pair_files::keys_for(self.log.root(), persona_id)
@@ -180,6 +188,26 @@ impl ThreadStore {
             state: link.state,
             title: Some(link.title),
             binding: None,
+            note: link.note,
+        })
+    }
+
+    /// A job's thread, from the link at the head of its own stream, which
+    /// its first firing writes. The person and the teammate are in it; its
+    /// parent is the teammate's DM.
+    fn job(&self, job_id: &str) -> Option<Thread> {
+        let link = self.link(&ThreadId::job(job_id))?;
+        let persona_id = link.persona_id?;
+        Some(Thread {
+            id: link.thread,
+            parent: Some(ThreadLink {
+                thread: ThreadId::dm(&persona_id),
+                event: None,
+            }),
+            participants: vec![Participant::Person, Participant::Persona(persona_id)],
+            state: link.state,
+            title: Some(link.title),
+            binding: link.binding,
             note: link.note,
         })
     }

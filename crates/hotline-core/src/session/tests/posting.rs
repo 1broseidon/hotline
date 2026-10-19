@@ -47,6 +47,84 @@ async fn a_subagent_run_may_not_post() {
     assert_eq!(posts(&room), [] as [Value; 0]);
 }
 
+/// A job is a subagent on a schedule that the person asked for: unlike a
+/// plain run it is offered the doors to the chat and posts through them,
+/// once a turn, stamped with its job and from its thread.
+#[tokio::test]
+async fn a_jobs_thread_posts_where_a_run_may_not() {
+    let room = room("post-job", Fake::new(Scripted::new(Vec::new())));
+    let run = crate::contract::ScheduledRun {
+        job_id: "j1".to_string(),
+        kind: crate::contract::ScheduleKind::Loop,
+        name: "Crane check".to_string(),
+        operator_created: true,
+        quiet: Some(true),
+    };
+    let _turn = room.open_posting(&ThreadId::job("j1"), Some(run));
+    let tools = TeammateTools::new(&room, "ada").for_job("j1");
+    let offered: Vec<String> = tools
+        .as_dynamic()
+        .iter()
+        .map(|tool| tool.name().to_string())
+        .collect();
+    for tool in [
+        "post_to_chat",
+        "send_file",
+        "generate_image",
+        "cancel_schedule",
+    ] {
+        assert!(offered.iter().any(|name| name == tool), "{offered:?}");
+    }
+    for tool in [
+        "request_human",
+        "message_teammate",
+        "schedule",
+        "new_chapter",
+    ] {
+        assert!(!offered.iter().any(|name| name == tool), "{offered:?}");
+        let refused = tools.call(tool, &json!({})).await.unwrap_err();
+        assert!(refused.starts_with("A job has no tool"), "{refused}");
+    }
+
+    assert_eq!(
+        tools
+            .call("post_to_chat", &json!({"text": "The crane is down."}))
+            .await
+            .as_deref(),
+        Ok("Posted to the chat.")
+    );
+    let again = tools
+        .call("post_to_chat", &json!({"text": "And again."}))
+        .await
+        .unwrap_err();
+    assert!(again.contains("one per turn"), "{again}");
+    let posted = posts(&room);
+    assert_eq!(posted.len(), 1, "{posted:?}");
+    assert_eq!(posted[0]["scheduled"]["jobId"], "j1");
+    assert_eq!(posted[0]["from"], json!({"thread": "j1", "kind": "job"}));
+
+    let plain = TeammateTools::new(&room, "ada").for_run();
+    let _run_turn = room.open_posting(&ThreadId::run("r1"), None);
+    let refused = plain
+        .call("post_to_chat", &json!({"text": "From a run."}))
+        .await
+        .unwrap_err();
+    assert_eq!(refused, crate::session::SUBAGENT);
+}
+
+/// The DM's own turn is the chat: it may not post, and its file is its reply.
+#[tokio::test]
+async fn the_dms_own_turn_may_not_post() {
+    let room = room("post-dm", Fake::new(Scripted::new(Vec::new())));
+    let _turn = room.open_posting(&ThreadId::dm("ada"), None);
+    let refused = TeammateTools::new(&room, "ada")
+        .call("post_to_chat", &json!({"text": "Hello."}))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("already the chat"), "{refused}");
+    assert_eq!(posts(&room), [] as [Value; 0]);
+}
+
 /// The thread's lease is checked when the call lands: a work thread whose
 /// authority was revoked mid-turn posts nothing, whether the call comes in
 /// process or over the endpoint an ACP child is handed.

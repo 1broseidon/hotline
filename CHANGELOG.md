@@ -8,6 +8,8 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-10-19
+
 ### Added
 
 - A server can run only a relay (ADR 0006). `hotline serve --capabilities
@@ -23,6 +25,42 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   account. A re-run keeps the server what it is: a relay updates only with
   `--relay`, and `--relay` on a full server is refused before anything
   changes.
+- A phone away from home pairs from the QR alone. The pairing QR keeps this
+  computer's own address and offers the Public address as a fallback, which
+  the phone tries before the relay, and the tunnel hint names the address
+  Remote listens on. A phone's hello names the public endpoint and the
+  desk's kind and version, and its device list marks the phone itself.
+- Colleagues see each other's goal, agent, model and capabilities (computer,
+  web search, images, background work, MCP server names), never a path,
+  address, login or policy; a linked desk sends only those.
+- A teammate can withdraw a "needs you" card it no longer needs: the card
+  leaves the desk and the phone and can no longer be answered. An
+  unanswered card now expires after 2 hours by default (up to a day if the
+  teammate asks), and the teammate is told once.
+
+### Changed
+
+- The 0.40 quality pass: the core is split into smaller modules (no file of
+  shipping code over about 1,500 lines, no `mod.rs`), dead code and unused
+  dependencies are gone, a workspace lint table and Biome guard the tree,
+  errors from boot, discovery, search, the updater and settings carry their
+  cause, and `docs/standards.md` says how the code is written. `make
+  precheck` runs the Windows, Linux, bare-PATH and shuffled-order checks CI
+  runs, and the git hooks in `.githooks` run it before a push.
+- The new-teammate picker shows the ACP agent list at once, refreshes it in
+  the background, and keeps the last good list when the registry can't be
+  reached. A Codex teammate on a model its installed version doesn't
+  support says so, instead of failing generically.
+- Long conversations open quickly: lines and diagrams render as they scroll
+  into view, and loading older lines keeps your place.
+- The page an MCP sign-in opens in the browser is a styled card ("Signed
+  in" or the error) with a strict Content-Security-Policy and no script.
+- Paired desks start side by side at launch, so one that is down no longer
+  holds up the rest; it shows unreachable within about 5 seconds and is
+  retried.
+- Read-only commands such as model lists and search run without blocking
+  the window's connection, so a slow provider no longer stalls sending or
+  switching teammates.
 
 ### Fixed
 
@@ -31,6 +69,36 @@ versions follow [Semantic Versioning](https://semver.org/). A tag
   again at its next start, rather than keeping the ones it was made with.
   While a running computer has other limits than its settings, the pane
   offers Restart to apply, which swaps it between turns.
+- A provider that refuses turns while its sign-in still works says so, with
+  Run again, instead of asking you to sign in again.
+- A Hotline Agent teammate with no provider connected says "Hotline Agent
+  unavailable", with a button to Settings › Providers, and hands your
+  message back to the composer.
+- A shell command whose model sends a deadline of 0 runs with no deadline,
+  instead of being killed at once.
+- After Add teammate, onboarding opens the new teammate's conversation.
+- Call keys appear on a fresh desk as soon as calls are ready, not after
+  the first exchange.
+- A dropdown's tooltip no longer covers the first item of its open menu.
+- A teammate card's Threads row lists its pair threads from the thread
+  list, and still does against a 0.39 desk.
+- Linked desks: a link whose other desk was down keeps dialing and opens
+  when it returns, and linking with an older desk says to update it.
+- The desk drops a phone whose connection died within about 90 seconds,
+  rather than many minutes later.
+- On a Mac with Speech Recognition refused, a call or dictation says "No
+  words heard" instead of failing silently.
+
+### Security
+
+- rustls 0.23.46 (RUSTSEC-2026-0346 to 0349).
+- An agent registry archive installs only whole: no links, no entry outside
+  its folder, no set-id or world-writable modes.
+- The updater no longer builds ZIP extraction it never runs, and the speech
+  engine's build extracts with the patched ZIP release.
+- The window's build tooling resolves source-map-js 1.2.2
+  (GHSA-68fv-2mgg-jv7q), and the shipped Mermaid bundle embeds KaTeX
+  0.18.11 (GHSA-238p-pmpm-9mq7).
 
 ## [0.39.0] - 2026-10-16
 

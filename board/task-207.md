@@ -1,8 +1,8 @@
 ---
 id: task-207
 title: "Voice: a long call talks naturally, pointing at the chat only when it really holds more"
-column: todo
-position: 7
+column: backlog
+position: 42
 priority: high
 tags:
   - voice
@@ -14,7 +14,7 @@ parentId: epic-21
 dependsOn:
   - task-201
 createdAt: "2026-10-19T14:02:18.044Z"
-updatedAt: "2026-10-19T20:00:09.863Z"
+updatedAt: "2026-10-19T20:00:17.601Z"
 ---
 
 ## Description

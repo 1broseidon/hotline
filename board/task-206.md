@@ -15,10 +15,8 @@ parentId: epic-21
 createdAt: "2026-10-19T13:59:39.590Z"
 dependsOn:
   - task-203
-  - task-204
-  - task-205
-  - task-207
-updatedAt: "2026-10-19T20:00:09.374Z"
+  - task-214
+updatedAt: "2026-10-19T20:00:14.755Z"
 ---
 
 ## Description

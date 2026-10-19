@@ -1,8 +1,6 @@
 ---
 id: task-226
 title: "The Jobs group in the thread list: a row per job with its name, next run and last post"
-column: review
-position: 12
 priority: medium
 tags:
   - threads
@@ -31,7 +29,7 @@ contract:
     deliveredAt: "2026-10-19T23:28:00.278Z"
     duration: 416
 createdAt: "2026-10-19T20:02:36.243Z"
-updatedAt: "2026-10-19T23:28:03.981Z"
+updatedAt: "2026-10-19T23:29:33.530Z"
 dispatch:
   agent: claude
   model: sonnet
@@ -47,6 +45,7 @@ dispatch:
     ended: "2026-10-19T23:28:03.981Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-19T23:29:33.530Z"
 ---
 
 ## Description
@@ -58,3 +57,4 @@ How to work: run make check in the foreground with a generous timeout and wait f
 
 ## Log
 - 2026-10-19T23:27:59.973Z: [claude] Jobs group in the Dock thread list (ui only, no core change): useJobs subscribes {schedules: personaId}; jobRows orders running by nextAt then ended newest first, reminders left out (no thread). Row = name, next run/ended, last post; opens {kind:"job",key:id}; ended rows get a Remove (schedule.cancel). groupThreads now drops job threads so they appear once. powersOf(job): say for the desktop until closed; no Archive on a job (thread.close would cancel it; cancel stays in Schedules). Agent posts with from.kind "job" show "From a scheduled job". Left unwired: no Cancel button on a running job row, and no Stop on a job turn. make check passes after merging release/0.41.0; on branch dispatch/task-226.
+- 2026-10-19T23:29:33.132Z: Landed on release/0.41.0

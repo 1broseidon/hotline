@@ -1825,7 +1825,7 @@ pushes like any reply. A run that finds nothing is exactly as silent as
 before, and the desktop toast skips a turn whose last visible line is the
 person's own. A subagent is refused: it reports to its teammate, which
 decides. The other threads that may post, and the rest of the gate, are in
-[security.md](security.md#post_to_chat).
+[security.md](security.md#posting-to-the-chat-from-any-thread-adr-0008).
 
 ## The ledger
 

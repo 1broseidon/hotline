@@ -1,9 +1,11 @@
-//! Hotline as an MCP client, driven over the wire the window uses.
+//! Hotline's MCP, driven over the wire the window uses.
 //!
-//! An echo server is spawned as a stdio child the persona is granted. The
-//! ledger is what the session was actually built with: a verified row when
-//! the tool attached, no MCP rows under a policy of none, and an absent row
-//! — with the error as its reason — when the child could not start.
+//! As a client: an echo server is spawned as a stdio child the persona is
+//! granted. The ledger is what the session was actually built with: a
+//! verified row when the tool attached, no MCP rows under a policy of none,
+//! and an absent row — with the error as its reason — when the child could
+//! not start. As a server: `post_to_chat`, on both drivers
+//! (`mcp/post_to_chat.rs`).
 
 mod common;
 
@@ -749,3 +751,9 @@ fn alive(pid: &str) -> bool {
         .status()
         .is_ok_and(|status| status.success())
 }
+
+// `post_to_chat`'s harness is in `tests/mcp/`: a crate root's own `mod` would
+// look beside it in `tests/`, where Cargo would take each file for a binary of
+// its own.
+#[path = "mcp/post_to_chat.rs"]
+mod post_to_chat;

@@ -51,6 +51,12 @@ pub fn open_vault(root: &Path, log: Log) -> io::Result<Vault> {
 #[cfg(unix)]
 pub mod stalled;
 
+#[allow(
+    dead_code,
+    reason = "only the harnesses that run an ACP teammate use it"
+)]
+pub mod acp_fixture;
+
 /// Fails the test by name when `tool` cannot be started here. A harness whose
 /// command runs an interpreter would otherwise time out waiting on what the
 /// command was meant to do, and say nothing about the interpreter.

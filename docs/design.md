@@ -441,6 +441,17 @@ thread, a job); its live session is handed the post ahead of the person's
 next line, and a session that starts later reads it from the tape with where
 it came from.
 
+An agent asks for that door with `post_to_chat(text, wake?)`, one of
+Hotline's own tools, which Hotline Agent calls in process and an ACP child
+over the desk's MCP server, so a quiet run on either driver can be heard. It
+is listed in every session but a subagent run's and gated by the handler,
+not the model: a work thread, a pair and a quiet run may post, once a turn;
+the DM's own loud turn and a subagent run may not; `wake` hands the post to
+the DM on a turn of its own when an arm needs the home agent to act. The
+rows are in [security.md](security.md#posting-to-the-chat-from-any-thread-adr-0008).
+It replaces the quiet run's `tell_person`, which only Hotline Agent offered,
+and the per-turn arming behind it.
+
 HTTP MCP servers may opt into OAuth 2.1 in the gateway. Hotline follows
 protected-resource and authorization-server metadata, requires authorization
 code plus PKCE S256, and uses the advertised DCR endpoint when no saved or

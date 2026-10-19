@@ -1,7 +1,7 @@
 ---
 id: task-226
 title: "The Jobs group in the thread list: a row per job with its name, next run and last post"
-column: in-progress
+column: review
 position: 12
 priority: medium
 tags:
@@ -16,7 +16,7 @@ parentId: epic-20
 dependsOn:
   - task-220
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: ui/src
@@ -28,8 +28,10 @@ contract:
     readyAt: "2026-10-19T20:02:36.231Z"
     pickedUpAt: "2026-10-19T23:21:04.426Z"
     reworkCount: 0
+    deliveredAt: "2026-10-19T23:28:00.278Z"
+    duration: 416
 createdAt: "2026-10-19T20:02:36.243Z"
-updatedAt: "2026-10-19T23:21:04.426Z"
+updatedAt: "2026-10-19T23:28:00.278Z"
 dispatch:
   agent: claude
   model: sonnet

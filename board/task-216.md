@@ -37,7 +37,7 @@ contract:
     readyAt: "2026-10-19T20:03:13.285Z"
     pickedUpAt: "2026-10-19T20:03:43.502Z"
     reworkCount: 0
-updatedAt: "2026-10-19T20:22:54.995Z"
+updatedAt: "2026-10-19T20:22:58.046Z"
 dispatch:
   agent: claude
   model: opus
@@ -45,7 +45,12 @@ dispatch:
   by: lead
   at: "2026-10-19T20:22:54.860Z"
   until: done
-  tries: 1
+  tries: 2
+  claim:
+    host: Georges-Mac-Studio
+    runner: cli
+    pid: 94104
+    at: "2026-10-19T20:22:58.046Z"
 ---
 
 ## Description

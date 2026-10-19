@@ -10,6 +10,9 @@ tags:
 assignee: claude
 parentId: epic-21
 createdAt: "2026-10-19T20:00:07.420Z"
+dependsOn:
+  - task-223
+updatedAt: "2026-10-19T20:00:12.710Z"
 ---
 
 ## Description

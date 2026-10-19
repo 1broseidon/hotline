@@ -63,6 +63,18 @@ module map itself is [development.md](development.md#layout).
   The wire's `Parts` (the calls, the Remote, the links) names core types,
   so it stays in the core with the wire. The voice budget's unreserved
   `charge` is public only under its `test-support` feature.
+- `hotline-mcp` is Hotline as an MCP client: the servers the `mcpServers`
+  setting names, the grant a teammate's policy selects, the live
+  connections and the tools they list, and OAuth sign-in to an HTTP
+  server. It stands on `hotline-contract`, `hotline-support`,
+  `hotline-tools` (the lease a tool checks) and `hotline-room` (the tool
+  ledger), and never on `hotline-core` or Tauri. It never opens the vault:
+  the core reads what the vault keeps for a server and hands it in as
+  `Vaulted`, the OAuth tokens behind rmcp's `CredentialStore`, which the
+  vault implements, and saving a client registration is the one call
+  back. `hotline-core` re-exports its items at `crate::mcp`, where
+  `TeammateTools`, the server of a teammate's own tools, stays: it calls
+  into the live room, the `mcp`↔`session` cycle below.
 - A new crate comes from the plan in
   [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
   direction, its edges only go down, and nothing but the app and the CLI

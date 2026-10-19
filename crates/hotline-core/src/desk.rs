@@ -13,7 +13,7 @@ use crate::contract::{
 };
 use crate::driver::{HOTLINE_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
-use crate::mcp::{McpOAuthService, McpServer};
+use crate::mcp::{McpOAuth, McpServer};
 use crate::models::Client;
 use crate::session::{ProviderAuth, ProviderKeys, Room};
 use crate::vault::Vault;
@@ -87,7 +87,7 @@ pub struct Desk {
     room: Arc<Room>,
     vault: Arc<Vault>,
     logins: Arc<Mutex<HashMap<String, LoginOutcome>>>,
-    mcp_oauth: Arc<McpOAuthService>,
+    mcp_oauth: Arc<McpOAuth>,
 }
 
 impl Desk {
@@ -114,7 +114,7 @@ impl Desk {
             ),
             log,
             room,
-            mcp_oauth: Arc::new(McpOAuthService::new(vault.clone())),
+            mcp_oauth: Arc::new(McpOAuth::new(vault.clone())),
             vault,
             logins: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -204,7 +204,7 @@ impl Desk {
             budget: budget.clone(),
         });
         let room = Room::new_with_mcp(log.clone(), keys, vault.clone(), acp_start);
-        let mcp_oauth = Arc::new(McpOAuthService::new(vault.clone()));
+        let mcp_oauth = Arc::new(McpOAuth::new(vault.clone()));
         let room_for_oauth = Arc::downgrade(&room);
         mcp_oauth.set_on_complete(Arc::new(move || {
             let Some(room) = room_for_oauth.upgrade() else {
@@ -876,8 +876,8 @@ impl RoomHandle for Desk {
     }
 
     async fn mcp_auth_sign_out(&self, server_id: &str) -> Result<(), String> {
-        self.mcp_server(server_id)?;
-        self.mcp_oauth.sign_out(server_id).await
+        let server = self.mcp_server(server_id)?;
+        self.mcp_oauth.sign_out(&server).await
     }
 
     /// The server may not be in settings yet: the window saves the token
@@ -1549,7 +1549,7 @@ mod tests {
             ),
             log: log.clone(),
             room,
-            mcp_oauth: Arc::new(crate::mcp::McpOAuthService::new(vault.clone())),
+            mcp_oauth: Arc::new(crate::mcp::McpOAuth::new(vault.clone())),
             vault,
             logins: Arc::new(Mutex::new(HashMap::new())),
         };

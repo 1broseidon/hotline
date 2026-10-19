@@ -4,6 +4,7 @@
 use crate::contract::{Credential, CredentialKind};
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore};
 use crate::log::{Log, StreamId};
+use crate::mcp::McpOAuthRegistration;
 use crate::models::Client;
 use crate::providers::discovery::{self, ListedModel};
 use crate::session::ProviderAuth;
@@ -39,19 +40,6 @@ pub(crate) fn default_store() -> Arc<dyn SecretStore> {
             std::sync::OnceLock::new();
         STORE.get_or_init(Default::default).clone()
     }
-}
-
-/// The client identity Hotline received from an MCP authorization server. The
-/// secret is kept beside the token in the vault record; this type never crosses
-/// the room or wire boundary.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-pub(crate) struct McpOAuthRegistration {
-    pub client_id: String,
-    pub client_secret: Option<String>,
-    pub redirect_uri: String,
-    pub issuer: Option<String>,
-    pub resource: String,
-    pub scopes: Vec<String>,
 }
 
 /// Everything the vault keeps for one HTTP MCP server, bound to the URL it

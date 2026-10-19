@@ -9,9 +9,9 @@
 //! case marks the origin absent, because that is the server going away, not
 //! the tool answering.
 
-use crate::contract::ToolSourceKind;
-use crate::driver::CapabilityLease;
-use crate::session::ledger;
+use hotline_contract::ToolSourceKind;
+use hotline_room::tool_ledger as ledger;
+use hotline_tools::capability::CapabilityLease;
 use rmcp::RoleClient;
 use rmcp::ServiceError;
 use rmcp::model::{CallToolRequestParams, CallToolResult};
@@ -20,7 +20,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use super::McpServer;
+use crate::McpServer;
 
 /// The strictest provider cap on a tool name: `^[a-zA-Z0-9_-]{1,64}$`.
 const MAX_TOOL_NAME: usize = 64;
@@ -56,7 +56,7 @@ pub(crate) fn slug(name: &str) -> String {
 }
 
 /// The tool-name prefix for each granted server, in this list's order —
-/// grant order, which is the order [`super::connect`] walks.
+/// grant order, which is the order [`crate::connect_granted`] walks.
 ///
 /// The first server that slugs to a name keeps it; later collisions get
 /// `_2`, `_3`… on that same base. A later server whose own slug is already

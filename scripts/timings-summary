@@ -23,6 +23,7 @@ OWN = {
     "hotline-tools",
     "hotline-websearch",
     "hotline-room",
+    "hotline-mcp",
 }
 
 

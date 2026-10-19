@@ -16,6 +16,7 @@ hotline-store = { path = "../hotline-store" }
 hotline-tools = { path = "../hotline-tools" }
 hotline-websearch = { path = "../hotline-websearch" }
 hotline-room = { path = "../hotline-room" }
+hotline-mcp = { path = "../hotline-mcp" }
 rig.workspace = true
 gethostname = "1.1"
 portable-pty = "0.9"

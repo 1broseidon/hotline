@@ -1,8 +1,9 @@
 # ADR 0007: Split hotline-core into crates, leaves first
 
 - Status: The five crates landed on `release/0.41.0` (epic-16). Of the
-  core's split, under Next, step 1 is done (`hotline-room`, epic-18:
-  task-211 and task-208); steps 2 to 4 are not started.
+  core's split, under Next, steps 1 and 2 are done (`hotline-room`,
+  epic-18: task-211 and task-208; `hotline-mcp`, task-209); steps 3 and 4
+  are not started.
 - Date: 2026-10-19
 - Supersedes: the "No new crates" line of [standards.md](../standards.md#module-layout),
   once task-196 rewrites it. The line after it, "Do not break the
@@ -12,7 +13,7 @@
   task-195 `hotline-websearch`, task-196 `hotline-support`, task-197
   `hotline-store`, task-198 `hotline-tools`, task-199 the timings again and
   the plan for the core); epic-18 for the core's split (task-211 and
-  task-208 `hotline-room`)
+  task-208 `hotline-room`, task-209 `hotline-mcp`)
 
 ## Context
 
@@ -49,6 +50,7 @@ not start it.
 | `hotline-store` | the log, the tape store and its search index, sent files: `log`, `store`, `sent` | `hotline-contract`, `hotline-support` |
 | `hotline-tools` | the shell and workspace tools and the capability lease they check (`tools/`) | `hotline-contract`, `hotline-support` |
 | `hotline-room` | the room as the code above the core sees it (Next, step 1) | `hotline-contract`, `hotline-support`, `hotline-store`, `hotline-websearch` |
+| `hotline-mcp` | the MCP client (Next, step 2) | `hotline-contract`, `hotline-support`, `hotline-tools`, `hotline-room` |
 | `hotline-core` | everything else | all of the above |
 
 `hotline-app` and `hotline-cli` depend on `hotline-core` as now.
@@ -662,6 +664,111 @@ against the 132,700 left in the core's `src/`. No timings were taken: the
 plan above says this step's point is the steps after it, and step 2's
 measurement will include it.
 
+### Step 2, done: `hotline-mcp`
+
+The client is `hotline-mcp`. It stands on `hotline-contract`,
+`hotline-support` (a stdio server's Windows job), `hotline-tools` (the
+lease a granted tool checks) and `hotline-room` (the tool ledger and
+`normalize_servers`), and on nothing in the core. The plan's seam held: no
+trait was added, and the vault is reached only through rmcp's
+`CredentialStore`, which it already implemented, and values.
+
+Each moved file, by its old path in `crates/hotline-core/src/` and its new
+one in `crates/hotline-mcp/src/`:
+
+| Old path (`hotline-core/src/`) | New path (`hotline-mcp/src/`) | The core still reaches it as |
+|---|---|---|
+| `mcp.rs`, all but `pub mod server` | `lib.rs` | `crate::mcp::{McpServer, HttpAuth, connect, grant, servers, …}` |
+| `mcp/oauth.rs` | `oauth.rs` | `crate::mcp::{manager_for_server, McpOAuthRegistration}`, and the core's `mcp::McpOAuth` |
+| `mcp/tool.rs` | `tool.rs` | `crate::mcp::{McpTool, CallError, CallContent, CallImage}` |
+
+And the piece that moved out of a file that stayed:
+
+| Item, from | To (`hotline-mcp/src/`) | The core still reaches it as |
+|---|---|---|
+| `vault::McpOAuthRegistration`, from `vault.rs` | `oauth.rs` | `crate::mcp::McpOAuthRegistration` |
+
+The core's `mcp.rs` is now the server's parent (`mcp/server.rs`,
+`TeammateTools`, unchanged), the re-exports, and the vault's side of the
+client, about 170 lines. Where the client took `Arc<Vault>` it now takes
+what the vault keeps for one server, read by the core and handed in:
+`OAuthVault` (the vault's `McpCredentialStore`, the server's token lock, and
+its saved registration or the error reading it) and `Vaulted` (that, or a
+bearer or header server's saved token). `connect_granted` takes each
+granted server as a `Granted`, already resolved by the vault's
+`resolve_mcp_server`, or with the reason it could not be, which fails that
+server alone as before; `connect_with_capability_and_vault` in the core
+builds them, so the drivers and the voice front did not change.
+`McpOAuthService` holds no vault: `start` takes the `OAuthVault` and a
+closure that saves a registration (the one call back), a pending login
+keeps the token lock it was started with for its callback, `status` takes
+the `Vaulted`, and `sign_out` clears through the store's
+`CredentialStore::clear`, which deletes the server's whole vault record as
+`clear_mcp_oauth` did. The core's `McpOAuth` pairs the service with the
+vault, so the desk's four sign-in commands read as before. Values are read
+before the client needs them rather than when it does, so a granted list's
+records are read before its first handshake rather than one server at a
+time; an error read early is kept as a value and returned at the step that
+used to read it, so a failure reads the same sentence in the same order.
+The items the core names that were `pub(crate)` (`validate_http_url`,
+`public_servers` and the rest, `Presented`, `manager_for_server`, the
+service) are `pub` in the crate and re-exported `pub(crate)`.
+
+What a teammate can reach did not change. A granted tool still checks its
+session's lease before calling its server and the connect loop still stops
+on a revoked one; the lease is `hotline-tools`' and its fields stay
+private, so the new crate can clone and check a lease but not forge one.
+The vault's records stay bound to the server's id and URL, the tokens are
+still loaded by rmcp through the vault's store for one operation at a
+time, and the crate cannot open the vault at all. `HttpAuth::Bearer` was
+already `pub`.
+
+The tests went with their code where they could: 22 in the crate (the
+grant, slug and prefix rules, the env and header refusals, a scripted
+server over an in-memory pipe, the ledger rows a dead transport writes,
+the revoked lease, and the callback page's escaping and URL checks). Three
+groups stayed in the core because they need the core, by the rule in
+[Sharing a test fixture](#sharing-a-test-fixture-down-the-crates): the six
+OAuth flow tests and their loopback authorization server, which sign in
+through a real `Vault`, are `mcp/tests.rs` and now drive `McpOAuth`, so
+they prove the core's reading too; `how_to_use_says_granted_tools_are_named_server_tool`
+reads the server's `HOW_TO_USE` and moved into `mcp/server.rs`; and
+`a_computer_server_writes_its_eight_tools_on_the_ledger_under_origin_computer`,
+which asserts what `driver::rig::publish_ledger` writes under
+`computer::SERVER_ID`, is in `driver/rig/tests.rs` and serves its eight
+tools over loopback HTTP to the public `mcp::connect`, where it used to
+build tools from the client's private parts, so `Connections::for_test`
+is gone. `tests/mcp.rs`, the desk harness, did not change.
+
+`scripts/module-map`: `mcp -> driver(4), session(11+3t), vault(1+1t), wire(2)`,
+against `computer(0+2t), driver(5+2t), session(12+6t), vault(3+1t), wire(2)`
+before it; still 22 modules, 17 strongly connected, because the server is
+what ties `mcp` to `session`. The crate is 3,159 lines with its tests
+(about 2,440 without), and the core's `src/` is 129,734 lines, against
+132,678.
+
+Measured on 2026-10-19 on `dispatch/task-209` at 51cd5108, with steps 1
+and 2 in, on the same machine, toolchain and profile as After, by After's
+commands, each run twice and the second kept. Other agents were running:
+the load average was 5 to 7 during the cold build and 7 to 13 after it, so
+read the test-build row as a ceiling.
+
+| What | After (five crates) | Steps 1 and 2 |
+|---|---|---|
+| Cold, hotline-core only, `cargo build` | 33.5 s | 31.6 s |
+| `hotline-core`'s library unit (front end, code generation) | 31.8 s (19.7 s, 12.0 s) | 30.1 s (18.9 s, 11.2 s) |
+| Cold, hotline-core only, `cargo test --no-run` | 65.1 s | 74.5 s |
+| Touch `voice/dispatcher.rs`, `cargo build` | 3.2 s | 3.1 s |
+| Touch `voice/dispatcher.rs`, `cargo test --no-run` | 8.6 s | 8.4 s |
+| Touch `oauth.rs`, `cargo test -p hotline-mcp --no-run` | (8.6 s, the core's) | 0.9 s |
+
+The two steps took about 6.5% of the core's lines and the front end lost
+about 4% (0.8 s), the build 1.9 s; the touches moved by less than the
+noise. The cold test build is the outlier, nine seconds slower under twice
+the load, and not read as a result; it should be taken again on a quiet
+machine before step 3 is judged against it. What the step does give is
+the client's tests in under a second, alone.
+
 ### The re-exports
 
 The five crates' re-exports are about 870 references in the core's source,
@@ -687,6 +794,7 @@ in the core does.
    change `contract.ts`.
    Done (task-208): the crate is `hotline-room`, below.
 2. The `mcp` client (the cheapest seam, an external trait).
+   Done (task-209): the crate is `hotline-mcp`, below.
 3. The `voice` engines (the largest gain, through traits with five and two
    implementations).
 4. `remote`, only if the numbers after 3 say the core's front end is still the
@@ -703,8 +811,8 @@ shortens both of those only in proportion.
 
 ## Consequences
 
-- Six new workspace crates (epic-16's five, and `hotline-room` for step 1
-  of Next), each with the workspace lints, a license and a crate-level doc. `hotline-core` keeps no Tauri.
+- Seven new workspace crates (epic-16's five, `hotline-room` for step 1
+  of Next and `hotline-mcp` for step 2), each with the workspace lints, a license and a crate-level doc. `hotline-core` keeps no Tauri.
 - The stages share lines (workspace members, `Cargo.lock`, `hotline-core`'s
   `Cargo.toml` and `lib.rs`, standards.md's module map, AGENTS.md), so they land
   in order and alone.

@@ -82,6 +82,10 @@ crates/hotline-room/src/      the room as the code above the core sees it; on th
   tool_ledger.rs             what tools a teammate got, from where, and why one is absent
   voice/                     voice's settings, its spend and the budget that gates it, spoken replies
   provider_auth.rs, ...      ProviderAuth, the secret and text helpers, the TLS default, the computer's home
+crates/hotline-mcp/src/       Hotline as an MCP client; on the contract, the support, the tools and the room
+  lib.rs                     the servers settings name, a teammate's grant, the live connections
+  tool.rs                    one granted tool as Hotline Agent calls it, and its ledger row
+  oauth.rs                   OAuth sign-in to an HTTP server, with what the vault keeps handed in
 crates/hotline-core/src/
   thread/                    the one name for a conversation, its store and its policy
   vault/                     credential metadata beside the room stream
@@ -92,7 +96,7 @@ crates/hotline-core/src/
   capabilities.rs            which connected provider the owner can pick for each job
   pricing.rs                 what a model costs per token
   spending.rs                the spending ledger and the budget it enforces
-  mcp/                       the client of granted servers, and Hotline's own teammate tools
+  mcp/                       Hotline's own teammate tools, and the vault's side of the client
   skills.rs                  the catalog: built-in, gateway and workspace skills, copied into a workspace
   computer/                  runtime detection and one container per teammate
   voice/                     the owner's call: speech in and out, the front, realtime
@@ -686,8 +690,8 @@ knows, and speaks WebSocket JSON the way the window does:
 | `mcp.rs` | Hotline as an MCP client and as the server of a teammate's own tools: a granted echo server, Hotline's seven tools, a policy of none, a server that will not start, a non-string env, a vanished server, a stdio process group |
 | `schedule.rs` | a job created, listed, silenced and cancelled, remembered on the room stream; a loop carries `every` and has no `when` |
 
-The `mcp/oauth.rs` unit harness runs a loopback protected-resource and
-authorization server through metadata discovery, DCR, PKCE callback, token
+The OAuth unit harness in `crates/hotline-core/src/mcp/tests.rs` runs a
+loopback protected-resource and authorization server, through the vault, through metadata discovery, DCR, PKCE callback, token
 refresh and authenticated MCP calls. It also covers restart reuse, denied and
 wrong-state callbacks, registration gaps, concurrent refresh, URL binding,
 sign-out and the protected vault boundary. No real provider account is used by

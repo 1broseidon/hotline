@@ -15,7 +15,32 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:58.782Z"
 dependsOn:
   - task-193
-updatedAt: "2026-10-19T06:07:10.720Z"
+updatedAt: "2026-10-19T06:11:03.996Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-contract/Cargo.toml
+      description: The contract crate, on no other hotline crate
+    - type: file
+      path: crates/hotline-contract/src/lib.rs
+      description: The wire and tape types and their ts-rs export
+  validation:
+    commands:
+      - test -f crates/hotline-contract/src/lib.rs
+      - test ! -e crates/hotline-core/src/contract.rs && test ! -e crates/hotline-core/src/contract
+      - "! grep -qE '^hotline-' crates/hotline-contract/Cargo.toml"
+      - grep -A1 '^\[lints\]' crates/hotline-contract/Cargo.toml | grep -q 'workspace = true'
+      - grep -q hotline-contract docs/standards.md && grep -q hotline-contract AGENTS.md
+      - make check
+      - git diff --exit-code ui/src/generated/contract.ts
+      - make precheck
+  constraints:
+    - "Moves only: no behaviour change, no renamed wire field"
+    - ui/src/generated/contract.ts byte-identical from an unfiltered cargo test
+    - Tape event shapes unchanged
+  metrics:
+    readyAt: "2026-10-19T06:11:03.996Z"
 ---
 
 ## Description

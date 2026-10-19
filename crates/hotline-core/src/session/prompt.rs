@@ -311,11 +311,7 @@ impl Room {
         let mut wire = sending.wire;
         let posts = std::mem::take(&mut *lock(&session.pending_posts));
         if !posts.is_empty() {
-            wire.text = format!(
-                "(What you posted to this chat from elsewhere since you last spoke here:\n{})\n\n{}",
-                posts.join("\n"),
-                wire.text
-            );
+            wire.text = super::post::posted_since(&posts, &wire.text);
         }
         wire.text = timed_from(ts, client, &wire.text);
         wire.said = Some(id);

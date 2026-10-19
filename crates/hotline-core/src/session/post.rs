@@ -198,10 +198,9 @@ impl Room {
         let (session, _held) = self.in_this_chapter(persona_id).await?;
         self.post(persona_id, thread, post)?;
         let posts = std::mem::take(&mut *lock(&session.pending_posts));
-        let line = format!(
-            "(What you posted to this chat from elsewhere since you last spoke here:\n{})\n\n\
-             The last of these asks you to act on it now. Do, and tell the person what came of it.",
-            posts.join("\n")
+        let line = posted_since(
+            &posts,
+            "The last of these asks you to act on it now. Do, and tell the person what came of it.",
         );
         self.dispatch(session, Wired::words(timed(now_ms(), &line)));
         Ok("Posted to the chat, and your main conversation is acting on it.".to_string())
@@ -211,9 +210,10 @@ impl Room {
     /// `from` the thread it was said on, and says whether it landed.
     ///
     /// It wakes the person as a reply does, except from a call they are on.
-    /// It does not wake the home agent: everything posted so far was asked
-    /// for by the person (they placed the call, opened the work thread,
-    /// scheduled the job), so the post is for them. A live home session is
+    /// It does not wake the home agent: a post the person asked for (they
+    /// placed the call, opened the work thread, scheduled the job) is for
+    /// them, and only a thread that asks to wake it, through
+    /// [`Room::post_to_chat`], hands it a turn. A live home session is
     /// handed what its other threads posted ahead of the person's next line,
     /// so a typed follow-up does not start cold, and a session that starts
     /// later reads it from the tape. A post from the DM's own turn, which is
@@ -264,6 +264,16 @@ impl Room {
 /// What `post_to_chat` says to a subagent run.
 pub(crate) const SUBAGENT: &str = "A subagent reports to the teammate that launched it, which \
 decides what the person hears: put it in your report.";
+
+/// `line` for a live home session, behind what its other threads posted to the
+/// chat since it last spoke there: the posts are in the chat, not in its
+/// context.
+pub(super) fn posted_since(posts: &[String], line: &str) -> String {
+    format!(
+        "(What you posted to this chat from elsewhere since you last spoke here:\n{})\n\n{line}",
+        posts.join("\n")
+    )
+}
 
 /// Where a post on the tape came from, as the teammate is told it: "From
 /// your call". `None` for a message the DM's own turn said.

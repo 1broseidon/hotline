@@ -40,7 +40,7 @@ async fn a_subagent_run_may_not_post() {
         .await
         .unwrap_err();
     assert_eq!(refused, crate::session::SUBAGENT);
-    assert!(posts(&room).is_empty());
+    assert_eq!(posts(&room), [] as [Value; 0]);
 }
 
 /// The thread's lease is checked when the call lands: a work thread whose
@@ -112,5 +112,5 @@ async fn a_post_between_turns_is_refused() {
         .await
         .unwrap_err();
     assert!(refused.contains("turn in progress"), "{refused}");
-    assert!(posts(&room).is_empty());
+    assert_eq!(posts(&room), [] as [Value; 0]);
 }

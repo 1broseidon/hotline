@@ -160,7 +160,7 @@ impl Desk {
     /// A running teammate on `driver`, and its tape's subscription.
     async fn teammate(&mut self, name: &str, driver: Driver, machine: bool) -> (String, i64) {
         let mut draft = json!({"name":name,"goal":"Keep the harbour.","cwd":self.workspace});
-        if let Driver::Acp = driver {
+        if matches!(driver, Driver::Acp) {
             draft["backendId"] = json!(acp_fixture::BACKEND);
         }
         if machine {
@@ -268,7 +268,7 @@ async fn the_dm_posts_only_from_a_quiet_run(driver: Driver) {
             json!({
                 "personaId": ada,
                 "kind": "schedule",
-                "when": chrono::Utc::now().timestamp_millis() + 1_000,
+                "when": chrono::Utc::now().timestamp_millis() + 1_500,
                 "quiet": true,
                 "prompt": prompt,
             }),

@@ -14,6 +14,9 @@ relatedFiles:
   - docs/security.md
 parentId: epic-20
 createdAt: "2026-10-19T19:59:33.081Z"
+dependsOn:
+  - task-220
+updatedAt: "2026-10-19T19:59:35.537Z"
 ---
 
 ## Description

@@ -4,10 +4,10 @@
 - Date: 2026-10-19
 - Builds on: [ADR 0001](0001-threads-are-a-primitive.md), whose runtime
   this finishes for pairs and calls
-- Would supersede, once its slices land: [ADR 0005](0005-front-is-a-full-agent.md)
-  (the live voice is a full agent on the call), and with it what
-  [ADR 0004](0004-live-calls-get-a-voice-front.md) still holds for direct
-  calls; the "Quiet" rule in [sessions.md](../sessions.md#quiet) that only
+- Amends, once its slices land: [ADR 0005](0005-front-is-a-full-agent.md)
+  (the live voice stays a full agent for conversation and lookups, but real
+  work goes to a clone of the teammate on its own model and harness, on the
+  call's thread, never into the DM); supersedes the "Quiet" rule in [sessions.md](../sessions.md#quiet) that only
   a Hotline Agent quiet run may escalate
 - Design: [threads.md](../threads.md), [sessions.md](../sessions.md),
   [voice-calls.md](../voice-calls.md), [security.md](../security.md)
@@ -284,10 +284,13 @@ through the lease; seeded with the DM's tail; resumed by its binding) and
 keeps its own lifecycle (parked 30 seconds after hang-up once no turn is in flight, one per teammate).
 It is built by `Room::thread_agent` and driven by `Room::run_queue`, as a
 work thread is. On a harness teammate it is an ACP session of the harness's
-own, so Claude Code's edits and Codex's shell are on the call; ADR 0005's
-open question about lending a harness's tools to a call goes away.
+own, so Claude Code's edits and Codex's shell do the call's work; ADR 0005's
+open question about lending a harness's tools to a call goes away. On a live
+voice the live model is the call's voice and the thread's agent is the clone
+that does its work (below); on Legacy voice the thread's agent is spoken to
+directly.
 
-**Speech in, speech out.** The call's ear transcribes (the `Speech`
+**Speech in, speech out (Legacy voice).** The call's ear transcribes (the `Speech`
 engines, or the device's own text, `voice.text`) and each utterance is a
 line on the call thread's queue; a second utterance steers a turn in
 flight, as it does on the DM. The call's mouth says the reply's spoken
@@ -311,25 +314,56 @@ summaries and the front's mechanical `Digest` (`voice/record.rs:116-207`)
 go: on a long call the person sees the transcript on the call card, and what
 matters is posted as it happens.
 
-**The live fronts.** A realtime front stops being an agent: its prompt
-(`front_prompt.rs`), its registry (`front_tools.rs`, `FRONT_TOOLS`,
-`for_front`, `Room::front_reach`), `send_to_teammate` and `remain_silent`,
-the call assistant's delegation loop (`dispatcher::answer_delegation`) and
-the relay into the DM (`hand_off`, `CALL_ORIGIN` on DM turns) go. The
-realtime engines are then the ear and mouth or nothing.
-**Recommendation:** run the call on the `Speech` engines alone (streaming
-transcription and progressive speech already exist on an xAI key, and the
-Grok login is a speech choice of its own), because once the agent answers every utterance the
-front's latency advantage is gone and a speech-to-speech model told to say a
-text verbatim is the one place the person could hear words no agent wrote.
-The proving call measures the end of speech to the first audio; if the ear
-and mouth, not the agent's turn, cost more than a second there, a realtime
-session comes back as ear and mouth only, behind the `Speech` seam, with no
-tools and nothing to say of its own. Two things are lost and stated: GPT-Live
-on the ChatGPT sign-in has no pipeline equivalent, and small talk is
-answered at an agent's speed. A teammate whose call should be quick runs the
-call on a fast model, which is the teammate's model setting, not a voice
-one.
+**Two ways to talk, one rule: voice changes how you talk to the
+teammate, never who does the work (George, 2026-10-19).** The work a call
+asks for is done by the teammate's own model and harness, exactly as if the
+person had typed it. Voice never quietly swaps in another model or another
+set of tools because the person is on a call.
+
+- **Live voice (Grok Voice, GPT Realtime, GPT-Live).** The live model is
+  the call's voice: it talks, keeps the conversation, and does lookups
+  itself with the teammate's desk-side tools (its history, chapters,
+  schedules, web search) at the speed of its own thinking, under the call
+  thread's lease. Anything that writes or changes something (a doc, code, a
+  command, a file, a decision) it sends to one tool that runs a clone of the
+  teammate (§0) on the teammate's own model and harness, focused on that
+  task, on the call's thread. The tool returns at once; the clone works in
+  the background, the call goes on, and its result comes back into the call
+  to be said, while anything it produced is posted to the chat. The home
+  agent is never interrupted. This is the same front for every teammate,
+  Hotline Agent and ACP alike: a Hotline Agent teammate on Grok 4.7 does its
+  real work on Grok 4.7, not on the voice model. It keeps ADR 0005's front
+  and replaces where its work goes: today's `send_to_teammate` into the DM,
+  the relay (`hand_off`, `CALL_ORIGIN`) and the call assistant's delegation
+  loop (`dispatcher::answer_delegation`) go; GPT-Live's delegation is
+  answered by the same tool.
+- **Legacy voice.** Speech in and out around the teammate itself: the call's
+  ear transcribes, each utterance is a line on the call thread, and the
+  teammate's own model answers, its reply said as it streams. This is the
+  only path where small talk is answered at the agent's speed; the agent's
+  own first sentence, a soft sound, streamed speech and interrupting at any
+  time soften it, and a teammate that should be quick on calls runs on a
+  fast model.
+
+**The work tool never sounds like a hand-off (George, 2026-10-19).** A
+front given a delegation tool narrates it ("handing that off", "passing that
+on"), which is what the desk call does today. So:
+
+- the tool is named and described as the teammate's own action, in the
+  first person (working on it, writing it up), never as sending, passing,
+  relaying or a teammate;
+- the front's prompt says it is the teammate, with no one behind it to
+  mention; it gives no stock acknowledgements to copy, only what a good one
+  is (a few words naming what was asked: "Let me write that up") and what
+  never to say ("handing that off", "passing that on", "let me check that
+  for you", a repeat);
+- the call's last few acknowledgements are fed back to the front as already
+  said, so it cannot loop on one;
+- the scripted-front tests carry a regression check: over a fixed set of
+  requests, no relay phrasing in what the front says, and no acknowledgement
+  repeated within a call. A speech-to-speech model speaks audio the desk
+  cannot filter first, so the prompt, the tool's framing and the check are
+  the enforcement.
 
 **A call goes on as text, and a new call can pick it up (George, 2026-10-19).**
 A required feature, not a later UI choice. A call thread keeps its binding
@@ -360,9 +394,9 @@ line on it, take the agent's spoken stream back, post to the chat, and be
 told of a card. That is a handful of methods, and the reach George's test
 counts against (`front_reach`, `start` and `prompt` into the DM,
 `call_posted`, `voice_spoken`, and the dispatcher's command table) is what
-slices 5 to 7 delete. task-214 should move the calls after slice 6, not
-before: moving the fronts into `hotline-voice` and then deleting them there
-is two changes where one would do.
+slices 5 to 7 delete or reshape. task-214 should move the calls after slice
+6, not before: moving the fronts into `hotline-voice` and then reshaping
+them there is two changes where one would do.
 
 ### 6. Migration
 
@@ -396,14 +430,12 @@ Each slice lands alone, keeps every test green, and says what it removes.
    still run when Settings picks one. *Removes* the pipeline's relay into
    the DM (`hand_off`, a direct call's `CALL_ORIGIN`, `Origin::ended`,
    `ENDED_NOTE`, `voice_spoken` on DM replies) and the call's `Tools::None`.
-6. **The fronts go**, after the proving call on slice 5. *Removes*
-   `front.rs`, `front_prompt.rs`, `front_tools.rs`, the front half of
-   `duplex.rs`, `Digest`, `answer_delegation`, `Room::front_reach`,
-   `FRONT_TOOLS`, and the realtime engines unless the measurement above
-   keeps them as ear and mouth. `voice.call_start.mode: "front"` is answered
-   without a `front`, which every client already reads as the pipeline, so
-   no wire field is removed while older phones send it. ADR 0005 and what
-   ADR 0004 held for direct calls are marked superseded.
+6. **The front's work goes to a clone**, after the proving call on slice 5.
+   The front keeps its voice and lookups; its work tool runs a clone of the
+   teammate on the call's thread (see §5), framed in the first person, with
+   the relay-phrasing check in its tests. *Removes* `send_to_teammate`, the
+   relay into the DM, `answer_delegation`, `Digest`, and `front_reach`'s
+   reach into the DM's session. ADR 0005 is marked amended.
 7. **Desk calls are the lead's** (epic-17's routing task). *Removes* the
    dispatcher's desk role, the `voice-dispatcher` tape and `desk_command`'s
    reach into the wire's command table.
@@ -469,18 +501,18 @@ note, then today's quiet-run path in the home thread removed.
 - The chat holds everything an agent gave the person, stamped with where it
   came from, so searching the chat finds a file made on a call or in a work
   thread.
-- A call is the teammate: its harness, its tools, its computer; nothing is
-  "passed on", and what is said is what an agent wrote.
+- The work a call asks for is done by the teammate's own model and harness,
+  exactly as typed work would be; voice only changes the talking.
 - The pair and the call stop being special at the builder and the loop, and
-  the front's three files and the room's widest reach into voice go.
+  the front's reach into the DM goes.
 
 **Costs and risks**
 
-- Small talk on a call waits for an agent's turn. The proving call is where
-  this is judged, and the measurement in section 5 is what would bring a
-  realtime ear and mouth back.
-- GPT-Live on the ChatGPT sign-in is lost unless a speech route on that
-  sign-in exists.
+- On Legacy voice, small talk waits for an agent's turn; on a live voice it
+  does not. The proving call is where Legacy voice's wait is judged.
+- A front given a work tool may narrate it; the tool's first-person framing,
+  the prompt and the relay-phrasing check in the tests are what hold it, and
+  a speech-to-speech model's audio cannot be filtered before it is heard.
 - A teammate on a call and in its DM is two agents of the same teammate at
   once, as a work thread already is; the computer lease serialises them, and
   the posted summary, and the posts handed to the DM's next line, carry
@@ -500,9 +532,16 @@ None left open: the last (a quiet job's own thread) is decided in §7.
   every utterance and every "mm, yes" becomes a chat line, which is what ADR
   0005 was written to stop, and a call waits behind whatever the DM is
   doing.
-- **Keep the front as the agent and give it the harness's tools.** The ACP
-  surface to lend a harness's tools to another model does not exist, and two
-  agents speaking as one teammate is the split this epic removes.
+- **Give the front the harness's own tools** (Claude Code's `claude mcp
+  serve`, say). The live model would then write the code itself, skipping
+  the harness's own loop and judgment and the lease checks Hotline enforces
+  on an ACP session, a long command would hold the call, and it would work
+  for one harness only. The work tool runs the harness itself instead, for
+  every ACP agent, which is what Codex's own MCP server does too.
+- **Drop the fronts and run every call through the speech pipeline.** The
+  first draft of this ADR. Every utterance would wait on the agent, and the
+  live models already answer conversation and lookups at their own speed;
+  what mattered was only that they never do the teammate's work themselves.
 - **Keep `tell_person` and add `post_to_chat` beside it.** Two doors with
   two sets of safeguards, and a model choosing between them.
 - **Keep the follow-up turn for every post.** Each post would cost a DM

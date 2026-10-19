@@ -288,6 +288,14 @@ answered at an agent's speed. A teammate whose call should be quick runs the
 call on a fast model, which is the teammate's model setting, not a voice
 one.
 
+**A call goes on as text, and a new call can pick it up (George, 2026-10-19).**
+A required feature, not a later UI choice. A call thread keeps its binding
+when the person hangs up, so it stays an open thread: back at the desk they
+keep talking to the same agent in it by text, with the call's whole context,
+and from there they can start another call on that same thread, attaching
+the voice modality to it again. Hanging up detaches the voice and closes
+nothing. The window and the phone both offer it from the call's thread.
+
 **Desk calls.** epic-17 makes a desk call a call to the team lead. Under
 this design that is a call thread on the lead, so the dispatcher's desk role,
 the `voice-dispatcher` tape and its `desk_command` tool (`voice/dispatcher.rs:101`,
@@ -391,9 +399,6 @@ independent of voice; 5 to 7 are the voice path, in order.
   it, resumed by its binding, posting when it finds something) would keep
   the DM clean and still remember the last check. Not proposed here; it is
   the next modality question once posting works everywhere.
-- **Continuing a call as text.** A call thread with a binding can be
-  continued like a work thread. Whether the window offers it, or a closed
-  call stays read-only, is a UI choice for after slice 5.
 - **A call about a work thread.** threads.md asks whether a call can bind to
   a work thread. Under this design it is the voice modality attached to that
   thread instead of a new one; not proposed until someone asks for it.

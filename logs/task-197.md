@@ -1,8 +1,6 @@
 ---
 id: task-197
 title: "hotline-store: the tape, the log and the search index as their own crate"
-column: review
-position: 5
 priority: medium
 tags:
   - crate-split
@@ -19,7 +17,7 @@ createdAt: "2026-10-19T06:07:00.407Z"
 dependsOn:
   - task-194
   - task-196
-updatedAt: "2026-10-19T08:14:20.536Z"
+updatedAt: "2026-10-19T08:15:58.689Z"
 contract:
   status: delivered
   deliverables:
@@ -65,6 +63,7 @@ dispatch:
     at: "2026-10-19T08:04:13.344Z"
     ended: "2026-10-19T08:14:20.536Z"
     outcome: review
+completedAt: "2026-10-19T08:15:58.689Z"
 ---
 
 ## Description
@@ -76,3 +75,4 @@ From task-194 and task-196: hotline-core re-exports hotline_contract as crate::c
 
 ## Log
 - 2026-10-19T08:14:16.869Z: [claude] On dispatch/task-197 (98f84a15). hotline-store holds log, sent, and the store's chapters/previews/search flattened at its crate root, plus a `link` module that took Link, Opener, ThreadState and AgentBinding out of thread (none has a ts-rs derive; contract.ts is byte-identical). Its only Hotline dependencies are hotline-contract and hotline-support. Callers stayed put, re-exported rather than moved: hotline-core has `pub use hotline_store::log`, `use hotline_store::sent` and `pub(crate) use hotline_store as store`, so crate::log and crate::store::search still work, and thread re-exports the link types. To cross the crate boundary, Log::close_broadcasts and sent::read lost their #[cfg(test)], because core tests call them and see the store crate built without cfg(test). roxmltree moved from core to store. wire/files.rs now computes mime_guess on its own line, because cargo-machete could not see the call inside the one-line json!. The ("store","thread") cut is gone from scripts/module-map, and scripts/security-citations searches crates/hotline-store/src. Docs updated: standards, development layout, AGENTS.md, ADR 0007 cut 2, log.md, sessions.md. In the foreground: make check passed (3m21s) and make precheck passed (95s, all 8 legs); every validation command passes, and the desk harness is unchanged. For task-198: add hotline-tools to the workspace members after hotline-store, add the security-citations root if security.md cites tools files, and remove ("tools","driver") from PLANNED_CUTS. Nothing is left unwired.
+- 2026-10-19T08:15:58.308Z: Landed on release/0.41.0

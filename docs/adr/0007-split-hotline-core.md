@@ -893,15 +893,16 @@ against what epic-18 was to be done with:
 3. **The docs name the new paths.** No file in `docs/` outside the ADRs,
    nor `AGENTS.md`, names `room.rs`, `linked.rs`, `session/ledger.rs`,
    `wire/room_handle.rs`, `mcp/oauth.rs` or `mcp/tool.rs` under
-   `crates/hotline-core/src/`, except the 0.40 audits in `docs/audits/0.40/`,
-   which cite the tree they read at `release/0.40.0` with its line numbers
-   and are left as written, as they were for epic-16's moves (26 citations
-   of the core's old `contract`, `store`, `tools`, `websearch` and `paths`
-   are there too). standards.md's module map, security.md's citations,
-   development.md's tree and AGENTS.md's crate list name `hotline-room` and
-   `hotline-mcp`.
-4. **`make check` and `make precheck` pass** at the tip, with this ADR the
-   only change.
+   `crates/hotline-core/src/`. The 0.40 audits in `docs/audits/0.40/` cited
+   four of them ten times; those citations now name the files in
+   `hotline-room` and `hotline-mcp` and keep the audited line numbers, as
+   the audits' README says. (Their 26 citations of the core's old
+   `contract`, `store`, `tools`, `websearch` and `paths`, moved by epic-16,
+   are still as written.) standards.md's module map, security.md's
+   citations, development.md's tree and AGENTS.md's crate list name
+   `hotline-room` and `hotline-mcp`.
+4. **`make check` and `make precheck` pass** at the tip, with this ADR and
+   those audit citations the only change.
 
 For epic-17 (voice) to start on top: of the files its children name,
 two moved, and both are in Step 1's table: task-202's

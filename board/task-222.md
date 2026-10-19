@@ -13,6 +13,13 @@ relatedFiles:
   - CHANGELOG.md
 parentId: epic-20
 createdAt: "2026-10-19T19:59:33.586Z"
+dependsOn:
+  - task-219
+  - task-218
+  - task-221
+  - task-202
+  - task-205
+updatedAt: "2026-10-19T19:59:36.040Z"
 ---
 
 ## Description

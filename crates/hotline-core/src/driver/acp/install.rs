@@ -572,10 +572,13 @@ mod tests {
         )
         .await;
 
-        // A zip keeps a Unix mode in the top half of its external attributes.
+        // A zip keeps a Unix mode in the top half of its external attributes,
+        // read only from an archive made on Unix, as registry archives are; a
+        // writer on Windows would mark it made on DOS unless told otherwise.
         let zip_with_mode = |mode: u32| {
             let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
             let options = zip::write::SimpleFileOptions::default()
+                .system(zip::System::Unix)
                 .external_attributes((0o100_000 | mode) << 16);
             writer.start_file("agent", options).unwrap();
             writer.write_all(b"x").unwrap();

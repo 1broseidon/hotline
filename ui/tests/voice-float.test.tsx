@@ -139,6 +139,7 @@ describe("a call's trouble", () => {
 		expect(troubleWords("Hotline can't use the microphone. Turn it on for Hotline in System Settings › Privacy & Security › Microphone, then try again.")).toBe("Microphone blocked");
 		expect(troubleWords("Hotline can't hear the microphone any more. Call again when it's back.")).toBe("Microphone lost");
 		expect(troubleWords("This desk needs an update before it can call a teammate directly.")).toBe("Desk needs update");
+		expect(troubleWords("Hotline hears your voice but no words. Allow Hotline under Speech Recognition in System Settings › Privacy & Security.")).toBe("No words heard");
 		expect(troubleWords("Something nobody planned for.")).toBe("Call failed");
 		for (const words of ["No microphone", "Microphone busy", "Desk needs update", "Call failed"]) expect(words.split(" ").length).toBeLessThanOrEqual(3);
 	});

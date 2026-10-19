@@ -1,8 +1,6 @@
 ---
 id: task-195
 title: "hotline-websearch: web search as its own crate"
-column: review
-position: 3
 priority: medium
 tags:
   - crate-split
@@ -15,7 +13,7 @@ createdAt: "2026-10-19T06:06:59.331Z"
 dependsOn:
   - task-194
   - task-198
-updatedAt: "2026-10-19T08:44:31.558Z"
+updatedAt: "2026-10-19T08:46:15.598Z"
 contract:
   status: delivered
   deliverables:
@@ -57,6 +55,7 @@ dispatch:
     at: "2026-10-19T08:33:12.898Z"
     ended: "2026-10-19T08:44:31.558Z"
     outcome: review
+completedAt: "2026-10-19T08:46:15.598Z"
 ---
 
 ## Description
@@ -68,3 +67,4 @@ From task-194, task-196, task-197 and task-198 (all landed on release/0.41.0): h
 
 ## Log
 - 2026-10-19T08:44:28.455Z: [claude] On dispatch/task-195 (0019260a). crates/hotline-websearch holds web search, depending on hotline-contract alone. Callers did not move: core has `pub(crate) use hotline_websearch as websearch`. One thing crossed back: core's mcp/server tests used websearch's test-only mock providers, so that mock moved out of tests.rs into `mock.rs`. It is public only under a `test-support` feature (optional axum), and core turns it on as a dev-dependency. whatlang left core; reqwest, regex, url, async-trait and futures-util stay because core uses them elsewhere (machete is clean). security.md cites no websearch code and module-map had no cut for it, so neither script changed. Docs updated: standards, AGENTS.md, development layout, and an ADR 0007 note. make check passes (3m52s), and so does make precheck (all 8 legs, 98s); contract.ts is byte-identical. Nothing is left unwired. This was the last crate move, so task-199 (the timings again) is next.
+- 2026-10-19T08:46:15.247Z: Landed on release/0.41.0

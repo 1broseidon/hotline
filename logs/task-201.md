@@ -1,8 +1,6 @@
 ---
 id: task-201
 title: "Design review: one voice front, the team lead role, routing and acknowledgements"
-column: todo
-position: 1
 priority: high
 tags:
   - design
@@ -15,6 +13,8 @@ relatedFiles:
   - docs/adr
 parentId: epic-17
 createdAt: "2026-10-19T13:59:37.216Z"
+completedAt: "2026-10-19T20:00:04.059Z"
+updatedAt: "2026-10-19T20:00:04.059Z"
 ---
 
 ## Description

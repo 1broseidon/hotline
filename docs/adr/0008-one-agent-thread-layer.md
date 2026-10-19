@@ -1,6 +1,6 @@
 # ADR 0008: One agent thread layer; modalities attach to it, and the chat is the log of truth
 
-- Status: Proposed, for George's review (task-215). Nothing here is built.
+- Status: Accepted by George, 2026-10-19 (task-215). Nothing here is built yet.
 - Date: 2026-10-19
 - Builds on: [ADR 0001](0001-threads-are-a-primitive.md), whose runtime
   this finishes for pairs and calls

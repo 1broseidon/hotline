@@ -296,6 +296,13 @@ and from there they can start another call on that same thread, attaching
 the voice modality to it again. Hanging up detaches the voice and closes
 nothing. The window and the phone both offer it from the call's thread.
 
+**A call can start on any thread (George, 2026-10-19).** The same feature
+in reverse: a call can be placed on a thread already under way, a work
+thread or an earlier call, and the voice modality attaches to that thread
+and its agent instead of opening a new call thread. Whatever is said lands
+in that thread, and posts go to the chat as from any call. A call on a
+thread whose agent is mid-turn waits or interrupts as a typed line would.
+
 **Desk calls.** epic-17 makes a desk call a call to the team lead. Under
 this design that is a call thread on the lead, so the dispatcher's desk role,
 the `voice-dispatcher` tape and its `desk_command` tool (`voice/dispatcher.rs:101`,
@@ -399,9 +406,6 @@ independent of voice; 5 to 7 are the voice path, in order.
   it, resumed by its binding, posting when it finds something) would keep
   the DM clean and still remember the last check. Not proposed here; it is
   the next modality question once posting works everywhere.
-- **A call about a work thread.** threads.md asks whether a call can bind to
-  a work thread. Under this design it is the voice modality attached to that
-  thread instead of a new one; not proposed until someone asks for it.
 
 ## Alternatives considered
 

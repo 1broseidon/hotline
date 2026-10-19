@@ -186,35 +186,44 @@ async fn the_lead_is_set_moved_and_cleared_and_the_roster_rows_carry_it() {
         "A desk with one teammate has it as its lead."
     );
 
-    let bob = create(&mut socket, 4, "Bob").await;
-    let row = heard_where(&mut socket, |f| f["event"]["persona"]["id"] == bob["id"]).await;
+    ask(
+        &mut socket,
+        json!({ "id": 4, "cmd": "persona.create", "params": { "draft": { "name": "Bob" } } }),
+    )
+    .await;
+    let [answer, row] = heard_each(
+        &mut socket,
+        [&|f| f["id"] == 4, &|f| {
+            f["event"]["persona"]["name"] == "Bob"
+        }],
+    )
+    .await;
+    let bob = answer["result"].clone();
     assert!(row["event"].get("lead").is_none(), "{row}");
 
     // Making Bob lead moves the role: both rows are sent again.
     ask(&mut socket, lead(5, Some(&bob))).await;
-    assert_eq!(
-        heard_where(&mut socket, |f| f["id"] == 5).await["result"],
-        bob["id"]
-    );
-    heard_where(&mut socket, |f| {
-        f["event"]["persona"]["id"] == bob["id"] && f["event"]["lead"] == true
-    })
+    let [answer, _, _] = heard_each(
+        &mut socket,
+        [
+            &|f| f["id"] == 5,
+            &|f| f["event"]["persona"]["id"] == bob["id"] && f["event"]["lead"] == true,
+            &|f| f["event"]["persona"]["id"] == ada["id"] && f["event"].get("lead").is_none(),
+        ],
+    )
     .await;
-    heard_where(&mut socket, |f| {
-        f["event"]["persona"]["id"] == ada["id"] && f["event"].get("lead").is_none()
-    })
-    .await;
+    assert_eq!(answer["result"], bob["id"]);
     assert_eq!(room::team_lead(&log).as_deref(), bob["id"].as_str());
 
     ask(&mut socket, lead(6, None)).await;
-    assert_eq!(
-        heard_where(&mut socket, |f| f["id"] == 6).await["result"],
-        Value::Null
-    );
-    heard_where(&mut socket, |f| {
-        f["event"]["persona"]["id"] == bob["id"] && f["event"].get("lead").is_none()
-    })
+    let [answer, _] = heard_each(
+        &mut socket,
+        [&|f| f["id"] == 6, &|f| {
+            f["event"]["persona"]["id"] == bob["id"] && f["event"].get("lead").is_none()
+        }],
+    )
     .await;
+    assert_eq!(answer["result"], Value::Null);
     assert_eq!(room::team_lead(&log), None);
 
     ask(&mut socket, lead(7, Some(&json!({ "id": "nobody" })))).await;
@@ -234,6 +243,27 @@ async fn the_lead_is_set_moved_and_cleared_and_the_roster_rows_carry_it() {
         "The lead is set with persona.lead."
     );
     assert_eq!(room::team_lead(&log), None);
+}
+
+/// One frame for each of `wanted`, in whatever order they come. A command's
+/// answer and the roster rows it causes are queued by different tasks, and
+/// `heard_where` drops what it passes over, so waiting for them one by one
+/// would wait forever for a row that came before the answer.
+async fn heard_each<const N: usize>(
+    socket: &mut Socket,
+    wanted: [&dyn Fn(&Value) -> bool; N],
+) -> [Value; N] {
+    let mut found: [Option<Value>; N] = std::array::from_fn(|_| None);
+    for _ in 0..16 {
+        if found.iter().all(Option::is_some) {
+            break;
+        }
+        let frame = heard(socket).await;
+        if let Some(at) = (0..N).find(|&at| found[at].is_none() && wanted[at](&frame)) {
+            found[at] = Some(frame);
+        }
+    }
+    found.map(|frame| frame.expect("a frame this test was waiting for never arrived"))
 }
 
 #[tokio::test]

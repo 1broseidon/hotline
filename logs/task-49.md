@@ -1,8 +1,6 @@
 ---
 id: task-49
 title: "Window: render long conversations progressively with stable scroll anchoring"
-column: review
-position: 5
 priority: medium
 tags:
   - performance
@@ -13,7 +11,7 @@ relatedFiles:
   - ui/src/index.css
 parentId: epic-14
 createdAt: "2026-10-12T04:20:52.535Z"
-updatedAt: "2026-10-19T00:49:49.098Z"
+updatedAt: "2026-10-19T00:49:49.495Z"
 contract:
   status: delivered
   deliverables:
@@ -44,6 +42,7 @@ dispatch:
     ended: "2026-10-19T00:49:37.179Z"
     outcome: review
 assignee: claude
+completedAt: "2026-10-19T00:49:49.495Z"
 ---
 
 ## Description

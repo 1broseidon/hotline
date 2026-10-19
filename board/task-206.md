@@ -11,14 +11,14 @@ assignee: claude
 relatedFiles:
   - crates/hotline-core/tests
   - docs
-parentId: epic-17
+parentId: epic-21
 createdAt: "2026-10-19T13:59:39.590Z"
 dependsOn:
   - task-203
   - task-204
   - task-205
   - task-207
-updatedAt: "2026-10-19T14:02:18.545Z"
+updatedAt: "2026-10-19T20:00:09.374Z"
 ---
 
 ## Description

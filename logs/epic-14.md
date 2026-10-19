@@ -2,8 +2,6 @@
 id: epic-14
 title: "0.40 easy wins: the small fixes from the backlog triage"
 type: epic
-column: todo
-position: 1
 priority: high
 tags:
   - "0.40"
@@ -11,20 +9,9 @@ tags:
   - triage
 createdAt: "2026-10-18T23:40:44.455Z"
 landsOn: release/0.40.0
-updatedAt: "2026-10-18T23:51:16.037Z"
-dispatch:
-  agent: claude
-  model: opus
-  by: cli
-  at: "2026-10-18T23:51:14.029Z"
-  until: done
-  role: lead
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 59290
-    at: "2026-10-18T23:51:16.037Z"
+updatedAt: "2026-10-19T01:09:36.941Z"
 assignee: claude
+completedAt: "2026-10-19T01:09:36.941Z"
 ---
 
 ## Description
@@ -51,3 +38,21 @@ Rules: each child is one landable change behind `make precheck` (the hooks are o
 - task-49: open the longest tape you have (many Mermaid diagrams or computer frames): it opens quickly, diagrams draw as they scroll into view, and loading older lines at the top keeps your place. Expected: a diagram drawing late above you can still shift the view if you aren't pinned to the bottom.
 - task-55: connect the phone over LAN, then switch its Wi-Fi off without closing the app: the desk drops that seat within about 60-90 s (Settings › Devices shows it gone), not many minutes later.
 - task-89, on GitHub: Actions → ci → Run workflow, then read the shell-probe job on macos-26 and macos-15. If socket.getfqdn("127.0.0.1") is slow there, the 0.39.0 hang was a reverse-DNS lookup in http.server, not the Seatbelt sandbox; the Seatbelt profile is unchanged until that run is read.
+
+## Child Tasks
+Summary: 15/15 children completed.
+- task-180: A 'needs you' card a teammate no longer needs goes away: withdraw your own request, and a shorter default lifetime (completed)
+- task-181: Agent registry: keep the last working list, refresh it in the background at session start, and say plainly when a model isn't supported (completed)
+- task-182: OAuth callback page: a styled, dark page with a strict Content-Security-Policy (completed)
+- task-183: Linked desks: the dial-loop exit, an old-desk message, and the other follow-ups from the merge review (items 2-6) (completed)
+- task-184: Teammate card: the threads list reads thread.list, not peers.list (completed)
+- task-185: Computer settings say 'applies after restart' for memory and CPUs (completed)
+- task-186: Start paired desks concurrently at launch (completed)
+- task-187: Run read-only global commands without blocking the socket (completed)
+- task-188: Say 'Hotline Agent unavailable' when no provider is connected (completed)
+- task-189: 0.40 easy wins land together: the release branch passes check, verify and precheck with every slice in (completed)
+- task-37: Apple on-device transcription fails silently when Speech Recognition is refused (completed)
+- task-49: Window: render long conversations progressively with stable scroll anchoring (completed)
+- task-55: Desk drops a phone's dead socket sooner (completed)
+- task-8: A provider refusing turns shouldn't read as "sign in again" when the sign-in is fine (completed)
+- task-89: macOS shell sandbox: /usr/bin developer shims (python3, git, make) may hang when xcode-select points at Xcode (completed)

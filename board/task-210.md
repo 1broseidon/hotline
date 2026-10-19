@@ -1,7 +1,7 @@
 ---
 id: task-210
 title: Timings after stage 2, in ADR 0007
-column: todo
+column: in-progress
 position: 11
 priority: medium
 tags:
@@ -17,9 +17,9 @@ parentId: epic-18
 createdAt: "2026-10-19T14:07:42.521Z"
 dependsOn:
   - task-209
-updatedAt: "2026-10-19T15:35:45.996Z"
+updatedAt: "2026-10-19T15:35:56.671Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: docs
       path: docs/adr/0007-split-hotline-core.md
@@ -39,6 +39,8 @@ contract:
     - Timings taken on the same machine and conditions at each of the three commits
   metrics:
     readyAt: "2026-10-19T14:10:20.086Z"
+    pickedUpAt: "2026-10-19T15:35:56.671Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

@@ -44,3 +44,4 @@ The epic's wiring and proof, last. After every 0.41 child (this epic's and epic-
 
 ## Log
 - 2026-10-19T20:00:42.947Z: [claude] Split of work: the dispatched agent does the land-together part (check, precheck, CI, docs, CHANGELOG) and writes the QA checklist into epic-20's log; the hands-on QA on the Linux QA computer is Pork Chop's, from the watch loop, since only Pork Chop drives that computer. Hand-off to George waits for that QA.
+- 2026-10-19T23:20:47.352Z: [claude] Lead, from task-220's handoff: a job's overrun count and its told-once flag live in memory (lost on restart), and goal/until/times can be set only by the loop tool, not schedule.create on the wire. Check both against the epic's done in the harness and QA; fix or file. The search rebuild missing job threads is task-221's.

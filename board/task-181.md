@@ -15,7 +15,7 @@ relatedFiles:
   - crates/hotline-core/src/desk.rs
   - crates/hotline-core/src/wire/room_handle.rs
   - crates/hotline-core/src/driver/failure.rs
-updatedAt: "2026-10-19T00:36:35.902Z"
+updatedAt: "2026-10-19T00:37:19.524Z"
 contract:
   status: in_progress
   deliverables:
@@ -39,16 +39,9 @@ dispatch:
   agent: claude
   model: opus
   by: lead
-  at: "2026-10-19T00:27:29.287Z"
+  at: "2026-10-19T00:37:19.220Z"
   until: done
   tries: 1
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 59290
-    at: "2026-10-19T00:27:31.124Z"
-    ended: "2026-10-19T00:36:35.902Z"
-    outcome: review
 assignee: claude
 ---
 

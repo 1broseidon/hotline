@@ -1,8 +1,6 @@
 ---
 id: task-202
 title: "Core + contract: the team lead role, set, moved and kept"
-column: review
-position: 0
 priority: high
 tags:
   - core
@@ -23,7 +21,7 @@ relatedFiles:
   - docs/design.md
 parentId: epic-17
 createdAt: "2026-10-19T13:59:37.690Z"
-updatedAt: "2026-10-19T20:49:57.084Z"
+updatedAt: "2026-10-19T20:54:24.168Z"
 contract:
   status: in_progress
   deliverables:
@@ -68,6 +66,7 @@ dispatch:
     at: "2026-10-19T20:14:08.188Z"
     ended: "2026-10-19T20:27:36.896Z"
     outcome: review
+completedAt: "2026-10-19T20:54:24.168Z"
 ---
 
 ## Description
@@ -81,3 +80,4 @@ Proof: wire tests beside the code (roster carries the lead; set, move, clear; re
 - 2026-10-19T20:14:07.657Z: Landing sent back (1 of 1): with release/0.41.0 brought in, `make check` failed: 645 + Ok(Value::Null) ⏎ 646 + } ⏎ | ⏎ error: could not compile `hotline-core` (lib) due to 1 previous error ⏎ warning: build failed, waiting for other jobs to finish... ⏎ error: could not compile `hotline-core` (lib test) due to 1 previous error ⏎ make: *** [check] Error 101. Fix it on this branch, commit, and run the checks again.
 - 2026-10-19T20:14:30.790Z: [claude] Lead: the last try ended its turn while `make check` was still running in the background, and the app's `make check` then failed. This time, run `make check` (and `cargo test -p hotline-contract` / `-p hotline-core` unfiltered, so contract.ts is written whole) in the foreground, fix what it reports, and finish only once it passes.
 - 2026-10-19T20:28:17.710Z: [claude] [claude] Lead: try 2 ended the same way: it ended its turn while `make check` was still running in the background, leaving fmt/clippy fixes uncommitted in the worktree (lead_persona as an early-return `if let`, `std::slice::from_ref(&ada)` in teammates.rs). This time: commit those fixes. Then never use run_in_background. Run each check as a foreground Bash call with timeout 600000, one at a time: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test -p hotline-contract`, `cargo test -p hotline-core`, then `make check` and `make verify`. Fix what fails, commit, and end your turn only after both pass in the foreground and `git status` is clean.
+- 2026-10-19T20:54:22.865Z: Landed on release/0.41.0

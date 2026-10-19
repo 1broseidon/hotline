@@ -1,7 +1,7 @@
 ---
 id: task-89
 title: "macOS shell sandbox: /usr/bin developer shims (python3, git, make) may hang when xcode-select points at Xcode"
-column: in-progress
+column: review
 position: 6
 priority: medium
 tags:
@@ -10,13 +10,13 @@ tags:
   - shell
 createdAt: "2026-10-16T22:26:28.277Z"
 parentId: epic-14
-updatedAt: "2026-10-19T00:46:25.646Z"
+updatedAt: "2026-10-19T00:56:48.766Z"
 relatedFiles:
   - crates/hotline-core/src/tools/shell/macos.rs
   - crates/hotline-core/tests/processes.rs
   - .github/workflows/ci.yml
 contract:
-  status: in_progress
+  status: delivered
   validation:
     commands:
       - cargo fmt --all --check
@@ -28,6 +28,8 @@ contract:
     readyAt: "2026-10-18T23:53:55.554Z"
     pickedUpAt: "2026-10-19T00:46:25.646Z"
     reworkCount: 0
+    deliveredAt: "2026-10-19T00:56:48.766Z"
+    duration: 623
 dispatch:
   agent: claude
   model: opus

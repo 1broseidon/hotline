@@ -51,3 +51,6 @@ Related Files:
   - ui/src/index.css
 
 0.40 triage (2026-10-18): Narrowed: the window already opens on the last lines and pages older ones (08718921, wire/phone.rs DESK_TAPE_WINDOW). Remaining: draw Mermaid only near the viewport (IntersectionObserver), cache computer frame blobs, and add a scroll-anchor check when older lines arrive.
+
+## Log
+- 2026-10-19T00:49:20.366Z: [claude] Done on branch dispatch/task-49 (27abcc65): Mermaid.tsx draws a block only once an IntersectionObserver rooted on the .scroller sees it within a screen (cached diagrams still show at once); computer frames moved to transcript/ComputerFrame.tsx, decoded once to a blob URL keyed by event id, ref-counted so a shown URL is never revoked, trimmed to 24 unshown on unmount; the older-lines scroll anchor in Transcript.tsx was cleared by a .finally comparing a stale `events` closure (worked only by React's microtask commit order) — now cleared a frame later only if still held. ui/tests/long-tape.test.tsx proves all three (the anchor test fails on the old code). Not done: virtualization and a time-to-first-usable measurement, out of the 0.40 narrowed scope. Note for later tasks: WebKit has no CSS overflow-anchor, so height changes above the view (a diagram drawing late) can still shift a reader who is not pinned.

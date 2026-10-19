@@ -15,7 +15,7 @@ parentId: epic-16
 createdAt: "2026-10-19T06:06:58.782Z"
 dependsOn:
   - task-193
-updatedAt: "2026-10-19T07:26:35.482Z"
+updatedAt: "2026-10-19T07:41:39.477Z"
 contract:
   status: in_progress
   deliverables:
@@ -50,15 +50,16 @@ dispatch:
   by: lead
   at: "2026-10-19T06:38:57.883Z"
   until: done
-  tries: 1
+  tries: 2
   claim:
     host: Georges-Mac-Studio
     runner: cli
     pid: 54892
-    at: "2026-10-19T06:38:59.896Z"
-    ended: "2026-10-19T07:26:35.482Z"
-    outcome: review
+    at: "2026-10-19T07:41:39.477Z"
 ---
 
 ## Description
 Move contract.rs and contract/ into crates/hotline-contract. It depends on no other hotline crate (replace the doc link to crate::paths::thread_key with words). hotline-core depends on it and keeps `pub use hotline_contract as contract` (or moves callers; your choice, say which in the commit). The ts-rs export moves with the types and still writes ui/src/generated/contract.ts byte-identical; check the generation test and make check's contract sync still run it, and that hotline-mobile's sync:contract source path (../hotline/ui/src/generated) is unchanged. hotline-app and hotline-cli build.
+
+## Log
+- 2026-10-19T07:41:38.946Z: Landing sent back (1 of 1): with release/0.41.0 brought in, `make check` failed: stopped after 15 minutes. Fix it on this branch, commit, and run the checks again.

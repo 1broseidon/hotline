@@ -1,8 +1,8 @@
 ---
 id: task-206
 title: "End to end and docs: a desk call that reaches the lead"
-column: todo
-position: 6
+column: backlog
+position: 41
 priority: medium
 tags:
   - tests
@@ -16,7 +16,7 @@ createdAt: "2026-10-19T13:59:39.590Z"
 dependsOn:
   - task-203
   - task-214
-updatedAt: "2026-10-19T20:00:14.755Z"
+updatedAt: "2026-10-19T20:00:16.937Z"
 ---
 
 ## Description

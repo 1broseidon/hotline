@@ -1,7 +1,7 @@
 ---
 id: task-218
 title: "Slice 4: pair threads on the one builder and loop"
-column: todo
+column: in-progress
 position: 14
 priority: medium
 tags:
@@ -12,7 +12,7 @@ relatedFiles:
 parentId: epic-20
 createdAt: "2026-10-19T19:59:31.591Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-core/src/session/peers/sessions.rs
@@ -29,7 +29,9 @@ contract:
     - Run cargo test -p hotline-core unfiltered before committing ui/src/generated/contract.ts (AGENTS.md rule 3)
   metrics:
     readyAt: "2026-10-19T20:03:13.573Z"
-updatedAt: "2026-10-19T20:03:36.062Z"
+    pickedUpAt: "2026-10-19T20:03:55.078Z"
+    reworkCount: 0
+updatedAt: "2026-10-19T20:03:55.078Z"
 dispatch:
   agent: codex
   model: gpt-6.1-sol

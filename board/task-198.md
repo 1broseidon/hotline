@@ -19,7 +19,38 @@ dependsOn:
   - task-194
   - task-196
   - task-197
-updatedAt: "2026-10-19T06:10:21.252Z"
+updatedAt: "2026-10-19T06:11:04.784Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-tools/Cargo.toml
+      description: The shell and workspace tools with the capability lease they check
+    - type: file
+      path: .github/workflows/workspace-isolation.yml
+      description: Path filter and ignored-test step on the new crate
+  validation:
+    commands:
+      - test -f crates/hotline-tools/src/lib.rs
+      - test ! -e crates/hotline-core/src/tools.rs && test ! -e crates/hotline-core/src/tools
+      - "! grep -qE '^hotline-(core|store|websearch)' crates/hotline-tools/Cargo.toml"
+      - grep -A1 '^\[lints\]' crates/hotline-tools/Cargo.toml | grep -q 'workspace = true'
+      - grep -q 'crates/hotline-tools/' .github/workflows/workspace-isolation.yml
+      - "! grep -q 'crates/hotline-core/src/tools' .github/workflows/workspace-isolation.yml docs/security.md"
+      - python3 scripts/security-citations
+      - grep -q hotline-tools docs/standards.md && grep -q hotline-tools AGENTS.md
+      - make check
+      - git diff --exit-code ui/src/generated/contract.ts
+      - cargo test -p hotline-tools --locked -- --ignored shell
+      - cargo test -p hotline-core --locked --test desk -- --ignored workspace_reach_keeps_another_projects_env_out_of_the_tools
+      - make precheck
+  constraints:
+    - "Moves only: no behaviour change"
+    - Lease and epoch fields stay private; revocation unchanged
+    - PR states default, grant source, enforcement points, tests, residual risk per docs/security.md
+    - contract.ts byte-identical
+  metrics:
+    readyAt: "2026-10-19T06:11:04.784Z"
 ---
 
 ## Description

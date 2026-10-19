@@ -401,3 +401,45 @@ async fn unconsumed_direct_call_steering_keeps_its_origin_when_replayed() {
     );
     calls.end(&call).unwrap();
 }
+
+/// A call's post is the teammate's message in the chat, stamped as from the
+/// call. The person asked for the call, so the home agent is not woken: its
+/// live session is handed the post ahead of the person's next line, once.
+#[tokio::test]
+async fn a_calls_post_rides_on_the_home_sessions_next_line_once() {
+    let driver = Scripted::new(spoken_turn());
+    let prompts = driver.prompts.clone();
+    let room = room("call-post-handed", Fake::new(driver));
+    pair_a_phone(&room);
+    room.start("ada").await.unwrap();
+
+    room.post(
+        "ada",
+        &ThreadId::call("c1"),
+        crate::session::Post::words("the scheduler fix is in"),
+    )
+    .unwrap();
+    let posted = tape(&room, "ada");
+    let posted = posted.last().unwrap();
+    assert_eq!(posted["kind"], "agent");
+    assert_eq!(posted["text"], "the scheduler fix is in");
+    assert_eq!(posted["from"], json!({"thread": "c1", "kind": "call"}));
+    assert_eq!(lock(&prompts).len(), 0, "the home agent is not woken");
+    let pushed = room.sent_voice_pushes();
+    assert_eq!(pushed.len(), 1, "no call is up, so the person is told");
+    assert_eq!(pushed[0]["body"], "the scheduler fix is in");
+
+    room.prompt("ada", "and the release?", None, None)
+        .await
+        .unwrap();
+    let first = heard(&prompts, 1).await;
+    assert!(
+        first[0].contains("From your call: the scheduler fix is in")
+            && first[0].contains("and the release?"),
+        "{}",
+        first[0]
+    );
+    room.prompt("ada", "thanks", None, None).await.unwrap();
+    let second = heard(&prompts, 2).await;
+    assert!(!second[1].contains("scheduler fix"), "{}", second[1]);
+}

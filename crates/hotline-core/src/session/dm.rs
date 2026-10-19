@@ -33,10 +33,9 @@ use super::prompt::PendingTool;
 use super::runner::{Driven, Witness, Words};
 use super::turns::{Begin, Occupant, Source, Then, Turns};
 use super::{
-    Glance, Room, Session, Wired, call_origin, escalation, lock, mark, new_id, now_ms, quiet,
-    schedule, timed,
+    Glance, Post, Room, Session, Wired, call_origin, escalation, lock, now_ms, quiet, schedule,
 };
-use crate::contract::{Reach, Receipt, ScheduledRun, SessionState, TranscriptEvent};
+use crate::contract::{Reach, ScheduledRun, SessionState, TranscriptEvent};
 use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::{MessageKind, Update};
 use crate::room;
@@ -215,11 +214,19 @@ impl Occupant for Session {
             };
             lock(&session.turns).waiting.push_front(wire);
         }
+        // A quiet run's note is posted as the teammate wrote it, stamped
+        // with its job: its words were already the teammate's own.
         if let (Some(run), Some(note)) = (
             held.quiet_run,
             held.escalation.as_ref().and_then(|armed| armed.take()),
         ) {
-            room.escalate(session, run, &note);
+            let post = Post {
+                scheduled: Some(run),
+                ..Post::words(&note)
+            };
+            if let Err(error) = room.post(&session.persona_id, &session.thread(), post) {
+                eprintln!("a quiet run's note could not be posted: {error}");
+            }
         }
         Then::Next
     }
@@ -421,36 +428,6 @@ impl Room {
         {
             voice.turn_ended(&session.persona_id, &origin);
         }
-    }
-
-    /// A quiet run found something: the teammate is prompted with it in the
-    /// open, next, so it answers the person as any reply is answered. The
-    /// line is stamped with the job but not quiet, so no window opens over
-    /// the answer.
-    fn escalate(&self, session: &Session, run: ScheduledRun, note: &str) {
-        let run = ScheduledRun { quiet: None, ..run };
-        let ts = now_ms();
-        let mut wire = Wired::words(timed(ts, &escalation::follow_up(&run, note)));
-        wire.scheduled = Some(run.clone());
-        mark(&session.pending_scheduled, run);
-        let id = new_id();
-        self.append(
-            session,
-            TranscriptEvent::User {
-                id: id.clone(),
-                ts,
-                text: note.to_string(),
-                attachments: None,
-                reactions: None,
-                reply_to: None,
-                scheduled: None,
-                ring: None,
-                receipt: Some(Receipt::Sent),
-                client: None,
-            },
-        );
-        wire.said = Some(id);
-        lock(&session.turns).waiting.push_front(wire);
     }
 
     fn steer_waiting(&self, session: &Arc<Session>, steered_inputs: &mut Vec<Wired>) {

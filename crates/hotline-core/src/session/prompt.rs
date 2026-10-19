@@ -309,15 +309,15 @@ impl Room {
             },
         );
         let mut wire = sending.wire;
-        wire.text = timed_from(ts, client, &wire.text);
-        let calls = std::mem::take(&mut *lock(&session.pending_calls));
-        if !calls.is_empty() {
+        let posts = std::mem::take(&mut *lock(&session.pending_posts));
+        if !posts.is_empty() {
             wire.text = format!(
-                "(What you told the person of your calls since you last spoke:\n{})\n\n{}",
-                calls.join("\n"),
+                "(What you posted to this chat from elsewhere since you last spoke here:\n{})\n\n{}",
+                posts.join("\n"),
                 wire.text
             );
         }
+        wire.text = timed_from(ts, client, &wire.text);
         wire.said = Some(id);
         self.dispatch(session.clone(), wire);
     }
@@ -510,7 +510,12 @@ pub(super) fn said(events: &[Value]) -> Vec<Said> {
                 ),
                 None => text,
             })),
-            "agent" => Some(Said::Agent(text)),
+            // A post from another thread is remembered with where it came
+            // from, which its text no longer says.
+            "agent" => Some(Said::Agent(match super::post::posted_from(event) {
+                Some(origin) => format!("({origin}) {text}"),
+                None => text,
+            })),
             // What came back is remembered as it was heard.
             "delivery" => match serde_json::from_value((*event).clone()).ok()? {
                 TranscriptEvent::Delivery {
@@ -638,6 +643,8 @@ pub(super) fn event_of(
                             ring: None,
                             receipt: None,
                             spoken: spoken.take(),
+                            from: None,
+                            scheduled: None,
                         })
                         .collect()
                 }

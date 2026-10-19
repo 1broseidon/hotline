@@ -174,12 +174,9 @@ const UNTAGGED_REPLY: &str =
 /// That reply as the call assistant says it again to be heard.
 const REWRITTEN: &str = "The fix is in and the checks pass now. Details are in the chat.";
 
-/// A message the teammate posted to its DM from a call.
+/// A message the teammate posted to its DM from a call: stamped as from it.
 fn is_call_post(event: &Value) -> bool {
-    event["kind"] == "agent"
-        && event["id"]
-            .as_str()
-            .is_some_and(|id| id.starts_with("call:"))
+    event["kind"] == "agent" && event["from"]["kind"] == "call"
 }
 
 /// A realtime provider played by the test: it hands out one scripted session.

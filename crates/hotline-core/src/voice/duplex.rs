@@ -637,7 +637,14 @@ impl Calls {
         let (Some(summary), Some(room)) = (digest.summary(open), self.room.upgrade()) else {
             return;
         };
-        room.call_posted(persona_id, id, &summary);
+        let posted = room.post(
+            persona_id,
+            &crate::contract::ThreadId::call(id),
+            crate::session::Post::words(&summary),
+        );
+        if let Err(error) = posted {
+            eprintln!("[voice] the call's summary could not be posted: {error}");
+        }
     }
 
     /// The front's speech as numbered frames, while the call is not held.

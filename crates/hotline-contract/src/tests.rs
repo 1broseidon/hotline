@@ -78,3 +78,27 @@ fn images_settings_and_status_have_additive_wire_shapes() {
     assert_eq!(serde_json::to_value(&command).unwrap(), value);
     assert_eq!(serde_json::from_value::<Command>(value).unwrap(), command);
 }
+
+#[test]
+fn an_agent_event_is_stamped_with_where_it_came_from_additively() {
+    // A tape written before posts were stamped reads, and writes back, as it
+    // was: the importer copies it unchanged and this is how it is read.
+    let old = json!({"kind":"agent","id":"a1","ts":1,"text":"hello"});
+    let event: TranscriptEvent = serde_json::from_value(old.clone()).unwrap();
+    assert!(matches!(
+        &event,
+        TranscriptEvent::Agent {
+            from: None,
+            scheduled: None,
+            ..
+        }
+    ));
+    assert_eq!(serde_json::to_value(&event).unwrap(), old);
+    let posted = json!({
+        "kind":"agent","id":"a2","ts":2,"text":"the fix is in",
+        "from":{"thread":"c1","kind":"call"},
+        "scheduled":{"jobId":"j1","kind":"loop","name":"Crane check","operatorCreated":true,"quiet":true},
+    });
+    let event: TranscriptEvent = serde_json::from_value(posted.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&event).unwrap(), posted);
+}

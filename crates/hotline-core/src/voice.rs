@@ -607,6 +607,13 @@ impl Calls {
             .collect()
     }
 
+    /// Whether the call `id` is still going: the person is on it.
+    pub(crate) fn is_up(&self, id: &str) -> bool {
+        lock(&self.calls)
+            .iter()
+            .any(|call| call.id == id && call.state != VoiceState::Ended)
+    }
+
     /// Ends a call nobody has spoken on for long enough.
     pub(crate) fn end_quiet(&self, id: &str) {
         let _ = self.finish(id, VoiceEndReason::Idle);

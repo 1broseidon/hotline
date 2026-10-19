@@ -273,3 +273,51 @@ async fn a_file_and_the_screen_come_off_the_computer() {
         "the computer's screen"
     );
 }
+
+/// A file sent from a work thread is in the chat all the same, stamped with
+/// the thread, and the thread keeps a line naming it.
+#[tokio::test]
+async fn a_file_from_a_work_thread_is_posted_to_the_chat() {
+    let (room, _) = workspace("send-from-thread");
+    let sent = room
+        .send_file(
+            "ada",
+            crate::session::files::Source::Workspace("report.pdf".into()),
+            "The report",
+            None,
+            Some("side-1"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sent, "Sent report.pdf (15 bytes).");
+
+    let files = files_on(&room);
+    assert_eq!(files.len(), 1, "the file is a message of the chat");
+    assert_eq!(files[0]["text"], "The report");
+    assert_eq!(
+        files[0]["from"],
+        json!({"thread": "side-1", "kind": "side"})
+    );
+    let id = files[0]["id"].as_str().unwrap();
+    assert_eq!(
+        crate::sent::read(room.log.root(), "ada", id, 0)
+            .unwrap()
+            .name,
+        "report.pdf"
+    );
+    let thread = room.log.load(&StreamId::Side("side-1".into()));
+    assert!(
+        thread
+            .iter()
+            .any(|event| event["kind"] == "notice"
+                && event["text"] == "Sent report.pdf to the chat."),
+        "{thread:?}"
+    );
+    // The model, reading the chat back, knows where it was sent from.
+    assert_eq!(
+        said(&tape(&room, "ada")),
+        vec![Said::Agent(
+            "(From your work thread) The report\n[file: report.pdf]".to_string()
+        )]
+    );
+}

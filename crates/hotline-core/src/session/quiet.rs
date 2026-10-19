@@ -158,6 +158,8 @@ mod tests {
             ring: None,
             receipt: None,
             spoken: None,
+            from: None,
+            scheduled: None,
         }
     }
 

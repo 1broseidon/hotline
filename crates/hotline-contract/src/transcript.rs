@@ -69,6 +69,15 @@ pub enum TranscriptEvent {
         /// shows `text`, which stands alone.
         #[serde(skip_serializing_if = "Option::is_none")]
         spoken: Option<String>,
+        /// A post from one of the teammate's other threads (a call, a work
+        /// thread): where it was said. A client draws "From the call" from
+        /// it. Absent from what the DM's own turns say, and from every tape
+        /// written before posts were stamped.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from: Option<DeliveryFrom>,
+        /// A post from a scheduled run: which job it came from.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scheduled: Option<ScheduledRun>,
     },
     Thought {
         id: String,

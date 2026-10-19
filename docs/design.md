@@ -423,6 +423,24 @@ restart. The status and the field are additions to the `human_action` event:
 every tape the importer brings over still reads as it did, and a card without
 `expiresAt` lives the default from its `ts`.
 
+Whatever a teammate says somewhere other than its DM reaches the DM through
+one door, `Room::post` ([ADR 0008](adr/0008-one-agent-thread-layer.md) §3):
+a call's summary and its `post_to_chat`, a quiet run's note, a file sent from
+a work thread. Each is one `agent` event stamped with where it came from, in
+two optional fields: `from` (the thread and its kind, the shape a delivery's
+`from` already has) and `scheduled` (the job, the shape a user event's
+`scheduled` already has). They replace the `call:<id>:` event id and the
+"From the call: " text prefix, which the window now draws from the stamp. Both
+are additions to the `agent` event and written only when present: a tape
+written before them has neither, the importer copies it unchanged and reads
+it as it did, and it reads an agent event that carries them, which the
+previous edition never wrote. A post reaches the person as a reply does,
+except from a call they are on, and never passes through the quiet window.
+The home agent is not woken by a post the person asked for (a call, a work
+thread, a job); its live session is handed the post ahead of the person's
+next line, and a session that starts later reads it from the tape with where
+it came from.
+
 HTTP MCP servers may opt into OAuth 2.1 in the gateway. Hotline follows
 protected-resource and authorization-server metadata, requires authorization
 code plus PKCE S256, and uses the advertised DCR endpoint when no saved or

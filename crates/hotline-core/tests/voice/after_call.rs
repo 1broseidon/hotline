@@ -209,7 +209,7 @@ async fn a_calls_summary_is_the_teammates_own_words_and_its_next_turn_knows_it()
         .collect();
     assert_eq!(summaries.len(), 1, "{summaries:?}");
     let text = summaries[0]["text"].as_str().unwrap();
-    assert!(text.starts_with("From the call:"), "{text}");
+    assert!(text.starts_with("You asked"), "{text}");
     assert!(text.contains("what did we fix on the scheduler?"), "{text}");
     assert!(text.contains(answered), "{text}");
     assert!(

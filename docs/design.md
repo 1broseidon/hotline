@@ -406,6 +406,17 @@ capability leases and expires on session or chapter replacement. Revocation
 clears waits, queued work and cached peer sessions. An authorized reply does
 not grant the reverse direction or any third party.
 
+A card a teammate raised to ask the person is the teammate's to take back.
+`request_human` returns the card's id, and `withdraw_request` supersedes the
+caller's own pending card as `withdrawn` and delivers nothing; a card that is
+neither answered nor withdrawn expires after two hours, or the up-to-a-day
+`wait_hours` the teammate chose, and the teammate is told once. A forgotten
+card otherwise kept the teammate reading "needs you" on the phone for as long
+as it stayed up. The card carries `expiresAt` so the choice survives a
+restart. The status and the field are additions to the `human_action` event:
+every tape the importer brings over still reads as it did, and a card without
+`expiresAt` lives the default from its `ts`.
+
 HTTP MCP servers may opt into OAuth 2.1 in the gateway. Hotline follows
 protected-resource and authorization-server metadata, requires authorization
 code plus PKCE S256, and uses the advertised DCR endpoint when no saved or

@@ -366,8 +366,9 @@ that `delivers` is answered off the tape at any time until it is settled,
 across restarts, and the answer reaches the teammate as a `delivery`. A card
 a tool is waiting on (a colleague's side session asked it) is refused once
 the deadline passed, the session stopped, the room restarted, or somebody
-else answered first. The tape still writes `dismissed` for a
-decline, which is the previous edition's word for that afterlife.
+else answered first, or the teammate withdrew the card (`withdrawn`). The
+tape still writes `dismissed` for a decline, which is the previous edition's
+word for that afterlife.
 
 `PersonaDraft` is `{name, goal?, team?, backendId?, cwd?, reach?, folders?,
 modelId?, effortId?, computer?, backgroundWork?}`. Create fills what the draft leaves blank: a fresh

@@ -13,6 +13,11 @@ relatedFiles:
   - docs
 parentId: epic-17
 createdAt: "2026-10-19T13:59:39.590Z"
+dependsOn:
+  - task-203
+  - task-204
+  - task-205
+updatedAt: "2026-10-19T13:59:41.955Z"
 ---
 
 ## Description

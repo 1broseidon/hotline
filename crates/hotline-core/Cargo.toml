@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 hotline-contract = { path = "../hotline-contract" }
+hotline-support = { path = "../hotline-support" }
 rig.workspace = true
 gethostname = "1.1"
 portable-pty = "0.9"
@@ -66,7 +67,6 @@ opus = "=0.4.0"
 # What a sent file is, from its name, when its bytes do not say.
 mime_guess = "2.0.5"
 http = "1"
-keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 sha2 = "0.10"
 # The pinned desk identity and encrypted v2 frames use the Noise IK pattern.
 snow = "0.10"
@@ -125,9 +125,4 @@ ts-rs.workspace = true
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_SystemInformation"] }
-
-# Points its own stdout and stderr at a file, so it runs without libtest.
-[[test]]
-name = "log_file"
-harness = false
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_SystemInformation"] }

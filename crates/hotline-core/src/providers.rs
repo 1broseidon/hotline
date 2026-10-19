@@ -212,7 +212,7 @@ mod tests {
     use super::*;
 
     fn record(dir: &std::path::Path) -> CredentialFile {
-        crate::credentials::CredentialFiles::new(dir.into(), crate::credentials::default_store())
+        crate::credentials::CredentialFiles::new(dir.into(), crate::vault::default_store())
             .file(dir.join("auth.json"))
     }
     use axum::{

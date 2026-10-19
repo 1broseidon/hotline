@@ -25,6 +25,22 @@ mod web_search;
 
 pub use shared::{StoredSecret, check_rp_id, check_secret_name, check_site};
 
+/// The store a desk and its vault keep secrets in: the OS one, and in this
+/// crate's unit tests one in-memory store they all share, so no test reaches
+/// the operator's keychain.
+pub(crate) fn default_store() -> Arc<dyn SecretStore> {
+    #[cfg(not(test))]
+    {
+        Arc::new(crate::credentials::NativeStore)
+    }
+    #[cfg(test)]
+    {
+        static STORE: std::sync::OnceLock<Arc<crate::credentials::MemoryStore>> =
+            std::sync::OnceLock::new();
+        STORE.get_or_init(Default::default).clone()
+    }
+}
+
 /// The client identity Hotline received from an MCP authorization server. The
 /// secret is kept beside the token in the vault record; this type never crosses
 /// the room or wire boundary.
@@ -180,7 +196,7 @@ impl Vault {
     /// would be a private-looking folder saying something untrue about the
     /// machine.
     pub fn open(root: impl Into<PathBuf>, log: Log) -> io::Result<Vault> {
-        Self::open_with_store(root, log, crate::credentials::default_store())
+        Self::open_with_store(root, log, crate::vault::default_store())
     }
 
     /// Supply an isolated credential backend for a harness or embedding application.

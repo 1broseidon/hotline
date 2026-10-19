@@ -6,6 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -18,7 +19,7 @@ const MAX_BYTES: usize = 1024 * 1024;
 #[cfg(unix)]
 mod file;
 #[cfg(windows)]
-pub(crate) mod windows;
+pub mod windows;
 #[cfg(unix)]
 pub use file::FileStore;
 
@@ -144,26 +145,45 @@ pub fn claim_backend(root: &Path, backend: Backend) -> io::Result<()> {
     }
 }
 
-pub(crate) fn default_store() -> Arc<dyn SecretStore> {
-    #[cfg(not(test))]
-    {
-        Arc::new(NativeStore)
+/// Secrets held in memory and gone with the process: the store a test opens
+/// a desk or a vault over, so no test reaches the operator's keychain.
+#[derive(Default)]
+pub struct MemoryStore(pub Mutex<HashMap<String, Vec<u8>>>);
+
+impl SecretStore for MemoryStore {
+    fn get(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(key)
+            .cloned())
     }
-    #[cfg(test)]
-    {
-        tests::store()
+    fn set(&self, key: &str, bytes: &[u8]) -> io::Result<()> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key.into(), bytes.into());
+        Ok(())
+    }
+    fn delete(&self, key: &str) -> io::Result<()> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(key);
+        Ok(())
     }
 }
 
 #[derive(Clone)]
-pub(crate) struct CredentialFiles {
+pub struct CredentialFiles {
     root: PathBuf,
     store: Arc<dyn SecretStore>,
     writer: Arc<Mutex<()>>,
 }
 
 impl CredentialFiles {
-    pub(crate) fn new(root: PathBuf, store: Arc<dyn SecretStore>) -> Self {
+    pub fn new(root: PathBuf, store: Arc<dyn SecretStore>) -> Self {
         Self {
             root,
             store,
@@ -171,7 +191,7 @@ impl CredentialFiles {
         }
     }
 
-    pub(crate) fn file(&self, path: PathBuf) -> CredentialFile {
+    pub fn file(&self, path: PathBuf) -> CredentialFile {
         CredentialFile {
             path,
             files: self.clone(),
@@ -262,7 +282,7 @@ fn record(bytes: &[u8]) -> io::Result<Record> {
 }
 
 impl CredentialFile {
-    pub(crate) fn path(&self) -> &Path {
+    pub fn path(&self) -> &Path {
         &self.path
     }
 
@@ -316,7 +336,7 @@ impl CredentialFile {
     /// the original file intact and refuses to use it as a plaintext fallback,
     /// and so does a reference from an edition whose chunks are out of reach:
     /// the file is the only record of where they are.
-    pub(crate) fn read(&self) -> io::Result<Option<Vec<u8>>> {
+    pub fn read(&self) -> io::Result<Option<Vec<u8>>> {
         let _writer = self
             .files
             .writer
@@ -335,7 +355,7 @@ impl CredentialFile {
         }
     }
 
-    pub(crate) fn write(&self, bytes: &[u8]) -> io::Result<()> {
+    pub fn write(&self, bytes: &[u8]) -> io::Result<()> {
         let _writer = self
             .files
             .writer
@@ -400,7 +420,7 @@ impl CredentialFile {
         Ok(())
     }
 
-    pub(crate) fn delete(&self) -> io::Result<()> {
+    pub fn delete(&self) -> io::Result<()> {
         let _writer = self
             .files
             .writer
@@ -417,7 +437,7 @@ impl CredentialFile {
     }
 }
 
-pub(crate) fn check_private_path(path: &Path) -> io::Result<()> {
+pub fn check_private_path(path: &Path) -> io::Result<()> {
     let metadata = fs::symlink_metadata(path)?;
     #[cfg(windows)]
     {
@@ -438,7 +458,7 @@ pub(crate) fn check_private_path(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub(crate) fn private_read(path: &Path) -> io::Result<fs::File> {
+pub fn private_read(path: &Path) -> io::Result<fs::File> {
     check_private_path(path)?;
     let mut options = fs::OpenOptions::new();
     options.read(true);
@@ -494,30 +514,8 @@ fn sync_parent(path: &Path) -> io::Result<()> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::sync::OnceLock;
-
-    #[derive(Default)]
-    pub(crate) struct MemoryStore(pub Mutex<HashMap<String, Vec<u8>>>);
-    impl SecretStore for MemoryStore {
-        fn get(&self, key: &str) -> io::Result<Option<Vec<u8>>> {
-            Ok(self.0.lock().unwrap().get(key).cloned())
-        }
-        fn set(&self, key: &str, bytes: &[u8]) -> io::Result<()> {
-            self.0.lock().unwrap().insert(key.into(), bytes.into());
-            Ok(())
-        }
-        fn delete(&self, key: &str) -> io::Result<()> {
-            self.0.lock().unwrap().remove(key);
-            Ok(())
-        }
-    }
-    pub(crate) fn store() -> Arc<dyn SecretStore> {
-        static STORE: OnceLock<Arc<MemoryStore>> = OnceLock::new();
-        STORE.get_or_init(Default::default).clone()
-    }
 
     #[derive(Default)]
     struct FailingStore {

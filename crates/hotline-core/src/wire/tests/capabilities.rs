@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn capabilities_options_are_for_the_desk_and_owner_and_never_a_companion() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -25,7 +25,7 @@ async fn capabilities_options_are_for_the_desk_and_owner_and_never_a_companion()
 
 #[tokio::test]
 async fn capabilities_options_list_only_connected_providers_and_what_automatic_picks() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -149,7 +149,7 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
 
 #[tokio::test]
 async fn capabilities_options_report_each_budget_from_its_own_tally() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     use crate::spending::SpendLedger;
     let root = tempfile::tempdir().unwrap();
     SpendLedger::new(root.path().to_path_buf())
@@ -209,7 +209,7 @@ async fn capabilities_options_report_each_budget_from_its_own_tally() {
 
 #[tokio::test]
 async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -325,7 +325,7 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
 
 #[tokio::test]
 async fn chatgpt_images_status_is_automatic_without_checking_entitlement() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
     let log = crate::log::Log::open(root.path());
@@ -466,7 +466,7 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
 
 #[tokio::test]
 async fn images_status_reports_recorded_spending_without_creating_or_writing_a_ledger() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     use crate::spending::SpendLedger;
     let root = tempfile::tempdir().unwrap();
     {
@@ -520,7 +520,7 @@ async fn images_status_reports_recorded_spending_without_creating_or_writing_a_l
 
 #[tokio::test]
 async fn images_status_preserves_the_shared_ledgers_failure_state_without_leaking_contents() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let ledger_path = root.path().join("spending.json");
     std::fs::write(&ledger_path, b"private-corrupt-ledger-content").unwrap();
@@ -562,7 +562,7 @@ async fn images_status_preserves_the_shared_ledgers_failure_state_without_leakin
 
 #[tokio::test]
 async fn images_status_refuses_malformed_saved_selections_and_marks_invalid_caps_unavailable() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -667,7 +667,7 @@ async fn invalid_image_or_spending_settings_do_not_write_any_patch_key() {
 
 #[tokio::test]
 async fn images_status_refuses_corrupt_saved_zero_caps_without_exposing_room_contents() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -727,7 +727,7 @@ async fn images_status_refuses_corrupt_saved_zero_caps_without_exposing_room_con
 
 #[tokio::test]
 async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
     let log = crate::log::Log::open(root.path());

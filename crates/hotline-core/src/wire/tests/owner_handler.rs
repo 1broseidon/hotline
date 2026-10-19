@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn owner_commands_and_room_subscription_reach_the_real_handler() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -27,7 +27,7 @@ async fn owner_commands_and_room_subscription_reach_the_real_handler() {
 
 #[tokio::test]
 async fn voice_is_owner_only_through_the_real_handler() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_voice_services(
@@ -155,7 +155,7 @@ async fn voice_is_owner_only_through_the_real_handler() {
 
 #[tokio::test]
 async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -227,7 +227,7 @@ async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
 
 #[tokio::test]
 async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speech_and_budget() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),

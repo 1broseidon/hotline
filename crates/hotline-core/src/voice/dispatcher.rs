@@ -1202,7 +1202,7 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+        let store = Arc::new(crate::credentials::MemoryStore::default());
         let desk =
             Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
         let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());
@@ -1312,7 +1312,7 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+        let store = Arc::new(crate::credentials::MemoryStore::default());
         let desk =
             Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
         let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());
@@ -1412,7 +1412,7 @@ mod tests {
             axum::serve(listener, app).await.unwrap();
         });
         let root = tempfile::tempdir().unwrap();
-        let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+        let store = Arc::new(crate::credentials::MemoryStore::default());
         let desk =
             Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
         let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());
@@ -1517,7 +1517,7 @@ mod tests {
             let server = tokio::spawn(async move {
                 axum::serve(listener, app).await.unwrap();
             });
-            let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+            let store = Arc::new(crate::credentials::MemoryStore::default());
             let desk =
                 Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
             let vault =
@@ -1577,7 +1577,7 @@ mod tests {
             let server = tokio::spawn(async move {
                 axum::serve(listener, app).await.unwrap();
             });
-            let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+            let store = Arc::new(crate::credentials::MemoryStore::default());
             let desk =
                 Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
             let vault =
@@ -1676,7 +1676,7 @@ mod tests {
         [String; 2],
     ) {
         let root = tempfile::tempdir().unwrap();
-        let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+        let store = Arc::new(crate::credentials::MemoryStore::default());
         let desk =
             Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
         let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());

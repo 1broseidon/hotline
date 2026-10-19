@@ -963,11 +963,9 @@ mod tests {
     }
 
     fn subscription(root: &Path) -> Connection {
-        let tokens = crate::credentials::CredentialFiles::new(
-            root.into(),
-            crate::credentials::default_store(),
-        )
-        .file(root.join("auth.json"));
+        let tokens =
+            crate::credentials::CredentialFiles::new(root.into(), crate::vault::default_store())
+                .file(root.join("auth.json"));
         connection("xai", &ProviderAuth::StoredLogin { tokens }, root).unwrap()
     }
 
@@ -1213,7 +1211,7 @@ mod tests {
         Vault::open_with_store(
             root,
             log,
-            Arc::new(crate::credentials::tests::MemoryStore::default()),
+            Arc::new(crate::credentials::MemoryStore::default()),
         )
         .unwrap()
     }

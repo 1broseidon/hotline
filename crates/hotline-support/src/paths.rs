@@ -283,14 +283,42 @@ pub fn decode_file_component(value: &str) -> String {
     decoded
 }
 
+/// A desk id as desks give them out: a UUID, or anything as plain.
+pub fn valid_desk_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// A teammate id as a room mints them.
+pub fn valid_persona_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// A linked teammate's id here: its desk's id, a slash, its own id there.
+pub fn qualified(desk_id: &str, persona_id: &str) -> String {
+    format!("{desk_id}/{persona_id}")
+}
+
+/// The desk and the teammate a node-qualified id names, when it is one.
+pub fn split(id: &str) -> Option<(&str, &str)> {
+    let (desk, persona) = id.split_once('/')?;
+    (valid_desk_id(desk) && valid_persona_id(persona)).then_some((desk, persona))
+}
+
+/// Whether this id names a teammate on another desk.
+pub fn is_linked(id: &str) -> bool {
+    split(id).is_some()
+}
+
 /// A participant id that can stand in a thread key. `~` separates the two, and
 /// `.` would let a key climb out of the threads directory. A teammate on a
 /// linked desk is the one id with a `/` in it (`deskId/personaId`): the file
 /// name escapes it, so the key is still one file in the directory.
 fn safe_thread_id(id: &str) -> bool {
-    !id.is_empty()
-        && !id.contains(['~', '.'])
-        && (!id.contains('/') || crate::linked::is_linked(id))
+    !id.is_empty() && !id.contains(['~', '.']) && (!id.contains('/') || is_linked(id))
 }
 
 /// The key naming the conversation between two teammates, whoever asked.
@@ -425,6 +453,27 @@ pub fn avatar_path(root: &Path, persona_id: &str, hash: &str) -> Option<PathBuf>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_qualified_id_names_a_desk_and_a_teammate_and_nothing_else() {
+        assert_eq!(
+            split("2f1c0a9e-desk/lou_1"),
+            Some(("2f1c0a9e-desk", "lou_1"))
+        );
+        assert_eq!(qualified("desk", "lou"), "desk/lou");
+        for not in [
+            "lou",
+            "/lou",
+            "desk/",
+            "desk/lou/again",
+            "de.sk/lou",
+            "desk/l~ou",
+            "../lou",
+            "desk/..",
+        ] {
+            assert_eq!(split(not), None, "{not}");
+        }
+    }
 
     #[test]
     fn uuid_names_are_unchanged() {

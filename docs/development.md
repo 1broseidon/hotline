@@ -49,15 +49,21 @@ Rust that needs Tauri lives.
 
 ```
 crates/hotline-contract/src/  the wire's types (serde + ts-rs), a file per concern; a leaf crate
+crates/hotline-support/src/   the utilities that hold no Hotline state; a leaf crate
+  paths.rs                   the data directory's layout, and a linked teammate's id
+  room_lock.rs               one writer per room
+  credentials/               the OS credential store that holds the secret values
+  images.rs                  what an attached or generated image is made into before anyone sees it
+  thumbs.rs                  smaller copies of pictures for a phone
+  fence.rs                   the one fence around anything quoted out of a conversation
+  log_file.rs                where the app's own lines go when nobody reads its output
+  process_windows.rs         a Windows child's kill-on-close job
 crates/hotline-core/src/
-  paths.rs                   the data directory's layout
   log/                       streams: append, fold, segments, subscribe; tapes and threads
   store/                     beside the tape: FTS5 search, chapter list, roster previews
   room.rs                    the roster fold, settings, and schedules
-  room_lock.rs               one writer per room
   thread/                    the one name for a conversation, its store and its policy
   vault/                     credential metadata beside the room stream
-  credentials/               the OS credential store that holds the secret values
   session/                   Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
   driver/                    Hotline Agent on Rig, and the ACP child with its registry and OAuth proxy
   models.rs                  the providers Hotline Agent reaches, and the model catalogue they serve
@@ -72,11 +78,8 @@ crates/hotline-core/src/
   voice/                     the owner's call: speech in and out, the front, realtime, metering
   websearch/                 web search for every teammate, keyless by default, ranked and cleaned
   imagegen/                  making images over whichever connected provider the owner has
-  images.rs                  what an attached or generated image is made into before anyone sees it
-  thumbs.rs                  smaller copies of pictures for a phone
   sent/                      files teammates send the person, and their readback
   link_preview.rs            a link's card, read from the page's head
-  fence.rs                   the one fence around anything quoted out of a conversation
   desk.rs                    the room, vault and log behind the wire
   boot.rs                    one boot, the app's and `hotline serve`'s, that returns its errors
   wire/                      the door: seats, commands, subscriptions, the phone and relay doors
@@ -85,8 +88,6 @@ crates/hotline-core/src/
   push.rs                    notifications to paired phones
   import.rs                  copies an existing Hotline data directory
   import/                    the previous edition's roster and records, read-only
-  log_file.rs                where the app's own lines go when nobody reads its output
-  process_windows.rs         a Windows child's kill-on-close job
   test_support.rs            what the unit tests of more than one module share
   bin/hotline-import.rs      the importer as a binary
   bin/hotline-mcp-echo.rs    a one-tool stdio server the MCP harnesses spawn
@@ -369,7 +370,7 @@ unsigned installer can still trigger Windows reputation warnings.
 Each build runs formatting, Clippy, the workspace tests, UI type checking and
 manifest tests. Windows and macOS also test a disposable native credential entry.
 Local core harnesses inject in-memory stores; they never use the operator's
-keychain. Run `cargo test -p hotline-core native_store_roundtrip -- --ignored`
+keychain. Run `cargo test -p hotline-support native_store_roundtrip -- --ignored`
 to explicitly test the native store with a disposable entry. Linux build hosts
 need `libdbus-1-dev`, and desktop credential use needs an unlocked Secret
 Service session. The credential format and Rig OAuth exception are described
@@ -499,7 +500,7 @@ keep it that way, and never `eprintln!` a key, a token or a request body.
 
 One desk runs per data directory. Before the room opens, every process
 that writes it — the app, `hotline serve`, `hotline-import` — takes an
-exclusive lock on `desk.lock` there (`hotline_core::room_lock`), in every
+exclusive lock on `desk.lock` there (`hotline_support::room_lock`), in every
 build; a file system that cannot lock is an error, not an unguarded room.
 The app also writes, beside it, the loopback port it answers on to
 `desk.wake`: a second launch finds the lock held, asks the running desk to

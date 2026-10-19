@@ -250,7 +250,7 @@ fn speaker(url: &str) -> Xai {
 }
 fn login(root: &std::path::Path) -> CredentialFile {
     let tokens =
-        crate::credentials::CredentialFiles::new(root.into(), crate::credentials::default_store())
+        crate::credentials::CredentialFiles::new(root.into(), crate::vault::default_store())
             .file(root.join("auth.json"));
     crate::providers::xai::sign_in_for_test(&tokens, "first-login");
     tokens

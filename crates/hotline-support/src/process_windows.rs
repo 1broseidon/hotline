@@ -18,11 +18,11 @@ use windows_sys::Win32::System::Threading::{
 
 /// A console program started by the windowed app gets a console window of its
 /// own unless told not to: every `docker ps` would flash one on screen.
-pub(crate) fn quiet(command: &mut tokio::process::Command) {
+pub fn quiet(command: &mut tokio::process::Command) {
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
-pub(crate) fn prepare(command: &mut tokio::process::Command) {
+pub fn prepare(command: &mut tokio::process::Command) {
     command.creation_flags(CREATE_SUSPENDED | CREATE_NO_WINDOW);
     command.kill_on_drop(true);
 }
@@ -35,10 +35,10 @@ fn owned(handle: HANDLE) -> io::Result<OwnedHandle> {
     Ok(unsafe { OwnedHandle::from_raw_handle(handle) })
 }
 
-pub(crate) struct Job(OwnedHandle);
+pub struct Job(OwnedHandle);
 
 impl Job {
-    pub(crate) fn terminate(&self) -> io::Result<()> {
+    pub fn terminate(&self) -> io::Result<()> {
         // SAFETY: this handle names only the process job created for this child.
         if unsafe { TerminateJobObject(self.0.as_raw_handle(), 1) } == 0 {
             Err(io::Error::last_os_error())
@@ -47,7 +47,7 @@ impl Job {
         }
     }
 
-    pub(crate) fn attach(id: Option<u32>) -> io::Result<Self> {
+    pub fn attach(id: Option<u32>) -> io::Result<Self> {
         let id = id.ok_or_else(|| {
             io::Error::other("The child exited before its process job was established.")
         })?;

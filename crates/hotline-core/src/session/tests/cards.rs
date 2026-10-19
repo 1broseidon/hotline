@@ -445,12 +445,13 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
         "ada",
         &TranscriptEvent::HumanAction {
             id: "human:old".to_string(),
-            ts: now_ms() - ASK_TTL - 1,
+            ts: now_ms() - i64::from(ASK_HOURS) * 60 * 60_000 - 1,
             action_id: "old".to_string(),
             reason: "Approve the deploy".to_string(),
             status: HumanActionStatus::Pending,
             note: None,
             delivers: Some(true),
+            expires_at: None,
             thread: None,
         },
     );
@@ -464,6 +465,7 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
             status: HumanActionStatus::Pending,
             note: None,
             delivers: Some(true),
+            expires_at: None,
             thread: None,
         },
     );

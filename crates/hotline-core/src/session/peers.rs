@@ -797,8 +797,8 @@ pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
             said(text)
         ),
         DeliveryCause::Answer { about, .. } => format!(
-            "Your request{} went a day without an answer and has been taken down. \
-             Ask again if you still need it.",
+            "Your request{} went unanswered for as long as it was asked to stay up \
+             and has been taken down. Ask again if you still need it.",
             named(about)
         ),
         DeliveryCause::Peer {

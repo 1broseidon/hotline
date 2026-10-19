@@ -562,6 +562,30 @@ impl Room {
         Err("This handoff was stopped before it could ask the person.".into())
     }
 
+    /// Lets a handoff stop waiting behind a card its teammate withdrew. While
+    /// the handoff's turn runs, the gate simply goes, so the turn's end hands
+    /// the result back. Once the turn has ended to wait on the card, only an
+    /// answer carries the work on, so the card cannot be withdrawn.
+    pub(super) fn unlink_handoff_human(&self, persona: &str, action: &str) -> Result<(), String> {
+        let _guard = lock(&self.exchange_lock);
+        for mut pair in self.exchange_pairs() {
+            let Some(request) = pair.requests.iter_mut().find(|r| {
+                r.to == persona
+                    && r.human_actions
+                        .iter()
+                        .any(|g| g.id == action && !g.consumed)
+            }) else {
+                continue;
+            };
+            if request.phase != Phase::Running {
+                return Err("A handoff's result is waiting on this request, so it stays up until the person answers it.".into());
+            }
+            request.human_actions.retain(|g| g.id != action);
+            return self.save_pair(&pair);
+        }
+        Ok(())
+    }
+
     /// The handoff a card was raised in, if the card is one a handoff waits
     /// behind: the exchange request that is answered by it.
     pub(super) fn handoff_awaiting(&self, persona: &str, action: &str) -> Option<String> {

@@ -148,8 +148,14 @@ const BUSY_RECHECK_MS: i64 = 10 * 60_000;
 pub const HUMAN_DEADLINE: Duration = Duration::from_mins(10);
 
 /// How long a `request_human` card that delivers stays up unanswered before
-/// it is expired and the teammate told.
-const ASK_TTL: i64 = 24 * 60 * 60_000;
+/// it is expired and the teammate told, unless the teammate asked for longer.
+/// Two hours, because a card the teammate has stopped needing keeps the
+/// conversation reading "needs you" on every desk and phone until it goes.
+const ASK_HOURS: u32 = 2;
+
+/// The longest a teammate may ask a card to wait: a day, for an ask that
+/// really waits for the person to come back.
+const ASK_MAX_HOURS: u32 = 24;
 
 /// How Hotline Agent reaches a provider: a key, a login directory, or a
 /// configured endpoint with its own protocol and optional key.

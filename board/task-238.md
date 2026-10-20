@@ -1,0 +1,60 @@
+---
+id: task-238
+title: "S8: the whole on 0.45 — a 0.42 profile upgrades end to end over the wire"
+column: todo
+position: 7
+description: |-
+  The closing proof for epic-22: the pieces S1, S4, S6 and S7 built, tested together against the epic's description of done. Add a headless harness `crates/hotline-core/tests/rig_upgrade.rs` (house idiom: start the real core, drive it over the wire, `make verify`) whose tests are prefixed `rig_upgrade_`:
+  - a data dir laid out by 0.42 (ChatGPT plaintext `auth.json`; Copilot `access-token` + `api-key.json`) starts on 0.45 and both sign-ins serve a turn against stub provider servers with no re-sign-in; afterwards the tokens live in the vault (test backend) and no plaintext token is left on disk;
+  - a multi-round Anthropic-shaped turn with cache reads/writes from a stub reports the same budget and context numbers as S0's `rig_pin_` baseline (cache tokens counted once) and every round's request carries the system prompt;
+  - a voice call against a stub settles its metering once per dispatch (S6's hook), including a dropped stream.
+  Fix what the whole shows broken in the slices' seams, in this task. Then bring docs/plans/rig-0.45-migration.md to what landed (one-jump path, what differs from the report, what was not adopted and why) and end it with the manual checklist George runs before cutting 0.42.0: one real turn each on Anthropic, OpenAI, ChatGPT and Copilot (existing sign-ins, chat and Responses), OpenRouter `anthropic/`, Ollama, a custom server, xAI subscription; an Anthropic multi-round turn shows cache_read > 0 on round 2; voice call metering; the macOS keychain migration of a 0.42-signed-in profile. Collect the slices' notes for George in that checklist. Confirm docs/releases carries the downgrade note from S4.
+priority: high
+tags:
+  - rig
+  - auth
+  - verify
+relatedFiles:
+  - crates/hotline-core/tests/rig_upgrade.rs
+  - docs/plans/rig-0.45-migration.md
+  - docs/releases
+parentId: epic-22
+dependsOn:
+  - task-234
+  - task-236
+  - task-237
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core/tests/rig_upgrade.rs
+      description: rig_upgrade_* harness over the wire
+    - type: docs
+      path: docs/plans/rig-0.45-migration.md
+      description: what landed, plus George's pre-release manual checklist
+  validation:
+    commands:
+      - test -f crates/hotline-core/tests/rig_upgrade.rs
+      - grep -qE '^rig = \{ version = "=0\.45\.0"' Cargo.toml
+      - make check
+      - make verify
+      - make precheck
+      - git diff --exit-code HEAD -- ui/src/generated/contract.ts
+      - git diff --exit-code $(git merge-base HEAD origin/release/0.42.0) HEAD -- ui/src/generated/contract.ts
+      - test "$(cargo test -p hotline-core --test rig_upgrade -- --list 2>/dev/null | grep -c 'rig_upgrade_')" -ge 3
+      - grep -qi 'checklist' docs/plans/rig-0.45-migration.md
+  constraints:
+    - "No wire type changes: ui/src/generated/contract.ts byte-identical to the base"
+    - "Never touch real data: the harness uses its own temp HOTLINE_DATA_DIR and a test vault backend"
+    - rig_pin_ assertions and expected values unchanged
+  metrics:
+    readyAt: "2026-10-20T12:04:00.313Z"
+createdAt: "2026-10-20T12:04:00.326Z"
+---
+
+## Description
+The closing proof for epic-22: the pieces S1, S4, S6 and S7 built, tested together against the epic's description of done. Add a headless harness `crates/hotline-core/tests/rig_upgrade.rs` (house idiom: start the real core, drive it over the wire, `make verify`) whose tests are prefixed `rig_upgrade_`:
+- a data dir laid out by 0.42 (ChatGPT plaintext `auth.json`; Copilot `access-token` + `api-key.json`) starts on 0.45 and both sign-ins serve a turn against stub provider servers with no re-sign-in; afterwards the tokens live in the vault (test backend) and no plaintext token is left on disk;
+- a multi-round Anthropic-shaped turn with cache reads/writes from a stub reports the same budget and context numbers as S0's `rig_pin_` baseline (cache tokens counted once) and every round's request carries the system prompt;
+- a voice call against a stub settles its metering once per dispatch (S6's hook), including a dropped stream.
+Fix what the whole shows broken in the slices' seams, in this task. Then bring docs/plans/rig-0.45-migration.md to what landed (one-jump path, what differs from the report, what was not adopted and why) and end it with the manual checklist George runs before cutting 0.42.0: one real turn each on Anthropic, OpenAI, ChatGPT and Copilot (existing sign-ins, chat and Responses), OpenRouter `anthropic/`, Ollama, a custom server, xAI subscription; an Anthropic multi-round turn shows cache_read > 0 on round 2; voice call metering; the macOS keychain migration of a 0.42-signed-in profile. Collect the slices' notes for George in that checklist. Confirm docs/releases carries the downgrade note from S4.

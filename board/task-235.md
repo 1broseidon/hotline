@@ -7,7 +7,7 @@ priority: low
 tags:
   - rig
   - auth
-assignee: claude
+assignee: codex
 relatedFiles:
   - crates/hotline-core/src/vault.rs
   - crates/hotline-core/src/desk.rs
@@ -19,7 +19,7 @@ createdAt: "2026-10-20T06:51:45.174Z"
 dependsOn:
   - task-234
   - task-237
-updatedAt: "2026-10-20T14:46:13.705Z"
+updatedAt: "2026-10-20T14:46:15.308Z"
 contract:
   status: ready
   deliverables:
@@ -38,6 +38,13 @@ contract:
     - Delete always removes the local credential, even when provider revoke fails
   metrics:
     readyAt: "2026-10-20T12:03:24.303Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-20T14:46:15.176Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

@@ -50,3 +50,4 @@ Lands on release/0.42.0. The 0.42 cut waits for this epic (George, 2026-10-20: "
 
 ## Log
 - 2026-10-20T06:51:49.934Z: [claude] Runs after epic-22 (Rig 0.45 upgrade) reaches S3 and S6: S1 rewrites the voice dispatcher's hooks and S6 its metering, which slice 6 of this epic reshapes.
+- 2026-10-20T20:13:59.071Z: [claude] Rewritten 2026-10-20 from the scenario deck George accepted: 11 children, each with Done-when lines that must be true in code and proved by named tests. S0 (task-214, extract the calls into hotline-voice) now goes first, at George's call. Phone: hotline-mobile epic-5.

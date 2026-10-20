@@ -8,7 +8,7 @@ tags:
   - rig
   - auth
   - security
-assignee: claude
+assignee: codex
 relatedFiles:
   - crates/hotline-core/src/providers/rig_login.rs
   - crates/hotline-core/src/vault.rs
@@ -19,7 +19,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:44.693Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:36:49.190Z"
+updatedAt: "2026-10-20T13:37:08.263Z"
 contract:
   status: in_progress
   deliverables:
@@ -49,20 +49,12 @@ contract:
     pickedUpAt: "2026-10-20T13:31:41.791Z"
     reworkCount: 0
 dispatch:
-  agent: claude
-  model: opus
-  effort: high
-  by: lead
-  at: "2026-10-20T13:31:28.105Z"
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-20T13:37:08.139Z"
   until: done
-  tries: 1
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 94104
-    at: "2026-10-20T13:31:29.736Z"
-    ended: "2026-10-20T13:36:49.190Z"
-    outcome: stopped
+  tries: 0
 ---
 
 ## Description

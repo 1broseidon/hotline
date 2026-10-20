@@ -8,7 +8,7 @@ tags:
   - rig
   - voice
   - budgets
-assignee: claude
+assignee: codex
 relatedFiles:
   - crates/hotline-core/src/voice/dispatcher.rs
   - crates/hotline-core/src/voice/tests/failures.rs
@@ -16,7 +16,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:45.659Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:36:50.435Z"
+updatedAt: "2026-10-20T13:37:08.535Z"
 contract:
   status: in_progress
   deliverables:
@@ -42,20 +42,12 @@ contract:
     pickedUpAt: "2026-10-20T13:31:42.290Z"
     reworkCount: 0
 dispatch:
-  agent: claude
-  model: opus
-  effort: high
-  by: lead
-  at: "2026-10-20T13:31:28.708Z"
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-20T13:37:08.409Z"
   until: done
-  tries: 1
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 94104
-    at: "2026-10-20T13:31:32.683Z"
-    ended: "2026-10-20T13:36:50.435Z"
-    outcome: stopped
+  tries: 0
 ---
 
 ## Description

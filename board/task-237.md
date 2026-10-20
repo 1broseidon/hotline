@@ -6,7 +6,7 @@ position: 9
 priority: low
 tags:
   - rig
-assignee: claude
+assignee: codex
 relatedFiles:
   - crates/hotline-core/src/providers/outgoing.rs
   - crates/hotline-core/src/providers/copilot.rs
@@ -17,7 +17,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:46.152Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:36:51.534Z"
+updatedAt: "2026-10-20T13:37:08.813Z"
 contract:
   status: in_progress
   deliverables:
@@ -40,20 +40,12 @@ contract:
     pickedUpAt: "2026-10-20T13:31:43.244Z"
     reworkCount: 0
 dispatch:
-  agent: claude
-  model: opus
-  effort: high
-  by: lead
-  at: "2026-10-20T13:31:29.313Z"
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-20T13:37:08.682Z"
   until: done
-  tries: 1
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 94104
-    at: "2026-10-20T13:31:35.128Z"
-    ended: "2026-10-20T13:36:51.534Z"
-    outcome: stopped
+  tries: 0
 ---
 
 ## Description

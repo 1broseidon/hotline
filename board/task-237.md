@@ -17,7 +17,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:46.152Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:37:13.904Z"
+updatedAt: "2026-10-20T13:37:40.860Z"
 contract:
   status: in_progress
   deliverables:
@@ -37,8 +37,8 @@ contract:
     - Do not touch voice/dispatcher.rs, providers/rig_login.rs or docs/plans/rig-0.45-migration.md
   metrics:
     readyAt: "2026-10-20T12:03:23.766Z"
-    pickedUpAt: "2026-10-20T13:31:43.244Z"
-    reworkCount: 0
+    pickedUpAt: "2026-10-20T13:37:40.860Z"
+    reworkCount: 1
 dispatch:
   agent: codex
   model: gpt-6-astra

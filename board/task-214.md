@@ -7,12 +7,12 @@ priority: high
 tags:
   - crate-split
   - voice
-assignee: claude
+assignee: codex
 relatedFiles:
   - crates/hotline-core/src/voice
 parentId: epic-21
 createdAt: "2026-10-19T17:20:19.714Z"
-updatedAt: "2026-10-20T20:13:21.446Z"
+updatedAt: "2026-10-20T21:07:47.585Z"
 contract:
   status: ready
   deliverables:
@@ -45,6 +45,13 @@ contract:
     - Run cargo test, make check and make precheck in the foreground and to completion before ending the turn
   metrics:
     readyAt: "2026-10-19T17:22:11.362Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-20T21:07:47.448Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

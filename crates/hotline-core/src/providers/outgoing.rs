@@ -54,16 +54,17 @@ impl Outgoing {
         })
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "Rig's transport error is what a transport fails with"
+    )]
     async fn finished(
         &self,
         request: http::Request<Bytes>,
     ) -> http_client::Result<http::Request<Bytes>> {
         let (mut parts, body) = request.into_parts();
         if let Some(login) = &self.login {
-            let context = login
-                .context()
-                .await
-                .map_err(|error| refused(error.to_string()))?;
+            let context = login.context().await.map_err(refused)?;
             let token = context.api_key.expose();
             if token.trim().is_empty() {
                 return Err(refused(

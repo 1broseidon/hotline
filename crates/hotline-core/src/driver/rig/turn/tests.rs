@@ -12,6 +12,7 @@ type Chunks = mpsc::Receiver<Result<MockStreamEvent, ProviderError>>;
 /// Rig's scripted completion wire, on a runtime each test feeds by hand: a
 /// request is recorded, then answered with the next stream the test opened,
 /// one event at a time as the test sends them. A `None` stream never answers.
+/// As over HTTP, nothing is sent until the reply is first read.
 #[derive(Clone)]
 struct ScriptModel {
     requests: mpsc::UnboundedSender<CompletionRequest>,
@@ -20,21 +21,62 @@ struct ScriptModel {
 
 impl Transport<MockScript> for ScriptModel {
     fn send(&self, request: CompletionRequest, _: Exchange) -> Opening<MockFrame> {
-        self.requests.send(request).unwrap();
-        let next = lock(&self.streams)
-            .pop_front()
-            .expect("unexpected model request");
-        let Some(chunks) = next else {
-            return Opening::new(std::future::pending());
-        };
-        Opening::ready(Opened::new(futures_util::stream::unfold(
-            chunks,
-            |mut chunks| async move {
-                let item = chunks.recv().await?;
-                Some((item.map(MockFrame::Event), chunks))
-            },
-        )))
+        let this = self.clone();
+        Opening::new(async move {
+            this.requests.send(request).unwrap();
+            let next = lock(&this.streams)
+                .pop_front()
+                .expect("unexpected model request");
+            let Some(chunks) = next else {
+                return std::future::pending().await;
+            };
+            Ok(Opened::new(futures_util::stream::unfold(
+                chunks,
+                |mut chunks| async move {
+                    let item = chunks.recv().await?;
+                    Some((item.map(MockFrame::Event), chunks))
+                },
+            )))
+        })
     }
+}
+
+/// One part of what was said, with who said it.
+#[derive(Debug, PartialEq)]
+enum Said {
+    User(UserContent),
+    Assistant(AssistantContent),
+}
+
+/// What was said in a request after its system prompt, one entry per part:
+/// a wire joins adjacent user messages, so a turn's messages are compared by
+/// what each said and who said it, not by how they were grouped.
+fn said(request: &CompletionRequest) -> Vec<Said> {
+    let messages: Vec<Message> = request
+        .chat_history
+        .iter()
+        .map(|message| Message::clone(message))
+        .collect();
+    assert!(
+        matches!(messages.first(), Some(Message::System { .. })),
+        "every round leads with the system prompt"
+    );
+    parts(&messages[1..])
+}
+
+/// `messages` one part at a time, with who said each.
+fn parts(messages: &[Message]) -> Vec<Said> {
+    let mut said = Vec::new();
+    for message in messages {
+        match message {
+            Message::System { .. } => panic!("the system prompt leads, and only once"),
+            Message::User { content } => said.extend(content.iter().cloned().map(Said::User)),
+            Message::Assistant(turn) => {
+                said.extend(turn.content.iter().cloned().map(Said::Assistant));
+            }
+        }
+    }
+    said
 }
 
 /// The model a test's turn runs on: requests go to `requests`, and each is
@@ -51,22 +93,6 @@ fn scripted(
         },
     )
     .erase()
-}
-
-/// A request's conversation: what follows the system prompt every round
-/// carries first.
-fn conversation(request: &CompletionRequest) -> Vec<Message> {
-    let mut messages: Vec<Message> = request
-        .chat_history
-        .iter()
-        .map(|message| Message::clone(message))
-        .collect();
-    assert!(
-        matches!(messages.first(), Some(Message::System { .. })),
-        "every round leads with the system prompt"
-    );
-    messages.remove(0);
-    messages
 }
 
 fn fixture() -> (Turn, Template) {
@@ -293,12 +319,12 @@ async fn input_interrupts_a_request_before_the_first_stream_exists() {
     assert!(steering.admit(Message::user("keep the scope small")));
     let next = receive(&mut requests).await;
     assert_eq!(
-        conversation(&next),
-        vec![
+        said(&next),
+        parts(&[
             Message::user("first request"),
             Message::user("actually, do the other thing"),
             Message::user("keep the scope small")
-        ]
+        ])
     );
     answer(chunks).await;
     task.await.unwrap().unwrap();
@@ -342,13 +368,13 @@ async fn partial_calls_are_dropped_and_never_replayed_or_executed() {
     let next = receive(&mut requests).await;
     assert!(old.is_closed(), "the old provider stream is dropped");
     assert_eq!(
-        conversation(&next),
-        vec![
+        said(&next),
+        parts(&[
             Message::user("first request"),
             Message::assistant("unfinished"),
             Message::user(KEPT),
             Message::user("change direction")
-        ]
+        ])
     );
     answer(new).await;
     task.await.unwrap().unwrap();
@@ -428,6 +454,7 @@ async fn on_a_strict_route_an_unused_argument_is_null_and_the_tool_never_sees_it
 async fn steering_keeps_a_running_tools_result_and_skips_its_unstarted_siblings() {
     let (turn, request) = fixture();
     let steering = turn.steering.clone();
+    let kept = turn.history.clone();
     let (seen, mut requests) = mpsc::unbounded_channel();
     let (old, old_stream) = mpsc::channel(8);
     let (new, new_stream) = mpsc::channel(8);
@@ -473,36 +500,35 @@ async fn steering_keeps_a_running_tools_result_and_skips_its_unstarted_siblings(
     assert!(steering.admit(Message::user("change direction")));
     assert!(requests.try_recv().is_err());
     release.notify_one();
-    let next = receive(&mut requests).await;
+    receive(&mut requests).await;
     assert!(starts.try_recv().is_err(), "the second call never started");
-    let history = conversation(&next);
-    assert_eq!(history.len(), 5);
-    assert_eq!(history[4], Message::user("change direction"));
-    let Message::Assistant(turn) = &history[1] else {
-        panic!("the completed tool calls are retained");
-    };
-    for (call, message) in turn.content.iter().zip(&history[2..4]) {
-        let AssistantContent::ToolCall(call) = call else {
-            panic!("expected a tool call");
+    // What the next request was written from: the request, the two calls,
+    // their two results, the new direction.
+    let history = parts(&kept.lock().await);
+    assert_eq!(history.len(), 6, "{history:?}");
+    assert_eq!(
+        history[5],
+        Said::User(UserContent::text("change direction"))
+    );
+    let mut results = Vec::new();
+    for (call, result) in history[1..3].iter().zip(&history[3..5]) {
+        let Said::Assistant(AssistantContent::ToolCall(call)) = call else {
+            panic!("the completed tool calls are retained: {call:?}");
         };
-        let Message::User { content } = message else {
-            panic!("expected its result");
-        };
-        let UserContent::ToolResult(result) = &content[0] else {
-            panic!("expected its result");
+        let Said::User(UserContent::ToolResult(result)) = result else {
+            panic!("expected its result: {result:?}");
         };
         assert_eq!(call.id, result.call);
+        results.push(
+            result
+                .content
+                .iter()
+                .filter_map(rig::message::ToolResultContent::as_text)
+                .collect::<String>(),
+        );
     }
-    assert!(
-        serde_json::to_string(&history[2])
-            .unwrap()
-            .contains("the first effect completed")
-    );
-    assert!(
-        serde_json::to_string(&history[3])
-            .unwrap()
-            .contains("Not executed")
-    );
+    assert!(results[0].contains("the first effect completed"));
+    assert!(results[1].contains("Not executed"));
     answer(new).await;
     task.await.unwrap().unwrap();
 }
@@ -701,22 +727,21 @@ async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is()
         .await
     });
     tokio::spawn(async move { while receiver.recv().await.is_some() {} });
-    let call = |id: &str, name: &str, arguments: Value| {
-        Ok(MockStreamEvent::tool_call(id, name, arguments))
-    };
-    let done = || Ok(MockStreamEvent::FinalResponse(mock_final(Usage::default())));
+    let call =
+        |id: &str, name: &str, arguments: Value| MockStreamEvent::tool_call(id, name, arguments);
+    let done = || MockStreamEvent::FinalResponse(mock_final(Usage::default()));
     // Compiling on stderr, then its error; tests on stdout, then their summary.
     let build = r"for i in $(seq 30000); do printf '\033[32m   Compiling\033[0m crate-%05d v1.0.0\n' $i; done >&2; printf 'error[E0308]: mismatched types\n' >&2; for i in $(seq 2000); do printf 'test case_%04d ... ok\n' $i; done; printf 'test result: FAILED. 1999 passed; 1 failed\n'; exit 101";
     receive(&mut requests).await;
     first
-        .send(call(
+        .send(Ok(call(
             "build",
             "shell",
             serde_json::json!({"command": build}),
-        ))
+        )))
         .await
         .unwrap();
-    first.send(done()).await.unwrap();
+    first.send(Ok(done())).await.unwrap();
     drop(first);
     let receipt = serde_json::to_string(&receive(&mut requests).await.chat_history).unwrap();
     let job_id = receipt
@@ -726,14 +751,14 @@ async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is()
         .expect("the receipt names the job")
         .to_owned();
     second
-        .send(call(
+        .send(Ok(call(
             "wait",
             "wait_jobs",
             serde_json::json!({"job_ids": [job_id]}),
-        ))
+        )))
         .await
         .unwrap();
-    second.send(done()).await.unwrap();
+    second.send(Ok(done())).await.unwrap();
     drop(second);
     let last = receive(&mut requests).await;
     answer(third).await;
@@ -741,11 +766,11 @@ async fn a_long_build_reaches_the_model_once_as_its_ends_and_where_the_rest_is()
 
     let mut job = None;
     let mut waited = None;
-    for message in &conversation(&last) {
-        let Message::User { content } = message else {
+    for part in said(&last) {
+        let Said::User(content) = part else {
             continue;
         };
-        for content in content {
+        {
             match content {
                 UserContent::Text(text) => {
                     if let Some(data) = text.text.strip_prefix(
@@ -1018,10 +1043,12 @@ async fn a_transient_failure_after_tools_retries_only_the_inference() {
         .unwrap();
     drop(second);
     let retry = receive(&mut requests).await;
-    let mut expected = conversation(&before);
-    expected.push(Message::assistant("partial response"));
-    expected.push(Message::user(KEPT));
-    assert_eq!(conversation(&retry), expected);
+    let mut expected = said(&before);
+    expected.extend(parts(&[
+        Message::assistant("partial response"),
+        Message::user(KEPT),
+    ]));
+    assert_eq!(said(&retry), expected);
     answer(third).await;
     task.await.unwrap().unwrap();
     let mut calls = 0;
@@ -1074,10 +1101,10 @@ async fn a_report_shown_before_the_stream_dropped_is_remembered_on_retry() {
         .unwrap();
     drop(second);
     let retry = receive(&mut requests).await;
-    let retried = conversation(&retry);
+    let retried = said(&retry);
     assert_eq!(
         retried[retried.len() - 2..],
-        [Message::assistant("Today — Mon 5 Oct"), Message::user(KEPT)]
+        parts(&[Message::assistant("Today — Mon 5 Oct"), Message::user(KEPT)])
     );
     answer(third).await;
     task.await.unwrap().unwrap();
@@ -1178,7 +1205,7 @@ async fn a_failed_repair_stays_repaired_for_the_next_operator_message() {
         .unwrap();
     drop(second);
     assert_eq!(task.await.unwrap().unwrap_err().kind, Kind::Configuration);
-    assert_eq!(*history.lock().await, conversation(&repaired));
+    assert_eq!(parts(&history.lock().await), said(&repaired));
     let mut notices = 0;
     while let Some(update) = receiver.recv().await {
         if matches!(update, Update::Notice { .. }) {

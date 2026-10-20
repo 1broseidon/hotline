@@ -1,5 +1,6 @@
 //! Credential metadata belongs to the room; secret values belong to the OS store.
-//! Rig-owned ChatGPT/Copilot caches remain private files until Rig exposes a store hook.
+//! ChatGPT and Copilot sign-ins remain private files in their login directories,
+//! read and written by Rig through Hotline's store ([`crate::providers::rig_login`]).
 
 use crate::contract::{Credential, CredentialKind};
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore};
@@ -284,23 +285,23 @@ impl Vault {
         Ok(())
     }
 
-    /// Makes the directory and files for a fresh login, and returns the
-    /// credential id and that directory. No event yet — the row lands only
-    /// once the login succeeds, the same order `create` keeps (secret first,
-    /// then the fact of it).
+    /// Makes the directory and the empty record for a fresh login, and
+    /// returns the credential id and that directory. No event yet — the row
+    /// lands only once the login succeeds, the same order `create` keeps
+    /// (secret first, then the fact of it).
     pub fn begin_login(&self, provider_id: &str) -> io::Result<(String, PathBuf)> {
         let id = uuid::Uuid::new_v4().to_string();
         let dir = self.login_dir(&id);
         let _one_writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         self.check_layout()?;
         make_private_directory(&dir)?;
-        match crate::models::wiring(provider_id).map(|wiring| wiring.client) {
-            Some(Client::ChatGpt) => write_private(&dir.join("auth.json"), b"{}")?,
-            Some(Client::Copilot) => {
-                write_private(&dir.join("api-key.json"), b"{}")?;
-                write_private(&dir.join("access-token"), b"")?;
-            }
-            _ => {}
+        let record = match crate::models::wiring(provider_id).map(|wiring| wiring.client) {
+            Some(Client::ChatGpt) => Some(crate::providers::rig_login::CHATGPT_RECORD),
+            Some(Client::Copilot) => Some(crate::providers::rig_login::COPILOT_RECORD),
+            _ => None,
+        };
+        if let Some(record) = record {
+            write_private(&dir.join(record), b"{}")?;
         }
         Ok((id, dir))
     }
@@ -1151,9 +1152,9 @@ fn create_private_file(path: &Path) -> io::Result<fs::File> {
     options.open(path)
 }
 
-/// A 0600 file whose contents Rig will overwrite in place, so the mode it
-/// is created with is the mode it keeps. JSON records start as `{}` because
-/// Rig treats an empty file as a parse error, not as absent.
+/// A 0600 file, private from its first byte. A login's record starts as
+/// `{}`, which Rig reads as a sign-in with nothing in it yet, where an empty
+/// file would be a parse error.
 pub(crate) fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
     let mut file = create_private_file(path)?;
     file.write_all(contents)?;
@@ -1765,17 +1766,18 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn a_copilot_login_precreates_the_files_rig_will_write() {
+    fn a_copilot_login_precreates_the_record_rig_will_write() {
         use std::os::unix::fs::PermissionsExt;
 
         let vault = vault("login-copilot");
         let (_id, dir) = vault.begin_login("github-copilot").unwrap();
+        let record = dir.join(crate::providers::rig_login::COPILOT_RECORD);
         let mode = |path: PathBuf| fs::metadata(path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(dir.clone()), 0o700);
-        assert_eq!(mode(dir.join("api-key.json")), 0o600);
-        assert_eq!(mode(dir.join("access-token")), 0o600);
-        assert_eq!(fs::read_to_string(dir.join("api-key.json")).unwrap(), "{}");
-        assert_eq!(fs::read_to_string(dir.join("access-token")).unwrap(), "");
+        assert_eq!(mode(record.clone()), 0o600);
+        assert_eq!(fs::read_to_string(record).unwrap(), "{}");
+        assert!(!dir.join("access-token").exists());
+        assert!(!dir.join("api-key.json").exists());
     }
 
     #[test]

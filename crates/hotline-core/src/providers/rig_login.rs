@@ -13,7 +13,7 @@
 use rig::error::BoxError;
 use rig::http_client::ReqwestClient;
 use rig::providers::chatgpt::auth::{
-    AuthContext, AuthError, DeviceCodeHandler, DeviceCodePrompt, StoreLock, TokenStore,
+    AuthContext, DeviceCodeHandler, DeviceCodePrompt, StoreLock, TokenStore,
 };
 use rig::providers::{chatgpt, copilot};
 use rig::wasm_compat::WasmBoxedFuture;
@@ -25,7 +25,7 @@ use tokio::sync::Mutex as AsyncMutex;
 
 /// ChatGPT's record: the file Rig 0.42 wrote, whose fields Rig's record
 /// still has, so it is read as it stands.
-const CHATGPT_RECORD: &str = "auth.json";
+pub(crate) const CHATGPT_RECORD: &str = "auth.json";
 /// Copilot's one record: the GitHub token and the Copilot API token beside it.
 pub(crate) const COPILOT_RECORD: &str = "copilot.json";
 /// Rig 0.42's Copilot layout: the GitHub token as plain text, and the API
@@ -247,12 +247,14 @@ pub(crate) enum Login {
 }
 
 impl Login {
-    /// The login's live token, refreshed first when it has expired.
-    pub(crate) async fn context(&self) -> Result<AuthContext, AuthError> {
+    /// The login's live token, refreshed first when it has expired, or why
+    /// there is none.
+    pub(crate) async fn context(&self) -> Result<AuthContext, String> {
         match self {
             Self::ChatGpt(auth) => auth.auth_context(&http()).await,
             Self::Copilot(auth) => auth.auth_context(&http()).await,
         }
+        .map_err(|error| error.to_string())
     }
 }
 

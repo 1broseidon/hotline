@@ -103,16 +103,20 @@ pub(crate) struct Tokens {
 }
 
 impl Tokens {
-    /// What `usage` counts. A counter the provider did not report is none.
+    /// What `usage` counts. A counter the provider did not report is none,
+    /// and a response it counted at nothing at all reported nothing: no
+    /// reply is free, so it keeps what was reserved for it.
     pub(crate) fn of(usage: &Usage) -> Self {
-        Self {
+        let mut tokens = Self {
             input: usage.input_tokens.unwrap_or_default(),
             output: usage.output_tokens.unwrap_or_default(),
             total: usage.total_tokens.unwrap_or_default(),
             cache_read: usage.cached_input_tokens.unwrap_or_default(),
             cache_write: usage.cache_creation_input_tokens.unwrap_or_default(),
-            reported: usage.is_reported(),
-        }
+            reported: false,
+        };
+        tokens.reported = tokens != Self::default();
+        tokens
     }
 
     /// The tokens the conversation filled: what went in and what came out.

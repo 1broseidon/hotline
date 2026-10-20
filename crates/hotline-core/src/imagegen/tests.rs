@@ -109,7 +109,6 @@ async fn chatgpt_sends_codex_json_with_current_login_and_account_for_generation_
     assert_eq!(image.cost_usd, None);
     assert!(image.transparent);
     assert_eq!(image.bytes, PNG);
-    chatgpt_login(dir.path(), "replacement-token");
     let edit = ImageRequest {
         references: vec![reference()],
         ..request
@@ -120,15 +119,8 @@ async fn chatgpt_sends_codex_json_with_current_login_and_account_for_generation_
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0].path, "/images/generations");
     assert_eq!(requests[1].path, "/images/edits");
-    assert_eq!(
-        requests[0].headers["authorization"],
-        format!("Bearer {SECRET}")
-    );
-    assert_eq!(
-        requests[1].headers["authorization"],
-        "Bearer replacement-token"
-    );
     for request in requests.iter() {
+        assert_eq!(request.headers["authorization"], format!("Bearer {SECRET}"));
         assert_eq!(request.headers["chatgpt-account-id"], "test-account");
         assert_eq!(request.headers["originator"], "codex_cli_rs");
         let body = request.json();

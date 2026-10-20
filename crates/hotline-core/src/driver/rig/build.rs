@@ -109,10 +109,11 @@ pub(super) fn openrouter_model(
     }
 }
 
-/// A chat request's leading system prompt as one text part with an
-/// ephemeral cache marker. Anything that is not a chat request with a
-/// system prompt first passes as it came.
+/// A chat request's leading system prompt with an ephemeral cache marker on
+/// its last text part. Anything that is not a chat request with a system
+/// prompt first passes as it came.
 fn mark_system_prompt(body: Bytes) -> Bytes {
+    let marker = || serde_json::json!({"type": "ephemeral"});
     let Ok(mut request) = serde_json::from_slice::<Value>(&body) else {
         return body;
     };
@@ -124,12 +125,20 @@ fn mark_system_prompt(body: Bytes) -> Bytes {
     else {
         return body;
     };
-    let Some(text) = system["content"].as_str() else {
-        return body;
-    };
-    system["content"] = serde_json::json!([
-        {"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}
-    ]);
+    match &mut system["content"] {
+        Value::String(text) => {
+            let text = std::mem::take(text);
+            system["content"] =
+                serde_json::json!([{"type": "text", "text": text, "cache_control": marker()}]);
+        }
+        Value::Array(parts) => match parts.last_mut().and_then(Value::as_object_mut) {
+            Some(part) if part.get("type").and_then(Value::as_str) == Some("text") => {
+                part.insert("cache_control".into(), marker());
+            }
+            _ => return body,
+        },
+        _ => return body,
+    }
     serde_json::to_vec(&request).map_or(body, Bytes::from)
 }
 
@@ -149,6 +158,11 @@ fn caches_when_asked(client: Client, model: &str) -> bool {
 /// tools: the output ceiling, the effort, and the cache it asks for. A turn
 /// writes its own requests and an agent writes them for an answer; both take
 /// these from here, so neither can send what the other does not.
+///
+/// Every request also accepts a finish reason Rig does not know as an
+/// ordinary stop. A gateway that passes its upstream's own reason through
+/// would otherwise fail a spoken answer that arrived whole, and leave a
+/// turn's reply out of every later request (docs/design.md).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct RequestSettings {
     pub(super) max_tokens: Option<u64>,
@@ -160,7 +174,8 @@ impl RequestSettings {
     pub(super) fn on_request(&self, request: CompletionRequest) -> CompletionRequest {
         let request = request
             .max_tokens(self.max_tokens)
-            .additional_params(self.additional_params.clone());
+            .additional_params(self.additional_params.clone())
+            .accept_unknown_finish_reasons(true);
         match self.cache {
             Some(cache) => request.cache(cache),
             None => request,
@@ -168,6 +183,7 @@ impl RequestSettings {
     }
 
     pub(super) fn on_agent(&self, builder: AgentBuilder) -> AgentBuilder {
+        let builder = builder.accept_unknown_finish_reasons(true);
         let builder = match self.max_tokens {
             Some(ceiling) => builder.max_tokens(ceiling),
             None => builder,

@@ -306,6 +306,10 @@ fn transport_error(message: String) -> Error {
 
 /// Puts the subscription's bearer on a request, marked sensitive so it
 /// stays out of anything that prints headers.
+#[expect(
+    clippy::result_large_err,
+    reason = "Rig's transport error is what a transport fails with"
+)]
 fn authorize(headers: &mut http::HeaderMap, token: &str) -> Result<(), Error> {
     let mut value = http::HeaderValue::from_str(&format!("Bearer {token}"))?;
     value.set_sensitive(true);
@@ -346,6 +350,10 @@ impl SubscriptionHttp {
         })
     }
 
+    #[expect(
+        clippy::result_large_err,
+        reason = "Rig's transport error is what a transport fails with"
+    )]
     async fn request<T, R, F, Fut>(&self, mut request: Request<T>, send: F) -> Result<R, Error>
     where
         T: Clone,

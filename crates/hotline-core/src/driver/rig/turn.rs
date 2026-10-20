@@ -432,7 +432,7 @@ struct Activity<'a> {
 /// How a round's streaming phase ended.
 enum Streamed {
     /// The model's whole response, accepted: its tool calls may now run.
-    Response(CompletionResponse),
+    Response(Box<CompletionResponse>),
     /// Start the round again: new input arrived, or a failure is retried.
     Again,
     /// The operator stopped the activity.
@@ -544,11 +544,14 @@ impl Activity<'_> {
             }
         }
         if interrupted {
-            // Dropping the stream cancels the request. What arrived of it is
-            // not the round's usage, which the provider never finished
-            // reporting, but it is how full the context already is.
+            // Dropping the stream cancels the request. What usage arrived of
+            // it is not the round's, which the provider never finished
+            // reporting, but it says how full the context already is.
             self.usage_complete = false;
-            self.context_tokens = Tokens::of(&stream.partial().usage).context();
+            let arrived = Tokens::of(&stream.partial().usage);
+            if arrived.reported {
+                self.context_tokens = arrived.context();
+            }
             drop(stream);
             flush(self.sender, &mut self.open).await;
             keep_spoken(&mut self.history, &mut spoken, self.turn).await;
@@ -618,7 +621,7 @@ impl Activity<'_> {
             );
         }
         self.retries = 0;
-        Ok(Streamed::Response(response))
+        Ok(Streamed::Response(Box::new(response)))
     }
 
     /// Whether a failed round may start again. Retrying happens before

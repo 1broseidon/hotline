@@ -1,7 +1,7 @@
 ---
 id: task-222
 title: 0.41 lands together, and Pork Chop's QA on the Linux QA computer before George's
-column: in-progress
+column: review
 position: 18
 priority: high
 tags:
@@ -20,9 +20,9 @@ dependsOn:
   - task-202
   - task-205
   - task-227
-updatedAt: "2026-10-20T00:13:21.680Z"
+updatedAt: "2026-10-20T00:30:31.751Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core/tests
@@ -39,6 +39,8 @@ contract:
     readyAt: "2026-10-19T20:03:15.032Z"
     pickedUpAt: "2026-10-20T00:13:21.680Z"
     reworkCount: 0
+    deliveredAt: "2026-10-20T00:30:31.751Z"
+    duration: 1030
 dispatch:
   agent: claude
   model: opus

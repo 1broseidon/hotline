@@ -9,6 +9,9 @@ tags:
   - security
 parentId: epic-21
 createdAt: "2026-10-20T20:13:08.678Z"
+dependsOn:
+  - task-225
+updatedAt: "2026-10-20T20:13:24.662Z"
 ---
 
 ## Description

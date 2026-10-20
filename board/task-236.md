@@ -64,3 +64,4 @@ What S1 (task-231) left you, as landed on release/0.42.0: one `Meter` reserves i
 
 ## Log
 - 2026-10-20T13:37:05.985Z: [claude] George, 2026-10-20 08:35: the rest of epic-22 is mechanical and goes to Codex on gpt-6-astra. A Claude Opus run started this and was stopped after about 5 minutes; its worktree may hold partial uncommitted edits: review them, keep what's right, discard the rest. Run make check in the foreground and wait for it, commit before ending your turn, merge release/0.42.0 into the branch and re-run make check before saying done (a landing's check stops after 15 minutes).
+- 2026-10-20T13:39:05.456Z: [codex] Reviewed and retained prior dispatch-ID meter edits; corrected stale hook commentary and test import, split meter tests per standards, added missing/all-zero usage and paid-reply exhaustion coverage, and documented the Chat-budget rule. Verifying before merge and handoff.

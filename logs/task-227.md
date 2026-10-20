@@ -1,8 +1,6 @@
 ---
 id: task-227
 title: A job's row and thread can Cancel the job, and Stop a firing that is running
-column: review
-position: 0
 priority: medium
 tags:
   - jobs
@@ -13,7 +11,7 @@ relatedFiles:
   - crates/hotline-core/src/session
 parentId: epic-20
 createdAt: "2026-10-19T23:31:32.527Z"
-updatedAt: "2026-10-20T00:12:29.485Z"
+updatedAt: "2026-10-20T00:12:42.878Z"
 dispatch:
   agent: claude
   model: opus
@@ -27,6 +25,9 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-19T23:58:33.552Z"
+    ended: "2026-10-20T00:12:35.652Z"
+    outcome: review
+completedAt: "2026-10-20T00:12:42.878Z"
 ---
 
 ## Description
@@ -40,3 +41,4 @@ How to work: run make check in the foreground with a generous timeout and wait f
 
 ## Log
 - 2026-10-20T00:12:29.147Z: [claude] Done on branch dispatch/task-227 (make check green; release/0.41.0 already in it). Stop = thread.cancel on a job: stops the running turn (firing or person's line), posts no report, writes an Info notice "Stopped. The job keeps its schedule…", schedule untouched; refused "That job has no turn running." when idle (LiveJob.halted flag in session/job_thread.rs). Cancel = thread.close (schedule.cancel). New RosterEntry.workingJobs (job ids with a turn running, via RoomHandle::working_jobs) drives Stop's visibility and ThreadSummary.working for jobs. ScheduleEntry gains `without`; the job thread header shows "Runs without …" (dock.ts withoutWords). UI: exported JobActions in Dock.tsx, used by the Jobs row and the job thread header; tests ui/tests/job-actions.test.tsx + dock.test.ts. Harness: tests/schedule.rs a_stopped_firing_ends_its_turn_and_the_next_one_still_runs. Phone seat now refuses thread.cancel on a job too (same owner checks as schedule.cancel; docs/security.md row updated). Push: notify_in takes Option<&ThreadId>; any non-DM card push now carries data.thread {kind,key} (sideId kept for sides). FOR LATER TASKS: the phone app (hotline-mobile src/push.ts glanceOf) ignores data.thread/sideId today, so a tap still opens the teammate; making it open jobs/<id> is a mobile-repo change.
+- 2026-10-20T00:12:42.502Z: Landed on release/0.41.0

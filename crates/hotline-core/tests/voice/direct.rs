@@ -1,8 +1,8 @@
 use super::*;
 
 #[tokio::test]
-async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching() {
-    direct_call_uses_existing_conversation(
+async fn a_direct_call_uses_its_thread_agent_without_dispatching() {
+    direct_call_uses_its_thread(
         false,
         TAGGED_REPLY,
         "The checks passed.",
@@ -14,8 +14,8 @@ async fn a_direct_call_uses_the_existing_agent_conversation_without_dispatching(
 }
 
 #[tokio::test]
-async fn device_text_reuses_the_direct_agent_session_and_call_origin() {
-    direct_call_uses_existing_conversation(
+async fn device_text_uses_the_call_thread_and_preserves_its_spoken_reply() {
+    direct_call_uses_its_thread(
         true,
         TAGGED_REPLY,
         "The checks passed.",
@@ -31,7 +31,7 @@ async fn device_text_reuses_the_direct_agent_session_and_call_origin() {
 /// the chat shows all of the reply.
 #[tokio::test]
 async fn a_reply_without_tags_is_rewritten_to_be_heard() {
-    direct_call_uses_existing_conversation(
+    direct_call_uses_its_thread(
         true,
         UNTAGGED_REPLY,
         REWRITTEN,
@@ -42,14 +42,10 @@ async fn a_reply_without_tags_is_rewritten_to_be_heard() {
     .await;
 }
 
-/// One brain, two outputs: what is said on a call to a teammate is a turn of
-/// the teammate's own conversation (the person's exact words on its tape,
-/// marked as said on the call, in its open chapter), the agent is handed the
-/// contract after the words, the call says the reply's spoken version, and
-/// the chat shows its written version, with what was said kept beside it.
-/// No call assistant is asked anything, and the teammate's turn is metered
-/// as Chat.
-async fn direct_call_uses_existing_conversation(
+/// Legacy voice uses the thread agent, gives it the speech contract and keeps
+/// both versions in that thread. Speech and text input share this path, and
+/// the turn is metered as the teammate's Chat work.
+async fn direct_call_uses_its_thread(
     device_text: bool,
     reply: &'static str,
     spoken: &str,
@@ -198,7 +194,7 @@ async fn direct_call_uses_existing_conversation(
 
     // What was said is kept beside the reply as soon as the reply is
     // written, which for a rewrite may be just after it is said.
-    let tape = hotline_core::log::StreamId::Tape(persona.clone());
+    let tape = hotline_core::log::StreamId::Call(call.clone());
     common::until("what was said is kept beside the reply", || {
         log.load(&tape)
             .iter()
@@ -209,17 +205,16 @@ async fn direct_call_uses_existing_conversation(
     let tape = log.load(&tape);
     assert_eq!(
         tape.iter().filter(|v| v["kind"] == "chapter").count(),
-        1,
+        0,
         "{tape:?}"
     );
     let user = tape.iter().find(|v| v["kind"] == "user").unwrap();
     assert_eq!(tape.iter().filter(|v| v["kind"] == "user").count(), 1);
     assert_eq!(user["text"], words, "the person's words, as they said them");
     assert!(
-        user["id"]
-            .as_str()
-            .unwrap()
-            .starts_with(&format!("voice:{call}:1:agent:"))
+        !log.load(&hotline_core::log::StreamId::Tape(persona.clone()))
+            .iter()
+            .any(|event| event["kind"] == "user")
     );
     let agents: Vec<&Value> = tape.iter().filter(|v| v["kind"] == "agent").collect();
     let shown: Vec<&str> = agents.iter().map(|v| v["text"].as_str().unwrap()).collect();

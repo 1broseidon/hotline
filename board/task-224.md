@@ -1,6 +1,6 @@
 ---
 id: task-224
-title: "Proving call: Pork Chop's QA on the Linux QA computer, then George's on the phone, before slice 6"
+title: "Proving call after S5: Pork Chop on the QA computer, then George on desk and phone, before S6"
 column: backlog
 position: 37
 priority: high
@@ -12,8 +12,13 @@ parentId: epic-21
 createdAt: "2026-10-19T20:00:07.420Z"
 dependsOn:
   - task-223
-updatedAt: "2026-10-19T20:00:12.710Z"
+updatedAt: "2026-10-20T20:13:22.374Z"
 ---
 
 ## Description
-After slice 5: a Legacy voice call to a Hotline Agent and to an ACP teammate, desktop and phone; hang up mid-turn (its reply posted); wait for the 30 s summary; continue the call thread by text; call again on it; start a call on a work thread. Measure end of speech to first audio on Legacy voice. Pork Chop first on the QA computer, then George; stops in Review until George says go for slice 6.
+After S5, before S6. Run these deck scenarios on Legacy voice, desktop and phone, to a Hotline Agent teammate and an ACP teammate: Hanging up while work runs, Picking it back up, Calling on a thread already under way, Following up in the chat, and A quick question on the go (its closing note).
+
+Done when:
+- Pork Chop has run each scenario on the Linux QA computer, then George on the desk and the phone. Every "What must be true" line of those scenarios is checked off or filed as a bug.
+- Legacy voice's time from the end of speech to the first audio is measured and noted.
+- It stops in Review until George says go for S6.

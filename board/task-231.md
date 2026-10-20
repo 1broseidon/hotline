@@ -1,7 +1,7 @@
 ---
 id: task-231
 title: "S1: straight to Rig 0.45 in one jump, with Hotline's own TokenStore over today's login dirs (no one signed out)"
-column: in-progress
+column: review
 position: 0
 priority: high
 tags:
@@ -30,9 +30,9 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:43.238Z"
 dependsOn:
   - task-230
-updatedAt: "2026-10-20T13:27:22.564Z"
+updatedAt: "2026-10-20T13:27:38.719Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: Cargo.toml
@@ -67,6 +67,8 @@ contract:
     readyAt: "2026-10-20T12:04:00.044Z"
     pickedUpAt: "2026-10-20T12:29:25.431Z"
     reworkCount: 0
+    deliveredAt: "2026-10-20T13:27:38.719Z"
+    duration: 3493
 dispatch:
   agent: claude
   model: opus

@@ -1,6 +1,6 @@
 ---
 id: task-214
-title: The calls move into hotline-voice behind the approved interface
+title: "S0: the calls live in hotline-voice; hotline-core keeps only the room's side"
 column: backlog
 position: 43
 priority: high
@@ -12,9 +12,7 @@ relatedFiles:
   - crates/hotline-core/src/voice
 parentId: epic-21
 createdAt: "2026-10-19T17:20:19.714Z"
-dependsOn:
-  - task-225
-updatedAt: "2026-10-19T20:00:18.117Z"
+updatedAt: "2026-10-20T20:13:21.446Z"
 contract:
   status: ready
   deliverables:
@@ -50,11 +48,17 @@ contract:
 ---
 
 ## Description
-Only after George approves the design (task-213). Move the call code into hotline-voice behind the interface it settles; the room implements it in the core, the voice harness tests and test rooms implement it in tests. hotline-core keeps no voice module beyond the glue that hands the room to the calls. Desk and phone calls, the live fronts (Grok Voice, GPT Realtime, GPT-Live) and Legacy voice behave exactly as before: the desk harness's call tests and processes/voice tests pass unchanged. Timings re-run into ADR 0007.
+Scenarios: none directly. This is the boundary every later slice works inside. George, 2026-10-20: "extract voice into its own crate". This comes first, reversing ADR 0008 §5's "after slice 6".
 
-Lead's note (2026-10-19): this is the epic's last child and the one that proves it whole: the engines (task-212) and the calls live together in hotline-voice, the room implements the approved interface, and the full harness (tests/voice, tests/local_speech, tests/processes, make check, make precheck) passes on it. The lead may split it per task-213's answer before handing it off; if the design recommends stopping, it is not handed off and George decides its fate.
+Move the call code still in crates/hotline-core/src/voice into hotline-voice, behind the call-room interface sized in ADR 0008 §5: open and close a call thread, queue a heard line on it, take the agent's spoken stream back, post to the chat, be told of a card. That's call, duplex, front, front_prompt, front_tools, dispatcher (+ meter), record, replies, synthesis, turn and input, about 6.6k lines. Anything today's code needs beyond those methods stays on the interface until the slice that deletes it, each marked with that slice (S5, S6, task-203). It's a mechanical move with no behaviour change.
 
-Carried from task-212: the core's glue is voice/connected.rs (it reads the vault into speech::Connected and keeps the five &Vault readers). Once the calls take a Connected, delete any of the core's re-exports that no longer have callers (crate::voice::speech, crate::voice::realtime, crate::voice::front::SEND_TO_TEAMMATE, crate::models::is_custom), and list in your notes the ones that remain. local_speech_check stays in the core because it needs Desk.
+Done when:
+- hotline-core has no voice module beyond the room's implementation of the call-room interface and the voice/connected.rs glue. hotline-voice does not depend on hotline-core (Cargo.toml).
+- Each interface method that exists only for code a later slice deletes says which slice removes it.
+- Desk and phone calls, the live voices (Grok Voice, GPT Realtime, GPT-Live) and Legacy voice behave exactly as before. tests/voice, tests/local_speech, the voice tests in tests/processes and the desk harness's call tests pass unchanged.
+- make check, make precheck and workspace-isolation are green, and contract.ts is byte-identical.
+- Core re-exports left with no callers are deleted (crate::voice::speech, crate::voice::realtime, crate::voice::front::SEND_TO_TEAMMATE, crate::models::is_custom, as task-212 found). Any that remain are listed in the notes.
+- ADR 0007's build timings are re-run, and ADR 0008 §5 is amended to say the move came first.
 
 ## Log
 - 2026-10-19T20:00:10.807Z: [claude] Re-homed to epic-21 (0.42): after slice 6, the calls move into hotline-voice. task-213's sizing is done by ADR 0008 §5 (open and close a call thread, queue a heard line, take the spoken stream back, post to the chat, be told of a card); task-213 is closed into this.

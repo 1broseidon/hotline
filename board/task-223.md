@@ -7,7 +7,7 @@ priority: high
 tags:
   - voice
   - threads
-assignee: claude
+assignee: codex
 relatedFiles:
   - crates/hotline-core/src/voice
   - crates/hotline-core/src/session
@@ -15,7 +15,14 @@ parentId: epic-21
 createdAt: "2026-10-19T20:00:06.937Z"
 dependsOn:
   - task-214
-updatedAt: "2026-10-20T20:13:21.909Z"
+updatedAt: "2026-10-20T22:09:07.536Z"
+dispatch:
+  agent: codex
+  model: gpt-6-astra
+  by: cli
+  at: "2026-10-20T22:09:07.408Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

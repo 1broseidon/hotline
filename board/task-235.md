@@ -1,7 +1,7 @@
 ---
 id: task-235
 title: "S5: sign-out revokes at the provider; a revoked login stops serving at once"
-column: in-progress
+column: review
 position: 2
 priority: low
 tags:
@@ -19,9 +19,9 @@ createdAt: "2026-10-20T06:51:45.174Z"
 dependsOn:
   - task-234
   - task-237
-updatedAt: "2026-10-20T14:46:38.518Z"
+updatedAt: "2026-10-20T15:07:19.291Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: test
       path: crates/hotline-core
@@ -40,6 +40,8 @@ contract:
     readyAt: "2026-10-20T12:03:24.303Z"
     pickedUpAt: "2026-10-20T14:46:38.518Z"
     reworkCount: 0
+    deliveredAt: "2026-10-20T15:07:19.291Z"
+    duration: 1241
 dispatch:
   agent: codex
   model: gpt-6-astra

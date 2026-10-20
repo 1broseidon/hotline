@@ -812,7 +812,7 @@ mod tests {
             )
             .unwrap();
             let signed = crate::providers::outgoing::Outgoing::signed(
-                rig_login::Login::ChatGpt(rig_login::chatgpt(dir.path())),
+                rig_login::chatgpt(dir.path()),
                 std::convert::identity,
             )
             .unwrap();

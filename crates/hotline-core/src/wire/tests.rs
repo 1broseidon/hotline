@@ -319,7 +319,7 @@ impl RoomHandle for CoreHandle {
         Err("credentials are unavailable in this wire test".to_string())
     }
 
-    fn credential_delete(&self, _id: &str) -> Result<(), String> {
+    async fn credential_delete(&self, _id: &str) -> Result<(), String> {
         Err("credentials are unavailable in this wire test".to_string())
     }
 
@@ -699,7 +699,7 @@ impl RoomHandle for Quiet {
         Ok(())
     }
 
-    fn credential_delete(&self, _id: &str) -> Result<(), String> {
+    async fn credential_delete(&self, _id: &str) -> Result<(), String> {
         Ok(())
     }
 

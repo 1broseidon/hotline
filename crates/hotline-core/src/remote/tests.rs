@@ -366,8 +366,8 @@ impl RoomHandle for Computered {
     fn credential_revoke(&self, id: &str) -> Result<(), String> {
         self.desk.credential_revoke(id)
     }
-    fn credential_delete(&self, id: &str) -> Result<(), String> {
-        self.desk.credential_delete(id)
+    async fn credential_delete(&self, id: &str) -> Result<(), String> {
+        self.desk.credential_delete(id).await
     }
     async fn credential_login(
         &self,

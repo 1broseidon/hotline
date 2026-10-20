@@ -204,7 +204,11 @@ impl Vault {
             mcp_token_locks: Mutex::new(HashMap::new()),
         };
         vault.check_layout()?;
-        crate::providers::rig_login::keep_logins_in(vault.logins_dir(), vault.files.clone());
+        crate::providers::rig_login::keep_logins_in(
+            vault.logins_dir(),
+            vault.files.clone(),
+            vault.log.clone(),
+        );
         // The one pass that moves MCP launch values into the credential
         // store. A locked keychain or an unreadable room line must not keep
         // Settings from opening: each source it could not move shows there
@@ -260,6 +264,10 @@ impl Vault {
         if credential.provider_id == "xai" && credential.credential_kind == CredentialKind::Oauth {
             self.abandon_login(id)?;
         }
+        let dir = self.login_dir(id);
+        let lock = crate::providers::rig_login::login_lock(&dir);
+        let _login_write = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        crate::providers::rig_login::forget(&dir);
         credential.revoked = true;
         credential.updated_at = now_ms();
         self.log.append(&StreamId::Room, &event(&credential))?;
@@ -325,6 +333,9 @@ impl Vault {
     /// them again.
     pub fn abandon_login(&self, id: &str) -> io::Result<()> {
         let dir = self.login_dir(id);
+        let lock = crate::providers::rig_login::login_lock(&dir);
+        let _login_write = lock.lock().unwrap_or_else(PoisonError::into_inner);
+        crate::providers::rig_login::forget(&dir);
         self.login_tokens(id).delete()?;
         self.files
             .file(dir.join(crate::providers::rig_login::COPILOT_RECORD))
@@ -768,11 +779,11 @@ impl Vault {
             .join(format!("{}.json", mcp_path_component(server_id)))
     }
 
-    fn login_dir(&self, id: &str) -> PathBuf {
+    pub(crate) fn login_dir(&self, id: &str) -> PathBuf {
         self.logins_dir().join(id)
     }
 
-    fn find(&self, id: &str) -> io::Result<Credential> {
+    pub(crate) fn find(&self, id: &str) -> io::Result<Credential> {
         self.list()
             .into_iter()
             .find(|credential| credential.id == id)

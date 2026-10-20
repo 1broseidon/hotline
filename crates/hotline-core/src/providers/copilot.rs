@@ -250,7 +250,7 @@ pub(crate) async fn model(
         config
     };
     let transport = super::outgoing::Outgoing::signed(
-        super::rig_login::Login::Copilot(super::rig_login::copilot(token_dir)),
+        super::rig_login::copilot(token_dir),
         std::convert::identity,
     )?;
     Ok(config.connect(transport).completion(model).erase())

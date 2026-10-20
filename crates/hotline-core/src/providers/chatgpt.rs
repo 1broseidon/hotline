@@ -116,7 +116,7 @@ pub(crate) fn model(
     model: &str,
 ) -> Result<rig::DynModel<rig::operation::Completion>, String> {
     let transport = super::outgoing::Outgoing::signed(
-        super::rig_login::Login::ChatGpt(super::rig_login::chatgpt(token_dir)),
+        super::rig_login::chatgpt(token_dir),
         std::convert::identity,
     )?;
     let config =

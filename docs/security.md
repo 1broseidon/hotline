@@ -352,9 +352,10 @@ integrated; it is not charged by this image-only branch yet.
 
 The upgrade harness compiles `provider_fixture` under the core's dev-only
 `test-support` feature. It can replace Anthropic's origin for one fixture key
-and ChatGPT's origin for one fixture login directory with a loopback HTTP
-server. This code is absent from normal builds, has no wire or settings
-entry point, and keeps the real signing and vault paths in the test.
+and ChatGPT's model and sign-out origins for one fixture login directory
+with a loopback HTTP server. This code is absent from normal builds, has no
+wire or settings entry point, and keeps the real signing and vault paths in
+the test.
 
 Rig reads and writes a ChatGPT or GitHub Copilot sign-in only through a token
 store the host hands it. Hotline's `LoginDirStore` (`providers/rig_login.rs`)
@@ -386,16 +387,32 @@ with `--store file` uses its file backend for these tokens too.
   chunks before removing the directory. `AuthError::Store` reaches the
   failure card as “Unlock your keychain”, including through Rig's HTTP error
   wrapper, rather than asking for a new sign-in.
+  Revoke, delete and abandoned sign-in evict the shared authenticator;
+  ChatGPT also calls Rig's `forget()`. The guarded `CredentialSource` checks
+  the directory and room record before and after resolving a token, including
+  on a retained Copilot transport's next request. Copilot has no `forget()`
+  API: invalidation drops its authenticator from every retained guard.
+  Local token reads and writes serialize with revoke/delete, so a refresh
+  cannot restore a deleted record or save tokens for a revoked login.
+  Deleting a ChatGPT login
+  first revokes it locally, then calls Rig's `sign_out` with a ten-second
+  bound, then removes it locally even if provider revocation failed. Deletes
+  serialize per login; Rig revokes each stored refresh and access token once.
+  Copilot has no provider revoke API for this sign-in; Settings offers
+  “Revoke at GitHub” to open the person's GitHub applications settings.
 - **Tests.** The sign-ins row of the [regression matrix](#the-regression-matrix),
   including `rig_vault_*` tests on an injected `MemoryStore` and a failing
-  wrapper, plus deletion through the real wire handler.
+  wrapper, plus `rig_revoke_*` tests for retained transports and deletion
+  through the real wire handler against successful and failing revoke endpoints.
 - **Residual risk.** An unread legacy login remains plaintext until first
   use; a failed migration deliberately preserves it. The explicit file
   backend remains owner-only plaintext. Native keychain prompts and access
   depend on the OS and application signing; George checks a signed-in macOS
-  profile before release. A revoked or deleted login's cached token remains
-  in its authenticator until expiry (up to an hour); no connection selects
-  it after removal. Deletion does not revoke tokens at the provider. Older
+  profile before release. A request already dispatched cannot be recalled.
+  Failed or timed-out ChatGPT revocation may leave a provider token usable
+  outside Hotline; Copilot access at GitHub lasts until the person revokes it
+  there. Sign-out needs readable token storage to revoke at the provider;
+  local storage failures still surface to the person. Older
   Hotline versions cannot read the references and require sign-in after a
   downgrade.
 
@@ -736,6 +753,7 @@ extend; when a change adds a boundary, it adds a row.
 | A new teammate gets no gateway server even with machine reach; grant changes rebuild the live tools; a revoked MCP tool refuses before calling its server | `tests/mcp.rs` `a_new_teammate_gets_no_gateway_tools_even_with_machine_reach`, `gateway_access_is_explicit_and_changes_rebuild_the_live_tools`; `hotline-mcp/src/lib.rs` `a_revoked_mcp_tool_refuses_before_calling_its_server` | — |
 | Secrets never enter settings: OAuth client secrets and non-string env values are refused before the write; legacy plaintext is hidden and repaired | `tests/mcp.rs` `oauth_client_secrets_are_removed_before_mcp_settings_are_written`, `a_non_string_env_value_is_rejected_before_settings_are_written`; `tests/desk/logins.rs` `legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history` | — |
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp/tests/oauth_proxy.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
+| Revocation evicts cached logins and retained Copilot transports refuse the next request; ChatGPT delete revokes each stored token once and deletes locally even if the provider fails | `providers/rig_login/tests/revoke.rs` `rig_revoke_copilot_retained_transport_stops_on_its_next_request`, `rig_revoke_chatgpt_forgets_retained_tokens_and_refuses_a_new_lookup`, `rig_revoke_a_refresh_in_flight_cannot_restore_the_login`; `tests/desk/logins.rs` `rig_revoke_delete_calls_provider_once_per_token_even_when_it_fails` | Provider revocation is best effort; already dispatched requests can finish |
 | The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests/personas.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`; `wire/tests/settings.rs` `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests/chapters.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |

@@ -338,7 +338,7 @@ pub trait RoomHandle: Send + Sync + 'static {
         secret: &str,
     ) -> Result<hotline_contract::Credential, String>;
     fn credential_revoke(&self, id: &str) -> Result<(), String>;
-    fn credential_delete(&self, id: &str) -> Result<(), String>;
+    async fn credential_delete(&self, id: &str) -> Result<(), String>;
     /// Starts provider sign-in. Returns the prompt as soon as the provider
     /// issues a code; the login keeps running until the person signs in.
     async fn credential_login(

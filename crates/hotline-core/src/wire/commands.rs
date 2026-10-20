@@ -286,7 +286,7 @@ pub(crate) async fn run(
             .credential_create(&provider_id, &label, &secret)
             .map(|credential| json!(credential)),
         Command::CredentialRevoke { id } => room.credential_revoke(&id).map(|()| Value::Null),
-        Command::CredentialDelete { id } => room.credential_delete(&id).map(|()| Value::Null),
+        Command::CredentialDelete { id } => room.credential_delete(&id).await.map(|()| Value::Null),
         Command::CredentialLogin { provider_id } => room
             .credential_login(&provider_id)
             .await

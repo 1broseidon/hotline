@@ -14,8 +14,8 @@ relatedFiles:
 parentId: epic-22
 createdAt: "2026-10-20T06:51:44.693Z"
 dependsOn:
-  - task-233
-updatedAt: "2026-10-20T06:51:48.065Z"
+  - task-231
+updatedAt: "2026-10-20T11:59:58.997Z"
 ---
 
 ## Description

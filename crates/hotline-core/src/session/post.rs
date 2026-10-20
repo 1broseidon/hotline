@@ -40,6 +40,8 @@ pub(super) struct Posting {
     /// The job whose thread the turn is on: its posts carry the job's stamp.
     job: Option<ScheduledRun>,
     posted: bool,
+    /// Voice detached while this turn was running; report once it finishes.
+    pub(super) detached: bool,
 }
 
 /// The turn in flight on a thread, as [`Room::take_post`] finds it.
@@ -95,7 +97,14 @@ impl Room {
         thread: &ThreadId,
         job: Option<ScheduledRun>,
     ) -> PostingTurn<'_> {
-        lock(&self.posting).insert(thread.clone(), Posting { job, posted: false });
+        lock(&self.posting).insert(
+            thread.clone(),
+            Posting {
+                job,
+                posted: false,
+                detached: false,
+            },
+        );
         PostingTurn {
             room: self,
             thread: thread.clone(),
@@ -247,7 +256,9 @@ impl Room {
             silent: self.on_the_call(from).then_some(true),
             from: elsewhere.then(|| {
                 let mut source = DeliveryFrom::new(from, None);
-                source.title = self.link_of(from).map(|link| link.title);
+                source.title = self.link_of(from).map(|link| link.title).filter(|title| {
+                    !(title.trim().is_empty() || from.kind == ThreadKind::Call && title == "Call")
+                });
                 source
             }),
             scheduled: post.scheduled,

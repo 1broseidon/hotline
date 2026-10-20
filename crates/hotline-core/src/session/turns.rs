@@ -147,6 +147,7 @@ struct Told<'a, F> {
     seat: Seat<'a>,
     open: F,
     voice: Option<crate::voice::Origin>,
+    replies: Vec<serde_json::Value>,
 }
 
 impl<F: Fn() -> bool> Witness for Told<'_, F> {
@@ -202,24 +203,12 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
                     Some(origin),
                 );
             }
-            let from_call =
-                self.voice.is_some() || self.seat.thread.kind == crate::contract::ThreadKind::Call;
-            let origin_ended = self.voice.as_ref().is_some_and(|origin| {
-                lock(&room.voice)
-                    .upgrade()
-                    .is_none_or(|voice| !voice.is_up(&origin.call_id))
-            });
-            let needs_chat = origin_ended
-                || !room.on_the_call(self.seat.thread)
-                || text.contains("http")
-                || text.contains("```")
-                || text.contains('|');
-            if from_call && needs_chat && !text.trim().is_empty() {
-                let _ = room.post(
-                    self.seat.persona_id,
-                    self.seat.thread,
-                    super::Post::words(text),
-                );
+            if let Ok(value) = serde_json::to_value(&event) {
+                if let Some(previous) = self.replies.iter_mut().find(|reply| reply["id"] == *id) {
+                    *previous = value;
+                } else {
+                    self.replies.push(value);
+                }
             }
         }
 
@@ -254,7 +243,9 @@ impl Threads<'_> {
             .voice
             .clone()
             .or_else(|| self.room.attached_voice(&thread));
+        let subject = line.text.clone();
         let mut told = Told {
+            replies: Vec::new(),
             voice: voice.clone(),
             threads: Threads { room: self.room },
             seat,
@@ -267,6 +258,11 @@ impl Threads<'_> {
             && let Some(voice) = lock(&self.room.voice).upgrade()
         {
             voice.turn_ended(told.seat.persona_id, &origin);
+        }
+        if (told.open)() {
+            self.room
+                .post_detached_reply(told.seat.persona_id, &thread, &subject, &told.replies)
+                .await;
         }
         driven.posted = self.room.has_posted(&thread);
         driven

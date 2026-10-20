@@ -86,6 +86,14 @@ impl Room {
             .and_then(|voice| voice.thread_origin(thread))
     }
 
+    /// Capture the turn at disconnection, before the asynchronous call log
+    /// can catch a later typed turn instead.
+    pub(crate) fn call_detached(&self, thread: &ThreadId) {
+        if let Some(turn) = lock(&self.posting).get_mut(thread) {
+            turn.detached = true;
+        }
+    }
+
     pub(crate) fn call_ended(
         &self,
         thread: &ThreadId,
@@ -191,6 +199,50 @@ impl Room {
             }
         });
     }
+
+    /// Only the turn caught by hang-up reports automatically. Its complete
+    /// written answer stays on the thread, even if preparing a summary fails.
+    pub(super) async fn post_detached_reply(
+        &self,
+        persona: &str,
+        thread: &ThreadId,
+        subject: &str,
+        replies: &[Value],
+    ) {
+        let detached = lock(&self.posting)
+            .get(thread)
+            .is_some_and(|turn| turn.detached);
+        if !detached || replies.is_empty() {
+            return;
+        }
+        let text = replies
+            .iter()
+            .filter_map(|event| event["text"].as_str())
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        if text.is_empty() {
+            return;
+        }
+        let text = if short_call_post(&text) {
+            text
+        } else {
+            let mut slice = vec![json!({"kind":"user", "text":subject})];
+            slice.extend_from_slice(replies);
+            let summary = match self.persona(persona) {
+                Ok(persona) => self.call_reply_note(&persona, &slice).await,
+                Err(_) => None,
+            };
+            summary.unwrap_or_else(|| {
+                let subject = self.link_of(thread).map(|link| link.title)
+                    .filter(|title| !title.is_empty() && title != "Call")
+                    .unwrap_or_else(|| subject.lines().next().unwrap_or("Call work").to_owned());
+                format!("{}: the reply is ready in the call thread. I could not prepare its short summary.", crate::driver::clip(&subject, 160))
+            })
+        };
+        let _ = self.post(persona, thread, Post::words(&text));
+    }
+
     fn park_after_call(&self, thread: &ThreadId, note: Option<super::chapters::Note>) {
         self.end_thread(thread, super::sides::Ending::Park);
         if let Some(mut link) = self.link_of(thread)
@@ -206,4 +258,14 @@ impl Room {
             self.write_link(&link);
         }
     }
+}
+
+/// Three short paragraphs fit in chat; longer answers belong behind the link.
+fn short_call_post(text: &str) -> bool {
+    text.chars().count() <= 900
+        && text
+            .split("\n\n")
+            .filter(|part| !part.trim().is_empty())
+            .count()
+            <= 3
 }

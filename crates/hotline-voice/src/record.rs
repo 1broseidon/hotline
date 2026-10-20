@@ -47,6 +47,8 @@ enum Entry {
 /// The sending end of a direct call's thread. Writing stops with the room.
 pub(super) struct Record {
     sender: mpsc::UnboundedSender<Entry>,
+    room: Arc<dyn CallRoom>,
+    thread: hotline_contract::ThreadId,
 }
 
 impl Record {
@@ -59,6 +61,11 @@ impl Record {
     ) -> Self {
         let (sender, mut entries) = mpsc::unbounded_channel();
         room.call_began(call_id, persona_id, now_ms());
+        let record = Self {
+            sender,
+            room: room.clone(),
+            thread: call_id.clone(),
+        };
         let call_id = call_id.clone();
         let persona_id = persona_id.to_string();
         tokio::spawn(async move {
@@ -74,7 +81,7 @@ impl Record {
                 }
             }
         });
-        Self { sender }
+        record
     }
 
     /// A line said on the call.
@@ -90,6 +97,7 @@ impl Record {
 
     /// The call is over, for this reason.
     pub(super) fn ended(&self, reason: Option<VoiceEndReason>) {
+        self.room.call_detached(&self.thread);
         let (end, outcome) = match reason {
             Some(VoiceEndReason::Client) | None => (End::Person, "Hung up"),
             Some(VoiceEndReason::Goodbye) => (End::Person, "Said goodbye"),

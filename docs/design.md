@@ -607,7 +607,11 @@ thread owned by the selected teammate. Both use the work-thread occupant,
 `Room::thread_agent` and `Room::run_queue`: one queue, independent revocable
 lease, tools and checkpoint restoration, on Hotline Agent and ACP. Spoken
 lines never enter the home DM. Hang-up detaches speech and leaves accepted
-work running; its later reply is posted to the chat. Calls and work threads
+work running; only the turn in flight at hang-up posts its completed reply
+as one chat message. Replies over 900 characters or three paragraphs post
+a short subject-first summary, with the full text kept on the call thread;
+if summarising fails, a short notice points there instead. Later typed turns
+stay on the thread unless they explicitly post. Calls and work threads
 can be continued by text and called again.
 
 Thirty seconds after hang-up, once the queue is idle, the chapter summariser

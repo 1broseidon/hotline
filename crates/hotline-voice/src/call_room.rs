@@ -26,6 +26,8 @@ pub trait CallRoom: Send + Sync {
     fn connected(&self) -> Connected;
     fn call_began(&self, call: &ThreadId, persona: &str, ts: i64);
     fn call_said(&self, call: &ThreadId, persona: &str, line: &Value);
+    /// Mark the current turn synchronously; recording the end may lag behind it.
+    fn call_detached(&self, call: &ThreadId);
     fn call_ended(&self, call: &ThreadId, persona: &str, end: End, outcome: &str, ts: i64);
     fn validate_call_thread(&self, persona: &str, thread: &ThreadId) -> Result<(), String>;
     async fn call_prompt(&self, persona: &str, thread: &ThreadId, text: &str)

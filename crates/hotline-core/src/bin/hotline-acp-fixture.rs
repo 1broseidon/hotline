@@ -6,7 +6,8 @@
 //! anywhere in a prompt is one call to that tool on Hotline's MCP server, made
 //! in order; the turn's one message is a `RESULTS` line followed by one line
 //! per call, `<tool> ok: <text>` or `<tool> refused: <text>`. A prompt with no
-//! calls is answered "On it."
+//! calls is answered "On it." A REPLY_JSON line supplies a JSON string as
+//! the answer, so reply-format scenarios need not echo session instructions.
 
 use agent_client_protocol::schema::v1::{
     AgentCapabilities, ContentBlock, ContentChunk, InitializeRequest, InitializeResponse,
@@ -104,7 +105,13 @@ async fn main() {
                             let mut histories = histories.lock().unwrap();
                             let history = histories.entry(session.0.to_string()).or_default();
                             history.push(said.clone());
-                            if said.contains("ECHO_HISTORY") {
+                            if let Some(reply) = said
+                                .lines()
+                                .find_map(|line| line.trim().strip_prefix("REPLY_JSON "))
+                            {
+                                serde_json::from_str::<String>(reply)
+                                    .expect("REPLY_JSON is a JSON string")
+                            } else if said.contains("ECHO_HISTORY") {
                                 history.join("\n")
                             } else {
                                 reply

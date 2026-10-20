@@ -24,7 +24,7 @@ function runClass(run: Run): string {
  * work thread, a scheduled job. The stamp says it; the words do not.
  */
 function postedFrom(event: Extract<TranscriptEvent, { kind: "agent" }>): string | null {
-	if (event.from?.title) return `From ${event.from.title}`;
+	if (event.from?.title && !(event.from.kind === "call" && event.from.title === "Call")) return `From ${event.from.title}`;
 	if (event.scheduled !== undefined) return "From a scheduled job";
 	switch (event.from?.kind) {
 		case "call":
@@ -100,6 +100,7 @@ export function AgentSay({
 				<Reactions emoji={reactions} />
 				<BubbleActions {...actions} />
 			</div>
+			{event.from?.kind === "call" && onOpenThread !== undefined && <button type="button" className="said-name" onClick={() => onOpenThread({ thread: { kind: "call", key: event.from!.thread } })}>Open the call</button>}
 			{link !== null && <LinkCard url={link} always={onlyLink(event.text, link)} />}
 		</div>
 	);

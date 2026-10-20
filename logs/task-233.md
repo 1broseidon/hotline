@@ -1,8 +1,6 @@
 ---
 id: task-233
 title: "S3: Rig 0.45 with Hotline's own TokenStore over today's login dirs (no one signed out)"
-column: todo
-position: 5
 priority: high
 tags:
   - rig
@@ -15,7 +13,8 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:44.208Z"
 dependsOn:
   - task-232
-updatedAt: "2026-10-20T06:51:47.584Z"
+updatedAt: "2026-10-20T11:59:58.522Z"
+completedAt: "2026-10-20T11:59:58.522Z"
 ---
 
 ## Description

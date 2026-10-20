@@ -46,20 +46,20 @@ impl LoginDirStore {
         }
     }
 
-    fn file(&self, key: &str) -> Result<PathBuf, BoxError> {
-        let name = match key {
-            chatgpt::PROVIDER_NAME => CHATGPT_RECORD,
-            copilot::PROVIDER_NAME => COPILOT_RECORD,
-            other => return Err(format!("a login directory keeps no {other} record").into()),
-        };
-        Ok(self.dir.join(name))
+    /// The file the record Rig names `key` is kept in.
+    fn record(key: &str) -> Result<&'static str, BoxError> {
+        match key {
+            chatgpt::PROVIDER_NAME => Ok(CHATGPT_RECORD),
+            copilot::PROVIDER_NAME => Ok(COPILOT_RECORD),
+            other => Err(format!("a login directory keeps no {other} record").into()),
+        }
     }
 }
 
 impl TokenStore for LoginDirStore {
     fn load<'a>(&'a self, key: &'a str) -> WasmBoxedFuture<'a, Result<Option<String>, BoxError>> {
         Box::pin(async move {
-            let path = self.file(key)?;
+            let path = self.dir.join(Self::record(key)?);
             if key == copilot::PROVIDER_NAME {
                 migrate_copilot(&self.dir)?;
             }
@@ -77,19 +77,14 @@ impl TokenStore for LoginDirStore {
         record: &'a str,
     ) -> WasmBoxedFuture<'a, Result<(), BoxError>> {
         Box::pin(async move {
-            let path = self.file(key)?;
-            let name = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or_default();
-            crate::vault::write_beside_login(&self.dir, name, record.as_bytes())?;
+            crate::vault::write_beside_login(&self.dir, Self::record(key)?, record.as_bytes())?;
             Ok(())
         })
     }
 
     fn delete<'a>(&'a self, key: &'a str) -> WasmBoxedFuture<'a, Result<(), BoxError>> {
         Box::pin(async move {
-            remove_if_present(&self.file(key)?)?;
+            remove_if_present(&self.dir.join(Self::record(key)?))?;
             Ok(())
         })
     }
@@ -99,7 +94,7 @@ impl TokenStore for LoginDirStore {
     /// approve it, up to fifteen minutes, and no other credential waits.
     fn lock<'a>(&'a self, key: &'a str) -> WasmBoxedFuture<'a, Result<StoreLock, BoxError>> {
         Box::pin(async move {
-            let lock = record_lock(&self.file(key)?);
+            let lock = record_lock(&self.dir.join(Self::record(key)?));
             Ok(StoreLock::new(lock.lock_owned().await))
         })
     }

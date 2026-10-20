@@ -1232,6 +1232,63 @@ session's voice tests. `wire::commands` re-exports `VOICE_COMMAND`,
 `CALL_ORIGIN` and `PROMPT_CLIENT` because the wire and session still set/read
 those scopes; they are now defined once in `hotline-voice::call_room`.
 
+**S0, timed.** Re-run on 2026-10-20, on this machine's Apple M5 Max
+(18 physical cores, 128 GiB), macOS 27.0.1, rustc and cargo 1.99.0, dev
+profile. The baseline is `b941ff88`, the task's starting revision, unpacked
+with `git archive` into a temporary directory; the extracted code is
+`dca1f345` in this worktree. Both used the same target directory and verified
+speech-engine archive. Each build/test command was warmed before its cold
+measurements; each cold measurement cleaned only `hotline-core`. Each
+measurement ran twice, with the second kept below. Builds ran sequentially,
+with no other builds launched by this task; other machine activity was
+uncontrolled: sampled load averages rose from about 4.2 during the baseline
+builds to 16.0 near the end of the after runs. Small differences, especially
+the nearly flat cold test build, are within this run's uncertainty. These
+figures compare these two revisions, not the earlier machine's Step 3 figures.
+
+The commands are Before's `cargo build -p hotline-core` and
+`cargo test -p hotline-core --no-run`, adding `--timings` for cold builds.
+The touches use the dispatcher's old/new paths in the map above,
+`crates/hotline-store/src/lib.rs`, and
+`crates/hotline-contract/src/command.rs`. An edit replaces a private,
+unused `timing_probe` function's literal between runs; the source is then
+restored. Wall time includes Cargo startup; the library's unit/front-end/
+code-generation figures come from Cargo's timing report.
+
+| What | Before, b941ff88 | After, dca1f345 |
+|---|---|---|
+| Rust lines in core src, including its unit tests | 123,730 | 117,840 |
+| Cold core build | 25.5 s | 24.8 s |
+| Core library unit | 23.5 s | 22.6 s |
+| Core library front end | 14.7 s | 14.4 s |
+| Core library code generation | 8.9 s | 8.3 s |
+| Cold core test build (`--no-run`) | 74.3 s | 74.6 s |
+| Touch dispatcher, build | 2.8 s | 3.2 s |
+| Touch dispatcher, test build | 9.8 s | 10.7 s |
+| Edit dispatcher, build | 2.9 s | 3.6 s |
+| Edit dispatcher, test build | 9.8 s | 10.7 s |
+| Touch store root, build | 3.5 s | 3.9 s |
+| Touch store root, test build | 10.4 s | 10.8 s |
+| Touch command contract, build | 5.0 s | 5.6 s |
+| Touch command contract, test build | 12.4 s | 13.0 s |
+
+The core loses about 4.8% of its Rust lines. Its cold build falls by 0.7
+seconds and its cold test build rises by 0.3 seconds in this
+comparison. A dispatcher edit now rebuilds voice and then core, so that
+incremental path pays for both crates; the table keeps that cost visible.
+The reason for this move remains the explicit call-room boundary and
+maintainability, as George requested. These measurements authorize no
+additional extraction.
+
+Validation on the task branch: `make check` passed (2,142 Rust tests,
+464 UI tests), and all eight `make precheck` legs passed, including Windows
+cross-compilation and each UI test alone. The workspace-isolation workflow's
+macOS check passed, including
+`workspace_reach_keeps_another_projects_env_out_of_the_tools`. An unfiltered
+`cargo test -p hotline-contract` left `contract.ts` byte-identical to
+`b941ff88`. The branch was not pushed; the remote CI matrix remains the
+review/merge workflow's check.
+
 ### The re-exports
 
 The five crates' re-exports are about 870 references in the core's source,

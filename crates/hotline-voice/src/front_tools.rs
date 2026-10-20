@@ -35,7 +35,7 @@ const CALL_LIMIT: Duration = Duration::from_secs(30);
 /// The servers a call connects, all of them or none, before it opens.
 const CONNECT_LIMIT: Duration = Duration::from_secs(10);
 
-pub struct FrontTools {
+pub(crate) struct FrontTools {
     room: Arc<dyn CallRoom>,
     call_id: String,
     persona_id: String,

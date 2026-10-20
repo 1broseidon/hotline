@@ -87,6 +87,12 @@ crates/hotline-mcp/src/       Hotline as an MCP client; on the contract, the sup
   tool.rs                    one granted tool as Hotline Agent calls it, and its ledger row
   oauth.rs                   OAuth sign-in to an HTTP server, with what the vault keeps handed in
 crates/hotline-voice/src/     calls and voice engines; the room is reached through CallRoom
+  call_room.rs               the core's callbacks, with temporary operations labelled by removal slice
+  lib.rs, call.rs, input.rs   call ownership, lifecycle and bounded input
+  duplex.rs, front*.rs        live sound, the front's conversation and its leased tools
+  dispatcher.rs              the legacy desk assistant and its metering
+  turn.rs, synthesis.rs       turns, streamed replies and spoken clips
+  record.rs, replies.rs       the call's record and spoken-reply counts
   speech.rs                  the Speech seam: a clip heard, a reply spoken, and the errors either gives
   speech/                    the providers' adapters, which one a call uses, the desk's own models
   realtime.rs                the Realtime seam: one live spoken conversation that renews itself

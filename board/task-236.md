@@ -16,7 +16,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:45.659Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:31:42.290Z"
+updatedAt: "2026-10-20T13:36:50.435Z"
 contract:
   status: in_progress
   deliverables:
@@ -54,6 +54,8 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-20T13:31:32.683Z"
+    ended: "2026-10-20T13:36:50.435Z"
+    outcome: stopped
 ---
 
 ## Description

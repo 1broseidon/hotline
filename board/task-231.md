@@ -30,9 +30,9 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:43.238Z"
 dependsOn:
   - task-230
-updatedAt: "2026-10-20T12:29:25.126Z"
+updatedAt: "2026-10-20T12:29:25.431Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: Cargo.toml
@@ -65,6 +65,8 @@ contract:
     - Do not adopt Rig's resumable runs or committed-history streaming for the turn loop
   metrics:
     readyAt: "2026-10-20T12:04:00.044Z"
+    pickedUpAt: "2026-10-20T12:29:25.431Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

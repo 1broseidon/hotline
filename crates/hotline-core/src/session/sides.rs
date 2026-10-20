@@ -149,6 +149,7 @@ pub(super) fn work_preamble(
 /// One live side thread.
 pub(super) struct LiveSide {
     pub(super) id: String,
+    pub(super) thread: ThreadId,
     persona_id: String,
     /// Empty until the person first says something in a thread that was
     /// opened without a task; that line names it.
@@ -203,7 +204,7 @@ impl LiveSide {
     /// A delivery's turn has begun: it is read, and a restart does not hand it
     /// over again.
     fn heard(&self, room: &Room, id: &str) {
-        let stream = StreamId::Side(self.id.clone());
+        let stream = StreamId::of_thread(&self.thread).expect("work has a stream");
         let Some(event) = room
             .log
             .load(&stream)
@@ -237,7 +238,7 @@ impl LiveSide {
             return;
         }
         room.threads()
-            .write(&ThreadId::side(&self.id), &self.persona_id, event);
+            .write(&self.thread.clone(), &self.persona_id, event);
     }
 }
 
@@ -260,7 +261,7 @@ impl Occupant for LiveSide {
     }
 
     fn thread(&self) -> ThreadId {
-        ThreadId::side(&self.id)
+        self.thread.clone()
     }
 
     fn holder(&self) -> crate::computer::gate::Holder {
@@ -392,7 +393,7 @@ pub(super) struct Sides {
     inner: Mutex<Inner>,
     /// One thread is brought back at a time, so two lines said to the same
     /// parked thread at once start one agent between them.
-    waking: tokio::sync::Mutex<()>,
+    pub(super) waking: tokio::sync::Mutex<()>,
 }
 
 impl Sides {
@@ -401,16 +402,22 @@ impl Sides {
     /// is handed back to be parked: parking loses nothing, so it is the
     /// kinder answer than a refusal. Only when every place is mid-turn, with
     /// nothing to let go of, is there no place to be had.
-    fn reserve(&self, persona_id: &str) -> Result<Option<Arc<LiveSide>>, String> {
+    fn reserve(&self, persona_id: &str, kind: ThreadKind) -> Result<Option<Arc<LiveSide>>, String> {
         let mut inner = lock(&self.inner);
+        let limit = if kind == ThreadKind::Call {
+            1
+        } else {
+            MAX_LIVE
+        };
+        let reservation = format!("{}:{persona_id}", kind.name());
         let live: Vec<Arc<LiveSide>> = inner
             .live
             .values()
-            .filter(|side| side.persona_id == persona_id)
+            .filter(|side| side.persona_id == persona_id && side.thread.kind == kind)
             .cloned()
             .collect();
-        let starting = inner.starting.get(persona_id).copied().unwrap_or(0);
-        let freed = if live.len() + starting >= MAX_LIVE {
+        let starting = inner.starting.get(&reservation).copied().unwrap_or(0);
+        let freed = if live.len() + starting >= limit {
             let idlest = live
                 .iter()
                 .filter(|side| !side.working())
@@ -418,7 +425,7 @@ impl Sides {
                 .cloned()
                 .ok_or_else(|| {
                     format!(
-                        "That teammate already has {MAX_LIVE} threads working. Let one finish, then try again."
+                        "That teammate already has {limit} threads working. Let one finish, then try again."
                     )
                 })?;
             inner.live.remove(&idlest.id);
@@ -426,7 +433,7 @@ impl Sides {
         } else {
             None
         };
-        *inner.starting.entry(persona_id.to_string()).or_default() += 1;
+        *inner.starting.entry(reservation).or_default() += 1;
         Ok(freed)
     }
 
@@ -439,9 +446,13 @@ impl Sides {
         let live: Vec<&Arc<LiveSide>> = inner
             .live
             .values()
-            .filter(|side| side.persona_id == persona_id)
+            .filter(|side| side.persona_id == persona_id && side.thread.kind == ThreadKind::Side)
             .collect();
-        let starting = inner.starting.get(persona_id).copied().unwrap_or(0);
+        let starting = inner
+            .starting
+            .get(&format!("side:{persona_id}"))
+            .copied()
+            .unwrap_or(0);
         live.len() + starting < MAX_LIVE || live.iter().any(|side| !side.working())
     }
 
@@ -483,11 +494,13 @@ impl Sides {
 struct Reserved<'a> {
     sides: &'a Sides,
     persona_id: &'a str,
+    kind: ThreadKind,
 }
 
 impl Drop for Reserved<'_> {
     fn drop(&mut self) {
-        self.sides.release(self.persona_id);
+        self.sides
+            .release(&format!("{}:{}", self.kind.name(), self.persona_id));
     }
 }
 
@@ -515,7 +528,7 @@ pub(super) fn cut(text: &str, max: usize) -> String {
 /// it saved, are on its own stream and marker, and the agent's builder reads
 /// them there.
 pub(super) struct Start {
-    pub side_id: String,
+    pub thread: ThreadId,
     pub title: String,
     pub started: i64,
     /// The teammate that handed this work over, when one did.
@@ -563,6 +576,21 @@ pub(super) enum Ending {
 }
 
 impl Room {
+    /// Calls and work threads share the same occupant and restoration path.
+    pub(super) fn work_thread(&self, id: &str) -> ThreadId {
+        self.sides.get(id).map_or_else(
+            || {
+                let call = ThreadId::call(id);
+                if self.link_of(&call).is_some() {
+                    call
+                } else {
+                    ThreadId::side(id)
+                }
+            },
+            |live| live.thread.clone(),
+        )
+    }
+
     /// Starts a side thread with this teammate about `text`, and answers its
     /// summary at once. The thread is published, with the task as its first
     /// line, before its agent exists: the agent is brought up on its own task,
@@ -582,7 +610,7 @@ impl Room {
         let (live, launch) = self.bring_up(
             persona_id,
             Start {
-                side_id: new_id(),
+                thread: ThreadId::side(new_id()),
                 title: title_of(text),
                 started: now_ms(),
                 opener: None,
@@ -621,7 +649,7 @@ impl Room {
         let opener = match self.sides.get(side_id) {
             Some(side) => side.opener.clone(),
             None => self
-                .link_of(&ThreadId::side(side_id))
+                .link_of(&self.work_thread(side_id))
                 .and_then(|link| link.opener),
         };
         match opener {
@@ -657,17 +685,18 @@ impl Room {
         let requested = now_ms();
         let persona_lease = self.capability_lease(persona_id);
         persona_lease.check()?;
-        if let Some(parked) = self.sides.reserve(persona_id)? {
+        if let Some(parked) = self.sides.reserve(persona_id, start.thread.kind)? {
             self.park_side(&parked);
         }
         let _reserved = Reserved {
             sides: &self.sides,
             persona_id,
+            kind: start.thread.kind,
         };
 
         // The thread is its own authority, not the session's: whatever the
         // teammate is granted now is what it gets, however long ago it began.
-        let lease = lease_of(ThreadKind::Side, &persona_lease);
+        let lease = lease_of(start.thread.kind, &persona_lease);
         // What the marker held stays on it while the agent starts, so that
         // the start can still reopen it, but only if it is one this harness
         // issued.
@@ -679,7 +708,8 @@ impl Room {
             })
             .map(|saved| saved.session_id);
         let live = Arc::new(LiveSide {
-            id: start.side_id,
+            id: start.thread.key.clone(),
+            thread: start.thread,
             persona_id: persona_id.to_string(),
             title: Mutex::new(start.title),
             started: start.started,
@@ -766,7 +796,7 @@ impl Room {
         let title = lock(&side.title).clone();
         let mut agent = self
             .thread_agent(Opening {
-                thread: ThreadId::side(&side.id),
+                thread: side.thread.clone(),
                 persona,
                 title,
                 opener: side.opener.clone(),
@@ -856,11 +886,19 @@ impl Room {
         continuing: bool,
     ) -> Result<(Arc<LiveSide>, Option<Launch>), String> {
         let _one_at_a_time = self.sides.waking.lock().await;
+        self.wake_work(side_id, continuing)
+    }
+
+    fn wake_work(
+        self: &Arc<Self>,
+        side_id: &str,
+        continuing: bool,
+    ) -> Result<(Arc<LiveSide>, Option<Launch>), String> {
         if let Ok(side) = self.live_side(side_id) {
             return Ok((side, None));
         }
         let link = self
-            .link_of(&ThreadId::side(side_id))
+            .link_of(&self.work_thread(side_id))
             .ok_or_else(|| "There is no such side thread.".to_string())?;
         match link.state {
             ThreadState::Parked => {}
@@ -870,6 +908,7 @@ impl Room {
                     "That side thread is archived. Continue it to talk in it again.".to_string(),
                 );
             }
+            ThreadState::Live if link.thread.kind == ThreadKind::Call => {}
             ThreadState::Live => return Err("That side thread is not live.".to_string()),
         }
         let Some(persona_id) = link.persona_id else {
@@ -878,7 +917,7 @@ impl Room {
         let (side, launch) = self.bring_up(
             &persona_id,
             Start {
-                side_id: side_id.to_string(),
+                thread: link.thread,
                 title: link.title,
                 started: link.ts,
                 opener: link.opener,
@@ -914,6 +953,7 @@ impl Room {
         attachments: Option<Vec<Attachment>>,
     ) -> Result<(), String> {
         let _working = self.working()?;
+        let _admission = self.sides.waking.lock().await;
         let text = text.trim();
         let attachments = attachments.filter(|attachments| !attachments.is_empty());
         if text.is_empty() && attachments.is_none() {
@@ -922,7 +962,7 @@ impl Room {
         self.refuse_handed_over(side_id)?;
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_side(side_id, false).await?,
+            Err(_) => self.wake_work(side_id, false)?,
         };
         self.say_in_side(&side, text, reply_to, attachments);
         if let Some(launch) = launch {
@@ -954,7 +994,7 @@ impl Room {
             self.finish_side(&side, by.into(), result);
             return Ok(());
         }
-        let Some(link) = self.link_of(&ThreadId::side(side_id)) else {
+        let Some(link) = self.link_of(&self.work_thread(side_id)) else {
             return Err("There is no such side thread.".to_string());
         };
         match link.state {
@@ -977,7 +1017,7 @@ impl Room {
             return Ok(());
         }
         match self
-            .link_of(&ThreadId::side(side_id))
+            .link_of(&self.work_thread(side_id))
             .map(|link| link.state)
         {
             Some(ThreadState::Parked) => Ok(()),
@@ -1013,7 +1053,7 @@ impl Room {
         let id = Value::from(format!("perm:{request_id}"));
         let card = self
             .log
-            .load(&StreamId::Side(side_id.to_string()))
+            .load(&StreamId::of_thread(&self.work_thread(side_id)).expect("work has a stream"))
             .into_iter()
             .find(|event| event.get("id") == Some(&id))
             .and_then(|event| serde_json::from_value::<TranscriptEvent>(event).ok());
@@ -1054,7 +1094,9 @@ impl Room {
             return Err("react needs one emoji.".to_string());
         }
         let side = self.live_side(side_id)?;
-        let stream = self.log.load(&StreamId::Side(side_id.to_string()));
+        let stream = self
+            .log
+            .load(&StreamId::of_thread(&self.work_thread(side_id)).expect("work has a stream"));
         let line = stream
             .iter()
             .rev()
@@ -1109,7 +1151,7 @@ impl Room {
         self.live_side(side_id)?;
         let here = self
             .log
-            .load(&StreamId::Side(side_id.to_string()))
+            .load(&StreamId::of_thread(&self.work_thread(side_id)).expect("work has a stream"))
             .iter()
             .rev()
             .find(|event| event["kind"] == "user")
@@ -1123,10 +1165,17 @@ impl Room {
 
     /// The side threads this teammate has live, oldest first, for its roster
     /// row.
+    pub(crate) fn work_thread_working(&self, thread: &ThreadId) -> bool {
+        self.sides
+            .get(&thread.key)
+            .is_some_and(|live| live.thread == *thread && live.working())
+    }
+
     pub fn sides(&self, persona_id: &str) -> Vec<RunningSide> {
         self.sides
             .of(persona_id)
             .iter()
+            .filter(|side| side.thread.kind == ThreadKind::Side)
             .map(|side| RunningSide {
                 side_id: side.id.clone(),
                 title: lock(&side.title).clone(),
@@ -1143,6 +1192,7 @@ impl Room {
             .sides
             .of(persona_id)
             .iter()
+            .filter(|side| side.thread.kind == ThreadKind::Side)
             .map(|side| self.side_summary(side))
             .collect();
         let mut kept: Vec<SideThreadSummary> = self
@@ -1164,10 +1214,13 @@ impl Room {
     /// Whether a live side thread of this teammate is stopped on a card, for
     /// the roster row.
     pub(super) fn side_cards_waiting(&self, persona_id: &str) -> bool {
-        self.sides
-            .of(persona_id)
-            .iter()
-            .any(|side| waiting_on(&self.log.load(&StreamId::Side(side.id.clone()))))
+        self.sides.of(persona_id).iter().any(|side| {
+            waiting_on(
+                &self
+                    .log
+                    .load(&StreamId::of_thread(&side.thread).expect("work has a stream")),
+            )
+        })
     }
 
     /// Archives every thread this teammate has: its authority is gone, so
@@ -1245,7 +1298,16 @@ impl Room {
         self.queue_in_side(
             side,
             Line {
-                text: timed_from(ts, client, text),
+                voice: self.attached_voice(&side.thread),
+                text: if self.attached_voice(&side.thread).is_some() {
+                    format!(
+                        "{}\n\n{}",
+                        timed_from(ts, client, text),
+                        crate::voice::spoken::CONTRACT
+                    )
+                } else {
+                    timed_from(ts, client, text)
+                },
                 attachments: attachments.unwrap_or_default(),
                 handoff: None,
                 from: None,
@@ -1294,14 +1356,16 @@ impl Room {
         handoff: Option<HandoffLine>,
     ) -> Result<(), String> {
         let _working = self.working()?;
+        let _admission = self.sides.waking.lock().await;
         let (side, launch) = match self.live_side(side_id) {
             Ok(side) => (side, None),
-            Err(_) => self.wake_side(side_id, true).await?,
+            Err(_) => self.wake_work(side_id, true)?,
         };
         // What came back is queued before the agent is started, so it is the
         // first thing the agent hears however fast the start goes.
         let delivered = (|| {
-            let stream = StreamId::Side(side_id.to_string());
+            let stream =
+                StreamId::of_thread(&self.work_thread(side_id)).expect("work has a stream");
             let existing = self
                 .log
                 .load(&stream)
@@ -1338,6 +1402,7 @@ impl Room {
             self.queue_in_side(
                 &side,
                 Line {
+                    voice: None,
                     text: super::timed(ts, &wire),
                     attachments: Vec::new(),
                     handoff,
@@ -1353,39 +1418,12 @@ impl Room {
         delivered
     }
 
-    /// The human-action cards that sit in this teammate's work threads, for the
-    /// ones a thread's agent parked on the person and went on from. A thread
-    /// that is closed holds none that are waiting.
-    pub(super) fn cards_in_work(&self, persona_id: &str) -> Vec<(Value, ThreadId)> {
-        let mut cards = Vec::new();
-        for id in self.stored_side_ids() {
-            let thread = ThreadId::side(&id);
-            let stream = StreamId::Side(id.clone());
-            let events = self.log.load(&stream);
-            let Some(link) = Link::find(&events, &thread) else {
-                continue;
-            };
-            if link.persona_id.as_deref() != Some(persona_id) {
-                continue;
-            }
-            cards.extend(
-                events
-                    .into_iter()
-                    .filter(|event| {
-                        event.get("kind").and_then(Value::as_str) == Some("human_action")
-                    })
-                    .map(|event| (event, thread.clone())),
-            );
-        }
-        cards
-    }
-
     /// Whether this thread can be talked in without the person pressing
     /// Continue: it is live or parked.
     pub(super) fn work_is_open(&self, side_id: &str) -> bool {
         self.sides.get(side_id).is_some()
             || self
-                .link_of(&ThreadId::side(side_id))
+                .link_of(&self.work_thread(side_id))
                 .is_some_and(|link| !matches!(link.state, ThreadState::Closed(_)))
     }
 }

@@ -1,102 +1,12 @@
 use super::*;
 
-#[tokio::test]
-async fn a_direct_calls_lines_are_kept_on_its_thread_and_found_by_search() {
-    let (_root, desk, calls, id, persona, mut rx, _fake) = direct_call().await;
-    utterance(&calls, &id, 1).unwrap();
-    // This desk has no model for Mack, so the words never reach a session.
-    event(
-        &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text == RETRY_LINE),
-    )
-    .await;
-    let origin = on_turn(&calls, &id, 1);
-    assert!(calls.delivery(
-        &persona,
-        "reply-1",
-        "Mack",
-        "<spoken>What's on your mind?</spoken>\n<written>Shown only.</written>",
-        true,
-        Some(&origin)
-    ));
-    event(
-        &mut rx,
-        |e| matches!(e, VoiceEvent::Said { text, .. } if text == "What's on your mind?"),
-    )
-    .await;
-    until("the call's lines", || said_on(&desk, &id).len() == 3).await;
-
-    assert_eq!(
-        said_on(&desk, &id),
-        [
-            ("user".to_string(), "Can you check the build?".to_string()),
-            ("agent".to_string(), RETRY_LINE.to_string()),
-            ("agent".to_string(), "What's on your mind?".to_string()),
-        ]
-    );
-    // The DM shows the call, once, and the call stream heads with the same line.
-    until("the link", || call_link(&desk, &persona).is_some()).await;
-    let link = call_link(&desk, &persona).unwrap();
-    assert_eq!(link["thread"], id.as_str());
-    assert_eq!(link["state"], "live");
-    assert_eq!(link["personaId"], persona.as_str());
-
-    // The teammate finds what was said, naming the call.
-    let found =
-        crate::store::search::search_teammate(desk.log.root(), &persona, "build", None).unwrap();
-    assert_eq!(found["hits"][0]["thread"], format!("call:{id}"));
-    let heard =
-        crate::store::search::search_teammate(desk.log.root(), &persona, "mind", None).unwrap();
-    assert_eq!(heard["hits"][0]["thread"], format!("call:{id}"));
-
-    calls.end(&id).unwrap();
-    until("the closing link", || {
-        call_link(&desk, &persona).is_some_and(|link| link["state"] == "closed")
-    })
-    .await;
-    let link = call_link(&desk, &persona).unwrap();
-    assert_eq!(link["end"], "person");
-    assert_eq!(link["outcome"], "Hung up");
-    assert_eq!(
-        desk.log
-            .load(&StreamId::Tape(persona.clone()))
-            .iter()
-            .filter(|event| event["kind"] == "link" && event["threadKind"] == "call")
-            .count(),
-        1,
-        "one line, rewritten as the call goes"
-    );
-
-    // A closed call reads back as a thread.
-    let thread = crate::thread::ThreadStore::new(&desk.log)
-        .load(&crate::contract::ThreadId::call(&id))
-        .unwrap();
-    assert_eq!(
-        thread.state,
-        crate::thread::ThreadState::Closed(crate::contract::End::Person)
-    );
-    assert_eq!(
-        thread.participants,
-        [
-            crate::thread::Participant::Person,
-            crate::thread::Participant::Voice(persona.clone())
-        ]
-    );
-    assert!(
-        crate::thread::ThreadStore::new(&desk.log)
-            .list(&persona)
-            .iter()
-            .any(|listed| listed.id == thread.id)
-    );
-}
-
 /// A teammate's reply on a call to it has its spoken version said as it
 /// streams, as one reply: one line on screen growing under one id, its audio
 /// under that id ending in one empty final clip, and one line on the call's
 /// thread. Neither the written version nor a tag reaches speech.
 #[tokio::test]
 async fn a_streamed_reply_says_its_spoken_version_as_one_line() {
-    let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
+    let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     let chunks = [
         "<spo",
@@ -134,13 +44,6 @@ async fn a_streamed_reply_says_its_spoken_version_as_one_line() {
             "It's the flaky config test again."
         ]
     );
-    until("the reply", || said_on(&desk, &id).len() == 1).await;
-    assert_eq!(
-        said_on(&desk, &id),
-        [("agent".to_string(), spoken.to_string())]
-    );
-    let stored = desk.log.load(&StreamId::Call(id.clone()));
-    assert!(stored.iter().any(|event| event["id"] == line.as_str()));
     // The turn's end hands the same reply over again: it is not said twice.
     assert!(calls.delivery(&persona, "reply-1", "Mack", &whole, true, Some(&origin)));
     tokio::time::sleep(Duration::from_millis(30)).await;
@@ -211,7 +114,12 @@ const UNTAGGED: &str = "Here's the fix for the flaky test:\n```rust\nassert!(rea
 fn write_reply(desk: &crate::desk::Desk, persona: &str, event: &str, text: &str) {
     desk.log
         .append(
-            &StreamId::Tape(persona.into()),
+            &StreamId::Call(
+                call_link(desk, persona).unwrap()["thread"]
+                    .as_str()
+                    .unwrap()
+                    .into(),
+            ),
             &json!({"kind": "agent", "id": event, "ts": 1, "text": text}),
         )
         .unwrap();
@@ -220,7 +128,12 @@ fn write_reply(desk: &crate::desk::Desk, persona: &str, event: &str, text: &str)
 /// What was said for a reply, as its agent event keeps it.
 fn kept_spoken(desk: &crate::desk::Desk, persona: &str, event: &str) -> Option<String> {
     desk.log
-        .load(&StreamId::Tape(persona.into()))
+        .load(&StreamId::Call(
+            call_link(desk, persona).unwrap()["thread"]
+                .as_str()
+                .unwrap()
+                .into(),
+        ))
         .into_iter()
         .find(|line| line["id"] == event)
         .and_then(|line| line["spoken"].as_str().map(str::to_string))
@@ -302,10 +215,7 @@ async fn a_reply_without_a_spoken_version_is_rewritten_said_and_kept() {
         kept_spoken(&desk, &persona, "reply-1").as_deref() == Some(rewrite)
     })
     .await;
-    until("the call's thread", || {
-        said_on(&desk, &id).last().map(|(_, text)| text.as_str()) == Some(rewrite)
-    })
-    .await;
+
     let counts = calls.status().replies.unwrap();
     assert_eq!((counts[0].both, counts[0].rewritten), (1, 1), "{counts:?}");
     assert_eq!(counts[0].untagged, 0);

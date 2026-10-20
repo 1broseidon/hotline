@@ -99,7 +99,7 @@ async fn a_handed_over_thread_refuses_the_persons_words_and_its_continuation() {
         .bring_up(
             "ada",
             Start {
-                side_id: new_id(),
+                thread: ThreadId::side(new_id()),
                 title: "Wire the gateway".to_string(),
                 started: now_ms(),
                 opener: Some(Opener {

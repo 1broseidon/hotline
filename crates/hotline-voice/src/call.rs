@@ -19,6 +19,7 @@ use uuid::Uuid;
 /// whether it asks for a front, with the rate the microphone sends that front.
 pub struct CallRequest {
     pub target: Option<String>,
+    pub thread: Option<hotline_contract::ThreadId>,
     pub stream_audio: bool,
     pub input_mode: VoiceInputMode,
     pub mode: VoiceCallMode,
@@ -54,6 +55,7 @@ impl Calls {
     ) -> Result<VoiceCall, String> {
         let request = CallRequest {
             target,
+            thread: None,
             stream_audio,
             input_mode,
             mode: VoiceCallMode::Pipeline,
@@ -73,6 +75,7 @@ impl Calls {
     ) -> Result<VoiceCall, String> {
         let CallRequest {
             target,
+            thread,
             stream_audio,
             input_mode,
             mode,
@@ -88,10 +91,23 @@ impl Calls {
         {
             return Err("That teammate is no longer in the room.".into());
         }
+        if thread.is_some() && target.is_none() {
+            return Err("Choose the thread's teammate before calling.".into());
+        }
+        let existing_thread = thread.is_some();
+        let thread = target
+            .as_ref()
+            .map(|_| thread.unwrap_or_else(|| hotline_contract::ThreadId::call(id)));
+        if existing_thread && let (Some(target), Some(thread)) = (&target, &thread) {
+            self.live_room()
+                .ok_or("The desk has closed.")?
+                .validate_call_thread(target, thread)?;
+        }
         Uuid::parse_str(id).map_err(|_| "A voice call needs a UUID.".to_string())?;
         let mut calls = lock(&self.calls);
         if let Some(call) = calls.iter().find(|call| call.id == id)
             && (call.target != target
+                || call.thread != thread
                 || call.stream_audio != stream_audio
                 || call.input_mode != input_mode
                 || (call.front.is_some() && mode != VoiceCallMode::Front))
@@ -138,6 +154,7 @@ impl Calls {
                 id: id.into(),
                 output: speech_services.tts.output_mime().into(),
                 target: target.clone(),
+                thread: thread.clone(),
                 stream_audio,
                 input_mode,
                 speech_services,
@@ -158,9 +175,13 @@ impl Calls {
                 answering: None,
                 streams: HashMap::new(),
                 cut: VecDeque::new(),
-                record: target
-                    .as_deref()
-                    .map(|persona_id| Record::open(self.room.clone(), id, persona_id)),
+                record: target.as_deref().map(|persona_id| {
+                    Record::open(
+                        self.room.clone(),
+                        thread.as_ref().expect("a direct call has a thread"),
+                        persona_id,
+                    )
+                }),
                 words: String::new(),
                 front: realtime.is_some().then(|| Front::new(mic_rate)),
             });

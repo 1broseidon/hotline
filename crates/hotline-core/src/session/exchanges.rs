@@ -234,7 +234,9 @@ impl Room {
                 human_actions: vec![],
                 thread: None,
                 reply_thread: match answer {
-                    Answer::Later(sent_from) if sent_from.kind == ThreadKind::Side => {
+                    Answer::Later(sent_from)
+                        if matches!(sent_from.kind, ThreadKind::Side | ThreadKind::Call) =>
+                    {
                         Some(sent_from.key.clone())
                     }
                     _ => None,
@@ -1103,7 +1105,7 @@ impl Room {
         let started = self.bring_up(
             &request.to,
             Start {
-                side_id: side_id.clone(),
+                thread: ThreadId::side(&side_id),
                 title: super::sides::title_of(&request.message),
                 started: now_ms(),
                 opener: Some(Opener {

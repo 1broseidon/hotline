@@ -306,9 +306,6 @@ impl Calls {
         if target.is_none() {
             self.record("user", &text)?;
         } else {
-            if !relayed {
-                self.keep(id, Speaker::Person, &text);
-            }
             let _ = self.change(id, |call| {
                 call.words.clone_from(&text);
                 Ok(())
@@ -339,6 +336,17 @@ impl Calls {
             ended: false,
         };
         if let Some(target) = target {
+            if !relayed {
+                let thread = self
+                    .change(id, |call| Ok(call.thread.clone()))?
+                    .ok_or("The call has no thread.")?;
+                let room = self.live_room().ok_or("The desk has closed.")?;
+                room.call_prompt(&target, &thread, &text).await?;
+                return self.change(id, |call| {
+                    call.answering = Some(seq);
+                    Ok(())
+                });
+            }
             return self
                 .hand_off(id, &target, &text, origin, context, speech_cancel)
                 .await;
@@ -614,7 +622,11 @@ impl Calls {
             Ok(Ok(text)) if !spoken::speech_text(&text).is_empty() => {
                 let text = text.trim().to_string();
                 if let Some(persona) = persona {
-                    self.keep_spoken(&persona, event, &text);
+                    let thread = self
+                        .change(id, |call| Ok(call.thread.clone()))
+                        .ok()
+                        .flatten();
+                    self.keep_spoken(&persona, thread, event, &text);
                 }
                 Some(text)
             }
@@ -638,7 +650,13 @@ impl Calls {
     /// (`Room::voice_spoken`). The session writes the reply just after it
     /// hands the reply to the call, so a rewrite that comes back first waits
     /// a moment for it.
-    pub(super) fn keep_spoken(&self, persona: &str, event: &str, spoken: &str) {
+    pub(super) fn keep_spoken(
+        &self,
+        persona: &str,
+        thread: Option<hotline_contract::ThreadId>,
+        event: &str,
+        spoken: &str,
+    ) {
         let room = self.room.clone();
         let (persona, event, spoken) = (persona.to_string(), event.to_string(), spoken.to_string());
         tokio::spawn(async move {
@@ -646,7 +664,10 @@ impl Calls {
                 let Some(room) = room.upgrade() else {
                     return;
                 };
-                if room.voice_spoken(&persona, &event, &spoken) {
+                if thread.as_ref().map_or_else(
+                    || room.voice_spoken(&persona, &event, &spoken),
+                    |thread| room.call_spoken(&persona, thread, &event, &spoken),
+                ) {
                     return;
                 }
                 drop(room);
@@ -764,14 +785,9 @@ impl Calls {
         if reply.text.is_empty() {
             return Ok(());
         }
-        let (direct, fronted) =
-            self.change(id, |call| Ok((call.target.is_some(), call.front.is_some())))?;
+        let direct = self.change(id, |call| Ok(call.target.is_some()))?;
         if !direct {
             self.record("agent", &reply.text)?;
-        } else if !fronted {
-            // A front call's thread keeps what the front said of the reply
-            // instead ([`Self::front_said`]).
-            self.keep_as(id, Speaker::Voice, &reply.line, &reply.text);
         }
         Ok(())
     }

@@ -38,6 +38,9 @@ pub struct ChapterSummary {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "contract.ts")]
 pub struct Preview {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub posted: Option<bool>,
     pub from: Side,
     pub text: String,
     pub at: i64,

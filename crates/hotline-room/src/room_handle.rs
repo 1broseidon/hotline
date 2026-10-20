@@ -222,6 +222,10 @@ pub trait RoomHandle: Send + Sync + 'static {
     }
 
     /// The side threads this teammate has live, for the roster row.
+    fn thread_working(&self, _thread: &hotline_contract::ThreadId) -> bool {
+        false
+    }
+
     fn sides(&self, _persona_id: &str) -> Vec<hotline_contract::RunningSide> {
         Vec::new()
     }

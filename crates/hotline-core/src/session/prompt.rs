@@ -76,6 +76,30 @@ impl Room {
         attachments: Option<Vec<Attachment>>,
     ) -> Result<(), String> {
         let _working = self.working()?;
+        if let Some(answered) = &reply_to
+            && let Some(from) = self
+                .tape(persona_id)
+                .iter()
+                .find(|event| event["id"] == *answered)
+                .and_then(|event| {
+                    serde_json::from_value::<crate::contract::DeliveryFrom>(event["from"].clone())
+                        .ok()
+                })
+            && matches!(
+                from.kind,
+                crate::contract::ThreadKind::Call | crate::contract::ThreadKind::Side
+            )
+        {
+            let thread = from.thread();
+            if self
+                .link_of(&thread)
+                .is_some_and(|link| link.persona_id.as_deref() == Some(persona_id))
+            {
+                return self
+                    .prompt_side_replying(&thread.key, text, None, attachments)
+                    .await;
+            }
+        }
         let (session, _held) = self.in_this_chapter(persona_id).await?;
         self.heard_from_person(persona_id);
         if let Some(answered) = reply_to {
@@ -605,6 +629,7 @@ pub(super) fn event_of(
                             ring: None,
                             receipt: None,
                             spoken: spoken.take(),
+                            silent: None,
                             from: None,
                             scheduled: None,
                         })

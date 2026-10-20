@@ -595,6 +595,7 @@ fn oriented(event: TranscriptEvent, flip: bool) -> TranscriptEvent {
             ring,
             receipt,
             spoken: None,
+            silent: None,
             from: None,
             scheduled: None,
         },
@@ -917,6 +918,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             ring,
             receipt,
             spoken,
+            silent,
             from,
             scheduled,
         } => TranscriptEvent::Agent {
@@ -928,6 +930,7 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             ring,
             receipt: Some(higher(receipt, rung)),
             spoken,
+            silent,
             from,
             scheduled,
         },

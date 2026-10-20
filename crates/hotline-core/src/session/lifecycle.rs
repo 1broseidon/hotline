@@ -26,15 +26,12 @@
 
 use super::sides::{Ending, TITLE_CHARS, cut, outcome_line};
 use super::{Room, lock, now_ms};
-use crate::contract::{End, ThreadId, ThreadKind};
+use crate::contract::{ThreadId, ThreadKind};
 use crate::log::StreamId;
 use crate::thread::{Idle, Link, Policy, Restart, ThreadState};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-/// What a call is called until its closing note says better.
-const CALL_TITLE: &str = "Call";
 
 /// What a call says it came to when the desk restarted under it.
 const ENDED_BY_RESTART: &str = "Ended when the desk restarted.";
@@ -75,6 +72,14 @@ impl Room {
     /// to arm when a message lands and nothing to cancel when a teammate is
     /// deleted.
     pub(super) fn sweep_threads(&self, now: i64) {
+        // Silence detaches the voice, never the agent doing its work.
+        if let Some(voice) = lock(&self.voice).upgrade() {
+            for (id, quiet_ms) in voice.quiet() {
+                if now - now_ms() + quiet_ms >= crate::thread::QUIET_MS {
+                    voice.end_quiet(&id);
+                }
+            }
+        }
         for kind in [
             ThreadKind::Side,
             ThreadKind::Run,
@@ -90,10 +95,7 @@ impl Room {
                     Idle::Park(after) if now - quiet.since >= after => {
                         self.end_thread(&quiet.thread, Ending::Park);
                     }
-                    Idle::Close(after, end) if now - quiet.since >= after => {
-                        self.end_thread(&quiet.thread, Ending::Close(end, None));
-                    }
-                    Idle::Park(_) | Idle::Close(..) | Idle::Chapters | Idle::Never => {}
+                    Idle::Park(_) | Idle::Chapters | Idle::Never => {}
                 }
             }
         }
@@ -106,8 +108,11 @@ impl Room {
                 .sides
                 .all()
                 .iter()
+                .filter(|side| {
+                    side.thread.kind == ThreadKind::Side && !self.on_the_call(&side.thread)
+                })
                 .map(|side| Quiet {
-                    thread: ThreadId::side(&side.id),
+                    thread: side.thread.clone(),
                     since: side.last_used(),
                     working: side.working(),
                 })
@@ -124,21 +129,7 @@ impl Room {
             // A call that nobody has spoken on for a while: the voice keeps the
             // time, and the room's clock reads it. A desk call is here too,
             // with no thread behind it.
-            ThreadKind::Call => lock(&self.voice)
-                .upgrade()
-                .map(|voice| {
-                    let now = now_ms();
-                    voice
-                        .quiet()
-                        .into_iter()
-                        .map(|(call_id, quiet_ms)| Quiet {
-                            thread: ThreadId::call(call_id),
-                            since: now - quiet_ms,
-                            working: false,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
+            ThreadKind::Call => Vec::new(),
             ThreadKind::Pair => self
                 .quiet_peers()
                 .into_iter()
@@ -358,68 +349,6 @@ impl Room {
             }
         }
         threads.write(&link.thread, persona_id, &event);
-    }
-
-    // Calls.
-
-    /// A call with a teammate has begun, or begun again under an id it
-    /// had: its link goes on the teammate's DM and heads its own stream.
-    pub(crate) fn call_began(&self, call_id: &str, persona_id: &str, ts: i64) {
-        let thread = ThreadId::call(call_id);
-        let earlier = self.link_of(&thread);
-        self.write_link(&Link {
-            id: earlier
-                .as_ref()
-                .map_or_else(|| Link::fresh_id(&thread), |link| link.id.clone()),
-            ts: earlier.as_ref().map_or(ts, |link| link.ts),
-            thread,
-            persona_id: Some(persona_id.to_string()),
-            title: CALL_TITLE.into(),
-            state: ThreadState::Live,
-            outcome: None,
-            at: None,
-            note: None,
-            binding: None,
-            elapsed_ms: None,
-            opener: None,
-        });
-    }
-
-    /// One line said on a call, to its thread.
-    pub(crate) fn call_said(&self, call_id: &str, persona_id: &str, line: &Value) {
-        self.threads()
-            .write(&ThreadId::call(call_id), persona_id, line);
-    }
-
-    /// A call has ended: its link says how, and the note a closed thread of its
-    /// kind takes is queued.
-    pub(crate) fn call_ended(
-        &self,
-        call_id: &str,
-        persona_id: &str,
-        end: End,
-        outcome: &str,
-        ts: i64,
-    ) {
-        let thread = ThreadId::call(call_id);
-        let began = self.link_of(&thread);
-        self.write_link(&Link {
-            id: began
-                .as_ref()
-                .map_or_else(|| Link::fresh_id(&thread), |link| link.id.clone()),
-            ts: began.as_ref().map_or(ts, |link| link.ts),
-            thread: thread.clone(),
-            persona_id: Some(persona_id.to_string()),
-            title: CALL_TITLE.into(),
-            state: ThreadState::Closed(end),
-            outcome: Some(outcome.to_string()),
-            at: Some(ts),
-            note: None,
-            binding: None,
-            elapsed_ms: None,
-            opener: None,
-        });
-        self.queue_closing_note(&thread, false);
     }
 
     // The closing note.
@@ -783,7 +712,7 @@ mod tests {
         assert_eq!(Link::wire(on_tape[0].clone())["status"], "live");
     }
     #[tokio::test]
-    async fn a_call_the_last_process_left_going_is_closed_with_its_transcript_kept() {
+    async fn a_call_the_last_process_left_going_is_parked_with_its_transcript_kept() {
         let log = scratch("settle-call");
         enrol(&log, &persona("ada"));
         let call = ThreadId::call("c1");
@@ -819,24 +748,22 @@ mod tests {
         let room = room_on(log, quiet_agents());
 
         let closed = room.link_of(&call).unwrap();
-        assert_eq!(closed.state, ThreadState::Closed(End::Stopped));
+        assert_eq!(closed.state, ThreadState::Parked);
         assert_eq!(closed.at, Some(241_000), "when it was last spoken on");
         assert_eq!(closed.outcome.as_deref(), Some(ENDED_BY_RESTART));
         let on_tape: Vec<Link> = stored(&room, tape).iter().filter_map(Link::read).collect();
         assert_eq!(on_tape.len(), 1);
-        assert_eq!(on_tape[0].state, ThreadState::Closed(End::Stopped));
+        assert_eq!(on_tape[0].state, ThreadState::Parked);
         // The client is sent a quiet line about it: how long, and how it ended.
         let sent = Link::wire(closed.event());
         assert_eq!(sent["kind"], "call");
         assert_eq!(sent["callId"], "c1");
-        assert_eq!(sent["status"], "ended");
-        assert_eq!(sent["durationMs"], 240_000);
-        assert_eq!(sent["outcome"], ENDED_BY_RESTART);
+        assert_eq!(sent["status"], "live");
 
         // What was said is still there, loads as a closed thread, and is found.
         assert_eq!(stored(&room, stream).len(), 3, "its link and what was said");
         let loaded = ThreadStore::new(&room.log).load(&call).unwrap();
-        assert_eq!(loaded.state, ThreadState::Closed(End::Stopped));
+        assert_eq!(loaded.state, ThreadState::Parked);
         assert_eq!(loaded.parent.unwrap().thread, ThreadId::dm("ada"));
         let found =
             crate::store::search::search_teammate(room.log.root(), "ada", "grease", None).unwrap();

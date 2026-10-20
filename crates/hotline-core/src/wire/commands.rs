@@ -91,6 +91,7 @@ pub(crate) async fn run(
         )),
         Command::VoiceCallStart {
             call_id,
+            thread,
             persona_id,
             stream_audio,
             input_mode,
@@ -99,6 +100,7 @@ pub(crate) async fn run(
         } => {
             let request = crate::voice::CallRequest {
                 target: persona_id,
+                thread,
                 stream_audio: stream_audio.unwrap_or_default(),
                 input_mode: input_mode.unwrap_or_default(),
                 mode: mode.unwrap_or_default(),

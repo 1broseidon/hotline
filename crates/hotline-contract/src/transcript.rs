@@ -69,6 +69,9 @@ pub enum TranscriptEvent {
         /// shows `text`, which stands alone.
         #[serde(skip_serializing_if = "Option::is_none")]
         spoken: Option<String>,
+        /// Posted while the person was on the call; kept without an unread or notification.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        silent: Option<bool>,
         /// A post from one of the teammate's other threads (a call, a work
         /// thread): where it was said. A client draws "From the call" from
         /// it. Absent from what the DM's own turns say, and from every tape
@@ -568,6 +571,8 @@ pub enum DeliveryCause {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "contract.ts", optional_fields)]
 pub struct DeliveryFrom {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// The thread's key: see [`ThreadId`].
     pub thread: String,
     pub kind: ThreadKind,
@@ -578,6 +583,7 @@ pub struct DeliveryFrom {
 impl DeliveryFrom {
     pub fn new(thread: &ThreadId, request: Option<String>) -> Self {
         Self {
+            title: None,
             thread: thread.key.clone(),
             kind: thread.kind,
             request,

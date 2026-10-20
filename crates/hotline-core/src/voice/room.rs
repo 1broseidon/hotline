@@ -52,20 +52,33 @@ impl CallRoom for RoomSide {
     fn connected(&self) -> hotline_voice::speech::Connected {
         super::connected::connected(&self.vault)
     }
-    fn call_began(&self, call: &str, persona: &str, ts: i64) {
+    fn call_began(&self, call: &ThreadId, persona: &str, ts: i64) {
         if let Ok(room) = self.room() {
             room.call_began(call, persona, ts);
         }
     }
-    fn call_said(&self, call: &str, persona: &str, line: &Value) {
+    fn call_said(&self, call: &ThreadId, persona: &str, line: &Value) {
         if let Ok(room) = self.room() {
             room.call_said(call, persona, line);
         }
     }
-    fn call_ended(&self, call: &str, persona: &str, end: End, outcome: &str, ts: i64) {
+    fn call_ended(&self, call: &ThreadId, persona: &str, end: End, outcome: &str, ts: i64) {
         if let Ok(room) = self.room() {
             room.call_ended(call, persona, end, outcome, ts);
         }
+    }
+    fn validate_call_thread(&self, persona: &str, thread: &ThreadId) -> Result<(), String> {
+        self.room()?.validate_call_thread(persona, thread)
+    }
+    async fn call_prompt(
+        &self,
+        persona: &str,
+        thread: &ThreadId,
+        text: &str,
+    ) -> Result<(), String> {
+        let room = self.room()?;
+        room.validate_call_thread(persona, thread)?;
+        room.prompt_side(&thread.key, text, None).await
     }
     fn post(&self, persona: &str, thread: &ThreadId, text: &str) -> Result<(), String> {
         self.room()?.post(persona, thread, Post::words(text))
@@ -78,6 +91,10 @@ impl CallRoom for RoomSide {
     }
     fn info(&self, persona: &str) -> Option<SessionInfo> {
         self.room.upgrade().map(|room| room.info(persona))
+    }
+    fn call_spoken(&self, persona: &str, thread: &ThreadId, event: &str, spoken: &str) -> bool {
+        self.room()
+            .is_ok_and(|room| room.call_spoken(persona, thread, event, spoken))
     }
     fn voice_spoken(&self, persona: &str, event: &str, spoken: &str) -> bool {
         self.room

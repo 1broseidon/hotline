@@ -1812,3 +1812,27 @@ upstream operation is still driving it. Tests: `computer/gate.rs`
 `a_release_while_a_call_is_in_flight_keeps_the_computer_until_it_ends`. The gate forwards only to the URL the thread was already
 granted, so a thread never has a computer wider than the teammate's grants, and a
 teammate's lease never covers another teammate's computer.
+
+
+## Call-thread agents (S5)
+
+- **Default and grant source:** a Legacy call uses the selected teammate's
+  tools and standing grants, without chapter moves. Its independent lease
+  survives a home-session chapter change and is revoked by the existing
+  work-thread stop, policy-change and removal paths. Voice grants nothing.
+- **Enforcement:** `Room::thread_agent` builds both drivers under the Call
+  policy; the shared work occupant checks its lease at admission and the
+  real tool handlers check it on use. `validate_call_thread` refuses another
+  teammate's thread, archived threads and nonexistent attachments. A call's
+  `post_to_chat` uses the same turn-scoped posting gate as a work thread.
+- **Proof:** `tests/call_threads.rs`
+  `a_call_has_only_its_teammates_grants_and_cannot_attach_another_teammates_thread`
+  proves denied scheduling without Background work, allowed posting, and
+  refused cross-teammate attachment on Hotline Agent and ACP;
+  `calling_on_a_thread_under_way_queues_speech_on_that_same_thread` proves
+  attachment and queued speech through the desk wire. Existing work-thread
+  lease tests continue to cover the shared revocation path.
+- **Residual risk:** an ACP harness's own tools remain outside Hotline's
+  sandbox, as for its work threads. Live-front work still uses its existing
+  DM relay until S6. A failed summary is reported explicitly with the thread
+  link, rather than fabricated.

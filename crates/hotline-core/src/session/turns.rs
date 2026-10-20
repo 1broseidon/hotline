@@ -81,6 +81,8 @@ impl<T> Turns<T> {
 /// One line for a thread's agent: the words as the driver is to hear them,
 /// already stamped, with what came attached.
 pub(super) struct Line {
+    /// Captured when accepted, so reattaching voice cannot speak an older turn.
+    pub voice: Option<crate::voice::Origin>,
     pub text: String,
     pub attachments: Vec<Attachment>,
     /// Set when the turn this line starts is a handoff's: the exchange's
@@ -144,10 +146,22 @@ struct Told<'a, F> {
     threads: Threads<'a>,
     seat: Seat<'a>,
     open: F,
+    voice: Option<crate::voice::Origin>,
 }
 
 impl<F: Fn() -> bool> Witness for Told<'_, F> {
+    fn said_on_call(&self) -> bool {
+        self.voice.is_some()
+    }
+
     fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
+        if let Some(origin) = &self.voice
+            && kind == MessageKind::Agent
+            && !muted
+            && let Some(voice) = lock(&self.threads.room.voice).upgrade()
+        {
+            voice.reply_delta(self.seat.persona_id, message_id, words.written, origin);
+        }
         if words.shown.is_empty() || !(self.open)() {
             return;
         }
@@ -167,6 +181,48 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
         let written = self
             .threads
             .write(self.seat.thread, self.seat.persona_id, &event);
+        if let TranscriptEvent::Agent {
+            id, text, spoken, ..
+        } = &event
+        {
+            let room = self.threads.room;
+            if let Some(origin) = &self.voice
+                && let Some(voice) = lock(&room.voice).upgrade()
+            {
+                let answer = spoken.as_ref().map_or_else(
+                    || text.clone(),
+                    |spoken| format!("<spoken>{spoken}</spoken><written>{text}</written>"),
+                );
+                voice.delivery(
+                    self.seat.persona_id,
+                    id,
+                    self.seat.persona_id,
+                    &answer,
+                    true,
+                    Some(origin),
+                );
+            }
+            let from_call =
+                self.voice.is_some() || self.seat.thread.kind == crate::contract::ThreadKind::Call;
+            let origin_ended = self.voice.as_ref().is_some_and(|origin| {
+                lock(&room.voice)
+                    .upgrade()
+                    .is_none_or(|voice| !voice.is_up(&origin.call_id))
+            });
+            let needs_chat = origin_ended
+                || !room.on_the_call(self.seat.thread)
+                || text.contains("http")
+                || text.contains("```")
+                || text.contains('|');
+            if from_call && needs_chat && !text.trim().is_empty() {
+                let _ = room.post(
+                    self.seat.persona_id,
+                    self.seat.thread,
+                    super::Post::words(text),
+                );
+            }
+        }
+
         for refusal in written.refused {
             refusal.deliver(self.seat.driver);
         }
@@ -194,7 +250,12 @@ impl Threads<'_> {
         let driver = seat.driver;
         let thread = seat.thread.clone();
         let _posting = self.room.open_posting(&thread, job);
+        let voice = line
+            .voice
+            .clone()
+            .or_else(|| self.room.attached_voice(&thread));
         let mut told = Told {
+            voice: voice.clone(),
             threads: Threads { room: self.room },
             seat,
             open,
@@ -202,6 +263,11 @@ impl Threads<'_> {
         let mut driven = self
             .drive(driver, line.into(), reach, cancel, None, &mut told)
             .await;
+        if let Some(origin) = voice
+            && let Some(voice) = lock(&self.room.voice).upgrade()
+        {
+            voice.turn_ended(told.seat.persona_id, &origin);
+        }
         driven.posted = self.room.has_posted(&thread);
         driven
     }

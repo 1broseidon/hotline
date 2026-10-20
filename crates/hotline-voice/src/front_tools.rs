@@ -37,7 +37,7 @@ const CONNECT_LIMIT: Duration = Duration::from_secs(10);
 
 pub(crate) struct FrontTools {
     room: Arc<dyn CallRoom>,
-    call_id: String,
+    thread: ThreadId,
     persona_id: String,
     teammate: DeskTools,
     capability: CapabilityLease,
@@ -52,7 +52,7 @@ impl FrontTools {
     /// front is not given its tools.
     pub(crate) async fn open(
         room: Arc<dyn CallRoom>,
-        call_id: &str,
+        thread: &ThreadId,
         persona_id: &str,
         reach: FrontReach,
     ) -> Self {
@@ -71,7 +71,7 @@ impl FrontTools {
             .unwrap_or_default();
         Self {
             room,
-            call_id: call_id.into(),
+            thread: thread.clone(),
             persona_id: persona_id.into(),
             teammate: tools,
             capability,
@@ -93,7 +93,7 @@ impl FrontTools {
                 });
         let post = Tool {
             name: POST_TO_CHAT.into(),
-            description: "Put something in the written conversation with the person, when they ask for it (\"put that in the chat\"). Posts the text as from this call; it is not how you hand them work.".into(),
+            description: "Put something in the written conversation with the person, when they ask for it (\"put that in the chat\"). Name the subject and write a self-contained post for someone who was not on the call. Posts link to this thread; it is not how you hand them work.".into(),
             parameters: json!({
                 "type": "object",
                 "properties": {"text": {"type": "string", "description": "What to post, as the person should read it."}},
@@ -197,7 +197,7 @@ impl FrontTools {
             return "The chat is not available.".into();
         };
         let text = hotline_room::text::clip(text, POST_CHARS);
-        match room.post(&self.persona_id, &ThreadId::call(&self.call_id), &text) {
+        match room.post(&self.persona_id, &self.thread, &text) {
             Ok(()) => "Posted to the chat.".into(),
             Err(error) => error,
         }

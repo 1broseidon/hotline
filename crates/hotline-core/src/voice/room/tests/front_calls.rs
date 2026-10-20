@@ -49,6 +49,7 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
         .start_call(
             &id,
             CallRequest {
+                thread: None,
                 target: Some(persona.clone()),
                 stream_audio: true,
                 input_mode: VoiceInputMode::Audio,
@@ -69,6 +70,7 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
             .start_call(
                 &id,
                 CallRequest {
+                    thread: None,
                     target: Some(persona),
                     stream_audio: true,
                     input_mode: VoiceInputMode::Audio,

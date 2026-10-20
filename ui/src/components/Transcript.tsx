@@ -559,6 +559,7 @@ const Row = memo(function Row({
 				/>
 			) : (
 				<AgentSay
+                    {...(onOpenThread !== undefined ? { onOpenThread } : {})}
 					personaId={personaId}
 					event={event}
 					run={run}

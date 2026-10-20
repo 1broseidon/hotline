@@ -144,7 +144,7 @@ const FRONT_GONE = "The voice front stopped. The call carries on with Legacy voi
 
 type Names = (personaId: string) => string | undefined;
 
-export type CallTarget = { personaId: string; name: string; avatarHash?: string | undefined };
+export type CallTarget = { thread?: import("../generated/contract").ThreadId; personaId: string; name: string; avatarHash?: string | undefined };
 export type CallOptions = { deskId?: string | null; target?: CallTarget | undefined };
 
 /** Remove only a stable recognized prefix known to predate the speaker's onset. */
@@ -347,7 +347,7 @@ export class Call {
 			const response = await this.transport.command("voice.call_start", {
 				callId: this.id,
 				streamAudio: true,
-				...(this.target !== undefined ? { personaId: this.target.personaId } : {}),
+				...(this.target !== undefined ? { personaId: this.target.personaId, ...(this.target.thread !== undefined ? { thread: this.target.thread } : {}) } : {}),
 				...(this.textInput ? { inputMode: "text" } : {}),
 				...(this.front !== null ? { mode: "front", inputRate: WAV_RATE } : {}),
 			}) as { input?: string[]; personaId?: string; front?: VoiceFront } | null;

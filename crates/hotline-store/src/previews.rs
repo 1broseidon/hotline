@@ -88,6 +88,9 @@ fn read_tail_logical(segments: &[(u64, PathBuf)], window: u64) -> Vec<Value> {
 }
 
 fn message_preview(event: &Value) -> Option<Value> {
+    if event["silent"] == true {
+        return None;
+    }
     let from = match event.get("kind").and_then(Value::as_str)? {
         "user" => "me",
         "agent" => "them",
@@ -103,7 +106,11 @@ fn message_preview(event: &Value) -> Option<Value> {
         text.to_string()
     };
     let at = event.get("ts").cloned().unwrap_or(Value::Null);
-    Some(json!({ "from": from, "text": text, "at": at }))
+    let mut preview = json!({ "from": from, "text": text, "at": at });
+    if event.get("from").is_some() {
+        preview["posted"] = json!(true);
+    }
+    Some(preview)
 }
 
 /// The last stretch of a teammate's tape, raw and unfolded: the events in

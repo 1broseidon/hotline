@@ -541,6 +541,10 @@ impl RoomHandle for Desk {
         self.room.subagents(persona_id)
     }
 
+    fn thread_working(&self, thread: &crate::contract::ThreadId) -> bool {
+        self.room.work_thread_working(thread)
+    }
+
     fn sides(&self, persona_id: &str) -> Vec<crate::contract::RunningSide> {
         self.room.sides(persona_id)
     }

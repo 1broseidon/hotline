@@ -43,11 +43,11 @@ impl Room {
             up.driver.invalidate();
             self.let_go_of_computer(&side.persona_id, &up.holder);
         }
-        let stream = StreamId::Side(side.id.clone());
+        let stream = StreamId::of_thread(&side.thread).expect("work has a stream");
         let events = self.log.load(&stream);
         for expired in crate::log::expire_orphaned_permissions(&events, now_ms()) {
             self.threads()
-                .write(&ThreadId::side(&side.id), &side.persona_id, &expired);
+                .write(&side.thread.clone(), &side.persona_id, &expired);
         }
         match ending {
             Ending::Park => self.mark_side(side, ThreadState::Parked, None),
@@ -55,7 +55,7 @@ impl Room {
                 let said_so = result.is_some();
                 let result = result.or_else(|| last_words(&events));
                 self.mark_side(side, ThreadState::Closed(by), result);
-                self.queue_closing_note(&ThreadId::side(&side.id), said_so);
+                self.queue_closing_note(&side.thread.clone(), said_so);
             }
         }
         let _ = self.info_changes.send(self.info(&side.persona_id));
@@ -68,8 +68,13 @@ impl Room {
             return;
         };
         let said_so = result.is_some();
-        let result =
-            result.or_else(|| last_words(&self.log.load(&StreamId::Side(thread.key.clone()))));
+        let result = result.or_else(|| {
+            last_words(
+                &self
+                    .log
+                    .load(&StreamId::of_thread(&thread).expect("work has a stream")),
+            )
+        });
         self.write_link(&Link {
             state: ThreadState::Closed(by),
             outcome: result,
@@ -125,7 +130,7 @@ impl Room {
     }
 
     pub(super) fn mark_side(&self, side: &LiveSide, state: ThreadState, outcome: Option<String>) {
-        let thread = ThreadId::side(&side.id);
+        let thread = side.thread.clone();
         let saved = lock(&side.saved).clone();
         self.write_link(&Link {
             id: self.link_id(&thread),
@@ -147,7 +152,9 @@ impl Room {
     }
 
     pub(super) fn side_summary(&self, side: &LiveSide) -> SideThreadSummary {
-        let events = self.log.load(&StreamId::Side(side.id.clone()));
+        let events = self
+            .log
+            .load(&StreamId::of_thread(&side.thread).expect("work has a stream"));
         SideThreadSummary {
             side_id: side.id.clone(),
             persona_id: side.persona_id.clone(),
@@ -163,6 +170,25 @@ impl Room {
             archived_at: None,
             opened_by: side.opener.clone().map(Into::into),
         }
+    }
+
+    /// Pending human cards remain reachable when a work or call thread parks.
+    pub(in crate::session) fn cards_in_work(&self, persona_id: &str) -> Vec<(Value, ThreadId)> {
+        crate::thread::ThreadStore::new(&self.log)
+            .list(persona_id)
+            .into_iter()
+            .filter(|thread| {
+                matches!(thread.id.kind, ThreadKind::Side | ThreadKind::Call)
+                    && !matches!(thread.state, ThreadState::Closed(_))
+            })
+            .flat_map(|thread| {
+                self.log
+                    .load(&StreamId::of_thread(&thread.id).expect("a work thread has a stream"))
+                    .into_iter()
+                    .filter(|event| event["kind"] == "human_action")
+                    .map(move |event| (event, thread.id.clone()))
+            })
+            .collect()
     }
 
     pub(super) fn stored_side_ids(&self) -> Vec<String> {

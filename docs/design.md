@@ -600,9 +600,37 @@ check or install updates.
 
 ### Voice calls: desk first, teammate second
 
+
+Legacy voice attaches to an agent thread (ADR 0008 §5). A new call has a
+Call thread; `voice.call_start.thread` attaches to an existing work or call
+thread owned by the selected teammate. Both use the work-thread occupant,
+`Room::thread_agent` and `Room::run_queue`: one queue, independent revocable
+lease, tools and checkpoint restoration, on Hotline Agent and ACP. Spoken
+lines never enter the home DM. Hang-up detaches speech and leaves accepted
+work running; its later reply is posted to the chat. Calls and work threads
+can be continued by text and called again.
+
+Thirty seconds after hang-up, once the queue is idle, the chapter summariser
+writes one subject-first account of the discussion, decisions and finished
+work. It is posted with a link to the source thread, then the thread parks.
+A notice in the thread marks the covered interval by log position, so a later
+note includes only new work even when timestamps tie. New input during the
+summary causes it to be retried before publication; queue admission and final
+parking share a gate. If no summariser answers, the post explicitly says so
+and links to the transcript. The front's Digest and five-minute summaries
+are gone. Live voices still delegate work to the DM until S6.
+
+Posts carry optional `from.title` and `silent` fields. A post made while the
+person is on that thread's call is kept silently even after hang-up; later
+posts update the preview, unread rail and notifications. These fields are
+additive, leave the segment layout unchanged and are ignored by older tape
+readers, including the reference importer. Replies to a post route to its
+source thread. A fresh home-chat line stays with the home agent, receiving
+all posts since it last spoke and source thread ids for its reading tools.
+
 A call belongs to one owner connection and its selected desk. The desk is the
-primary entry point; an optional teammate target reuses that teammate's real
-session, tape and standing grants. Call and utterance ids correlate replies,
+primary entry point; an optional teammate target uses that teammate's standing grants and its
+call thread. Live-front delegation still uses the home session until S6. Call and utterance ids correlate replies,
 so unrelated work or an old reply never speaks on a direct call. Hold, hangup,
 interrupt and connection revocation cancel voice input and output; an agent
 instruction already accepted by the session keeps working.

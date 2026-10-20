@@ -1,8 +1,6 @@
 ---
 id: task-229
 title: A skipped slot doesn't count toward a loop's firing count
-column: review
-position: 0
 priority: medium
 tags:
   - jobs
@@ -15,7 +13,7 @@ relatedFiles:
   - crates/hotline-core/tests/schedule.rs
 createdAt: "2026-10-20T02:04:25.300Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-20T02:15:15.007Z"
+updatedAt: "2026-10-20T02:15:23.264Z"
 dispatch:
   agent: claude
   model: opus
@@ -29,6 +27,9 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-20T02:04:27.936Z"
+    ended: "2026-10-20T02:15:23.264Z"
+    outcome: done
+completedAt: "2026-10-20T02:15:22.854Z"
 ---
 
 ## Description
@@ -37,3 +38,4 @@ Found in Pork Chop's 0.41 re-test (2026-10-20 02:03, release/0.41.0 at f041c81c)
 ## Log
 - 2026-10-20T02:04:26.243Z: [claude] For the agent: run make check in the foreground and wait for it, commit before ending your turn, and merge release/0.41.0 into the branch and re-run make check before saying done.
 - 2026-10-20T02:15:14.691Z: [claude] Fixed on dispatch/task-229: fire_job now says whether the firing ran, and finish spends a loop's count (and ends it by count) only for a firing that ran; a skipped slot just moves to the next slot, and only the end date can end it. The skip notice is unchanged. Harness test a_skipped_slot_does_not_count_toward_a_loops_count (3-firing loop, every 2.5s, each firing stalls 4s: three firings, the third told it is the last; it failed with 2 before the fix), a unit test in schedule.rs, docs/sessions.md updated. make check passes; release/0.41.0 was already merged (f041c81c), nothing new to merge.
+- 2026-10-20T02:15:22.210Z: Landed on release/0.41.0

@@ -254,7 +254,7 @@ pub(crate) async fn model(
         if responses {
             drop_unique_items
         } else {
-            flatten_assistant_text
+            std::convert::identity
         },
     )?;
     // Copilot's chat route ends an empty reply without a finish reason.
@@ -264,57 +264,6 @@ pub(crate) async fn model(
         transport.mending_streams(super::outgoing::done_is_stop)
     };
     Ok(config.connect(transport).completion(model).erase())
-}
-
-/// The body with each assistant `content` list of bare text parts joined
-/// into one string. Anything that is not a chat request, not text, or text
-/// with more on it than its words, passes as it came; fields beside
-/// `content` on the message are never touched.
-///
-/// Copilot's `/chat/completions` hands Claude only the string form. An
-/// assistant message whose `content` is a list reaches the model with its
-/// text gone, and the request still succeeds, so a teammate never saw a word
-/// it had said before, only its tool calls, and answered every new message
-/// by producing again what it believed it had never sent.
-pub(crate) fn flatten_assistant_text(body: Bytes) -> Bytes {
-    let Ok(mut request) = serde_json::from_slice::<serde_json::Value>(&body) else {
-        return body;
-    };
-    let Some(messages) = request
-        .get_mut("messages")
-        .and_then(serde_json::Value::as_array_mut)
-    else {
-        return body;
-    };
-    let mut changed = false;
-    for message in messages {
-        if message.get("role").and_then(serde_json::Value::as_str) != Some("assistant") {
-            continue;
-        }
-        let Some(parts) = message.get("content").and_then(serde_json::Value::as_array) else {
-            continue;
-        };
-        let texts: Option<Vec<&str>> = parts
-            .iter()
-            .map(|part| {
-                // A part carrying anything besides its text would lose it in
-                // the join, so its message is left as it came.
-                let fields = part.as_object()?;
-                let bare = fields.len() == 2
-                    && fields.get("type").and_then(serde_json::Value::as_str) == Some("text");
-                bare.then(|| fields.get("text").and_then(serde_json::Value::as_str))
-                    .flatten()
-            })
-            .collect();
-        if let Some(texts) = texts.filter(|texts| !texts.is_empty()) {
-            message["content"] = serde_json::Value::String(texts.join("\n\n"));
-            changed = true;
-        }
-    }
-    if !changed {
-        return body;
-    }
-    serde_json::to_vec(&request).map_or(body, Bytes::from)
 }
 
 /// The body with `uniqueItems` gone from every tool's parameters.
@@ -582,56 +531,6 @@ pub(crate) mod tests {
         assert_eq!(sent["x-initiator"], "user");
         server.abort();
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// What Copilot's chat route hands Claude: a string, or nothing. Text
-    /// lists become strings; tool calls, user content and anything that is
-    /// not all text are left alone.
-    #[test]
-    fn assistant_text_goes_as_a_string_and_nothing_else_moves() {
-        let body = json!({
-            "model": "claude-opus-5.5",
-            "messages": [
-                {"role": "system", "content": [{"type": "text", "text": "you are Ada"}]},
-                {"role": "user", "content": [{"type": "text", "text": "run the standup"}]},
-                {"role": "assistant",
-                 "content": [{"type": "text", "text": "On it."}, {"type": "text", "text": "Checking."}],
-                 "tool_calls": [{"id": "1", "type": "function", "function": {"name": "ls", "arguments": "{}"}}]},
-                {"role": "tool", "tool_call_id": "1", "content": "(empty)"},
-                {"role": "assistant", "content": [{"type": "text", "text": "Today — Mon 5 Oct"}]},
-                {"role": "assistant", "content": [{"type": "refusal", "refusal": "no"}]},
-                {"role": "assistant", "content": "already a string"},
-                {"role": "assistant", "content": [{"type": "text", "text": "Thought it over."}],
-                 "reasoning_text": "plan", "reasoning_opaque": "c2lnbmVk", "custom": {"kept": true}},
-                {"role": "assistant",
-                 "content": [{"type": "text", "text": "Mixed"}, {"type": "refusal", "refusal": "no"}]},
-                {"role": "assistant", "content": []},
-                {"role": "assistant",
-                 "content": [{"type": "text", "text": "Cited", "annotations": [{"url": "x"}]}]}
-            ]
-        });
-        let out: serde_json::Value = serde_json::from_slice(&flatten_assistant_text(Bytes::from(
-            serde_json::to_vec(&body).unwrap(),
-        )))
-        .unwrap();
-        let messages = out["messages"].as_array().unwrap();
-        assert_eq!(messages[0], body["messages"][0]);
-        assert_eq!(messages[1], body["messages"][1]);
-        assert_eq!(messages[2]["content"], "On it.\n\nChecking.");
-        assert_eq!(messages[2]["tool_calls"], body["messages"][2]["tool_calls"]);
-        assert_eq!(messages[3], body["messages"][3]);
-        assert_eq!(messages[4]["content"], "Today — Mon 5 Oct");
-        assert_eq!(messages[5], body["messages"][5]);
-        assert_eq!(messages[6], body["messages"][6]);
-        assert_eq!(messages[7]["content"], "Thought it over.");
-        for field in ["reasoning_text", "reasoning_opaque", "custom"] {
-            assert_eq!(messages[7][field], body["messages"][7][field]);
-        }
-        assert_eq!(messages[8], body["messages"][8]);
-        assert_eq!(messages[9], body["messages"][9]);
-        assert_eq!(messages[10], body["messages"][10]);
-        let other = Bytes::from_static(b"not json");
-        assert_eq!(flatten_assistant_text(other.clone()), other);
     }
 
     #[test]

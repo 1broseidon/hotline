@@ -23,3 +23,6 @@ Done when:
 - Pork Chop has run each scenario on the Linux QA computer, then George on the desk and the phone. Every "What must be true" line of those scenarios is checked off or filed as a bug.
 - Legacy voice's time from the end of speech to the first audio is measured and noted.
 - It stops in Review until George says go for S6.
+
+## Log
+- 2026-10-20T23:06:05.015Z: [claude] 2026-10-20 Pork Chop's pass on the QA desk (virtual mic and speaker: PulseAudio null sink + pipe source fed by espeak, GStreamer plugins in the manifest), Legacy voice, Rex on Hotline Agent: utterances land on the call thread, not the DM; hang-up mid-turn lets the work finish and post; the closing note is a summary; the thread parks and continues by text with context; calling again on the thread works and the next note covers only new work; posts open the thread. Bugs filed as task-242. Not yet run: ACP teammate, call on a work thread, phone, latency.

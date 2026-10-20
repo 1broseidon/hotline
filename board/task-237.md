@@ -1,7 +1,7 @@
 ---
 id: task-237
 title: "S7: cleanups 0.45 makes possible"
-column: in-progress
+column: review
 position: 9
 priority: low
 tags:
@@ -17,9 +17,9 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:46.152Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:37:40.860Z"
+updatedAt: "2026-10-20T13:49:29.545Z"
 contract:
-  status: in_progress
+  status: delivered
   deliverables:
     - type: file
       path: crates/hotline-core/src/providers/copilot.rs
@@ -39,6 +39,8 @@ contract:
     readyAt: "2026-10-20T12:03:23.766Z"
     pickedUpAt: "2026-10-20T13:37:40.860Z"
     reworkCount: 1
+    deliveredAt: "2026-10-20T13:49:29.545Z"
+    duration: 709
 dispatch:
   agent: codex
   model: gpt-6-astra

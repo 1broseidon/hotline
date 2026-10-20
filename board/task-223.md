@@ -49,3 +49,4 @@ Proved by desk-harness tests, one per line above, on both drivers (Hotline Agent
 
 ## Log
 - 2026-10-20T22:13:48.369Z: [codex] Implementation underway on dispatch/task-223: sharing the work-thread occupant for Call policy and queue/restoration, routing Legacy input to the thread, and replacing front Digest/periodic summaries with a delayed room closing note. Live-front work delegation remains the S6 path. Validating build and lifecycle races next.
+- 2026-10-20T22:33:33.031Z: [codex] Committed S5 as af53f2e2 on dispatch/task-223. Twelve call-thread scenarios passed on both drivers, plus the UI notification regression; a thirteenth covers answering a parked call's human card in the full run. make check and make precheck are running; precheck has passed formatting, lockfile, workflows, citations, contract and clippy and is cross-checking Windows.

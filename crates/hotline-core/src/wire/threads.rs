@@ -377,10 +377,7 @@ fn summarize(
             .peer_threads(&persona_id)
             .iter()
             .any(|pair| pair.thread_key == thread.id.key && pair.working_persona_id.is_some()),
-        ThreadKind::Job => room
-            .working_jobs(&persona_id)
-            .iter()
-            .any(|job| *job == thread.id.key),
+        ThreadKind::Job => room.working_jobs(&persona_id).contains(&thread.id.key),
         ThreadKind::Run => state == LinkState::Live,
         ThreadKind::Call => false,
     };

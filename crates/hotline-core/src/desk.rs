@@ -15,13 +15,13 @@ use crate::driver::{HOTLINE_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
 use crate::mcp::{McpOAuth, McpServer};
 use crate::models::Client;
+use crate::providers::rig_login;
 use crate::session::{ProviderAuth, ProviderKeys, Room};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use crate::{room, skills};
 use async_trait::async_trait;
 pub(crate) use hotline_room::tls::install_crypto_provider;
-use rig::providers::{chatgpt, copilot};
 use serde_json::json;
 use std::collections::HashMap;
 use std::io;
@@ -720,30 +720,16 @@ impl RoomHandle for Desk {
         let mut task = tokio::spawn(async move {
             let authorize = async {
                 match wiring.client {
-                    Client::ChatGpt => chatgpt::Client::builder()
-                        .oauth()
-                        .auth_file(token_dir.join("auth.json"))
-                        .on_device_code(move |prompt| {
-                            emit(prompt.user_code, prompt.verification_uri);
-                        })
-                        .allow_device_flow(true)
-                        .build()
-                        .map_err(|error| error.to_string())?
-                        .authorize()
-                        .await
-                        .map_err(|error| error.to_string()),
-                    Client::Copilot => copilot::Client::builder()
-                        .oauth()
-                        .token_dir(&token_dir)
-                        .on_device_code(move |prompt| {
-                            emit(prompt.user_code, prompt.verification_uri);
-                        })
-                        .allow_device_flow(true)
-                        .build()
-                        .map_err(|error| error.to_string())?
-                        .authorize()
-                        .await
-                        .map_err(|error| error.to_string()),
+                    Client::ChatGpt => rig_login::chatgpt_sign_in(&token_dir, move |prompt| {
+                        emit(prompt.user_code, prompt.verification_uri);
+                    })
+                    .await
+                    .map(drop),
+                    Client::Copilot => rig_login::copilot_sign_in(&token_dir, move |prompt| {
+                        emit(prompt.user_code, prompt.verification_uri);
+                    })
+                    .await
+                    .map(drop),
                     Client::OpenRouter => crate::providers::openrouter_login(&tokens, emit).await,
                     Client::XAi => crate::providers::xai::login(&tokens, emit).await,
                     _ => Err(format!("{provider_id} does not support sign-in.")),

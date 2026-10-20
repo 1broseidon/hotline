@@ -1151,10 +1151,11 @@ impl TeammateTools {
                 let tools = self.clone();
                 let name = tool.name.to_string();
                 rig::tool::DynamicTool::new(
-                    name.clone(),
+                    rig::message::ToolName::new(name.clone())
+                        .expect("a teammate tool's name is one of Hotline's own"),
                     tool.description.as_deref().unwrap_or("").to_string(),
                     Value::Object((*tool.input_schema).clone()),
-                    move |_context, arguments| {
+                    move |arguments| {
                         let tools = tools.clone();
                         let name = name.clone();
                         Box::pin(async move {
@@ -1955,7 +1956,10 @@ mod tests {
     /// Hotline Agent calls these as functions, so what a test drives is the Rig
     /// tool the agent would have been handed.
     async fn through_rig(tools: &TeammateTools, name: &str, arguments: Value) -> String {
-        let set = ToolSet::from_dynamic_tools(tools.as_dynamic());
+        let mut set = ToolSet::default();
+        for tool in tools.as_dynamic() {
+            set.add_dynamic_tool(tool);
+        }
         let result = set
             .execute(name, arguments.to_string(), &mut ToolContext::new())
             .await;

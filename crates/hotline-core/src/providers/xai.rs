@@ -9,8 +9,8 @@ use oauth2::{
     basic::{BasicClient, BasicTokenResponse},
 };
 use rig::http_client::{
-    Error, HttpClientExt, LazyBody, MultipartForm, Request, Response, StreamingResponse,
-    bearer_auth_header,
+    Error, HttpClientExt, LazyBody, MultipartForm, Request, ReqwestClient, Response,
+    StreamingResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -283,7 +283,10 @@ impl TokenStore {
 
 #[derive(Clone, Default)]
 pub(crate) struct SubscriptionHttp {
+    /// What the token refresh is sent over.
     http: reqwest::Client,
+    /// What Rig's requests are sent over, on the same connection pool.
+    transport: ReqwestClient,
     store: Option<Arc<TokenStore>>,
     token_url: String,
     api_url: String,
@@ -301,17 +304,17 @@ fn transport_error(message: String) -> Error {
     Error::Instance(Box::new(std::io::Error::other(message)))
 }
 
-fn status(error: &Error) -> Option<http::StatusCode> {
-    match error {
-        Error::InvalidStatusCode(code)
-        | Error::InvalidStatusCodeWithMessage(code, _)
-        | Error::InvalidStatusCodeWithDetails { status: code, .. } => Some(*code),
-        _ => None,
-    }
+/// Puts the subscription's bearer on a request, marked sensitive so it
+/// stays out of anything that prints headers.
+fn authorize(headers: &mut http::HeaderMap, token: &str) -> Result<(), Error> {
+    let mut value = http::HeaderValue::from_str(&format!("Bearer {token}"))?;
+    value.set_sensitive(true);
+    headers.insert(http::header::AUTHORIZATION, value);
+    Ok(())
 }
 
 fn subscription_error(error: Error) -> Error {
-    let message = match status(&error).map(|code| code.as_u16()) {
+    let message = match error.non_success_status().map(|code| code.as_u16()) {
         Some(401) => "Grok rejected your subscription sign-in after refresh. Sign in again.",
         Some(402) => "Grok requires a subscription with access to this model. Check your plan.",
         Some(403) => {
@@ -325,23 +328,18 @@ fn subscription_error(error: Error) -> Error {
     match error {
         Error::InvalidStatusCodeWithDetails {
             status, headers, ..
-        } => Error::InvalidStatusCodeWithDetails {
-            status,
-            headers,
-            body: message.into(),
-        },
-        other => Error::InvalidStatusCodeWithMessage(
-            status(&other).expect("matched status"),
-            message.into(),
-        ),
+        } => Error::non_success_with_details(status, headers, message.into()),
+        other => other,
     }
 }
 
 impl SubscriptionHttp {
     fn new(dir: &CredentialFile) -> Result<Self, String> {
         Tokens::read(dir)?;
+        let http = http_client()?;
         Ok(Self {
-            http: http_client()?,
+            transport: ReqwestClient::from(http.clone()),
+            http,
             store: Some(TokenStore::shared(dir)),
             token_url: TOKEN_URL.into(),
             api_url: API_URL.into(),
@@ -369,14 +367,14 @@ impl SubscriptionHttp {
             .tokens(&self.http, &self.token_url, None)
             .await
             .map_err(transport_error)?;
-        bearer_auth_header(request.headers_mut(), &tokens.access_token)?;
+        authorize(request.headers_mut(), &tokens.access_token)?;
         match send(request.clone()).await {
-            Err(error) if status(&error) == Some(http::StatusCode::UNAUTHORIZED) => {
+            Err(error) if error.non_success_status() == Some(http::StatusCode::UNAUTHORIZED) => {
                 let refreshed = store
                     .tokens(&self.http, &self.token_url, Some(&tokens))
                     .await
                     .map_err(transport_error)?;
-                bearer_auth_header(request.headers_mut(), &refreshed.access_token)?;
+                authorize(request.headers_mut(), &refreshed.access_token)?;
                 send(request).await.map_err(subscription_error)
             }
             result => result.map_err(subscription_error),
@@ -396,7 +394,7 @@ impl HttpClientExt for SubscriptionHttp {
         let this = self.clone();
         let request = request.map(Into::into);
         async move {
-            this.request(request, |req| HttpClientExt::send(&this.http, req))
+            this.request(request, |req| HttpClientExt::send(&this.transport, req))
                 .await
         }
     }
@@ -411,7 +409,7 @@ impl HttpClientExt for SubscriptionHttp {
         let this = self.clone();
         async move {
             this.request(request, |req| {
-                HttpClientExt::send_multipart(&this.http, req)
+                HttpClientExt::send_multipart(&this.transport, req)
             })
             .await
         }
@@ -427,7 +425,7 @@ impl HttpClientExt for SubscriptionHttp {
         let request = request.map(Into::into);
         async move {
             self.request(request, |req| {
-                HttpClientExt::send_streaming(&self.http, req)
+                HttpClientExt::send_streaming(&self.transport, req)
             })
             .await
         }
@@ -487,15 +485,12 @@ pub(crate) fn sign_in_for_test(dir: &CredentialFile, access_token: &str) {
     .unwrap();
 }
 
-pub(crate) fn client(
-    dir: &CredentialFile,
-) -> Result<rig::providers::xai::Client<SubscriptionHttp>, String> {
-    rig::providers::xai::Client::builder()
-        // The transport supplies the current bearer immediately before sending.
-        .api_key("oauth")
-        .http_client(SubscriptionHttp::new(dir)?)
-        .build()
-        .map_err(|_| "Could not prepare the Grok subscription client.".into())
+pub(crate) fn client(dir: &CredentialFile) -> Result<rig::providers::openai::OpenAI, String> {
+    // The transport supplies the current bearer immediately before sending.
+    Ok(
+        rig::providers::openai::OpenAIConfig::with_key(&rig::providers::xai::DIALECT, "oauth")
+            .connect(SubscriptionHttp::new(dir)?),
+    )
 }
 
 #[cfg(test)]
@@ -581,7 +576,6 @@ mod tests {
 
     #[tokio::test]
     async fn native_rig_xai_client_uses_subscription_auth_and_responses_format() {
-        use rig::prelude::*;
         let scratch = Scratch::new();
         scratch.tokens(false);
         let app = Router::new().route("/v1/responses", post(|headers: http::HeaderMap, bytes: Bytes| async move {
@@ -596,14 +590,15 @@ mod tests {
                 "usage":{"input_tokens":3, "output_tokens":4, "total_tokens":7}}))
         }));
         let (url, _server) = serve(app).await;
-        let client = rig::providers::xai::Client::builder()
-            .api_key("oauth")
-            .base_url(&url)
-            .http_client(transport(&scratch.0, &url))
-            .build()
-            .unwrap();
-        let agent = client.agent("grok-4").build();
-        assert_eq!(agent.prompt("Say hello").await.unwrap(), "Hello from Grok.");
+        let client =
+            rig::providers::openai::OpenAIConfig::with_key(&rig::providers::xai::DIALECT, "oauth")
+                .with_base_url(&url)
+                .connect(transport(&scratch.0, &url));
+        let agent = rig::agent::AgentBuilder::new(client.completion("grok-4")).build();
+        assert_eq!(
+            agent.prompt("Say hello").await.unwrap().output(),
+            "Hello from Grok."
+        );
     }
 
     #[tokio::test]
@@ -946,7 +941,7 @@ mod tests {
             let Err(error) = HttpClientExt::send::<_, Bytes>(&http, request(&url)).await else {
                 panic!("expected subscription refusal")
             };
-            assert_eq!(status(&error).unwrap().as_u16(), code);
+            assert_eq!(error.non_success_status().unwrap().as_u16(), code);
             assert!(error.to_string().contains("subscription"));
             assert!(!error.to_string().contains("sensitive provider response"));
             assert_eq!(

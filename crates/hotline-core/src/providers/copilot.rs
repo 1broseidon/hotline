@@ -1,25 +1,27 @@
-//! GitHub Copilot's second route.
+//! GitHub Copilot's two routes, over one signing transport.
 //!
-//! Rig sends every Copilot model except the Codex family to
+//! Rig's Copilot dialect sends every model except the Codex family to
 //! `/chat/completions`. Copilot's own model list says which models answer
 //! only on `/responses` (the newer OpenAI reasoning models and Grok, at the
 //! time of writing), and a chat request to one of those is refused with
 //! `unsupported_api_for_model`. Discovery records each model's endpoints
 //! beside the login; a model that lists `/responses` and not
-//! `/chat/completions` is then driven through Rig's OpenAI Responses client,
-//! with a transport that signs each request the way Copilot's own client
-//! does. Sign-in, token refresh and the stored token stay Rig's.
+//! `/chat/completions` is then sent to `/responses` from here. Either way
+//! the request carries the editor headers Rig's dialect writes, and is
+//! signed with the login's live token as it goes ([`super::outgoing::Outgoing`]).
+//! Sign-in and token refresh are Rig's, through the login's shared
+//! authenticator.
 
 use super::discovery::{self, DiscoveryHttp, ListedModel};
 use bytes::Bytes;
-use futures_util::StreamExt;
-use rig::http_client::{self, HttpClientExt, LazyBody, MultipartForm, StreamingResponse};
-use rig::providers::{copilot, openai};
+use rig::http_client::HttpClientExt;
+use rig::providers::chatgpt::auth::AuthContext;
+use rig::providers::copilot;
+use rig::providers::openai::{OpenAIConfig, Route};
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
-use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 const API_BASE: &str = "https://api.githubcopilot.com";
@@ -34,8 +36,9 @@ const ENSURE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How soon a login whose list could not be fetched is tried again.
 const ENSURE_RETRY: Duration = Duration::from_mins(5);
 
-// The identity Rig 0.42 presents to Copilot. Copilot refuses a request
-// that does not look like an editor's, so the transport here says the same.
+// The identity Rig presents to Copilot. Copilot refuses a request that does
+// not look like an editor's, so the model list, which Rig does not fetch
+// here, asks the same way.
 const INTEGRATION_ID: &str = "vscode-chat";
 const EDITOR_VERSION: &str = "vscode/1.107.0";
 const EDITOR_PLUGIN_VERSION: &str = "copilot-chat/0.35.0";
@@ -48,58 +51,29 @@ pub(crate) struct Session {
     api_base: String,
 }
 
-/// The record Rig writes beside the login when it exchanges the GitHub
-/// token: the Copilot API token and, sometimes, the API host it belongs to.
-#[derive(Deserialize)]
-struct ApiKeyRecord {
-    #[serde(default)]
-    token: Option<String>,
-    #[serde(default)]
-    endpoints: Option<ApiEndpoints>,
-}
-
-#[derive(Deserialize)]
-struct ApiEndpoints {
-    #[serde(default)]
-    api: Option<String>,
-}
-
-fn rig_client(token_dir: &Path) -> Result<copilot::Client, String> {
-    copilot::Client::builder()
-        .oauth()
-        .token_dir(token_dir)
-        .allow_device_flow(false)
-        .build()
-        .map_err(|_| {
-            "Could not prepare the GitHub Copilot sign-in. Sign in again under Settings → Providers."
-                .to_string()
-        })
-}
-
 /// A usable token, refreshed by Rig when the stored one has expired. With no
 /// sign-in on disk this fails at once, naming the sign-in, and never starts
 /// a device flow.
 pub(crate) async fn session(token_dir: &Path) -> Result<Session, String> {
-    rig_client(token_dir)?
-        .authorize()
+    let context = super::rig_login::copilot(token_dir)
+        .auth_context(&super::rig_login::http())
         .await
         .map_err(|error| error.to_string())?;
-    read_session(token_dir)
+    session_of(context)
 }
 
-fn read_session(token_dir: &Path) -> Result<Session, String> {
-    let bytes = crate::vault::read_model_file(&token_dir.join("api-key.json")).map_err(
-        |_| "GitHub Copilot sign-in required. Sign in again under Settings → Providers.",
-    )?;
-    let record: ApiKeyRecord = serde_json::from_slice(&bytes)
-        .map_err(|_| "The GitHub Copilot sign-in could not be read. Sign in again.")?;
-    let token = record
-        .token
-        .filter(|token| !token.trim().is_empty())
-        .ok_or("GitHub Copilot sign-in required. Sign in again under Settings → Providers.")?;
-    let api_base = record
-        .endpoints
-        .and_then(|endpoints| endpoints.api)
+/// The session a sign-in's context describes. A host the token record names
+/// is used only when it is a plain server URL; anything else falls back to
+/// Copilot's own.
+fn session_of(context: AuthContext) -> Result<Session, String> {
+    let token = context.api_key.expose().to_string();
+    if token.trim().is_empty() {
+        return Err(
+            "GitHub Copilot sign-in required. Sign in again under Settings → Providers.".into(),
+        );
+    }
+    let api_base = context
+        .api_base
         .and_then(|api| super::custom::server_url(&api).ok())
         .unwrap_or_else(|| API_BASE.to_string());
     Ok(Session { token, api_base })
@@ -146,7 +120,7 @@ async fn fetch_models(session: &Session) -> Result<(Vec<ListedModel>, Endpoints)
         "Could not discover models. Check this connection and try again; the previous list is unchanged.".to_string()
     };
     let mut request = http::Request::get(format!("{}/models", session.api_base));
-    for (name, value) in headers(&session.token, RequestFacts::default()) {
+    for (name, value) in headers(&session.token) {
         request = request.header(name, value);
     }
     let request = request.body(Bytes::new()).map_err(|_| failed())?;
@@ -258,42 +232,41 @@ pub(crate) fn wants_responses(token_dir: &Path, model: &str) -> bool {
         })
 }
 
-// ---- The chat-completions route ------------------------------------------
+// ---- The model ------------------------------------------------------------
 
-/// A model on Rig's own Copilot chat route, over [`ChatBody`].
-pub(crate) fn chat_model(token_dir: &Path, model: &str) -> Result<rig::agent::ModelHandle, String> {
-    use rig::client::CompletionClient;
-    Ok(rig::agent::ModelHandle::new(
-        copilot::Client::builder()
-        .http_client(ChatBody::default())
-        .oauth()
-        .token_dir(token_dir)
-        .allow_device_flow(false)
-        .build()
-        .map_err(|_| {
-            "Could not prepare the GitHub Copilot sign-in. Sign in again under Settings → Providers."
-                .to_string()
-        })?
-        .completion_model(model),
-    ))
+/// `model` on the login in `token_dir`: on `/responses` when `responses`
+/// says so, otherwise on the route Rig's Copilot dialect picks for it.
+pub(crate) async fn model(
+    token_dir: &Path,
+    model: &str,
+    responses: bool,
+) -> Result<rig::DynModel<rig::operation::Completion>, String> {
+    let session = session(token_dir).await?;
+    let config =
+        OpenAIConfig::with_key(&copilot::DIALECT, session.token).with_base_url(session.api_base);
+    let config = if responses {
+        config.with_route(Route::Responses)
+    } else {
+        config
+    };
+    let transport = super::outgoing::Outgoing::signed(
+        super::rig_login::Login::Copilot(super::rig_login::copilot(token_dir)),
+        flatten_assistant_text,
+    )?;
+    Ok(config.connect(transport).completion(model).erase())
 }
 
-/// Rig's HTTP client with one change to what it sends: an assistant
-/// message's text goes as a string, not as a list of text parts.
+/// The body with each assistant `content` list of bare text parts joined
+/// into one string. Anything that is not a chat request, not text, or text
+/// with more on it than its words, passes as it came; fields beside
+/// `content` on the message are never touched.
 ///
 /// Copilot's `/chat/completions` hands Claude only the string form. An
 /// assistant message whose `content` is a list reaches the model with its
 /// text gone, and the request still succeeds, so a teammate never saw a word
 /// it had said before, only its tool calls, and answered every new message
 /// by producing again what it believed it had never sent.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct ChatBody(reqwest::Client);
-
-/// The body with each assistant `content` list of bare text parts joined
-/// into one string. Anything that is not a chat request, not text, or text
-/// with more on it than its words, passes as it came; fields beside
-/// `content` on the message are never touched.
-fn flatten_assistant_text(body: Bytes) -> Bytes {
+pub(crate) fn flatten_assistant_text(body: Bytes) -> Bytes {
     let Ok(mut request) = serde_json::from_slice::<serde_json::Value>(&body) else {
         return body;
     };
@@ -334,280 +307,10 @@ fn flatten_assistant_text(body: Bytes) -> Bytes {
     serde_json::to_vec(&request).map_or(body, Bytes::from)
 }
 
-impl HttpClientExt for ChatBody {
-    fn send<T, U>(
-        &self,
-        request: http::Request<T>,
-    ) -> impl Future<Output = http_client::Result<http::Response<LazyBody<U>>>> + Send + 'static
-    where
-        T: Into<Bytes> + Send,
-        U: From<Bytes> + Send + 'static,
-    {
-        self.0
-            .send(request.map(|body| flatten_assistant_text(body.into())))
-    }
-
-    fn send_multipart<U>(
-        &self,
-        request: http::Request<MultipartForm>,
-    ) -> impl Future<Output = http_client::Result<http::Response<LazyBody<U>>>> + Send + 'static
-    where
-        U: From<Bytes> + Send + 'static,
-    {
-        self.0.send_multipart(request)
-    }
-
-    async fn send_streaming<T>(
-        &self,
-        request: http::Request<T>,
-    ) -> http_client::Result<StreamingResponse>
-    where
-        T: Into<Bytes> + Send,
-    {
-        self.0
-            .send_streaming(request.map(|body| flatten_assistant_text(body.into())))
-            .await
-    }
-}
-
-// ---- The Responses route -------------------------------------------------
-
-/// A model on Copilot's `/responses`. Tools are marked strict, as Rig's own
-/// Copilot Responses route marks them, because Copilot's Responses endpoint
-/// calls tools reliably only with strict schemas.
-pub(crate) async fn responses_model(
-    token_dir: &Path,
-    model: &str,
-) -> Result<rig::agent::ModelHandle, String> {
-    let session = session(token_dir).await?;
-    let client = responses_client(token_dir, &session)?;
-    Ok(rig::agent::ModelHandle::new(
-        openai::responses_api::ResponsesCompletionModel::<Transport>::new(client, model)
-            .with_strict_tools(),
-    ))
-}
-
-/// Rig's OpenAI Responses client aimed at Copilot. System instructions ride
-/// as `input` messages, as they do on Rig's own Copilot Responses route.
-fn responses_client(
-    token_dir: &Path,
-    session: &Session,
-) -> Result<openai::Client<Transport>, String> {
-    openai::Client::builder()
-        .api_key(session.token.as_str())
-        .base_url(&session.api_base)
-        .http_client(Transport::new(token_dir)?)
-        .build()
-        .map(rig::client::Client::with_system_instructions_as_messages)
-        .map_err(|_| "Could not prepare the GitHub Copilot connection.".to_string())
-}
-
-/// The transport under that client. Every request is signed afresh: Rig
-/// refreshes the stored token when it has expired, and the bearer the
-/// client was built with is replaced by the live one, so a turn that
-/// outlives a token does not end in a 401.
-#[derive(Clone, Default)]
-pub(crate) struct Transport {
-    login: Option<Arc<Login>>,
-    http: reqwest::Client,
-}
-
-struct Login {
-    client: copilot::Client,
-    token_dir: PathBuf,
-}
-
-// The Copilot client holds the live token, so Debug names only where it is
-// stored and marks the rest as omitted.
-impl fmt::Debug for Transport {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CopilotTransport")
-            .field(
-                "token_dir",
-                &self.login.as_ref().map(|login| login.token_dir.as_path()),
-            )
-            .finish_non_exhaustive()
-    }
-}
-
-impl Transport {
-    fn new(token_dir: &Path) -> Result<Self, String> {
-        Ok(Self {
-            login: Some(Arc::new(Login {
-                client: rig_client(token_dir)?,
-                token_dir: token_dir.to_path_buf(),
-            })),
-            http: reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(10))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .map_err(|_| "Could not prepare the GitHub Copilot connection.".to_string())?,
-        })
-    }
-
-    async fn signed(&self, request: http::Request<Bytes>) -> http_client::Result<reqwest::Request> {
-        let login = self
-            .login
-            .as_ref()
-            .ok_or_else(|| refused("This transport has no GitHub Copilot sign-in."))?;
-        login
-            .client
-            .authorize()
-            .await
-            .map_err(|error| refused_with(error.to_string()))?;
-        let session = read_session(&login.token_dir).map_err(refused_with)?;
-        let (mut parts, body) = request.into_parts();
-        let facts = RequestFacts::from_body(&body);
-        for (name, value) in headers(&session.token, facts) {
-            let value = http::HeaderValue::from_str(&value)?;
-            parts.headers.insert(name, value);
-        }
-        self.http
-            .request(parts.method, parts.uri.to_string())
-            .headers(parts.headers)
-            .body(body)
-            .build()
-            .map_err(|error| http_client::Error::Instance(error.into()))
-    }
-}
-
-fn refused(message: &'static str) -> http_client::Error {
-    http_client::Error::Instance(Box::new(std::io::Error::other(message)))
-}
-
-fn refused_with(message: String) -> http_client::Error {
-    http_client::Error::Instance(Box::new(std::io::Error::other(message)))
-}
-
-async fn non_success(response: reqwest::Response) -> http_client::Error {
-    let status = response.status();
-    let headers = Box::new(response.headers().clone());
-    let body = response
-        .text()
-        .await
-        .unwrap_or_else(|error| format!("failed to read error response body: {error}"));
-    http_client::Error::InvalidStatusCodeWithDetails {
-        status,
-        body,
-        headers,
-    }
-}
-
-impl HttpClientExt for Transport {
-    fn send<T, U>(
-        &self,
-        request: http::Request<T>,
-    ) -> impl Future<Output = http_client::Result<http::Response<LazyBody<U>>>> + Send + 'static
-    where
-        T: Into<Bytes> + Send,
-        U: From<Bytes> + Send + 'static,
-    {
-        let this = self.clone();
-        let request = request.map(Into::into);
-        async move {
-            let request = this.signed(request).await?;
-            let response = this
-                .http
-                .execute(request)
-                .await
-                .map_err(|error| http_client::Error::Instance(error.into()))?;
-            if !response.status().is_success() {
-                return Err(non_success(response).await);
-            }
-            let mut result = http::Response::builder().status(response.status());
-            if let Some(headers) = result.headers_mut() {
-                *headers = response.headers().clone();
-            }
-            let body: LazyBody<U> = Box::pin(async move {
-                let bytes = response
-                    .bytes()
-                    .await
-                    .map_err(|error| http_client::Error::Instance(error.into()))?;
-                Ok(U::from(bytes))
-            });
-            result.body(body).map_err(http_client::Error::Protocol)
-        }
-    }
-
-    fn send_multipart<U>(
-        &self,
-        _: http::Request<MultipartForm>,
-    ) -> impl Future<Output = http_client::Result<http::Response<LazyBody<U>>>> + Send + 'static
-    where
-        U: From<Bytes> + Send + 'static,
-    {
-        std::future::ready(Err(refused("GitHub Copilot requests are never multipart.")))
-    }
-
-    async fn send_streaming<T>(
-        &self,
-        request: http::Request<T>,
-    ) -> http_client::Result<StreamingResponse>
-    where
-        T: Into<Bytes> + Send,
-    {
-        let request = self.signed(request.map(Into::into)).await?;
-        let response = self
-            .http
-            .execute(request)
-            .await
-            .map_err(|error| http_client::Error::Instance(error.into()))?;
-        if !response.status().is_success() {
-            return Err(non_success(response).await);
-        }
-        let mut result = http::Response::builder()
-            .status(response.status())
-            .version(response.version());
-        if let Some(headers) = result.headers_mut() {
-            *headers = response.headers().clone();
-        }
-        let stream: http_client::sse::BoxedStream = Box::pin(
-            response
-                .bytes_stream()
-                .map(|chunk| chunk.map_err(|error| http_client::Error::Instance(Box::new(error)))),
-        );
-        result.body(stream).map_err(http_client::Error::Protocol)
-    }
-}
-
-/// What Copilot reads off a request's headers about the turn it belongs to.
-/// `X-Initiator: agent` is a continuation after the model's own tool calls,
-/// which Copilot bills differently from a person's message.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct RequestFacts {
-    continuation: bool,
-    vision: bool,
-}
-
-impl RequestFacts {
-    /// Read off a Responses body: any assistant item or tool output in
-    /// `input` makes the request a continuation; any image makes it vision.
-    fn from_body(body: &[u8]) -> Self {
-        let Ok(body) = serde_json::from_slice::<serde_json::Value>(body) else {
-            return Self::default();
-        };
-        let items = body["input"].as_array().cloned().unwrap_or_default();
-        let continuation = items.iter().any(|item| {
-            item["role"] == "assistant"
-                || matches!(
-                    item["type"].as_str(),
-                    Some("function_call" | "function_call_output")
-                )
-        });
-        let vision = items.iter().any(|item| {
-            item["content"]
-                .as_array()
-                .is_some_and(|parts| parts.iter().any(|part| part["type"] == "input_image"))
-        });
-        Self {
-            continuation,
-            vision,
-        }
-    }
-}
-
-fn headers(token: &str, facts: RequestFacts) -> Vec<(&'static str, String)> {
-    let mut headers = vec![
+/// The headers Copilot's model list is asked with: the editor identity
+/// Rig's dialect sends on a model request, for a request a person started.
+fn headers(token: &str) -> Vec<(&'static str, String)> {
+    vec![
         ("authorization", format!("Bearer {token}")),
         ("copilot-integration-id", INTEGRATION_ID.to_string()),
         ("editor-version", EDITOR_VERSION.to_string()),
@@ -620,26 +323,16 @@ fn headers(token: &str, facts: RequestFacts) -> Vec<(&'static str, String)> {
             "x-vscode-user-agent-library-version",
             "electron-fetch".to_string(),
         ),
-        (
-            "x-initiator",
-            if facts.continuation { "agent" } else { "user" }.to_string(),
-        ),
-    ];
-    if facts.vision {
-        headers.push(("copilot-vision-request", "true".to_string()));
-    }
-    headers
+        ("x-initiator", "user".to_string()),
+    ]
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use axum::{
-        Router,
-        http::HeaderMap,
-        routing::{get, post},
-    };
+    use axum::{Router, http::HeaderMap, routing::get};
     use serde_json::json;
+    use std::sync::Arc;
 
     /// A login directory whose stored token Rig will reuse without the
     /// network: a live token, bound to no GitHub token, aimed at `api_base`.
@@ -655,7 +348,7 @@ pub(crate) mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let expires = chrono::Utc::now().timestamp() + 3600;
         std::fs::write(
-            dir.join("api-key.json"),
+            dir.join(crate::providers::rig_login::COPILOT_RECORD),
             json!({
                 "token": "copilot-test-token",
                 "expires_at": expires,
@@ -707,61 +400,34 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_stored_token_and_host_make_a_session_and_a_bad_host_is_ignored() {
-        let dir = seeded_login("session", "http://127.0.0.1:9/");
-        let session = read_session(&dir).unwrap();
+    fn a_live_token_and_host_make_a_session_and_a_bad_host_is_ignored() {
+        let context = |token: &str, api_base: Option<&str>| AuthContext {
+            api_key: token.to_string().into(),
+            account_id: None,
+            api_base: api_base.map(str::to_string),
+        };
+        let session =
+            session_of(context("copilot-test-token", Some("http://127.0.0.1:9/"))).unwrap();
         assert_eq!(session.token, "copilot-test-token");
         assert_eq!(session.api_base, "http://127.0.0.1:9");
-        std::fs::write(
-            dir.join("api-key.json"),
-            json!({"token": "t", "endpoints": {"api": "ftp://x?y"}}).to_string(),
-        )
-        .unwrap();
-        assert_eq!(read_session(&dir).unwrap().api_base, API_BASE);
-        std::fs::write(dir.join("api-key.json"), b"{}").unwrap();
-        let err = read_session(&dir).err().unwrap();
+        assert_eq!(
+            session_of(context("t", Some("ftp://x?y")))
+                .unwrap()
+                .api_base,
+            API_BASE
+        );
+        assert_eq!(session_of(context("t", None)).unwrap().api_base, API_BASE);
+        let err = session_of(context(" ", None)).err().unwrap();
         assert!(err.contains("sign-in"), "{err}");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn a_continuation_and_an_image_are_read_off_the_body() {
-        let user = json!({"input": [{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]});
-        assert_eq!(
-            RequestFacts::from_body(user.to_string().as_bytes()),
-            RequestFacts::default()
-        );
-        let after_tool = json!({"input": [
-            {"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},
-            {"type":"function_call","name":"read_file","arguments":"{}","call_id":"c1"},
-            {"type":"function_call_output","call_id":"c1","output":"..."}
-        ]});
-        assert_eq!(
-            RequestFacts::from_body(after_tool.to_string().as_bytes()),
-            RequestFacts {
-                continuation: true,
-                vision: false
-            }
-        );
-        let with_image = json!({"input": [{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,AA=="}]}]});
-        assert_eq!(
-            RequestFacts::from_body(with_image.to_string().as_bytes()),
-            RequestFacts {
-                continuation: false,
-                vision: true
-            }
-        );
-        assert_eq!(RequestFacts::from_body(b"nope"), RequestFacts::default());
-        let named = headers(
-            "tok",
-            RequestFacts {
-                continuation: true,
-                vision: true,
-            },
-        );
-        assert!(named.contains(&("x-initiator", "agent".to_string())));
-        assert!(named.contains(&("copilot-vision-request", "true".to_string())));
-        assert!(named.contains(&("authorization", "Bearer tok".to_string())));
+    #[tokio::test]
+    async fn a_seeded_login_is_a_session_without_the_network() {
+        let dir = seeded_login("session", "http://127.0.0.1:9/");
+        let session = session(&dir).await.unwrap();
+        assert_eq!(session.token, "copilot-test-token");
+        assert_eq!(session.api_base, "http://127.0.0.1:9");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
@@ -864,82 +530,6 @@ pub(crate) mod tests {
         assert_eq!(sent["copilot-integration-id"], INTEGRATION_ID);
         assert_eq!(sent["editor-version"], EDITOR_VERSION);
         assert_eq!(sent["x-initiator"], "user");
-        server.abort();
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[tokio::test]
-    async fn the_transport_signs_each_request_and_streams_the_reply() {
-        let (seen, mut headers_rx) = tokio::sync::mpsc::channel::<HeaderMap>(4);
-        let app = Router::new().route(
-            "/responses",
-            post(move |headers: HeaderMap, body: Bytes| {
-                let seen = seen.clone();
-                async move {
-                    seen.send(headers).await.unwrap();
-                    let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
-                    if request["stream"] == true {
-                        (
-                            [("content-type", "text/event-stream")],
-                            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hel\"}\n\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"lo\"}\n\n".to_string(),
-                        )
-                    } else {
-                        (
-                            [("content-type", "application/json")],
-                            json!({"id":"resp_1","output":[]}).to_string(),
-                        )
-                    }
-                }
-            }),
-        );
-        let (url, server) = serve(app).await;
-        let dir = seeded_login("transport", &url);
-        let transport = Transport::new(&dir).unwrap();
-        let plain = http::Request::post(format!("{url}/responses"))
-            .header("authorization", "Bearer stale-bearer-from-build-time")
-            .body(Bytes::from(
-                json!({"model":"grok-4.6","input":[{"type":"function_call_output","call_id":"c","output":"x"}]}).to_string(),
-            ))
-            .unwrap();
-        let response = transport.send::<Bytes, Vec<u8>>(plain).await.unwrap();
-        let body = response.into_body().await.unwrap();
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"],
-            "resp_1"
-        );
-        let sent = headers_rx.recv().await.unwrap();
-        assert_eq!(
-            sent["authorization"], "Bearer copilot-test-token",
-            "the live token replaces the built-in bearer"
-        );
-        assert_eq!(sent["x-initiator"], "agent");
-        assert_eq!(sent["openai-intent"], "conversation-panel");
-
-        let streamed = http::Request::post(format!("{url}/responses"))
-            .body(Bytes::from(
-                json!({"model":"grok-4.6","stream":true,"input":[]}).to_string(),
-            ))
-            .unwrap();
-        let response = transport.send_streaming(streamed).await.unwrap();
-        let mut text = String::new();
-        let mut stream = response.into_body();
-        while let Some(chunk) = stream.next().await {
-            text.push_str(std::str::from_utf8(&chunk.unwrap()).unwrap());
-        }
-        assert!(text.contains("\"delta\":\"hel\"") && text.contains("\"delta\":\"lo\""));
-        assert_eq!(headers_rx.recv().await.unwrap()["x-initiator"], "user");
-
-        let stale = Transport::default();
-        let err = stale
-            .send::<Bytes, Vec<u8>>(
-                http::Request::post(format!("{url}/responses"))
-                    .body(Bytes::new())
-                    .unwrap(),
-            )
-            .await
-            .err()
-            .unwrap();
-        assert!(err.to_string().contains("sign-in"), "{err}");
         server.abort();
         let _ = std::fs::remove_dir_all(&dir);
     }

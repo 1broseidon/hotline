@@ -13,6 +13,7 @@
 //! they are the teammate's hands, used on nearly every turn.
 
 use super::*;
+use rig::message::ToolName;
 use serde_json::Map;
 
 /// Reads one granted tool's description and parameters.
@@ -72,7 +73,7 @@ pub(super) fn tools(tools: Vec<mcp::McpTool>) -> [DynamicTool; 2] {
     );
     let known = tools.clone();
     let schema = DynamicTool::new(
-        SCHEMA,
+        ToolName::new(SCHEMA).expect("a fixed tool name is not empty"),
         "Read a granted tool's description and parameters, before you first call it with call_tool.",
         serde_json::json!({
             "type": "object",
@@ -81,7 +82,7 @@ pub(super) fn tools(tools: Vec<mcp::McpTool>) -> [DynamicTool; 2] {
             },
             "required": ["tool"]
         }),
-        move |_context, arguments| {
+        move |arguments| {
             let known = known.clone();
             Box::pin(async move {
                 let tool = find(&known, &arguments)?;
@@ -90,7 +91,7 @@ pub(super) fn tools(tools: Vec<mcp::McpTool>) -> [DynamicTool; 2] {
         },
     );
     let call = DynamicTool::new(
-        CALL,
+        ToolName::new(CALL).expect("a fixed tool name is not empty"),
         "Call a granted tool. Read its parameters with tool_schema first.",
         serde_json::json!({
             "type": "object",
@@ -100,7 +101,7 @@ pub(super) fn tools(tools: Vec<mcp::McpTool>) -> [DynamicTool; 2] {
             },
             "required": ["tool", "arguments"]
         }),
-        move |_context, arguments| {
+        move |arguments| {
             let tools = tools.clone();
             Box::pin(async move {
                 let tool = find(&tools, &arguments)?.clone();

@@ -18,6 +18,7 @@ use crate::driver::CapabilityLease;
 use crate::mcp::server::TeammateTools;
 use crate::mcp::{self, McpServer, McpTool};
 use crate::session::{FrontReach, POST_CHARS, Post, Room};
+use rig::message::ToolName;
 use rig::tool::{DynamicTool, ToolOutput};
 use serde_json::{Map, Value, json};
 use std::sync::{Arc, Weak};
@@ -115,10 +116,11 @@ impl FrontTools {
                 let tools = self.clone();
                 let name = tool.name.clone();
                 DynamicTool::new(
-                    tool.name,
+                    ToolName::new(tool.name)
+                        .expect("a front tool is named by Hotline or its server"),
                     tool.description,
                     tool.parameters,
-                    move |_, arguments| {
+                    move |arguments| {
                         let tools = tools.clone();
                         let name = name.clone();
                         Box::pin(async move {

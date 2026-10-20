@@ -8,7 +8,7 @@ use crate::driver::{ToolImage, clip, with_image_placeholders};
 use crate::mcp;
 use crate::session::ledger::ToolLedger;
 use crate::tools;
-use rig::message::{DocumentSourceKind, ImageMediaType, MimeType, ToolResultContent};
+use rig::message::{DocumentSourceKind, ImageMediaType, MimeType, ToolName, ToolResultContent};
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
 
@@ -16,10 +16,10 @@ use serde_json::Value;
 /// on the ledger; the model hears it as the call's error.
 pub(super) fn mcp_dynamic(tool: mcp::McpTool) -> DynamicTool {
     DynamicTool::new(
-        tool.name.clone(),
+        ToolName::new(tool.name.clone()).expect("an MCP tool's name carries its server's prefix"),
         tool.description.clone(),
         tool.parameters.clone(),
-        move |_context, arguments| {
+        move |arguments| {
             let tool = tool.clone();
             Box::pin(async move {
                 match tool.call(arguments).await {

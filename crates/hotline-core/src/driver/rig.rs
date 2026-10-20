@@ -43,7 +43,6 @@ use futures_util::StreamExt;
 use rig::message::{
     DocumentSourceKind, Image, ImageMediaType, Message, ToolResultContent, UserContent,
 };
-use rig::prelude::*;
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -166,6 +165,7 @@ pub async fn complete(
     agent
         .prompt(prompt)
         .await
+        .map(|response| response.output())
         .map_err(|error| error.to_string())
 }
 
@@ -767,16 +767,15 @@ impl Turn {
             tools.add_dynamic_tool(tool.clone());
         }
         let model = completion_model(&self.keys, &self.model, Reuse::Rounds).await?;
-        let (max_tokens, additional_params) = request_settings(
-            &self.keys,
-            &self.model,
-            self.effort.as_deref(),
-            self.output_limit,
-        )?;
         let template = turn::Template {
-            tools: tools.get_tool_definitions(),
-            max_tokens,
-            additional_params,
+            tools: tools.tool_definitions(),
+            settings: request_settings(
+                &self.keys,
+                &self.model,
+                self.effort.as_deref(),
+                self.output_limit,
+                Reuse::Rounds,
+            )?,
         };
         turn::run(&model, template, &tools, self, sender, shell).await
     }

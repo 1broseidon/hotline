@@ -102,7 +102,7 @@ impl Dispatcher for ScriptDispatcher {
         tools: Vec<rig::tool::DynamicTool>,
         _: Arc<Budget>,
     ) -> Result<String, String> {
-        let names: Vec<&str> = tools.iter().map(rig::tool::DynamicTool::name).collect();
+        let names: Vec<&str> = tools.iter().map(|tool| tool.name().as_str()).collect();
         assert!(names.contains(&"search_thread"), "{names:?}");
         assert!(names.contains(&"send_to_teammate"), "{names:?}");
         assert!(preamble.contains("cannot run your tools"), "{preamble}");

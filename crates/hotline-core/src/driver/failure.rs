@@ -3,7 +3,7 @@ use crate::models::Client;
 use crate::providers::discovery::ListedModel;
 use crate::session::ProviderAuth;
 pub(crate) use hotline_room::secret::redact_text;
-use rig::completion::CompletionError;
+use rig::ProviderError;
 use serde::Serialize;
 use serde_json::Value;
 use std::borrow::Cow;
@@ -59,6 +59,9 @@ pub(crate) enum Kind {
     Unknown,
 }
 
+/// What a stream the provider never finished reads as.
+pub(crate) const TRUNCATED: &str = "The model stream ended without a complete response.";
+
 /// What a message to Hotline Agent is refused with while no provider is
 /// connected. The words go back to the composer; nothing reaches the tape.
 pub(crate) const NO_PROVIDER: &str =
@@ -86,7 +89,12 @@ pub(crate) struct Failure {
 }
 
 impl Failure {
-    pub fn provider(error: CompletionError, phase: &'static str) -> Self {
+    pub fn provider(error: ProviderError, phase: &'static str) -> Self {
+        // A stream cut before the provider ended it is a transport failure
+        // worth another try, whatever cut it.
+        if matches!(error, ProviderError::Truncated) {
+            return Self::classify(TRUNCATED, Some(502), phase);
+        }
         let status = error
             .provider_response_status()
             .map(|status| status.as_u16());
@@ -94,7 +102,7 @@ impl Failure {
             .provider_response_body()
             .map_or_else(|| error.to_string(), str::to_owned);
         let mut failure = Self::classify(&body, status, phase);
-        if status.is_none() && matches!(error, CompletionError::HttpError(_)) {
+        if status.is_none() && matches!(error, ProviderError::Http(_)) {
             failure.set_kind(Kind::Transport);
         }
         failure.retry_after_seconds = error
@@ -742,9 +750,8 @@ mod tests {
     /// a token the stub refuses everywhere still reads as a sign-in to fix.
     #[tokio::test]
     async fn a_provider_refusing_turns_is_told_apart_from_a_sign_in_that_no_longer_works() {
+        use crate::providers::rig_login;
         use axum::{Router, http::StatusCode, routing::get, routing::post};
-        use rig::client::CompletionClient;
-        use rig::completion::CompletionModel;
 
         let refused = || {
             (
@@ -783,18 +790,20 @@ mod tests {
                 .to_string(),
             )
             .unwrap();
-            let model = rig::providers::chatgpt::Client::builder()
-                .oauth()
-                .auth_file(dir.path().join("auth.json"))
-                .allow_device_flow(false)
-                .base_url(format!("{base}/{sign_in}"))
-                .build()
-                .unwrap()
-                .completion_model("gpt-6-luna");
-            let error = model
-                .completion(model.completion_request("hello").build())
-                .await
-                .unwrap_err();
+            let signed = crate::providers::outgoing::Outgoing::signed(
+                rig_login::Login::ChatGpt(rig_login::chatgpt(dir.path())),
+                std::convert::identity,
+            )
+            .unwrap();
+            let model = rig::providers::openai::OpenAIConfig::with_key(
+                &rig::providers::chatgpt::DIALECT,
+                "",
+            )
+            .with_auth(rig::providers::openai::wire::Auth::OptionalBearer)
+            .with_base_url(format!("{base}/{sign_in}"))
+            .connect(signed)
+            .completion("gpt-6-luna");
+            let error = model.call("hello").await.unwrap_err();
             let failure = Failure::provider(error, "request");
             assert_eq!(failure.kind, Kind::Auth);
             let models_url = format!("{base}/{sign_in}/models");
@@ -876,12 +885,12 @@ mod tests {
     fn retry_hints_survive_and_retry_budget_is_bounded() {
         let mut headers = http::HeaderMap::new();
         headers.insert("retry-after", "60".parse().unwrap());
-        let error = CompletionError::ProviderResponse(
+        let error = ProviderError::ProviderResponse(
             rig::ProviderResponseError::new(
                 http::StatusCode::TOO_MANY_REQUESTS,
                 r#"{"error":{"code":"rate_limit_exceeded"}}"#,
             )
-            .with_headers(Some(Box::new(headers))),
+            .with_headers(Some(headers)),
         );
         let failure = Failure::provider(error, "request");
         assert_eq!(failure.kind, Kind::RateLimit);

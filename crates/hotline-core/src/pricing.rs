@@ -87,7 +87,9 @@ fn warn_unpriced(model: &str) {
 /// them: `input` holds every token the request carried, what was read from
 /// the provider's cache and written to it included. The budgets, the context
 /// threshold and a turn's record all read these, and [`Tokens::of`] is the
-/// one place Rig's usage is read.
+/// one place Rig's usage is read. Rig reports every provider that way, so
+/// nothing is added here: counting Anthropic's cache beside its input again
+/// would price each cached token twice and fill the context early.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Tokens {
     pub(crate) input: u64,
@@ -101,27 +103,15 @@ pub(crate) struct Tokens {
 }
 
 impl Tokens {
-    /// What `usage` from a model on `provider` counts. Anthropic reports
-    /// what it read from its prompt cache, and what it wrote to it, beside
-    /// `input_tokens`; every other route counts them inside, so Anthropic's
-    /// are added in.
-    pub(crate) fn of(usage: &Usage, provider: &str) -> Self {
-        let beside = crate::models::wiring(provider)
-            .is_some_and(|wiring| wiring.client == crate::models::Client::Anthropic);
-        let cached = usage
-            .cached_input_tokens
-            .saturating_add(usage.cache_creation_input_tokens);
+    /// What `usage` counts. A counter the provider did not report is none.
+    pub(crate) fn of(usage: &Usage) -> Self {
         Self {
-            input: if beside {
-                usage.input_tokens.saturating_add(cached)
-            } else {
-                usage.input_tokens
-            },
-            output: usage.output_tokens,
-            total: usage.total_tokens,
-            cache_read: usage.cached_input_tokens,
-            cache_write: usage.cache_creation_input_tokens,
-            reported: usage.has_values(),
+            input: usage.input_tokens.unwrap_or_default(),
+            output: usage.output_tokens.unwrap_or_default(),
+            total: usage.total_tokens.unwrap_or_default(),
+            cache_read: usage.cached_input_tokens.unwrap_or_default(),
+            cache_write: usage.cache_creation_input_tokens.unwrap_or_default(),
+            reported: usage.is_reported(),
         }
     }
 

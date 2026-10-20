@@ -2,9 +2,10 @@
 
 use crate::models::Client;
 use bytes::Bytes;
-use rig::client::ModelListingClient;
 use rig::http_client::{self, HttpClientExt, LazyBody, MultipartForm, StreamingResponse};
-use rig::providers::{anthropic, deepseek, gemini, groq, mistral, ollama, openai, openrouter};
+use rig::model::ModelList;
+use rig::providers::openai::{OpenAIConfig, wire};
+use rig::providers::{anthropic, gemini, ollama};
 use serde::{Deserialize, Serialize};
 use std::sync::{
     Arc,
@@ -137,7 +138,11 @@ impl HttpClientExt for DiscoveryHttp {
                 .await
                 .map_err(|_| refused("Model discovery request failed."))?;
             if !response.status().is_success() {
-                return Err(http_client::Error::InvalidStatusCode(response.status()));
+                return Err(http_client::Error::non_success_with_details(
+                    response.status(),
+                    response.headers().clone(),
+                    String::new(),
+                ));
             }
             if response
                 .content_length()
@@ -188,8 +193,12 @@ impl HttpClientExt for DiscoveryHttp {
     }
 }
 
-pub(crate) async fn collect(client: &impl ModelListingClient) -> Result<Vec<ListedModel>, String> {
-    let listed = tokio::time::timeout(Duration::from_secs(30), client.list_models()).await
+/// A client's listing, bounded and checked: `listing` is the client's
+/// `list_models()`.
+pub(crate) async fn collect(
+    listing: impl Future<Output = Result<ModelList, rig::ProviderError>>,
+) -> Result<Vec<ListedModel>, String> {
+    let listed = tokio::time::timeout(Duration::from_secs(30), listing).await
         .map_err(|_| "Model discovery timed out; the previous list is unchanged.".to_string())?
         .map_err(|_| "Could not discover models. Check this connection and try again; the previous list is unchanged.".to_string())?;
     if listed.len() > MAX_MODELS {
@@ -221,44 +230,49 @@ async fn api_models_at(
     key: &str,
     base_url: Option<&str>,
 ) -> Result<Vec<ListedModel>, String> {
-    macro_rules! list {
-        ($provider:ident) => {{
-            let builder = $provider::Client::builder()
-                .api_key(key)
-                .http_client(DiscoveryHttp::new()?);
-            let builder = if let Some(base_url) = base_url {
-                builder.base_url(base_url)
-            } else {
-                builder
-            };
-            collect(
-                &builder
-                    .build()
-                    .map_err(|_| "Could not prepare model discovery.".to_string())?,
-            )
-            .await
-        }};
-    }
+    let http = DiscoveryHttp::new()?;
     match provider {
-        Client::Anthropic => list!(anthropic),
-        Client::OpenAi => list!(openai),
-        Client::OpenRouter => list!(openrouter),
-        Client::Gemini => list!(gemini),
-        Client::Groq => list!(groq),
-        Client::DeepSeek => list!(deepseek),
-        Client::Mistral => list!(mistral),
+        Client::Anthropic => {
+            let config = anthropic::AnthropicConfig::new(key);
+            let config = match base_url {
+                Some(base_url) => config.with_base_url(base_url),
+                None => config,
+            };
+            collect(config.connect(http).list_models()).await
+        }
+        Client::Gemini => {
+            let config = gemini::GeminiConfig::new(key);
+            let config = match base_url {
+                Some(base_url) => config.with_base_url(base_url),
+                None => config,
+            };
+            collect(config.connect(http).list_models()).await
+        }
+        Client::OpenAi | Client::OpenRouter | Client::Groq | Client::DeepSeek | Client::Mistral => {
+            let dialect = match provider {
+                Client::OpenRouter => &wire::OPENROUTER,
+                Client::Groq => &wire::GROQ,
+                Client::DeepSeek => &wire::DEEPSEEK,
+                Client::Mistral => &wire::MISTRAL,
+                _ => &wire::OPENAI,
+            };
+            let config = OpenAIConfig::with_key(dialect, key);
+            let config = match base_url {
+                Some(base_url) => config.with_base_url(base_url),
+                None => config,
+            };
+            collect(config.connect(http).list_models()).await
+        }
         _ => Err("This provider does not support native model discovery.".into()),
     }
 }
 
 pub(crate) async fn ollama_models(base_url: &str, key: &str) -> Result<Vec<ListedModel>, String> {
-    let client = ollama::Client::builder()
-        .api_key(key)
-        .base_url(base_url)
-        .http_client(DiscoveryHttp::new()?)
-        .build()
-        .map_err(|_| "Could not prepare Ollama model discovery.".to_string())?;
-    collect(&client).await
+    let client = ollama::OllamaConfig::new()
+        .with_base_url(base_url)
+        .with_api_key(key)
+        .connect(DiscoveryHttp::new()?);
+    collect(client.list_models()).await
 }
 
 pub(crate) fn failed() -> String {

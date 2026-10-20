@@ -21,6 +21,7 @@ use crate::tools::{
 };
 use futures_util::FutureExt;
 use futures_util::future::BoxFuture;
+use rig::message::ToolName;
 use rig::{completion::ToolDefinition, tool::Tool};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -224,40 +225,41 @@ impl Jobs {
     }
 
     pub fn definitions(&self) -> Vec<ToolDefinition> {
+        let fixed = |name: &str| ToolName::new(name).expect("a fixed tool name is not empty");
         let mut definitions = Vec::new();
         if let Some(shell) = &self.shell {
-            definitions.push(ToolDefinition {
-                name: "shell".into(),
-                description: format!("Start a shell command in the working directory as a managed job and promptly return its job_id. The receipt is not the command result. Use wait_jobs or inspect_job for the result, and cancel_job to stop it. There is no deadline unless timeout_seconds is provided. {}", shell.boundary()),
-                parameters: shell.parameters(),
-            });
+            definitions.push(ToolDefinition::new(
+                fixed("shell"),
+                format!("Start a shell command in the working directory as a managed job and promptly return its job_id. The receipt is not the command result. Use wait_jobs or inspect_job for the result, and cancel_job to stop it. There is no deadline unless timeout_seconds is provided. {}", shell.boundary()),
+                shell.parameters(),
+            ));
         }
         if self.delegate.is_some() {
-            definitions.push(ToolDefinition {
-                name: SUBAGENT.into(),
-                description: "Hand a self-contained task to a subagent: a clone of you, with your model, working directory, tools, computer, folders and integrations, but none of this conversation. It starts as a managed job and promptly returns its job_id; its report arrives later as the job's result. `task` is where it starts, so include the goal, the context you have, where to look, constraints, and what the report must contain. `title` is a short label the person sees while it runs. `without` leaves abilities out for this task: `computer`, `folders` (everything outside the working directory), `mcp_servers`.".into(),
-                parameters: json!({"type":"object", "properties":{"task":{"type":"string","minLength":1,"maxLength":MAX_TASK_CHARS},"title":{"type":"string","maxLength":MAX_TITLE_CHARS},"without":{"type":"array","items":{"type":"string","enum":["computer","folders","mcp_servers"]},"uniqueItems":true}}, "required":["task"], "additionalProperties":false}),
-            });
+            definitions.push(ToolDefinition::new(
+                fixed(SUBAGENT),
+                "Hand a self-contained task to a subagent: a clone of you, with your model, working directory, tools, computer, folders and integrations, but none of this conversation. It starts as a managed job and promptly returns its job_id; its report arrives later as the job's result. `task` is where it starts, so include the goal, the context you have, where to look, constraints, and what the report must contain. `title` is a short label the person sees while it runs. `without` leaves abilities out for this task: `computer`, `folders` (everything outside the working directory), `mcp_servers`.",
+                json!({"type":"object", "properties":{"task":{"type":"string","minLength":1,"maxLength":MAX_TASK_CHARS},"title":{"type":"string","maxLength":MAX_TITLE_CHARS},"without":{"type":"array","items":{"type":"string","enum":["computer","folders","mcp_servers"]},"uniqueItems":true}}, "required":["task"], "additionalProperties":false}),
+            ));
         }
         if !self.enabled() {
             return definitions;
         }
         definitions.extend([
-            ToolDefinition {
-                name: "inspect_job".into(),
-                description: "Read one managed job's current state and completed output by job_id. Running jobs keep executing. Job IDs belong to this activity, not another conversation.".into(),
-                parameters: json!({"type":"object", "properties":{"job_id":{"type":"string"}}, "required":["job_id"], "additionalProperties":false}),
-            },
-            ToolDefinition {
-                name: "cancel_job".into(),
-                description: "Request cancellation of one managed job by job_id, with a reason. Idempotent: finished jobs keep their actual outcome. Cancelling means the request was sent; use wait_jobs to confirm the terminal state. This does not undo existing effects.".into(),
-                parameters: json!({"type":"object", "properties":{"job_id":{"type":"string"},"reason":{"type":"string"}}, "required":["job_id","reason"], "additionalProperties":false}),
-            },
-            ToolDefinition {
-                name: "wait_jobs".into(),
-                description: "Wait for all selected managed jobs, for up to timeout_seconds (default and maximum 30). A new operator message interrupts this wait and leaves the jobs running so you can reconsider them. Read the returned states; timeout or interrupted_by_message is not job completion. Each finished job's output arrives as its managed job result, not here.".into(),
-                parameters: json!({"type":"object", "properties":{"job_ids":{"type":"array","items":{"type":"string"},"minItems":1},"timeout_seconds":{"type":"integer","minimum":1,"maximum":30}}, "required":["job_ids"], "additionalProperties":false}),
-            },
+            ToolDefinition::new(
+                fixed("inspect_job"),
+                "Read one managed job's current state and completed output by job_id. Running jobs keep executing. Job IDs belong to this activity, not another conversation.",
+                json!({"type":"object", "properties":{"job_id":{"type":"string"}}, "required":["job_id"], "additionalProperties":false}),
+            ),
+            ToolDefinition::new(
+                fixed("cancel_job"),
+                "Request cancellation of one managed job by job_id, with a reason. Idempotent: finished jobs keep their actual outcome. Cancelling means the request was sent; use wait_jobs to confirm the terminal state. This does not undo existing effects.",
+                json!({"type":"object", "properties":{"job_id":{"type":"string"},"reason":{"type":"string"}}, "required":["job_id","reason"], "additionalProperties":false}),
+            ),
+            ToolDefinition::new(
+                fixed("wait_jobs"),
+                "Wait for all selected managed jobs, for up to timeout_seconds (default and maximum 30). A new operator message interrupts this wait and leaves the jobs running so you can reconsider them. Read the returned states; timeout or interrupted_by_message is not job completion. Each finished job's output arrives as its managed job result, not here.",
+                json!({"type":"object", "properties":{"job_ids":{"type":"array","items":{"type":"string"},"minItems":1},"timeout_seconds":{"type":"integer","minimum":1,"maximum":30}}, "required":["job_ids"], "additionalProperties":false}),
+            ),
         ]);
         definitions
     }

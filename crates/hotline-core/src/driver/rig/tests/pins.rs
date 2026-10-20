@@ -5,13 +5,14 @@
 //! fixture is built (a client pointed at the stub, a request to refuse); see
 //! `docs/plans/rig-0.45-migration.md`.
 
-use super::super::build::anthropic_model;
+use super::super::build::{RequestSettings, anthropic_model};
 use super::*;
 use axum::Router;
 use axum::body::Bytes;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
-use rig::completion::CompletionModel;
+use rig::DynModel;
+use rig::operation::Completion;
 use rig::providers::{gemini, openai};
 use std::collections::VecDeque;
 use std::fmt::Write;
@@ -151,24 +152,28 @@ fn turn_on(
 /// The one tool the scripted turns call. It answers at once.
 fn note_tool() -> DynamicTool {
     DynamicTool::new(
-        "note",
+        rig::message::ToolName::new("note").unwrap(),
         "Write a note down.",
         json!({"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}),
-        |_context, _arguments| Box::pin(async { Ok(ToolOutput::text("noted")) }),
+        |_arguments| Box::pin(async { Ok(ToolOutput::text("noted")) }),
     )
 }
 
 /// `turn` run on `model` with only [`note_tool`], as [`Turn::run`] runs one
 /// on a model it built: what the person was shown, and how it ended.
-async fn run_on(model: &impl CompletionModel, turn: &Turn) -> (Result<(), Failure>, Vec<Update>) {
+async fn run_on(model: &DynModel<Completion>, turn: &Turn) -> (Result<(), Failure>, Vec<Update>) {
     let mut tools = rig::tool::ToolSet::default();
     tools.add_dynamic_tool(note_tool());
-    let (max_tokens, additional_params) =
-        request_settings(&turn.keys, &turn.model, turn.effort.as_deref(), None).unwrap();
     let template = turn::Template {
-        tools: tools.get_tool_definitions(),
-        max_tokens,
-        additional_params,
+        tools: tools.tool_definitions(),
+        settings: request_settings(
+            &turn.keys,
+            &turn.model,
+            turn.effort.as_deref(),
+            None,
+            Reuse::Rounds,
+        )
+        .unwrap(),
     };
     let (sender, mut receiver) = mpsc::channel(1024);
     let result = turn::run(model, template, &tools, turn, &sender, None).await;
@@ -197,13 +202,11 @@ fn api_key(provider: &str) -> HashMap<String, ProviderAuth> {
 
 // ---- Claude over the API --------------------------------------------------
 
-fn claude_at(url: &str, reuse: Reuse) -> rig::providers::anthropic::completion::CompletionModel {
-    let client = anthropic::Client::builder()
-        .api_key("test-only-key")
-        .base_url(url)
-        .build()
-        .unwrap();
-    anthropic_model(&client, "claude-test", reuse)
+fn claude_at(url: &str, reuse: Reuse) -> DynModel<Completion> {
+    let client = anthropic::AnthropicConfig::new("test-only-key")
+        .with_base_url(url)
+        .client();
+    anthropic_model(&client, "claude-test", reuse).erase()
 }
 
 /// Claude's stream of one response: `blocks` between the message's start
@@ -361,9 +364,11 @@ async fn rig_pin_claude_cache_reads_fill_the_context_threshold() {
     let mut tools = rig::tool::ToolSet::default();
     tools.add_dynamic_tool(note_tool());
     let template = turn::Template {
-        tools: tools.get_tool_definitions(),
-        max_tokens: Some(64),
-        additional_params: None,
+        tools: tools.tool_definitions(),
+        settings: RequestSettings {
+            max_tokens: Some(64),
+            ..request_settings(&turn.keys, &turn.model, None, None, Reuse::Rounds).unwrap()
+        },
     };
     let (sender, mut receiver) = mpsc::channel(1024);
     let handed_off = async {
@@ -439,7 +444,7 @@ async fn rig_pin_claude_cache_markers_on_a_turn_and_none_on_a_single_answer() {
         .preamble(PREAMBLE)
         .max_tokens(64)
         .build();
-    assert_eq!(agent.prompt("hello").await.unwrap(), "ok");
+    assert_eq!(agent.prompt("hello").await.unwrap().output(), "ok");
     let (_, body) = once.bodies().pop().unwrap();
     assert!(
         !body.to_string().contains("cache_control"),
@@ -471,18 +476,16 @@ async fn rig_pin_openrouter_marks_claudes_system_prompt_and_no_other_models() {
     let scratch = tempfile::tempdir().unwrap();
     for (model, marked) in [("anthropic/claude-test", true), ("openai/gpt-test", false)] {
         let mut stub = Stub::serve(vec![chat_reply("ok")]).await;
-        let client = openrouter::Client::builder()
-            .api_key("test-only-key")
-            .base_url(&stub.url)
-            .build()
-            .unwrap();
+        let config = openai::OpenAIConfig::with_key(&openai::wire::OPENROUTER, "test-only-key")
+            .with_base_url(&stub.url);
         let turn = turn_on(
             api_key("openrouter"),
             &format!("openrouter/{model}"),
             vec![Message::user("hello")],
             scratch.path(),
         );
-        let (result, _) = run_on(&openrouter_model(&client, model, Reuse::Rounds), &turn).await;
+        let routed = openrouter_model(config, model, Reuse::Rounds).unwrap();
+        let (result, _) = run_on(&routed, &turn).await;
         result.unwrap();
         let (path, body) = stub.bodies().pop().unwrap();
         assert_eq!(path, "/chat/completions");
@@ -713,43 +716,31 @@ async fn rig_pin_ollama_effort_reaches_api_chat_as_think() {
 /// provider sends it. The shapes are the providers' own error bodies.
 #[tokio::test]
 async fn rig_pin_provider_refusals_classify_as_before() {
-    let anthropic = |url: &str| -> rig::agent::ModelHandle {
-        rig::agent::ModelHandle::new(claude_at(url, Reuse::Rounds))
+    let anthropic = |url: &str| -> DynModel<Completion> { claude_at(url, Reuse::Rounds) };
+    let openai = |url: &str| -> DynModel<Completion> {
+        openai::OpenAIConfig::new("test-only-key")
+            .with_base_url(url)
+            .client()
+            .completion("gpt-test")
+            .erase()
     };
-    let openai = |url: &str| -> rig::agent::ModelHandle {
-        use rig::client::CompletionClient;
-        rig::agent::ModelHandle::new(
-            openai::Client::builder()
-                .api_key("test-only-key")
-                .base_url(url)
-                .build()
-                .unwrap()
-                .completion_model("gpt-test"),
-        )
-    };
-    let openrouter = |url: &str| -> rig::agent::ModelHandle {
-        rig::agent::ModelHandle::new(openrouter_model(
-            &openrouter::Client::builder()
-                .api_key("test-only-key")
-                .base_url(url)
-                .build()
-                .unwrap(),
+    let openrouter = |url: &str| -> DynModel<Completion> {
+        openrouter_model(
+            openai::OpenAIConfig::with_key(&openai::wire::OPENROUTER, "test-only-key")
+                .with_base_url(url),
             "anthropic/claude-test",
             Reuse::Rounds,
-        ))
-    };
-    let gemini = |url: &str| -> rig::agent::ModelHandle {
-        use rig::client::CompletionClient;
-        rig::agent::ModelHandle::new(
-            gemini::Client::builder()
-                .api_key("test-only-key")
-                .base_url(url)
-                .build()
-                .unwrap()
-                .completion_model("gemini-test"),
         )
+        .unwrap()
     };
-    type Route = fn(&str) -> rig::agent::ModelHandle;
+    let gemini = |url: &str| -> DynModel<Completion> {
+        gemini::GeminiConfig::new("test-only-key")
+            .with_base_url(url)
+            .client()
+            .completion("gemini-test")
+            .erase()
+    };
+    type Route = fn(&str) -> DynModel<Completion>;
     /// What a route answered and how Hotline reads it: the case, the route, the
     /// status, `retry-after`, the body; the kind and the retry it reads.
     type Case = (
@@ -820,13 +811,11 @@ async fn rig_pin_provider_refusals_classify_as_before() {
 
 /// The failure a turn's streamed request on `model` ends in, whether the
 /// request is refused or its stream is.
-async fn refused(model: &rig::agent::ModelHandle) -> Failure {
-    let request = model
-        .completion_request("hello")
-        .preamble(PREAMBLE.into())
-        .max_tokens(64)
-        .build();
-    match model.stream(request).await {
+async fn refused(model: &DynModel<Completion>) -> Failure {
+    let request = rig::completion::CompletionRequest::new("hello")
+        .preamble(PREAMBLE)
+        .max_tokens(64);
+    match model.stream(request) {
         Err(error) => Failure::provider(error, "request"),
         Ok(mut stream) => loop {
             match stream.next().await {

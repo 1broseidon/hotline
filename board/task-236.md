@@ -1,7 +1,7 @@
 ---
 id: task-236
 title: "S6: voice metering keyed by dispatch id (Rig 0.45's exactly-once outcome hook)"
-column: todo
+column: in-progress
 position: 8
 priority: medium
 tags:
@@ -16,9 +16,9 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:45.659Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:31:32.683Z"
+updatedAt: "2026-10-20T13:31:42.290Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-core/src/voice/dispatcher.rs
@@ -39,6 +39,8 @@ contract:
     - Do not edit docs/plans/rig-0.45-migration.md
   metrics:
     readyAt: "2026-10-20T12:03:23.226Z"
+    pickedUpAt: "2026-10-20T13:31:42.290Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

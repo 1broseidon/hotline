@@ -41,3 +41,6 @@ Done when:
 - A post from a call's thread that has no title yet reads "From the call", never "From Call".
 
 Proved by desk-harness tests, one per line, on both drivers, named for the scenario.
+
+## Log
+- 2026-10-20T23:09:50.706Z: [codex] Traced the leak to Told::write posting every segment whenever a call thread was disconnected. Replacing it with one completed-turn post, marked synchronously at detach (so delayed call-log writes cannot catch a later typed turn); long replies use the existing no-tool chapter summariser with a bounded fallback. Added both-driver desk scenarios and source-link UI proof.

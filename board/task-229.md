@@ -14,6 +14,8 @@ relatedFiles:
   - crates/hotline-core/src/session/job_thread.rs
   - crates/hotline-core/tests/schedule.rs
 createdAt: "2026-10-20T02:04:25.300Z"
+landsOn: release/0.41.0
+updatedAt: "2026-10-20T02:04:25.772Z"
 ---
 
 ## Description

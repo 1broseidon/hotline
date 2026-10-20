@@ -18,7 +18,7 @@ relatedFiles:
   - crates/hotline-core/src/voice/dispatcher.rs
 parentId: epic-22
 createdAt: "2026-10-20T06:51:42.743Z"
-updatedAt: "2026-10-20T12:03:59.783Z"
+updatedAt: "2026-10-20T12:04:14.718Z"
 contract:
   status: ready
   deliverables:
@@ -43,6 +43,14 @@ contract:
     - Pins assert on HTTP request bodies and Hotline counters, not Rig types
   metrics:
     readyAt: "2026-10-20T12:03:59.783Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-20T12:04:14.586Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

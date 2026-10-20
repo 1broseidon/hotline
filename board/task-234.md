@@ -19,7 +19,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:44.693Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:31:11.782Z"
+updatedAt: "2026-10-20T13:31:28.225Z"
 contract:
   status: ready
   deliverables:
@@ -46,6 +46,14 @@ contract:
     - Do not edit docs/plans/rig-0.45-migration.md
   metrics:
     readyAt: "2026-10-20T12:03:22.704Z"
+dispatch:
+  agent: claude
+  model: opus
+  effort: high
+  by: lead
+  at: "2026-10-20T13:31:28.105Z"
+  until: done
+  tries: 0
 ---
 
 ## Description

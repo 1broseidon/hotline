@@ -19,7 +19,7 @@ createdAt: "2026-10-20T06:51:45.174Z"
 dependsOn:
   - task-234
   - task-237
-updatedAt: "2026-10-20T12:03:24.303Z"
+updatedAt: "2026-10-20T13:31:12.630Z"
 contract:
   status: ready
   deliverables:
@@ -42,3 +42,5 @@ contract:
 
 ## Description
 Report §6 S5 (docs/plans/rig-0.45-migration.md). WAITS ON GEORGE: the epic leaves 'revoke tokens at the provider on credential delete' open for him; the lead does not hand this off until George answers on epic-22. If he agrees: ChatGPT `sign_out(&http)` best effort on delete; registry eviction plus `forget()` on revoke/delete; a Copilot guard (`CredentialSource` wrapper) that checks the login is still live before each request. Tests, prefixed `rig_revoke_`, with a stub revoke endpoint: delete calls revoke once and still deletes when revoke fails; a revoked Copilot login stops serving within one request. docs/security.md applies. Do not edit docs/plans/rig-0.45-migration.md (the closing task does).
+
+What S1 (task-231) left you: the authenticator registry (`rig_login::chatgpt(dir)`/`copilot(dir)`, keyed by login dir, shared by turns, voice, image generation, discovery and the failure probe) never evicts, so a revoked or deleted login's in-memory token lives until expiry, though nothing asks for it. Eviction on delete belongs here even if George declines provider-side revoke. Requests are signed in `providers/outgoing.rs` `Outgoing` via `auth_context`, the natural place for the Copilot liveness guard.

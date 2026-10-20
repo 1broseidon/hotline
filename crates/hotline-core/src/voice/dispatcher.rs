@@ -5,24 +5,20 @@
 //! dispatcher only says again, to be heard, a reply the teammate wrote with
 //! no spoken version ([`Dispatcher::rewrite`]).
 
+mod meter;
+
 use super::{
-    ledger::{Kind, Reservation},
     metering::{BUDGET_ERROR, Budget},
     settings::VoiceSettings,
 };
 use crate::contract::{Command, ModelCost, ScheduleKind, VoiceModel};
 use crate::log::{Log, StreamId};
-use crate::pricing::{Tokens, billed, cost, listed_price};
+use crate::pricing::{billed, listed_price};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use rig::agent::MultiTurnStreamItem;
-use rig::agent::hook::{
-    AgentHook, CompletionCallAction, CompletionCallEvent, HookContext, OutcomeAction, OutcomeEvent,
-};
-use rig::completion::Usage;
-use rig::effect::EffectKind;
 use rig::message::ToolName;
 use rig::streaming::{Item, StreamEvent};
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
@@ -362,7 +358,6 @@ impl ProviderDispatcher {
         ledger: Arc<Budget>,
         output: mpsc::Sender<String>,
     ) -> Result<(), String> {
-        let tool_count = tools.len();
         let agent = crate::driver::rig::completion_builder_with_effort(
             &self.vault.provider_auth(),
             &self.model,
@@ -373,7 +368,7 @@ impl ProviderDispatcher {
         .preamble(preamble)
         .dynamic_tools(tools)
         .build();
-        let (meter, denied) = self.meter(ledger, preamble, tool_count, ANSWER_TOKENS);
+        let (meter, denied) = self.meter(ledger, ANSWER_TOKENS);
         let mut stream = agent
             .prompt(prompt)
             .max_turns(4)
@@ -443,7 +438,7 @@ impl ProviderDispatcher {
         .await?
         .preamble(preamble)
         .build();
-        let (meter, denied) = self.meter(ledger, preamble, 0, NARRATION_TOKENS);
+        let (meter, denied) = self.meter(ledger, NARRATION_TOKENS);
         let result = agent.prompt(prompt).max_turns(1).add_hook(meter).await;
         result.map(|response| response.output()).map_err(|error| {
             if denied.load(Ordering::SeqCst) {
@@ -454,34 +449,15 @@ impl ProviderDispatcher {
         })
     }
 
-    /// A meter for one request: its preamble, how many tools it offers, and
-    /// the output ceiling it was built with.
-    fn meter(
-        &self,
-        ledger: Arc<Budget>,
-        preamble: &str,
-        tools: usize,
-        output_limit: u64,
-    ) -> (Meter, Arc<AtomicBool>) {
-        let denied = Arc::new(AtomicBool::new(false));
-        let provider = self
-            .model
-            .split_once('/')
-            .expect("resolved provider")
-            .0
-            .to_string();
-        (
-            Meter {
-                ledger,
-                price: self.price.clone(),
-                fixed_bytes: preamble.len().saturating_add(tools * TOOL_BYTES),
-                output_limit,
-                reservation: Arc::new(Mutex::new(None)),
-                denied: denied.clone(),
-                vault: self.vault.clone(),
-                provider,
-            },
-            denied,
+    /// A meter for one request, built with `output_limit`.
+    fn meter(&self, ledger: Arc<Budget>, output_limit: u64) -> (meter::Meter, Arc<AtomicBool>) {
+        let provider = self.model.split_once('/').expect("resolved provider").0;
+        meter::Meter::new(
+            ledger,
+            self.price.clone(),
+            output_limit,
+            self.vault.clone(),
+            provider.to_string(),
         )
     }
 
@@ -591,11 +567,6 @@ const DELEGATED_TURNS: usize = 6;
 /// answer carries its gist, and the rest is in the chat.
 const REWRITE_CHARS: usize = 8_000;
 
-/// What one tool adds to a request, in bytes: its name, description and
-/// schema (each tool here is under 1 KB), and the provider's own tool-use
-/// instructions (Anthropic's are about 300 tokens).
-const TOOL_BYTES: usize = 2048;
-
 /// The owner's thinking level if the model lists it. A level the model
 /// doesn't list (the model changed, or the setting was typed by hand) is
 /// dropped rather than sent and refused.
@@ -635,98 +606,6 @@ fn speed_family(model: &str) -> u8 {
     }
 }
 
-/// Meters one request on the voice budget. Each model call reserves an
-/// estimate before it goes out; its outcome settles that reservation to the
-/// actual cost. A call that fails, is cancelled, or comes back without usage
-/// keeps its reservation, because the provider may have billed it. Rig
-/// reports every model call's outcome once, streamed or not, so one hook
-/// meters both.
-#[derive(Clone)]
-struct Meter {
-    ledger: Arc<Budget>,
-    price: ModelCost,
-    /// What the request sends besides the prompt and history: the preamble
-    /// and tool definitions, in bytes.
-    fixed_bytes: usize,
-    /// The output ceiling the request was built with.
-    output_limit: u64,
-    /// The model call in flight's reservation, until its response settles it.
-    reservation: Arc<Mutex<Option<Reservation>>>,
-    denied: Arc<AtomicBool>,
-    vault: Arc<Vault>,
-    provider: String,
-}
-
-impl Meter {
-    /// A conservative estimate for a model call: about three bytes of request
-    /// to an input token, and the whole output ceiling.
-    fn estimate(&self, request_bytes: usize) -> f64 {
-        let input = request_bytes.saturating_add(self.fixed_bytes).div_ceil(3);
-        (input as f64 * self.price.input + self.output_limit as f64 * self.price.output)
-            / 1_000_000.0
-    }
-
-    /// Settles the call in flight's reservation to what `usage` says it cost.
-    /// `Err` stops the run: usage was not reported, so the reservation stays
-    /// charged, or the cost left too little budget for another call.
-    fn settle(&self, usage: Usage) -> Result<(), &'static str> {
-        let reservation = super::lock(&self.reservation).take();
-        let tokens = Tokens::of(&usage);
-        if !tokens.reported {
-            return Err("The provider did not report usage for the voice budget.");
-        }
-        let actual = cost(&self.price, &tokens);
-        let settled = match reservation {
-            Some(reservation) => self.ledger.settle(reservation, actual),
-            None => self.ledger.spend(Kind::Dispatcher, actual),
-        };
-        settled.map_err(|_| {
-            self.denied.store(true, Ordering::SeqCst);
-            BUDGET_ERROR
-        })
-    }
-}
-
-impl AgentHook for Meter {
-    async fn on_completion_call(
-        &self,
-        _: &HookContext,
-        event: CompletionCallEvent<'_>,
-    ) -> CompletionCallAction {
-        if !self.vault.provider_auth().contains_key(&self.provider) {
-            return CompletionCallAction::stop("The dispatcher provider has been disconnected.");
-        }
-        let request = serde_json::to_vec(&(event.prompt, event.history))
-            .map_or(usize::MAX, |bytes| bytes.len());
-        if let Ok(reservation) = self
-            .ledger
-            .reserve(Kind::Dispatcher, self.estimate(request))
-        {
-            // A reservation left here by a call that never answered stays charged.
-            *super::lock(&self.reservation) = Some(reservation);
-            CompletionCallAction::Continue
-        } else {
-            self.denied.store(true, Ordering::SeqCst);
-            CompletionCallAction::stop(BUDGET_ERROR)
-        }
-    }
-
-    async fn on_outcome(&self, _: &HookContext, event: OutcomeEvent<'_>) -> OutcomeAction {
-        if let Some(response) = event.completion() {
-            return match self.settle(response.usage) {
-                Ok(()) => OutcomeAction::Proceed,
-                Err(reason) => OutcomeAction::stop(reason),
-            };
-        }
-        // A model call that failed or was abandoned keeps what it reserved,
-        // charged, because the provider may have billed it.
-        if matches!(event.kind, EffectKind::Completion { .. }) {
-            super::lock(&self.reservation).take();
-        }
-        OutcomeAction::Proceed
-    }
-}
-
 #[async_trait]
 impl Dispatcher for ProviderDispatcher {
     fn free(&self) -> bool {
@@ -754,7 +633,6 @@ impl Dispatcher for ProviderDispatcher {
         } else {
             Vec::new()
         };
-        let tool_count = tools.len();
         let agent = crate::driver::rig::completion_builder_with_effort(
             &self.vault.provider_auth(),
             &self.model,
@@ -765,7 +643,7 @@ impl Dispatcher for ProviderDispatcher {
         .preamble(INSTRUCTIONS)
         .dynamic_tools(tools)
         .build();
-        let (meter, denied) = self.meter(ledger, INSTRUCTIONS, tool_count, ANSWER_TOKENS);
+        let (meter, denied) = self.meter(ledger, ANSWER_TOKENS);
         let result = agent
             .prompt(prompt)
             .max_turns(4)
@@ -805,7 +683,6 @@ impl Dispatcher for ProviderDispatcher {
         tools: Vec<DynamicTool>,
         ledger: Arc<Budget>,
     ) -> Result<String, String> {
-        let tool_count = tools.len();
         let agent = crate::driver::rig::completion_builder_with_effort(
             &self.vault.provider_auth(),
             &self.model,
@@ -816,7 +693,7 @@ impl Dispatcher for ProviderDispatcher {
         .preamble(preamble)
         .dynamic_tools(tools)
         .build();
-        let (meter, denied) = self.meter(ledger, preamble, tool_count, DELEGATED_TOKENS);
+        let (meter, denied) = self.meter(ledger, DELEGATED_TOKENS);
         let result = agent
             .prompt(untrusted(&json!({"personSaid": request})))
             .max_turns(DELEGATED_TURNS)
@@ -1000,6 +877,8 @@ fn tools(context: Context) -> Vec<DynamicTool> {
 
 #[cfg(test)]
 mod tests {
+    use crate::pricing::{Tokens, cost};
+    use rig::completion::Usage;
     use std::collections::HashMap;
     #[test]
     fn a_signed_in_or_local_call_assistant_costs_nothing_and_a_key_pays_its_price() {
@@ -1133,27 +1012,6 @@ mod tests {
             cost(&price, &Tokens::of(&used)),
             (1_000.0 * 2.0 + 1_000.0 * 2.5) / 1e6,
         );
-    }
-
-    #[tokio::test]
-    async fn the_estimate_is_a_third_of_the_request_bytes_and_the_whole_output_ceiling() {
-        let (_root, desk, vault, _) = gateways(&["fast-mini"], &["other-large"]);
-        let meter = Meter {
-            ledger: Arc::new(Budget::open(desk.log.clone())),
-            price: ModelCost {
-                input: 0.1,
-                output: 0.5,
-                cache_read: None,
-                cache_write: None,
-            },
-            fixed_bytes: 3_000,
-            output_limit: 512,
-            reservation: Arc::default(),
-            denied: Arc::default(),
-            vault,
-            provider: "anthropic".into(),
-        };
-        near(meter.estimate(6_000), (3_000.0 * 0.1 + 512.0 * 0.5) / 1e6);
     }
 
     use super::*;
@@ -1505,11 +1363,12 @@ mod tests {
     /// A call that fails, or answers without usage, keeps what it reserved:
     /// the provider may have billed it.
     #[tokio::test]
-    async fn a_failed_or_unmetered_call_keeps_its_reservation() {
+    async fn voice_meter_a_failed_or_unmetered_provider_call_keeps_its_reservation() {
         for usage in [
             None,
             Some(json!({"prompt_tokens":0,"completion_tokens":0,"total_tokens":0})),
         ] {
+            let provider_failed = usage.is_none();
             let root = tempfile::tempdir().unwrap();
             let ledger_file = root.path().join("voice-ledger.json");
             let reserved = Arc::new(Mutex::new(Vec::<f64>::new()));
@@ -1551,12 +1410,12 @@ mod tests {
             desk.log.append(&StreamId::Room, &json!({"kind":"setting","id":"defaultModelId","value":format!("{}/fast-mini", credential.provider_id)})).unwrap();
             let dispatcher = ProviderDispatcher::resolve(vault, &desk.log).unwrap();
             let ledger = Arc::new(Budget::open(desk.log.clone()));
-            assert!(
-                dispatcher
-                    .narrate("Mack", "Done.", ledger.clone())
-                    .await
-                    .is_err()
-            );
+            let answer = dispatcher.narrate("Mack", "Done.", ledger.clone()).await;
+            if provider_failed {
+                assert!(answer.is_err());
+            } else {
+                assert_eq!(answer.unwrap(), "Hello.");
+            }
             let reserved = reserved.lock().unwrap().clone();
             assert_ne!(reserved, [] as [f64; 0]);
             assert!(reserved[0] > 0.0);

@@ -147,8 +147,9 @@ file folded by id, exactly the tape's model:
 The roster is a fold over `room`. Settings are a fold over `room`. A delete
 is a tombstone event. Secrets are never events: Hotline-owned provider and MCP values live in the
 operating system credential store; the vault files hold opaque references.
-ChatGPT and Copilot sign-ins remain permission-restricted files in their login
-directories, which Rig reads and writes through Hotline's own token store.
+ChatGPT and Copilot sign-ins use that same vault through Hotline's token
+store for Rig. Their login directories hold references; existing plaintext
+records migrate on first use, preserving the original on a failed store write.
 The log holds only credential metadata. Replication, when it returns, is shipping a stream's
 bytes, which the tape's segment model already does.
 

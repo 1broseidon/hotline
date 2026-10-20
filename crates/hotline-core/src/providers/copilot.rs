@@ -253,6 +253,12 @@ pub(crate) async fn model(
         super::rig_login::copilot(token_dir),
         flatten_assistant_text,
     )?;
+    // Copilot's chat route ends an empty reply without a finish reason.
+    let transport = if responses {
+        transport
+    } else {
+        transport.mending_streams(super::outgoing::done_is_stop)
+    };
     Ok(config.connect(transport).completion(model).erase())
 }
 

@@ -15,13 +15,10 @@ use hotline_core::{
     log::Log,
     provider_fixture::Origin,
     vault::Vault,
-    voice::{
-        Services,
-        dispatcher::ProviderDispatcher,
-        speech::{Clip, Speech, SpeechError, SpeechId, SpeechSet},
-    },
+    voice::{Services, dispatcher::ProviderDispatcher},
     wire::Door,
 };
+use hotline_voice::speech::{Clip, Speech, SpeechError, SpeechId, SpeechSet};
 use serde_json::{Value, json};
 use std::{
     collections::VecDeque,

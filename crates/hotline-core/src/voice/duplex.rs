@@ -90,7 +90,7 @@ impl Calls {
     pub(crate) fn realtime(&self) -> Option<Arc<dyn Realtime>> {
         match &self.injected {
             Some(services) => services.realtime.clone(),
-            None => speech::resolve_front(&self.vault, &self.settings()),
+            None => super::connected::resolve_front(&self.vault, &self.settings()),
         }
     }
 
@@ -570,7 +570,7 @@ impl Calls {
                     call_id,
                     name,
                     arguments,
-                } if name == front::SEND_TO_TEAMMATE
+                } if name == hotline_voice::realtime::SEND_TO_TEAMMATE
                     && let Some((preamble, tools)) = bridge.delegation()
                     && let Ok(assistant) = self.dispatcher() =>
                 {
@@ -595,7 +595,7 @@ impl Calls {
                     name,
                     arguments,
                 } => {
-                    if name == front::SEND_TO_TEAMMATE {
+                    if name == hotline_voice::realtime::SEND_TO_TEAMMATE {
                         hand_over(
                             &mut bridge,
                             unanswered,
@@ -694,7 +694,7 @@ async fn hand_over(
     call_id: &str,
     arguments: &str,
 ) {
-    let (output, reply) = bridge.tool_call(front::SEND_TO_TEAMMATE, arguments);
+    let (output, reply) = bridge.tool_call(hotline_voice::realtime::SEND_TO_TEAMMATE, arguments);
     if !reply {
         *unanswered = None;
         digest.handed(&handed_words(arguments));

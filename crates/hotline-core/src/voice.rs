@@ -1,7 +1,7 @@
 //! One owner call per desk, with bounded work and complete sentence clips.
 
 mod call;
-mod connected;
+pub mod connected;
 pub mod dispatcher;
 mod duplex;
 pub mod front;
@@ -14,16 +14,7 @@ mod synthesis;
 mod turn;
 
 pub use hotline_room::voice::{ledger, metering, settings, spoken};
-pub use hotline_voice::realtime;
-
-/// The speech engines are `hotline-voice`'s. The five readers named here take
-/// the vault, as the calls and the settings hold it, and stand in for the
-/// engines' own of the same names, which take what the vault keeps for them
-/// (`connected`).
-pub mod speech {
-    pub use super::connected::{listens_for, options, resolve, resolve_front, resolve_output};
-    pub use hotline_voice::speech::*;
-}
+use hotline_voice::{realtime, speech};
 
 use crate::contract::{
     BudgetKind, SpeechModel, VoiceBudget, VoiceEndReason, VoiceEvent, VoiceFront, VoiceInputMode,
@@ -580,7 +571,7 @@ impl Calls {
         let model = local::chosen(self.vault.root(), picked)
             .or_else(|| local::chosen(self.vault.root(), None))
             .ok_or("Download a speech model in Settings › Providers for the desk to hear you.")?;
-        let words = speech::listens_for(&self.vault, &settings);
+        let words = connected::listens_for(&self.vault, &settings);
         local::Local::new(model)
             .listening_for(&words)
             .transcribe(Clip {

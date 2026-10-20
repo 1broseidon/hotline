@@ -4,6 +4,10 @@ mod common;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use futures_util::{SinkExt, StreamExt};
 use hotline_core::wire::Door;
+use hotline_voice::{
+    realtime::{Command as Asked, Realtime, RealtimeConfig, RealtimeEvent, RealtimeSession},
+    speech::{Clip, Speech, SpeechError, SpeechId, SpeechSet},
+};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -39,8 +43,6 @@ use hotline_core::voice::{
     Services,
     dispatcher::{Context, Dispatcher},
     metering::Budget,
-    realtime::{Command as Asked, Realtime, RealtimeConfig, RealtimeEvent, RealtimeSession},
-    speech::{Clip, Speech, SpeechError, SpeechId, SpeechSet},
 };
 
 struct FakeSpeech;

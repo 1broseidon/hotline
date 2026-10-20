@@ -15,7 +15,7 @@
 
 use crate::contract::{CatalogModel, ConfigChoice, CredentialKind, EffortChoices, Provider};
 use crate::session::ProviderAuth;
-pub use hotline_room::provider_auth::is_custom;
+use hotline_room::provider_auth::is_custom;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::borrow::Cow;
@@ -404,7 +404,7 @@ fn does(provider_id: &str) -> Vec<crate::contract::ProviderJob> {
     if crate::imagegen::draws(provider_id) {
         jobs.push(ProviderJob::Images);
     }
-    if crate::voice::speech::speaks(provider_id) {
+    if hotline_voice::speech::speaks(provider_id) {
         jobs.push(ProviderJob::Voice);
     }
     jobs

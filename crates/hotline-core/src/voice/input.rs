@@ -165,9 +165,11 @@ impl Calls {
             });
         }
         let resolve = |settings: &VoiceSettings| match input_mode {
-            VoiceInputMode::Audio => speech::resolve(&self.vault, settings).map(CallSpeech::audio),
+            VoiceInputMode::Audio => {
+                super::connected::resolve(&self.vault, settings).map(CallSpeech::audio)
+            }
             VoiceInputMode::Text => {
-                speech::resolve_output(&self.vault, settings).map(CallSpeech::output)
+                super::connected::resolve_output(&self.vault, settings).map(CallSpeech::output)
             }
         };
         let settings = self.settings();

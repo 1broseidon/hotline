@@ -795,7 +795,7 @@ pub(super) async fn answer_delegation(
 fn hand_off(handed: Arc<Mutex<Option<String>>>) -> DynamicTool {
     let tool = super::front::tools()
         .into_iter()
-        .find(|tool| tool.name == super::front::SEND_TO_TEAMMATE)
+        .find(|tool| tool.name == hotline_voice::realtime::SEND_TO_TEAMMATE)
         .expect("the front's own tools hold send_to_teammate");
     DynamicTool::new(
         ToolName::new(tool.name).expect("a desk tool is named by Hotline"),

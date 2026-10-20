@@ -153,7 +153,7 @@ impl Desk {
             root,
             store,
             services,
-            crate::voice::speech::local::catalogue(),
+            hotline_voice::speech::local::catalogue(),
             acp::StartBounds::default(),
         )
     }
@@ -169,7 +169,7 @@ impl Desk {
             root,
             store,
             None,
-            crate::voice::speech::local::catalogue(),
+            hotline_voice::speech::local::catalogue(),
             bounds,
         )
     }
@@ -179,7 +179,7 @@ impl Desk {
     pub fn open_with_speech_models(
         root: &Path,
         store: Arc<dyn crate::credentials::SecretStore>,
-        models: Vec<crate::voice::speech::local::Model>,
+        models: Vec<hotline_voice::speech::local::Model>,
     ) -> io::Result<Desk> {
         Self::open_inner(root, store, None, models, acp::StartBounds::default())
     }
@@ -188,7 +188,7 @@ impl Desk {
         root: &Path,
         store: Arc<dyn crate::credentials::SecretStore>,
         services: Option<crate::voice::Services>,
-        models: Vec<crate::voice::speech::local::Model>,
+        models: Vec<hotline_voice::speech::local::Model>,
         acp_start: crate::driver::acp::StartBounds,
     ) -> io::Result<Desk> {
         install_crypto_provider();
@@ -947,7 +947,7 @@ impl RoomHandle for Desk {
         model_ids: &[String],
     ) -> Result<Vec<CatalogModel>, String> {
         if crate::models::wiring(provider_id).is_none()
-            || crate::models::is_custom(provider_id)
+            || hotline_room::provider_auth::is_custom(provider_id)
             || provider_id == "openai-compatible"
         {
             return Err("Choose an existing native provider connection; edit custom IDs in its connection form.".into());

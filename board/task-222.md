@@ -20,9 +20,9 @@ dependsOn:
   - task-202
   - task-205
   - task-227
-updatedAt: "2026-10-20T00:30:31.751Z"
+updatedAt: "2026-10-20T00:33:13.892Z"
 contract:
-  status: delivered
+  status: done
   deliverables:
     - type: test
       path: crates/hotline-core/tests

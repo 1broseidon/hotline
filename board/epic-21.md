@@ -12,7 +12,7 @@ tags:
 assignee: claude
 createdAt: "2026-10-19T20:00:05.973Z"
 landsOn: release/0.42.0
-updatedAt: "2026-10-20T20:13:20.963Z"
+updatedAt: "2026-10-20T20:13:58.575Z"
 ---
 
 ## Description
@@ -44,7 +44,7 @@ Order:
 6. task-240 and task-241 (trouble), once S5 lands.
 7. task-206, the end to end, docs and scenario pass, last.
 
-Phone stories are on the hotline-mobile board, in the epic that pairs with this one.
+Phone stories are hotline-mobile epic-5 (task-43 to task-46), in step with these.
 
 Lands on release/0.42.0. The 0.42 cut waits for this epic (George, 2026-10-20: "before we cut anything"). Pork Chop QAs on the Linux QA computer first, then George.
 

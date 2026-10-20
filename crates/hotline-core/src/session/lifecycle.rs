@@ -9,14 +9,14 @@
 //! - **The sweep.** [`Room::sweep`] is run on the room's clock and applies
 //!   every kind's `idle` policy. A side thread is parked there, and so is a
 //!   job's agent the person kept talking to. A run is never idle-ended, and a
-//!   call that nobody has spoken on for ten minutes is ended. The DM's row is its chapters ([`Idle::Chapters`]), which the sweep
+//!   call that nobody has spoken on for ten minutes loses its voice. The DM's
+//!   row is its chapters ([`Idle::Chapters`]), which the sweep
 //!   closes through `sweep_chapters`: a chapter's close is awaited, a note being
 //!   a model call, so it is the one row the sweep awaits.
 //! - **The settle.** [`Room::settle`] is run once as the room opens. The last
 //!   process's agents died with it, so a card it left open is expired and a
 //!   thread it left live is moved by its kind's `restart` policy: a side
-//!   thread or a job's is parked, a run is closed as cancelled, and a call is
-//!   closed as stopped, its transcript kept. A peer exchange the
+//!   thread, call or job is parked, and a run is closed as cancelled. A peer exchange the
 //!   process was answering is told to its sender by `reconcile_exchanges`,
 //!   which the settle calls.
 //! - **The closing note.** [`Room::queue_closing_note`] writes a thread's note
@@ -156,16 +156,9 @@ impl Room {
     /// handle in the room has nothing to end here.
     pub(super) fn end_thread(&self, thread: &ThreadId, ending: Ending) {
         match thread.kind {
-            ThreadKind::Side => {
+            ThreadKind::Side | ThreadKind::Call => {
                 if let Some(side) = self.sides.get(&thread.key) {
                     self.end_side(&side, ending);
-                }
-            }
-            // Ending the call writes its link and takes its note.
-            ThreadKind::Call => {
-                let voice = lock(&self.voice).upgrade();
-                if let Some(voice) = voice {
-                    voice.end_quiet(&thread.key);
                 }
             }
             // A pair's agent is stopped; the thread is the stream, and the next

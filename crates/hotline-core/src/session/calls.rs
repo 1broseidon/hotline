@@ -147,9 +147,8 @@ impl Room {
                         tags: Vec::new(),
                     });
                     let _admission = room.sides.waking.lock().await;
-                    if lock(&room.call_closings).get(&thread) != Some(&ticket)
-                        || room.on_the_call(&thread)
-                    {
+                    let current = lock(&room.call_closings).get(&thread) == Some(&ticket);
+                    if !current || room.on_the_call(&thread) {
                         return;
                     }
                     if room
@@ -179,9 +178,8 @@ impl Room {
                     return;
                 }
                 let _admission = room.sides.waking.lock().await;
-                if lock(&room.call_closings).get(&thread) != Some(&ticket)
-                    || room.on_the_call(&thread)
-                {
+                let current = lock(&room.call_closings).get(&thread) == Some(&ticket);
+                if !current || room.on_the_call(&thread) {
                     return;
                 }
                 if room.work_thread_working(&thread) {
@@ -194,9 +192,7 @@ impl Room {
         });
     }
     fn park_after_call(&self, thread: &ThreadId, note: Option<super::chapters::Note>) {
-        if let Some(live) = self.sides.get(&thread.key) {
-            self.end_side(&live, super::sides::Ending::Park);
-        }
+        self.end_thread(thread, super::sides::Ending::Park);
         if let Some(mut link) = self.link_of(thread)
             && !matches!(link.state, ThreadState::Closed(_))
         {

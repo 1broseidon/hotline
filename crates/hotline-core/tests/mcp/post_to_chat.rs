@@ -296,7 +296,14 @@ async fn the_dm_may_not_post_and_a_quiet_job_posts_once(driver: Driver) {
         .await;
     assert_eq!(posted["scheduled"]["jobId"], job_id.as_str());
     assert_eq!(posted["scheduled"]["quiet"], true);
-    assert_eq!(posted["from"], json!({"thread": job_id, "kind": "job"}));
+    assert_eq!(posted["from"]["thread"], job_id);
+    assert_eq!(posted["from"]["kind"], "job");
+    assert!(
+        posted["from"]["title"]
+            .as_str()
+            .unwrap()
+            .starts_with("CALL ")
+    );
     let quiet = desk.results(thread).await;
     says(&quiet, 0, "your own chat only");
     says(&quiet, 1, "Posted to the chat.");
@@ -454,9 +461,10 @@ async fn a_work_threads_file_lands_in_the_chat(driver: Driver) {
         })
         .await;
     assert_eq!(posted["attachments"][0]["name"], "winch.txt", "{posted}");
+    assert_eq!(posted["from"]["thread"], thread["key"], "{posted}");
+    assert_eq!(posted["from"]["kind"], "side", "{posted}");
     assert_eq!(
-        posted["from"],
-        json!({"thread": thread["key"], "kind": "side"}),
+        posted["from"]["title"], opened["result"]["title"],
         "{posted}"
     );
     desk.event(side, |event| {
@@ -493,7 +501,14 @@ async fn a_quiet_jobs_file_is_its_one_post(driver: Driver) {
         .await;
     assert_eq!(posted["attachments"][0]["name"], "winch.txt", "{posted}");
     assert_eq!(posted["scheduled"]["jobId"], job_id.as_str());
-    assert_eq!(posted["from"], json!({"thread": job_id, "kind": "job"}));
+    assert_eq!(posted["from"]["thread"], job_id);
+    assert_eq!(posted["from"]["kind"], "job");
+    assert!(
+        posted["from"]["title"]
+            .as_str()
+            .unwrap()
+            .starts_with("CALL ")
+    );
     let quiet = desk.results(thread).await;
     says(&quiet, 0, "Sent winch.txt (14 bytes).");
     says(&quiet, 1, "one per turn");

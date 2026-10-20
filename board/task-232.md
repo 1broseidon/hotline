@@ -18,3 +18,6 @@ updatedAt: "2026-10-20T06:51:47.095Z"
 
 ## Description
 Report §6 S2 and §3.8. Constructors for CompletionRequest/Usage/Text; Message::Assistant(AssistantMessage); ToolFunction.arguments as Map and invalid_arguments answered with an error; ToolName; Anthropic automatic caching and OpenRouter anthropic/ caching move to the request's .cache(CacheRetention::Short); Ollama to native_completion; _ arms on non-exhaustive enums; decide accept_unknown_finish_reasons for voice. Manual: an Anthropic multi-round turn shows cache_read > 0 on round 2.
+
+## Log
+- 2026-10-20T11:59:57.115Z: [claude] Folded into task-231 (George chose the direct jump to 0.45, 2026-10-20 06:59).

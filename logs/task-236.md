@@ -1,8 +1,6 @@
 ---
 id: task-236
 title: "S6: voice metering keyed by dispatch id (Rig 0.45's exactly-once outcome hook)"
-column: review
-position: 8
 priority: medium
 tags:
   - rig
@@ -16,7 +14,7 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:45.659Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:53:48.129Z"
+updatedAt: "2026-10-20T13:57:47.113Z"
 contract:
   status: delivered
   deliverables:
@@ -55,6 +53,9 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-20T13:37:10.867Z"
+    ended: "2026-10-20T13:57:47.113Z"
+    outcome: done
+completedAt: "2026-10-20T13:57:46.725Z"
 ---
 
 ## Description
@@ -70,3 +71,4 @@ What S1 (task-231) left you, as landed on release/0.42.0: one `Meter` reserves i
 - 2026-10-20T13:40:18.332Z: [codex] All seven voice_meter_ tests pass. Upstream-source correction for S8's plan update: installed Rig 0.45 does expose OutcomeAction::stop (replacement cancellation); S6 deliberately returns Proceed after settlement so a paid reply survives exhaustion and refusal happens at the next dispatch. No plan edit made.
 - 2026-10-20T13:49:10.053Z: [codex] Committed 5dc93dd6 on dispatch/task-236 after make check passed. Merged release/0.42.0 as requested (already up to date); running post-merge make check and contract precheck. Eight voice_meter_ tests include the real provider HTTP fixture; no wire changes or unwired paths.
 - 2026-10-20T13:53:47.880Z: [codex] Ready for review on dispatch/task-236 at 5dc93dd6. One dispatch/outcome hook now reserves and settles by EffectId; failed, dropped, missing/all-zero usage attempts retain charges, retries settle separately, and exhaustion refuses the next dispatch while preserving paid replies. Voice docs updated. make check passed before and after merging release/0.42.0 (already up to date); make precheck passed all 8 legs, eight voice_meter_ tests registered, contract.ts byte-identical to HEAD and origin release merge-base, no StreamMeter, clean worktree. Nothing left unwired. Next: reviewer inspects and lands this branch; S8 updates the migration plan using the upstream hook correction noted above.
+- 2026-10-20T13:57:46.358Z: Landed on release/0.42.0

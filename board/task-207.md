@@ -1,6 +1,6 @@
 ---
 id: task-207
-title: "Voice: a long call talks naturally, pointing at the chat only when it really holds more"
+title: The chat gets results, records and one closing note; the pointer only when the chat holds more
 column: backlog
 position: 42
 priority: high
@@ -12,22 +12,21 @@ relatedFiles:
   - crates/hotline-core/src/voice/dispatcher.rs
 parentId: epic-21
 dependsOn:
-  - task-201
+  - task-225
 createdAt: "2026-10-19T14:02:18.044Z"
-updatedAt: "2026-10-19T20:00:17.601Z"
+updatedAt: "2026-10-20T20:13:23.749Z"
 ---
 
 ## Description
-George, 2026-10-19 09:01 on a long call: "details are in the chat" comes out nearly every turn, which doesn't feel natural; a back-and-forth should just talk, and point at the chat only when it really holds more.
+Scenarios: Where are we on it?, Thinking out loud, and every "In the chat afterwards". George, 2026-10-19: "details are in the chat" came out nearly every turn.
 
-Where it comes from: every handed-off turn carries the same two-version instruction (voice/spoken.rs, the <spoken>/<written> block, 1-3 sentences, under 40 words, "details are in the chat when needed"), and the dispatcher's REWRITE prompt (voice/dispatcher.rs) tells the narrator the same. Nothing in either knows how far into the call it is, what was already said, or whether the written answer holds anything the spoken one can't carry.
+Done when:
+- Code, not the model, decides whether a reply points at the chat, from what the post holds: a file, code, a table, links, or a list longer than a few items. The pointer is said at most once every few turns, and never on a conversational turn.
+- A conversational turn's written version is its spoken words. There is no second answer to invent, and no near-duplicates in the chat.
+- The per-turn instruction (Legacy voice and the narrator) carries the call's state: how many turns in, whether the pointer was said, and the last few spoken lines. The fixed 40-word cap and the "details are in the chat when needed" line in voice/spoken.rs and the dispatcher's REWRITE prompt are gone.
+- On a call, any reply whose written version carries what speech can't is posted by the core, decided by what the text contains (ADR 0008 §4).
 
-Do:
-- Pass the call's state into the per-turn instruction: how many turns in, whether the pointer was already said, and the last few spoken lines.
-- Say the pointer only when the written version holds something speech can't carry (code, a table, links, a list longer than a few items) and at most once every few turns; never on conversational turns.
-- Let a conversational turn's written version be the same words as the spoken one (no separate written answer to invent), so the chat doesn't fill with near-duplicates.
-- Relax the 40-word cap when the person explicitly asks for an overview or says they have time.
-Tests over the instruction builder and the narrator: no pointer on a conversational turn; at most one in N turns; present when the written version has code or a table.
+Proved by tests over the instruction builder and the narrator: no pointer on a conversational turn, at most one in N turns, and a pointer present when the written version has code or a table.
 
 ## Log
 - 2026-10-19T14:02:58.358Z: [claude] George, 09:02, refines the rule: the pointer is for something real the person will want later, like a file sent ('I sent you the HTML file, take a look when you're back at your desk'), a link, or a long write-up. It's said in context, in the teammate's own words, never a fixed phrase, the way a smart coworker on the other end of the line would mention it. A plain answer or a short list is just said, with no pointer. Put this into the instruction and the narrator prompt as a description plus bad examples, not stock good phrases (same approach as task-204).

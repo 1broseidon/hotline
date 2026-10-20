@@ -726,7 +726,7 @@ async fn a_job_that_runs_out_of_its_count_ends_with_a_final_post() {
 /// past the next slot still runs three, and the third is told it is the last.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_skipped_slot_does_not_count_toward_a_loops_count() {
-    let mut desk = seeded(|ada| {
+    let desk = seeded(|ada| {
         let mut job = looping("overrun", ada, 2_500, "STALL SAY Posted the time.");
         job["quiet"] = json!(true);
         job["times"] = json!(3);

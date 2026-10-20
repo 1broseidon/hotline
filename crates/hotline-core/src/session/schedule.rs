@@ -928,12 +928,48 @@ mod tests {
         assert!(retried[0].operator_created);
         assert_eq!(retried[0].quiet, None);
 
-        finish(&room, &job.id);
+        finish(&room, &job.id, true);
         let advanced = room.schedule_list();
         assert_eq!(advanced.len(), 1);
         assert!(advanced[0].operator_created);
         assert_eq!(advanced[0].quiet, None);
         assert!(advanced[0].next_at > now);
+    }
+
+    #[tokio::test]
+    async fn a_skipped_slot_moves_a_loop_on_without_spending_its_count() {
+        let log = grant_log(true);
+        let now = now_ms();
+        let job = ScheduledJob {
+            id: "skips".to_string(),
+            persona_id: "ada".to_string(),
+            kind: ScheduleKind::Loop,
+            when: None,
+            every: Some(MIN_LOOP),
+            prompt: "post the time".to_string(),
+            quiet: None,
+            reminder: None,
+            goal: None,
+            until: None,
+            times: Some(1),
+            without: None,
+            operator_created: true,
+            next_at: now,
+            created_at: now,
+            last_post: None,
+            ended_at: None,
+        };
+        room::append_schedule(&log, &job).unwrap();
+        let room = Room::new(log, Arc::new(NoKeys));
+
+        finish(&room, &job.id, false);
+        let skipped = room.schedule_list();
+        assert_eq!(skipped[0].times, Some(1));
+        assert_eq!(skipped[0].ended_at, None);
+        assert!(skipped[0].next_at > now);
+
+        finish(&room, &job.id, true);
+        assert!(room::all_jobs(&room.log)[0].ended_at.is_some());
     }
 }
 

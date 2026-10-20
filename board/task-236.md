@@ -16,7 +16,29 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:45.659Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T12:03:22.957Z"
+updatedAt: "2026-10-20T12:03:23.226Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-core/src/voice/dispatcher.rs
+      description: one dispatch/outcome metering hook keyed by EffectId
+    - type: test
+      path: crates/hotline-core
+      description: voice_meter_* tests
+  validation:
+    commands:
+      - "! grep -n 'StreamMeter' crates/hotline-core/src/voice/dispatcher.rs"
+      - make check
+      - make precheck
+      - git diff --exit-code HEAD -- ui/src/generated/contract.ts
+      - git diff --exit-code $(git merge-base HEAD origin/release/0.42.0) HEAD -- ui/src/generated/contract.ts
+      - test "$(cargo test --workspace -- --list 2>/dev/null | grep -c 'voice_meter_')" -ge 4
+  constraints:
+    - "No wire type changes: ui/src/generated/contract.ts byte-identical to the base"
+    - Do not edit docs/plans/rig-0.45-migration.md
+  metrics:
+    readyAt: "2026-10-20T12:03:23.226Z"
 ---
 
 ## Description

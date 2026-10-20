@@ -3,9 +3,8 @@
 use super::phone::{effort_config, phone_budget};
 use super::seat::{PLAIN_REASONS, PRIVATE_REASON, Seat};
 use super::subscribe::subscribe;
-use super::{RoomHandle, commands, files, threads};
+use super::{Agents, RoomHandle, commands, files, threads};
 use crate::contract::Command;
-use crate::log::Log;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -98,8 +97,7 @@ impl Outbox {
 /// Only the authenticated sealed transport calls this: the hello itself is encrypted.
 pub(crate) async fn seated_phone_v2<S>(
     mut socket: S,
-    log: Log,
-    room: Arc<dyn RoomHandle>,
+    desk: Agents,
     phone: crate::remote::Phone,
     role: crate::remote::WireRole,
     desktop_id: &str,
@@ -119,7 +117,7 @@ where
         // phone paired before the relay was chosen learns of it here.
         "endpoints": phone.endpoints(),
         "mode": "team",
-        "capabilities": Seat::for_phone(role).capabilities_for(room.as_ref()),
+        "capabilities": Seat::for_phone(role).capabilities_for(&desk.parts),
     });
     // Which of those endpoints is public, so a phone can tell it from the
     // VPN or LAN ones without the owner-only `remote.status`.
@@ -137,26 +135,24 @@ where
         () = phone.cancel.cancelled() => return Ok(()),
         result = socket.send(Message::text(hello.to_string())) => result?,
     }
-    seated_inner(socket, Seat::for_phone(role), log, room, Some(phone)).await
+    seated_inner(socket, Seat::for_phone(role), desk, Some(phone)).await
 }
 
 pub(super) async fn seated<S>(
     socket: WebSocketStream<S>,
     seat: Seat,
-    log: Log,
-    room: Arc<dyn RoomHandle>,
+    desk: Agents,
 ) -> Result<(), Error>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    seated_inner(socket, seat, log, room, None).await
+    seated_inner(socket, seat, desk, None).await
 }
 
 async fn seated_inner<S>(
     socket: S,
     seat: Seat,
-    log: Log,
-    room: Arc<dyn RoomHandle>,
+    desk: Agents,
     phone: Option<crate::remote::Phone>,
 ) -> Result<(), Error>
 where
@@ -237,13 +233,7 @@ where
                 // finishes starting holds up its own lane, not the desk.
                 if let Some(teammate) = lane_of(&frame) {
                     let lane = lanes.entry(teammate).or_insert_with(|| {
-                        open_lane(
-                            seat,
-                            log.clone(),
-                            room.clone(),
-                            sender.clone(),
-                            phone.clone(),
-                        )
+                        open_lane(seat, desk.clone(), sender.clone(), phone.clone())
                     });
                     let _ = lane.send(frame);
                     continue;
@@ -254,8 +244,7 @@ where
                     answer(
                         &frame,
                         seat,
-                        &log,
-                        &room,
+                        &desk,
                         &sender,
                         &mut subscriptions,
                         phone.as_ref(),
@@ -286,7 +275,7 @@ where
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .take()
-        && let Some(remote) = room.remote()
+        && let Some(remote) = desk.parts.remote.upgrade()
     {
         let _ = remote.cancel_pairing(&id);
     }
@@ -335,8 +324,7 @@ fn lane_of(frame: &Value) -> Option<String> {
 /// it was asked, and a revoked companion stops at once.
 fn open_lane(
     seat: Seat,
-    log: Log,
-    room: Arc<dyn RoomHandle>,
+    desk: Agents,
     sender: Outbox,
     phone: Option<crate::remote::Phone>,
 ) -> mpsc::UnboundedSender<Value> {
@@ -349,7 +337,7 @@ fn open_lane(
             let answered = scoped(
                 seat,
                 &sender,
-                command(id, &frame, seat, &log, &room, &sender, phone.as_ref()),
+                command(id, &frame, seat, &desk, &sender, phone.as_ref()),
             );
             if seat.is_remote() {
                 tokio::select! {
@@ -386,8 +374,7 @@ fn scoped<F: std::future::Future<Output = ()>>(
 pub(super) async fn answer(
     frame: &Value,
     seat: Seat,
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
+    desk: &Agents,
     sender: &Outbox,
     subscriptions: &mut HashMap<i64, JoinHandle<()>>,
     phone: Option<&crate::remote::Phone>,
@@ -397,13 +384,13 @@ pub(super) async fn answer(
     };
 
     if frame.get("cmd").is_some() {
-        command(id, frame, seat, log, room, sender, phone).await;
+        command(id, frame, seat, desk, sender, phone).await;
         return;
     }
     if frame.get("sub").is_some() {
         // A subscription that opened answered itself, on its way past the
         // acknowledgement; only a refusal is left to say here.
-        if let Err(refused) = subscribe(id, frame, seat, log, room, sender, subscriptions) {
+        if let Err(refused) = subscribe(id, frame, seat, desk, sender, subscriptions) {
             decline(sender, id, refused);
         }
         return;
@@ -431,11 +418,11 @@ async fn command(
     id: i64,
     frame: &Value,
     seat: Seat,
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
+    desk: &Agents,
     sender: &Outbox,
     phone: Option<&crate::remote::Phone>,
 ) {
+    let Agents { log, room, parts } = desk;
     match read_command(frame) {
         Ok(command) if !seat.permits(&command) => {
             decline(
@@ -457,9 +444,9 @@ async fn command(
         // Making or ending a link waits on the other desk, for seconds when
         // it is far or away; the window's other commands do not wait behind it.
         Ok(command @ (Command::DesksLink { .. } | Command::DesksUnlink { .. })) => {
-            let (sender, log, room) = (sender.clone(), log.clone(), Arc::clone(room));
+            let (sender, desk) = (sender.clone(), desk.clone());
             tokio::spawn(async move {
-                let result = commands::run(command, &log, &room).await;
+                let result = commands::run(command, &desk.log, &desk.room, &desk.parts).await;
                 reply(&sender, id, result);
             });
         }
@@ -493,9 +480,9 @@ async fn command(
             | Command::SearchAll { .. }
             | Command::ScheduleList {}),
         ) => {
-            let (sender, log, room) = (sender.clone(), log.clone(), Arc::clone(room));
+            let (sender, desk) = (sender.clone(), desk.clone());
             tokio::spawn(async move {
-                let result = commands::run(command, &log, &room).await;
+                let result = commands::run(command, &desk.log, &desk.room, &desk.parts).await;
                 reply(&sender, id, result);
             });
         }
@@ -536,7 +523,7 @@ async fn command(
                     },
                     _,
                 ) => {
-                    let result = commands::run(command, log, room).await;
+                    let result = commands::run(command, log, room, parts).await;
                     if let Ok(value) = &result
                         && let Some(id) = value.get("id").and_then(Value::as_str)
                     {
@@ -646,7 +633,7 @@ async fn command(
                         seat.is_remote() && capabilities.iter().any(|name| name == LEAN),
                         std::sync::atomic::Ordering::Relaxed,
                     );
-                    Ok(json!({ "capabilities": seat.capabilities_for(room.as_ref()) }))
+                    Ok(json!({ "capabilities": seat.capabilities_for(parts) }))
                 }
                 (Command::RemoteDevices {}, Some(phone)) => Ok(json!(phone.devices())),
                 // Seat::Phone does not permit it, so this is an owner's.
@@ -672,49 +659,57 @@ async fn command(
                 (Command::TapePage { .. } | Command::ThreadPage { .. }, Some(_))
                     if seat == Seat::Phone || sender.lean() =>
                 {
-                    commands::run(command, log, room).await.map(|mut page| {
-                        if let Some(events) = page.get_mut("events").and_then(Value::as_array_mut) {
-                            *events = phone_budget(std::mem::take(events));
-                        }
-                        page
-                    })
+                    commands::run(command, log, room, parts)
+                        .await
+                        .map(|mut page| {
+                            if let Some(events) =
+                                page.get_mut("events").and_then(Value::as_array_mut)
+                            {
+                                *events = phone_budget(std::mem::take(events));
+                            }
+                            page
+                        })
                 }
                 // Why a harness is unavailable can name the machine's
                 // accounts and folders. That is the owner's to read; a
                 // companion sees that it is unavailable, not why.
                 (Command::BackendsList {}, _) if seat == Seat::Phone => {
-                    commands::run(command, log, room).await.map(|mut list| {
-                        for backend in list.as_array_mut().into_iter().flatten() {
-                            if let Some(reason) = backend.get_mut("unavailable")
-                                && !PLAIN_REASONS.contains(&reason.as_str().unwrap_or_default())
-                            {
-                                *reason = Value::from(PRIVATE_REASON);
+                    commands::run(command, log, room, parts)
+                        .await
+                        .map(|mut list| {
+                            for backend in list.as_array_mut().into_iter().flatten() {
+                                if let Some(reason) = backend.get_mut("unavailable")
+                                    && !PLAIN_REASONS.contains(&reason.as_str().unwrap_or_default())
+                                {
+                                    *reason = Value::from(PRIVATE_REASON);
+                                }
                             }
-                        }
-                        list
-                    })
+                            list
+                        })
                 }
                 // The viewer is a loopback URL with the computer's bearer
                 // in its fragment; it never leaves this machine.
                 (Command::ComputerStatus { .. }, Some(_)) => {
-                    commands::run(command, log, room).await.map(|mut status| {
-                        if let Some(fields) = status.as_object_mut() {
-                            fields.remove("viewer");
-                        }
-                        status
-                    })
+                    commands::run(command, log, room, parts)
+                        .await
+                        .map(|mut status| {
+                            if let Some(fields) = status.as_object_mut() {
+                                fields.remove("viewer");
+                            }
+                            status
+                        })
                 }
                 (Command::VoiceCallStart { call_id, .. }, _) => {
                     let call_id = call_id.clone();
-                    let result = commands::run(command, log, room).await;
+                    let result = commands::run(command, log, room, parts).await;
                     if result.is_ok()
-                        && let Some(voice) = room.voice()
+                        && let Some(voice) = &parts.voice
                     {
                         voice.bind_connection(call_id, sender.cancel.clone());
                     }
                     result
                 }
-                _ => commands::run(command, log, room).await,
+                _ => commands::run(command, log, room, parts).await,
             };
             reply_to(sender, id, result, keep_null);
         }
@@ -794,8 +789,6 @@ pub(crate) const WRITE_STALL: std::time::Duration = std::time::Duration::from_se
 
 /// The seat may not do this, whoever asks and whatever the room holds.
 pub(super) const FORBIDDEN: &str = "forbidden";
-/// A room that keeps no links answers a linked desk with this.
-pub(super) const NOT_LINKED: &str = "This desk is not linked with that one.";
 /// The command or subscription names a teammate the room does not hold.
 pub(super) const UNKNOWN_TEAMMATE: &str = "unknown_teammate";
 /// The room could not be read, so there is no answer to give — which is not

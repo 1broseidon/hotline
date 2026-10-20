@@ -26,13 +26,13 @@
 //! teammate and then subscribes must see it.
 
 use serde_json::Value;
+use std::sync::{Arc, Weak};
 
 pub(crate) mod commands;
 mod door;
 mod files;
 mod phone;
 mod relay_door;
-mod room_handle;
 mod roster;
 mod schedules;
 mod seat;
@@ -41,7 +41,8 @@ mod subscribe;
 mod threads;
 
 pub use door::Door;
-pub use room_handle::RoomHandle;
+pub use hotline_room::room_handle::{AuthStatus, RoomHandle};
+pub(crate) use hotline_room::secret::same_secret;
 pub(crate) use roster::{activity_on, waiting_on};
 use socket::Outbox;
 #[cfg(test)]
@@ -51,18 +52,31 @@ pub(crate) use socket::{federation, seated_phone_v2};
 #[cfg(test)]
 mod tests;
 
-/// Equal without leaking, through timing, how much of a wrong token matched.
-pub(crate) fn same_secret(presented: &str, expected: &str) -> bool {
-    let presented = presented.as_bytes();
-    let expected = expected.as_bytes();
-    if presented.len() != expected.len() {
-        return false;
-    }
-    presented
-        .iter()
-        .zip(expected)
-        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
-        == 0
+/// A desk that runs agents, as a wire or a Remote is seated on it: its log,
+/// the live half behind its room handle, and the parts the wire drives
+/// beside that. A server that runs only a relay has none (ADR 0006).
+#[derive(Clone)]
+pub struct Agents {
+    pub log: crate::log::Log,
+    pub room: Arc<dyn RoomHandle>,
+    pub parts: Parts,
+}
+
+/// What the wire drives directly beside the room handle: the desk's calls,
+/// its Remote and its links, handed over when the wire is built. A room
+/// with none of them, as the test rooms are, is built with the default, and
+/// a command that needs one answers that this desk does not have it.
+///
+/// The Remote is held weakly because it holds the desk: a call's dispatcher
+/// keeps these for as long as the call runs, and must not keep the Remote
+/// alive in return.
+#[derive(Clone, Default)]
+pub struct Parts {
+    pub voice: Option<Arc<crate::voice::Calls>>,
+    pub remote: Weak<crate::remote::Remote>,
+    /// The live half of this desk's links (ADR 0003): which linked desks are
+    /// reachable now, the calls waiting for them, and their teammates.
+    pub links: Option<Arc<crate::linked::Links>>,
 }
 
 /// One frame onto the socket's queue. False means the socket is gone.

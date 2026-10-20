@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""Summarise the newest `cargo --timings` report: wall time, the workspace's own
+units (hotline-core and the crates split out of it) against everything else it
+compiled.
+
+Run from the repository root after `cargo build -p hotline-core --timings` or
+`cargo test -p hotline-core --no-run --timings`. The HTML report holds the
+per-unit durations as JSON; this prints the few numbers docs/adr/0007 keeps and
+leaves the report itself behind in target/cargo-timings/.
+"""
+
+import json
+from pathlib import Path
+import re
+import sys
+
+REPORT = Path("target/cargo-timings/cargo-timing.html")
+OWN = {
+    "hotline-core",
+    "hotline-contract",
+    "hotline-support",
+    "hotline-store",
+    "hotline-tools",
+    "hotline-websearch",
+    "hotline-room",
+    "hotline-mcp",
+    "hotline-voice",
+}
+
+
+def section_length(unit, name):
+    for label, span in unit["sections"] or []:
+        if label == name:
+            return span["end"] - span["start"]
+    return 0.0
+
+
+def main():
+    if not REPORT.is_file():
+        sys.exit(f"timings-summary: no {REPORT}; run cargo with --timings first")
+    html = REPORT.read_text()
+    units = json.loads(re.search(r"const UNIT_DATA = (\[.*?\n\]);", html, re.S).group(1))
+    wall = re.search(r"Total time:</td><td>([\d.]+)s", html).group(1)
+    own = [u for u in units if u["name"] in OWN]
+    others = [u for u in units if u["name"] not in OWN]
+    print(f"wall: {wall}s, {len(units)} units compiled")
+    for unit in sorted(own, key=lambda u: -u["duration"]):
+        target = unit["target"].strip() or "lib"
+        print(
+            f"{unit['name']} {target}: {unit['duration']:.1f}s, from {unit['start']:.1f}s"
+            f" (frontend {section_length(unit, 'frontend'):.1f}s,"
+            f" codegen {section_length(unit, 'codegen'):.1f}s)"
+        )
+    total = sum(u["duration"] for u in others)
+    print(f"everything else: {len(others)} units, {total:.1f}s of compile work summed over all cores")
+    for unit in sorted(others, key=lambda u: -u["duration"])[:5]:
+        print(f"  {unit['name']} {unit['version']} {unit['target'].strip()}: {unit['duration']:.1f}s")
+
+
+if __name__ == "__main__":
+    main()

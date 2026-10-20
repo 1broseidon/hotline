@@ -3,9 +3,9 @@
 use super::*;
 use crate::{
     contract::{SessionInfo, StreamDelta},
-    credentials::tests::MemoryStore,
+    credentials::MemoryStore,
     desk::Desk,
-    wire::Door,
+    wire::{Door, Parts, RoomHandle},
 };
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
@@ -52,19 +52,29 @@ struct Harness {
 fn loopback() -> std::net::TcpListener {
     std::net::TcpListener::bind("127.0.0.1:0").unwrap()
 }
+/// A desk as its Remote is handed it: the log, the desk as the room, and
+/// the desk's parts.
+fn agents(desk: &Arc<Desk>) -> Agents {
+    Agents {
+        log: desk.log.clone(),
+        room: desk.clone(),
+        parts: desk.parts(),
+    }
+}
 impl Harness {
     async fn new() -> Self {
-        Self::around(|desk| desk, Some(loopback())).await
+        Self::around(|desk| agents(&desk), Some(loopback())).await
     }
     /// A desk on this computer's own interfaces, for the tests about them.
     async fn on_interfaces() -> Self {
-        Self::around(|desk| desk, None).await
+        Self::around(|desk| agents(&desk), None).await
     }
     /// A desk that reports a computer it does not have, for the door to open.
     async fn with_computer() -> (Self, Arc<Computered>) {
         let mut handle = None;
         let harness = Self::around(
             |desk| {
+                let log = desk.log.clone();
                 let room = Arc::new(Computered {
                     desk,
                     viewer: std::sync::Mutex::new(None),
@@ -73,7 +83,11 @@ impl Harness {
                     deltas: broadcast::channel(16).0,
                 });
                 handle = Some(room.clone());
-                room
+                Agents {
+                    log,
+                    room,
+                    parts: Parts::default(),
+                }
             },
             Some(loopback()),
         )
@@ -82,15 +96,15 @@ impl Harness {
     }
     /// A desk on `listener`, or on every interface when there is none.
     async fn around(
-        room_of: impl FnOnce(Arc<Desk>) -> Arc<dyn RoomHandle>,
+        agents_of: impl FnOnce(Arc<Desk>) -> Agents,
         listener: Option<std::net::TcpListener>,
     ) -> Self {
         let root = tempfile::tempdir().unwrap();
         let store = Arc::new(MemoryStore::default());
         let desk = Arc::new(Desk::open_with_store(root.path(), store.clone()).unwrap());
-        let room = room_of(desk.clone());
+        let agents = agents_of(desk.clone());
         let remote = if let Some(listener) = listener {
-            Remote::open_on(listener, root.path(), desk.log.clone(), room, store.clone())
+            Remote::open_on(listener, root.path(), agents, store.clone())
         } else {
             // On every interface the desk binds a port itself, and one it
             // is given here is never the install default: harnesses run
@@ -106,7 +120,7 @@ impl Harness {
                 json!({"desktopId": Uuid::new_v4(), "host": network::ALL, "port": port, "enabled": false, "grants": []}).to_string(),
             )
             .unwrap();
-            Remote::open_with_store(root.path(), desk.log.clone(), room, store.clone())
+            Remote::open_with_store(root.path(), agents, store.clone())
         }
         .unwrap();
         assert!(!remote.status().enabled);
@@ -145,14 +159,7 @@ impl Harness {
     }
     /// This desk's Remote as it opens again after a restart, with `store`.
     fn reopen(&self, store: Arc<dyn SecretStore>) -> Arc<Remote> {
-        Remote::open_on(
-            loopback(),
-            self.root.path(),
-            self.desk.log.clone(),
-            self.desk.clone(),
-            store,
-        )
-        .unwrap()
+        Remote::open_on(loopback(), self.root.path(), agents(&self.desk), store).unwrap()
     }
     async fn pair(&self) -> TestPhone {
         self.pair_role(DeviceRole::Owner).await
@@ -389,7 +396,7 @@ impl RoomHandle for Computered {
     ) -> Result<Vec<crate::contract::CatalogModel>, String> {
         self.desk.models_catalog(provider_id)
     }
-    fn import(&self, from: &std::path::Path) -> Result<crate::import::Report, String> {
+    fn import(&self, from: &std::path::Path) -> Result<crate::contract::Report, String> {
         self.desk.import(from)
     }
     fn teammate_tools(&self, persona_id: &str) -> Option<crate::contract::TeammateToolLedger> {
@@ -403,9 +410,10 @@ impl RoomHandle for Computered {
         every: Option<i64>,
         prompt: &str,
         quiet: bool,
+        reminder: bool,
     ) -> Result<crate::contract::ScheduledJob, String> {
         self.desk
-            .schedule_create(persona_id, kind, when, every, prompt, quiet)
+            .schedule_create(persona_id, kind, when, every, prompt, quiet, reminder)
     }
     fn schedule_list(&self) -> Vec<crate::contract::ScheduledJob> {
         self.desk.schedule_list()

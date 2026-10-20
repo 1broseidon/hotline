@@ -2,21 +2,27 @@ use super::*;
 
 #[tokio::test]
 async fn owner_commands_and_room_subscription_reach_the_real_handler() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
     );
     let room: Arc<dyn RoomHandle> = desk.clone();
     for seat in [Seat::Owner, Seat::Desk] {
-        let answer = remote_control_answer(seat, &room, &desk.log,
+        let answer = remote_control_answer(seat, &room, &desk.log, &desk.parts(),
             json!({"id":1,"cmd":"settings.update","params":{"patch":{"skillsHome":"/tmp/owner-skills"}}})).await;
         assert_eq!(answer["ok"], true, "{answer}");
-        let answer =
-            remote_control_answer(seat, &room, &desk.log, json!({"id":2,"sub":"room"})).await;
+        let answer = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            &desk.parts(),
+            json!({"id":2,"sub":"room"}),
+        )
+        .await;
         assert_eq!(answer["ok"], true, "{answer}");
     }
-    let answer = remote_control_answer(Seat::Phone, &room, &desk.log,
+    let answer = remote_control_answer(Seat::Phone, &room, &desk.log, &desk.parts(),
         json!({"id":3,"cmd":"settings.update","params":{"patch":{"skillsHome":"/tmp/companion-skills"}}})).await;
     assert_eq!(answer["code"], FORBIDDEN);
     assert_eq!(
@@ -27,7 +33,7 @@ async fn owner_commands_and_room_subscription_reach_the_real_handler() {
 
 #[tokio::test]
 async fn voice_is_owner_only_through_the_real_handler() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_voice_services(
@@ -71,6 +77,7 @@ async fn voice_is_owner_only_through_the_real_handler() {
             Seat::Phone,
             &room,
             &desk.log,
+            &desk.parts(),
             json!({"id":1,"cmd":command,"params":params}),
         )
         .await;
@@ -80,6 +87,7 @@ async fn voice_is_owner_only_through_the_real_handler() {
         Seat::Phone,
         &room,
         &desk.log,
+        &desk.parts(),
         json!({"id":2,"sub":{"call":call}}),
     )
     .await;
@@ -88,6 +96,7 @@ async fn voice_is_owner_only_through_the_real_handler() {
         Seat::Phone,
         &room,
         &desk.log,
+        &desk.parts(),
         json!({"id":20,"sub":{"tape":crate::voice::TAPE_ID}}),
     )
     .await;
@@ -97,6 +106,7 @@ async fn voice_is_owner_only_through_the_real_handler() {
             seat,
             &room,
             &desk.log,
+            &desk.parts(),
             json!({"id":3,"cmd":"voice.call_start","params":{"callId":call}}),
         )
         .await;
@@ -104,21 +114,21 @@ async fn voice_is_owner_only_through_the_real_handler() {
     }
     for seat in [Seat::Desk, Seat::Owner] {
         let text_call = uuid::Uuid::new_v4().to_string();
-        let started = remote_control_answer(seat, &room, &desk.log,
+        let started = remote_control_answer(seat, &room, &desk.log, &desk.parts(),
             json!({"id":4,"cmd":"voice.call_start","params":{"callId":text_call,"inputMode":"text"}})).await;
         assert_eq!(started["ok"], true, "{started}");
         assert_eq!(started["result"]["inputMode"], "text");
         assert_eq!(started["result"]["input"], json!(["text/plain"]));
-        let committed = remote_control_answer(seat, &room, &desk.log,
+        let committed = remote_control_answer(seat, &room, &desk.log, &desk.parts(),
             json!({"id":5,"cmd":"voice.text","params":{"callId":text_call,"seq":1,"text":"Check the PR."}})).await;
         assert_eq!(committed["ok"], true, "{committed}");
-        let replay = remote_control_answer(seat, &room, &desk.log,
+        let replay = remote_control_answer(seat, &room, &desk.log, &desk.parts(),
             json!({"id":6,"cmd":"voice.text","params":{"callId":text_call,"seq":1,"text":"Check the PR."}})).await;
         assert_eq!(replay["ok"], false, "{replay}");
     }
     assert!(
         Seat::Owner
-            .capabilities_for(room.as_ref())
+            .capabilities_for(&desk.parts())
             .contains(&"voiceDirectCalls")
     );
     // A phone is no seat for a front's sound either.
@@ -138,24 +148,24 @@ async fn voice_is_owner_only_through_the_real_handler() {
     }
     assert!(
         !Seat::Phone
-            .capabilities_for(room.as_ref())
+            .capabilities_for(&desk.parts())
             .contains(&"voiceDirectCalls")
     );
     assert!(
         Seat::Owner
-            .capabilities_for(room.as_ref())
+            .capabilities_for(&desk.parts())
             .contains(&"voiceTextInput")
     );
     assert!(
         !Seat::Phone
-            .capabilities_for(room.as_ref())
+            .capabilities_for(&desk.parts())
             .contains(&"voiceTextInput")
     );
 }
 
 #[tokio::test]
 async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -178,6 +188,7 @@ async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
             Seat::Phone,
             &room,
             &desk.log,
+            &desk.parts(),
             json!({"id":1,"cmd":command,"params":params}),
         )
         .await;
@@ -188,6 +199,7 @@ async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
             seat,
             &room,
             &desk.log,
+            &desk.parts(),
             json!({"id":2,"cmd":"voice.models","params":{}}),
         )
         .await;
@@ -204,6 +216,7 @@ async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
             seat,
             &room,
             &desk.log,
+            &desk.parts(),
             json!({"id":3,"cmd":"voice.model_install","params":{"modelId":"../../vault"}}),
         )
         .await;
@@ -212,6 +225,7 @@ async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
             seat,
             &room,
             &desk.log,
+            &desk.parts(),
             json!({"id":4,"cmd":"voice.transcribe","params":{"mimeType":"audio/wav","data":"UklGRg=="}}),
         )
         .await;
@@ -227,7 +241,7 @@ async fn the_desks_speech_models_are_the_owners_through_the_real_handler() {
 
 #[tokio::test]
 async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speech_and_budget() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -251,6 +265,7 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
             Seat::Owner,
             &room,
             &desk.log,
+            &desk.parts(),
             json!({"id":1,"cmd":"voice.status","params":params}),
         )
         .await;
@@ -266,14 +281,14 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
         assert!(answer["result"].get("dispatcher").is_none());
     }
     for seat in [Seat::Owner, Seat::Desk] {
-        let capabilities = seat.capabilities_for(room.as_ref());
+        let capabilities = seat.capabilities_for(&desk.parts());
         assert!(capabilities.contains(&"voice"));
         assert!(capabilities.contains(&"voiceDirectCalls"));
         assert!(capabilities.contains(&"voiceTextInput"));
     }
     assert!(
         !Seat::Phone
-            .capabilities_for(room.as_ref())
+            .capabilities_for(&desk.parts())
             .contains(&"voiceDirectCalls")
     );
     desk.log
@@ -287,17 +302,18 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
             ),
         )
         .unwrap();
-    assert!(!desk.voice().unwrap().status().direct_available);
+    assert!(!desk.parts().voice.unwrap().status().direct_available);
     assert!(
         !desk
-            .voice()
+            .parts()
+            .voice
             .unwrap()
             .status_for(crate::contract::VoiceInputMode::Text)
             .direct_available
     );
     assert!(
         !Seat::Owner
-            .capabilities_for(room.as_ref())
+            .capabilities_for(&desk.parts())
             .contains(&"voice")
     );
     desk.log
@@ -325,11 +341,12 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
             ),
         )
         .unwrap();
-    assert!(!desk.voice().unwrap().status().direct_available);
+    assert!(!desk.parts().voice.unwrap().status().direct_available);
     let text = remote_control_answer(
         Seat::Owner,
         &room,
         &desk.log,
+        &desk.parts(),
         json!({"id":2,"cmd":"voice.status","params":{"inputMode":"text"}}),
     )
     .await;
@@ -338,7 +355,7 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
     assert_eq!(text["result"]["directAvailable"], true);
     assert!(text["result"].get("stt").is_none());
     for seat in [Seat::Owner, Seat::Desk] {
-        let capabilities = seat.capabilities_for(room.as_ref());
+        let capabilities = seat.capabilities_for(&desk.parts());
         assert!(capabilities.contains(&"voice"));
         assert!(capabilities.contains(&"voiceDirectCalls"));
         assert!(capabilities.contains(&"voiceTextInput"));
@@ -356,11 +373,18 @@ async fn direct_voice_readiness_does_not_require_a_dispatcher_but_requires_speec
         crate::contract::VoiceInputMode::Audio,
         crate::contract::VoiceInputMode::Text,
     ] {
-        assert!(!desk.voice().unwrap().status_for(mode).direct_available);
+        assert!(
+            !desk
+                .parts()
+                .voice
+                .unwrap()
+                .status_for(mode)
+                .direct_available
+        );
     }
     assert!(
         !Seat::Owner
-            .capabilities_for(room.as_ref())
+            .capabilities_for(&desk.parts())
             .contains(&"voiceDirectCalls")
     );
 }
@@ -375,7 +399,8 @@ async fn cookie_push_is_operator_only_through_the_real_handler() {
         "cookies":[{"domain":".example.com","name":"session","value":"private-cookie-value","path":"/"}]
     }}});
     for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
-        let answer = remote_control_answer(seat, &quiet, &log, request.clone()).await;
+        let answer =
+            remote_control_answer(seat, &quiet, &log, &Parts::default(), request.clone()).await;
         assert_eq!(answer["ok"], seat != Seat::Phone, "{answer}");
         if seat == Seat::Phone {
             assert_eq!(answer["code"], FORBIDDEN);
@@ -385,7 +410,7 @@ async fn cookie_push_is_operator_only_through_the_real_handler() {
     let mut invalid = request;
     invalid["params"]["transfer"]["domains"] = json!(["other.com"]);
     assert_eq!(
-        remote_control_answer(Seat::Owner, &quiet, &log, invalid).await["ok"],
+        remote_control_answer(Seat::Owner, &quiet, &log, &Parts::default(), invalid).await["ok"],
         false
     );
     assert_eq!(log.load(&StreamId::Room), [] as [Value; 0]);
@@ -398,7 +423,8 @@ async fn images_status_is_operator_only_and_mock_rooms_are_unavailable() {
     let log = Log::open(root.path());
     let request = json!({"id": 1, "cmd": "images.status", "params": {}});
     for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
-        let answer = remote_control_answer(seat, &handle, &log, request.clone()).await;
+        let answer =
+            remote_control_answer(seat, &handle, &log, &Parts::default(), request.clone()).await;
         if seat == Seat::Phone {
             assert_eq!(answer["ok"], false, "{answer}");
             assert_eq!(answer["code"], FORBIDDEN);

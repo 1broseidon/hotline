@@ -2,68 +2,6 @@
 use super::*;
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
-#[derive(Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct SealedPairing {
-    pub payload: PairingPayload,
-    pub link: String,
-    pub id: String,
-    pub url: String,
-    pub qr_svg: String,
-    pub expires_at: i64,
-}
-/// The link and SSH formats carry the same short-lived capability as the QR.
-#[derive(Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct PairingPayload {
-    pub version: u8,
-    pub url: String,
-    pub desk_key: String,
-    pub secret: String,
-    pub role: DeviceRole,
-    pub expires_at: i64,
-    pub name: String,
-    /// The desk's address on its relay, when it stands in on one: the same
-    /// desk and key, reached through a desk that carries sealed records.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub relay: Option<String>,
-    /// The person's public address for the desk, tried after `url` and
-    /// before the relay when the device is not on the desk's own network.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub public: Option<String>,
-}
-impl PairingPayload {
-    pub fn link(&self) -> Result<String, String> {
-        Ok(format!(
-            "hotline://pair?p={}",
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(self).map_err(message)?)
-        ))
-    }
-
-    pub fn from_link(link: &str) -> Result<Self, String> {
-        let url = url::Url::parse(link).map_err(|_| "Invalid pairing link.")?;
-        if url.scheme() != "hotline" || url.host_str() != Some("pair") {
-            return Err("Invalid pairing link.".into());
-        }
-        let encoded = url
-            .query_pairs()
-            .find(|(key, _)| key == "p")
-            .ok_or("This pairing link has no payload.")?
-            .1;
-        if encoded.len() > 16384 {
-            return Err("Pairing link is too large.".into());
-        }
-        let bytes = URL_SAFE_NO_PAD
-            .decode(encoded.as_bytes())
-            .map_err(|_| "Invalid pairing payload.")?;
-        serde_json::from_slice(&bytes).map_err(|_| "Invalid pairing payload.".into())
-    }
-}
-
 pub(super) struct Window {
     id: String,
     secret: String,

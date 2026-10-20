@@ -58,7 +58,16 @@ pub(super) async fn view(
     let mut watched = HashMap::new();
     let mut personas = refresh(&log, &dirty, &mut watched);
     let mut pins = room::pinned_teammates(&log);
-    if !send_snapshot(id, &log, &handle, &sender, &personas, &pins) {
+    let mut lead = room::team_lead(&log);
+    if !send_snapshot(
+        id,
+        &log,
+        &handle,
+        &sender,
+        &personas,
+        &pins,
+        lead.as_deref(),
+    ) {
         return;
     }
 
@@ -91,6 +100,23 @@ pub(super) async fn view(
                         pins = now;
                         continue;
                     }
+                    // So does the lead: the row that lost it and the row
+                    // that has it are sent again.
+                    if event.get("kind").and_then(Value::as_str) == Some("setting")
+                        && event.get("id").and_then(Value::as_str) == Some(room::TEAM_LEAD)
+                    {
+                        let now = room::settled_lead(
+                            event.get("value").filter(|_| event.get("deleted").is_none()),
+                            &personas,
+                        );
+                        if now != lead {
+                            for persona_id in lead.iter().chain(&now) {
+                                dirty.mark(persona_id);
+                            }
+                        }
+                        lead = now;
+                        continue;
+                    }
                     if event.get("kind").and_then(Value::as_str) != Some("persona") {
                         continue;
                     }
@@ -120,8 +146,9 @@ pub(super) async fn view(
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     personas = refresh(&log, &dirty, &mut watched);
                     pins = room::pinned_teammates(&log);
+                    lead = room::team_lead(&log);
                     dirty.take();
-                    if !send_snapshot(id, &log, &handle, &sender, &personas, &pins) {
+                    if !send_snapshot(id, &log, &handle, &sender, &personas, &pins, lead.as_deref()) {
                         return;
                     }
                 }
@@ -144,7 +171,7 @@ pub(super) async fn view(
                     }
                     if lagged {
                         dirty.take();
-                        if !send_snapshot(id, &log, &handle, &sender, &personas, &pins) {
+                        if !send_snapshot(id, &log, &handle, &sender, &personas, &pins, lead.as_deref()) {
                             return;
                         }
                     }
@@ -153,7 +180,7 @@ pub(super) async fn view(
                 // must be refreshed when one may have lost its final hint.
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     dirty.take();
-                    if !send_snapshot(id, &log, &handle, &sender, &personas, &pins) {
+                    if !send_snapshot(id, &log, &handle, &sender, &personas, &pins, lead.as_deref()) {
                         return;
                     }
                 }
@@ -168,7 +195,7 @@ pub(super) async fn view(
                     let Some(persona) = personas.iter().find(|persona| persona.id == persona_id) else {
                         continue;
                     };
-                    let row = shaped(&sender, roster_entry(&log, &handle, persona.clone(), &pins));
+                    let row = shaped(&sender, roster_entry(&log, &handle, persona.clone(), &pins, lead.as_deref()));
                     if !send(&sender, json!({ "sub": id, "event": row })) {
                         return;
                     }
@@ -191,10 +218,16 @@ fn send_snapshot(
     sender: &Outbox,
     personas: &[Persona],
     pins: &[String],
+    lead: Option<&str>,
 ) -> bool {
     let rows: Vec<_> = personas
         .iter()
-        .map(|persona| shaped(sender, roster_entry(log, handle, persona.clone(), pins)))
+        .map(|persona| {
+            shaped(
+                sender,
+                roster_entry(log, handle, persona.clone(), pins, lead),
+            )
+        })
         .collect();
     send(sender, json!({ "sub": id, "snapshot": rows }))
 }
@@ -320,6 +353,7 @@ fn roster_entry(
     room: &Arc<dyn RoomHandle>,
     persona: crate::contract::Persona,
     pins: &[String],
+    lead: Option<&str>,
 ) -> Value {
     let tail = previews::tail(log.root(), &persona.id);
     let preview: Option<Preview> = previews::preview_reaching(log.root(), &persona.id, &tail)
@@ -334,8 +368,10 @@ fn roster_entry(
             .iter()
             .position(|pin| *pin == persona.id)
             .and_then(|slot| u8::try_from(slot).ok()),
+        lead: lead == Some(persona.id.as_str()),
         subagents: room.subagents(&persona.id),
         sides: room.sides(&persona.id),
+        working_jobs: room.working_jobs(&persona.id),
         session,
         preview,
         latest,

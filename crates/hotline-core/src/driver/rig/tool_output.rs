@@ -1,66 +1,16 @@
-//! What a tool hands back on its way to the model and the tape: the quiet run's
-//! one way to reach the person, the MCP tools as Rig tools, their results split
-//! into words and pictures, the ledger of what this session can call, and the
-//! one line that names a call.
+//! What a tool hands back on its way to the model and the tape: the MCP tools
+//! as Rig tools, their results split into words and pictures, the ledger of
+//! what this session can call, and the one line that names a call.
 
 use super::TITLE_CHARS;
 use crate::contract::{AgentKind, Persona, ToolSourceKind};
-use crate::driver::{Escalate, ToolImage, clip, with_image_placeholders};
+use crate::driver::{ToolImage, clip, with_image_placeholders};
 use crate::mcp;
 use crate::session::ledger::ToolLedger;
 use crate::tools;
 use rig::message::{DocumentSourceKind, ImageMediaType, MimeType, ToolResultContent};
 use rig::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use serde_json::Value;
-use std::sync::Arc;
-
-/// What a quiet scheduled run is told it can do: its replies are kept out of
-/// the conversation, and this is the one way to put something in front of
-/// the person.
-const TELL_PERSON: &str = "This is a quiet scheduled run: nothing you reply \
-is shown to the person or notifies them. If you find something they need to \
-see or act on, call this once with what you found. When this run ends you \
-will be asked, in the open, to tell them, and that reply notifies them. If \
-there is nothing worth their attention, do not call it.";
-
-/// The one-turn tool a quiet scheduled run escalates through (BRO-96).
-pub(super) fn tell_person(escalation: Arc<dyn Escalate>) -> DynamicTool {
-    DynamicTool::new(
-        "tell_person",
-        TELL_PERSON,
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string",
-                    "description": "What you found, with what the person needs to act on it."
-                }
-            },
-            "required": ["message"]
-        }),
-        move |_context, arguments| {
-            let escalation = escalation.clone();
-            Box::pin(async move {
-                let message = arguments
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .unwrap_or_default();
-                if message.is_empty() {
-                    return Err(ToolExecutionError::other("message is empty"));
-                }
-                escalation
-                    .escalate(message)
-                    .map(|()| {
-                        ToolOutput::text(
-                            "Handed over. When this run ends you will be asked to tell the person.",
-                        )
-                    })
-                    .map_err(ToolExecutionError::other)
-            })
-        },
-    )
-}
 
 /// The Rig adapter for one granted MCP tool. A transport death is already
 /// on the ledger; the model hears it as the call's error.

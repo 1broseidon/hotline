@@ -537,16 +537,6 @@ pub(super) async fn capabilities_expired(a: &CapabilityLease, b: &CapabilityLeas
     }
 }
 
-// Dropping a startup future must also close the driver it has not cached yet.
-struct StartingPeer(Option<Arc<dyn Driver>>);
-impl Drop for StartingPeer {
-    fn drop(&mut self) {
-        if let Some(driver) = self.0.take() {
-            driver.invalidate();
-        }
-    }
-}
-
 fn kind_of(event: &Value) -> &str {
     event
         .get("kind")
@@ -558,7 +548,7 @@ fn kind_of(event: &Value) -> &str {
 /// the caller's lines are the user's, and the target's own are the agent's.
 /// Consecutive agent events collapse: the model said one thing; the tape
 /// shows it as several bubbles; the model sees one thing again.
-fn said_in(events: &[Value], flip: bool) -> Vec<Said> {
+pub(super) fn said_in(events: &[Value], flip: bool) -> Vec<Said> {
     fold_said(events.iter().filter_map(|event| {
         let text = event.get("text")?.as_str()?;
         // What this side heard carries the time it was said, as it did live.
@@ -605,6 +595,8 @@ fn oriented(event: TranscriptEvent, flip: bool) -> TranscriptEvent {
             ring,
             receipt,
             spoken: None,
+            from: None,
+            scheduled: None,
         },
         TranscriptEvent::Agent {
             id,
@@ -828,7 +820,7 @@ pub(super) fn delivery_wire(cause: &DeliveryCause, text: &str) -> String {
 
 /// What the agent is told before it is told anything else, for a turn it is
 /// taking on a colleague's behalf rather than the user's.
-fn peer_preamble(
+pub(super) fn peer_preamble(
     caller: &Persona,
     target: &Persona,
     reach: Option<Reach>,
@@ -925,6 +917,8 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             ring,
             receipt,
             spoken,
+            from,
+            scheduled,
         } => TranscriptEvent::Agent {
             id,
             ts,
@@ -934,6 +928,8 @@ pub(super) fn stamped(event: TranscriptEvent, rung: Receipt) -> TranscriptEvent 
             ring,
             receipt: Some(higher(receipt, rung)),
             spoken,
+            from,
+            scheduled,
         },
         TranscriptEvent::Delivery {
             id,

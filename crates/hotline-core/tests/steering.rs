@@ -54,7 +54,8 @@ async fn steering_restarts_inference_and_preserves_tool_history_on_both_rig_rout
         std::fs::create_dir_all(root.join("workspace")).unwrap();
         std::fs::write(root.join("workspace/note.txt"), "a confirmed fact").unwrap();
         let desk = common::open_desk(&root).unwrap();
-        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+        let parts = desk.parts();
+        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
         let port = door.port();
         let door_task = tokio::spawn(door.run());
         let mut client = Client::connect(port, TOKEN).await;
@@ -206,7 +207,8 @@ async fn an_operator_cancels_a_running_shell_before_its_ninety_second_wait_finis
         let workspace = root.path().join("workspace");
         std::fs::create_dir(&workspace).unwrap();
         let desk = common::open_desk(root.path()).unwrap();
-        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+        let parts = desk.parts();
+        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
         let port = door.port();
         let door_task = tokio::spawn(door.run());
         let mut client = Client::connect(port, TOKEN).await;
@@ -406,7 +408,8 @@ async fn a_turn_open_only_for_its_subagent_reads_as_done_and_still_hears_the_per
     let workspace = root.path().join("workspace");
     std::fs::create_dir(&workspace).unwrap();
     let desk = common::open_desk(root.path()).unwrap();
-    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
     let port = door.port();
     let door_task = tokio::spawn(door.run());
     let mut client = Client::connect(port, TOKEN).await;
@@ -663,7 +666,8 @@ async fn recovery_and_error_cards_preserve_execution_over_the_real_wire() {
         let corrupt = workspace.join("bad.png");
         std::fs::write(&corrupt, b"not an image").unwrap();
         let desk = common::open_desk(root.path()).unwrap();
-        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+        let parts = desk.parts();
+        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
         let port = door.port();
         let door_task = tokio::spawn(door.run());
         let mut client = Client::connect(port, TOKEN).await;

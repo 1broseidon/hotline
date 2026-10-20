@@ -9,6 +9,7 @@
 use hotline_core::credentials::{FileStore, SecretStore};
 use hotline_core::desk::Desk;
 use hotline_core::remote::Remote;
+use hotline_core::wire::Agents;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -159,15 +160,12 @@ pub async fn desktop(root: &Path) -> (Arc<Desk>, Arc<Remote>, Arc<dyn SecretStor
     // On loopback, on a socket bound here: no network needed, and no other
     // test can take its port first.
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let remote = Remote::open_on(
-        listener,
-        root,
-        desk.log.clone(),
-        desk.clone(),
-        store.clone(),
-    )
-    .unwrap();
-    desk.set_remote(&remote);
+    let agents = Agents {
+        log: desk.log.clone(),
+        room: desk.clone(),
+        parts: desk.parts(),
+    };
+    let remote = Remote::open_on(listener, root, agents, store.clone()).unwrap();
     remote.configure(true, "all").await.unwrap();
     (desk, remote, store)
 }

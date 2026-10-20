@@ -161,6 +161,19 @@ export function Teammate({
 		}
 	};
 
+	const leader = roster.find((entry) => entry.lead === true)?.persona;
+	const lead = leader?.id === persona.id;
+	// The only teammate on a desk is its lead, and the core keeps it so.
+	const alone = roster.length === 1;
+	const toggleLead = async () => {
+		setRefusal(null);
+		try {
+			await wire.command("persona.lead", lead ? {} : { id: persona.id });
+		} catch (error) {
+			setRefusal(error instanceof Error ? error.message : String(error));
+		}
+	};
+
 	const remove = async () => {
 		if (busy) return;
 		if (!(await confirmRemove(persona.name))) return;
@@ -238,6 +251,18 @@ export function Teammate({
 							</div>
 						</div>
 						<VoiceRow persona={persona} disabled={busy} onSave={save} />
+						<div className="group-row">
+							<RowText title="Team lead" value={leader?.name ?? "none"} />
+							<button
+								type="button"
+								className="control btn-quiet btn-sm -mr-1.5"
+								disabled={busy || (lead && alone)}
+								title={lead && alone ? "Only teammate" : undefined}
+								onClick={() => void toggleLead()}
+							>
+								{lead ? "Remove as lead" : "Make team lead"}
+							</button>
+						</div>
 					</div>
 
 					<section>

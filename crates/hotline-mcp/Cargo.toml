@@ -1,0 +1,45 @@
+[package]
+name = "hotline-mcp"
+description = "Hotline as an MCP client: the servers the room's settings name, the grant a teammate's policy selects, the live connections a session holds, the tools they list, and OAuth sign-in to an HTTP server. Depends on hotline-contract, hotline-support, hotline-tools and hotline-room, and never on hotline-core or Tauri, by design."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hotline-contract = { path = "../hotline-contract" }
+hotline-support = { path = "../hotline-support" }
+hotline-tools = { path = "../hotline-tools" }
+hotline-room = { path = "../hotline-room" }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "time"] }
+tokio-util = "0.7"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
+http = "1"
+url = "2.5.8"
+chrono.workspace = true
+uuid = { version = "1.26.0", features = ["v4"] }
+# The client half of MCP, on the version the core's server half uses. Pinned
+# exactly, because the model types are `non_exhaustive` and a minor release is
+# free to grow a field the compiler then demands.
+rmcp = { version = "=3.2.0", features = [
+    "auth",
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+    "reqwest",
+] }
+
+# Killing a stdio server's whole process group, which is the only way a stop
+# reaches what its launcher started.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# The tests serve a scripted MCP server to the client over an in-memory pipe.
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+rmcp = { version = "=3.2.0", features = ["server", "transport-io"] }

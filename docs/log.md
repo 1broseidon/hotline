@@ -2,7 +2,7 @@
 
 Everything the room remembers is an event on a stream. A stream is an
 append-only JSONL file — one event per line — folded by `id` when it is
-read. `Log` in `crates/hotline-core/src/log/` is the only door to every
+read. `Log` in `crates/hotline-store/src/log/` is the only door to every
 stream, and the only writer. Append and compact share one lock for the
 whole log, because both are read-then-write: an append measures the file
 to say where its bytes landed, and two of those at once would be told an
@@ -162,7 +162,7 @@ the run has stopped. How a run is driven is [sessions.md](sessions.md#subagents)
 `room.jsonl` holds the roster, the settings, the jobs that will wake a
 teammate later, and the fact of each credential. One file, no epochs. The
 folds are `room::roster`, `room::settings` and `room::schedules` in
-`crates/hotline-core/src/room.rs`; the vault writes the credential events.
+`crates/hotline-room/src/room.rs`; the vault writes the credential events.
 `kind` is the first key on every line this tree writes, because that is
 the field a fold discriminates on and the one a reader of the raw file
 looks for first.
@@ -232,8 +232,9 @@ until delete takes it.
 
 A job, as the contract serializes it, with `"kind": "schedule"` beside it
 — that slot is the stream's. The job's own kind (`schedule` once, `loop`
-every interval) is recovered from `every` being present. Jobs still
-waiting to fire, soonest first:
+every interval) is recovered from `every` being present. `room::schedules`
+is the jobs still waiting to fire, soonest first; `room::all_jobs` adds the
+ones that have ended:
 
 ```json
 {
@@ -248,9 +249,17 @@ waiting to fire, soonest first:
 }
 ```
 
-A loop carries `every` (milliseconds) instead of `when`. `quiet` is stored
-only when true. A tombstone is `{"kind": "schedule", "id": "…", "deleted": true}`.
-The clock that fires these is [sessions.md](sessions.md).
+A loop carries `every` (milliseconds) instead of `when`. `quiet` and
+`reminder` are stored only when true. A loop may carry its end: `goal` (a
+sentence), `until` (milliseconds since epoch) and `times` (firings left).
+The core adds `lastPost` (`{at, text}`, what the job last posted to the
+chat) and, once the job has fired its last or been cancelled, `endedAt`: an
+ended job is written again rather than tombstoned, because its thread stays
+readable. Every one of these is optional, so a job written before them reads
+as it did. A tombstone is `{"kind": "schedule", "id": "…", "deleted": true}`.
+The clock that fires these is [sessions.md](sessions.md#the-scheduler);
+each job's firings are turns on its thread, `jobs/<id>.jsonl`, headed by the
+thread's link.
 
 Import reads the previous edition's `schedules.json` and appends each job
 for a teammate in this room as a `schedule` event, the same shape

@@ -56,7 +56,7 @@ speech-engine:
 ui-check:
 	cd ui && bun install --frozen-lockfile
 	@cd ui && if node_modules/.bin/tsc --noEmit | grep -q generated/contract; then \
-		echo "ui/src/generated/contract.ts is partial: run cargo test -p hotline-core, unfiltered, to write it whole"; exit 1; fi
+		echo "ui/src/generated/contract.ts is partial: run cargo test -p hotline-contract, unfiltered, to write it whole"; exit 1; fi
 	cd ui && bun run typecheck && bun run lint && bun run knip && bun run test
 
 # The dependency gates. machete fails on a Cargo dependency nothing uses.

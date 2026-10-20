@@ -9,7 +9,7 @@
 //! roster's `waiting`; one that nobody may answer is expired on the spot and
 //! handed back, so the agent behind it is refused instead of left waiting.
 //!
-//! Sides, runs, calls and pairs are written here. A pair's `persona_id` is the
+//! Sides, runs, calls, jobs and pairs are written here. A pair's `persona_id` is the
 //! teammate who answers in it: that teammate is the one its cards are pushed
 //! and counted for, and its words are indexed under both participants. The
 //! DM's tape keeps its own door ([`Room::write_value`]) until it is ported:
@@ -22,6 +22,7 @@ use super::{Room, now_ms};
 use crate::contract::PermissionOption;
 use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::Driver;
+use crate::log::StreamId;
 use crate::paths::thread_participants;
 use crate::thread::{Answer, Policy};
 use serde::Serialize;
@@ -129,9 +130,13 @@ impl Threads<'_> {
                 self.room.write_value(persona_id, &event);
                 return Written::default();
             }
-            ThreadKind::Side | ThreadKind::Run | ThreadKind::Call | ThreadKind::Pair => {}
+            ThreadKind::Side
+            | ThreadKind::Run
+            | ThreadKind::Call
+            | ThreadKind::Pair
+            | ThreadKind::Job => {}
         }
-        let Some(stream) = thread.stream() else {
+        let Some(stream) = StreamId::of_thread(thread) else {
             return Written::default();
         };
         if let Err(error) = self.room.log.append(&stream, &event) {
@@ -186,7 +191,7 @@ impl Threads<'_> {
     /// A card the turn left open is a button nobody is behind: expires every
     /// permission card the thread still shows, through the write path.
     pub(super) fn expire_asked(&self, thread: &ThreadId, persona_id: &str) {
-        let Some(stream) = thread.stream() else {
+        let Some(stream) = StreamId::of_thread(thread) else {
             return;
         };
         for expired in
@@ -209,9 +214,8 @@ impl Threads<'_> {
     }
 
     fn push(&self, persona_id: &str, thread: &ThreadId, card: &Card) {
-        let side_id = (thread.kind == ThreadKind::Side).then_some(thread.key.as_str());
         self.room.push.notify_in(
-            side_id,
+            Some(thread),
             &self.room.needs_you(persona_id),
             &card.title,
             persona_id,
@@ -242,9 +246,8 @@ mod tests {
     use crate::contract::End;
     use crate::contract::SideEnd;
     use crate::driver::{MessageKind, Update};
-    use crate::log::StreamId;
     use crate::session::runner::{RunEnd, RunSpec};
-    use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, persona, scratch};
+    use crate::session::tests::{DeskKeys, Fake, Scripted, enrol, pair_a_phone, persona, scratch};
     use crate::test_support::until;
     use crate::thread::{AgentBinding, Participant, ThreadLink, ThreadState, ThreadStore};
     use serde_json::json;
@@ -290,30 +293,15 @@ mod tests {
         }
     }
 
-    /// A phone paired with the desk, so a push has somewhere to go.
-    fn pair_a_phone(room: &Room) {
-        std::fs::write(
-            room.log.root().join("remote.json"),
-            json!({
-                "desktopId": "desk-1",
-                "host": "desk.local",
-                "enabled": true,
-                "grants": [{
-                    "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0, "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
-                    "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
-                }]
-            })
-            .to_string(),
-        )
-        .unwrap();
-    }
-
     fn spec(room: &Room, run_id: &str) -> RunSpec {
         RunSpec {
             persona_id: "ada".to_string(),
             run_id: run_id.to_string(),
             title: "Check the crane".to_string(),
-            task: "Find out why the crane stopped.".to_string(),
+            brief: crate::session::Brief::subagent(
+                "Find out why the crane stopped.".to_string(),
+                Vec::new(),
+            ),
             capability: room.capability_lease("ada"),
         }
     }

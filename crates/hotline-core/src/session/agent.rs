@@ -21,8 +21,8 @@
 //! Its row says what is its own: the teammate's checkpoint is the session it
 //! resumes, its seed is the open chapter, its folder is written here, its
 //! computer does not hold the start up for a download, and the watches a driver
-//! offers are taken before it starts. A peer session (`peer_session`) is still
-//! built on its own, and moves onto this when its phase lands.
+//! offers are taken before it starts. A pair uses the same builder, with its
+//! caller as opener and its history oriented to the target answering it.
 
 use super::computer::{
     COMPUTER_DOWNLOADING, ComputerAtStart, Driving, computer_failed_note, computer_unavailable,
@@ -30,12 +30,15 @@ use super::computer::{
 };
 use super::prompt::said;
 use super::{Room, chapters, now_ms};
-use crate::contract::{Persona, Reach, SessionCheckpoint, SharedSecret};
+use crate::contract::{
+    Ability, McpPolicy, Persona, PolicyMode, Reach, SessionCheckpoint, SessionInfo, SharedSecret,
+};
 use crate::contract::{ThreadId, ThreadKind};
 use crate::driver::{
     CapabilityEpoch, CapabilityLease, Driver, DriverInfo, HOTLINE_BACKEND_ID, SubagentReport,
     Update, acp,
 };
+use crate::log::StreamId;
 use crate::mcp::server::TeammateTools;
 use crate::thread::{AgentBinding, Computer, Lease, Opener, Policy, Resume, ThreadStore, Tools};
 use std::path::Path;
@@ -142,6 +145,7 @@ pub(super) fn lease_of(kind: ThreadKind, parent: &CapabilityLease) -> Capability
 fn driving_of(thread: &ThreadId, title: &str, lease: &CapabilityLease) -> Driving {
     match thread.kind {
         ThreadKind::Dm => Driving::new(lease_key(thread), "the main conversation", lease),
+        ThreadKind::Pair => Driving::new(lease_key(thread), title, lease),
         _ if title.is_empty() => Driving::new(lease_key(thread), "an untitled thread", lease),
         _ => Driving::new(lease_key(thread), format!("the thread \"{title}\""), lease),
     }
@@ -168,6 +172,44 @@ fn own_view(mut persona: Persona, policy: Policy) -> Persona {
     } else {
         without_computer(persona)
     }
+}
+
+/// The teammate as a clone of its home agent is started for it, a subagent or
+/// a job (ADR 0008 §0): on the model and effort the home session is using
+/// right now, which its record may not say, and with its whole permission set
+/// but what the home agent left out for the task. Everything here can only
+/// take away: the view is the record, narrowed, and the lease it runs under
+/// is the home thread's.
+pub(super) fn clone_of(mut persona: Persona, home: &SessionInfo, without: &[Ability]) -> Persona {
+    if let Some(model) = home.current_model_id.clone() {
+        persona.model_id = Some(model);
+    }
+    if let Some(effort) = home
+        .configs
+        .iter()
+        .find(|config| config.id == "effort")
+        .and_then(|config| config.current_id.clone())
+    {
+        persona.effort_id = Some(effort);
+    }
+    for ability in without {
+        match ability {
+            Ability::Computer => persona = without_computer(persona),
+            Ability::Folders => {
+                persona.folders = None;
+                if persona.reach.is_some() {
+                    persona.reach = Some(Reach::Workspace);
+                }
+            }
+            Ability::McpServers => {
+                persona.mcp_policy = McpPolicy {
+                    mode: PolicyMode::None,
+                    server_ids: Vec::new(),
+                };
+            }
+        }
+    }
+    persona
 }
 
 /// The session a child is asked to reopen: the thread's saved one, when the
@@ -305,7 +347,7 @@ impl Room {
         let note = tape.as_ref().and_then(|events| {
             with_note(computer_note.take(), chapters::wake_block(events, now_ms()))
         });
-        let earlier = match thread.stream() {
+        let earlier = match StreamId::of_thread(&thread) {
             Some(stream) if policy.seed.own_history => {
                 let mut earlier = self.log.load(&stream);
                 if let Some(from) = heard_from {
@@ -316,8 +358,13 @@ impl Room {
             _ => Vec::new(),
         };
         let has_history = !earlier.is_empty();
+        let pair = thread.kind == ThreadKind::Pair;
+        let flip = pair
+            && crate::paths::thread_participants(&thread.key)
+                .is_some_and(|(_, agent_side)| agent_side != view.id);
         let history = match &tape {
             Some(events) => said(events),
+            None if pair => super::peers::said_in(&earlier, flip),
             None if in_process => said(&earlier),
             None => Vec::new(),
         };
@@ -331,7 +378,10 @@ impl Room {
             in_process,
         );
 
-        let opened_by = opener.and_then(|opener| self.persona(&opener.persona_id).ok());
+        let opened_by = opener.and_then(|opener| self.participant(&opener.persona_id).ok());
+        if pair && opened_by.is_none() {
+            return Err("The teammate asking in this pair is no longer available.".to_string());
+        }
         let stored = self.stored_secrets();
         let build = |view: &Persona, transcript: Option<String>| {
             self.agents.agent(
@@ -439,11 +489,17 @@ fn preamble_of(
         note,
     } = joining;
     match kind {
-        ThreadKind::Run => super::runner::run_preamble(persona, reach),
+        ThreadKind::Run => super::runner::run_preamble(persona, reach, stored),
+        ThreadKind::Job => super::job_thread::job_preamble(persona, reach, stored),
         // The DM's: what it needs to know of the chapter it joins, and of its
         // computer, is the note.
         ThreadKind::Dm => super::preamble(persona, reach, note, stored),
-        // The kinds not built here yet have their own preambles until they are.
+        ThreadKind::Pair => super::peers::peer_preamble(
+            opener.expect("a pair's caller was resolved before building its agent"),
+            persona,
+            reach,
+            stored,
+        ),
         _ => super::sides::work_preamble(persona, reach, stored, opener, context, transcript),
     }
 }
@@ -460,7 +516,8 @@ fn tools_of(
         Tools::Teammate => tools.with_subagents(),
         Tools::Work => tools.for_work(thread.key.clone()),
         Tools::Run => tools.for_run(),
-        Tools::Peer => tools.for_peer(),
+        Tools::Job => tools.for_job(thread.key.clone()),
+        Tools::Peer => tools.for_peer(thread.clone()),
         Tools::None => tools,
     }
 }
@@ -535,18 +592,83 @@ mod tests {
     }
 
     #[test]
-    fn the_computer_stays_with_the_main_conversation() {
+    fn the_computer_is_shared_with_every_thread_with_an_agent_of_its_own() {
         let computer = |kind| {
             own_view(with_computer(), Policy::of(kind))
                 .computer
                 .is_some_and(|computer| computer.enabled)
         };
+        for kind in [
+            ThreadKind::Dm,
+            ThreadKind::Side,
+            ThreadKind::Run,
+            ThreadKind::Job,
+        ] {
+            assert!(computer(kind), "{kind:?}");
+        }
         assert!(
-            computer(ThreadKind::Side),
-            "a work thread shares it through the lease"
+            !computer(ThreadKind::Call),
+            "a call has no agent of its own"
         );
-        assert!(!computer(ThreadKind::Run));
-        assert!(computer(ThreadKind::Dm));
+    }
+
+    #[test]
+    fn a_clone_is_on_the_model_and_effort_its_home_session_is_on() {
+        use crate::contract::SessionConfig;
+        let mut ada = persona("ada");
+        ada.model_id = Some("vendor/recorded".to_string());
+        ada.effort_id = Some("low".to_string());
+        let mut home = crate::session::idle_info("ada");
+        let view = clone_of(ada.clone(), &home, &[]);
+        assert_eq!(
+            view.model_id.as_deref(),
+            Some("vendor/recorded"),
+            "no live model, so the record's stands"
+        );
+        home.current_model_id = Some("vendor/live".to_string());
+        home.configs = vec![SessionConfig {
+            id: "effort".to_string(),
+            name: "Effort".to_string(),
+            category: None,
+            current_id: Some("high".to_string()),
+            options: Vec::new(),
+        }];
+        let view = clone_of(ada, &home, &[]);
+        assert_eq!(view.model_id.as_deref(), Some("vendor/live"));
+        assert_eq!(view.effort_id.as_deref(), Some("high"));
+    }
+
+    /// A clone has the home thread's permission set, and the home agent can
+    /// only take from it: each ability left out is gone from the view the
+    /// agent is built and its turns are reached from.
+    #[test]
+    fn a_clone_is_narrowed_by_what_the_home_agent_left_out() {
+        use crate::contract::{FolderGrant, McpPolicy, PolicyMode};
+        let mut ada = with_computer();
+        ada.reach = Some(Reach::Machine);
+        ada.folders = Some(vec![FolderGrant {
+            path: "/srv/harbour".to_string(),
+            writable: true,
+        }]);
+        ada.mcp_policy = McpPolicy {
+            mode: PolicyMode::All,
+            server_ids: Vec::new(),
+        };
+        let home = crate::session::idle_info("ada");
+        let whole = clone_of(ada.clone(), &home, &[]);
+        assert_eq!(whole.reach, Some(Reach::Machine));
+        assert!(whole.computer.as_ref().is_some_and(|c| c.enabled));
+        assert_eq!(whole.mcp_policy.mode, PolicyMode::All);
+
+        let narrowed = clone_of(
+            ada,
+            &home,
+            &[Ability::Computer, Ability::Folders, Ability::McpServers],
+        );
+        assert!(!narrowed.computer.as_ref().is_some_and(|c| c.enabled));
+        assert_eq!(narrowed.reach, Some(Reach::Workspace));
+        assert_eq!(narrowed.folders, None);
+        assert_eq!(narrowed.mcp_policy.mode, PolicyMode::None);
     }
 
     #[test]
@@ -618,11 +740,15 @@ mod tests {
     }
 
     #[test]
-    fn only_conversations_and_a_pair_are_granted_the_computer() {
-        for kind in [ThreadKind::Run, ThreadKind::Call] {
-            assert!(!Policy::of(kind).has_computer(), "{kind:?}");
-        }
-        for kind in [ThreadKind::Dm, ThreadKind::Side, ThreadKind::Pair] {
+    fn every_kind_with_an_agent_of_its_own_is_granted_the_computer() {
+        assert!(!Policy::of(ThreadKind::Call).has_computer());
+        for kind in [
+            ThreadKind::Dm,
+            ThreadKind::Side,
+            ThreadKind::Pair,
+            ThreadKind::Run,
+            ThreadKind::Job,
+        ] {
             assert!(Policy::of(kind).has_computer(), "{kind:?}");
         }
     }
@@ -644,7 +770,7 @@ mod tests {
                 persona_id: "ada".to_string(),
                 run_id: "r1".to_string(),
                 title: "Check".to_string(),
-                task: "Check the crane.".to_string(),
+                brief: crate::session::Brief::subagent("Check the crane.".to_string(), Vec::new()),
                 capability: room.capability_lease("ada"),
             },
             CancellationToken::new(),
@@ -657,9 +783,82 @@ mod tests {
         let tools = agents.tools();
         assert!(tools[0].in_run() && !tools[0].in_work());
         assert!(
-            lock(&agents.preambles)[0].starts_with("You are a subagent"),
-            "a run's preamble is the worker's, not the teammate's"
+            lock(&agents.preambles)[0].contains("This is a subagent run of Ada's"),
+            "a run is the teammate, told it is a run"
         );
+    }
+
+    #[tokio::test]
+    async fn a_pair_seeds_each_driver_in_the_answerers_direction_without_the_home_session() {
+        use crate::driver::rig::Said;
+        use serde_json::json;
+
+        for backend in [HOTLINE_BACKEND_ID, "cursor"] {
+            for target in ["ada", "bob"] {
+                let agents = Fake::new(Scripted::new(reply("Ready.")));
+                let log = scratch("agent-pair-history");
+                for id in ["ada", "bob"] {
+                    let mut teammate = persona(id);
+                    teammate.backend_id = backend.to_string();
+                    teammate.session_checkpoints = vec![SessionCheckpoint {
+                        backend_id: backend.to_string(),
+                        session_id: "home-session".to_string(),
+                    }];
+                    teammate.last_session_id = Some("home-session".to_string());
+                    teammate.cwd = log.root().join(id).to_string_lossy().into_owned();
+                    enrol(&log, &teammate);
+                }
+                for event in [
+                    json!({"kind":"user", "id":"a1", "ts":1, "text":"Ada's line"}),
+                    json!({"kind":"agent", "id":"b1", "ts":2, "text":"Bob's line"}),
+                ] {
+                    log.append(&StreamId::Pair("ada~bob".to_string()), &event)
+                        .unwrap();
+                }
+                let room = Room::with_agents(log, Arc::new(DeskKeys), agents.clone());
+                let caller = if target == "ada" { "bob" } else { "ada" };
+                let _agent = room
+                    .thread_agent(Opening {
+                        thread: ThreadId::pair("ada~bob"),
+                        persona: room.persona(target).unwrap(),
+                        title: "A colleague's request".to_string(),
+                        opener: Some(Opener {
+                            persona_id: caller.to_string(),
+                            name: caller.to_string(),
+                        }),
+                        lease: room.capability_lease(target),
+                        heard_from: None,
+                    })
+                    .await
+                    .unwrap();
+                let expected = if target == "ada" {
+                    vec![
+                        Said::Agent("Ada's line".to_string()),
+                        Said::User("Bob's line".to_string()),
+                    ]
+                } else {
+                    vec![
+                        Said::User("Ada's line".to_string()),
+                        Said::Agent("Bob's line".to_string()),
+                    ]
+                };
+                assert_eq!(
+                    crate::session::tests::words(lock(&agents.seeds)[0].clone()),
+                    expected
+                );
+                let view = &agents.views()[0];
+                assert!(
+                    view.session_checkpoints.is_empty(),
+                    "a pair never reopens the home session"
+                );
+                assert!(view.last_session_id.is_none());
+                let preamble = &lock(&agents.preambles)[0];
+                assert!(preamble.contains("replying privately to your teammate"));
+                assert!(preamble.contains(&room.persona(caller).unwrap().name));
+                let tools = agents.tools();
+                assert!(!tools[0].in_work() && !tools[0].in_run());
+            }
+        }
     }
 
     #[tokio::test]

@@ -39,7 +39,7 @@ if staged_any "^$contract\$"; then
     fi
     tsc="$PWD/ui/node_modules/.bin/tsc"
     refuse_contract() {
-        echo "pre-commit: the staged $contract $1; run cargo test -p hotline-core, unfiltered, and stage what it writes"
+        echo "pre-commit: the staged $contract $1; run cargo test -p hotline-contract, unfiltered, and stage what it writes"
         exit 1
     }
     staged_lines=$(git show ":$contract" | wc -l)

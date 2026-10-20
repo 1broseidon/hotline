@@ -27,7 +27,7 @@ pub(super) fn import(from: &Path, log: &Log, report: &mut Report) -> io::Result<
         .into_iter()
         .map(|persona| persona.id)
         .collect();
-    let present: HashSet<String> = room::schedules(log).into_iter().map(|job| job.id).collect();
+    let present: HashSet<String> = room::all_jobs(log).into_iter().map(|job| job.id).collect();
     for value in jobs {
         let Some(job) = job_from_legacy(&value) else {
             let id = value.get("id").and_then(Value::as_str).unwrap_or("?");
@@ -107,9 +107,16 @@ fn job_from_legacy(value: &Value) -> Option<ScheduledJob> {
         // Legacy schedules have no trusted creator provenance. Requiring the
         // new background-work grant is the safe upgrade path; an operator can
         // still create a fresh operator job from the desk when it is needed.
+        reminder: None,
+        goal: None,
+        until: None,
+        times: None,
+        without: None,
         operator_created: false,
         next_at,
         created_at,
+        last_post: None,
+        ended_at: None,
     })
 }
 

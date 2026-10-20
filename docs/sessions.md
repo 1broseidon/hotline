@@ -28,19 +28,15 @@ tape those events land on is [log.md](log.md).
 
 ## The funnel
 
-Every word a teammate says passes one funnel, in `session/prompt.rs`. A quiet
-run, a schedule's stamp, a reply and an attachment are rules about the room,
-not about whichever agent ran the turn.
+Every word a teammate says passes one funnel, in `session/prompt.rs`. A
+reply's stamp and an attachment are rules about the room, not about
+whichever agent ran the turn.
 
-The user's line is written first. Stamps a prompt left are claimed as that
-line is written, in this order — a new speaker closes any quiet window that
-is open, and only then may a scheduled firing open one of its own:
-
-| step | what lands |
-| --- | --- |
-| reply | `session.prompt`'s `replyTo` is left as a mark and stamped onto the user line as `replyTo`, if the mark is still younger than fifteen seconds |
-| quiet | an open window may rewrite an `agent` event into a `thought`, or close |
-| scheduled | a firing claims the user line, stamps `scheduled` on it, and may open a quiet window over the turn that follows |
+The user's line is written first. The stamp a prompt left is claimed as that
+line is written: `session.prompt`'s `replyTo` is left as a mark and stamped
+onto the user line as `replyTo`, if the mark is still younger than fifteen
+seconds. A job's firing is not a line of the DM's at all: it is a turn on the
+job's own thread ([Jobs](#jobs)).
 
 ### One turn loop
 
@@ -97,7 +93,7 @@ A prompt needs a live session; `session.start` is what brings one up. The
 command returns as soon as the turn is started. Hotline Agent admits new operator
 input into its running activity, and so does an ACP agent that offers steering
 (see [Steering an ACP turn](#steering-an-acp-turn)). A driver without
-active-input support queues it. Scheduled runs and internal nudges remain queued. Joining
+active-input support queues it. Internal nudges and deliveries remain queued. Joining
 the queue and claiming an idle driver are one decision under one lock, so a
 line cannot be filed behind a turn that has already stopped coming back for
 it. `session.cancel` stops the turn in flight and drops whatever was waiting.
@@ -120,11 +116,6 @@ blank line. Both agent kinds and peer threads pass the same funnel, so they
 get the same pacing. The house style in the preamble tells the agent this
 rule, in words it can act on.
 
-A scheduled firing is the same funnel with two differences the tape can see:
-the agent hears a framed prompt (`loop · …` or `scheduled · …`) naming the
-job, and the transcript keeps the bare prompt plus the stamp, so the
-conversation draws one line instead of a wall. The framing never mentions
-quiet — see [Quiet](#quiet).
 
 ## Two drivers
 
@@ -233,23 +224,30 @@ the work goes on.
 ### Subagents
 
 A Hotline Agent teammate's own session can hand a task to a **subagent**
-with the `subagent` tool: `task` is everything the worker will know, and
-`title` is the short label the person sees. A subagent is a managed job
+with the `subagent` tool: `task` is where the clone starts, `title` is the
+short label the person sees, and `without` leaves abilities out for the task
+(`computer`, `folders`, `mcp_servers`). A subagent is a managed job
 like a shell command — the call returns a receipt at once, `inspect_job`,
 `wait_jobs` and `cancel_job` work on it, up to four run at a time, and its
 report arrives later as the job's result — so the teammate keeps talking
 with the person while it works, and a message from the person reaches the
 teammate without waiting for any subagent.
 
-A Hotline Agent subagent is the teammate's agent started fresh by
-`Room::run` (`session/runner.rs`): the teammate's working directory, reach,
-granted MCP servers, and the model and effort its session is on at that
-moment, with a system prompt of its own that makes it a worker reporting
-back rather than the teammate talking to the person. It gets none of the
-conversation, no checkpoint to reopen, no computer, and of Hotline's own
-tools only `search_thread` and `list_chapters`. It cannot start subagents.
-Its report is what it said after its last tool call; a run that ends on an
-error or a cancel says so and keeps what it had said.
+A subagent is a **clone** of the home agent (ADR 0008 §0), started fresh by
+`Room::run` (`session/runner.rs`) on whichever driver the teammate runs: the
+teammate itself, with its working directory, reach, folders, granted MCP
+servers, skills and computer, on the model and effort its session is on at
+that moment (`clone_of`, `session/agent.rs`), less what the home agent left
+out. Its system prompt is the teammate's own, with a brief that says it is a
+run, starts from its task, and reports back rather than talking to the
+person. It gets none of the conversation and no checkpoint to reopen; it
+reaches back into the conversation with `search_thread` and
+`list_chapters`, and of Hotline's own tools it has only the reading ones
+(`list_teammates`, `list_schedules`, `computer_status`, `web_search` too).
+It cannot start subagents. Its report is what it said after its last tool
+call; a run that ends on an error or a cancel says so and keeps what it had
+said. A run is the brief that starts now and reports to whoever asked; a
+brief for later is a job's, and `Room::run` refuses it.
 
 A run writes to its own stream, `runs/<runId>.jsonl`, the way a tape is
 written. On the teammate's tape it leaves one link (see
@@ -595,7 +593,7 @@ bubblewrap; macOS isolation tests always run, and fail if Seatbelt cannot
 enforce the policy. Mac-specific tests exercise hostile home
 and scratch symlinks, shared temporary files, helper services, Unix sockets,
 and missing or ineffective launchers. The explicit network smoke tests
-(`cargo test --workspace tools::shell::macos::tests -- --ignored`) additionally
+(`cargo test -p hotline-tools shell::macos::tests -- --ignored`) additionally
 check public DNS/HTTPS and npm/Go downloads into private caches; they require
 access to public package registries.
 
@@ -1160,7 +1158,7 @@ a session; the band shows Screen on the same condition. Outside the desk
 caption, and the file arrives as its message: an `agent` event whose `text`
 is the caption, possibly empty, carrying the file in `attachments`. The
 person is told the way they are told of any reply — it counts as unread,
-and a phone is pushed the caption, or "Sent <name>" without one.
+and a phone is pushed the caption and the file's name.
 
 Where the file comes from:
 
@@ -1196,11 +1194,19 @@ script that starts like a PDF is never handed over as one. Any file can be
 saved where the person picks, or shown in its folder.
 `attachments[].origin` says where the file came from, in words.
 
-A quiet scheduled run is refused rather than demoted. Its words become
-thinking, and a file in thinking reaches nobody while the teammate believes
-it was sent, so the tool says it cannot send from a quiet run. A window
-that opens while the file is being fetched is caught when the message is
-stamped, and the kept copy is removed.
+Every file is posted through the chat's one door (`Room::post`), whatever
+thread sent it, so the chat holds everything the teammate gave the person,
+wherever it was working. One sent from a work thread, a pair, or the DM's
+turn on a call is stamped `from` that thread, and the thread keeps a notice
+naming it; one from a call the person is on pushes nothing, as a post from
+it never does. `generate_image` posts the same way.
+
+A job's file is stamped with the job and `from` its thread, and it is the
+turn's one post under `post_to_chat`'s gate, so a second file or a
+`post_to_chat` after it in the same turn is refused. A file or image is
+refused before it is fetched or drawn once the job's turn has posted. A
+subagent run is refused `send_file` and `generate_image` as it is
+`post_to_chat`: it reports to the teammate that launched it.
 
 The model remembers a sent file by name: the conversation a driver is
 seeded with, a chapter's handoff note and the search index read a message
@@ -1450,11 +1456,12 @@ variant of the teammate's (`TeammateTools::for_work`): all of them but
 `new_chapter` and `resume_chapter`, plus `archive_thread {summary}`.
 `search_thread` and `list_chapters` read the main conversation (and
 `search_thread` the teammate's other threads and runs too); `react` and
-`open_link` act on this thread; `send_file`, `generate_image` and
-`request_human` post in the thread, and `request_human` pushes to the person
+`open_link` act on this thread; `send_file` and `generate_image` post their
+file to the chat, stamped `from` the thread, and leave a notice in the
+thread; `request_human` posts in the thread and pushes to the person
 (answered by side id, `side.answer_permission`, or `human.answer`);
 `message_teammate` replies come back to the thread. Schedules and loops are the
-teammate's and wake the main conversation.
+teammate's, and each fires on a job thread of its own ([Jobs](#jobs)).
 
 **Turns.** A line said in a thread is written to its stream and handed to the
 agent at once, or queued behind the turn in flight (the same `Turns` queue the
@@ -1556,8 +1563,9 @@ once:
 
 - **The sweep.** `Room::sweep` runs on the room's minute and applies every
   kind's idle policy: a side thread is parked after three hours with nobody
-  speaking in it and no turn running, and a run has no idle (it ends with its
-  work). A call that nobody has spoken on for ten minutes is ended there (the
+  speaking in it and no turn running, a job's agent kept for a turn the person
+  started is let go of after ten quiet minutes, and a run has no idle (it ends
+  with its work). A call that nobody has spoken on for ten minutes is ended there (the
   voice reports how long each call has been quiet, and `Calls::end_quiet` ends
   it). The DM's row is `Idle::Chapters`: the sweep closes a chapter that has
   gone quiet (`sweep_chapters`), the one row it awaits, since a close waits on
@@ -1565,16 +1573,17 @@ once:
 - **The settle.** `Room::settle` runs as the room opens, before anything is
   served. It expires a card the last process left open on any tape or pair, moves
   every thread a link says was left live by its kind's restart policy (a side
-  thread is parked, a run is closed as cancelled, a call is closed as stopped
-  with its transcript kept), compacts, syncs the index and
+  thread or a job's is parked, a run is closed as cancelled, a call is closed
+  as stopped with its transcript kept), compacts, syncs the index and
   then calls `reconcile_exchanges` for the pairs. `recover_exchanges`, which
   needs the runtime and the first sweep's delay, is still started with the sweep.
 - **The closing note.** `Room::queue_closing_note` is the one path: sides and calls use
   it.
 
-What is not shared yet: a live side thread (`LiveSide`), a run (`Running`) and
-the DM's `Session` each hold their own driver and lease, and close through
-`end_side`, `Running::settle` and the session's stop.
+What is not shared yet: a live side thread (`LiveSide`), a job's thread
+(`LiveJob`), a run (`Running`) and the DM's `Session` each hold their own
+driver and lease, and close through `end_side`, `job_ended`, `Running::settle`
+and the session's stop.
 
 ## Checkpoints
 
@@ -1602,7 +1611,7 @@ Hotline Agent's memory is the tape. It has no session id to checkpoint.
 A teammate is one long conversation; an agent's context cannot be. The tape
 is divided into **chapters**, and each chapter is one context. Nothing about
 this is a second thread: a chapter is a marker event in the tape it
-divides, superseded by id when it closes. `store/chapters.rs` reads markers;
+divides, superseded by id when it closes. `hotline-store`'s `chapters.rs` reads markers;
 `session/chapters.rs` writes them.
 
 ### Open
@@ -1721,25 +1730,32 @@ was said instead.
 
 Jobs live on the room stream as events of kind `schedule`. The clock in
 `session/schedule.rs` folds them, sleeps until the nearest `nextAt`, and
-fires through the same funnel as a person typing. A missed tick while Hotline
-was closed fires once on reopen rather than catching up a pile of them.
+fires each one: a plain reminder is posted to the chat, and any other job's
+firing is a turn on the job's own thread ([Jobs](#jobs)). A missed tick while
+Hotline was closed fires once on reopen rather than catching up a pile of
+them.
 
-`schedule` is once; `loop` is every `every` milliseconds until cancelled.
-A loop is recovered from `every` being present — the event's `kind` is
-always `schedule`, because that slot is the stream's. A create wakes the
-clock so it does not wait for the nearest existing `nextAt`.
+`schedule` is once; `loop` is every `every` milliseconds until it is
+cancelled or reaches its end. A loop is recovered from `every` being present
+— the event's `kind` is always `schedule`, because that slot is the stream's.
+A create wakes the clock so it does not wait for the nearest existing
+`nextAt`.
 
-A firing starts the teammate if it is idle, stopped or in error, then
-prompts. After a one-shot fires it is tombstoned; a loop is rewritten with
-`nextAt` a fresh interval from now. A job whose teammate has been deleted
-is tombstoned rather than fired. A fire that fails is retried in a minute.
+A firing does not wait for the work: a loop counts its next interval from
+when a firing starts, so one still running when the next is due is what its
+thread skips. After its firing a one-shot ends; so does a loop whose count
+runs out or whose next firing would fall after its end date. An ended job is
+written again with `endedAt` rather than tombstoned: it fires no more, its
+thread stays readable, and it is still listed until the person cancels it
+again. A job whose teammate has been deleted is tombstoned rather than
+fired. A fire that fails is retried in a minute.
 
 **Background work** is the standing grant for a teammate to create its own
 schedules and loops. It defaults off, including on older teammate records.
 The tool handlers enforce it when creating a job, and the scheduler checks
-it again before a wake and immediately before a queued turn reaches the
-driver. Each queued firing carries its own trusted provenance, because a
-one-shot job may already have been tombstoned. Turning the grant off pauses agent-created jobs still on
+it again before a wake and immediately before a queued firing's turn begins.
+Each queued firing carries its own trusted provenance, because a one-shot
+job has already ended by then. Turning the grant off pauses agent-created jobs still on
 the room stream; it does not delete them. Enabling it again permits a missed
 tick to run once, under the usual scheduler rule.
 
@@ -1747,9 +1763,9 @@ A job created through the authenticated desk's `schedule.create` command is
 an explicit operator instruction. Hotline records `operatorCreated: true` on
 that job, so it may run with Background work off. Agent tools cannot choose
 that provenance. Older jobs without it require Background work. Stopping a
-session ends its current execution; it does not revoke standing background
-work or cancel operator-created jobs. Cancel a job to remove its future
-wakes.
+session ends its current execution, and lets go of its jobs' agents; it does
+not revoke standing background work or cancel operator-created jobs. Cancel
+a job to end its future firings.
 
 The wire takes milliseconds. Bounds, so a teammate cannot schedule itself
 into a crowd or a busy-loop:
@@ -1759,10 +1775,12 @@ into a crowd or a busy-loop:
 | one-shot | 1 second to 30 days from now |
 | loop | every 15 seconds to 7 days |
 | prompt | 1–8000 characters |
-| jobs per teammate | 20 |
+| goal | at most 500 characters |
+| jobs per teammate | 20 still to fire |
 
-`quiet` is stored only when true. The parsers that take a string (`20m`,
-an RFC3339 time) live with the scheduler; they are not on the wire.
+`quiet` and `reminder` are stored only when true. The parsers that take a
+string (`20m`, an RFC3339 time) live with the scheduler; they are not on the
+wire.
 
 A teammate speaks those strings through four tools, the same handler on
 both kinds of agent — Hotline Agent in-process, an ACP child over Hotline's own
@@ -1770,50 +1788,121 @@ MCP server:
 
 | tool | strings | what it does |
 | --- | --- | --- |
-| `schedule` | `when`, `prompt`, `quiet?` | wake once; `when` is `20m` or an ISO timestamp |
-| `loop` | `every`, `prompt`, `quiet?` | wake on an interval; `every` is `15s`, `5m`, `1h`, `1d` |
-| `list_schedules` | none | only the caller's jobs; a supplied `target` is refused |
-| `cancel_schedule` | `id` | drop one of the caller's jobs; another teammate's is refused |
+| `schedule` | `when`, `prompt`, `quiet?`, `reminder?` | a job that fires once; `when` is `20m` or an ISO timestamp |
+| `loop` | `every`, `prompt`, `quiet?`, `reminder?`, `goal?`, `until?`, `times?` | a job that fires on an interval; `every` is `15s`, `5m`, `1h`, `1d` |
+| `list_schedules` | none | only the caller's jobs still to fire; a supplied `target` is refused |
+| `cancel_schedule` | `id?`, `report?` | end one of the caller's jobs; another teammate's is refused. A job's own thread ends itself with no `id` and a `report` |
 
 The pane labels a job from its prompt; the tools take no name. A string
 neither parser accepts is refused as that string, not as milliseconds.
 The tools do not re-check the bounds — they parse, call the room, and
 return the room's refusal.
 
-### Quiet
+### Jobs
 
-A teammate told to check something every morning and report only on a
-change will still post "No change — staying silent per protocol". Asking
-the model to produce no text is a mechanism the model can satisfy by
-producing text about producing no text.
+A job is the teammate doing a task outside its home thread and reporting
+back (ADR 0008 §7). Jobs and subagents are one thing with one schema,
+`session::Brief`: the task, the trigger (`Now`, `At`, `Every`), the report
+policy, and an optional end (a goal, a date, a count). The `subagent` tool
+writes one that runs now and reports to the agent that asked, as its job
+result; `schedule` and `loop` write one that runs later and reports to the
+person, and the room stream keeps it as the job. Its quiet flag is the
+report policy: a job reports each firing, or only what is worth telling.
 
-So nothing asks. A job marked quiet opens a window over its own turn, and
-while that window is open an `agent` event is rewritten into a `thought`
-before it reaches the tape. The rewrite is a function of the event *kind*
-and of a boolean the user set — never of what the event says. Live deltas
-are demoted with it, so the composer does not run a writing indicator for a
-message that will never land.
+**Its own thread.** Each job is an arm of the teammate with a thread of its
+own, `ThreadKind::Job`, in `jobs/<id>.jsonl` under the job's id
+(`session/job_thread.rs`). Every firing is a turn on that thread, never the
+DM's, so the home agent's context holds none of it: the firing's prompt is
+written to the thread as it is, stamped with the job (`scheduled`), and the
+agent hears it framed (`loop · …` or `scheduled · …`, with `quiet` in front
+for a quiet job). The thread is listed with the teammate's threads
+(`thread.list`) and its jobs (the `schedules` view: name, next run, last
+post, end), and its link heads its own stream rather than a line on the DM.
 
-What stays loud: `notice`, `permission`, `human_action`, `peer`, `tool`,
-`computer_frame`, and the `turn` event itself. Silence was asked of the
-agent's voice, not of the app. A person who types during a quiet run is
-owed an answer they can read: a user event closes the window. A wedged turn
-cannot mute a teammate forever — the window expires after thirty minutes.
+**Its agent** is a clone of the home agent (ADR 0008 §0), built by
+`Room::thread_agent` under the job kind's policy row, on either driver: the
+teammate on the model its home session is on, with the home thread's
+permission set and the computer, less what the teammate left out when it
+made the job (`without` on `schedule` and `loop`, kept on the job). It has
+the home thread's tools but the chapter moves, `react`, `open_link`,
+`schedule` and `loop`: a `request_human` card it raises is on its own
+thread, and the person's answer, like a colleague's answer to its
+`message_teammate`, comes back to it there as a turn while the job lives
+(after it ends, to the DM). What came back is written on the thread before
+it is queued, so one the last process had not handed over yet is handed
+over at start (`Room::resume_job_deliveries`), or to the DM if the job has
+ended since. The person's `schedule.create` takes no `without`: a job
+narrower than its teammate is the teammate's to make (design.md says why).
+Its authority is a child of the teammate's, made
+with the agent and revoked when it is let go of.
 
-A quiet run that finds something has one way to be heard, and has to ask
-for it by name. Its turn, and only that turn, is handed a `tell_person` tool
-(`session/escalation.rs`, armed through `Driver::escalate_next`). A call
-does not post anything: it hands the teammate a note, once per run (a
-second call is refused). When the quiet turn is over, the room writes the
-note as a `user` line stamped with the job's `scheduled` (not quiet, so no
-window opens) and queues it ahead of anything else waiting. The teammate
-hears which job found what and is asked to tell the person, so the answer
-is an ordinary reply in its own voice: it lands in the chat, lights the
-rail, and pushes like any other. A run that finds nothing is exactly as
-silent as before, and the desktop toast skips a turn whose last visible
-line is the person's own. Hotline Agent teammates get the tool; an ACP agent
-brings its own tools and is not offered one, so its quiet runs stay silent.
-A subagent never gets it: it reports to its teammate, which decides.
+**Parked between firings.** Once a firing's turn is over and nothing waits
+behind it, the agent is let go of and the thread's link says `parked`; the
+next firing builds it again, an ACP child reopening its own session from the
+thread's binding when it can. A turn the person started keeps the agent for
+their next line until the sweep parks it after ten quiet minutes.
+
+**A running note, not a growing context.** A job's agent is not seeded with
+its thread. Each firing's line carries what the job said at the end of its
+latest turn (its note), and its three turns before that, each with when it
+was, what started it (a firing, or what the person said) and the first of
+what the job said; the preamble tells it to end every turn with a short note
+of where things stand. A loop that runs for days stays small.
+
+**Its report.** A job that reports each firing has the firing's last words
+posted to the chat when it did not post itself in the turn. A quiet job's
+words stay on its thread: it is heard only through `post_to_chat`, once a
+turn, as the teammate wrote it. Every post goes through the chat's one door
+(`Room::post`), stamped with the job and `from` the job's thread, lights the
+rail and pushes like a reply, and is handed to a live home session ahead of
+the person's next line. The job's record keeps its last post for the
+listing. A firing that finds nothing in a quiet job puts nothing in the
+chat. Nothing asks the agent to be silent: the word `quiet` and the preamble
+say who reads its words, which is what makes "No change — staying silent per
+protocol" a line in the job's thread rather than in the chat.
+
+**An overlapping firing is skipped.** A firing that comes due while the one
+before is still running, or waits behind it, is not queued: the thread gets
+a notice saying it was skipped, how long the one before had been running
+(in whole units, so a minute and a second is `1m`), and what interval would
+fit, half as long again as the work has taken and at least twice the one it
+had. A job skipped
+twice in a row posts that to the person, once. A skipped slot is not a
+firing: a loop's count is of firings that ran, so a loop of three whose
+firings each overrun a slot still runs three.
+
+**It ends** when the person cancels it, `schedule.cancel` or
+`cancel_schedule` from the DM: its turn in flight is stopped, and its final
+post says where it stood, from its note (none when it never ran). A job that
+meets its goal ends itself from its own thread with `cancel_schedule` and a
+`report`, which is its final post; the turn it ends in finishes. A one-shot,
+or a loop whose count or date runs out, ends after its last firing, and that
+firing's line says it is the last, so the job does not try to end what ends
+anyway. A loop's last words are its final post whatever its report policy
+(where it stood, when the person stopped that turn); a one-shot's one report
+follows its policy. Either way the record gains `endedAt`, the thread's link
+is closed with what came of it, and the thread stays readable.
+
+**A plain reminder** (`reminder`) does no work: it fires as one post to the
+DM, its prompt as written, stamped with the job, with no thread and no agent.
+
+**The person can talk to a job's thread** (`thread.prompt` on it, until it
+has ended): their line is a turn like a firing's, on the same agent, and a
+fresh agent is told where the job stands first. What the job answers is its
+next note, so "skip the next check" reaches the next firing. `thread.cancel`
+stops its turn in flight, a firing's or the person's, and drops what waited
+behind it: that turn posts no report, the thread gets a notice that it was
+stopped, and the job keeps its schedule. `thread.close` cancels the job. The
+roster row's `workingJobs` says which jobs have a turn running, so the
+window offers Stop only then; the Jobs group's row and the job's thread
+header both offer Stop and Cancel, and the header says what a narrowed job
+runs without (`without` on the schedules view). A companion phone may do
+neither, as it may not `schedule.cancel`. A card the job raises pushes with
+the job's thread as `data.thread`, so a tap can open it.
+
+Before ADR 0008 §7 a firing was a turn of the DM, and a quiet one demoted the
+teammate's words to thinking for the length of its turn. A schedule written
+then is the same record now, and fires on its job thread.
 
 ## The ledger
 

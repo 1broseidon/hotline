@@ -18,11 +18,11 @@
 //!
 //! On the next start the room hands each pending line to its teammate once,
 //! in the order they were said, and removes the file. A line the agent has
-//! meanwhile read is skipped, and a scheduled line whose teammate lost
-//! background work is dropped, exactly as the queue would have dropped it.
+//! meanwhile read is skipped, exactly as the queue would have skipped it.
 //!
 //! Only the person's lines are kept. A delivery from another teammate is
-//! already durable on the tape and reconciled at start; a nudge is Hotline's
+//! already durable on the tape and reconciled at start, and one to a job is
+//! on its thread and handed over again at start; a nudge is Hotline's
 //! own words for a moment that has passed. None of this is exactly-once: a
 //! process killed outright keeps what was written and nothing more.
 
@@ -42,8 +42,6 @@ struct PendingLine {
     text: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     attachments: Vec<Attachment>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    scheduled: Option<ScheduledRun>,
     #[serde(default)]
     steer: bool,
 }
@@ -87,7 +85,6 @@ impl Room {
                         said,
                         text: wire.text,
                         attachments: wire.attachments,
-                        scheduled: wire.scheduled,
                         steer: wire.steer,
                     });
                 }
@@ -102,6 +99,7 @@ impl Room {
         let mut interrupted = Vec::new();
         if shut.is_none() {
             self.interrupt_sides();
+            self.interrupt_jobs();
             for session in &sessions {
                 if !lock(&session.turns).running {
                     continue;
@@ -243,11 +241,6 @@ impl Room {
         if read {
             return Err(None);
         }
-        if let Some(run) = &line.scheduled
-            && !schedule::scheduled_run_allowed(&self.log, &line.persona_id, run)
-        {
-            return Err(None);
-        }
         let _working = self.working().map_err(Some)?;
         self.start(&line.persona_id).await.map_err(Some)?;
         let (session, _held) = self.in_this_chapter(&line.persona_id).await.map_err(Some)?;
@@ -256,7 +249,6 @@ impl Room {
             Wired {
                 text: line.text.clone(),
                 attachments: line.attachments.clone(),
-                scheduled: line.scheduled.clone(),
                 steer: line.steer,
                 said: Some(line.said.clone()),
                 from: None,

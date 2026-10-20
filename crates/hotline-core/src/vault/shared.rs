@@ -608,7 +608,7 @@ impl Vault {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
 
     fn vault(root: &Path) -> Vault {
         Vault::open_with_store(root, Log::open(root), Arc::new(MemoryStore::default())).unwrap()

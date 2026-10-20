@@ -381,11 +381,9 @@ async fn grok_asks_for_base64_at_the_aspect_and_edits_with_json_references() {
 #[tokio::test]
 async fn a_grok_subscription_draws_with_its_sign_in_and_charges_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let tokens = crate::credentials::CredentialFiles::new(
-        dir.path().into(),
-        crate::credentials::default_store(),
-    )
-    .file(dir.path().join("auth.json"));
+    let tokens =
+        crate::credentials::CredentialFiles::new(dir.path().into(), crate::vault::default_store())
+            .file(dir.path().join("auth.json"));
     crate::providers::xai::sign_in_for_test(&tokens, "grok-access");
     let answer = json!({"data": [{"b64_json": STANDARD.encode(PNG)}]});
     let (url, seen, _server) = answering(StatusCode::OK, answer.to_string().into_bytes()).await;

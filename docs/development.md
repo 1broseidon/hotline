@@ -48,45 +48,72 @@ Rust that needs Tauri lives.
 ## Layout
 
 ```
-crates/hotline-core/src/
-  contract/                  the wire's types (serde + ts-rs), a file per concern; a leaf
-  paths.rs                   the data directory's layout
-  log/                       streams: append, fold, segments, subscribe; tapes and threads
-  store/                     beside the tape: FTS5 search, chapter list, roster previews
-  room.rs                    the roster fold, settings, and schedules
+crates/hotline-contract/src/  the wire's types (serde + ts-rs), a file per concern; a leaf crate
+crates/hotline-support/src/   the utilities that hold no Hotline state; a leaf crate
+  paths.rs                   the data directory's layout, and a linked teammate's id
   room_lock.rs               one writer per room
+  credentials/               the OS credential store that holds the secret values
+  images.rs                  what an attached or generated image is made into before anyone sees it
+  thumbs.rs                  smaller copies of pictures for a phone
+  fence.rs                   the one fence around anything quoted out of a conversation
+  log_file.rs                where the app's own lines go when nobody reads its output
+  process_windows.rs         a Windows child's kill-on-close job
+crates/hotline-store/src/     what is kept on disk and rebuilt from it; on the two leaves and nothing else
+  log/                       streams: append, fold, segments, subscribe; tapes and threads
+  search.rs                  beside the tape: FTS5 search over every tape
+  chapters.rs                a tape's chapter list
+  previews.rs                a tape's last line, for the roster
+  link.rs                    the line a thread leaves on its parent, and where a thread stands
+  sent/                      files teammates send the person, and their readback
+crates/hotline-tools/src/     a teammate's workspace and shell tools; on the two leaves and nothing else
+  capability.rs              the session's lease every tool checks, and the epoch that revokes it
+  workspace.rs               workspace tools on cap-std: the wall, granted folders, read, grep, edit
+  shell.rs                   the shell command, confined: Seatbelt on macOS, bubblewrap on Linux
+crates/hotline-websearch/src/ web search for every teammate, keyless by default, ranked and cleaned; on the contract alone
+  exa.rs, parallel.rs, ...   the four providers, one file each
+  clean.rs, rank.rs          error pages and chrome out, duplicates and mirrors merged
+  query.rs, when.rs          what the query asked for: its language, its dates
+  mock.rs                    a provider on localhost, for tests (the `test-support` feature)
+crates/hotline-room/src/      the room as the code above the core sees it; on the leaves, the store and web search
+  room.rs                    the roster fold, settings, and schedules
+  mcp_servers.rs             the `mcpServers` setting, read the way the fold reads it
+  linked.rs                  linked desks: their records, qualified ids, the roster that crosses
+  room_handle.rs             RoomHandle, the seam the wire calls the live room through
+  tool_ledger.rs             what tools a teammate got, from where, and why one is absent
+  voice/                     voice's settings, its spend and the budget that gates it, spoken replies
+  provider_auth.rs, ...      ProviderAuth, the secret and text helpers, the TLS default, the computer's home
+crates/hotline-mcp/src/       Hotline as an MCP client; on the contract, the support, the tools and the room
+  lib.rs                     the servers settings name, a teammate's grant, the live connections
+  tool.rs                    one granted tool as Hotline Agent calls it, and its ledger row
+  oauth.rs                   OAuth sign-in to an HTTP server, with what the vault keeps handed in
+crates/hotline-voice/src/     the voice engines; on the contract, the support and the room
+  speech.rs                  the Speech seam: a clip heard, a reply spoken, and the errors either gives
+  speech/                    the providers' adapters, which one a call uses, the desk's own models
+  realtime.rs                the Realtime seam: one live spoken conversation that renews itself
+  realtime/                  Grok Voice and GPT Realtime over a socket, GPT-Live over WebRTC
+crates/hotline-core/src/
   thread/                    the one name for a conversation, its store and its policy
   vault/                     credential metadata beside the room stream
-  credentials/               the OS credential store that holds the secret values
-  session/                   Session, the funnel, quiet, chapters, the scheduler, the ledger, peer threads
+  session/                   Session, the funnel, quiet, chapters, the scheduler, peer threads
   driver/                    Hotline Agent on Rig, and the ACP child with its registry and OAuth proxy
   models.rs                  the providers Hotline Agent reaches, and the model catalogue they serve
   providers/                 connection work Rig does not own; requests stay on Rig's clients
   capabilities.rs            which connected provider the owner can pick for each job
   pricing.rs                 what a model costs per token
   spending.rs                the spending ledger and the budget it enforces
-  mcp/                       the client of granted servers, and Hotline's own teammate tools
+  mcp/                       Hotline's own teammate tools, and the vault's side of the client
   skills.rs                  the catalog: built-in, gateway and workspace skills, copied into a workspace
-  tools/                     workspace tools on cap-std, shell command
   computer/                  runtime detection and one container per teammate
-  voice/                     the owner's call: speech in and out, the front, realtime, metering
-  websearch/                 web search for every teammate, keyless by default, ranked and cleaned
+  voice/                     the owner's call: its turns, the front, the dispatcher, the vault's side of the engines
   imagegen/                  making images over whichever connected provider the owner has
-  images.rs                  what an attached or generated image is made into before anyone sees it
-  thumbs.rs                  smaller copies of pictures for a phone
-  sent/                      files teammates send the person, and their readback
   link_preview.rs            a link's card, read from the page's head
-  fence.rs                   the one fence around anything quoted out of a conversation
   desk.rs                    the room, vault and log behind the wire
   boot.rs                    one boot, the app's and `hotline serve`'s, that returns its errors
   wire/                      the door: seats, commands, subscriptions, the phone and relay doors
   remote/                    Remote: the sealed listener, pairing, the relay, a linked desk's channel
-  linked.rs                  linked desks: their records, qualified ids, the roster that crosses
   push.rs                    notifications to paired phones
   import.rs                  copies an existing Hotline data directory
   import/                    the previous edition's roster and records, read-only
-  log_file.rs                where the app's own lines go when nobody reads its output
-  process_windows.rs         a Windows child's kill-on-close job
   test_support.rs            what the unit tests of more than one module share
   bin/hotline-import.rs      the importer as a binary
   bin/hotline-mcp-echo.rs    a one-tool stdio server the MCP harnesses spawn
@@ -369,7 +396,7 @@ unsigned installer can still trigger Windows reputation warnings.
 Each build runs formatting, Clippy, the workspace tests, UI type checking and
 manifest tests. Windows and macOS also test a disposable native credential entry.
 Local core harnesses inject in-memory stores; they never use the operator's
-keychain. Run `cargo test -p hotline-core native_store_roundtrip -- --ignored`
+keychain. Run `cargo test -p hotline-support native_store_roundtrip -- --ignored`
 to explicitly test the native store with a disposable entry. Linux build hosts
 need `libdbus-1-dev`, and desktop credential use needs an unlocked Secret
 Service session. The credential format and Rig OAuth exception are described
@@ -499,7 +526,7 @@ keep it that way, and never `eprintln!` a key, a token or a request body.
 
 One desk runs per data directory. Before the room opens, every process
 that writes it — the app, `hotline serve`, `hotline-import` — takes an
-exclusive lock on `desk.lock` there (`hotline_core::room_lock`), in every
+exclusive lock on `desk.lock` there (`hotline_support::room_lock`), in every
 build; a file system that cannot lock is an error, not an unguarded room.
 The app also writes, beside it, the loopback port it answers on to
 `desk.wake`: a second launch finds the lock held, asks the running desk to
@@ -562,20 +589,25 @@ scratch or the store.
 
 ## The generated contract
 
-Each wire type is defined once in Rust, with serde and ts-rs. Most live in
-`crates/hotline-core/src/contract/`, a file per concern, each re-exported
-from `contract`, which imports nothing else from the crate. The types that
-belong to Remote, linked desks and the importer are defined beside them
-(`remote.rs`, `remote/{client,relay,v2}.rs`, `linked.rs`, `import.rs`) and
-export to the same file. `cargo test -p hotline-core` runs the export tests and writes
-`ui/src/generated/contract.ts`. `.cargo/config.toml` points ts-rs at that
-directory and tells it a 64-bit integer is a JavaScript `number`, because
-every number on this wire arrives as `JSON.parse` produces it.
+Each wire type is defined once in Rust, with serde and ts-rs, in
+`crates/hotline-contract`, a file per concern, each re-exported from its
+`lib.rs`. The crate depends on no other Hotline crate, and `hotline-core`
+re-exports it as `contract`, so `hotline_core::contract::X` names every one;
+the types that belong to Remote, linked desks and the importer are
+re-exported again from those modules. `cargo test -p hotline-contract` runs
+the export tests and writes `ui/src/generated/contract.ts`.
+`.cargo/config.toml` points ts-rs at that directory and tells it a 64-bit
+integer is a JavaScript `number`, because every number on this wire arrives
+as `JSON.parse` produces it.
 
+ts-rs starts the file afresh the first time a test process writes it, so
+every exported type has to live in the one crate: a type exported from
+`hotline-core` would erase the contract crate's types, or be erased by them.
 A filtered run (`cargo test session`) writes only the types it matched
 and leaves a file the window cannot compile against. Run
-`cargo test -p hotline-core` unfiltered before committing that file; `make
-check` and the pre-commit hook catch it. Never run a filtered test as the last run.
+`cargo test -p hotline-contract` unfiltered before committing that file;
+`make check` and the pre-commit hook catch it. Never run a filtered test as
+the last run.
 
 ## The model catalogue
 
@@ -663,8 +695,8 @@ knows, and speaks WebSocket JSON the way the window does:
 | `mcp.rs` | Hotline as an MCP client and as the server of a teammate's own tools: a granted echo server, Hotline's seven tools, a policy of none, a server that will not start, a non-string env, a vanished server, a stdio process group |
 | `schedule.rs` | a job created, listed, silenced and cancelled, remembered on the room stream; a loop carries `every` and has no `when` |
 
-The `mcp/oauth.rs` unit harness runs a loopback protected-resource and
-authorization server through metadata discovery, DCR, PKCE callback, token
+The OAuth unit harness in `crates/hotline-core/src/mcp/tests.rs` runs a
+loopback protected-resource and authorization server, through the vault, through metadata discovery, DCR, PKCE callback, token
 refresh and authenticated MCP calls. It also covers restart reuse, denied and
 wrong-state callbacks, registration gaps, concurrent refresh, URL binding,
 sign-out and the protected vault boundary. No real provider account is used by

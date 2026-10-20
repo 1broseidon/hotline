@@ -2,6 +2,7 @@
 //! their answers, and the cards that expire, are withdrawn or are superseded.
 
 use super::*;
+use crate::contract::ThreadKind;
 
 impl Room {
     /// Answers a permission the agent is waiting on.
@@ -175,7 +176,7 @@ impl Room {
         &self,
         persona_id: &str,
         reason: &str,
-        home: Option<&str>,
+        home: &ThreadId,
         hours: Option<u32>,
     ) -> Result<String, String> {
         self.persona(persona_id)?;
@@ -187,7 +188,8 @@ impl Room {
         let hours = hours.unwrap_or(ASK_HOURS).clamp(1, ASK_MAX_HOURS);
         let ts = now_ms();
         let action_id = new_id();
-        self.link_handoff_human(home, &action_id)?;
+        let work = (home.kind == ThreadKind::Side).then_some(home.key.as_str());
+        self.link_handoff_human(work, &action_id)?;
         self.write_home(
             persona_id,
             home,
@@ -200,11 +202,11 @@ impl Room {
                 note: None,
                 delivers: Some(true),
                 expires_at: Some(ts + i64::from(hours) * 60 * 60_000),
-                thread: home.map(str::to_string),
+                thread: work.map(str::to_string),
             },
         );
         self.push.notify_in(
-            home,
+            Some(home),
             &self.needs_you(persona_id),
             &reason,
             persona_id,
@@ -229,11 +231,14 @@ impl Room {
     /// as an answer, so an answer and a withdrawal racing settle it once.
     pub fn withdraw_human(&self, persona_id: &str, action_id: &str) -> Result<(), String> {
         let _answering = lock(&self.answering_later);
-        let Some(TranscriptEvent::HumanAction {
-            status: HumanActionStatus::Pending,
-            delivers: Some(true),
-            ..
-        }) = self.human_card(persona_id, action_id)
+        let Some((
+            TranscriptEvent::HumanAction {
+                status: HumanActionStatus::Pending,
+                delivers: Some(true),
+                ..
+            },
+            _,
+        )) = self.human_card(persona_id, action_id)
         else {
             return Err("No request of yours is waiting under that id: it was answered, expired or withdrawn already, or it is not an id request_human gave you.".to_string());
         };
@@ -288,23 +293,25 @@ impl Room {
         note: Option<String>,
     ) -> Result<(), String> {
         let _answering = lock(&self.answering_later);
-        let Some(TranscriptEvent::HumanAction {
-            reason,
-            status: HumanActionStatus::Pending,
-            delivers: Some(true),
-            thread,
-            ..
-        }) = self.human_card(persona_id, action_id)
+        let Some((
+            TranscriptEvent::HumanAction {
+                reason,
+                status: HumanActionStatus::Pending,
+                delivers: Some(true),
+                ..
+            },
+            home,
+        )) = self.human_card(persona_id, action_id)
         else {
             return Err("That request is no longer waiting for an answer.".to_string());
         };
         self.supersede_human(persona_id, action_id, status, note.clone());
-        self.deliver_answer(persona_id, action_id, &reason, status, note, thread);
+        self.deliver_answer(persona_id, action_id, &reason, status, note, home);
         Ok(())
     }
 
     /// An answer, or the lack of one, on its way to the teammate that asked: to
-    /// the work thread the card was raised in, or the teammate's DM.
+    /// the thread the card was raised in.
     fn deliver_answer(
         self: &Arc<Self>,
         persona_id: &str,
@@ -312,7 +319,7 @@ impl Room {
         reason: &str,
         status: HumanActionStatus,
         note: Option<String>,
-        thread: Option<String>,
+        home: ThreadId,
     ) {
         let room = self.clone();
         let persona_id = persona_id.to_string();
@@ -320,7 +327,7 @@ impl Room {
         let reason = reason.to_string();
         tokio::spawn(async move {
             if let Err(error) = room
-                .hand_over_answer(&persona_id, &action_id, &reason, status, note, thread)
+                .hand_over_answer(&persona_id, &action_id, &reason, status, note, home)
                 .await
             {
                 eprintln!("an answer to {persona_id}'s request could not be delivered: {error}");
@@ -330,8 +337,9 @@ impl Room {
 
     /// Hands the person's answer to a card to the agent that raised it: in its
     /// work thread when the card was raised in one (waking it if it was parked,
-    /// and carrying on a handoff that was waiting behind it), else in its DM.
-    /// Handing over the same answer twice delivers it once.
+    /// and carrying on a handoff that was waiting behind it), in its job's
+    /// thread while the job lives, else in its DM. Handing over the same
+    /// answer twice delivers it once.
     pub(super) async fn hand_over_answer(
         self: &Arc<Self>,
         persona_id: &str,
@@ -339,7 +347,7 @@ impl Room {
         reason: &str,
         status: HumanActionStatus,
         note: Option<String>,
-        thread: Option<String>,
+        home: ThreadId,
     ) -> Result<(), String> {
         let cause = DeliveryCause::Answer {
             action_id: action_id.to_string(),
@@ -348,40 +356,35 @@ impl Room {
         };
         let delivery_id = format!("human-answer:{action_id}");
         let text = note.unwrap_or_default();
-        match thread {
-            Some(thread) => {
+        let from = DeliveryFrom::new(&home, Some(action_id.to_string()));
+        match home.kind {
+            ThreadKind::Side => {
                 let handoff = self.handoff_awaiting(persona_id, action_id).map(|request| {
                     turns::HandoffLine {
                         request,
                         answer: Some(action_id.to_string()),
                     }
                 });
-                self.deliver_into_work(
-                    &thread,
-                    &delivery_id,
-                    cause,
-                    DeliveryFrom::new(&ThreadId::side(&thread), Some(action_id.to_string())),
-                    text,
-                    handoff,
-                )
-                .await
+                self.deliver_into_work(&home.key, &delivery_id, cause, from, text, handoff)
+                    .await
             }
-            None => {
+            ThreadKind::Job if self.job_lives(&home.key) => {
+                self.deliver_into_job(&home.key, &delivery_id, cause, from, text)
+            }
+            _ => {
                 self.deliver_identified(persona_id, &delivery_id, cause, text)
                     .await
             }
         }
     }
 
-    /// One line onto a work thread of the teammate's, or onto its tape when
-    /// the card or the line belongs to no thread.
-    pub(super) fn write_home(&self, persona_id: &str, home: Option<&str>, event: &TranscriptEvent) {
-        match home {
-            Some(thread) => {
-                self.threads()
-                    .write(&ThreadId::side(thread), persona_id, event);
-            }
-            None => self.write(persona_id, event),
+    /// One line onto the thread of the teammate's a card is raised in: its
+    /// tape for the DM, else the thread's own stream.
+    pub(super) fn write_home(&self, persona_id: &str, home: &ThreadId, event: &TranscriptEvent) {
+        if home.kind == ThreadKind::Dm {
+            self.write(persona_id, event);
+        } else {
+            self.threads().write(home, persona_id, event);
         }
     }
 
@@ -391,11 +394,7 @@ impl Room {
     /// cards carried `expiresAt` lives [`ASK_HOURS`] from when it was asked.
     pub(crate) fn expire_stale_asks(self: &Arc<Self>, now: i64) {
         for persona in crate::room::roster(&self.log) {
-            let cards = self
-                .tape(&persona.id)
-                .into_iter()
-                .chain(self.cards_in_work(&persona.id));
-            for event in cards {
+            for (event, home) in self.cards_of(&persona.id) {
                 let Ok(TranscriptEvent::HumanAction {
                     ts,
                     action_id,
@@ -403,7 +402,6 @@ impl Room {
                     status: HumanActionStatus::Pending,
                     delivers: Some(true),
                     expires_at,
-                    thread,
                     ..
                 }) = serde_json::from_value::<TranscriptEvent>(event)
                 else {
@@ -416,10 +414,13 @@ impl Room {
                 let _answering = lock(&self.answering_later);
                 if !matches!(
                     self.human_card(&persona.id, &action_id),
-                    Some(TranscriptEvent::HumanAction {
-                        status: HumanActionStatus::Pending,
-                        ..
-                    })
+                    Some((
+                        TranscriptEvent::HumanAction {
+                            status: HumanActionStatus::Pending,
+                            ..
+                        },
+                        _
+                    ))
                 ) {
                     continue;
                 }
@@ -430,7 +431,7 @@ impl Room {
                     &reason,
                     HumanActionStatus::Expired,
                     None,
-                    thread,
+                    home,
                 );
             }
         }
@@ -501,7 +502,7 @@ impl Room {
         status: HumanActionStatus,
         note: Option<String>,
     ) {
-        let Some(card) = self.human_card(persona_id, action_id) else {
+        let Some((card, home)) = self.human_card(persona_id, action_id) else {
             return;
         };
         let TranscriptEvent::HumanAction {
@@ -517,7 +518,7 @@ impl Room {
         };
         self.write_home(
             persona_id,
-            thread.as_deref(),
+            &home,
             &TranscriptEvent::HumanAction {
                 id,
                 ts: now_ms(),
@@ -527,20 +528,35 @@ impl Room {
                 note,
                 delivers,
                 expires_at,
-                thread: thread.clone(),
+                thread,
             },
         );
     }
 
-    /// The card this request raised, on the tape or in one of the teammate's
-    /// work threads.
-    pub(super) fn human_card(&self, persona_id: &str, action_id: &str) -> Option<TranscriptEvent> {
+    /// The card this request raised, and the thread it was raised in: the
+    /// tape, or one of the teammate's work threads or jobs. Where the card is
+    /// is where its answer goes.
+    pub(super) fn human_card(
+        &self,
+        persona_id: &str,
+        action_id: &str,
+    ) -> Option<(TranscriptEvent, ThreadId)> {
         let id = Value::from(format!("human:{action_id}"));
+        self.cards_of(persona_id)
+            .into_iter()
+            .find(|(event, _)| event.get("id") == Some(&id))
+            .and_then(|(event, home)| Some((serde_json::from_value(event).ok()?, home)))
+    }
+
+    /// Every human-action card of the teammate's, with the thread it is on.
+    fn cards_of(&self, persona_id: &str) -> Vec<(Value, ThreadId)> {
+        let dm = ThreadId::dm(persona_id);
         self.tape(persona_id)
             .into_iter()
+            .map(|event| (event, dm.clone()))
             .chain(self.cards_in_work(persona_id))
-            .find(|event| event.get("id") == Some(&id))
-            .and_then(|event| serde_json::from_value(event).ok())
+            .chain(self.cards_in_jobs(persona_id))
+            .collect()
     }
 }
 

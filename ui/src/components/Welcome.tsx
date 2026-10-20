@@ -333,7 +333,7 @@ export function Welcome({
 
 			{page === "teammate" && (
 				<>
-					<Lead title="Meet your first teammate" text="Give it a name and say what it should help with. Then say hello." />
+					<Lead title="Meet your first teammate" text="Your first teammate leads the team. Give it a name and say what it should help with, then say hello." />
 					<div className="welcome-panel">
 						<NewTeammateForm models={models} goal={FIRST_GOAL} submitLabel="Add teammate" onCreated={onCreated} simple />
 					</div>

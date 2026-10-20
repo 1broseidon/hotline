@@ -1,4 +1,4 @@
-import type { LinkState, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
+import type { Ability, LinkState, ScheduleEntry, ThreadKind, ThreadSummary, TranscriptEvent } from "./generated/contract";
 import { sideTitle } from "./links";
 
 /**
@@ -66,7 +66,7 @@ export function threadDot(row: Pick<ThreadSummary, "state" | "working" | "waitin
 }
 
 /** Where a kind sits in the list: work first, then the rest in the order a person reaches for them. */
-const KIND_RANK: Record<ThreadKind, number> = { side: 0, pair: 1, run: 2, call: 3, dm: 4 };
+const KIND_RANK: Record<ThreadKind, number> = { side: 0, pair: 1, run: 2, call: 3, dm: 4, job: 5 };
 
 /** Within a kind, what wants you first: a card waiting, a turn running, a thread open, then one parked. */
 const DOT_RANK: Record<ThreadDot, number> = { waiting: 0, running: 1, idle: 2, parked: 3, closed: 4 };
@@ -75,10 +75,11 @@ const DOT_RANK: Record<ThreadDot, number> = { waiting: 0, running: 1, idle: 2, p
  * The list: threads still open grouped by kind (work threads, then pairs,
  * runs and calls), each kind newest first with what wants you at its head, and
  * the closed ones folded apart, newest first. A teammate's own conversation is
- * the window beside the list, so it is not a row.
+ * the window beside the list, so it is not a row, and a job's thread is a row of
+ * the Jobs group, which the schedules view feeds.
  */
 export function groupThreads(list: ThreadSummary[]): { open: ThreadSummary[]; closed: ThreadSummary[] } {
-	const rows = list.filter((row) => row.thread.kind !== "dm");
+	const rows = list.filter((row) => row.thread.kind !== "dm" && row.thread.kind !== "job");
 	const newest = (a: ThreadSummary, b: ThreadSummary) => b.updatedAt - a.updatedAt;
 	return {
 		open: rows
@@ -144,7 +145,7 @@ export function withLinks(list: ThreadSummary[], links: LinkEvent[], personaId: 
 }
 
 /** The kinds a row names, when its title would not: a pair has none, and a run or call is not work. */
-const KIND_WORDS: Record<ThreadKind, string> = { dm: "", side: "", pair: "Pair", run: "Subagent", call: "Call" };
+const KIND_WORDS: Record<ThreadKind, string> = { dm: "", side: "", pair: "Pair", run: "Subagent", call: "Call", job: "Job" };
 
 /**
  * Whose hands a thread came from, when a teammate other than its own opened
@@ -197,6 +198,8 @@ export type Powers = { say: boolean; close: boolean; resume: boolean; stop: bool
 const READ: Powers = { say: false, close: false, resume: false, stop: false };
 
 export function powersOf(kind: ThreadKind, state: LinkState, handedOver = false): Powers {
+	// A job's thread is spoken in by the person, who is the desktop; a closed one is the record of an ended job.
+	if (kind === "job") return state === "closed" ? READ : { ...READ, say: true };
 	if (kind !== "side") return READ;
 	if (handedOver) return { ...READ, stop: state !== "closed" };
 	return state === "closed" ? { ...READ, resume: true } : { ...READ, say: true, close: true };
@@ -216,4 +219,34 @@ export function threadOwnerId(row: ThreadSummary | undefined, listedFor: string)
 export function openerOf(row: ThreadSummary | undefined): { personaId: string; name: string } | undefined {
 	if (row === undefined || row.thread.kind !== "side" || row.opener === undefined) return undefined;
 	return row.opener.personaId !== row.personaId ? row.opener : undefined;
+}
+
+/**
+ * The Jobs group: every job that has a thread (a plain reminder posts to the
+ * conversation and has none), the ones still running soonest first, then the
+ * ended ones, most recently ended first.
+ */
+export function jobRows(entries: ScheduleEntry[]): ScheduleEntry[] {
+	const jobs = entries.filter((entry) => entry.reminder !== true);
+	const running = jobs.filter((entry) => entry.endedAt === undefined).sort((a, b) => a.nextAt - b.nextAt);
+	const ended = jobs.filter((entry) => entry.endedAt !== undefined).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
+	return [...running, ...ended];
+}
+
+const LEFT_OUT: Record<Ability, string> = {
+	computer: "the computer",
+	folders: "folders outside its working directory",
+	mcp_servers: "MCP servers",
+};
+
+/**
+ * What a job runs without, as a sentence: the parts of its teammate's
+ * permission set it was made without, so a narrowed clone reads as one. None
+ * left out is no sentence.
+ */
+export function withoutWords(without: Ability[] | undefined): string {
+	const names = (without ?? []).map((ability) => LEFT_OUT[ability]);
+	if (names.length === 0) return "";
+	const last = names.pop();
+	return `Runs without ${names.length === 0 ? last : `${names.join(", ")} and ${last}`}.`;
 }

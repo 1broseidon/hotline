@@ -126,7 +126,8 @@ async fn granted_folders_hold_the_real_tools_and_a_change_takes_them_back() {
     let base = format!("http://{}/v1", listener.local_addr().unwrap());
     let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let desk = common::open_desk(&place.data).unwrap();
-    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
     let port = door.port();
     let door_task = tokio::spawn(door.run());
     let mut client = Client::connect(port, TOKEN).await;
@@ -328,7 +329,8 @@ async fn granted_folders_hold_the_real_tools_and_a_change_takes_them_back() {
 async fn a_folder_that_cannot_be_granted_is_refused_and_changes_nothing() {
     let place = Place::new();
     let desk = common::open_desk(&place.data).unwrap();
-    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
     let port = door.port();
     let door_task = tokio::spawn(door.run());
     let mut client = Client::connect(port, TOKEN).await;

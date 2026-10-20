@@ -534,6 +534,7 @@ fn the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them() {
         every: Some(60_000),
         prompt: "sweep the inbox".to_string(),
         quiet: None,
+        reminder: None,
     };
     let cancel = Command::ScheduleCancel {
         id: "job-1".to_string(),
@@ -626,7 +627,11 @@ fn a_computer_frame_reaches_the_phone_as_a_small_jpeg_or_not_at_all() {
 async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
     let quiet = Arc::new(Quiet::new());
     let (_root, log, port) = door_with("auth-wire", quiet.clone());
-    let room: Arc<dyn RoomHandle> = quiet.clone();
+    let room = crate::wire::Agents {
+        log: log.clone(),
+        room: quiet.clone(),
+        parts: Parts::default(),
+    };
     let (tx, mut frames) = mpsc::unbounded_channel();
     let outbox = Outbox {
         auth_attempts: Arc::default(),
@@ -661,7 +666,6 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
         answer(
             &frame,
             Seat::Phone,
-            &log,
             &room,
             &outbox,
             &mut HashMap::new(),
@@ -717,15 +721,21 @@ async fn auth_wire_allows_only_desktop_and_disconnect_revokes_its_owner() {
 
 #[tokio::test]
 async fn remote_controls_are_denied_to_companions() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
     let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
     let room: Arc<dyn RoomHandle> = desk.clone();
-    let remote =
-        crate::remote::Remote::open_with_store(root.path(), desk.log.clone(), room.clone(), store)
-            .unwrap();
-    desk.set_remote(&remote);
+    let agents = crate::wire::Agents {
+        log: desk.log.clone(),
+        room: room.clone(),
+        parts: desk.parts(),
+    };
+    let remote = crate::remote::Remote::open_with_store(root.path(), agents, store).unwrap();
+    let parts = Parts {
+        remote: Arc::downgrade(&remote),
+        ..desk.parts()
+    };
 
     {
         let seat = Seat::Phone;
@@ -755,18 +765,25 @@ async fn remote_controls_are_denied_to_companions() {
                 seat,
                 &room,
                 &desk.log,
+                &parts,
                 json!({"id":1,"cmd":cmd,"params":params}),
             )
             .await;
             assert_eq!(response["code"], FORBIDDEN, "{seat:?} {cmd}: {response}");
         }
         let response =
-            remote_control_answer(seat, &room, &desk.log, json!({"id":1,"sub":"room"})).await;
+            remote_control_answer(seat, &room, &desk.log, &parts, json!({"id":1,"sub":"room"}))
+                .await;
         assert_eq!(response["code"], FORBIDDEN, "{seat:?}: {response}");
         // Both roles retain the same useful, read-only phone command.
-        let response =
-            remote_control_answer(seat, &room, &desk.log, json!({"id":1,"cmd":"models.list"}))
-                .await;
+        let response = remote_control_answer(
+            seat,
+            &room,
+            &desk.log,
+            &parts,
+            json!({"id":1,"cmd":"models.list"}),
+        )
+        .await;
         assert_eq!(response["ok"], true, "{seat:?}: {response}");
     }
     assert!(
@@ -785,6 +802,7 @@ async fn remote_controls_are_denied_to_companions() {
             Seat::Desk,
             &room,
             &desk.log,
+            &parts,
             json!({"id":1,"cmd":cmd,"params":params}),
         )
         .await;
@@ -796,11 +814,12 @@ async fn remote_controls_are_denied_to_companions() {
         weak.upgrade().is_none(),
         "desk controls must not form a strong cycle"
     );
-    assert!(desk.remote().is_none());
+    assert!(parts.remote.upgrade().is_none());
     let response = remote_control_answer(
         Seat::Desk,
         &room,
         &desk.log,
+        &parts,
         json!({"id":1,"cmd":"remote.status"}),
     )
     .await;
@@ -815,19 +834,26 @@ async fn remote_controls_are_denied_to_companions() {
 
 #[tokio::test]
 async fn desk_pairing_commands_start_poll_and_cancel_sealed_pairing() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
     let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
     let room: Arc<dyn RoomHandle> = desk.clone();
-    let remote =
-        crate::remote::Remote::open_with_store(root.path(), desk.log.clone(), room.clone(), store)
-            .unwrap();
-    desk.set_remote(&remote);
+    let agents = crate::wire::Agents {
+        log: desk.log.clone(),
+        room: room.clone(),
+        parts: desk.parts(),
+    };
+    let remote = crate::remote::Remote::open_with_store(root.path(), agents, store).unwrap();
+    let parts = Parts {
+        remote: Arc::downgrade(&remote),
+        ..desk.parts()
+    };
     let response = remote_control_answer(
         Seat::Desk,
         &room,
         &desk.log,
+        &parts,
         json!({"id":1,"cmd":"remote.configure","params":{"enabled":true,"host":"all"}}),
     )
     .await;
@@ -837,6 +863,7 @@ async fn desk_pairing_commands_start_poll_and_cancel_sealed_pairing() {
             Seat::Desk,
             &room,
             &desk.log,
+            &parts,
             json!({"id":1,"cmd":"remote.pairing","params":params}),
         )
         .await;
@@ -853,6 +880,7 @@ async fn desk_pairing_commands_start_poll_and_cancel_sealed_pairing() {
             Seat::Desk,
             &room,
             &desk.log,
+            &parts,
             json!({"id":1,"cmd":"remote.pairing","params":{"id":id}}),
         )
         .await;
@@ -861,6 +889,7 @@ async fn desk_pairing_commands_start_poll_and_cancel_sealed_pairing() {
             Seat::Desk,
             &room,
             &desk.log,
+            &parts,
             json!({"id":1,"cmd":"remote.pairing","params":{"id":id,"cancel":true}}),
         )
         .await;
@@ -871,6 +900,7 @@ async fn desk_pairing_commands_start_poll_and_cancel_sealed_pairing() {
             Seat::Desk,
             &room,
             &desk.log,
+            &parts,
             json!({"id":1,"cmd":"remote.pairing","params":params}),
         )
         .await;

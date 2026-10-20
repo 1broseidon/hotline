@@ -6,14 +6,18 @@
 //! teammate's message, with the caption as the message's words. A phone
 //! hears it the way it hears any reply.
 //!
-//! A quiet scheduled run is refused rather than demoted. Its words become
-//! thinking, and a file in thinking would reach nobody while the teammate
-//! believed it had been sent.
+//! Whatever thread sends it, the file is posted to the chat through its one
+//! door ([`Room::post`]), stamped with where it came from: a work thread, a
+//! pair, a job, or the call the DM's turn was said on, which keeps a line
+//! naming it. A job's file is its turn's one post, stamped with the job, and
+//! counts against the turn's `post_to_chat` gate like a note would.
 
-use super::prompt::stamped;
-use super::{Room, lock, new_id, now_ms, quiet};
+use super::post::{AGAIN, Turn};
+use super::{Post, Room, lock, new_id, now_ms};
 use crate::computer::{self, Ready};
-use crate::contract::{Attachment, AttachmentKind, Persona, TranscriptEvent};
+use crate::contract::{
+    Attachment, AttachmentKind, NoticeLevel, Persona, ThreadId, ThreadKind, TranscriptEvent,
+};
 use crate::driver::CapabilityLease;
 use crate::images::DECODERS;
 use crate::sent::{self, Prepared};
@@ -31,8 +35,6 @@ pub(super) type Drawn = ([u8; 32], i64);
 /// How long a picture `generate_image` posted counts as just posted. Asked
 /// for again after that, it is sent again.
 const REPEAT_MS: i64 = 10 * 60 * 1000;
-
-const QUIET: &str = "This is a quiet scheduled run, and nothing from it reaches the person, so the file was not sent. If they need it, send it when you are next talking with them.";
 
 /// Where the file to send is.
 pub(crate) enum Source {
@@ -56,15 +58,15 @@ struct Taken {
 }
 
 impl Room {
-    /// Sends the person a file from `source`, and answers what the teammate
-    /// is told: what was sent, or why nothing was.
+    /// Sends the person a file from `source`, from a turn on `thread`, and
+    /// answers what the teammate is told: what was sent, or why nothing was.
     pub(crate) async fn send_file(
         &self,
         persona_id: &str,
         source: Source,
         caption: &str,
         capability: Option<CapabilityLease>,
-        home: Option<&str>,
+        thread: &ThreadId,
     ) -> Result<String, String> {
         let persona = self.persona(persona_id)?;
         let caption = caption.trim();
@@ -73,10 +75,7 @@ impl Room {
                 "A caption is at most {MAX_CAPTION_CHARS} characters; say the rest in your reply."
             ));
         }
-        // A quiet scheduled run holds the DM's voice, not a thread's.
-        if home.is_none() && self.is_quiet(persona_id) {
-            return Err(QUIET.to_string());
-        }
+        self.may_send(thread)?;
         let generated = matches!(&source, Source::GeneratedImage(_));
         let workspace = matches!(&source, Source::Workspace(_));
         let taken = match source {
@@ -127,24 +126,15 @@ impl Room {
         let root = self.log.root();
         let path = sent::store(root, persona_id, &id, &file)
             .map_err(|error| format!("The desk could not keep the file: {error}"))?;
-        let event = TranscriptEvent::Agent {
-            id: id.clone(),
-            ts: now_ms(),
-            text: caption.to_string(),
-            attachments: Some(vec![Attachment {
-                kind: file.kind,
-                name: file.name.clone(),
-                path: path.display().to_string(),
-                mime_type: Some(file.mime_type.clone()),
-                size: Some(file.bytes.len() as i64),
-                width: file.dimensions.map(|(width, _)| width),
-                height: file.dimensions.map(|(_, height)| height),
-                origin: Some(taken.origin),
-            }]),
-            reactions: None,
-            ring: None,
-            receipt: None,
-            spoken: None,
+        let attachment = Attachment {
+            kind: file.kind,
+            name: file.name.clone(),
+            path: path.display().to_string(),
+            mime_type: Some(file.mime_type.clone()),
+            size: Some(file.bytes.len() as i64),
+            width: file.dimensions.map(|(width, _)| width),
+            height: file.dimensions.map(|(_, height)| height),
+            origin: Some(taken.origin),
         };
         if let Some(capability) = &capability
             && let Err(refused) = capability.check()
@@ -152,16 +142,10 @@ impl Room {
             sent::discard(root, persona_id, &id);
             return Err(refused);
         }
-        if let Err(refused) = self.post_file(persona_id, home, event) {
+        if let Err(refused) = self.post_file(persona_id, thread, id.clone(), caption, attachment) {
             sent::discard(root, persona_id, &id);
             return Err(refused);
         }
-        let body = if caption.is_empty() {
-            format!("Sent {}", file.name)
-        } else {
-            caption.to_string()
-        };
-        self.push.notify(&persona.name, &body, persona_id, None);
         if generated {
             let mut drawn = lock(&self.drawn);
             let recent = drawn.entry(persona_id.to_string()).or_default();
@@ -180,40 +164,73 @@ impl Room {
         })
     }
 
-    /// Whether a quiet scheduled run holds this teammate's voice right now.
-    pub(super) fn is_quiet(&self, persona_id: &str) -> bool {
-        let session = lock(&self.sessions).get(persona_id).cloned();
-        session.is_some_and(|session| quiet::mutes_deltas(lock(&session.quiet).as_ref(), now_ms()))
+    /// Refuses a file before it is fetched, or an image before it is drawn,
+    /// when the job's turn sending it from `thread` has had its one post.
+    pub(super) fn may_send(&self, thread: &ThreadId) -> Result<(), String> {
+        if thread.kind == ThreadKind::Job && self.has_posted(thread) {
+            return Err(AGAIN.to_string());
+        }
+        Ok(())
     }
 
-    /// Writes the file's message through the same stamps and quiet window as
-    /// every line the room writes down, and says whether it landed: the
-    /// teammate is about to be told the person has the file.
+    /// Posts the file's message to the chat from where it was sent, and says
+    /// whether it landed: the teammate is about to be told the person has
+    /// the file. The DM's own is its reply; a job's takes the turn's one
+    /// post; and any thread but the DM keeps a line naming it.
     fn post_file(
         &self,
         persona_id: &str,
-        home: Option<&str>,
-        event: TranscriptEvent,
+        thread: &ThreadId,
+        id: String,
+        caption: &str,
+        attachment: Attachment,
     ) -> Result<(), String> {
-        // In a work thread the file is a line of that thread, through the same
-        // write path as the rest of what the thread says.
-        if let Some(thread) = home {
-            self.write_home(persona_id, Some(thread), &event);
-            return Ok(());
+        let name = attachment.name.clone();
+        let from = self.sent_from(persona_id, thread);
+        let mut post = Post {
+            id,
+            text: caption.to_string(),
+            attachments: Some(vec![attachment]),
+            scheduled: None,
+        };
+        if from.kind == ThreadKind::Dm {
+            return self.post(persona_id, &from, post);
+        }
+        let taken = from.kind == ThreadKind::Job
+            && match self.take_post(&from)? {
+                Turn::Taken(scheduled) => {
+                    post.scheduled = scheduled;
+                    true
+                }
+                Turn::Closed | Turn::Loud => false,
+            };
+        if let Err(error) = self.post(persona_id, &from, post) {
+            if taken {
+                self.give_post_back(&from);
+            }
+            return Err(error);
+        }
+        let line = TranscriptEvent::Notice {
+            id: new_id(),
+            ts: now_ms(),
+            level: NoticeLevel::Info,
+            text: format!("Sent {name} to the chat."),
+        };
+        self.threads().write(&from, persona_id, &line);
+        Ok(())
+    }
+
+    /// The thread a file sent from `thread` came from: the DM's turn said on
+    /// a call is the call's, as its replies are.
+    fn sent_from(&self, persona_id: &str, thread: &ThreadId) -> ThreadId {
+        if thread.kind != ThreadKind::Dm {
+            return thread.clone();
         }
         let session = lock(&self.sessions).get(persona_id).cloned();
-        let event = match &session {
-            Some(session) => stamped(session, event, now_ms()),
-            None => event,
-        };
-        // A quiet window that opened while the file was fetched makes the
-        // message a thought, which would carry no file.
-        if !matches!(event, TranscriptEvent::Agent { .. }) {
-            return Err(QUIET.to_string());
-        }
-        let event = serde_json::to_value(&event).map_err(|error| error.to_string())?;
-        self.try_write_value(persona_id, &event)
-            .map_err(|error| format!("The conversation could not be written to: {error}"))
+        session
+            .and_then(|session| lock(&session.voice_origin).clone())
+            .filter(|origin| origin.direct)
+            .map_or_else(|| thread.clone(), |origin| ThreadId::call(&origin.call_id))
     }
 
     async fn computer_to_send_from(&self, persona_id: &str) -> Result<Ready, String> {

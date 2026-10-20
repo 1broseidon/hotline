@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""Which top-level modules of hotline-core name which others.
+
+Run from the repository root with no arguments. It walks the `mod` tree from
+crates/hotline-core/src/lib.rs and finds every path that leaves a module for
+another top-level module: `crate::X::...`, `use crate::{X, Y::z}`, and
+`super::` chains that climb out to the crate root. Comments, string literals
+and char literals are blanked first, so a doc link or a format string is not a
+reference. Code under `#[cfg(test)]` (and files such as `tests.rs` that are
+only declared under it) counts separately from production code, because a
+test-only edge costs a crate a dev-dependency, not a dependency.
+
+It prints the edges, the layers they form, the strongly connected core, and
+the modules that sit one edge away from being leaves. docs/adr/0007 says what
+to make of it.
+"""
+
+from collections import defaultdict
+from pathlib import Path
+import re
+import sys
+
+SRC = Path("crates/hotline-core/src")
+
+# One alternative per lexical form that can hide braces or `crate::`; a match is
+# replaced by spaces (newlines kept, so line numbers survive).
+BLANKED = re.compile(
+    r"""
+      //[^\n]*                          # line comment, doc comments included
+    | /\*.*?\*/                         # block comment, not nested
+    | r(?P<hashes>\#*)".*?"(?P=hashes)  # raw string
+    | "(?:\\.|[^"\\])*"                 # string
+    | '(?:\\[^']+|[^\\'\n])'            # char literal; a lifetime has no closing quote
+    """,
+    re.VERBOSE | re.DOTALL,
+)
+MOD_DECLARATION = re.compile(r"\bmod\s+(\w+)\s*(;|\{)")
+CFG_TEST = re.compile(r"#\[cfg\(test\)\]")
+PATH_START = re.compile(r"\b(crate|super)\s*::")
+IDENT = re.compile(r"\w+")
+
+
+def blank(text):
+    return BLANKED.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+
+
+def matching_brace(text, open_at):
+    depth = 0
+    for i in range(open_at, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return len(text) - 1
+
+
+def cfg_test_regions(text):
+    """Spans of the file covered by `#[cfg(test)]`: the item that follows it."""
+    regions = []
+    for attribute in CFG_TEST.finditer(text):
+        open_at = text.find("{", attribute.end())
+        end_at = text.find(";", attribute.end())
+        if end_at != -1 and (open_at == -1 or end_at < open_at):
+            regions.append((attribute.start(), end_at))
+        elif open_at != -1:
+            regions.append((attribute.start(), matching_brace(text, open_at)))
+    return regions
+
+
+def inline_modules(text):
+    """(name, start, end) of every `mod name { ... }` written out in the file."""
+    found = []
+    for declaration in MOD_DECLARATION.finditer(text):
+        if declaration.group(2) == "{":
+            open_at = declaration.end() - 1
+            found.append((declaration.group(1), open_at, matching_brace(text, open_at)))
+    return found
+
+
+def child_file(parent, name):
+    """Where `mod name;` in `parent` is read from."""
+    if parent.name in ("lib.rs", "mod.rs"):
+        folder = parent.parent
+    else:
+        folder = parent.parent / parent.stem
+    for candidate in (folder / f"{name}.rs", folder / name / "mod.rs"):
+        if candidate.is_file():
+            return candidate
+    sys.exit(f"module-map: no file for `mod {name};` in {parent}")
+
+
+def module_tree():
+    """Every file reachable from lib.rs as (file, module path, declared under cfg(test))."""
+    files = []
+
+    def visit(file, path, test_only):
+        files.append((file, path, test_only))
+        text = blank(file.read_text())
+        regions = cfg_test_regions(text)
+        for declaration in MOD_DECLARATION.finditer(text):
+            if declaration.group(2) != ";":
+                continue
+            under_test = any(a <= declaration.start() <= b for a, b in regions)
+            visit(
+                child_file(file, declaration.group(1)),
+                path + (declaration.group(1),),
+                test_only or under_test,
+            )
+
+    visit(SRC / "lib.rs", (), False)
+    return files
+
+
+def names_in_group(text, open_at):
+    """The first identifier of each comma-separated entry of `{ ... }` at open_at."""
+    close_at = matching_brace(text, open_at)
+    entries, depth, start = [], 0, open_at + 1
+    for i in range(open_at + 1, close_at + 1):
+        if i == close_at or (text[i] == "," and depth == 0):
+            entry = IDENT.search(text[start:i])
+            if entry:
+                entries.append((entry.group(0), start + entry.start()))
+            start = i + 1
+        elif text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+    return entries
+
+
+def references(text, module_path):
+    """Yield (top-level module, offset) for each path in `text` that leaves for one.
+
+    `module_path` is the module the text is in, as a tuple; an inline `mod`
+    adds to it for `super::` purposes.
+    """
+    inline = inline_modules(text)
+    for start in PATH_START.finditer(text):
+        # `a::crate::b` or `a::super::b` is not a path from the root or the parent.
+        if text[: start.start()].rstrip().endswith("::"):
+            continue
+        here = module_path + tuple(
+            name for name, a, b in inline if a < start.start() < b
+        )
+        after = start.end()
+        if start.group(1) == "crate":
+            climbed_to_root = True
+        else:
+            climbs = 1
+            while True:
+                more = re.compile(r"\s*super\s*::").match(text, after)
+                if not more:
+                    break
+                climbs += 1
+                after = more.end()
+            climbed_to_root = climbs >= len(here)
+            if not climbed_to_root:
+                continue
+        rest = re.compile(r"\s*").match(text, after).end()
+        if text[rest] == "{":
+            yield from names_in_group(text, rest)
+        else:
+            name = IDENT.match(text, rest)
+            if name:
+                yield name.group(0), name.start()
+
+
+def line_of(text, offset):
+    return text.count("\n", 0, offset) + 1
+
+
+def collect():
+    top_level = set(re.findall(r"\bmod\s+(\w+)\s*;", blank((SRC / "lib.rs").read_text())))
+    edges = defaultdict(lambda: {"production": [], "test": []})
+    for file, path, test_only in module_tree():
+        if not path:
+            continue
+        origin = path[0]
+        text = blank(file.read_text())
+        regions = cfg_test_regions(text)
+        for target, offset in references(text, path):
+            if target == origin or target not in top_level:
+                continue
+            under_test = test_only or any(a <= offset <= b for a, b in regions)
+            site = f"{file.relative_to(SRC)}:{line_of(text, offset)}"
+            edges[(origin, target)]["test" if under_test else "production"].append(site)
+    return sorted(top_level), edges
+
+
+def strongly_connected(nodes, successors):
+    """Tarjan's algorithm; components come out dependencies-first."""
+    index, low, on_stack, stack, components = {}, {}, set(), [], []
+
+    def visit(node):
+        index[node] = low[node] = len(index)
+        stack.append(node)
+        on_stack.add(node)
+        for next_node in sorted(successors[node]):
+            if next_node not in index:
+                visit(next_node)
+                low[node] = min(low[node], low[next_node])
+            elif next_node in on_stack:
+                low[node] = min(low[node], index[next_node])
+        if low[node] == index[node]:
+            component = []
+            while True:
+                member = stack.pop()
+                on_stack.discard(member)
+                component.append(member)
+                if member == node:
+                    break
+            components.append(sorted(component))
+
+    for node in nodes:
+        if node not in index:
+            visit(node)
+    return components
+
+
+def successors_of(modules, edges, kinds):
+    successors = {module: set() for module in modules}
+    for (origin, target), sites in edges.items():
+        if any(sites[kind] for kind in kinds):
+            successors[origin].add(target)
+    return successors
+
+
+def layers(components, successors):
+    """Depth of each component above the leaves; a leaf is depth 0."""
+    member_of = {m: tuple(c) for c in components for m in c}
+    depth = {}
+    for component in components:  # dependencies first
+        below = [
+            depth[member_of[t]]
+            for m in component
+            for t in successors[m]
+            if member_of[t] != tuple(component)
+        ]
+        depth[tuple(component)] = 1 + max(below) if below else 0
+    return depth
+
+
+def count(sites):
+    return len(sites)
+
+
+def print_edges(modules, edges):
+    print("## Edges")
+    print()
+    print("`module -> module` with its reference counts: production, and `+Nt` more in")
+    print("`#[cfg(test)]` code. A module with no edges out is listed as a leaf.")
+    print()
+    for module in modules:
+        targets = sorted(t for (o, t) in edges if o == module)
+        if not targets:
+            print(f"{module}: (none)")
+            continue
+        parts = []
+        for target in targets:
+            sites = edges[(module, target)]
+            label = f"{target}({count(sites['production'])}"
+            if sites["test"]:
+                label += f"+{count(sites['test'])}t"
+            parts.append(label + ")")
+        print(f"{module} -> " + ", ".join(parts))
+    print()
+
+
+def print_layers(modules, successors):
+    components = strongly_connected(modules, successors)
+    depth = layers(components, successors)
+    print("## Layers (production edges)")
+    print()
+    print("Layer 0 are the leaves. A module is on layer N when the deepest module it")
+    print("names is on layer N-1. Modules that reach each other share one entry.")
+    print()
+    by_depth = defaultdict(list)
+    for component in components:
+        by_depth[depth[tuple(component)]].append(component)
+    for level in sorted(by_depth):
+        for component in sorted(by_depth[level]):
+            tag = f"layer {level}"
+            if len(component) > 1:
+                tag += f", strongly connected, {len(component)} modules"
+            print(f"- {tag}: {', '.join(component)}")
+    print()
+    return components
+
+
+def print_cuts(modules, edges, successors):
+    """Modules that would be leaves (or sit on leaves) with one edge removed."""
+    components = strongly_connected(modules, successors)
+    depth = layers(components, successors)
+    member_of = {m: tuple(c) for c in components for m in c}
+    leaves = {m for m in modules if not successors[m]}
+    print("## One-link cuts (production edges)")
+    print()
+    print("A module not yet on the leaves whose only way off them is a single edge")
+    print("to a single module. Cut that edge and the module is a leaf of the leaves.")
+    print()
+    found = False
+    for module in modules:
+        if module in leaves:
+            continue
+        blockers = sorted(t for t in successors[module] if t not in leaves)
+        if len(blockers) != 1:
+            continue
+        target = blockers[0]
+        sites = edges[(module, target)]["production"]
+        shown = "; ".join(sites[:4]) + ("; ..." if len(sites) > 4 else "")
+        scope = "inside the core" if len(member_of[module]) > 1 else "outside the core"
+        print(f"- {module} -> {target}: {count(sites)} reference(s), {scope}: {shown}")
+        found = True
+    if not found:
+        print("(none)")
+    print()
+
+
+def main():
+    modules, edges = collect()
+    print(f"# hotline-core module map ({len(modules)} top-level modules)")
+    print()
+    print_edges(modules, edges)
+    production = successors_of(modules, edges, ("production",))
+    everything = successors_of(modules, edges, ("production", "test"))
+    components = print_layers(modules, production)
+    print_cuts(modules, edges, production)
+    print("## Test-only edges")
+    print()
+    print("Edges that exist only in `#[cfg(test)]` code, and so would be")
+    print("dev-dependencies of a crate that moved out.")
+    print()
+    test_only = [
+        (o, t, edges[(o, t)]["test"])
+        for (o, t) in sorted(edges)
+        if not edges[(o, t)]["production"]
+    ]
+    for origin, target, sites in test_only:
+        print(f"- {origin} -> {target}: {len(sites)} reference(s), e.g. {sites[0]}")
+    if not test_only:
+        print("(none)")
+    print()
+    core = [c for c in components if len(c) > 1]
+    combined = [c for c in strongly_connected(modules, everything) if len(c) > 1]
+    if combined != core:
+        print("Counting test code the cycles are:")
+        for component in combined:
+            print(f"- {', '.join(component)}")
+
+
+if __name__ == "__main__":
+    main()

@@ -64,7 +64,7 @@ impl Calls {
         interrupted: &CancellationToken,
         ended: &CancellationToken,
     ) -> Result<(), String> {
-        let sentences: Vec<String> = sentences(text)
+        let sentences: Vec<String> = spoken::sentences(text)
             .into_iter()
             .filter(|sentence| !spoken::speech_text(sentence).is_empty())
             .collect();
@@ -422,7 +422,7 @@ pub(super) fn speech_ready(text: &str) -> bool {
     let text = text.trim();
     !text.is_empty()
         && text.chars().count() <= 320
-        && sentences(text).len() <= 2
+        && spoken::sentences(text).len() <= 2
         && !text.contains(['`', '#', '*', '\n', '[', ']', '|'])
         && spoken::speech_text(text) == text
 }
@@ -466,69 +466,4 @@ pub(super) fn own_voice(
         }),
         ..settings.clone()
     })
-}
-
-pub(super) fn sentences(text: &str) -> Vec<String> {
-    take_sentences(&mut text.to_string(), true)
-}
-
-/// A boundary needs following whitespace, so file names and versions stay
-/// intact. A line break is a boundary too: list items rarely end in a stop.
-pub(super) fn take_sentences(pending: &mut String, finished: bool) -> Vec<String> {
-    let mut ends = Vec::new();
-    let mut chars = pending.char_indices().peekable();
-    while let Some((at, c)) = chars.next() {
-        if c == '\n'
-            || matches!(c, '.' | '!' | '?')
-                && chars.peek().is_some_and(|(_, next)| next.is_whitespace())
-        {
-            ends.push(at + c.len_utf8());
-        }
-    }
-    if finished {
-        ends.push(pending.len());
-    }
-    let mut start = 0;
-    let mut out = Vec::new();
-    for end in ends {
-        let sentence = pending[start..end].trim();
-        if !sentence.is_empty() {
-            out.extend(spoken_lengths(sentence));
-        }
-        start = end;
-    }
-    pending.drain(..start);
-    out
-}
-
-/// The longest piece sent to speech at once. A run-on sentence is cut at a
-/// comma-like pause, else a space, so no one request nears the audio limit.
-pub(super) const SPOKEN_PIECE: usize = 300;
-
-pub(super) fn spoken_lengths(sentence: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = sentence;
-    while rest.len() > SPOKEN_PIECE {
-        let mut limit = SPOKEN_PIECE;
-        while !rest.is_char_boundary(limit) {
-            limit -= 1;
-        }
-        let head = &rest[..limit];
-        let cut = [", ", "; ", ": ", " - "]
-            .iter()
-            .filter_map(|pause| head.rfind(pause).map(|at| at + 1))
-            .max()
-            .filter(|&at| at > SPOKEN_PIECE / 3)
-            .or_else(|| head.rfind(' ').filter(|&at| at > 0))
-            .unwrap_or(limit);
-        let piece = rest[..cut].trim();
-        if !piece.is_empty() {
-            out.push(piece.to_string());
-        }
-        rest = rest[cut..].trim_start();
-    }
-    if !rest.is_empty() {
-        out.push(rest.to_string());
-    }
-    out
 }

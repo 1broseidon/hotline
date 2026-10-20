@@ -16,14 +16,85 @@ module map itself is [development.md](development.md#layout).
 - One type's behaviour may be filed by concern across sibling files, the way
   `impl Room` is spread over `session/*`. Do not invent per-concern traits or
   types for that.
-- `contract` is a leaf: it imports nothing from the crate. ts-rs types
-  elsewhere are fine, as long as `ui/src/generated/contract.ts` stays
-  byte-identical under an unfiltered `cargo test -p hotline-core`.
-- A module is `pub` only when the app, the CLI, the harnesses or the examples
-  name it. Otherwise it is `pub(crate)`.
-- No new crates. Revisit that when an incremental
-  `cargo test -p hotline-core --no-run` takes more than 30 seconds, or the
-  contract gets a second consumer.
+- `hotline-contract` is a leaf: it depends on no other Hotline crate, and
+  `hotline-core` re-exports it as `contract`. Every `#[ts(export)]` type
+  lives in it, because ts-rs starts `ui/src/generated/contract.ts` afresh in
+  each test process: a type exported from a second crate would erase the
+  rest, or be erased. The file is what an unfiltered
+  `cargo test -p hotline-contract` writes.
+- `hotline-support` is the other leaf: the utilities that hold no Hotline
+  state (`credentials`, `paths`, `room_lock`, `log_file`, `images`,
+  `thumbs`, `fence`, `process_windows`). It depends on no Hotline crate, not
+  even `hotline-contract`, and `hotline-core` re-exports each module under
+  its old name, so `crate::paths` still holds there.
+- `hotline-store` is what is kept on disk and rebuilt from it: `log`,
+  `sent`, the search index, a tape's chapters and previews, and the link
+  line a thread leaves on its parent with the `ThreadState` it records. It
+  stands on `hotline-contract` and `hotline-support` and on no other Hotline
+  crate. `hotline-core` re-exports `log` and `sent` under their old names
+  and the crate as `store`, so `crate::store::search` still holds there,
+  and `thread` re-exports the link's types.
+- `hotline-tools` is a teammate's workspace and shell tools, with the
+  `CapabilityLease` and `CapabilityEpoch` each tool checks in its
+  `capability` module. It stands on `hotline-contract` and
+  `hotline-support` and on no other Hotline crate. The lease's fields are
+  private to that module, so no other crate can forge or revive one.
+  `hotline-core` re-exports the crate as `tools` and `driver` re-exports
+  the two types, so `crate::tools::Workspace` and
+  `crate::driver::CapabilityLease` still hold there.
+- `hotline-websearch` is web search: the providers, the chain that asks
+  them at once and fuses their lists, and the cleaning of what comes back.
+  It stands on `hotline-contract` alone. The vault's keys, the desk's
+  switches and the `web_search` tool stay in the core, which re-exports the
+  crate as `websearch`, so `crate::websearch::Search` still holds there.
+  Its mock provider is public only under the `test-support` feature, which
+  the core turns on for its tests alone.
+- `hotline-room` is the room as everything above the core sees it: the
+  roster and settings folded from the room stream, with the `mcpServers`
+  setting's reading beside them, linked desks, `RoomHandle` and its
+  `AuthStatus`, the tool ledger, voice's settings, ledger, metering and
+  spoken replies, and the stateless pieces the core's next crates need
+  (`ProviderAuth`, `same_secret`, `redact_text`, `clip`, the TLS default,
+  `HOME_MOUNT`). It stands on `hotline-contract`, `hotline-support`,
+  `hotline-store` and `hotline-websearch`, and never on `hotline-core` or
+  Tauri. `hotline-core` re-exports each piece at its old path, so
+  `crate::room`, `crate::linked`, `crate::session::ledger`,
+  `crate::voice::metering` and `crate::wire::RoomHandle` still hold there.
+  The wire's `Parts` (the calls, the Remote, the links) names core types,
+  so it stays in the core with the wire. The voice budget's unreserved
+  `charge` is public only under its `test-support` feature.
+- `hotline-mcp` is Hotline as an MCP client: the servers the `mcpServers`
+  setting names, the grant a teammate's policy selects, the live
+  connections and the tools they list, and OAuth sign-in to an HTTP
+  server. It stands on `hotline-contract`, `hotline-support`,
+  `hotline-tools` (the lease a tool checks) and `hotline-room` (the tool
+  ledger), and never on `hotline-core` or Tauri. It never opens the vault:
+  the core reads what the vault keeps for a server and hands it in as
+  `Vaulted`, the OAuth tokens behind rmcp's `CredentialStore`, which the
+  vault implements, and saving a client registration is the one call
+  back. `hotline-core` re-exports its items at `crate::mcp`, where
+  `TeammateTools`, the server of a teammate's own tools, stays: it calls
+  into the live room, the `mcp`↔`session` cycle below.
+- `hotline-voice` is the voice engines: the `Speech` seam with its
+  providers' adapters, the desk's own models and the choice of which a call
+  uses (`speech`), and the `Realtime` seam with Grok Voice, GPT Realtime and
+  GPT-Live (`realtime`). It stands on `hotline-contract`, `hotline-support`
+  and `hotline-room` (voice's settings, `ProviderAuth`, the TLS default), and
+  never on `hotline-core` or Tauri. It never opens the vault: the core reads
+  what the vault keeps for voice and hands it in as `speech::Connected`,
+  with the Grok and ChatGPT logins' refreshes, which stay with the core's
+  providers, as functions in it. `hotline-core` re-exports the crate at
+  `crate::voice::speech` and `crate::voice::realtime`, where the readers
+  that take the vault stand in for the engines' own, and the calls (the
+  dispatcher, the turns, the front) stay: they report to the live room, the
+  `session`↔`voice` cycle below.
+- A new crate comes from the plan in
+  [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
+  direction, its edges only go down, and nothing but the app and the CLI
+  depends on `hotline-core`. It declares the workspace `[lints]`, a license,
+  and a crate doc saying what it owns and what it must never depend on.
+- A module is `pub` only when the app, the CLI, the harnesses, the examples
+  or a crate above its own name it. Otherwise it is `pub(crate)`.
 - Do not break the `session`↔`driver`, `session`↔`voice` and `mcp`↔`session`
   cycles with single-implementation traits. A trait with one implementation
   is indirection that buys nothing here.

@@ -1,7 +1,7 @@
 # The wire
 
 One WebSocket per client, carrying commands and subscriptions. Frames are
-JSON text. Types are defined in `crates/hotline-core/src/contract/`; the
+JSON text. Types are defined in `crates/hotline-contract/src/`; the
 door that reads them is `crates/hotline-core/src/wire/`.
 
 The door binds `127.0.0.1` on an ephemeral port. `Door::run` serves until
@@ -98,7 +98,7 @@ Anything else with an id is refused: `"A frame is a command, a subscription or a
 ## Commands
 
 `cmd` is the enum tag, `params` the content. Field names on the wire are
-camelCase. The table is the `Command` enum in `contract/command.rs` and what
+camelCase. The table is the `Command` enum in `hotline-contract`'s `command.rs` and what
 `wire/commands.rs` returns, or `wire/socket.rs` for a command the socket
 answers itself (a phone's, a sign-in's, an upload's).
 
@@ -114,6 +114,7 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `persona.update` | `{id, patch}` | the teammate after the patch |
 | `persona.delete` | `{id}` | none — the agent is stopped, its peer sessions dropped, its tape kept |
 | `persona.pin` | `{id, slot?}` | the desk's pinned ids, in order — pins the teammate at `slot` (0-based, shifting the rest along, past the end appends) or unpins it when `slot` is absent; a pinned teammate given a slot moves; a fourth pin is refused; owner or local desk only |
+| `persona.lead` | `{id?}` | the desk's lead id, or `null` — makes the teammate lead, moving the role from whoever had it, or clears the lead when `id` is absent; clearing a desk of one teammate is refused (`teamLead` below); owner or local desk only |
 | `settings.update` | `{patch}` | every setting, defaults included |
 | `images.status` | `{}` | `ImagesStatus` `{available, unavailable?, provider?, model?, spending?, spendingUnavailable?}`; owner or local desk only |
 | `websearch.status` | `{}` | `WebSearchStatus` `{providers: [{provider, name, enabled, hasKey}]}` — each web search provider, whether the desk has it on and whether a key is saved, never the key; owner or local desk only |
@@ -176,9 +177,9 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `skills.add` | `{path}` | the `SkillEntry`; copies the skill folder at `path` into the gateway under its own name. Refused when it is not a skill or the gateway has one of that name |
 | `skills.remove` | `{name}` | none; removes a gateway skill. A teammate granted it loses it at its next start |
 | `skills.offer` | `{name, offered}` | the `SkillEntry`; offers one of the person's own skills to teammates, or withdraws it. Nothing is copied: the skill is read from the person's folder at every start |
-| `schedule.create` | `{personaId, kind, when?, every?, prompt, quiet?}` | the created `ScheduledJob` |
-| `schedule.list` | `{}` | `ScheduledJob[]`, soonest first |
-| `schedule.cancel` | `{id}` | none |
+| `schedule.create` | `{personaId, kind, when?, every?, prompt, quiet?, reminder?}` | the created `ScheduledJob` |
+| `schedule.list` | `{}` | `ScheduledJob[]` still to fire, soonest first |
+| `schedule.cancel` | `{id}` | none; a living job ends with a final post, an ended one leaves the list |
 | `schedule.set_quiet` | `{id, quiet}` | none |
 | `peers.list` | `{personaId}` | `PeerThreadSummary[]`, newest first |
 | `peers.mark_read` | `{key, eventIds}` | how many messages moved to read |
@@ -196,9 +197,9 @@ answers itself (a phone's, a sign-in's, an upload's).
 | `thread.list` | `{personaId?}` | `ThreadSummary[]` for that teammate, or for the whole room without `personaId`; live first, then parked, then closed, each newest first. A phone is not shown pairs or calls |
 | `thread.open` | `{personaId, text}` | the new work thread's `ThreadSummary`, returned at once and starting as `side.start` describes |
 | `thread.prompt` | `{thread, text, replyTo?, attachments?}` | none; returns at once, the answer is on the thread's subscription. The main conversation and a work thread only (`session.prompt`, `side.prompt`) |
-| `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange |
+| `thread.cancel` | `{thread}` | none; stops the turn in flight, the thread stays as it was. On a pair it stops the automatic exchange; on a job, the firing or line running, and the job keeps its schedule (refused when none runs) |
 | `thread.park` | `{thread}` | none; lets go of a work thread's agent and keeps it open: saying something in it brings one back. Parking a parked thread is none |
-| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`) |
+| `thread.close` | `{thread}` | none; ends a work thread, transcript kept (`side.archive`), or cancels a job (`schedule.cancel`) |
 | `thread.continue` | `{thread}` | the thread's `ThreadSummary`, live again. A parked or closed work thread, or, on a pair, a paused exchange |
 | `thread.answer` | `{thread, answer}` | none; `answer` is `{kind: "permission", requestId, optionId}` or `{kind: "human", actionId, status: "done"\|"declined", note?}`, routed by the thread's kind |
 | `thread.page` | `{thread, before, limit?, through?}` | `{events, more}`: older lines of any thread than its subscription opened with (`tape.page` on a DM) |
@@ -408,6 +409,17 @@ ids, repeats dropped, more than three refused). Deleting a teammate takes its
 pin with it, and a stored list that names someone no longer on the team reads
 as if they were not in it. Companion phones cannot read settings, so the
 roster carries each teammate's slot as `pin`.
+
+`teamLead` is the desk's lead: one persona id, or absent. `persona.lead` is
+how a person writes it, and a `settings.update` patch that names it is
+refused. The core writes it too, by one rule: a desk with exactly one
+teammate and no lead makes that one lead, after `persona.create` and
+`mobile.persona_create`, after `persona.delete`, and when the desk opens. So
+a desk's first teammate leads, and a desk from before the lead with one
+teammate opens with that one leading. Deleting the lead clears it; with two
+or more left nobody is picked. A stored id that names someone no longer on
+the team reads as no lead. The roster carries it as `lead` on that
+teammate's row.
 
 `settings.update` writes one event per key. JSON `null` is a tombstone
 and puts that key's default back. The result is the room's settings after
@@ -688,6 +700,14 @@ no file."`; an offset past the end is refused in a sentence. A phone needs
 no capability to ask: only a desk that serves `file.read` sends a
 teammate's file.
 
+An `agent` event the teammate posted from somewhere other than the
+conversation itself carries where it came from: `from`, `{thread, kind}` as
+on a delivery, for a call, a work thread or a job's thread, and
+`scheduled`, the job's stamp as on a user event, for anything a job or a
+reminder posted. A client says
+"From the call", "From a scheduled job" from them; the text does not. Both
+are optional, and absent from everything the conversation's own turns say.
+
 A teammate's `avatar` is `{hash, by: "self"|"person", updatedAt}`, and is
 absent when the teammate shows its initial. The picture is kept under
 `avatars/<teammate>/<hash>.png` and never rewritten, so a client may cache it
@@ -743,9 +763,14 @@ when it has never started under a Hotline that keeps a ledger, sent as
 `schedule.create`'s `kind` is `"schedule"` (once) or `"loop"` (every
 interval until cancelled). Times are milliseconds: `when` is a one-shot's
 fire, milliseconds since epoch; `every` is a loop's interval. `quiet`
-defaults to false. A one-shot cannot carry `every`; a loop cannot carry
-`when`. The job is an event on the room stream; the clock that fires it is
-[sessions.md](sessions.md).
+defaults to false; `reminder` makes the job a plain reminder, its prompt
+posted to the chat when it fires and no work done. A one-shot cannot carry
+`every`; a loop cannot carry `when`. The job is an event on the room stream;
+each firing is a turn on the job's own thread, `{"kind": "job", "key": id}`,
+which `thread.prompt` speaks in, `thread.cancel` stops and `thread.close`
+cancels. A stopped turn posts no report and its thread says it was stopped;
+the job fires again at its next time. The clock that fires it is
+[sessions.md](sessions.md#jobs).
 
 The desk's `schedule.create` is an operator instruction and writes
 `operatorCreated: true`; callers do not supply that field. These jobs may
@@ -771,11 +796,11 @@ not subscribe to that."` Both seat refusals carry `"code": "forbidden"`.
 | `"room"` | the room stream's fold | each room event as it lands |
 | `{"tape": id}` | that tape's last 400 lines, or further back to the last thing said when those are all steps | each tape event; `ephemeral` for streaming deltas |
 | `{"thread": key}` | that pair's fold | each thread event |
-| `{"threadId": {kind, key}}` | that thread's fold, whatever its kind: the teammate's tape for a `dm`, and the stream of that name for a `side`, `pair`, `run` or `call` | each event; `ephemeral` for streaming deltas |
+| `{"threadId": {kind, key}}` | that thread's fold, whatever its kind: the teammate's tape for a `dm`, and the stream of that name for a `side`, `pair`, `run`, `call` or `job` | each event; `ephemeral` for streaming deltas |
 | `{"side": id}` | that side thread's fold, headed by its `side` marker | each event; `ephemeral` for its streaming deltas |
 | `{"call": id}` | the call's `state` event, alone | each call event ([Voice calls](#voice-calls)) |
 | `{"view": "roster"}` | every living teammate's row | `event` for a changed row, `removed` for a tombstone |
-| `{"schedules": id}` | that teammate's jobs and loops | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
+| `{"schedules": id}` | that teammate's jobs as `ScheduleEntry`s: name, next run, last post, and `endedAt` for one that has ended | the whole list again as a `snapshot` whenever it changes; `removed` when the teammate is deleted |
 
 An `agent` event on a tape may carry `spoken`, what was said on a call for
 it ([Voice calls](#voice-calls)).
@@ -893,7 +918,8 @@ refused in a sentence, never silently:
 may run each verb exactly as it could under the old name, so the rule is by
 kind: `thread.prompt` only in a work thread (it speaks to a teammate with
 `mobile.prompt`, as before), `thread.answer` in anything but a pair
-(`peers.answer_permission` is the owner's and the desk's), `thread.page` and `{"threadId": …}`
+(`peers.answer_permission` is the owner's and the desk's), neither
+`thread.cancel` nor `thread.close` on a job (`schedule.cancel` is the desk's), `thread.page` and `{"threadId": …}`
 on anything but a call or the voice dispatcher's tape, and `thread.list` without
 pairs or calls (`peers.list` is refused it, and a call's preview is what was said). `client.hello` is the desk's, an owner's and a phone's. A refusal is
 `forbidden`, as ever. [security.md](security.md) has the table and its tests.
@@ -942,14 +968,18 @@ still pending — so a phone can say who needs the person from one roster; it is
 always written, so `false` is told apart from a desk that predates it.
 `drawing` is true while `avatar.generate` draws the teammate's picture. `pin` is the teammate's 0-based slot among the desk's pinned
 teammates, absent when it is not pinned; the affected rows are sent again when
-the `pinnedTeammates` setting changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
+the `pinnedTeammates` setting changes. `lead` is `true` on the desk's lead and
+absent on every other row, so a client that predates it reads the row as
+before; the rows that lost and gained it are sent again when `teamLead`
+changes. `session` is a `SessionInfo` (`state` is `idle`, `starting`,
 `ready`, `thinking`, `error`, or `stopped`). While a turn is `thinking`,
 `awaitingSubagents: true` says it is open only for subagents it started and
 reads as done: the reply is in the conversation and the composer is as it is
 between turns (see [sessions.md](sessions.md#a-turn-left-open-for-its-subagents)).
 `subagents` lists the runs still going, oldest first, and `sides` the work
-threads live, `{sideId, title, startedAt, working}`, oldest first; each is
-absent when there are none. A phone that declared `lean` is sent each row
+threads live, `{sideId, title, startedAt, working}`, oldest first, and
+`workingJobs` the ids of the jobs with a turn running, which is when a job
+can be stopped; each is absent when there are none. A phone that declared `lean` is sent each row
 without a Hotline Agent session's model list (it has `models.list`), slash
 commands or checkpoints, and with the preview cut to 280 characters. A persona tombstone on the
 room stream emits `removed` rather than a row. A session that reports
@@ -1100,8 +1130,10 @@ line. A card goes the moment it is asked. Nothing goes while the desk's
 window says the person is at it (`desk.looking`, below). Every push is `mutableContent`, so the
 phone's notification service may rewrite it as the teammate's own message.
 `data` always names `desktopId` and `personaId`. A card raised in one of the
-teammate's side threads also names it as `data.sideId`, and is answered with
-`side.answer_permission`, not the teammate's. A card that waits on the
+teammate's other threads (a work thread, a pair, a job) also names it as
+`data.thread`, `{kind, key}`, so a tap opens that thread rather than the
+conversation; one in a side thread names it as `data.sideId` too, and is
+answered with `side.answer_permission`, not the teammate's. A card that waits on the
 person also names its kind as `categoryId` and its request as
 `data.requestId`, which is the id the answer names:
 

@@ -499,7 +499,8 @@ async fn a_card_left_a_day_is_expired_and_the_teammate_told() {
 #[tokio::test]
 async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
     let room = room("human-done", Fake::new(Scripted::new(vec![])));
-    let tools = TeammateTools::new(&room, "ada").for_peer();
+    let tools =
+        TeammateTools::new(&room, "ada").for_peer(crate::contract::ThreadId::pair("ada-bob"));
     let waiting = {
         let tools = tools.clone();
         tokio::spawn(async move {
@@ -531,7 +532,8 @@ async fn request_human_writes_a_pending_card_and_the_answer_flips_it_to_done() {
 #[tokio::test]
 async fn an_answered_human_request_carries_the_note() {
     let room = room("human-answered-note", Fake::new(Scripted::new(vec![])));
-    let tools = TeammateTools::new(&room, "ada").for_peer();
+    let tools =
+        TeammateTools::new(&room, "ada").for_peer(crate::contract::ThreadId::pair("ada-bob"));
     let waiting = {
         let tools = tools.clone();
         tokio::spawn(async move {
@@ -570,7 +572,8 @@ async fn an_answered_human_request_carries_the_note() {
 #[tokio::test]
 async fn a_declined_human_request_carries_the_note() {
     let room = room("human-declined", Fake::new(Scripted::new(vec![])));
-    let tools = TeammateTools::new(&room, "ada").for_peer();
+    let tools =
+        TeammateTools::new(&room, "ada").for_peer(crate::contract::ThreadId::pair("ada-bob"));
     let waiting = {
         let tools = tools.clone();
         tokio::spawn(async move {
@@ -710,7 +713,8 @@ async fn a_card_left_open_on_a_thread_expires_when_the_room_opens() {
 async fn cancelling_a_turn_takes_the_card_it_asked_the_person_with() {
     let room = room("human-cancel", Fake::new(Scripted::new(vec![])));
     room.start("ada").await.unwrap();
-    let tools = TeammateTools::new(&room, "ada").for_peer();
+    let tools =
+        TeammateTools::new(&room, "ada").for_peer(crate::contract::ThreadId::pair("ada-bob"));
     let waiting = {
         let tools = tools.clone();
         tokio::spawn(async move {

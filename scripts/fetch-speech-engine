@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Puts the speech engine's prebuilt library where the build takes it from, checked.
 
-The desk's local speech-to-text (hotline-core, `voice/speech/local`) links
+The desk's local speech-to-text (hotline-voice, `speech/local`) links
 sherpa-onnx statically, and its build script would otherwise download a
 prebuilt archive over TLS alone. Cargo is pointed at `.speech-engine`
 instead (`.cargo/config.toml`, SHERPA_ONNX_ARCHIVE_DIR), and this script is

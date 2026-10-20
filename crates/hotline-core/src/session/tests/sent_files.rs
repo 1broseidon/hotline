@@ -1,7 +1,6 @@
 //! A teammate handing the person a file (BRO-98), through its own tool.
 
 use super::*;
-use crate::session::quiet::QuietWindow;
 use base64::{Engine, prelude::BASE64_STANDARD};
 
 /// A room where Ada works in a folder of her own, in the workspace
@@ -195,31 +194,97 @@ async fn what_cannot_be_sent_is_refused_and_leaves_nothing_behind() {
     assert_eq!(kept(&room), 0);
 }
 
-/// A quiet scheduled run's words become thinking, so a file in one would
-/// reach nobody while the teammate believed it had been sent.
+/// A job's file is posted, stamped with the job and from its thread, as the
+/// turn's one post, and nothing else the turn sends after it reaches the
+/// chat. The thread keeps a line naming it.
 #[tokio::test]
-async fn a_quiet_scheduled_run_sends_nothing_and_says_so() {
-    let (room, _) = workspace("send-quiet");
-    room.start("ada").await.unwrap();
-    let session = lock(&room.sessions).get("ada").cloned().unwrap();
-    *lock(&session.quiet) = Some(QuietWindow {
+async fn a_jobs_file_is_its_one_post() {
+    let (room, _) = workspace("send-job");
+    let job = crate::contract::ScheduledRun {
         job_id: "j1".to_string(),
-        pending_turns: 0,
-        until: now_ms() + 60_000,
-    });
-    let refused = TeammateTools::new(&room, "ada")
+        kind: crate::contract::ScheduleKind::Schedule,
+        name: "Crane check".to_string(),
+        operator_created: false,
+        quiet: Some(true),
+    };
+    let _turn = room.open_posting(&ThreadId::job("j1"), Some(job));
+    let tools = TeammateTools::new(&room, "ada").for_job("j1");
+    assert_eq!(
+        tools
+            .call(
+                "send_file",
+                &json!({ "source": "workspace", "path": "notes.txt", "caption": "The log" }),
+            )
+            .await
+            .unwrap(),
+        "Sent notes.txt (12 bytes)."
+    );
+    let again = tools
+        .call("post_to_chat", &json!({ "text": "And a note." }))
+        .await
+        .unwrap_err();
+    assert!(again.contains("one per turn"), "{again}");
+    let again = tools
         .call(
             "send_file",
-            &json!({ "source": "workspace", "path": "notes.txt" }),
+            &json!({ "source": "workspace", "path": "report.pdf" }),
         )
         .await
         .unwrap_err();
+    assert!(again.contains("one per turn"), "{again}");
+
+    let files = files_on(&room);
+    assert_eq!(files.len(), 1, "{files:?}");
+    assert_eq!(files[0]["kind"], "agent");
+    assert_eq!(files[0]["text"], "The log");
+    assert_eq!(files[0]["scheduled"]["jobId"], "j1");
+    assert_eq!(files[0]["from"], json!({"thread": "j1", "kind": "job"}));
+    assert_eq!(kept(&room), 1, "nothing refused was kept");
+    let thread = room.log.load(&StreamId::Job("j1".to_string()));
     assert!(
-        refused.starts_with("This is a quiet scheduled run"),
-        "{refused}"
+        thread
+            .iter()
+            .any(|event| event["text"] == "Sent notes.txt to the chat."),
+        "{thread:?}"
     );
-    assert_eq!(files_on(&room), [] as [Value; 0]);
-    assert_eq!(kept(&room), 0);
+}
+
+/// A file sent from the DM's turn on a call is the call's, as its replies
+/// are: in the chat stamped from the call, with a line on the call naming
+/// it.
+#[tokio::test]
+async fn a_file_sent_on_a_call_is_posted_from_the_call() {
+    let (room, _) = workspace("send-on-call");
+    room.start("ada").await.unwrap();
+    let session = lock(&room.sessions).get("ada").cloned().unwrap();
+    *lock(&session.voice_origin) = Some(crate::voice::Origin {
+        call_id: "c1".to_string(),
+        seq: 2,
+        direct: true,
+        front: false,
+        ended: false,
+    });
+    let sent = TeammateTools::new(&room, "ada")
+        .call(
+            "send_file",
+            &json!({ "source": "workspace", "path": "report.pdf" }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sent, "Sent report.pdf (15 bytes).");
+
+    let files = files_on(&room);
+    assert_eq!(files.len(), 1, "{files:?}");
+    assert_eq!(files[0]["from"], json!({"thread": "c1", "kind": "call"}));
+    let call = room
+        .log
+        .load(&StreamId::of_thread(&ThreadId::call("c1")).unwrap());
+    assert!(
+        call.iter()
+            .any(|event| event["kind"] == "notice"
+                && event["text"] == "Sent report.pdf to the chat."),
+        "{call:?}"
+    );
 }
 
 #[cfg(unix)]
@@ -271,5 +336,53 @@ async fn a_file_and_the_screen_come_off_the_computer() {
     assert_eq!(
         files[1]["attachments"][0]["origin"],
         "the computer's screen"
+    );
+}
+
+/// A file sent from a work thread is in the chat all the same, stamped with
+/// the thread, and the thread keeps a line naming it.
+#[tokio::test]
+async fn a_file_from_a_work_thread_is_posted_to_the_chat() {
+    let (room, _) = workspace("send-from-thread");
+    let sent = room
+        .send_file(
+            "ada",
+            crate::session::files::Source::Workspace("report.pdf".into()),
+            "The report",
+            None,
+            &ThreadId::side("side-1"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sent, "Sent report.pdf (15 bytes).");
+
+    let files = files_on(&room);
+    assert_eq!(files.len(), 1, "the file is a message of the chat");
+    assert_eq!(files[0]["text"], "The report");
+    assert_eq!(
+        files[0]["from"],
+        json!({"thread": "side-1", "kind": "side"})
+    );
+    let id = files[0]["id"].as_str().unwrap();
+    assert_eq!(
+        crate::sent::read(room.log.root(), "ada", id, 0)
+            .unwrap()
+            .name,
+        "report.pdf"
+    );
+    let thread = room.log.load(&StreamId::Side("side-1".into()));
+    assert!(
+        thread
+            .iter()
+            .any(|event| event["kind"] == "notice"
+                && event["text"] == "Sent report.pdf to the chat."),
+        "{thread:?}"
+    );
+    // The model, reading the chat back, knows where it was sent from.
+    assert_eq!(
+        said(&tape(&room, "ada")),
+        vec![Said::Agent(
+            "(From your work thread) The report\n[file: report.pdf]".to_string()
+        )]
     );
 }

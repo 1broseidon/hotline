@@ -1,17 +1,26 @@
-//! Durable wakes for teammates.
+//! Durable wakes for teammates: the clock of their jobs.
 //!
 //! Jobs live on the room stream. This module is the clock: it folds them,
-//! sleeps until the nearest `nextAt`, and fires through
-//! [`Room::prompt_scheduled`]. A missed tick while Hotline was closed fires once
-//! on reopen rather than catching up a pile of them — the teammate should do
-//! the work now, not replay every interval it slept through.
+//! sleeps until the nearest `nextAt`, and fires each one. A plain reminder is
+//! posted to the teammate's chat as it was written ([`Room::post`]) and does
+//! no work; any other job's firing is a turn on the job's own thread
+//! ([`super::job_thread`]), never the teammate's DM. A missed tick while
+//! Hotline was closed fires once on reopen rather than catching up a pile of
+//! them — the teammate should do the work now, not replay every interval it
+//! slept through.
+//!
+//! A job and a subagent are one thing with one schema ([`Brief`], ADR 0008
+//! §7): the task, when it runs, whom it reports to, and what ends it. The
+//! `subagent` tool writes one that runs now and reports to the agent that
+//! asked; `schedule` and `loop` write one that runs at a time or every
+//! interval and reports to the person, and this module keeps it.
 //!
 //! `parse_duration` and `parse_when` are the agent-facing sugar. The wire
 //! takes milliseconds; the teammate tools `schedule` and `loop` speak these
 //! strings and call this module.
 
-use super::{Room, lock, now_ms};
-use crate::contract::{ScheduleKind, ScheduledJob, ScheduledRun, SessionState};
+use super::{Post, Room, lock, now_ms};
+use crate::contract::{Ability, ScheduleEntry, ScheduleKind, ScheduledJob, ScheduledRun, ThreadId};
 use crate::log::Log;
 use crate::room;
 use std::sync::{Arc, Weak};
@@ -19,7 +28,7 @@ use std::time::Duration;
 use tokio::sync::Notify;
 
 /// Shorter than this is a busy-loop dressed as a schedule.
-const MIN_LOOP: i64 = 15_000;
+pub(super) const MIN_LOOP: i64 = 15_000;
 /// Longer than a week is a calendar, not a loop.
 const MAX_LOOP: i64 = 7 * 86_400_000;
 /// Further than a month is a reminder the person will have forgotten why.
@@ -29,6 +38,8 @@ const MAX_AHEAD: i64 = 30 * 86_400_000;
 const MAX_JOBS: usize = 20;
 const MIN_WAIT: i64 = 1_000;
 const MAX_PROMPT: usize = 8_000;
+/// A goal is a sentence the job checks itself against, not a second prompt.
+const MAX_GOAL: usize = 500;
 /// How long a failed fire waits before trying again.
 const RETRY_WAIT: i64 = 60_000;
 /// How long the clock will sleep before looking again, even when the next job
@@ -38,12 +49,105 @@ const LOOK_AGAIN: Duration = Duration::from_secs(60);
 /// Longer than this stops being a name and starts being the prompt again.
 const SCHEDULE_NAME_MAX: usize = 48;
 
-struct ScheduleRequest<'a> {
-    kind: ScheduleKind,
-    when: Option<i64>,
-    every: Option<i64>,
-    prompt: &'a str,
-    quiet: bool,
+/// What a teammate is asked to do away from its home thread: one schema for
+/// a subagent and a job (ADR 0008 §7).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Brief {
+    pub task: String,
+    pub trigger: Trigger,
+    pub report: Report,
+    pub ends: Ends,
+    /// What the home agent left out of the clone's permission set for this
+    /// task: see [`Ability`]. Empty for work the person asked for.
+    pub without: Vec<Ability>,
+}
+
+/// When the work runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Trigger {
+    /// At once: a subagent.
+    Now,
+    /// Once, at this moment, milliseconds since the epoch.
+    At(i64),
+    /// Every this many milliseconds, until it ends.
+    Every(i64),
+}
+
+/// Whom the work reports to, and how often.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Report {
+    /// The agent that asked, as its tool's result: a subagent's report.
+    Asker,
+    /// The person, each firing: what the firing came to is posted to the chat.
+    EachFiring,
+    /// The person, only what is worth telling: the firing posts it itself,
+    /// and one that finds nothing says nothing in the chat.
+    Significant,
+}
+
+/// What ends a recurring job, besides the person cancelling it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Ends {
+    /// The goal it ends itself on reaching.
+    pub goal: Option<String>,
+    /// The last moment it fires.
+    pub at: Option<i64>,
+    /// How many times it fires.
+    pub after: Option<u32>,
+}
+
+impl Brief {
+    /// What the `subagent` tool writes: the task, now, reported to the agent
+    /// that handed it over.
+    pub(crate) fn subagent(task: String, without: Vec<Ability>) -> Self {
+        Self {
+            task,
+            trigger: Trigger::Now,
+            report: Report::Asker,
+            ends: Ends::default(),
+            without,
+        }
+    }
+
+    /// A job as the desk and the voice dispatcher say one: a one-shot at
+    /// `when`, or a loop of `every`, quiet or not.
+    pub(crate) fn job(
+        kind: ScheduleKind,
+        when: Option<i64>,
+        every: Option<i64>,
+        prompt: &str,
+        quiet: bool,
+    ) -> Result<Self, String> {
+        let trigger = match kind {
+            ScheduleKind::Schedule => {
+                if every.is_some() {
+                    return Err("A one-shot schedule cannot have every.".to_string());
+                }
+                Trigger::At(when.ok_or_else(|| {
+                    "A one-shot schedule needs when, in milliseconds since epoch.".to_string()
+                })?)
+            }
+            ScheduleKind::Loop => {
+                if when.is_some() {
+                    return Err("A loop cannot have when.".to_string());
+                }
+                Trigger::Every(
+                    every.ok_or_else(|| "A loop needs every, in milliseconds.".to_string())?,
+                )
+            }
+        };
+        Ok(Self {
+            task: prompt.to_string(),
+            trigger,
+            report: if quiet {
+                Report::Significant
+            } else {
+                Report::EachFiring
+            },
+            ends: Ends::default(),
+            without: Vec::new(),
+        })
+    }
 }
 
 const UNITS: &[(&str, i64)] = &[
@@ -148,7 +252,8 @@ fn clip(value: &str) -> String {
     clipped
 }
 
-fn scheduled_run_of(job: &ScheduledJob) -> ScheduledRun {
+/// What a firing of `job` is stamped with, wherever it lands.
+pub(super) fn run_of(job: &ScheduledJob) -> ScheduledRun {
     ScheduledRun {
         job_id: job.id.clone(),
         kind: job.kind,
@@ -158,14 +263,32 @@ fn scheduled_run_of(job: &ScheduledJob) -> ScheduledRun {
     }
 }
 
+/// A job as the schedules view lists it.
+pub(crate) fn entry(job: ScheduledJob) -> ScheduleEntry {
+    ScheduleEntry {
+        name: schedule_name(&job.prompt),
+        id: job.id,
+        persona_id: job.persona_id,
+        kind: job.kind,
+        prompt: job.prompt,
+        when: job.when,
+        every: job.every,
+        next_at: job.next_at,
+        quiet: job.quiet,
+        reminder: job.reminder,
+        last_post: job.last_post,
+        ended_at: job.ended_at,
+        without: job.without,
+    }
+}
+
 /// Whether a scheduled job may start a turn now.
 ///
 /// The operator's desk command records its provenance on the job, so that
 /// deliberate automation remains independent of a teammate's autonomous
 /// background-work grant. Every other job reads the live persona record here;
-/// the check is intentionally repeated by the session just before dispatch so
-/// a grant revoked while a start or queue operation is in progress cannot
-/// become a new turn.
+/// the check is intentionally repeated by the job's thread just before its
+/// turn begins, so a grant revoked while a firing waits cannot become a turn.
 pub(crate) fn scheduled_job_allowed(log: &Log, persona_id: &str, job_id: &str) -> bool {
     let Some(job) = room::schedules(log)
         .into_iter()
@@ -173,16 +296,16 @@ pub(crate) fn scheduled_job_allowed(log: &Log, persona_id: &str, job_id: &str) -
     else {
         return false;
     };
-    let run = scheduled_run_of(&job);
+    let run = run_of(&job);
     scheduled_run_allowed(log, persona_id, &run)
 }
 
-/// Whether a queued scheduled run may dispatch now.
+/// Whether a queued firing may begin its turn now.
 ///
-/// The scheduler's job lookup is not enough at this point: one-shot jobs are
-/// tombstoned as soon as their prompt is queued. The run therefore carries the
-/// trusted operator bit captured at fire time, while the teammate grant is
-/// read live so revocation still stops a queued run after a restart or race.
+/// The clock's job lookup is not enough at this point: a one-shot has ended
+/// as soon as its firing is queued. The run therefore carries the trusted
+/// operator bit captured at fire time, while the teammate grant is read live
+/// so revocation still stops a queued firing.
 pub(crate) fn scheduled_run_allowed(log: &Log, persona_id: &str, run: &ScheduledRun) -> bool {
     run.operator_created || background_work_allowed(log, persona_id)
 }
@@ -226,10 +349,10 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
                 .collect();
             if !due.is_empty() {
                 for job in due {
-                    fire(&room, job).await;
+                    fire(&room, job);
                 }
                 // A write that failed leaves the job due; wait a beat rather
-                // than spinning on a disk that cannot take the tombstone.
+                // than spinning on a disk that cannot take the next word.
                 let still_due = room::schedules(&room.log)
                     .iter()
                     .any(|job| job.next_at <= now_ms());
@@ -255,7 +378,12 @@ pub(super) fn start(room: Weak<Room>, changed: Arc<Notify>) {
     });
 }
 
-async fn fire(room: &Arc<Room>, job: ScheduledJob) {
+/// Fires one due job: a reminder is posted, any other job's firing is handed
+/// to its thread. Neither waits for the work, so a loop counts its next
+/// interval from when this firing started, and one still running when the
+/// next is due is what its thread skips. A skipped slot is not a firing, so
+/// it does not count toward the loop's count.
+fn fire(room: &Arc<Room>, job: ScheduledJob) {
     let Ok(_working) = room.working() else {
         return;
     };
@@ -272,27 +400,15 @@ async fn fire(room: &Arc<Room>, job: ScheduledJob) {
     if !scheduled_job_allowed(&room.log, &current.persona_id, &current.id) {
         return;
     }
-    match room.info(&current.persona_id).state {
-        SessionState::Idle | SessionState::Stopped | SessionState::Error => {
-            if let Err(error) = room.start(&current.persona_id).await {
-                retry(room, &current, &error);
-                return;
-            }
-        }
-        SessionState::Starting | SessionState::Ready | SessionState::Thinking => {}
+    let ran = if current.reminder == Some(true) {
+        room.remind(&current).map(|()| true)
+    } else {
+        room.fire_job(&current)
+    };
+    match ran {
+        Ok(ran) => finish(room, &current.id, ran),
+        Err(error) => retry(room, &current, &error),
     }
-    if !scheduled_job_allowed(&room.log, &current.persona_id, &current.id) {
-        return;
-    }
-    let run = scheduled_run_of(&current);
-    if let Err(error) = room
-        .prompt_scheduled(&current.persona_id, &current.prompt, run)
-        .await
-    {
-        retry(room, &current, &error);
-        return;
-    }
-    finish(room, &current.id);
 }
 
 fn write_or_log(result: Result<(), String>) {
@@ -329,50 +445,69 @@ fn tombstone_if_live(room: &Room, job_id: &str) {
     }
 }
 
-/// Advances or consumes the job that just ran, under the same guard as desk
+/// Advances or ends the job that just fired, under the same guard as desk
 /// edits. Re-folding here is essential: a cancellation or a quiet/source edit
-/// may have landed while the session was starting or answering.
-fn finish(room: &Room, job_id: &str) {
+/// may have landed while the firing was handed over.
+///
+/// A one-shot has fired its last, and so has a loop whose count runs out or
+/// whose next firing would fall after its end: each is ended rather than
+/// deleted, because its thread stays readable. A slot that was skipped, not
+/// `ran`, moves the loop to its next slot without spending its count, so only
+/// its end date can end it.
+fn finish(room: &Room, job_id: &str, ran: bool) {
     let _mutations = lock(&room.schedule_mutations);
-    let Some(current) = room::schedules(&room.log)
+    let Some(mut next) = room::schedules(&room.log)
         .into_iter()
         .find(|living| living.id == job_id)
     else {
         return;
     };
-    match current.kind {
-        ScheduleKind::Loop => {
-            let mut next = current;
-            let every = next.every.unwrap_or(MIN_LOOP);
-            next.next_at = now_ms().saturating_add(every);
-            write_or_log(room::append_schedule(&room.log, &next));
+    let now = now_ms();
+    let ends = if ran {
+        fires_last(&next, now)
+    } else {
+        next_after_end(&next, now)
+    };
+    if ends {
+        next.ended_at = Some(now);
+    }
+    if next.kind == ScheduleKind::Loop {
+        next.next_at = now.saturating_add(next.every.unwrap_or(MIN_LOOP));
+        if ran {
+            next.times = next.times.map(|times| times.saturating_sub(1));
         }
-        ScheduleKind::Schedule => {
-            write_or_log(room::tombstone_schedule(&room.log, job_id));
-        }
+    }
+    write_or_log(room::append_schedule(&room.log, &next));
+}
+
+/// Whether the job firing at `now` ends after this firing: a one-shot, or a
+/// loop on its last count or whose next firing would fall after its end.
+pub(super) fn fires_last(job: &ScheduledJob, now: i64) -> bool {
+    match job.kind {
+        ScheduleKind::Schedule => true,
+        ScheduleKind::Loop => matches!(job.times, Some(0 | 1)) || next_after_end(job, now),
     }
 }
 
+/// Whether a loop's next slot after `now` would fall after its end date.
+fn next_after_end(job: &ScheduledJob, now: i64) -> bool {
+    let next_at = now.saturating_add(job.every.unwrap_or(MIN_LOOP));
+    job.until.is_some_and(|until| next_at > until)
+}
+
 impl Room {
-    /// Writes a job onto the room stream and wakes the clock.
+    /// Writes a job onto the room stream and wakes the clock: one the desk
+    /// itself asked for, which runs on the operator's word.
     pub(crate) fn schedule_create(
         &self,
         persona_id: &str,
-        kind: ScheduleKind,
-        when: Option<i64>,
-        every: Option<i64>,
-        prompt: &str,
-        quiet: bool,
+        brief: Brief,
+        reminder: bool,
     ) -> Result<ScheduledJob, String> {
         self.schedule_create_with_source(
             persona_id,
-            ScheduleRequest {
-                kind,
-                when,
-                every,
-                prompt,
-                quiet,
-            },
+            brief,
+            reminder,
             !crate::wire::commands::from_voice(),
         )
     }
@@ -382,38 +517,26 @@ impl Room {
     pub(crate) fn schedule_create_agent(
         &self,
         persona_id: &str,
-        kind: ScheduleKind,
-        when: Option<i64>,
-        every: Option<i64>,
-        prompt: &str,
-        quiet: bool,
+        brief: Brief,
+        reminder: bool,
     ) -> Result<ScheduledJob, String> {
-        self.schedule_create_with_source(
-            persona_id,
-            ScheduleRequest {
-                kind,
-                when,
-                every,
-                prompt,
-                quiet,
-            },
-            false,
-        )
+        self.schedule_create_with_source(persona_id, brief, reminder, false)
     }
 
     fn schedule_create_with_source(
         &self,
         persona_id: &str,
-        request: ScheduleRequest<'_>,
+        brief: Brief,
+        reminder: bool,
         operator_created: bool,
     ) -> Result<ScheduledJob, String> {
-        let ScheduleRequest {
-            kind,
-            when,
-            every,
-            prompt,
-            quiet,
-        } = request;
+        let Brief {
+            task,
+            trigger,
+            report,
+            ends,
+            without,
+        } = brief;
         let _mutations = lock(&self.schedule_mutations);
         if !operator_created && !background_work_allowed(&self.log, persona_id) {
             return Err(
@@ -427,9 +550,16 @@ impl Room {
         {
             return Err(format!("There is no teammate {persona_id}."));
         }
-        let prompt = prompt.trim();
+        let prompt = task.trim();
         if prompt.is_empty() || prompt.len() > MAX_PROMPT {
             return Err("prompt must be 1–8000 characters".to_string());
+        }
+        let goal = ends
+            .goal
+            .map(|goal| goal.trim().to_string())
+            .filter(|goal| !goal.is_empty());
+        if goal.as_ref().is_some_and(|goal| goal.len() > MAX_GOAL) {
+            return Err("goal must be at most 500 characters".to_string());
         }
         let living = room::schedules(&self.log)
             .into_iter()
@@ -441,34 +571,49 @@ impl Room {
             ));
         }
         let now = now_ms();
-        let (when, every, next_at) = match kind {
-            ScheduleKind::Schedule => {
-                if every.is_some() {
-                    return Err("A one-shot schedule cannot have every.".to_string());
-                }
-                let when = when.ok_or_else(|| {
-                    "A one-shot schedule needs when, in milliseconds since epoch.".to_string()
-                })?;
+        let (kind, when, every, next_at) = match trigger {
+            Trigger::Now => {
+                return Err(
+                    "A job runs at a time or every interval; a subagent runs now.".to_string(),
+                );
+            }
+            Trigger::At(when) => {
                 let wait = when.saturating_sub(now);
                 if !(MIN_WAIT..=MAX_AHEAD).contains(&wait) {
                     return Err(
                         "schedule must be between 1 second and 30 days from now".to_string()
                     );
                 }
-                (Some(when), None, when)
+                (ScheduleKind::Schedule, Some(when), None, when)
             }
-            ScheduleKind::Loop => {
-                if when.is_some() {
-                    return Err("A loop cannot have when.".to_string());
-                }
-                let every =
-                    every.ok_or_else(|| "A loop needs every, in milliseconds.".to_string())?;
+            Trigger::Every(every) => {
                 if !(MIN_LOOP..=MAX_LOOP).contains(&every) {
                     return Err("every must be a duration between 15s and 7d".to_string());
                 }
-                (None, Some(every), now.saturating_add(every))
+                (
+                    ScheduleKind::Loop,
+                    None,
+                    Some(every),
+                    now.saturating_add(every),
+                )
             }
         };
+        let quiet = match report {
+            Report::EachFiring => false,
+            Report::Significant => true,
+            Report::Asker => {
+                return Err("A scheduled job reports to the person, not to a turn.".to_string());
+            }
+        };
+        if kind == ScheduleKind::Schedule && (ends.at.is_some() || ends.after.is_some()) {
+            return Err("A one-shot fires once: only a loop has an end.".to_string());
+        }
+        if ends.after == Some(0) {
+            return Err("times must be at least 1".to_string());
+        }
+        if ends.at.is_some_and(|until| until <= next_at) {
+            return Err("until must be after the loop's first run".to_string());
+        }
         let job = ScheduledJob {
             id: uuid::Uuid::new_v4().to_string(),
             persona_id: persona_id.to_string(),
@@ -477,27 +622,69 @@ impl Room {
             every,
             prompt: prompt.to_string(),
             quiet: quiet.then_some(true),
+            reminder: reminder.then_some(true),
+            goal,
+            until: ends.at,
+            times: ends.after,
+            without: (!without.is_empty()).then_some(without),
             operator_created,
             next_at,
             created_at: now,
+            last_post: None,
+            ended_at: None,
         };
         room::append_schedule(&self.log, &job)?;
         self.schedule_changed.notify_one();
         Ok(job)
     }
 
+    /// The jobs still to fire.
     pub(crate) fn schedule_list(&self) -> Vec<ScheduledJob> {
         room::schedules(&self.log)
     }
 
+    /// The person, or the teammate in its main conversation, cancels a job:
+    /// a living one ends with a final post saying where it stood, and an
+    /// ended one is taken off the list. Its thread stays readable.
     pub(crate) fn schedule_cancel(&self, id: &str) -> Result<(), String> {
-        let _mutations = lock(&self.schedule_mutations);
-        if room::schedules(&self.log).iter().all(|job| job.id != id) {
-            return Err(format!("There is no scheduled job {id}."));
-        }
-        room::tombstone_schedule(&self.log, id)?;
+        let job = {
+            let _mutations = lock(&self.schedule_mutations);
+            let job = room::all_jobs(&self.log)
+                .into_iter()
+                .find(|job| job.id == id)
+                .ok_or_else(|| format!("There is no scheduled job {id}."))?;
+            if job.ended_at.is_some() {
+                room::tombstone_schedule(&self.log, id)?;
+                return Ok(());
+            }
+            self.end_job_record(job)?
+        };
         self.schedule_changed.notify_one();
+        self.job_ended(&job, None);
         Ok(())
+    }
+
+    /// The job, from its own thread, has met its goal: it ends, and what it
+    /// said came of it is its final post.
+    pub(crate) fn schedule_done(&self, id: &str, report: &str) -> Result<(), String> {
+        let job = {
+            let _mutations = lock(&self.schedule_mutations);
+            let job = room::schedules(&self.log)
+                .into_iter()
+                .find(|job| job.id == id)
+                .ok_or_else(|| format!("There is no scheduled job {id} still running."))?;
+            self.end_job_record(job)?
+        };
+        self.schedule_changed.notify_one();
+        self.job_ended(&job, Some(report));
+        Ok(())
+    }
+
+    /// Writes `job` as ended now. The caller holds the schedule guard.
+    fn end_job_record(&self, mut job: ScheduledJob) -> Result<ScheduledJob, String> {
+        job.ended_at = Some(now_ms());
+        room::append_schedule(&self.log, &job)?;
+        Ok(job)
     }
 
     pub(crate) fn schedule_set_quiet(&self, id: &str, quiet: bool) -> Result<(), String> {
@@ -514,7 +701,39 @@ impl Room {
         room::append_schedule(&self.log, &job)?;
         Ok(())
     }
+
+    /// A plain reminder: its words, posted to the chat as the teammate's,
+    /// stamped with the job. Nothing is asked of any agent.
+    fn remind(&self, job: &ScheduledJob) -> Result<(), String> {
+        self.post(
+            &job.persona_id,
+            &ThreadId::dm(&job.persona_id),
+            Post {
+                scheduled: Some(run_of(job)),
+                ..Post::words(&job.prompt)
+            },
+        )
+    }
+
+    /// Notes a job's post on its record, for the listing.
+    pub(super) fn job_posted(&self, job_id: &str, text: &str) {
+        let _mutations = lock(&self.schedule_mutations);
+        let Some(mut job) = room::all_jobs(&self.log)
+            .into_iter()
+            .find(|job| job.id == job_id)
+        else {
+            return;
+        };
+        job.last_post = Some(crate::contract::JobPost {
+            at: now_ms(),
+            text: crate::driver::clip(text, POST_LINE_CHARS),
+        });
+        write_or_log(room::append_schedule(&self.log, &job));
+    }
 }
+
+/// How much of a job's last post the listing keeps.
+const POST_LINE_CHARS: usize = 160;
 
 #[cfg(test)]
 mod tests {
@@ -654,9 +873,16 @@ mod tests {
             every: None,
             prompt: "retry this".to_string(),
             quiet: Some(true),
+            reminder: None,
+            goal: None,
+            until: None,
+            times: None,
+            without: None,
             operator_created: false,
             next_at: now + 60_000,
             created_at: now,
+            last_post: None,
+            ended_at: None,
         };
         room::append_schedule(&log, &job).unwrap();
         let room = Room::new(log, Arc::new(NoKeys));
@@ -681,9 +907,16 @@ mod tests {
             every: Some(MIN_LOOP),
             prompt: "keep this loop".to_string(),
             quiet: Some(true),
+            reminder: None,
+            goal: None,
+            until: None,
+            times: None,
+            without: None,
             operator_created: true,
             next_at: now + 60_000,
             created_at: now,
+            last_post: None,
+            ended_at: None,
         };
         room::append_schedule(&log, &job).unwrap();
         let room = Room::new(log, Arc::new(NoKeys));
@@ -695,12 +928,48 @@ mod tests {
         assert!(retried[0].operator_created);
         assert_eq!(retried[0].quiet, None);
 
-        finish(&room, &job.id);
+        finish(&room, &job.id, true);
         let advanced = room.schedule_list();
         assert_eq!(advanced.len(), 1);
         assert!(advanced[0].operator_created);
         assert_eq!(advanced[0].quiet, None);
         assert!(advanced[0].next_at > now);
+    }
+
+    #[tokio::test]
+    async fn a_skipped_slot_moves_a_loop_on_without_spending_its_count() {
+        let log = grant_log(true);
+        let now = now_ms();
+        let job = ScheduledJob {
+            id: "skips".to_string(),
+            persona_id: "ada".to_string(),
+            kind: ScheduleKind::Loop,
+            when: None,
+            every: Some(MIN_LOOP),
+            prompt: "post the time".to_string(),
+            quiet: None,
+            reminder: None,
+            goal: None,
+            until: None,
+            times: Some(1),
+            without: None,
+            operator_created: true,
+            next_at: now,
+            created_at: now,
+            last_post: None,
+            ended_at: None,
+        };
+        room::append_schedule(&log, &job).unwrap();
+        let room = Room::new(log, Arc::new(NoKeys));
+
+        finish(&room, &job.id, false);
+        let skipped = room.schedule_list();
+        assert_eq!(skipped[0].times, Some(1));
+        assert_eq!(skipped[0].ended_at, None);
+        assert!(skipped[0].next_at > now);
+
+        finish(&room, &job.id, true);
+        assert!(room::all_jobs(&room.log)[0].ended_at.is_some());
     }
 }
 
@@ -722,13 +991,20 @@ mod update_tests {
             every: None,
             prompt: "Resume after updating".into(),
             quiet: None,
+            reminder: None,
+            goal: None,
+            until: None,
+            times: None,
+            without: None,
             operator_created: true,
             next_at: now_ms(),
             created_at: now_ms(),
+            last_post: None,
+            ended_at: None,
         };
         room::append_schedule(&log, &job).unwrap();
         let before = log.load(&crate::log::StreamId::Room);
-        fire(&room, job).await;
+        fire(&room, job);
         assert_eq!(log.load(&crate::log::StreamId::Room), before);
         assert_eq!(room::schedules(&log).len(), 1);
         drop(held);

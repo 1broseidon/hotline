@@ -1,4 +1,5 @@
-//! A teammate on the room stream: made, changed, pinned and removed.
+//! A teammate on the room stream: made, changed, pinned, made lead and
+//! removed.
 
 use super::{append, now};
 use crate::contract::SkillPolicy;
@@ -95,6 +96,8 @@ fn build_persona(log: &Log, id: String, draft: PersonaDraft) -> Result<Value, St
         updated_at: stamped,
     };
     room::append_persona(log, &persona)?;
+    // The desk's first teammate is its lead.
+    room::settle_lead(log)?;
     Ok(json!(persona))
 }
 
@@ -599,6 +602,9 @@ pub(super) fn delete_persona(
     if stored.unwrap_or_else(|| json!([])) != json!(settled) {
         write_pins(log, &settled)?;
     }
+    // A lead who has gone is no lead, and the one teammate left, if one is,
+    // leads.
+    room::settle_lead(log)?;
     crate::session::ledger::forget(id);
     room.forget(id);
     Ok(Value::Null)
@@ -619,6 +625,24 @@ pub(super) fn pin_persona(log: &Log, id: &str, slot: Option<u8>) -> Result<Value
     }
     write_pins(log, &pins)?;
     Ok(json!(pins))
+}
+
+/// Makes `id` the desk's lead, which moves the role from whoever had it,
+/// or clears the lead when no teammate is named. The answer is the lead as
+/// it now stands.
+pub(super) fn lead_persona(log: &Log, id: Option<&str>) -> Result<Value, String> {
+    if let Some(id) = id {
+        living(log, id)?;
+        room::write_lead(log, Some(id))?;
+        return Ok(json!(id));
+    }
+    // `settle_lead` would make the one teammate lead again at the next
+    // start, so a cleared lead there would not stay cleared.
+    if room::roster(log).len() == 1 {
+        return Err("A desk with one teammate has it as its lead.".to_string());
+    }
+    room::write_lead(log, None)?;
+    Ok(Value::Null)
 }
 
 fn write_pins(log: &Log, pins: &[String]) -> Result<(), String> {

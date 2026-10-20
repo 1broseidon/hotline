@@ -16,8 +16,8 @@
 use super::runner::{Driven, Witness, Words, drive_updates};
 use super::threads::Threads;
 use super::{Room, Wired, lock};
-use crate::contract::ThreadId;
 use crate::contract::{Attachment, DeliveryFrom, DeltaKind, Reach, StreamDelta, TranscriptEvent};
+use crate::contract::{ScheduledRun, ThreadId};
 use crate::driver::{Driver, MessageKind, Update};
 use std::collections::VecDeque;
 use std::future::Future;
@@ -174,26 +174,36 @@ impl<F: Fn() -> bool> Witness for Told<'_, F> {
 }
 
 impl Threads<'_> {
-    /// Drives one turn of a work thread's or a run's agent to its end, writing
-    /// what it does to the thread as it goes. Nothing is written or announced
-    /// once `open` says the thread is over. A cancel stops the agent and still
-    /// reads what the turn's own end was.
+    /// Drives one turn of a work thread's, a job's or a run's agent to its
+    /// end, writing what it does to the thread as it goes. Nothing is written
+    /// or announced once `open` says the thread is over. A cancel stops the
+    /// agent and still reads what the turn's own end was.
+    ///
+    /// The turn is open for `post_to_chat` while it runs; `job` is the job a
+    /// job's thread posts as, so its post, file or image is stamped with it.
+    /// What the turn came to says whether it had its one post.
     pub(super) async fn turn(
         &self,
         seat: Seat<'_>,
         line: Line,
         reach: Reach,
         cancel: Option<&CancellationToken>,
+        job: Option<ScheduledRun>,
         open: impl Fn() -> bool,
     ) -> Driven {
         let driver = seat.driver;
+        let thread = seat.thread.clone();
+        let _posting = self.room.open_posting(&thread, job);
         let mut told = Told {
             threads: Threads { room: self.room },
             seat,
             open,
         };
-        self.drive(driver, line.into(), reach, cancel, None, &mut told)
-            .await
+        let mut driven = self
+            .drive(driver, line.into(), reach, cancel, None, &mut told)
+            .await;
+        driven.posted = self.room.has_posted(&thread);
+        driven
     }
 
     /// Drives one turn of a thread's agent to its end, telling `witness` what
@@ -236,7 +246,7 @@ pub(super) enum Then {
 /// The live agent of a thread that is answered in turns, as the one loop
 /// ([`Room::run_queue`]) sees it. Each kind says what is its own at the
 /// points where kinds differ: the DM in `session/dm.rs`, a work thread in
-/// `session/sides.rs`.
+/// `session/sides.rs`, a job in `session/job_thread.rs`.
 pub(super) trait Occupant: Send + Sync + 'static {
     /// What the kind queues: the DM's lines carry what a schedule, a call or a
     /// delivery stamped on them, and a work thread's carry a handoff.
@@ -248,7 +258,7 @@ pub(super) trait Occupant: Send + Sync + 'static {
     fn persona_id(&self) -> &str;
     fn thread(&self) -> ThreadId;
     /// What the agent holds the teammate's computer under.
-    fn holder(&self) -> &crate::computer::gate::Holder;
+    fn holder(&self) -> crate::computer::gate::Holder;
 
     /// Whether this agent is still the one that answers: its authority is
     /// current and the room still holds it.
@@ -294,7 +304,7 @@ impl Room {
                 Begin::Stop => break,
                 Begin::Go(mut held) => {
                     let driven = occupant.turn(&self, &mut held).await;
-                    self.let_go_of_computer(occupant.persona_id(), occupant.holder());
+                    self.let_go_of_computer(occupant.persona_id(), &occupant.holder());
                     if matches!(occupant.end(&self, held, driven), Then::Stop) {
                         break;
                     }

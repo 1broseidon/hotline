@@ -13,13 +13,14 @@ use crate::contract::{
 };
 use crate::driver::{HOTLINE_BACKEND_ID, acp};
 use crate::log::{Log, StreamId};
-use crate::mcp::{McpOAuthService, McpServer};
+use crate::mcp::{McpOAuth, McpServer};
 use crate::models::Client;
 use crate::session::{ProviderAuth, ProviderKeys, Room};
 use crate::vault::Vault;
 use crate::wire::RoomHandle;
 use crate::{room, skills};
 use async_trait::async_trait;
+pub(crate) use hotline_room::tls::install_crypto_provider;
 use rig::providers::{chatgpt, copilot};
 use serde_json::json;
 use std::collections::HashMap;
@@ -82,12 +83,11 @@ enum LoginOutcome {
 /// Everything that runs behind one data directory.
 pub struct Desk {
     voice: Arc<crate::voice::Calls>,
-    remote: Mutex<Weak<crate::remote::Remote>>,
     pub log: Log,
     room: Arc<Room>,
     vault: Arc<Vault>,
     logins: Arc<Mutex<HashMap<String, LoginOutcome>>>,
-    mcp_oauth: Arc<McpOAuthService>,
+    mcp_oauth: Arc<McpOAuth>,
 }
 
 impl Desk {
@@ -112,23 +112,27 @@ impl Desk {
                 Arc::downgrade(&room),
                 None,
             ),
-            remote: Mutex::default(),
             log,
             room,
-            mcp_oauth: Arc::new(McpOAuthService::new(vault.clone())),
+            mcp_oauth: Arc::new(McpOAuth::new(vault.clone())),
             vault,
             logins: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// Remote holds this desk strongly; the controls must not keep it alive in return.
-    pub fn set_remote(&self, remote: &Arc<crate::remote::Remote>) {
-        *self.remote.lock().unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(remote);
+    /// What the wire drives beside this desk: its calls and its links. The
+    /// Remote is opened over the desk, so whoever opens it adds it.
+    pub fn parts(&self) -> crate::wire::Parts {
+        crate::wire::Parts {
+            voice: Some(self.voice.clone()),
+            remote: Weak::new(),
+            links: Some(self.room.links()),
+        }
     }
 
     /// Opens the log, the vault and the room over one data directory.
     pub fn open(root: &Path) -> io::Result<Desk> {
-        Self::open_with_store(root, crate::credentials::default_store())
+        Self::open_with_store(root, crate::vault::default_store())
     }
 
     /// Open against an explicitly supplied credential backend.
@@ -190,6 +194,9 @@ impl Desk {
         install_crypto_provider();
         let log = Log::open(root);
         log.migrate_backend_id()?;
+        // A desk from before the lead, with one teammate, gets that one as
+        // its lead here, by the rule creating and deleting follow.
+        room::settle_lead(&log).map_err(io::Error::other)?;
         let vault = Arc::new(Vault::open_with_store(root, log.clone(), store)?);
         // One budget for the desk: voice, the call assistant and teammates'
         // turns all reserve through it, so none can spend what another did.
@@ -200,7 +207,7 @@ impl Desk {
             budget: budget.clone(),
         });
         let room = Room::new_with_mcp(log.clone(), keys, vault.clone(), acp_start);
-        let mcp_oauth = Arc::new(McpOAuthService::new(vault.clone()));
+        let mcp_oauth = Arc::new(McpOAuth::new(vault.clone()));
         let room_for_oauth = Arc::downgrade(&room);
         mcp_oauth.set_on_complete(Arc::new(move || {
             let Some(room) = room_for_oauth.upgrade() else {
@@ -230,7 +237,6 @@ impl Desk {
             vault,
             logins: Arc::new(Mutex::new(HashMap::new())),
             mcp_oauth,
-            remote: Mutex::new(Weak::new()),
         })
     }
 
@@ -345,20 +351,6 @@ impl RoomHandle for Desk {
         .await)
     }
 
-    fn voice(&self) -> Option<Arc<crate::voice::Calls>> {
-        Some(self.voice.clone())
-    }
-    fn remote(&self) -> Option<Arc<crate::remote::Remote>> {
-        self.remote
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .upgrade()
-    }
-
-    fn links(&self) -> Option<Arc<crate::linked::Links>> {
-        Some(self.room.links())
-    }
-
     fn federation_roster_entries(&self) -> Vec<crate::contract::LinkedTeammate> {
         self.room.federation_roster_entries()
     }
@@ -397,7 +389,7 @@ impl RoomHandle for Desk {
         &self,
         persona_id: &str,
         id: &str,
-    ) -> Result<crate::driver::auth::AuthStatus, String> {
+    ) -> Result<crate::wire::AuthStatus, String> {
         self.room.agent_auth_poll(persona_id, id)
     }
     fn agent_auth_input(&self, persona_id: &str, id: &str, input: &str) -> Result<(), String> {
@@ -555,6 +547,10 @@ impl RoomHandle for Desk {
         self.room.sides(persona_id)
     }
 
+    fn working_jobs(&self, persona_id: &str) -> Vec<String> {
+        self.room.working_jobs(persona_id)
+    }
+
     fn threads_waiting(&self, persona_id: &str) -> bool {
         self.room.threads_waiting(persona_id)
     }
@@ -581,6 +577,29 @@ impl RoomHandle for Desk {
 
     fn side_cancel(&self, side_id: &str) -> Result<(), String> {
         self.room.cancel_side(side_id)
+    }
+
+    async fn job_prompt(
+        &self,
+        job_id: &str,
+        text: &str,
+        attachments: Option<Vec<crate::contract::Attachment>>,
+    ) -> Result<(), String> {
+        self.room.prompt_job(job_id, text, attachments).await
+    }
+
+    fn job_cancel(&self, job_id: &str) -> Result<(), String> {
+        self.room.cancel_job_turn(job_id)
+    }
+
+    async fn job_answer_permission(
+        &self,
+        job_id: &str,
+        request_id: &str,
+        option_id: &str,
+    ) -> Result<(), String> {
+        self.room
+            .answer_job_permission(job_id, request_id, option_id)
     }
 
     fn side_archive(&self, side_id: &str) -> Result<(), String> {
@@ -887,8 +906,8 @@ impl RoomHandle for Desk {
     }
 
     async fn mcp_auth_sign_out(&self, server_id: &str) -> Result<(), String> {
-        self.mcp_server(server_id)?;
-        self.mcp_oauth.sign_out(server_id).await
+        let server = self.mcp_server(server_id)?;
+        self.mcp_oauth.sign_out(&server).await
     }
 
     /// The server may not be in settings yet: the window saves the token
@@ -967,7 +986,7 @@ impl RoomHandle for Desk {
         self.models_catalog(provider_id)
     }
 
-    fn import(&self, from: &Path) -> Result<crate::import::Report, String> {
+    fn import(&self, from: &Path) -> Result<crate::contract::Report, String> {
         crate::import::import(from, &self.log, &self.vault).map_err(|error| error.to_string())
     }
 
@@ -983,9 +1002,13 @@ impl RoomHandle for Desk {
         every: Option<i64>,
         prompt: &str,
         quiet: bool,
+        reminder: bool,
     ) -> Result<crate::contract::ScheduledJob, String> {
-        self.room
-            .schedule_create(persona_id, kind, when, every, prompt, quiet)
+        self.room.schedule_create(
+            persona_id,
+            crate::session::Brief::job(kind, when, every, prompt, quiet)?,
+            reminder,
+        )
     }
 
     fn schedule_list(&self) -> Vec<crate::contract::ScheduledJob> {
@@ -1346,15 +1369,6 @@ async fn fetch_copilot_account_models(token_dir: &Path) -> Result<Vec<String>, S
         .collect())
 }
 
-/// Both rustls backends are compiled in (reqwest asks for aws-lc-rs, other
-/// dependencies bring ring), so rustls cannot choose a process default on its
-/// own. reqwest names its provider, but WebSocket TLS such as Grok's live
-/// transcription asks for the default and panics without one. The desk picks
-/// aws-lc-rs, the one its HTTP already uses, unless something already chose.
-pub(crate) fn install_crypto_provider() {
-    let _ = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider().install_default();
-}
-
 #[cfg(test)]
 mod tests {
     use super::Desk;
@@ -1567,14 +1581,14 @@ mod tests {
                 Arc::downgrade(&room),
                 None,
             ),
-            remote: Mutex::default(),
             log: log.clone(),
             room,
-            mcp_oauth: Arc::new(crate::mcp::McpOAuthService::new(vault.clone())),
+            mcp_oauth: Arc::new(crate::mcp::McpOAuth::new(vault.clone())),
             vault,
             logins: Arc::new(Mutex::new(HashMap::new())),
         };
-        let door = Door::bind(log, TOKEN.to_string(), Arc::new(desk)).unwrap();
+        let parts = desk.parts();
+        let door = Door::bind(log, TOKEN.to_string(), Arc::new(desk), parts).unwrap();
         let port = door.port();
         tokio::spawn(door.run());
         let mut client = Client::connect(port).await;

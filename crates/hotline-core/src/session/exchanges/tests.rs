@@ -84,6 +84,7 @@ fn saved_request(id: &str, intent: Intent, phase: Phase) -> Request {
         human_actions: vec![],
         thread: None,
         reply_thread: None,
+        reply_job: None,
         returned: false,
     }
 }
@@ -1008,10 +1009,13 @@ async fn a_withdrawn_card_lets_a_running_handoff_finish_and_a_waiting_one_keeps_
     assert!(refused.is_err(), "{refused:?}");
     assert!(matches!(
         room.human_card("bob", &action),
-        Some(TranscriptEvent::HumanAction {
-            status: crate::contract::HumanActionStatus::Pending,
-            ..
-        })
+        Some((
+            TranscriptEvent::HumanAction {
+                status: crate::contract::HumanActionStatus::Pending,
+                ..
+            },
+            _
+        ))
     ));
 }
 

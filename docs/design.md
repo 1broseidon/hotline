@@ -22,6 +22,10 @@ Single decisions too large for a section here are recorded as ADRs in
   agent on the call.
 - [ADR 0006](adr/0006-relay-only-servers.md): a server can just relay, and a
   desktop can pair with it only to relay.
+- [ADR 0007](adr/0007-split-hotline-core.md): split hotline-core into
+  crates, leaves first.
+- [ADR 0008](adr/0008-one-agent-thread-layer.md): one agent thread layer;
+  modalities attach to it, and the chat is the log of truth (proposed).
 
 George's reasons, in his words: the proof that the thing works is in the
 core of the Bun edition; Rust is for sheer speed and far more control, with
@@ -80,8 +84,29 @@ These come over as ideas and, where the code was already Rust, as code.
 - **The tool ledger.** Every tool a teammate was given, where it came from,
   and for anything absent, why. A tool that vanishes silently is the worst
   failure the old app shipped.
-- **Quiet scheduled runs by construction**, not by asking the model to be
-  quiet: a window over the run demotes its words to thoughts by event kind.
+- **Jobs are subagents on a schedule** ([ADR 0008](adr/0008-one-agent-thread-layer.md)
+  §7). One schema, `session::Brief` (the task, now / at / every, the report
+  policy, an optional end), is written by the `subagent`, `schedule` and
+  `loop` tools. Each job is an arm with a thread of its own
+  (`ThreadKind::Job`, `jobs/<id>.jsonl`), every firing is a turn on it and
+  never on the home thread, and its agent is parked between firings and
+  starts from a running note of its last turns rather than the thread. A
+  quiet job is quiet by construction, not by asking the model: its words stay
+  on its thread, and only `post_to_chat` reaches the chat. A plain reminder
+  is one post and no arm. A subagent and a job are clones of the home agent
+  (§0): the teammate on the home session's model, with the home thread's
+  permission set and computer under a lease derived from the home thread's,
+  narrowed only by what the home agent leaves out (`without`), starting from
+  the brief and reaching back with `search_thread` and `list_chapters`.
+  `schedule.create` on the wire takes no `without`: a job the person makes
+  runs as their teammate, with the reach they already granted it, so the
+  person narrows a teammate by changing its grants, or asks it to make the
+  job narrower, and the Jobs group shows "Runs without …" either way. A
+  wire field with no window or phone to send it would be a second door to
+  the same rule with nothing behind it. What came back to a job (a card's
+  answer, a colleague's reply) is written on its thread before it is
+  queued, so a restart hands it over again, or to the DM once the job has
+  ended.
 - **One conversation, no machinery in it.** The tape holds what the person
   and the teammate said and did. The room does not narrate its own work: a
   computer downloading, joining or updating, a provider switch, a retry, a
@@ -262,16 +287,18 @@ changes are needed. Copies share the existing kept-file retention policy (no
 automatic cleanup); they are additional storage, including for phone uploads.
 
 Types are defined once in Rust with serde and the TypeScript is generated
-(ts-rs), so the window and the core cannot drift. `hotline_core::contract`
-holds most of them; [development.md](development.md#the-generated-contract)
-names the few defined beside the module that owns them.
+(ts-rs), so the window and the core cannot drift. They are all in the
+`hotline-contract` crate, which depends on no other Hotline crate and which
+`hotline-core` re-exports as `contract`;
+[development.md](development.md#the-generated-contract) says why none may
+live anywhere else.
 
 ### 3. One session kind, two drivers
 
 Today Hotline Agent and ACP backends are two implementations of a hundred-line
 seam, and every feature is decided twice. Here there is one `Session` with
 the supervisor's rules in it once — reply stamping, reaction notes, hop
-notices, the quiet window, chapters' gate, receipts, the ledger — and a
+notices, chapters' gate, receipts, the ledger — and a
 `Driver` beneath it that speaks ACP semantics:
 
 - `Driver::InProcess`: Hotline Agent on Rig, in this process, owning its tools
@@ -416,6 +443,35 @@ as it stayed up. The card carries `expiresAt` so the choice survives a
 restart. The status and the field are additions to the `human_action` event:
 every tape the importer brings over still reads as it did, and a card without
 `expiresAt` lives the default from its `ts`.
+
+Whatever a teammate says somewhere other than its DM reaches the DM through
+one door, `Room::post` ([ADR 0008](adr/0008-one-agent-thread-layer.md) §3):
+a call's summary and its `post_to_chat`, a job's report, final word or
+reminder, and every file `send_file` or `generate_image` sends, from any
+thread; a job's file is its turn's one post. Each is one `agent` event stamped with where it came from, in
+two optional fields: `from` (the thread and its kind, the shape a delivery's
+`from` already has) and `scheduled` (the job, the shape a user event's
+`scheduled` already has). They replace the `call:<id>:` event id and the
+"From the call: " text prefix, which the window now draws from the stamp. Both
+are additions to the `agent` event and written only when present: a tape
+written before them has neither, the importer copies it unchanged and reads
+it as it did, and it reads an agent event that carries them, which the
+previous edition never wrote. A post reaches the person as a reply does,
+except from a call they are on. The home agent is not woken by a post the person asked for (a call, a work
+thread, a job); its live session is handed the post ahead of the person's
+next line, and a session that starts later reads it from the tape with where
+it came from.
+
+An agent asks for that door with `post_to_chat(text, wake?)`, one of
+Hotline's own tools, which Hotline Agent calls in process and an ACP child
+over the desk's MCP server, so a quiet job on either driver can be heard. It
+is listed in every session but a subagent run's and gated by the handler,
+not the model: a work thread, a pair and a job may post, once a turn;
+the DM's own turn and a subagent run may not; `wake` hands the post to
+the DM on a turn of its own when an arm needs the home agent to act. The
+rows are in [security.md](security.md#posting-to-the-chat-from-any-thread-adr-0008).
+It replaces the quiet run's `tell_person`, which only Hotline Agent offered,
+and the per-turn arming behind it.
 
 HTTP MCP servers may opt into OAuth 2.1 in the gateway. Hotline follows
 protected-resource and authorization-server metadata, requires authorization
@@ -731,6 +787,22 @@ answer even if the desk stopped before dispatch. Starting that continuation
 is recorded before calling the driver, so an interrupted continuation is still
 uncertain work, never a replay. Old requests without action ids retain the old
 settlement rules; no route is guessed from conversation text.
+
+### The team lead
+
+A desk has at most one lead: a teammate's id, kept in the room stream as
+the `teamLead` setting and carried on that teammate's roster row. The core
+alone names one unasked, by one rule: a desk with exactly one teammate and
+no lead makes that one lead, at create, at delete and when the desk opens.
+So onboarding's first teammate leads, a desk upgraded with one teammate gets
+its lead, and deleting down to one leaves that one leading. Deleting the lead
+clears it, and among two or more nobody is ever picked: the person makes a
+teammate lead (which moves the role) or clears it with `persona.lead`, owner
+only. Clearing a desk of one is refused, since the next open would put it
+back, and `settings.update` cannot name a lead around these rules. Being lead
+changes nothing else about a teammate: its own model, memory and tools stay
+its own. Desk calls reach the lead, and the lead hands work on, in later
+work ([ADR 0008](adr/0008-one-agent-thread-layer.md#5-voice-under-this-design)).
 
 ### Linked desks
 

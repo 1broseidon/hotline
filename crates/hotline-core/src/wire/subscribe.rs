@@ -3,7 +3,7 @@
 use super::phone::{PHONE_WINDOW, link_as_sent, phone_event, snapshot_shaped};
 use super::seat::Seat;
 use super::socket::{FORBIDDEN, Outbox, Refused, UNKNOWN_TEAMMATE, UNREADABLE, reply};
-use super::{RoomHandle, roster, schedules, send};
+use super::{Agents, RoomHandle, roster, schedules, send};
 use crate::contract::{DeltaKind, StreamDelta, Target, ViewName};
 use crate::contract::{ThreadId, ThreadKind};
 use crate::log::{Log, StreamId};
@@ -24,11 +24,11 @@ pub(super) fn subscribe(
     id: i64,
     frame: &Value,
     seat: Seat,
-    log: &Log,
-    room: &Arc<dyn RoomHandle>,
+    desk: &Agents,
     sender: &Outbox,
     subscriptions: &mut HashMap<i64, JoinHandle<()>>,
 ) -> Result<(), Refused> {
+    let Agents { log, room, parts } = desk;
     let target: Target = serde_json::from_value(frame["sub"].clone())
         .map_err(|error| format!("That is not something to subscribe to: {error}."))?;
     if !seat.permits_sub(&target) {
@@ -51,8 +51,9 @@ pub(super) fn subscribe(
 
     let stream = match target {
         Target::Call(call_id) => {
-            let voice = room
-                .voice()
+            let voice = parts
+                .voice
+                .as_ref()
                 .ok_or_else(|| "Voice is not available on this desk.".to_string())?;
             let (snapshot, mut events) = voice.subscribe(&call_id)?;
             reply(sender, id, Ok(Value::Null));
@@ -136,7 +137,9 @@ pub(super) fn subscribe(
         Target::Room => StreamId::Room,
         Target::Tape(persona_id) => StreamId::Tape(persona_id),
         Target::Thread(key) => StreamId::Pair(key),
-        Target::ThreadId(thread) => thread.stream().expect("every thread has a stream"),
+        Target::ThreadId(thread) => {
+            StreamId::of_thread(&thread).expect("every thread has a stream")
+        }
         Target::Run(id) => StreamId::Run(id),
         Target::Side(id) => StreamId::Side(id),
     };
@@ -217,7 +220,9 @@ async fn stream_events(
 ) {
     let mut events = log.subscribe(&stream);
     let mut deltas = match &stream {
-        StreamId::Tape(_) | StreamId::Side(_) | StreamId::Run(_) => Some(room.subscribe_deltas()),
+        StreamId::Tape(_) | StreamId::Side(_) | StreamId::Run(_) | StreamId::Job(_) => {
+            Some(room.subscribe_deltas())
+        }
         _ => None,
     };
     let scope = delta_scope(&stream);
@@ -278,13 +283,14 @@ async fn stream_events(
 }
 
 /// The thread whose words a stream's subscription hears live: a tape is the
-/// teammate's DM, a side thread and a run their own. None for a stream that
-/// has no live words.
+/// teammate's DM, a side thread, a run and a job their own. None for a stream
+/// that has no live words.
 fn delta_scope(stream: &StreamId) -> Option<ThreadId> {
     match stream {
         StreamId::Tape(persona_id) => Some(ThreadId::dm(persona_id)),
         StreamId::Side(side_id) => Some(ThreadId::side(side_id)),
         StreamId::Run(run_id) => Some(ThreadId::run(run_id)),
+        StreamId::Job(job_id) => Some(ThreadId::job(job_id)),
         _ => None,
     }
 }

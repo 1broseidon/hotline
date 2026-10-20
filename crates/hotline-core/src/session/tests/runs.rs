@@ -11,7 +11,7 @@ fn spec(room: &Room, run_id: &str, task: &str) -> RunSpec {
         persona_id: "ada".to_string(),
         run_id: run_id.to_string(),
         title: "Check the crane".to_string(),
-        task: task.to_string(),
+        brief: crate::session::Brief::subagent(task.to_string(), Vec::new()),
         capability: room.capability_lease("ada"),
     }
 }
@@ -120,26 +120,27 @@ async fn a_run_works_on_its_own_stream_and_hands_back_its_last_words() {
     assert_eq!(stored[0]["state"], "closed");
     assert_eq!(stored[0]["end"], "done");
 
-    // A worker's brief, none of the conversation, and the task as its
-    // one message.
+    // The teammate itself, told it is a run, none of the conversation, and
+    // the task as its one message: a clone with a focus.
     let preamble = lock(&agents.preambles).last().cloned().unwrap();
+    assert!(preamble.starts_with("You are Ada."), "{preamble}");
     assert!(
-        preamble.starts_with("You are a subagent working for Ada"),
-        "{preamble}"
+        preamble.contains("Keep the harbour running."),
+        "a clone has its teammate's goal"
     );
     assert!(
-        !preamble.contains("Keep the harbour running."),
-        "the teammate's goal is its own, not its worker's"
+        preamble.contains("This is a subagent run of Ada's"),
+        "{preamble}"
     );
     assert_eq!(lock(&agents.seeds).last().unwrap().as_slice(), []);
     assert_eq!(
         lock(&agents.driver.prompts).last().unwrap(),
-        "Ada handed you this task:\n\nFind out why the crane stopped."
+        "Your main conversation handed you this task:\n\nFind out why the crane stopped."
     );
 }
 
 #[tokio::test]
-async fn a_run_is_on_its_teammates_live_model_with_no_computer_and_no_session_to_reopen() {
+async fn a_run_is_on_its_teammates_live_model_with_no_session_to_reopen() {
     let agents = Fake::new(Scripted::new(worked()));
     let log = scratch("run-view");
     let mut ada = persona("ada");
@@ -241,13 +242,14 @@ async fn a_runs_tools_read_the_conversation_and_die_with_the_teammates_session()
     prompted(&agents).await;
     let tools = lock(&agents.tools).last().cloned().unwrap();
     tools.call("list_chapters", &json!({})).await.unwrap();
-    assert_eq!(
-        tools
-            .call("react", &json!({"emoji": "👍"}))
-            .await
-            .unwrap_err(),
-        "A subagent has no tool called 'react'."
-    );
+    tools.call("list_teammates", &json!({})).await.unwrap();
+    tools.call("list_schedules", &json!({})).await.unwrap();
+    for refused in ["react", "request_human", "message_teammate", "schedule"] {
+        assert_eq!(
+            tools.call(refused, &json!({})).await.unwrap_err(),
+            format!("A subagent has no tool called '{refused}'.")
+        );
+    }
 
     // Stopping the teammate stops everything it started.
     room.capability_epoch("ada").stop();
@@ -279,8 +281,10 @@ async fn a_run_for_a_teammate_whose_authority_is_gone_never_starts() {
     assert_eq!(tape(&room, "ada")[0]["status"], "failed");
 }
 
+/// A clone runs on its teammate's own harness, ACP included: the run is
+/// built for the teammate as it is, under the run kind's tools.
 #[tokio::test]
-async fn only_a_hotline_agent_teammate_runs_subagents() {
+async fn a_run_is_a_clone_on_its_teammates_own_harness() {
     let agents = Fake::new(Scripted::new(worked()));
     let log = scratch("run-acp");
     let mut ada = persona("ada");
@@ -295,13 +299,74 @@ async fn only_a_hotline_agent_teammate_runs_subagents() {
     let outcome = room
         .run(spec(&room, "r6", "Anything."), CancellationToken::new())
         .await;
+    assert_eq!(outcome.end, RunEnd::Done, "{}", outcome.report);
+    assert_eq!(outcome.report, "The winch is jammed.");
+    let view = lock(&agents.views).last().cloned().unwrap();
+    assert_eq!(view.backend_id, "claude-code");
+    assert!(lock(&agents.tools).last().unwrap().in_run());
+}
+
+/// A run is the brief that starts now and reports to whoever asked. Work
+/// for later, or for the person, is a job's, and the runner refuses it
+/// rather than run it now.
+#[tokio::test]
+async fn a_run_refuses_a_brief_that_is_a_jobs() {
+    let agents = Fake::new(Scripted::new(worked()));
+    let room = room("run-brief", agents.clone());
+    let mut later = spec(&room, "r8", "Check at nine.");
+    later.brief.trigger = crate::session::Trigger::At(now_ms() + 60_000);
+    let outcome = room.run(later, CancellationToken::new()).await;
     assert_eq!(outcome.end, RunEnd::Failed);
-    assert!(
-        outcome.report.contains("Only a Hotline Agent teammate"),
-        "{}",
-        outcome.report
-    );
+    assert!(outcome.report.contains("is a job"), "{}", outcome.report);
     assert!(lock(&agents.driver.prompts).is_empty());
+}
+
+/// A clone has the home thread's permission set, its computer included,
+/// under a child of the home session's lease; the home agent can leave the
+/// computer out for one task, and the run is built without it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_run_has_the_computer_unless_the_home_agent_leaves_it_out() {
+    let ComputerRoom { room, agents, .. } =
+        computer_room("run-computer", Some("0.10.3"), TWO_RELEASES, true).await;
+    room.start("ada").await.unwrap();
+    let home = lock(&agents.tools).last().unwrap().capability().unwrap();
+    let computer = |view: &Persona| view.computer.as_ref().is_some_and(|c| c.enabled);
+
+    let whole = room
+        .run(
+            RunSpec {
+                capability: home.clone(),
+                ..spec(&room, "r9", "Look at the screen.")
+            },
+            CancellationToken::new(),
+        )
+        .await;
+    assert_eq!(whole.end, RunEnd::Done, "{}", whole.report);
+    let view = lock(&agents.views).last().cloned().unwrap();
+    assert!(computer(&view), "a clone has its teammate's computer");
+
+    let mut narrowed = spec(&room, "r10", "Read the log only.");
+    narrowed.capability = home.clone();
+    narrowed.brief.without = vec![crate::contract::Ability::Computer];
+    let outcome = room.run(narrowed, CancellationToken::new()).await;
+    assert_eq!(outcome.end, RunEnd::Done, "{}", outcome.report);
+    let view = lock(&agents.views).last().cloned().unwrap();
+    assert!(!computer(&view), "left out for this task");
+
+    // Never wider: the run's lease is a child of the home session's.
+    home.revoke();
+    let stale = room
+        .run(
+            RunSpec {
+                capability: home,
+                ..spec(&room, "r11", "Anything.")
+            },
+            CancellationToken::new(),
+        )
+        .await;
+    assert_eq!(stale.end, RunEnd::Failed);
+    assert!(stale.report.contains("revoked"), "{}", stale.report);
 }
 
 #[tokio::test]

@@ -4,7 +4,28 @@
 
 use super::*;
 use crate::driver::HOTLINE_BACKEND_ID;
+use crate::session::runner::Witness;
+use crate::session::turns::Source;
 use crate::session::{new_id, now_ms};
+
+/// A pair keeps its directional receipts and marker while the shared loop
+/// reads the target's turn.
+struct PeerTurn<'a> {
+    room: &'a Room,
+    session: &'a PeerSession,
+    caller: &'a Persona,
+    target: &'a Persona,
+}
+
+impl Witness for PeerTurn<'_> {
+    fn write(&mut self, event: TranscriptEvent, asked: bool) {
+        self.room.append_thread(self.session, event);
+        if asked {
+            self.room
+                .mark(self.session, self.caller, self.target, PeerStatus::Waiting);
+        }
+    }
+}
 
 impl Room {
     pub(in crate::session) fn cancel_peer_exchange(&self, from: &str, to: &str) {
@@ -179,20 +200,28 @@ impl Room {
             return Err("That peer session's capabilities have been revoked.".to_string());
         }
         // The same funnel as a tape: what the peer says between its tool
-        // calls is thinking, and the asker hears the report.
-        let driven = crate::session::runner::drive(
-            session.driver.as_ref(),
-            envelope(&caller, message),
-            self.reach_of(&target.id),
-            None,
-            |event, asked| {
-                self.append_thread(&session, event);
-                if asked {
-                    self.mark(&session, &caller, &target, PeerStatus::Waiting);
-                }
-            },
-        )
-        .await;
+        // calls is thinking, and the asker hears the report. What it posts
+        // goes to its own chat, the target's.
+        let _posting = self.open_posting(&ThreadId::pair(&key), None);
+        let driven = self
+            .threads()
+            .drive(
+                session.driver.as_ref(),
+                Source::Say {
+                    text: timed(now_ms(), &envelope(&caller, message)),
+                    attachments: Vec::new(),
+                },
+                self.reach_of(&target.id),
+                None,
+                None,
+                &mut PeerTurn {
+                    room: self,
+                    session: &session,
+                    caller: &caller,
+                    target: &target,
+                },
+            )
+            .await;
         // A permission the turn left open on the thread is a button nobody is
         // behind, exactly as on a tape — and no seat is shown a peer card, so
         // the child's own timeout is the only thing that ever answered it.

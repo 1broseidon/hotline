@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["crates/hotline-core", "crates/hotline-app", "crates/hotline-cli"]
+members = ["crates/hotline-contract", "crates/hotline-support", "crates/hotline-store", "crates/hotline-tools", "crates/hotline-websearch", "crates/hotline-room", "crates/hotline-mcp", "crates/hotline-voice", "crates/hotline-core", "crates/hotline-app", "crates/hotline-cli"]
 
 [workspace.package]
-version = "0.40.0"
+version = "0.41.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -95,6 +95,9 @@ serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1.53", features = ["rt", "sync"] }
 chrono = "0.4.45"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
+# Pinned exactly: the generated contract.ts is checked in, and a ts-rs release
+# is free to spell the same type differently.
+ts-rs = { version = "=12.0.1", features = ["serde-compat"] }
 
 # Image codecs are built optimised in every profile. Unoptimised, decoding
 # and shrinking one phone photo takes seven seconds on the runtime thread;

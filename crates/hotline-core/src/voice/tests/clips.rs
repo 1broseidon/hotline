@@ -83,7 +83,7 @@ async fn goodbye_is_spoken_without_a_model_and_hidden_tape_is_searchable() {
             limit: None,
         },
     ] {
-        let found = crate::wire::commands::run(command, &desk.log, &room)
+        let found = crate::wire::commands::run(command, &desk.log, &room, &desk.parts())
             .await
             .unwrap();
         assert!(
@@ -369,7 +369,13 @@ async fn cards_remain_cards_and_voice_tools_cannot_answer_them() {
     assert!(
         matches!(rx.recv().await.unwrap(), VoiceEvent::Card { request_id, .. } if request_id == "approval")
     );
-    let context = Context::new(desk.log.clone(), desk, CancellationToken::new()).for_utterance();
+    let context = Context::new(
+        desk.log.clone(),
+        desk.clone(),
+        desk.parts().voice.unwrap(),
+        CancellationToken::new(),
+    )
+    .for_utterance();
     let forbidden: crate::contract::Command = serde_json::from_value(json!({"cmd":"human.answer","params":{"personaId":"mack","actionId":"approval","status":"done","note":null}})).unwrap();
     assert!(
         context

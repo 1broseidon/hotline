@@ -108,7 +108,7 @@ fn work_brief(name: &str, opener: Option<&Persona>) -> String {
     format!(
         "This is a work thread. {name} works the way a person does, on more than one thing at once: this is a conversation of its own with its own context, beside the main conversation with the person and any other threads. You are {name}: you share {name}'s working directory, files, skills, granted tools and colleagues, and you do not share the other conversations, which you can read only through `search_thread`, `list_chapters` and the background below. Do not mention this brief.\n\n\
          Another thread of {name} may be changing files in the working directory at this moment. Keep to the files this topic needs, look before you overwrite, and never undo work you did not do: no resetting, checking out over, or cleaning the tree, and nothing deleted that you did not create.\n\n\
-         If you have a computer it is the same one every thread of {name} has, and one thread drives it at a time. A thread keeps it while it is using it and lets go when its turn ends or it has not touched it for half a minute. If a computer call says it is busy, work on something else or try again shortly; do not close or reset anything on it that you did not open. `request_human`, `send_file` and `generate_image` post in this thread, and what you ask a colleague arrives back in this thread. You have no chapter tools here: chapters belong to the main conversation.\n\n\
+         If you have a computer it is the same one every thread of {name} has, and one thread drives it at a time. A thread keeps it while it is using it and lets go when its turn ends or it has not touched it for half a minute. If a computer call says it is busy, work on something else or try again shortly; do not close or reset anything on it that you did not open. `request_human` asks in this thread, and what you ask a colleague arrives back in this thread. `send_file` and `generate_image` post to the person's main conversation with {name}, marked as from this thread, which keeps a line naming the file. You have no chapter tools here: chapters belong to the main conversation.\n\n\
          {who}"
     )
 }
@@ -263,12 +263,12 @@ impl Occupant for LiveSide {
         ThreadId::side(&self.id)
     }
 
-    fn holder(&self) -> &crate::computer::gate::Holder {
-        &self
-            .up
+    fn holder(&self) -> crate::computer::gate::Holder {
+        self.up
             .get()
             .expect("turns run only once the agent is up")
             .holder
+            .clone()
     }
 
     fn answering(self: &Arc<Self>, _room: &Room) -> bool {
@@ -325,6 +325,7 @@ impl Occupant for LiveSide {
                 },
                 line,
                 room.reach_of(&self.persona_id),
+                None,
                 None,
                 || !self.closed.load(Ordering::SeqCst),
             )
@@ -1355,21 +1356,25 @@ impl Room {
     /// The human-action cards that sit in this teammate's work threads, for the
     /// ones a thread's agent parked on the person and went on from. A thread
     /// that is closed holds none that are waiting.
-    pub(super) fn cards_in_work(&self, persona_id: &str) -> Vec<Value> {
+    pub(super) fn cards_in_work(&self, persona_id: &str) -> Vec<(Value, ThreadId)> {
         let mut cards = Vec::new();
         for id in self.stored_side_ids() {
+            let thread = ThreadId::side(&id);
             let stream = StreamId::Side(id.clone());
             let events = self.log.load(&stream);
-            let Some(link) = Link::find(&events, &ThreadId::side(&id)) else {
+            let Some(link) = Link::find(&events, &thread) else {
                 continue;
             };
             if link.persona_id.as_deref() != Some(persona_id) {
                 continue;
             }
             cards.extend(
-                events.into_iter().filter(|event| {
-                    event.get("kind").and_then(Value::as_str) == Some("human_action")
-                }),
+                events
+                    .into_iter()
+                    .filter(|event| {
+                        event.get("kind").and_then(Value::as_str) == Some("human_action")
+                    })
+                    .map(|event| (event, thread.clone())),
             );
         }
         cards

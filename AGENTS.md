@@ -42,8 +42,11 @@ file, and if a rule fights the task in front of you, say so before breaking it.
 3. **The generated contract is written by the whole test run.** ts-rs writes
    `ui/src/generated/contract.ts` from the export tests, and a filtered run
    (`cargo test session`) writes only the types it matched, leaving a file
-   the window cannot compile against. Run `cargo test -p hotline-core` unfiltered
-   before committing that file; `make check` catches it, so never skip it.
+   the window cannot compile against. Every exported type lives in
+   `crates/hotline-contract`, because ts-rs starts the file afresh in each
+   test process and a second exporting crate would erase the first's types.
+   Run `cargo test -p hotline-contract` unfiltered before committing that
+   file; `make check` catches it, so never skip it.
 4. **The reference tree is byte-compatible for tapes.** A tape here is
    the same file as a tape there. Do not change the event shapes or the
    segment layout without changing the importer and saying so in the design.
@@ -104,6 +107,23 @@ lints, dependencies) are in [docs/standards.md](docs/standards.md).
   ship the plain one.
 - **Rust that needs Tauri lives in `crates/hotline-app`.** `hotline-core` never
   depends on Tauri.
+- **Crates depend only downward.** `hotline-contract` (the wire's types) and
+  `hotline-support` (the utilities that hold no Hotline state) depend on no
+  Hotline crate; `hotline-store` (the log, sent files, the search index)
+  and `hotline-tools` (the workspace and shell tools, and the capability
+  lease they check) each stand on those two alone, and `hotline-websearch`
+  (web search) on `hotline-contract` alone; `hotline-room` (the roster
+  fold, linked desks, `RoomHandle`, the tool ledger, voice's settings and
+  spend) stands on the contract, the support, the store and web search;
+  `hotline-mcp` (the MCP client: servers, grants, connections, OAuth
+  sign-in) on the contract, the support, the tools and the room, with the
+  vault's part handed in by the core; `hotline-voice` (the speech and
+  realtime engines) on the contract, the support and the room, with what
+  the vault keeps for it handed in the same way; `hotline-core` stands on
+  all eight and re-exports them under their old module names, so
+  `crate::paths`, `crate::store::search`, `crate::room`, `crate::tools`,
+  `crate::websearch`, `crate::mcp::McpServer` and `crate::voice::speech`
+  still hold in the core.
 - **A capability change follows `docs/security.md`.** Anything that alters
   what a teammate can reach — a tool, a tool origin, a grant, a driver path —
   is enforced in the core outside the model, revocable through the session's

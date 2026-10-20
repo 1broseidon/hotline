@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn capabilities_options_are_for_the_desk_and_owner_and_never_a_companion() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -10,7 +10,8 @@ async fn capabilities_options_are_for_the_desk_and_owner_and_never_a_companion()
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let request = json!({"id": 1, "cmd": "capabilities.options", "params": {}});
     for seat in [Seat::Desk, Seat::Owner, Seat::Phone] {
-        let answer = remote_control_answer(seat, &handle, &desk.log, request.clone()).await;
+        let answer =
+            remote_control_answer(seat, &handle, &desk.log, &desk.parts(), request.clone()).await;
         if seat == Seat::Phone {
             assert_eq!(answer["code"], FORBIDDEN, "{answer}");
             assert!(answer.get("result").is_none());
@@ -19,20 +20,28 @@ async fn capabilities_options_are_for_the_desk_and_owner_and_never_a_companion()
         }
     }
     let quiet: Arc<dyn RoomHandle> = Arc::new(Quiet::new());
-    let answer = remote_control_answer(Seat::Owner, &quiet, &desk.log, request).await;
+    let answer =
+        remote_control_answer(Seat::Owner, &quiet, &desk.log, &Parts::default(), request).await;
     assert_eq!(answer["ok"], false, "{answer}");
 }
 
 #[tokio::test]
 async fn capabilities_options_list_only_connected_providers_and_what_automatic_picks() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
     );
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let request = json!({"id": 1, "cmd": "capabilities.options", "params": {}});
-    let empty = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
+    let empty = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        &desk.parts(),
+        request.clone(),
+    )
+    .await;
     assert_eq!(empty["ok"], true, "{empty}");
     let result = &empty["result"];
     for (job, says) in [
@@ -80,7 +89,14 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
     desk.credential_create("groq", "Speech", secret).unwrap();
     desk.credential_create("openai", "Everything", secret)
         .unwrap();
-    let answer = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
+    let answer = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        &desk.parts(),
+        request.clone(),
+    )
+    .await;
     assert!(!answer.to_string().contains(secret));
     let result = &answer["result"];
     let names = |job: &str| -> Vec<String> {
@@ -122,6 +138,7 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
         Seat::Owner,
         &handle,
         &desk.log,
+        &desk.parts(),
         json!({"id": 2, "cmd": "settings.update", "params": {"patch": {
             "images": {"provider": "openai", "model": "gpt-image-1-mini"},
             "voice": {"tts": {"provider": "openai", "voice": "cedar"}},
@@ -130,7 +147,8 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
     )
     .await;
     assert_eq!(selected["ok"], true, "{selected}");
-    let answer = remote_control_answer(Seat::Desk, &handle, &desk.log, request).await;
+    let answer =
+        remote_control_answer(Seat::Desk, &handle, &desk.log, &desk.parts(), request).await;
     let result = &answer["result"];
     assert_eq!(result["images"]["selected"]["modelId"], "gpt-image-1-mini");
     assert_eq!(result["tts"]["selected"]["providerName"], "OpenAI");
@@ -149,7 +167,7 @@ async fn capabilities_options_list_only_connected_providers_and_what_automatic_p
 
 #[tokio::test]
 async fn capabilities_options_report_each_budget_from_its_own_tally() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     use crate::spending::SpendLedger;
     let root = tempfile::tempdir().unwrap();
     SpendLedger::new(root.path().to_path_buf())
@@ -187,6 +205,7 @@ async fn capabilities_options_report_each_budget_from_its_own_tally() {
         Seat::Owner,
         &handle,
         &desk.log,
+        &desk.parts(),
         json!({"id": 1, "cmd": "capabilities.options", "params": {}}),
     )
     .await;
@@ -209,14 +228,21 @@ async fn capabilities_options_report_each_budget_from_its_own_tally() {
 
 #[tokio::test]
 async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
     );
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let request = json!({"id": 1, "cmd": "images.status", "params": {}});
-    let missing = remote_control_answer(Seat::Desk, &handle, &desk.log, request.clone()).await;
+    let missing = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        &desk.log,
+        &desk.parts(),
+        request.clone(),
+    )
+    .await;
     assert_eq!(missing["ok"], true, "{missing}");
     assert_eq!(missing["result"]["available"], false);
     assert!(
@@ -231,7 +257,14 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
     let secret = "image-status-private-credential";
     desk.credential_create("anthropic", "No image provider", secret)
         .unwrap();
-    let unsupported = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
+    let unsupported = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        &desk.parts(),
+        request.clone(),
+    )
+    .await;
     assert_eq!(unsupported["result"]["available"], false, "{unsupported}");
     let openai = desk
         .credential_create("openai", "Image provider", secret)
@@ -240,7 +273,8 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
         .unwrap();
     let before = desk.log.load(&StreamId::Room);
     for seat in [Seat::Desk, Seat::Owner] {
-        let available = remote_control_answer(seat, &handle, &desk.log, request.clone()).await;
+        let available =
+            remote_control_answer(seat, &handle, &desk.log, &desk.parts(), request.clone()).await;
         assert_eq!(
             available["result"],
             json!({
@@ -256,6 +290,7 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
         Seat::Owner,
         &handle,
         &desk.log,
+        &desk.parts(),
         json!({
             "id": 2, "cmd": "settings.update", "params": {"patch": {
                 "images": {"provider": "google", "model": "gemini-3.1-flash-lite-image"}
@@ -264,7 +299,14 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
     )
     .await;
     assert_eq!(selected["ok"], true, "{selected}");
-    let available = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
+    let available = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        &desk.parts(),
+        request.clone(),
+    )
+    .await;
     assert_eq!(
         available["result"],
         json!({
@@ -273,13 +315,20 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
         })
     );
 
-    let selected = remote_control_answer(Seat::Desk, &handle, &desk.log, json!({
+    let selected = remote_control_answer(Seat::Desk, &handle, &desk.log, &desk.parts(), json!({
         "id": 3, "cmd": "settings.update", "params": {"patch": {"images": {"provider": "openai"}}}
     })).await;
     assert_eq!(selected["ok"], true, "{selected}");
     desk.credential_revoke(&openai.id).unwrap();
     let before = desk.log.load(&StreamId::Room);
-    let revoked = remote_control_answer(Seat::Owner, &handle, &desk.log, request.clone()).await;
+    let revoked = remote_control_answer(
+        Seat::Owner,
+        &handle,
+        &desk.log,
+        &desk.parts(),
+        request.clone(),
+    )
+    .await;
     assert_eq!(revoked["result"]["available"], false, "{revoked}");
     assert!(
         revoked["result"]["unavailable"]
@@ -295,19 +344,22 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
         Seat::Desk,
         &handle,
         &desk.log,
+        &desk.parts(),
         json!({
             "id": 4, "cmd": "settings.update", "params": {"patch": {"images": null}}
         }),
     )
     .await;
     assert_eq!(reset["ok"], true, "{reset}");
-    let available = remote_control_answer(Seat::Owner, &handle, &desk.log, request).await;
+    let available =
+        remote_control_answer(Seat::Owner, &handle, &desk.log, &desk.parts(), request).await;
     assert_eq!(available["result"]["available"], true, "{available}");
     assert_eq!(available["result"]["provider"], "google");
     let denied = remote_control_answer(
         Seat::Phone,
         &handle,
         &desk.log,
+        &desk.parts(),
         json!({"id": 5, "cmd": "images.status", "params": {}}),
     )
     .await;
@@ -325,7 +377,7 @@ async fn images_status_resolves_the_desks_vault_without_exposing_credentials() {
 
 #[tokio::test]
 async fn chatgpt_images_status_is_automatic_without_checking_entitlement() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
     let log = crate::log::Log::open(root.path());
@@ -336,13 +388,21 @@ async fn chatgpt_images_status_is_automatic_without_checking_entitlement() {
     let desk = Arc::new(crate::desk::Desk::open_with_store(root.path(), store).unwrap());
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let request = json!({"id": 1, "cmd": "images.status", "params": {}});
-    let automatic = remote_control_answer(Seat::Desk, &handle, &desk.log, request.clone()).await;
+    let automatic = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        &desk.log,
+        &desk.parts(),
+        request.clone(),
+    )
+    .await;
     assert_eq!(automatic["result"]["available"], true);
     assert_eq!(automatic["result"]["provider"], "openai-codex");
     let selected = remote_control_answer(
         Seat::Owner,
         &handle,
         &desk.log,
+        &desk.parts(),
         json!({
             "id": 2, "cmd": "settings.update", "params": {"patch": {
                 "images": {"provider": "openai-codex"}
@@ -351,10 +411,18 @@ async fn chatgpt_images_status_is_automatic_without_checking_entitlement() {
     )
     .await;
     assert_eq!(selected["ok"], true);
-    let denied = remote_control_answer(Seat::Phone, &handle, &desk.log, request.clone()).await;
+    let denied = remote_control_answer(
+        Seat::Phone,
+        &handle,
+        &desk.log,
+        &desk.parts(),
+        request.clone(),
+    )
+    .await;
     assert_eq!(denied["code"], FORBIDDEN);
     for seat in [Seat::Owner, Seat::Desk] {
-        let status = remote_control_answer(seat, &handle, &desk.log, request.clone()).await;
+        let status =
+            remote_control_answer(seat, &handle, &desk.log, &desk.parts(), request.clone()).await;
         assert_eq!(status["result"]["available"], true);
         assert_eq!(status["result"]["provider"], "openai-codex");
         assert_eq!(status["result"]["model"], "gpt-image-2");
@@ -379,6 +447,7 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
         Seat::Desk,
         &handle,
         &log,
+        &Parts::default(),
         json!({
             "id": 1, "cmd": "settings.update", "params": {"patch": {}}
         }),
@@ -390,7 +459,7 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
         json!({"chat": {}, "voice": {}, "images": {}})
     );
 
-    let updated = remote_control_answer(Seat::Owner, &handle, &log, json!({
+    let updated = remote_control_answer(Seat::Owner, &handle, &log, &Parts::default(), json!({
         "id": 2, "cmd": "settings.update", "params": {"patch": {
             "images": {"provider": "openai", "model": "gpt-image-1-mini", "secret": "not-a-setting"},
             "spending": {"dayUsd": 0, "monthUsd": 0},
@@ -422,6 +491,7 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
         Seat::Desk,
         &handle,
         &log,
+        &Parts::default(),
         json!({
             "id": 3, "cmd": "settings.update", "params": {"patch": {
                 "images": {"model": "gpt-image-1-mini"},
@@ -440,7 +510,7 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
         json!({"chat": {"monthUsd": 7.5}, "voice": {}, "images": {}})
     );
 
-    let reset = remote_control_answer(Seat::Owner, &handle, &log, json!({
+    let reset = remote_control_answer(Seat::Owner, &handle, &log, &Parts::default(), json!({
         "id": 4, "cmd": "settings.update", "params": {"patch": {"images": null, "spending": null}}
     })).await;
     assert_eq!(reset["ok"], true, "{reset}");
@@ -455,6 +525,7 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
         Seat::Phone,
         &handle,
         &log,
+        &Parts::default(),
         json!({
             "id": 5, "cmd": "settings.update", "params": {"patch": {"spending": {"dayUsd": 0}}}
         }),
@@ -466,7 +537,7 @@ async fn image_and_spending_settings_are_typed_validated_and_resettable() {
 
 #[tokio::test]
 async fn images_status_reports_recorded_spending_without_creating_or_writing_a_ledger() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     use crate::spending::SpendLedger;
     let root = tempfile::tempdir().unwrap();
     {
@@ -487,6 +558,7 @@ async fn images_status_reports_recorded_spending_without_creating_or_writing_a_l
         Seat::Owner,
         &handle,
         &desk.log,
+        &desk.parts(),
         json!({"id": 1, "cmd": "images.status", "params": {}}),
     )
     .await;
@@ -508,6 +580,7 @@ async fn images_status_reports_recorded_spending_without_creating_or_writing_a_l
         Seat::Desk,
         &fresh_handle,
         &fresh_desk.log,
+        &fresh_desk.parts(),
         json!({"id": 2, "cmd": "images.status", "params": {}}),
     )
     .await;
@@ -520,7 +593,7 @@ async fn images_status_reports_recorded_spending_without_creating_or_writing_a_l
 
 #[tokio::test]
 async fn images_status_preserves_the_shared_ledgers_failure_state_without_leaking_contents() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let ledger_path = root.path().join("spending.json");
     std::fs::write(&ledger_path, b"private-corrupt-ledger-content").unwrap();
@@ -535,6 +608,7 @@ async fn images_status_preserves_the_shared_ledgers_failure_state_without_leakin
             seat,
             &handle,
             &desk.log,
+            &desk.parts(),
             json!({"id": 1, "cmd": "images.status", "params": {}}),
         )
         .await;
@@ -562,7 +636,7 @@ async fn images_status_preserves_the_shared_ledgers_failure_state_without_leakin
 
 #[tokio::test]
 async fn images_status_refuses_malformed_saved_selections_and_marks_invalid_caps_unavailable() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -583,6 +657,7 @@ async fn images_status_refuses_malformed_saved_selections_and_marks_invalid_caps
             Seat::Desk,
             &handle,
             &desk.log,
+            &desk.parts(),
             json!({"id": 1, "cmd": "images.status", "params": {}}),
         )
         .await;
@@ -612,6 +687,7 @@ async fn images_status_refuses_malformed_saved_selections_and_marks_invalid_caps
         Seat::Owner,
         &handle,
         &desk.log,
+        &desk.parts(),
         json!({"id": 2, "cmd": "images.status", "params": {}}),
     )
     .await;
@@ -652,6 +728,7 @@ async fn invalid_image_or_spending_settings_do_not_write_any_patch_key() {
             Seat::Owner,
             &handle,
             &log,
+            &Parts::default(),
             json!({
                 "id": 1, "cmd": "settings.update", "params": {"patch": patch}
             }),
@@ -667,7 +744,7 @@ async fn invalid_image_or_spending_settings_do_not_write_any_patch_key() {
 
 #[tokio::test]
 async fn images_status_refuses_corrupt_saved_zero_caps_without_exposing_room_contents() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -679,6 +756,7 @@ async fn images_status_refuses_corrupt_saved_zero_caps_without_exposing_room_con
         Seat::Owner,
         &handle,
         &desk.log,
+        &desk.parts(),
         json!({
             "id": 1, "cmd": "settings.update", "params": {"patch": {
                 "spending": {"dayUsd": 0, "monthUsd": 0}
@@ -696,6 +774,7 @@ async fn images_status_refuses_corrupt_saved_zero_caps_without_exposing_room_con
             seat,
             &handle,
             &desk.log,
+            &desk.parts(),
             json!({"id": 2, "cmd": "images.status", "params": {}}),
         )
         .await;
@@ -727,7 +806,7 @@ async fn images_status_refuses_corrupt_saved_zero_caps_without_exposing_room_con
 
 #[tokio::test]
 async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription() {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let store = Arc::new(MemoryStore::default());
     let log = crate::log::Log::open(root.path());
@@ -739,7 +818,8 @@ async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let request = json!({"id": 1, "cmd": "capabilities.options", "params": {}});
     for seat in [Seat::Desk, Seat::Owner] {
-        let offered = remote_control_answer(seat, &handle, &desk.log, request.clone()).await;
+        let offered =
+            remote_control_answer(seat, &handle, &desk.log, &desk.parts(), request.clone()).await;
         assert_eq!(offered["ok"], true, "{offered}");
         assert_eq!(
             offered["result"]["images"]["options"],
@@ -766,13 +846,21 @@ async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription
         Seat::Owner,
         &handle,
         &desk.log,
+        &desk.parts(),
         json!({"id": 2, "cmd": "settings.update", "params": {"patch": {
             "images": {"provider": "openai-codex", "model": "gpt-image-2"}
         }}}),
     )
     .await;
     assert_eq!(selected["ok"], true, "{selected}");
-    let offered = remote_control_answer(Seat::Desk, &handle, &desk.log, request.clone()).await;
+    let offered = remote_control_answer(
+        Seat::Desk,
+        &handle,
+        &desk.log,
+        &desk.parts(),
+        request.clone(),
+    )
+    .await;
     assert_eq!(
         offered["result"]["images"]["selected"],
         json!({
@@ -786,7 +874,8 @@ async fn capabilities_options_offer_chatgpt_images_as_the_automatic_subscription
         offered["result"]["images"]["automatic"]["providerId"],
         "openai-codex"
     );
-    let denied = remote_control_answer(Seat::Phone, &handle, &desk.log, request).await;
+    let denied =
+        remote_control_answer(Seat::Phone, &handle, &desk.log, &desk.parts(), request).await;
     assert_eq!(denied["code"], FORBIDDEN);
     assert_eq!(
         std::fs::read_to_string(token_dir.join("auth.json")).unwrap(),

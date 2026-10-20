@@ -67,7 +67,8 @@ async fn direct_call_uses_existing_conversation(
         .unwrap(),
     );
     let log = desk.log.clone();
-    let door = Door::bind(log.clone(), "direct-test".into(), desk).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(log.clone(), "direct-test".into(), desk, parts).unwrap();
     let port = door.port();
     let server = tokio::spawn(door.run());
     let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=direct-test"))
@@ -320,7 +321,8 @@ async fn direct_call_readiness_and_start_survive_an_unavailable_desk_dispatcher(
     let root = tempfile::tempdir().unwrap();
     let desk =
         Arc::new(hotline_core::desk::Desk::open_with_store(root.path(), common::store()).unwrap());
-    let door = Door::bind(desk.log.clone(), "readiness-test".into(), desk).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), "readiness-test".into(), desk, parts).unwrap();
     let port = door.port();
     let server = tokio::spawn(door.run());
     let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=readiness-test"))
@@ -410,7 +412,8 @@ async fn calls_off_refuses_a_call_and_says_why() {
     let root = tempfile::tempdir().unwrap();
     let desk =
         Arc::new(hotline_core::desk::Desk::open_with_store(root.path(), common::store()).unwrap());
-    let door = Door::bind(desk.log.clone(), "calls-off-test".into(), desk).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), "calls-off-test".into(), desk, parts).unwrap();
     let port = door.port();
     let server = tokio::spawn(door.run());
     let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=calls-off-test"))
@@ -487,7 +490,8 @@ async fn connecting_a_voice_provider_readies_calls_without_a_turn() {
     let root = tempfile::tempdir().unwrap();
     let desk =
         Arc::new(hotline_core::desk::Desk::open_with_store(root.path(), common::store()).unwrap());
-    let door = Door::bind(desk.log.clone(), "fresh-desk-test".into(), desk).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), "fresh-desk-test".into(), desk, parts).unwrap();
     let port = door.port();
     let server = tokio::spawn(door.run());
     let (mut socket, _) = connect_async(format!("ws://127.0.0.1:{port}/ws?token=fresh-desk-test"))

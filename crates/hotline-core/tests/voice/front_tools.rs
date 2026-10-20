@@ -96,7 +96,10 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
         "{output}"
     );
 
-    // Asked to put something in the chat, the front posts it, tagged as from the call.
+    // Asked to put something in the chat, the front posts it, stamped as from
+    // the call, and a client reading the conversation is sent it as such.
+    send(socket, json!({"id":80,"sub":{"tape":persona}})).await;
+    frame_where(socket, |f| f["id"] == 80 && f["ok"] == true).await;
     tool_result(
         "p1",
         "post_to_chat",
@@ -110,7 +113,15 @@ async fn a_front_call_answers_from_a_desk_side_tool_and_a_revoked_grant_is_refus
     let posted: Vec<Value> = desk.log.load(&tape).split_off(turns);
     assert_eq!(posted.len(), 1, "{posted:?}");
     assert_eq!(posted[0]["kind"], "agent", "the teammate says it");
-    assert_eq!(posted[0]["text"], "From the call: the scheduler fix is in");
+    assert_eq!(posted[0]["text"], "the scheduler fix is in");
+    assert_eq!(posted[0]["from"]["kind"], "call", "{posted:?}");
+    let sent = frame_where(socket, |f| f["sub"] == 80 && f["event"]["kind"] == "agent").await;
+    assert_eq!(sent["event"]["text"], "the scheduler fix is in");
+    assert_eq!(
+        sent["event"]["from"],
+        json!({"thread": call, "kind": "call"}),
+        "{sent}"
+    );
 
     // Revoking a grant on the card refuses the next call.
     let patched = answer(socket, 94, json!({"cmd":"persona.update","params":{"id":persona,"patch":{"mcpPolicy":{"mode":"all","serverIds":[]}}}})).await;
@@ -339,7 +350,7 @@ async fn a_front_call_posts_one_summary_to_the_dm_and_not_its_turns() {
     let summaries: Vec<&Value> = dm.iter().filter(|v| is_call_post(v)).collect();
     assert_eq!(summaries.len(), 1, "{dm:?}");
     let text = summaries[0]["text"].as_str().unwrap();
-    assert!(text.starts_with("From the call:"), "{text}");
+    assert!(text.starts_with("You asked"), "{text}");
     assert!(text.contains("hello there, can you hear me"), "{text}");
     assert!(
         text.contains(&format!("I'm still working on this: \"{handoff}\"")),
@@ -508,9 +519,9 @@ async fn one_call_proves_the_whole_front() {
         .map(|v| v["text"].as_str().unwrap())
         .collect();
     assert_eq!(posts.len(), 2, "the post and one summary: {added:?}");
-    assert_eq!(posts[0], "From the call: the scheduler fix is in");
+    assert_eq!(posts[0], "the scheduler fix is in");
     let summary = posts[1];
-    assert!(summary.starts_with("From the call:"), "{summary}");
+    assert!(summary.starts_with("You asked"), "{summary}");
     assert!(
         summary.contains("what did we fix?") && summary.contains(answered),
         "{summary}"

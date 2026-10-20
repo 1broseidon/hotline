@@ -19,7 +19,7 @@ use crate::contract::{
     Attachment, LinkState, Persona, SessionState, SideOpener, ThreadAnswer, ThreadSummary,
 };
 use crate::contract::{ThreadId, ThreadKind};
-use crate::log::Log;
+use crate::log::{Log, StreamId};
 use crate::paths::thread_participants;
 use crate::store::previews;
 use crate::thread::{Answer, Link, Participant, Policy, Thread, ThreadState, ThreadStore};
@@ -35,6 +35,7 @@ fn not_here(thread: &ThreadId, what: &str) -> String {
         ThreadKind::Pair => "a thread between two teammates",
         ThreadKind::Call => "a call",
         ThreadKind::Run => "a subagent's run",
+        ThreadKind::Job => "a job",
     };
     format!("{what} does not apply to {kind}.")
 }
@@ -63,6 +64,10 @@ pub(super) async fn prompt(
                 .await?;
             Ok(Value::Null)
         }
+        ThreadKind::Job => {
+            room.job_prompt(&thread.key, text, attachments).await?;
+            Ok(Value::Null)
+        }
         _ => Err(not_here(thread, "Speaking")),
     }
 }
@@ -73,6 +78,7 @@ pub(super) fn cancel(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Va
     match thread.kind {
         ThreadKind::Dm => room.cancel(&thread.key)?,
         ThreadKind::Side => room.side_cancel(&thread.key)?,
+        ThreadKind::Job => room.job_cancel(&thread.key)?,
         ThreadKind::Pair => {
             let (a, b) = pair_of(thread)?;
             room.stop_exchange(a, b)?;
@@ -91,10 +97,11 @@ pub(super) fn park(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Valu
     Ok(Value::Null)
 }
 
-/// Ends a work thread, keeping its transcript.
+/// Ends a work thread, or a job, keeping its transcript.
 pub(super) fn close(room: &Arc<dyn RoomHandle>, thread: &ThreadId) -> Result<Value, String> {
     match thread.kind {
         ThreadKind::Side => room.side_archive(&thread.key)?,
+        ThreadKind::Job => room.schedule_cancel(&thread.key)?,
         _ => return Err(not_here(thread, "Closing")),
     }
     Ok(Value::Null)
@@ -176,6 +183,16 @@ pub(super) async fn answer(
                 .await?;
         }
         (
+            ThreadKind::Job,
+            ThreadAnswer::Permission {
+                request_id,
+                option_id,
+            },
+        ) => {
+            room.job_answer_permission(&thread.key, &request_id, &option_id)
+                .await?;
+        }
+        (
             ThreadKind::Dm | ThreadKind::Side,
             ThreadAnswer::Human {
                 action_id,
@@ -186,8 +203,8 @@ pub(super) async fn answer(
             let persona_id = owner_of(log, thread)?;
             room.answer_human(&persona_id, &action_id, status, note)?;
         }
-        // A pair raises permissions and nothing else. A run and a call are
-        // refused above, by their policy.
+        // A pair and a job raise permissions and nothing else. A run and a
+        // call are refused above, by their policy.
         (_, ThreadAnswer::Human { .. }) => {
             return Err(not_here(thread, "A request for the person"));
         }
@@ -209,7 +226,7 @@ pub(super) fn page(
     if thread.kind == ThreadKind::Dm {
         super::commands::persona::living(log, &thread.key)?;
     }
-    let stream = thread.stream().ok_or("That thread has no lines.")?;
+    let stream = StreamId::of_thread(thread).ok_or("That thread has no lines.")?;
     Ok(super::subscribe::thread_page(
         log,
         &stream,
@@ -324,9 +341,7 @@ fn summarize(
             .map_or(0, |persona| persona.created_at);
         (tail, started, preview)
     } else {
-        let events = thread
-            .id
-            .stream()
+        let events = StreamId::of_thread(&thread.id)
             .map(|stream| log.load(&stream))
             .unwrap_or_default();
         let preview = crate::session::preview_line(&events);
@@ -362,6 +377,7 @@ fn summarize(
             .peer_threads(&persona_id)
             .iter()
             .any(|pair| pair.thread_key == thread.id.key && pair.working_persona_id.is_some()),
+        ThreadKind::Job => room.working_jobs(&persona_id).contains(&thread.id.key),
         ThreadKind::Run => state == LinkState::Live,
         ThreadKind::Call => false,
     };

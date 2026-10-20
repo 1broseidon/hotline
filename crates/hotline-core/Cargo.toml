@@ -10,6 +10,14 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+hotline-contract = { path = "../hotline-contract" }
+hotline-support = { path = "../hotline-support" }
+hotline-store = { path = "../hotline-store" }
+hotline-tools = { path = "../hotline-tools" }
+hotline-websearch = { path = "../hotline-websearch" }
+hotline-room = { path = "../hotline-room" }
+hotline-mcp = { path = "../hotline-mcp" }
+hotline-voice = { path = "../hotline-voice" }
 rig.workspace = true
 gethostname = "1.1"
 portable-pty = "0.9"
@@ -21,16 +29,10 @@ chrono.workspace = true
 # The host's IANA zone, passed to the computer so its clock matches the desk's.
 iana-time-zone = "0.1"
 rusqlite.workspace = true
-cap-std = "4.0.3"
-ignore = "0.4.33"
-grep-searcher = "0.1.17"
-grep-regex = "0.1.14"
 regex = "1"
-globset = "0.4.20"
 futures-util = "0.3.34"
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 uuid = { version = "1.26.0", features = ["v4", "serde"] }
-ts-rs = { version = "=12.0.1", features = ["serde-compat"] }
 # Pinned: these features are the SDK's own "unstable", and a minor release
 # may change them. They expose turn token counts, session fork capability,
 # and v1 authentication methods (still feature-gated despite protocol stability).
@@ -56,17 +58,9 @@ dunce = "1.0.5"
 oauth2 = { version = "5", default-features = false }
 bytes = "1"
 base64 = "0.22"
-# GPT-Live on a ChatGPT login is a WebRTC call, as the Codex app places it:
-# the desk is the peer and sends the person's audio as Opus over RTP; the
-# model's speech and events come back on a sideband socket. Pinned with the
-# versions Codex ships; opus builds libopus from source with cmake.
-webrtc = "=0.20.3"
-rtc = "=0.20.5"
-opus = "=0.4.0"
 # What a sent file is, from its name, when its bytes do not say.
 mime_guess = "2.0.5"
 http = "1"
-keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 sha2 = "0.10"
 # The pinned desk identity and encrypted v2 frames use the Noise IK pattern.
 snow = "0.10"
@@ -103,19 +97,17 @@ hex = "0.4"
 # a ceiling below that, so an attached picture is decoded and shrunk before
 # it is inlined. Only the formats a phone or a screenshot produces.
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
-roxmltree = "0.20"
-whatlang = "0.18.0"
-# The desk's own speech to text. Pinned exactly: the build downloads that
-# release's prebuilt static library (onnxruntime inside, so nothing is needed
-# on the host), and the C API under the wrapper moves between releases.
-sherpa-onnx = { version = "=1.13.8", default-features = false, features = ["static"] }
-# A phone's utterance is AAC in MP4; the local engine needs its samples.
-symphonia = { version = "0.6", default-features = false, features = ["aac", "isomp4"] }
 
 # `test-util`: a test whose time the code controls runs on a paused clock, so
 # waiting out a 30 s token lifetime or a 10 s deadline costs nothing.
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
+# The tests that read a contract type's TypeScript declaration.
+ts-rs.workspace = true
+# The tests of the `web_search` tool point the chain at its mock providers.
+hotline-websearch = { path = "../hotline-websearch", features = ["test-support"] }
+# The core's call tests charge the voice budget without a reservation.
+hotline-room = { path = "../hotline-room", features = ["test-support"] }
 
 # Killing a command's whole process group, which is the only way Stop reaches
 # what the command itself started.
@@ -123,9 +115,4 @@ tokio = { workspace = true, features = ["test-util"] }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_SystemInformation"] }
-
-# Points its own stdout and stderr at a file, so it runs without libtest.
-[[test]]
-name = "log_file"
-harness = false
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_SystemInformation"] }

@@ -100,7 +100,6 @@ impl Room {
                         _ => text.to_string(),
                     },
                     attachments: attachments.clone().unwrap_or_default(),
-                    scheduled: None,
                     steer: !crate::wire::commands::from_voice()
                         || crate::wire::commands::voice_origin()
                             .is_some_and(|origin| origin.direct),
@@ -116,39 +115,6 @@ impl Room {
                     retry: false,
                 },
                 attachments,
-            },
-        )
-        .await;
-        Ok(())
-    }
-
-    /// A schedule firing, down the same funnel as everything else — with two
-    /// differences the tape can see.
-    ///
-    /// The agent hears the framed prompt, which says which job woke it; the
-    /// transcript keeps the bare prompt and the stamp naming that job, so the
-    /// conversation can draw one line instead of a wall. And if the job is
-    /// quiet, this is where the window over its turn opens.
-    pub async fn prompt_scheduled(
-        self: &Arc<Self>,
-        persona_id: &str,
-        prompt: &str,
-        run: ScheduledRun,
-    ) -> Result<(), String> {
-        let _working = self.working()?;
-        let (session, _held) = self.in_this_chapter(persona_id).await?;
-        if !schedule::scheduled_run_allowed(&self.log, persona_id, &run) {
-            return Err("Background work is not granted for this teammate.".to_string());
-        }
-        let mut wire = Wired::words(scheduled_wire_text(&run, prompt));
-        wire.scheduled = Some(run.clone());
-        mark(&session.pending_scheduled, run);
-        self.say(
-            &session,
-            Sending {
-                shown: prompt.to_string(),
-                wire,
-                attachments: None,
             },
         )
         .await;
@@ -309,15 +275,11 @@ impl Room {
             },
         );
         let mut wire = sending.wire;
-        wire.text = timed_from(ts, client, &wire.text);
-        let calls = std::mem::take(&mut *lock(&session.pending_calls));
-        if !calls.is_empty() {
-            wire.text = format!(
-                "(What you told the person of your calls since you last spoke:\n{})\n\n{}",
-                calls.join("\n"),
-                wire.text
-            );
+        let posts = std::mem::take(&mut *lock(&session.pending_posts));
+        if !posts.is_empty() {
+            wire.text = super::post::posted_since(&posts, &wire.text);
         }
+        wire.text = timed_from(ts, client, &wire.text);
         wire.said = Some(id);
         self.dispatch(session.clone(), wire);
     }
@@ -510,7 +472,12 @@ pub(super) fn said(events: &[Value]) -> Vec<Said> {
                 ),
                 None => text,
             })),
-            "agent" => Some(Said::Agent(text)),
+            // A post from another thread is remembered with where it came
+            // from, which its text no longer says.
+            "agent" => Some(Said::Agent(match super::post::posted_from(event) {
+                Some(origin) => format!("({origin}) {text}"),
+                None => text,
+            })),
             // What came back is remembered as it was heard.
             "delivery" => match serde_json::from_value((*event).clone()).ok()? {
                 TranscriptEvent::Delivery {
@@ -638,6 +605,8 @@ pub(super) fn event_of(
                             ring: None,
                             receipt: None,
                             spoken: spoken.take(),
+                            from: None,
+                            scheduled: None,
                         })
                         .collect()
                 }
@@ -751,54 +720,11 @@ impl PendingTool {
     }
 }
 
-/// What the tape writes down in place of the event the room handed it.
-///
-/// Order matters: a new speaker closes any window that is open, and only then
-/// may a scheduled firing open one of its own.
+/// What the tape writes down in place of the event the room handed it: a
+/// person's line, with the message it answers.
 pub(super) fn stamped(session: &Session, mut event: TranscriptEvent, now: i64) -> TranscriptEvent {
     if let TranscriptEvent::User { reply_to, .. } = &mut event {
         *reply_to = take_fresh(&session.pending_reply, now);
     }
-    let event = through_quiet(session, event, now);
-    stamp_scheduled(session, event, now)
-}
-
-/// Runs an event past an open quiet window, which may rewrite it or close.
-fn through_quiet(session: &Session, event: TranscriptEvent, now: i64) -> TranscriptEvent {
-    let mut held = lock(&session.quiet);
-    let Some(window) = held.take() else {
-        return event;
-    };
-    let (window, event) = quiet::step(window, event, now);
-    *held = window;
     event
-}
-
-/// Claims a pending firing for the user line it woke, opening its silence.
-fn stamp_scheduled(session: &Session, mut event: TranscriptEvent, now: i64) -> TranscriptEvent {
-    if let TranscriptEvent::User { scheduled, .. } = &mut event
-        && let Some(run) = take_fresh(&session.pending_scheduled, now)
-    {
-        // A firing that lands mid-turn is queued behind the turn already
-        // running, so the first boundary to arrive belongs to that turn and
-        // not to this one. The turn in flight is what `running` says, which is
-        // set as the line is dispatched — after this line reaches the tape.
-        let busy = lock(&session.turns).running;
-        *lock(&session.quiet) = quiet::open_window(&run, busy, now);
-        *scheduled = Some(run);
-    }
-    event
-}
-
-/// The framing the agent reads when a schedule wakes it.
-///
-/// Deliberately silent about `quiet`: the window in [`quiet`] does not need
-/// the agent's cooperation, and asking for it is exactly how "No change —
-/// staying silent per protocol" ended up in someone's chat.
-fn scheduled_wire_text(run: &ScheduledRun, prompt: &str) -> String {
-    let waking = match run.kind {
-        ScheduleKind::Loop => "loop",
-        ScheduleKind::Schedule => "scheduled",
-    };
-    format!("{waking} · {prompt}")
 }

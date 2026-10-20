@@ -38,7 +38,8 @@ async fn a_stalled_agent_start_fails_visibly_and_holds_up_nobody_else() {
         },
     )
     .unwrap();
-    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
     let port = door.port();
     let door_task = tokio::spawn(door.run());
     let mut client = Client::connect(port, TOKEN).await;

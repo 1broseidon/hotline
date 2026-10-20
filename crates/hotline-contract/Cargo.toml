@@ -1,0 +1,18 @@
+[package]
+name = "hotline-contract"
+description = "Hotline's wire and tape types, with the ts-rs derives the window's TypeScript is generated from. Depends on no other Hotline crate by design."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+ts-rs.workspace = true
+# A pairing invitation's link is base64url JSON under `hotline://pair`.
+base64 = "0.22"
+url = "2.5.8"

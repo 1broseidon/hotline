@@ -6,11 +6,16 @@ async fn voice_schedules_require_a_grant_and_cannot_escape_the_call_scope() {
     let (_root, desk, _calls) = desk(services());
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Test","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
-    let persona = crate::wire::commands::run(create, &desk.log, &handle)
+    let persona = crate::wire::commands::run(create, &desk.log, &handle, &desk.parts())
         .await
         .unwrap();
     let id = persona["id"].as_str().unwrap();
-    let context = Context::new(desk.log.clone(), handle.clone(), CancellationToken::new());
+    let context = Context::new(
+        desk.log.clone(),
+        handle.clone(),
+        desk.parts().voice.unwrap(),
+        CancellationToken::new(),
+    );
     let heard = context.for_utterance();
     let mut params = json!({"personaId":id,"kind":"schedule","when":chrono::Utc::now().timestamp_millis()+60_000,"prompt":"Check the PR."});
     let command = |params: Value| {
@@ -66,8 +71,13 @@ async fn voice_schedules_require_a_grant_and_cannot_escape_the_call_scope() {
         params["personaId"].as_str().unwrap(),
         &run
     ));
-    let other_call =
-        Context::new(desk.log.clone(), handle.clone(), CancellationToken::new()).for_utterance();
+    let other_call = Context::new(
+        desk.log.clone(),
+        handle.clone(),
+        desk.parts().voice.unwrap(),
+        CancellationToken::new(),
+    )
+    .for_utterance();
     assert!(
         other_call
             .execute(Command::ScheduleCancel {
@@ -85,9 +95,10 @@ async fn voice_schedules_require_a_grant_and_cannot_escape_the_call_scope() {
         })
         .await
         .unwrap();
-    let operator_job = crate::wire::commands::run(command(params.clone()), &desk.log, &handle)
-        .await
-        .unwrap();
+    let operator_job =
+        crate::wire::commands::run(command(params.clone()), &desk.log, &handle, &desk.parts())
+            .await
+            .unwrap();
     assert_eq!(operator_job["operatorCreated"], true);
     assert!(
         heard
@@ -122,10 +133,16 @@ async fn a_heard_turn_can_queue_only_three_handoffs_without_waiting_for_startup(
     let (_root, desk, _calls) = desk(services());
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Test","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
-    let persona = crate::wire::commands::run(create, &desk.log, &handle)
+    let persona = crate::wire::commands::run(create, &desk.log, &handle, &desk.parts())
         .await
         .unwrap();
-    let context = Context::new(desk.log.clone(), handle, CancellationToken::new()).for_utterance();
+    let context = Context::new(
+        desk.log.clone(),
+        handle,
+        desk.parts().voice.unwrap(),
+        CancellationToken::new(),
+    )
+    .for_utterance();
     let command = || Command::SessionPrompt {
         persona_id: persona["id"].as_str().unwrap().into(),
         text: "Check the PR.".into(),
@@ -162,7 +179,12 @@ async fn holding_while_narration_finishes_does_not_publish_a_delivery() {
     let (cancel, speech) = calls
         .change(&id, |c| Ok((c.cancel.clone(), c.deliveries.child_token())))
         .unwrap();
-    let context = Context::new(desk.log.clone(), desk, cancel);
+    let context = Context::new(
+        desk.log.clone(),
+        desk.clone(),
+        desk.parts().voice.unwrap(),
+        cancel,
+    );
     let worker = calls.clone();
     let call_id = id.clone();
     let task = tokio::spawn(async move {

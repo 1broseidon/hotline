@@ -393,7 +393,14 @@ async fn a_companions_thread_list_leaves_out_calls_and_pairs() {
     };
     for params in [json!({ "personaId": ada }), json!({})] {
         let request = json!({ "id": 1, "cmd": "thread.list", "params": params });
-        let phone = remote_control_answer(Seat::Phone, &handle, &log, request.clone()).await;
+        let phone = remote_control_answer(
+            Seat::Phone,
+            &handle,
+            &log,
+            &Parts::default(),
+            request.clone(),
+        )
+        .await;
         assert!(
             !phone.to_string().contains("said in c1"),
             "a call's words are not a companion's to list: {phone}"
@@ -404,7 +411,8 @@ async fn a_companions_thread_list_leaves_out_calls_and_pairs() {
                 .any(|kind| kind == "call" || kind == "pair")
         );
         assert!(kinds(&phone).iter().any(|kind| kind == "side"));
-        let owner = remote_control_answer(Seat::Owner, &handle, &log, request).await;
+        let owner =
+            remote_control_answer(Seat::Owner, &handle, &log, &Parts::default(), request).await;
         assert!(kinds(&owner).iter().any(|kind| kind == "call"));
         assert!(kinds(&owner).iter().any(|kind| kind == "pair"));
     }
@@ -488,15 +496,28 @@ fn the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones() {
         ThreadKind::Pair,
         ThreadKind::Run,
         ThreadKind::Call,
+        ThreadKind::Job,
     ] {
         assert!(!Seat::Phone.permits(&prompt(kind)), "{kind:?}");
     }
+    // Closing a job cancels it, and stopping its firing is the same owner's
+    // call: a phone may do neither, as it may not cancel a schedule.
+    assert!(!Seat::Phone.permits(&Command::ThreadClose {
+        thread: thread(ThreadKind::Job),
+    }));
+    assert!(!Seat::Phone.permits(&Command::ThreadCancel {
+        thread: thread(ThreadKind::Job),
+    }));
+    assert!(Seat::Desk.permits(&Command::ThreadCancel {
+        thread: thread(ThreadKind::Job),
+    }));
     // `peers.answer_permission` is the owner's, so a pair's card is.
     for kind in [
         ThreadKind::Dm,
         ThreadKind::Side,
         ThreadKind::Run,
         ThreadKind::Call,
+        ThreadKind::Job,
     ] {
         assert!(Seat::Phone.permits(&answer(kind)), "{kind:?}");
     }
@@ -540,6 +561,7 @@ fn the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones() {
         ThreadKind::Side,
         ThreadKind::Pair,
         ThreadKind::Run,
+        ThreadKind::Job,
     ] {
         assert!(
             Seat::Phone.permits_sub(&Target::ThreadId(ThreadId::new(kind, "k"))),

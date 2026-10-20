@@ -10,12 +10,12 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
     let desk = Arc::new(
         crate::desk::Desk::open_with_voice_services(
             root.path(),
-            Arc::new(crate::credentials::tests::MemoryStore::default()),
+            Arc::new(crate::credentials::MemoryStore::default()),
             None,
         )
         .unwrap(),
     );
-    let calls = desk.voice().unwrap();
+    let calls = desk.parts().voice.unwrap();
     let persona = mack(&desk).await;
     assert!(!calls.status().direct_available, "nothing is connected");
     let (login, _dir) = calls

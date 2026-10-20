@@ -516,7 +516,8 @@ impl Desk {
         std::fs::create_dir(&workspace).unwrap();
         let desk = common::open_desk(root.path()).unwrap();
         let log = desk.log.clone();
-        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk)).unwrap();
+        let parts = desk.parts();
+        let door = Door::bind(desk.log.clone(), TOKEN.into(), Arc::new(desk), parts).unwrap();
         let port = door.port();
         tokio::spawn(door.run());
         let mut client = Client::connect(port, TOKEN).await;

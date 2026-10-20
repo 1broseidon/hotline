@@ -191,11 +191,11 @@ async fn whole_clip_fallback_cannot_use_a_disconnected_subscription_login() {
     let root = tempfile::tempdir().unwrap();
     let desk = crate::desk::Desk::open_with_voice_services(
         root.path(),
-        Arc::new(crate::credentials::tests::MemoryStore::default()),
+        Arc::new(crate::credentials::MemoryStore::default()),
         None,
     )
     .unwrap();
-    let calls = desk.voice().unwrap();
+    let calls = desk.parts().voice.unwrap();
     let primary = Arc::new(Fake {
         fail: true,
         ..Fake::default()

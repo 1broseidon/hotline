@@ -1,4 +1,4 @@
-//! The schedules view: one teammate's scheduled jobs and loops, for a seat
+//! The schedules view: one teammate's jobs, ended ones included, for a seat
 //! that may read them but not the room stream they live on.
 //!
 //! A job is a room event, and the room stream also carries every setting,
@@ -32,7 +32,10 @@ pub(super) enum Unreadable {
 /// One teammate's jobs as the view sends them, soonest first.
 pub(super) fn read(log: &Log, persona_id: &str) -> Result<Vec<ScheduleEntry>, Unreadable> {
     match room::teammate_schedules(log, persona_id) {
-        Ok(Some(jobs)) => Ok(jobs.into_iter().map(ScheduleEntry::from).collect()),
+        Ok(Some(jobs)) => Ok(jobs
+            .into_iter()
+            .map(crate::session::schedule::entry)
+            .collect()),
         Ok(None) => Err(Unreadable::NoTeammate(format!(
             "There is no teammate {persona_id}."
         ))),

@@ -71,6 +71,7 @@ async fn mobile_persona_computer_owner_controls_preserve_other_settings() {
         Seat::Phone,
         &handle,
         &log,
+        &Parts::default(),
         request(json!({"id":id,"enabled":true})),
     )
     .await;
@@ -80,6 +81,7 @@ async fn mobile_persona_computer_owner_controls_preserve_other_settings() {
         Seat::Owner,
         &handle,
         &log,
+        &Parts::default(),
         request(json!({"id":id,"enabled":true})),
     )
     .await;
@@ -93,11 +95,12 @@ async fn mobile_persona_computer_owner_controls_preserve_other_settings() {
         Seat::Desk,
         &handle,
         &log,
+        &Parts::default(),
         json!({"id":3,"cmd":"persona.update","params":{"id":id,"patch":{"computer":full}}}),
     )
     .await;
     assert_eq!(seed["ok"], true, "{seed}");
-    let updated = remote_control_answer(Seat::Owner, &handle, &log, request(json!({
+    let updated = remote_control_answer(Seat::Owner, &handle, &log, &Parts::default(), request(json!({
         "id":id,"memory":"4608m","cpus":1.5,"image":"untrusted","pids":1,"secrets":[],"mounts":[],"reach":"machine"
     }))).await;
     assert_eq!(updated["ok"], true, "{updated}");
@@ -110,6 +113,7 @@ async fn mobile_persona_computer_owner_controls_preserve_other_settings() {
         Seat::Owner,
         &handle,
         &log,
+        &Parts::default(),
         request(json!({"id":id,"memory":"5g"})),
     )
     .await;
@@ -118,6 +122,7 @@ async fn mobile_persona_computer_owner_controls_preserve_other_settings() {
         Seat::Owner,
         &handle,
         &log,
+        &Parts::default(),
         request(json!({"id":id,"cpus":null})),
     )
     .await;
@@ -134,6 +139,7 @@ async fn mobile_persona_computer_owner_controls_preserve_other_settings() {
         Seat::Owner,
         &handle,
         &log,
+        &Parts::default(),
         request(json!({"id":id,"enabled":false})),
     )
     .await;
@@ -156,6 +162,7 @@ async fn mobile_persona_computer_validates_limits_atomically_against_fake_capaci
             seat,
             &handle,
             &log,
+            &Parts::default(),
             json!({"id":2,"cmd":"computer.capacity","params":{}}),
         )
         .await;
@@ -169,6 +176,7 @@ async fn mobile_persona_computer_validates_limits_atomically_against_fake_capaci
         Seat::Owner,
         &handle,
         &log,
+        &Parts::default(),
         json!({"id":3,"cmd":"mobile.persona_computer","params":{"id":id}}),
     )
     .await;
@@ -205,6 +213,7 @@ async fn mobile_persona_computer_validates_limits_atomically_against_fake_capaci
             Seat::Owner,
             &handle,
             &log,
+            &Parts::default(),
             json!({"id":4,"cmd":"mobile.persona_computer","params":params}),
         )
         .await;
@@ -215,7 +224,7 @@ async fn mobile_persona_computer_validates_limits_atomically_against_fake_capaci
         );
     }
     for (cpus, memory) in [(0.5, "512m"), (8.0, "16g"), (1.0, "1024M"), (2.5, "2G")] {
-        let answer = remote_control_answer(Seat::Owner, &handle, &log, json!({"id":5,"cmd":"mobile.persona_computer","params":{"id":id,"cpus":cpus,"memory":memory}})).await;
+        let answer = remote_control_answer(Seat::Owner, &handle, &log, &Parts::default(), json!({"id":5,"cmd":"mobile.persona_computer","params":{"id":id,"cpus":cpus,"memory":memory}})).await;
         assert_eq!(answer["ok"], true, "{answer}");
         assert_eq!(answer["result"]["computer"]["cpus"], cpus);
         assert_eq!(answer["result"]["computer"]["memory"], memory);
@@ -233,7 +242,7 @@ async fn mobile_persona_computer_validates_limits_atomically_against_fake_capaci
             cpus: Some(Some(cpus)),
         };
         assert!(
-            commands::run(command, &log, &handle)
+            commands::run(command, &log, &handle, &Parts::default())
                 .await
                 .unwrap_err()
                 .contains("CPUs")

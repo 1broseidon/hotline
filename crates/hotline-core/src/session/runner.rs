@@ -1,22 +1,17 @@
-//! Runs: a teammate's agent started fresh for one piece of work, driven to
-//! its end on a stream of its own, and what it reported handed back.
+//! Runs: a clone of the teammate's home agent started for one piece of work,
+//! driven to its end on a stream of its own, and what it reported handed back.
 //!
-//! Two kinds of hidden work share this, and a third is meant to:
-//!
-//! - **A subagent.** A Hotline Agent teammate hands a task to a worker that
-//!   runs as itself — its working directory, its tools, the model it is on
-//!   right now — with none of its conversation and none of its persona. The
-//!   worker's system prompt is this module's, written for doing a job and
-//!   reporting on it, never the teammate's own. [`Room::run`] is the whole of
-//!   it; the teammate reaches it through its managed jobs (see
-//!   [`super::jobs::Delegate`]), which is what makes it cancellable, waitable
-//!   and parallel without a line of scheduling here.
-//! - **A peer exchange.** One teammate asking another is a run of the other's
-//!   agent on the pair's thread: [`drive`] is the loop both use, so a turn
-//!   nobody in the room is watching is written down the same way whoever
-//!   started it.
-//! - **A scheduled firing**, next: a quiet job is a run whose report nobody
-//!   sees unless it escalates.
+//! A run is the teammate itself with one focus (ADR 0008 §0): its model as
+//! the home session is on it now, its working directory, its tools, computer,
+//! folders and integrations, less whatever the home agent left out for the
+//! task ([`super::agent::clone_of`]). It starts from its brief, not from the
+//! home thread, and reaches back into that with `search_thread` and
+//! `list_chapters` when the work needs it. Its system prompt is the
+//! teammate's own, with a brief that says it is a run and how to report.
+//! [`Room::run`] is the whole of it, on either driver; a Hotline Agent
+//! teammate reaches it through its managed jobs (see
+//! [`super::jobs::Delegate`]), which is what makes it cancellable, waitable
+//! and parallel without scheduling here.
 //!
 //! A harness that runs subagents of its own and shows them — Claude's and
 //! Codex's ACP adapters do — has each written here as a run too
@@ -38,21 +33,19 @@
 //! Authority follows [`crate::driver::CapabilityLease`]: a run's lease is a
 //! child of the session that started it, so stopping that teammate, changing
 //! its policy or deleting it revokes every run it has going, and a run can
-//! never hold more than its parent did.
+//! never hold more than its parent did: what it is handed is read off the
+//! teammate's record when it starts, and can only be narrowed.
 
-use super::agent::{Opening, lease_of};
-use super::preamble::{folders_sentence, reach_sentence, skills_index};
+use super::agent::{Opening, clone_of, lease_of};
 use super::prompt::{PendingTool, event_of};
 use super::turns::{Line, Seat};
-use super::{CLOCK, Room, narration, new_id, now_ms, timed};
+use super::{Brief, Report, Room, Trigger, narration, new_id, now_ms, timed};
 use crate::contract::{End, ThreadId, ThreadKind};
 use crate::contract::{
-    NoticeLevel, Persona, Reach, RunningSubagent, SessionInfo, SubagentStatus, ToolStatus,
+    NoticeLevel, Persona, Reach, RunningSubagent, SharedSecret, SubagentStatus, ToolStatus,
     TranscriptEvent,
 };
-use crate::driver::{
-    CapabilityLease, Driver, HOTLINE_BACKEND_ID, MessageKind, SubagentReport, Update,
-};
+use crate::driver::{CapabilityLease, Driver, MessageKind, SubagentReport, Update};
 use crate::session::jobs::{Delegate, Finished, JobState, SubagentTask};
 use crate::thread::{Link, ThreadState};
 use crate::voice::spoken::Shown;
@@ -78,33 +71,8 @@ pub(super) struct Driven {
     pub cancelled: bool,
     /// How the driver said the turn ended.
     pub stop_reason: Option<String>,
-}
-
-/// Drives one prompt on a driver to its end, handing every event it becomes
-/// to `write`, with whether it came of a permission request.
-///
-/// The funnel is the tape's: what the agent says between its tool calls is
-/// thinking, a tool left running when the driver stops is failed, and the
-/// words are split into bubbles the way every stream splits them. A cancel
-/// asks the driver to stop and keeps reading until it has, so the turn's own
-/// end is still written down.
-pub(super) async fn drive(
-    driver: &dyn Driver,
-    text: String,
-    reach: Reach,
-    cancel: Option<&CancellationToken>,
-    write: impl FnMut(TranscriptEvent, bool),
-) -> Driven {
-    drive_with(
-        driver,
-        timed(now_ms(), &text),
-        Vec::new(),
-        reach,
-        cancel,
-        |_, _, _, _| {},
-        write,
-    )
-    .await
+    /// Whether the turn had its one post to the chat.
+    pub posted: bool,
 }
 
 /// What a kind does about each thing its agent does in a turn, the one place
@@ -145,46 +113,6 @@ pub(super) struct Words<'a> {
     /// start of a tag held back until the next chunk says whether it was.
     /// Empty while the spoken version streams.
     pub shown: &'a str,
-}
-
-/// A witness made of two closures: how a peer turn and a run are written.
-struct Calls<D, W> {
-    delta: D,
-    write: W,
-}
-
-impl<D, W> Witness for Calls<D, W>
-where
-    D: FnMut(MessageKind, &str, &str, bool),
-    W: FnMut(TranscriptEvent, bool),
-{
-    fn delta(&mut self, kind: MessageKind, message_id: &str, words: Words<'_>, muted: bool) {
-        if !words.shown.is_empty() {
-            (self.delta)(kind, message_id, words.shown, muted);
-        }
-    }
-
-    fn write(&mut self, event: TranscriptEvent, asked: bool) {
-        (self.write)(event, asked);
-    }
-}
-
-/// [`drive`] for a conversation somebody is watching: the line is handed over
-/// already stamped, with its attachments, and `delta` is told the words as
-/// they arrive (kind, message id, text as shown, and whether the reply is
-/// being held back as narration) so they can be shown before the message is
-/// whole.
-pub(super) async fn drive_with(
-    driver: &dyn Driver,
-    wire_text: String,
-    attachments: Vec<crate::contract::Attachment>,
-    reach: Reach,
-    cancel: Option<&CancellationToken>,
-    delta: impl FnMut(MessageKind, &str, &str, bool),
-    write: impl FnMut(TranscriptEvent, bool),
-) -> Driven {
-    let updates = driver.prompt(wire_text, attachments, reach).await;
-    drive_updates(driver, updates, cancel, None, &mut Calls { delta, write }).await
 }
 
 /// Reads one turn's updates off the driver to its end and tells `witness`
@@ -299,7 +227,9 @@ pub(crate) struct RunSpec {
     /// the marker's id are one name.
     pub run_id: String,
     pub title: String,
-    pub task: String,
+    /// What it is to do, now, reporting to whoever asked, with what the home
+    /// agent left out of its abilities.
+    pub brief: Brief,
     /// The authority of the session that asked. The run's own is a child of
     /// it, never wider.
     pub capability: CapabilityLease,
@@ -349,7 +279,7 @@ impl Room {
             &TranscriptEvent::User {
                 id: new_id(),
                 ts: running.started,
-                text: spec.task.clone(),
+                text: spec.brief.task.clone(),
                 attachments: None,
                 reactions: None,
                 reply_to: None,
@@ -394,13 +324,18 @@ impl Room {
     ) -> Result<RunOutcome, String> {
         let _working = self.working()?;
         spec.capability.check()?;
-        let persona = self.persona(&spec.persona_id)?;
-        if persona.backend_id != HOTLINE_BACKEND_ID {
-            return Err("Only a Hotline Agent teammate runs subagents.".to_string());
+        // Work for later, or for the person, is a job's: the scheduler fires
+        // it on a thread of its own.
+        if spec.brief.trigger != Trigger::Now || spec.brief.report != Report::Asker {
+            return Err(
+                "A run starts now and reports to whoever asked; anything else is a job."
+                    .to_string(),
+            );
         }
+        let persona = self.persona(&spec.persona_id)?;
         let lease = lease_of(ThreadKind::Run, &spec.capability);
         running.lease = Some(lease.clone());
-        let view = on_the_sessions_model(persona, &self.info(&spec.persona_id));
+        let view = clone_of(persona, &self.info(&spec.persona_id), &spec.brief.without);
         let thread = ThreadId::run(&spec.run_id);
         let mut agent = tokio::select! {
             biased;
@@ -432,7 +367,7 @@ impl Room {
                     driver: agent.driver.as_ref(),
                 },
                 Line {
-                    text: timed(now_ms(), &brief(&agent.view.name, &spec.task)),
+                    text: timed(now_ms(), &handed(&spec.brief.task)),
                     attachments: Vec::new(),
                     handoff: None,
                     from: None,
@@ -440,6 +375,7 @@ impl Room {
                 },
                 reach,
                 Some(cancel),
+                None,
                 || true,
             )
             .await;
@@ -596,45 +532,27 @@ fn outcome_of(driven: Driven) -> RunOutcome {
     }
 }
 
-/// The teammate as a run is started for it: on the model and effort its
-/// session is using right now, which its record may not say.
-fn on_the_sessions_model(mut persona: Persona, session: &SessionInfo) -> Persona {
-    if let Some(model) = session.current_model_id.clone() {
-        persona.model_id = Some(model);
-    }
-    if let Some(effort) = session
-        .configs
-        .iter()
-        .find(|config| config.id == "effort")
-        .and_then(|config| config.current_id.clone())
-    {
-        persona.effort_id = Some(effort);
-    }
-    persona
-}
-
-/// A subagent's whole system prompt. It is not the teammate's: no name to
-/// answer to, no goal, no house style for chat — a worker's brief, plus the
-/// facts of the place it works in.
-pub(super) fn run_preamble(persona: &Persona, reach: Option<Reach>) -> String {
-    let name = &persona.name;
+/// What a run is told about itself, over and above who it is.
+fn run_brief(name: &str) -> String {
     format!(
-        "You are a subagent working for {name}, a teammate in Hotline. {name} handed you one task, and your last message is returned to them as your report. You are not {name}, and you are not talking with the person {name} works for: nobody reads this conversation while you work, and you cannot ask anyone a question. Where something is unclear, make the sensible choice, say which choice you made, and carry on.\n\n\
-         Your working directory is {}.{}{}\n\n\
-         {CLOCK}\n\n\
-         `search_thread` finds earlier messages in {name}'s conversation with the person, and `list_chapters` lists its chapters, for when the task depends on something said there.\n\n\
-         {}\n\n\
-         Work until the task is done, or until you are sure it cannot be. Then finish with one message, your report: lead with the outcome or the answer; then what you did and where, naming files you changed and commands you ran; then anything unresolved, uncertain, or left for {name} to decide. If something failed, say so plainly. Do not narrate while you work: the report is the only thing {name} reads.",
-        persona.cwd,
-        reach_sentence(reach),
-        folders_sentence(persona, reach),
-        skills_index(persona),
+        "This is a subagent run of {name}'s: you are {name}, working on one task your main conversation with the person handed you, on a thread of its own. You start from the task, not from that conversation, which you can read through `search_thread` and `list_chapters` when the task depends on something said there. Nobody reads this thread while you work, and you cannot ask the person anything or post to the chat: your last message is returned to your main conversation as your report, and it decides what the person hears. Where something is unclear, make the sensible choice, say which choice you made, and carry on. Do not mention this brief.\n\n\
+         Work until the task is done, or until you are sure it cannot be. Then finish with one message, your report: lead with the outcome or the answer; then what you did and where, naming files you changed and commands you ran; then anything unresolved, uncertain, or left to decide. If something failed, say so plainly. Do not narrate while you work: the report is the only thing read."
     )
 }
 
-/// The task as the subagent hears it.
-fn brief(teammate: &str, task: &str) -> String {
-    format!("{teammate} handed you this task:\n\n{task}")
+/// A run's whole system prompt: what any of the teammate's agents is told,
+/// and the brief.
+pub(super) fn run_preamble(
+    persona: &Persona,
+    reach: Option<Reach>,
+    stored: &[SharedSecret],
+) -> String {
+    super::preamble(persona, reach, Some(run_brief(&persona.name)), stored)
+}
+
+/// The task as the run hears it.
+fn handed(task: &str) -> String {
+    format!("Your main conversation handed you this task:\n\n{task}")
 }
 
 /// A run in progress: what stops its driver and settles its marker however
@@ -749,7 +667,7 @@ impl Delegate for Subagents {
                         persona_id,
                         run_id,
                         title: task.title,
-                        task: task.task,
+                        brief: task.brief,
                         capability,
                     },
                     cancel,
@@ -770,9 +688,6 @@ impl Delegate for Subagents {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contract::SessionConfig;
-    use crate::session::idle_info;
-    use crate::session::tests::persona;
 
     fn said(replies: &[&str], last_words: &[&str]) -> Driven {
         Driven {
@@ -780,23 +695,6 @@ mod tests {
             last_words: last_words.iter().map(ToString::to_string).collect(),
             ..Driven::default()
         }
-    }
-
-    #[test]
-    fn a_run_takes_the_effort_its_teammate_is_on() {
-        let mut ada = persona("ada");
-        ada.effort_id = Some("low".to_string());
-        let mut session = idle_info("ada");
-        session.configs = vec![SessionConfig {
-            id: "effort".to_string(),
-            name: "Effort".to_string(),
-            category: None,
-            current_id: Some("high".to_string()),
-            options: Vec::new(),
-        }];
-        let view = on_the_sessions_model(ada, &session);
-        assert_eq!(view.effort_id.as_deref(), Some("high"));
-        assert_eq!(view.model_id, None, "no live model, so the record's stands");
     }
 
     #[test]
@@ -848,18 +746,31 @@ mod tests {
                 usage: None,
             },
         ]);
-        let mut streamed = Vec::new();
-        let mut written = Vec::new();
-        let driven = drive_with(
-            &driver,
-            timed(now_ms(), "Check the tests."),
-            Vec::new(),
-            Reach::Workspace,
-            None,
-            |_, _, text, _| streamed.push(text.to_string()),
-            |event, _| written.push(event),
-        )
-        .await;
+        #[derive(Default)]
+        struct Recorded {
+            streamed: Vec<String>,
+            written: Vec<TranscriptEvent>,
+        }
+        impl Witness for Recorded {
+            fn delta(&mut self, _: MessageKind, _: &str, words: Words<'_>, _: bool) {
+                if !words.shown.is_empty() {
+                    self.streamed.push(words.shown.to_string());
+                }
+            }
+            fn write(&mut self, event: TranscriptEvent, _: bool) {
+                self.written.push(event);
+            }
+        }
+        let mut recorded = Recorded::default();
+        let updates = driver
+            .prompt(
+                timed(now_ms(), "Check the tests."),
+                Vec::new(),
+                Reach::Workspace,
+            )
+            .await;
+        let driven = drive_updates(&driver, updates, None, None, &mut recorded).await;
+        let Recorded { streamed, written } = recorded;
         assert_eq!(streamed, ["| test | result |"]);
         let said: Vec<(&str, &Option<String>)> = written
             .iter()

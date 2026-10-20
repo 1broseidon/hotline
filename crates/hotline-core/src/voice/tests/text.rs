@@ -65,12 +65,12 @@ async fn text_mode_needs_only_output_configuration_and_legacy_audio_stays_unavai
     let desk = Arc::new(
         crate::desk::Desk::open_with_voice_services(
             root.path(),
-            Arc::new(crate::credentials::tests::MemoryStore::default()),
+            Arc::new(crate::credentials::MemoryStore::default()),
             None,
         )
         .unwrap(),
     );
-    let calls = desk.voice().unwrap();
+    let calls = desk.parts().voice.unwrap();
     calls
         .vault
         .create("openai", "Fixture", "unused-test-key")

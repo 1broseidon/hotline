@@ -17,13 +17,10 @@
 //!   the record, and is printed too because nothing above can undo it.
 //! - Deltas go out on [`Room::subscribe_deltas`] and are never written; the
 //!   durable line is the message that lands when it is whole.
-//! - A scheduled run marked quiet has its teammate's voice demoted to thinking
-//!   for the length of its own turn. That gate is [`quiet`], and it lives here
-//!   because it must hold for whichever driver ran the turn.
-//! - A job on the room stream wakes a teammate when its `nextAt` arrives.
-//!   That clock is [`schedule`], and it lives here because a firing is a
-//!   prompt — the same funnel, the same quiet window — not a second way of
-//!   speaking to a teammate.
+//! - A job on the room stream fires when its `nextAt` arrives. That clock is
+//!   [`schedule`]; each firing is a turn on the job's own thread
+//!   ([`job_thread`]), never the DM, and what the job tells the person comes
+//!   into the DM as a post.
 //! - A message goes to an agent whose context is the chapter it is in. The
 //!   room opens a chapter when a session starts, closes one that has gone
 //!   quiet, and replaces the agent whose chapter closed before the next
@@ -41,21 +38,22 @@ mod chapters;
 mod computer;
 mod dm;
 mod driver_info;
-mod escalation;
 pub(crate) mod exchanges;
 pub(crate) mod files;
 pub(crate) mod generate;
+mod job_thread;
 pub(crate) mod jobs;
-pub(crate) mod ledger;
+pub(crate) use hotline_room::tool_ledger as ledger;
 mod lifecycle;
 mod links;
 mod narration;
 mod pacing;
 mod peers;
+mod post;
 mod preamble;
-pub(crate) use preamble::{CLOCK, preamble};
+pub(crate) use post::{POST_CHARS, Post, SUBAGENT};
+pub(crate) use preamble::preamble;
 mod prompt;
-mod quiet;
 pub(crate) mod runner;
 pub(crate) mod schedule;
 mod secrets;
@@ -70,11 +68,13 @@ use asking::HumanWait;
 use chapters::sweep_idle_chapters;
 use computer::{ComputerSetup, ComputerSwap};
 use driver_info::follow_model_changes;
+pub use hotline_room::provider_auth::ProviderAuth;
 use prompt::{PendingTool, stamped};
 use secrets::PasskeyArming;
 pub use stopping::Stopped;
 
 pub use peers::TEAMMATE_MESSAGE_MAX;
+pub(crate) use schedule::{Brief, Ends, Report, Trigger};
 pub use schedule::{parse_duration, parse_when};
 
 use crate::computer::Computer;
@@ -82,9 +82,9 @@ use crate::contract::ThreadId;
 use crate::contract::{
     Attachment, ChapterClose, Client, ComputerStatus, ConfigChoice, CookieSite, DeliveryCause,
     DeliveryFrom, HostBrowser, HumanActionStatus, HumanAnswer, NoticeLevel, PasskeyRegistration,
-    PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, ScheduleKind, ScheduledRun,
-    SessionCapabilities, SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger,
-    ToolOutput, ToolSourceKind, ToolState, ToolStatus, TranscriptEvent,
+    PasskeyRegistrationState, Persona, Reach, Receipt, RuntimeReport, SessionCapabilities,
+    SessionInfo, SessionState, SharedSecret, StreamDelta, TeammateToolLedger, ToolOutput,
+    ToolSourceKind, ToolState, ToolStatus, TranscriptEvent,
 };
 use crate::driver::acp::{self, ChildAgent};
 use crate::driver::rig;
@@ -103,7 +103,6 @@ use crate::vault::Vault;
 use async_trait::async_trait;
 use chrono::{Local, TimeZone};
 use jobs::Processes;
-use quiet::QuietWindow;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
@@ -156,29 +155,6 @@ const ASK_HOURS: u32 = 2;
 /// The longest a teammate may ask a card to wait: a day, for an ask that
 /// really waits for the person to come back.
 const ASK_MAX_HOURS: u32 = 24;
-
-/// How Hotline Agent reaches a provider: a key, a login directory, or a
-/// configured endpoint with its own protocol and optional key.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ProviderAuth {
-    ApiKey(String),
-    Unavailable(String),
-    StoredLogin {
-        tokens: crate::credentials::CredentialFile,
-    },
-    Login {
-        token_dir: PathBuf,
-    },
-    Local {
-        base_url: String,
-    },
-    Custom {
-        name: String,
-        base_url: String,
-        api_key: Option<String>,
-        config: crate::contract::CustomProvider,
-    },
-}
 
 /// Where the provider credentials come from.
 ///
@@ -414,13 +390,11 @@ struct Session {
     input_ready: Notify,
     /// The message the next user line answers.
     pending_reply: Mutex<Option<Mark<String>>>,
-    /// What the teammate has said of its calls since its last turn began. A
-    /// live session's context was read from the tape when it started, so
-    /// these ride on its next message; a session that starts later reads
-    /// them from the tape.
-    pending_calls: Mutex<Vec<String>>,
-    /// The firing the next user line belongs to.
-    pending_scheduled: Mutex<Option<Mark<ScheduledRun>>>,
+    /// What the teammate's other threads posted to the chat since its last
+    /// line ([`Room::post`]). A live session's context was read from the tape
+    /// when it started, so these ride on its next line; a session that starts
+    /// later reads them from the tape.
+    pending_posts: Mutex<Vec<String>>,
     /// The user lines the driver has taken and not yet shown it read.
     ///
     /// A line is `sent` when it is written and `read` once the agent has
@@ -430,8 +404,6 @@ struct Session {
     unread: Mutex<Vec<String>>,
     voice_origin: Mutex<Option<crate::voice::Origin>>,
     dispatched_deliveries: Mutex<std::collections::HashSet<String>>,
-    /// The window a quiet schedule is holding this teammate's voice with.
-    quiet: Mutex<Option<QuietWindow>>,
     /// The turn's latest reply, which goes to the phone when the turn ends:
     /// a chatty turn is one notification, not one per bubble.
     glance: Mutex<Option<Glance>>,
@@ -480,11 +452,8 @@ fn take_fresh<T>(held: &Mutex<Option<Mark<T>>>, now: i64) -> Option<T> {
 }
 
 /// One message on its way to a teammate: what the tape records, and what the
-/// driver is handed, which are not always the same.
-///
-/// A schedule's firing is what forces the words apart — the agent is told
-/// which job woke it, and the transcript keeps the bare prompt so the
-/// conversation can draw one line instead of a wall.
+/// driver is handed, which are not always the same: the driver is told when
+/// and from where it was said.
 struct Sending {
     shown: String,
     wire: Wired,
@@ -498,10 +467,7 @@ struct Sending {
 struct Wired {
     text: String,
     attachments: Vec<Attachment>,
-    /// Authorization travels with the queued turn: a one-shot job may have
-    /// left the room stream by the time the driver is free to take it.
-    scheduled: Option<ScheduledRun>,
-    /// Operator input can steer. Internal nudges and scheduled runs queue.
+    /// Operator input can steer. Internal nudges and deliveries queue.
     steer: bool,
     /// The user event this line was written as, so the tape can be told when
     /// the agent has read it. A nudge is never written and has none.
@@ -538,7 +504,6 @@ impl Wired {
         Self {
             text: text.into(),
             attachments: Vec::new(),
-            scheduled: None,
             steer: false,
             said: None,
             from: None,
@@ -615,6 +580,13 @@ pub struct Room {
     /// a picture is drawn whether or not a session is running, and nothing
     /// about it survives a restart, so it lives here and not in the room.
     drawing: Mutex<HashSet<String>>,
+    /// The turns in flight that `post_to_chat` may post from, by thread, and
+    /// whether each has (`session/post.rs`).
+    posting: Mutex<HashMap<ThreadId, post::Posting>>,
+    /// The job threads the room holds: each job's queue, and its agent while
+    /// it has one (`session/job_thread.rs`). Made at a job's first firing and
+    /// dropped when it ends.
+    job_threads: Mutex<HashMap<String, Arc<job_thread::LiveJob>>>,
     /// Subagents running now, by teammate, for the roster row. Like a
     /// drawing, nothing about a run survives a restart.
     subagents: Mutex<HashMap<String, Vec<crate::contract::RunningSubagent>>>,
@@ -766,6 +738,8 @@ impl Room {
             computer_update_failures: Mutex::new(HashMap::new()),
             info_changes: broadcast::channel(BROADCAST_DEPTH).0,
             drawing: Mutex::new(HashSet::new()),
+            posting: Mutex::new(HashMap::new()),
+            job_threads: Mutex::new(HashMap::new()),
             subagents: Mutex::new(HashMap::new()),
             deltas: broadcast::channel(BROADCAST_DEPTH).0,
             schedule_changed: Arc::new(Notify::new()),
@@ -790,11 +764,13 @@ impl Room {
         *lock(&room.me) = Arc::downgrade(&room);
         room.settle();
         // What the person said that was still waiting when the last desk
-        // stopped is handed on once, now that the room is up.
+        // stopped, and what came back to a job that had not heard it yet, is
+        // handed on once, now that the room is up.
         let resuming = Arc::downgrade(&room);
         tokio::spawn(async move {
             if let Some(room) = resuming.upgrade() {
                 room.resume_pending().await;
+                room.resume_job_deliveries().await;
             }
         });
         follow_model_changes(Arc::downgrade(&room), room.log.subscribe(&StreamId::Room));
@@ -864,7 +840,7 @@ impl Room {
         &self,
         persona_id: &str,
         id: &str,
-    ) -> Result<crate::driver::auth::AuthStatus, String> {
+    ) -> Result<crate::wire::AuthStatus, String> {
         self.session(persona_id)?.driver.auth_poll(id)
     }
 
@@ -1030,27 +1006,6 @@ impl Room {
         Ok(id)
     }
 
-    /// Posts `text` to the teammate's DM as the teammate saying it, tagged as
-    /// from its call: a summary of the call, or what the front was asked to
-    /// put in the chat. It is the teammate's own message, so its next turn
-    /// carries on from it. The call's own turns are never posted; they stay
-    /// on its thread.
-    pub(crate) fn call_posted(&self, persona_id: &str, call_id: &str, text: &str) {
-        self.write_value(
-            persona_id,
-            &json!({
-                "kind": "agent", "id": format!("call:{call_id}:{}", new_id()),
-                "ts": now_ms(), "text": text,
-            }),
-        );
-        if let Ok(session) = self.session(persona_id) {
-            let mut calls = lock(&session.pending_calls);
-            calls.push(text.to_string());
-            let excess = calls.len().saturating_sub(MAX_PENDING_CALLS);
-            calls.drain(..excess);
-        }
-    }
-
     /// Keeps `spoken` as what a call to the teammate said for its reply
     /// `event_id`, on the reply's first bubble: the call assistant's rewrite
     /// of a reply that wrote no spoken version ([`crate::voice::spoken`]).
@@ -1145,8 +1100,7 @@ impl Room {
     /// Writes one event to the teammate's tape and offers it to the index.
     ///
     /// Every line the room writes down passes here, which is what lets the
-    /// stamps a prompt left and the quiet window be stated once for both kinds
-    /// of agent.
+    /// stamps a prompt left be stated once for both kinds of agent.
     fn append(&self, session: &Session, event: TranscriptEvent) {
         self.write(&session.persona_id, &stamped(session, event, now_ms()));
     }
@@ -1155,7 +1109,7 @@ impl Room {
     ///
     /// A chapter marker and the notice that a note is missing come this way:
     /// they are the room writing in its own voice, not a teammate speaking,
-    /// and there is no reply, schedule or silence for them to be part of.
+    /// and there is no reply for them to be part of.
     /// Where an image pull shows: live progress for the computer's button,
     /// never a line on the tape. A download is the room's business, and the
     /// conversation carries on as if it were not happening.
@@ -1369,9 +1323,6 @@ impl Room {
         Ok(session)
     }
 }
-
-/// How many call summaries ride on the next message of a live session.
-const MAX_PENDING_CALLS: usize = 6;
 
 fn lock<T>(held: &Mutex<T>) -> MutexGuard<'_, T> {
     held.lock().unwrap_or_else(PoisonError::into_inner)

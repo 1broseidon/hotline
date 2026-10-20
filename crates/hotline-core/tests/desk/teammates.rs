@@ -330,7 +330,8 @@ async fn the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data() 
         desk.prepare_restart().is_ok(),
         "An empty installation can update too"
     );
-    let door = Door::bind(desk.log.clone(), TOKEN.into(), desk.clone()).unwrap();
+    let parts = desk.parts();
+    let door = Door::bind(desk.log.clone(), TOKEN.into(), desk.clone(), parts).unwrap();
     let port = door.port();
     let door_task = tokio::spawn(door.run());
     let mut client = Client::connect(port, TOKEN).await;
@@ -618,4 +619,117 @@ async fn user_images_read_back_by_original_index_without_reopening_the_source() 
         .call("session.stop", json!({"personaId":persona}))
         .await;
     server.abort();
+}
+
+/// Who leads, as a fresh roster view says: the ids of the rows marked lead.
+async fn leads_on_the_roster(client: &mut Client) -> Vec<String> {
+    let roster = client.subscribe(json!({ "view": "roster" })).await;
+    let snapshot = client
+        .next_where(Duration::from_secs(5), |frame| {
+            is_sub(frame, roster, "snapshot")
+        })
+        .await;
+    snapshot["snapshot"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["lead"] == true)
+        .map(|row| row["persona"]["id"].as_str().unwrap().to_string())
+        .collect()
+}
+
+async fn made(client: &mut Client, name: &str) -> String {
+    let created = client
+        .call("persona.create", json!({ "draft": { "name": name } }))
+        .await;
+    assert_eq!(created["ok"], true, "{created}");
+    created["result"]["id"].as_str().unwrap().to_string()
+}
+
+/// Onboarding makes one teammate, and that one is the desk's lead without
+/// anybody choosing it; a second teammate joins under it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_first_teammate_is_the_lead_and_a_second_leaves_the_lead_alone() {
+    let (_root, port) = open("lead-first").await;
+    let mut client = Client::connect(port, TOKEN).await;
+    assert_eq!(leads_on_the_roster(&mut client).await, [] as [String; 0]);
+
+    let ada = made(&mut client, "Ada").await;
+    assert_eq!(
+        leads_on_the_roster(&mut client).await,
+        std::slice::from_ref(&ada)
+    );
+
+    made(&mut client, "Bob").await;
+    assert_eq!(leads_on_the_roster(&mut client).await, [ada]);
+}
+
+/// `persona.lead` moves the role, one lead to a desk, and clears it; a
+/// lead of one is kept, because the next start would put it back.
+#[tokio::test(flavor = "multi_thread")]
+async fn persona_lead_moves_the_lead_and_clears_it() {
+    let (_root, port) = open("lead-move").await;
+    let mut client = Client::connect(port, TOKEN).await;
+    let ada = made(&mut client, "Ada").await;
+
+    let kept = client.call("persona.lead", json!({})).await;
+    assert_eq!(kept["ok"], false, "{kept}");
+    assert_eq!(
+        leads_on_the_roster(&mut client).await,
+        std::slice::from_ref(&ada)
+    );
+
+    let bob = made(&mut client, "Bob").await;
+    let moved = client.call("persona.lead", json!({ "id": bob })).await;
+    assert_eq!(moved["result"], bob, "{moved}");
+    assert_eq!(leads_on_the_roster(&mut client).await, [bob]);
+
+    let cleared = client.call("persona.lead", json!({})).await;
+    assert_eq!(cleared["ok"], true, "{cleared}");
+    assert_eq!(leads_on_the_roster(&mut client).await, [] as [String; 0]);
+}
+
+/// Deleting the lead clears it, and nobody is picked from the two left;
+/// deleting down to one makes that one lead by the same rule as the first.
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_the_lead_leaves_no_lead_until_one_teammate_is_left_to_lead() {
+    let (_root, port) = open("lead-delete").await;
+    let mut client = Client::connect(port, TOKEN).await;
+    let ada = made(&mut client, "Ada").await;
+    let bob = made(&mut client, "Bob").await;
+    let cy = made(&mut client, "Cy").await;
+    assert_eq!(
+        leads_on_the_roster(&mut client).await,
+        std::slice::from_ref(&ada)
+    );
+
+    let gone = client.call("persona.delete", json!({ "id": ada })).await;
+    assert_eq!(gone["ok"], true, "{gone}");
+    assert_eq!(leads_on_the_roster(&mut client).await, [] as [String; 0]);
+
+    let gone = client.call("persona.delete", json!({ "id": cy })).await;
+    assert_eq!(gone["ok"], true, "{gone}");
+    assert_eq!(leads_on_the_roster(&mut client).await, [bob]);
+}
+
+/// A desk from before the lead, one teammate and no lead on its room
+/// stream, opens with that teammate leading.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_one_teammate_desk_from_before_the_lead_loads_with_that_teammate_as_lead() {
+    let root = scratch("lead-upgrade");
+    let log = hotline_core::log::Log::open(&root);
+    log.append(
+        &hotline_core::log::StreamId::Room,
+        &json!({
+            "kind": "persona", "id": "ada", "name": "Ada", "goal": "",
+            "backendId": "hotline", "cwd": root.join("ada").to_string_lossy(),
+            "mcpPolicy": { "mode": "none", "serverIds": [] },
+            "sessionCheckpoints": [], "createdAt": 1, "updatedAt": 1
+        }),
+    )
+    .unwrap();
+    drop(log);
+
+    let mut client = Client::connect(open_at(&root), TOKEN).await;
+    assert_eq!(leads_on_the_roster(&mut client).await, ["ada"]);
 }

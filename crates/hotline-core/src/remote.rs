@@ -13,13 +13,12 @@ mod served;
 mod server;
 mod v2;
 mod viewer_files;
+pub use crate::contract::{PairingPayload, RemoteDevice, RemoteStatus, SealedPairing};
 pub use served::ServeOptions;
-pub use v2::{PairingPayload, SealedPairing};
 
 use crate::contract::{DeviceRole, MobileAttachmentChunk, ThreadId, ThreadKind};
 use crate::credentials::{CredentialFile, CredentialFiles, SecretStore, atomic_write};
-use crate::log::Log;
-use crate::wire::RoomHandle;
+use crate::wire::Agents;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -32,7 +31,6 @@ use std::{
 };
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
-use ts_rs::TS;
 use uuid::Uuid;
 
 fn now() -> i64 {
@@ -63,15 +61,13 @@ fn poison<T>(held: &Mutex<T>) {
     }));
     assert!(held.is_poisoned());
 }
-impl DeviceRole {
-    /// The seat this role is given on the wire, if any. A relay grant has
-    /// none, so the wire cannot be asked to seat one.
-    pub(crate) fn seated(self) -> Option<WireRole> {
-        match self {
-            Self::Owner => Some(WireRole::Owner),
-            Self::Companion => Some(WireRole::Companion),
-            Self::Relay => None,
-        }
+/// The seat a device's role is given on the wire, if any. A relay grant has
+/// none, so the wire cannot be asked to seat one.
+pub(crate) fn seated(role: DeviceRole) -> Option<WireRole> {
+    match role {
+        DeviceRole::Owner => Some(WireRole::Owner),
+        DeviceRole::Companion => Some(WireRole::Companion),
+        DeviceRole::Relay => None,
     }
 }
 /// The roles the wire seats: a `DeviceRole` with the relay taken out.
@@ -81,27 +77,6 @@ pub(crate) enum WireRole {
     Companion,
 }
 
-#[derive(Clone, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct RemoteDevice {
-    pub id: String,
-    pub name: String,
-    pub paired_at: i64,
-    #[serde(default)]
-    pub role: DeviceRole,
-    // Older bearer grants remain visible for revocation, but only a public
-    // key can authorize a sealed connection.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub public_key: Option<String>,
-    /// Set only on the grant a phone's own `remote.devices` came in on, so it
-    /// can name itself and warn before revoking itself. Never saved true:
-    /// the flag is put on a copy as the list is answered.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub current: Option<bool>,
-}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Grant {
@@ -196,23 +171,6 @@ struct Identity {
     certificate: Vec<u8>,
     key: Vec<u8>,
 }
-#[derive(Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "contract.ts")]
-pub struct RemoteStatus {
-    pub enabled: bool,
-    pub host: String,
-    pub endpoint: Option<String>,
-    pub endpoints: Vec<String>,
-    pub addresses: Vec<String>,
-    pub devices: Vec<RemoteDevice>,
-    pub error: Option<String>,
-    /// The paired desk carrying visitors to this one, when one is chosen.
-    pub relay: Option<relay::RemoteRelay>,
-    /// The person's own public address for this desk, kept whether or not
-    /// Remote is on, and advertised to phones after this computer's own.
-    pub public_url: Option<String>,
-}
 /// Every write here cancels a token before it forgets one, and records a
 /// grant in memory only after it is saved, so a write a panic interrupts
 /// leaves authority closed rather than open. A poisoned `state` is recovered.
@@ -250,11 +208,6 @@ pub struct Remote {
     /// The desk behind this Remote's wire, computer and link: absent on a
     /// server that runs only a relay (ADR 0006), whose room is never opened.
     agents: Option<Agents>,
-}
-/// The room a Remote opens doors onto when its server runs agents.
-pub struct Agents {
-    pub log: Log,
-    pub room: Arc<dyn RoomHandle>,
 }
 /// Why a relay-only server answers nothing that needs the room.
 pub const RELAY_ONLY: &str = "This server runs only a relay: it has no teammates, links or wire. Serve it with --capabilities agents,relay to use them.";
@@ -438,11 +391,10 @@ impl Phone {
 impl Remote {
     pub fn open_with_store(
         root: &Path,
-        log: Log,
-        room: Arc<dyn RoomHandle>,
+        agents: Agents,
         store: Arc<dyn SecretStore>,
     ) -> io::Result<Arc<Self>> {
-        Self::open_options(root, Some(Agents { log, room }), store, None, None)
+        Self::open_options(root, Some(agents), store, None, None)
     }
     /// A desktop's Remote that serves on `listener`, which the caller bound,
     /// and advertises only its address: a test's loopback socket, so the
@@ -450,12 +402,11 @@ impl Remote {
     pub fn open_on(
         listener: std::net::TcpListener,
         root: &Path,
-        log: Log,
-        room: Arc<dyn RoomHandle>,
+        agents: Agents,
         store: Arc<dyn SecretStore>,
     ) -> io::Result<Arc<Self>> {
         let bound = network::Bound::new(listener)?;
-        Self::open_options(root, Some(Agents { log, room }), store, None, Some(bound))
+        Self::open_options(root, Some(agents), store, None, Some(bound))
     }
     fn open_options(
         root: &Path,

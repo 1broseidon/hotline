@@ -228,7 +228,7 @@ the owner's own clients send to calls and to `voice.transcribe`.
   allowlist in `wire::Seat::permits`, so a phone companion is refused all of
   them; no agent tool names them.
 - **Enforcement.** The core downloads only the archives in its catalogue,
-  each pinned by size and SHA-256 in `local/install.rs`; an archive is hashed
+  each pinned by size and SHA-256 in `hotline-voice`'s `speech/local/install.rs`; an archive is hashed
   as it arrives and deleted unread unless it matches. Only the four file
   names a model is made of are taken from it, into a directory of Hotline's
   choosing, so no path, link or extra entry in an archive chooses where a
@@ -255,8 +255,8 @@ the owner's own clients send to calls and to `voice.transcribe`.
 
 Proofs: `wire::tests::the_desks_speech_models_are_the_owners_through_the_real_handler`;
 the headless `tests/local_speech.rs::a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`;
-`voice::speech::local::tests` for what counts as installed, a damaged model
-refused before loading and a click heard as nothing; `voice::ledger::tests::the_desks_own_hearing_costs_nothing_batch_or_live`.
+`hotline-voice`'s `speech::local::tests` for what counts as installed, a damaged model
+refused before loading and a click heard as nothing; `hotline-room`'s `voice::ledger::tests::the_desks_own_hearing_costs_nothing_batch_or_live`.
 `a_real_model_installs_and_hears_what_was_said` runs a real model with
 `--ignored` when `HOTLINE_TEST_SPEECH_MODEL` names one.
 
@@ -273,7 +273,8 @@ lease as the file tools. Workspace reach refuses traversal and escaping
 symlinks; machine reach can read elsewhere. Output always lands inside the
 teammate's workspace, even with machine reach, using create-only publication
 so an existing file or symlink is never overwritten. The kept conversation
-copy uses `send_file`'s posting, quiet-window and readback path; generated
+copy uses `send_file`'s posting and readback path, and the `post_to_chat`
+gate it shares on a job's turn; generated
 PNG, JPEG, WebP and SVG bypass photo-to-JPEG normalization, preserve alpha
 and are limited to 2048 pixels on their longer edge. Decoding and reference
 reads have byte and allocation ceilings.
@@ -577,11 +578,13 @@ genuinely needed, that is a design decision recorded in
 
 ## Grant lifecycle
 
-Authority is a `CapabilityLease` (`driver.rs`), a snapshot of a
-teammate's `CapabilityEpoch` generation. Every handle a session hands a
-driver — tool closures, the workspace directory, cloned MCP tools, ACP
-callbacks, the OAuth proxy — clones the same lease and calls `check()`
-before acting.
+Authority is a `CapabilityLease` (`capability.rs` in `hotline-tools`), a
+snapshot of a teammate's `CapabilityEpoch` generation. Every handle a session
+hands a driver — tool closures, the workspace directory, cloned MCP tools
+(`McpTool`, in `hotline-mcp`, which takes the lease from `hotline-tools`),
+ACP callbacks, the OAuth proxy — clones the same lease and calls `check()`
+before acting. Their fields are private to that module, so another crate can
+capture, scope, tie and revoke a lease but never forge or revive one.
 
 - **Creation.** `Room::start` takes a lease and checks it before and after
   reading the record, so a start racing a policy update cannot capture the
@@ -640,13 +643,16 @@ before acting.
   tombstoned by then. Revoking background work pauses agent jobs without
   deleting them.
 - **Subagents.** A Hotline Agent teammate's own session may hand a task to
-  a subagent: a fresh run of the same teammate, started as a managed job of
-  the turn that asked. The run holds a lease `scoped()` from that session's,
-  so a stop, a policy change or a revoked session revokes every run it
-  started, and the run's end revokes the run's lease alone. A run is the
-  teammate's reach, its granted MCP servers and its model, never more: it
-  gets no computer, no subagents of its own, and of Hotline's tools only
-  `search_thread` and `list_chapters` — nothing that asks the person,
+  a subagent: a clone of the teammate (see
+  [Clones of the home agent](#clones-of-the-home-agent-adr-0008-0)), started
+  as a managed job of the turn that asked. The run holds a lease `scoped()`
+  from that session's, so a stop, a policy change or a revoked session
+  revokes every run it started, and the run's end revokes the run's lease
+  alone. A run is the teammate's permission set, the computer included,
+  less what the home agent left out with `without`, and never more: no
+  subagents of its own, and of Hotline's tools only the reading ones
+  (`search_thread`, `list_chapters`, `list_teammates`, `list_schedules`,
+  `computer_status`, `web_search`) — nothing that asks the person, posts,
   reacts, messages a colleague, schedules, or moves a chapter. It writes to
   its own stream and one line on the tape; its report reaches the teammate
   as execution data, which the teammate is told to verify rather than
@@ -664,37 +670,39 @@ extend; when a change adds a boundary, it adds a row.
 | Must hold | Proof | Needs |
 | --- | --- | --- |
 | Finalized device text uses the existing owner/local desk call authority; companions cannot start, commit or subscribe; duplicate commits and mixed input modes are refused; disconnect cancels further input; direct replies retain the actual agent session and core-assigned call/turn origin, with no new grants or remote STT spend | `wire/tests/owner_handler.rs` `voice_is_owner_only_through_the_real_handler`; `tests/voice/direct.rs` `device_text_reuses_the_direct_agent_session_and_call_origin`; `voice/tests/text.rs` `finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn`, `text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds`, `canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call`; `voice/tests/budgets.rs` `text_input_keeps_budget_gating_before_dispatch` | — |
-| The desk's speech models are installed only when an owner or the desk asks: a companion can neither list, fetch, cancel, remove nor transcribe; an archive that is not the pinned one is deleted before it is unpacked; only a model's own files are taken, whatever paths and links the archive holds; a cancelled download leaves nothing; an installed model is offered and chosen for hearing, a removed one is not; a damaged model is refused before the engine loads it | `wire/tests/owner_handler.rs` `the_desks_speech_models_are_the_owners_through_the_real_handler`; `tests/local_speech.rs` `a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`; `voice/speech/local/tests.rs` `a_damaged_model_is_refused_before_the_engine_could_throw_on_it`, `a_model_is_installed_only_whole_and_under_its_own_name` | — |
+| The desk's speech models are installed only when an owner or the desk asks: a companion can neither list, fetch, cancel, remove nor transcribe; an archive that is not the pinned one is deleted before it is unpacked; only a model's own files are taken, whatever paths and links the archive holds; a cancelled download leaves nothing; an installed model is offered and chosen for hearing, a removed one is not; a damaged model is refused before the engine loads it | `wire/tests/owner_handler.rs` `the_desks_speech_models_are_the_owners_through_the_real_handler`; `tests/local_speech.rs` `a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`; `hotline-voice/src/speech/local/tests.rs` `a_damaged_model_is_refused_before_the_engine_could_throw_on_it`, `a_model_is_installed_only_whole_and_under_its_own_name` | — |
 | Running processes: a command still running when the teammate replies ends the turn at once and outlives it; a later turn is told of it and stops it; one that ends on its own wakes the teammate once, and on a live call the front says that turn's reply; a session stop and a grant change kill it; a fifth command is refused naming the four; a process is never waited on and a stop asked for wakes nobody, taking its whole process group; a call goes listening at the reply and is given no progress line while a process runs | `tests/processes.rs` `running_process_a_server_left_running_ends_the_turn_and_a_later_turn_stops_it`, `running_process_that_ends_on_its_own_wakes_the_teammate_once`, `running_process_dies_with_its_stopped_session`, `running_process_dies_when_its_grant_is_revoked`; `running_process_serve_open_and_stop_end_to_end`; `tests/voice/processes.rs` `running_process_that_ends_during_a_call_is_said_on_the_call`, `running_process_a_server_started_on_a_call_leaves_the_call_listening`; `session/jobs.rs` `running_process_a_fifth_command_is_refused_naming_the_four`, `running_process_is_inspected_and_cancelled_later_but_never_waited_on`, `running_process_that_ends_before_its_route_moves_still_wakes_once`; `tests/processes.rs` `process_chip_a_process_is_on_the_session_until_the_person_stops_it`, `process_chip_stop_is_refused_for_a_teammate_that_does_not_hold_it`, `process_chip_output_is_the_latest_of_what_it_wrote`; `wire/tests/seats.rs` `process_chip_only_the_desk_and_the_owner_reach_a_process` | Unix |
 | Workspace reach keeps another project's `.env` out of the read tool and the shell, over the wire, and the ledger says what is offered | `tests/desk/workspace.rs` `workspace_reach_keeps_another_projects_env_out_of_the_tools` | Linux with bubblewrap |
-| Extra folders: granted and checked over the real wire, every refusal leaving the record as it was; in a real Hotline Agent turn a read-only folder is read and not changed, a writable one is changed, a path outside every grant and a link out of a folder are refused, and the confined shell is held the same way; narrowing or removing them over the wire is in force at the next tool call; a teammate without the field reaches none; a folder swapped for a link after it was granted opens nothing; a revoked handle refuses its folders; Seatbelt and bubblewrap grant each folder with its mode; Hotline's ACP callbacks honour the grants and a harness that takes `additionalDirectories` is handed them; a computer mounts them `:ro` unless writable, cannot have them covered by a declared mount, and is made again when the set changes; the preamble names them and who enforces them | `tests/folders.rs` `granted_folders_hold_the_real_tools_and_a_change_takes_them_back`, `a_folder_that_cannot_be_granted_is_refused_and_changes_nothing`; `tools/workspace/tests.rs` `a_granted_folder_is_read_by_absolute_path_and_changed_only_when_writable`, `a_path_outside_every_grant_or_out_through_a_link_is_refused`, `a_folder_swapped_for_a_link_or_never_granted_opens_nothing`, `a_revoked_handle_refuses_its_folders_too`, `whole_machine_reach_keeps_no_folder_wall`; `tools/shell/macos.rs` `granted_folders_are_in_the_profile_with_their_modes`, `granted_folders_are_open_to_the_shell_as_granted`; `tools/shell/linux.rs` `granted_folders_are_bound_with_their_modes_before_the_workspace`, `granted_folders_are_open_to_the_shell_as_granted`; `driver/acp/tests/session_new.rs` `acp_callbacks_honour_granted_folders`, `session_new_hands_the_granted_folders_to_a_harness_that_takes_them`; `computer/tests.rs` `granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered`, `a_computer_made_with_other_folders_is_made_again`; `session/tests/preamble.rs` `the_preamble_names_the_granted_folders_and_who_enforces_them` | the shell rows: a Mac, or Linux with bubblewrap |
-| Workspace tools refuse parent paths and a path outside the wall; machine reach resolves them; the overflow directory is the one read outside | `tools/workspace/tests.rs` `parent_paths_are_rejected`, `reaching_the_machine_resolves_absolute_paths_and_parents`, `workspace_reach_can_read_the_teammates_overflow_directory`, `machine_reach_ignores_the_overflow_root` | — |
-| A revoked workspace handle refuses reads and writes | `tools/workspace/tests.rs` `a_revoked_workspace_handle_refuses_reads_and_writes` | — |
-| Confined shell: writes inside, refuses writes and reads outside including from child processes, private `/tmp`, private persistent home, no host environment, a home symlink cannot escape, synthetic parents read-only | `tools/shell.rs` `workspace_reach_*`, `workspace_shell_*`, `a_private_home_symlink_cannot_create_files_outside`, `synthetic_parent_directories_are_read_only` | Linux with bubblewrap |
-| Linux runtime exceptions expose executables, not neighbours, credentials or a redirected project | `tools/shell/linux.rs` `arbitrary_path_directories_do_not_grant_read_access`, `a_path_program_does_not_expose_its_neighbors_or_symlink_target_directory`, `home_toolchains_are_read_only_and_do_not_expose_credentials`, `redirected_installations_do_not_expose_other_projects` | Linux |
-| macOS: availability requires real enforcement; aliases, symlinks and children cannot reach host data; no host environment or signals; hostile setup symlinks; helper services and control sockets denied; runtime exceptions exclude credentials and neighbours | `tools/shell/macos.rs` `availability_requires_real_enforcement`, `aliases_symlinks_and_children_cannot_access_host_data`, `host_process_environment_and_signals_are_not_available`, `private_scratch_and_hostile_setup_symlinks`, `host_helper_services_and_unix_control_sockets_are_denied`, `home_runtime_exceptions_do_not_include_credentials_or_neighbors`, `redirected_installations_never_grant_the_target` | a real Mac; these fail, not skip, without Seatbelt |
-| macOS network stays available and package downloads land in private caches | `tools/shell/macos.rs` `ip_networking_still_works`, `public_dns_and_https_remain_available`, `package_downloads_use_private_caches` | a Mac and public registries; `--ignored` |
-| Cancellation reaches the sandbox and everything it started; a deadline takes the whole tree | `tools/shell.rs` `cancellation_reaches_a_started_sandbox_and_its_children`, `a_deadline_takes_the_command_and_everything_it_started` | Linux with bubblewrap |
-| A new teammate gets no gateway server even with machine reach; grant changes rebuild the live tools; a revoked MCP tool refuses before calling its server | `tests/mcp.rs` `a_new_teammate_gets_no_gateway_tools_even_with_machine_reach`, `gateway_access_is_explicit_and_changes_rebuild_the_live_tools`; `mcp.rs` `a_revoked_mcp_tool_refuses_before_calling_its_server` | — |
+| Extra folders: granted and checked over the real wire, every refusal leaving the record as it was; in a real Hotline Agent turn a read-only folder is read and not changed, a writable one is changed, a path outside every grant and a link out of a folder are refused, and the confined shell is held the same way; narrowing or removing them over the wire is in force at the next tool call; a teammate without the field reaches none; a folder swapped for a link after it was granted opens nothing; a revoked handle refuses its folders; Seatbelt and bubblewrap grant each folder with its mode; Hotline's ACP callbacks honour the grants and a harness that takes `additionalDirectories` is handed them; a computer mounts them `:ro` unless writable, cannot have them covered by a declared mount, and is made again when the set changes; the preamble names them and who enforces them | `tests/folders.rs` `granted_folders_hold_the_real_tools_and_a_change_takes_them_back`, `a_folder_that_cannot_be_granted_is_refused_and_changes_nothing`; `hotline-tools/src/workspace/tests.rs` `a_granted_folder_is_read_by_absolute_path_and_changed_only_when_writable`, `a_path_outside_every_grant_or_out_through_a_link_is_refused`, `a_folder_swapped_for_a_link_or_never_granted_opens_nothing`, `a_revoked_handle_refuses_its_folders_too`, `whole_machine_reach_keeps_no_folder_wall`; `hotline-tools/src/shell/macos.rs` `granted_folders_are_in_the_profile_with_their_modes`, `granted_folders_are_open_to_the_shell_as_granted`; `hotline-tools/src/shell/linux.rs` `granted_folders_are_bound_with_their_modes_before_the_workspace`, `granted_folders_are_open_to_the_shell_as_granted`; `driver/acp/tests/session_new.rs` `acp_callbacks_honour_granted_folders`, `session_new_hands_the_granted_folders_to_a_harness_that_takes_them`; `computer/tests.rs` `granted_folders_are_mounted_read_only_unless_writable_and_cannot_be_covered`, `a_computer_made_with_other_folders_is_made_again`; `session/tests/preamble.rs` `the_preamble_names_the_granted_folders_and_who_enforces_them` | the shell rows: a Mac, or Linux with bubblewrap |
+| Workspace tools refuse parent paths and a path outside the wall; machine reach resolves them; the overflow directory is the one read outside | `hotline-tools/src/workspace/tests.rs` `parent_paths_are_rejected`, `reaching_the_machine_resolves_absolute_paths_and_parents`, `workspace_reach_can_read_the_teammates_overflow_directory`, `machine_reach_ignores_the_overflow_root` | — |
+| A revoked workspace handle refuses reads and writes | `hotline-tools/src/workspace/tests.rs` `a_revoked_workspace_handle_refuses_reads_and_writes` | — |
+| Confined shell: writes inside, refuses writes and reads outside including from child processes, private `/tmp`, private persistent home, no host environment, a home symlink cannot escape, synthetic parents read-only | `hotline-tools/src/shell.rs` `workspace_reach_*`, `workspace_shell_*`, `a_private_home_symlink_cannot_create_files_outside`, `synthetic_parent_directories_are_read_only` | Linux with bubblewrap |
+| Linux runtime exceptions expose executables, not neighbours, credentials or a redirected project | `hotline-tools/src/shell/linux.rs` `arbitrary_path_directories_do_not_grant_read_access`, `a_path_program_does_not_expose_its_neighbors_or_symlink_target_directory`, `home_toolchains_are_read_only_and_do_not_expose_credentials`, `redirected_installations_do_not_expose_other_projects` | Linux |
+| macOS: availability requires real enforcement; aliases, symlinks and children cannot reach host data; no host environment or signals; hostile setup symlinks; helper services and control sockets denied; runtime exceptions exclude credentials and neighbours | `hotline-tools/src/shell/macos.rs` `availability_requires_real_enforcement`, `aliases_symlinks_and_children_cannot_access_host_data`, `host_process_environment_and_signals_are_not_available`, `private_scratch_and_hostile_setup_symlinks`, `host_helper_services_and_unix_control_sockets_are_denied`, `home_runtime_exceptions_do_not_include_credentials_or_neighbors`, `redirected_installations_never_grant_the_target` | a real Mac; these fail, not skip, without Seatbelt |
+| macOS network stays available and package downloads land in private caches | `hotline-tools/src/shell/macos.rs` `ip_networking_still_works`, `public_dns_and_https_remain_available`, `package_downloads_use_private_caches` | a Mac and public registries; `--ignored` |
+| Cancellation reaches the sandbox and everything it started; a deadline takes the whole tree | `hotline-tools/src/shell.rs` `cancellation_reaches_a_started_sandbox_and_its_children`, `a_deadline_takes_the_command_and_everything_it_started` | Linux with bubblewrap |
+| A new teammate gets no gateway server even with machine reach; grant changes rebuild the live tools; a revoked MCP tool refuses before calling its server | `tests/mcp.rs` `a_new_teammate_gets_no_gateway_tools_even_with_machine_reach`, `gateway_access_is_explicit_and_changes_rebuild_the_live_tools`; `hotline-mcp/src/lib.rs` `a_revoked_mcp_tool_refuses_before_calling_its_server` | — |
 | Secrets never enter settings: OAuth client secrets and non-string env values are refused before the write; legacy plaintext is hidden and repaired | `tests/mcp.rs` `oauth_client_secrets_are_removed_before_mcp_settings_are_written`, `a_non_string_env_value_is_rejected_before_settings_are_written`; `tests/desk/logins.rs` `legacy_mcp_secrets_are_hidden_and_repair_removes_the_plaintext_history` | — |
 | The ACP OAuth proxy requires its own bearer and a live lease | `driver/acp/tests/oauth_proxy.rs` `oauth_proxy_requires_its_own_bearer_and_a_live_grant` | — |
-| The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/oauth.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`, `callback_page_escapes_what_it_is_told` | — |
+| The MCP OAuth callback page is the one thing Hotline serves a browser from its loopback listener, and runs nothing: one escaped card under `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` and `Cache-Control: no-store`, with no script, whether sign-in succeeded or failed, and an error it is told is escaped before it is shown | `mcp/tests.rs` `the_callback_pages_say_what_happened_under_a_strict_policy`; `hotline-mcp/src/oauth.rs` `callback_page_escapes_what_it_is_told` | — |
 | A stdio server's children die with the connection | `tests/mcp.rs` `a_stdio_servers_own_children_die_with_the_connection` | Unix |
 | A reach update reattaches the session and a name patch does not; an MCP settings update reattaches every live session; an unfinished policy update refuses work; stop cannot revive the old generation | `wire/tests/personas.rs` `persona_update_of_reach_reattaches_and_a_name_patch_does_not`; `wire/tests/settings.rs` `settings_update_of_mcp_servers_reattaches_every_live_session`; `session/tests/chapters.rs` `an_unfinished_policy_update_refuses_work_until_reattached`, `stop_revokes_a_replacement_before_its_startup_begins`, `stop_during_policy_quarantine_cannot_revive_the_old_generation`, `reattach_during_a_turn_cancels_the_old_queue_before_rebuilding` | — |
 | Collaboration: a machine caller needs no card; reach is re-read after discovery; session consent is directional and expires with either side; a standing grant survives restart and uses the stable id; removing it revokes cached work; a dropped wait cannot be answered later; revocation reaches delegated third parties but not their main sessions | `session/peers/tests.rs` `explicit_whole_machine_hotline_agent_can_collaborate_without_a_card`, `collaboration_rechecks_reach_after_discovery`, `session_consent_is_directional_and_expires_when_a_side_stops`, `permanent_consent_survives_peer_restart_and_uses_stable_sender_id`, `removing_a_permanent_grant_revokes_cached_work_and_requires_consent_again`, `a_dropped_collaboration_wait_is_expired_and_cannot_be_answered_later`, `invalidating_either_side_revokes_cached_peer_tools_without_a_main_session`, `peer_teardown_does_not_revoke_the_callers_main_tools_but_main_stop_does`, `nested_peer_leases_follow_the_outer_target_but_revoke_independently`, `revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_session` | — |
 | The collaboration card is answered over the real wire before the peer starts; the phone seat can answer for the person — a permission card, a `request_human` card, a passkey card — but a companion can never grant a standing one | `wire/tests/door.rs` `the_wire_answers_a_core_owned_collaboration_card_before_peer_start`; `wire/tests/seats.rs` `the_phone_seat_answers_for_the_person_but_never_grants_a_standing_one` | — |
-| A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id; its frames are at most 1 MiB and read no faster than its budget; a frame racing the link's end never writes its record back | `wire/tests/linked.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link.rs` `only_the_linked_desks_own_key_opens_its_link`, `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`; `linked.rs` `a_record_written_back_as_its_link_ends_stays_ended` | — |
+| A linked desk's channel runs a ping and the `federation.*` commands for the desk its key proved, and every other command and subscription is forbidden before it runs; the desk and owner seats cannot speak for a linked desk; only the linked desk's own key opens `/v2/link`, not a stranger's, not the owner device's, not under another desk's id; its frames are at most 1 MiB and read no faster than its budget; a frame racing the link's end never writes its record back | `wire/tests/linked.rs` `a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler`; `remote/tests/link.rs` `only_the_linked_desks_own_key_opens_its_link`, `a_linked_desks_frames_are_at_most_a_mebibyte_and_read_no_faster_than_its_budget`; `hotline-room/src/linked.rs` `a_record_written_back_as_its_link_ends_stays_ended` | — |
 | A linked sender is never implicitly trusted: the recipient's `allowedSenders` by qualified id or the person's card on the recipient's desk decide it, the sender's desk cannot answer the card, a denial runs nothing, and ending the link fails waiting work with a sentence and withdraws the card; only roster-row fields cross | `session/links/tests.rs` `an_ask_crosses_the_link_waits_for_the_recipients_person_and_its_answer_comes_back`, `a_standing_grant_is_kept_by_the_qualified_id_and_a_handoff_runs_in_the_recipients_work_thread`, `a_denied_linked_sender_hears_so_and_nothing_ran`, `ending_the_link_withdraws_the_card_a_linked_sender_was_waiting_on`, `an_ended_link_fails_what_waited_on_it_and_its_teammates_are_gone`, `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
-| A colleague sees a teammate's roster state, goal, agent, model and effort, and capabilities as switches, words and granted MCP servers' names; never its workspace path, `mcpPolicy`, a server's address, login header or environment, an ungranted server, `node` or `backendId`; no computer reads `none`; a linked desk's row is cut to the same fields and words | `mcp/server.rs` `a_colleague_sees_a_teammates_goal_agent_model_and_capabilities_and_no_more`, `a_teammate_without_a_computer_or_grants_shows_none_of_them`, `list_teammates_never_carries_a_colleagues_message_text`; `linked.rs` `a_published_roster_is_cut_down_to_what_a_roster_row_holds`; `session/links/tests.rs` `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
+| A colleague sees a teammate's roster state, goal, agent, model and effort, and capabilities as switches, words and granted MCP servers' names; never its workspace path, `mcpPolicy`, a server's address, login header or environment, an ungranted server, `node` or `backendId`; no computer reads `none`; a linked desk's row is cut to the same fields and words | `mcp/server.rs` `a_colleague_sees_a_teammates_goal_agent_model_and_capabilities_and_no_more`, `a_teammate_without_a_computer_or_grants_shows_none_of_them`, `list_teammates_never_carries_a_colleagues_message_text`; `hotline-room/src/linked.rs` `a_published_roster_is_cut_down_to_what_a_roster_row_holds`; `session/links/tests.rs` `a_linked_desk_is_sent_roster_rows_and_nothing_else` | — |
 | A teammate withdraws only its own `request_human` card: another teammate's id is refused, a withdrawn card stops reading as waiting for the desk and phone seats and delivers nothing, and an answer to it is refused; a card expires at its lifetime, two hours unless `wait_hours` asks for up to a day, and tells the teammate once; a handoff's waiting result is never released by a withdrawal | `wire/tests/asks.rs` `a_withdrawn_card_is_gone_for_the_desk_and_the_phone`, `a_card_past_its_lifetime_expires_and_tells_the_teammate_once`, `a_longer_wait_is_honoured_up_to_a_day`; `session/exchanges/tests.rs` `a_withdrawn_card_lets_a_running_handoff_finish_and_a_waiting_one_keeps_its_card` | — |
-| Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued line is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests/scheduled.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_scheduled_line_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
+| Background work: scheduling requires the grant, operator jobs do not; a due agent job waits for the grant then fires once; a queued firing is dropped on revocation; an old job on the wire requires the grant; `list_schedules` and `cancel_schedule` stay own-teammate | `mcp/server.rs` `scheduling_requires_background_work_but_operator_jobs_do_not`, `list_schedules_lists_the_callers_jobs`, `cancel_schedule_refuses_another_teammates_job`; `session/tests/scheduled.rs` `a_due_agent_job_waits_for_a_grant_then_fires_once`, `a_due_operator_job_runs_without_a_background_grant`, `a_queued_firing_is_dropped_when_background_work_is_revoked`; `session/schedule.rs` `scheduled_run_authority_reads_the_live_grant_and_trusted_source`; `tests/schedule.rs` `an_old_job_on_the_wire_requires_the_background_grant` | — |
 | ACP callbacks stay in the workspace for legacy `machine` personas; a symlinked root alias is accepted; `AGENTS.md` refuses external and dangling symlinks; runtime mode is separate from effort and other configs stay hidden | `driver/acp/tests/session_new.rs` `acp_callbacks_stay_in_workspace_for_legacy_machine_personas`, `callback_workspace_accepts_the_selected_symlinked_root_alias`, `agents_md_refuses_external_and_dangling_symlinks`; `driver/acp/tests/config.rs` `disposition_separates_runtime_mode_from_effort_and_hides_other_configs` | — |
 | An agent from the ACP registry is unpacked only whole: a link, an entry out of its folder, or a set-id or world-writable mode installs nothing and leaves no scratch, in zip and tar; a checksum mismatch is never unpacked; ordinary archives and bare binaries still install | `driver/acp/install.rs` `a_symlink_out_of_the_scratch_folder_is_refused`, `a_write_through_a_symlink_lands_nowhere`, `an_entry_that_climbs_out_of_its_folder_is_refused`, `a_set_id_or_world_writable_mode_is_refused`, `a_checksum_mismatch_installs_nothing`, `a_zip_without_modes_still_starts`, `a_tarball_is_unpacked_into_place_and_its_command_made_runnable` | — |
-| Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only `search_thread` and `list_chapters`, starts no runs of its own and never reopens the teammate's session or computer; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `a_run_is_on_its_teammates_live_model_with_no_computer_and_no_session_to_reopen`, `a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `a_cancelled_run_stops_its_agent_and_its_line_says_so`, `a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
+| Subagents: a run's lease depends on its teammate's session, so stopping the teammate revokes the run's tools; a run is offered only the reading tools, starts no runs of its own and never reopens the teammate's session; a teammate whose authority is gone starts no run; a cancelled run stops its agent; a run left running by a dead process is settled at startup | `session/tests/runs.rs` `a_runs_tools_read_the_conversation_and_die_with_the_teammates_session`, `a_run_is_on_its_teammates_live_model_with_no_session_to_reopen`, `a_run_for_a_teammate_whose_authority_is_gone_never_starts`, `a_cancelled_run_stops_its_agent_and_its_line_says_so`, `a_run_the_last_process_left_running_is_cancelled_when_the_room_opens`; `session/jobs.rs` `a_cancelled_subagent_ends_cancelled_and_a_fifth_is_refused` | — |
+| Clones: a subagent and a job each reach back into the home thread with `search_thread` and `list_chapters` and read the granted folder, and one the home agent made `without` folders cannot read it; a run is not offered the doors to the person; a job's card is raised on its own thread, not the DM, and the answer comes back to it as a turn; a job's thread is found by `search_thread` after the index is rebuilt; a clone is built with the computer unless it was left out, on the model the home session is on, and on its teammate's own harness, ACP included; a run whose home lease is revoked never starts; a job is offered the home thread's tools but `JOB_WITHOUT`, and `schedule` writes what was left out on the job | `tests/schedule/clones.rs` `a_subagent_is_a_clone_that_reaches_back_and_is_narrowed_when_asked`, `a_job_is_a_clone_on_its_own_thread_and_reaches_back_after_a_restart`; `session/tests/runs.rs` `a_run_has_the_computer_unless_the_home_agent_leaves_it_out`, `a_run_is_a_clone_on_its_teammates_own_harness`, `a_run_refuses_a_brief_that_is_a_jobs`; `session/tests/scheduled.rs` `a_jobs_card_is_raised_and_answered_on_its_own_thread`, `a_job_has_the_computer_unless_it_was_made_without_it`; `session/agent.rs` `a_clone_is_narrowed_by_what_the_home_agent_left_out`, `a_clone_is_on_the_model_and_effort_its_home_session_is_on`; `session/tests/posting.rs` `a_jobs_thread_posts_where_a_run_may_not`; `hotline-store/src/search.rs` `a_rebuild_keeps_what_the_teammates_jobs_said`; `tests/threads/together.rs` `every_thread_reaches_the_chat_through_one_door_on_both_drivers`, `a_recurring_job_and_what_came_back_to_jobs_carry_across_a_restart` | Unix for the computer rows |
+| `post_to_chat`: a quiet job posts once from its own thread, stamped with the job and from the thread, while a DM turn, a second post and a `to` are refused and land nowhere; `wake` from the DM is refused; a work thread posts once a turn, stamped from the thread, wakes the DM once and is clipped at 2,000 characters; a pair posts to its target's chat, never the asker's; each on Hotline Agent and on an ACP child. A file from a work thread lands in the chat stamped from it and leaves the thread's post; a job's file is its turn's one post, stamped with the job, and a post after it is refused; a file sent on a call is stamped from the call. A run is refused and not offered it, nor `send_file` or `generate_image`, while a job's thread is offered and let through; a revoked lease refuses in process and over the served endpoint; nothing posts between turns | `tests/mcp/post_to_chat.rs` `hotline_agent_dm_may_not_post_and_a_quiet_job_posts_once`, `an_acp_quiet_job_posts_and_a_loud_turn_may_not`, `hotline_agent_work_thread_posts_once_a_turn_and_wakes_its_home`, `an_acp_work_thread_posts_once_a_turn_and_wakes_its_home`, `a_hotline_agent_pair_posts_to_its_own_chat`, `an_acp_pair_posts_to_its_own_chat`, `hotline_agent_work_threads_file_lands_in_the_chat`, `an_acp_work_threads_file_lands_in_the_chat`, `hotline_agent_quiet_jobs_file_is_its_one_post`, `an_acp_quiet_jobs_file_is_its_one_post`; `session/tests/sent_files.rs` `a_jobs_file_is_its_one_post`, `a_file_sent_on_a_call_is_posted_from_the_call`; `session/tests/posting.rs` `a_subagent_run_may_not_post`, `a_jobs_thread_posts_where_a_run_may_not`, `the_dms_own_turn_may_not_post`, `a_revoked_lease_refuses_a_post_in_process_and_over_the_endpoint`, `a_post_between_turns_is_refused`; `tests/schedule.rs` `a_quiet_job_is_heard_only_when_it_posts` | — |
 | A permission left open in a peer turn expires with the turn; a receipt cannot move machinery | `session/peers/tests.rs` `a_permission_left_open_in_a_peer_turn_is_expired_when_the_turn_ends`, `a_receipt_cannot_move_machinery` | — |
 | The desk restart lease refuses new wire work and keeps saved data | `tests/desk/teammates.rs` `the_desktop_restart_lease_refuses_new_wire_work_and_keeps_saved_data` | — |
 | A phone reaches a running computer's viewer only through the desk, with the desk's bearer and never its own copy; the sealed handshake binds the persona and refuses an unpaired device; revoking the device drops the socket | `remote/tests/sealed_network.rs` `sealed_computer_handshake_binds_purpose_and_target_before_upstream`, `sealed_computer_envelopes_hide_the_bearer_and_revoke_with_the_grant`; `remote/tests/computer.rs` `the_computer_target_is_read_off_the_desk_s_own_viewer_and_only_while_running` | — |
-| What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; a companion can neither list nor take back; expired cookies are left on the host | `session/tests/computer.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests/seats.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
+| What was brought over is listed from the room's record and taken back by site or whole: the computer is told the exact domains, the record follows, a site never brought over is refused, a release from before the door is named with Update; the record is one entry per teammate and the latest whole list; a companion can neither list nor take back; expired cookies are left on the host | `session/tests/computer.rs` `brought_over_cookies_are_listed_and_taken_back_by_site_or_whole`; `hotline-room/src/room.rs` `the_record_is_the_latest_whole_list_per_teammate`, `an_import_from_the_same_browser_and_profile_merges_and_another_is_listed_beside_it`; `wire/tests/seats.rs` `only_the_desk_seat_may_import_host_cookies`; `computer/cookies.rs` `expired_cookies_are_left_behind_and_session_cookies_stay` | Unix for the first |
 | Stored secrets are operator-only: a companion can neither list, store, delete nor arm one, nor grant one through `persona.update` | `wire/tests/seats.rs` `only_the_desk_seat_may_touch_stored_secrets` | — |
 | A companion reads one living teammate's schedules and nothing it could change them with: no job made, cancelled or quieted, no whole-room list, no room stream (a thread between two teammates and a subagent's run are read like a tape); the entry leaves out who made a job; an unknown teammate or an unreadable room is a refusal, never an empty list; a revoked phone's socket closes and cannot reopen | `wire/tests/seats.rs` `the_phone_seat_reads_a_teammates_schedules_but_changes_none_of_them`; `wire/tests/schedules.rs` `a_teammate_the_room_does_not_hold_or_cannot_read_is_refused_rather_than_empty`; `remote/tests/phone.rs` `a_phone_reads_a_teammates_schedules_and_catches_up_on_what_changed_while_away` | — |
 | A companion adds a teammate only through `mobile.persona_create`, never the full `persona.create`: the draft core builds always has workspace reach, this desk's default workspace, no computer and no background work, whatever the phone's JSON names for those fields; `requestId` must parse as a uuid and becomes the id, and a repeated one answers the teammate already made rather than appending a second; a blank name and a `backendId` that is unknown or `backends.list` reports `unavailable` are each refused; `backends.list` itself carries only `id`, `name`, `description` and `unavailable` | `wire/tests/seats.rs` `the_phone_seat_creates_a_teammate_narrowly_but_not_with_persona_create`; `wire/tests/personas.rs` `mobile_persona_create_builds_a_confined_draft_the_phone_could_not_express`, `a_repeated_request_id_does_not_duplicate_the_teammate`, `mobile_persona_create_refuses_a_bad_uuid_a_blank_name_and_a_backend_that_is_not_ready`; `remote/tests/phone.rs` `a_phone_creates_a_confined_teammate_but_not_through_persona_create` | — |
@@ -703,7 +711,7 @@ extend; when a change adds a boundary, it adds a row.
 | An owner device moves its own grant to a relay grant in place (same id, key, name, pairing time) and the move ignores any device it names; the device is then refused `/v2` with `role_not_permitted`, cannot move again, and stands in again so a phone still reaches its desk; a desktop pairs with a relay's invitation only as a relay, kept beside the desks and not listed as one | `remote/tests/relay.rs` `an_owner_moves_its_own_grant_to_relay_in_place_and_keeps_standing_in`, `a_relay_grant_stands_in_and_carries_a_visit_and_opens_no_desk_door`; `desks.rs` `a_relay_is_kept_beside_the_desks_and_never_listed_as_one`; `wire/tests/seats.rs` `remote_controls_are_denied_to_companions`; `ui/tests/relay-picker.test.tsx` `a relay-only server is never a desk in the window` and the offer's `never shows when …` cases; `ui/tests/add-desk.test.ts` `a relay link says it added a relay, chooses it when none is chosen, and never lists a desk` | — |
 | A server answers a door only when it runs that door's capability: relay-only has no `/v2`, `/v2/computer/…` or `/v2/link` (404 before Noise), pairs relay grants only, opens no room and still carries a visit; without relay, `/v2/relay`, `/v2/relay/accept` and visitor routes are 404 and no relay is invited; switching modes keeps every grant and its role, and a relay grant made on one boot stands in on the next | `remote/tests/relay.rs` `a_relay_only_server_stands_a_desktop_in_and_opens_no_desk_door`, `a_server_that_runs_no_relay_has_no_relay_door`; `tests/serve.rs` `a_relay_only_server_opens_no_room_and_carries_a_desktops_visitors`, `serving_in_another_mode_keeps_every_pairing_and_its_role` | — |
 | End to end with real processes: a relay-only server opens no room and starts no process; a desktop pairs from `hotline pair --link` as a relay and stands in, and a phone paired with the desktop reaches it only through the relay; a phone-shaped claim makes no grant; served again with agents, the same grant stands in without re-pairing and its key, knocking with a hand-written handshake, is answered `role_not_permitted` at `/v2`, `/v2/computer/…` and `/v2/link` | `tests/relay.rs` `a_relay_only_server_relays_for_a_desktop_that_can_do_nothing_else_there` | — |
-| A teammate sends the person only what its own read reach opens and what its own computer holds, under the session's lease; nothing is sent from a quiet scheduled run or past the caps, and a refusal leaves no message and no kept copy; `file.read` names a message and never a path, serves only that message's one kept file for teammate messages, and refuses a path-like id, an unknown teammate and an offset outside the file; the phone may read it; the shell opens only a kept copy, and only a PDF or a picture whose name and first bytes agree, so a script that starts like a PDF is never run | `session/tests/sent_files.rs` `a_picture_reaches_the_person_as_a_jpeg_with_its_caption`, `what_cannot_be_sent_is_refused_and_leaves_nothing_behind`, `a_quiet_scheduled_run_sends_nothing_and_says_so`, `a_file_and_the_screen_come_off_the_computer`; `sent.rs` `a_kept_file_reads_back_a_part_at_a_time_and_only_by_its_message`; `wire/tests/files.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time`, `the_phone_seat_reads_a_sent_file_by_its_message`; `sent.rs` `anything_else_is_kept_as_it_is_and_told_by_its_bytes_before_its_name`; `hotline-app` `files.rs` `only_a_kept_copy_is_touched`, `only_a_pdf_or_a_picture_opens_and_only_when_name_and_bytes_agree` | Unix for the computer row |
+| A teammate sends the person only what its own read reach opens and what its own computer holds, under the session's lease; nothing is sent past the caps or by a subagent run, a job's file takes the turn's one post, and a refusal leaves no message and no kept copy; `file.read` names a message and never a path, serves only that message's one kept file for teammate messages, and refuses a path-like id, an unknown teammate and an offset outside the file; the phone may read it; the shell opens only a kept copy, and only a PDF or a picture whose name and first bytes agree, so a script that starts like a PDF is never run | `session/tests/sent_files.rs` `a_picture_reaches_the_person_as_a_jpeg_with_its_caption`, `what_cannot_be_sent_is_refused_and_leaves_nothing_behind`, `a_jobs_file_is_its_one_post`, `a_file_and_the_screen_come_off_the_computer`; `sent.rs` `a_kept_file_reads_back_a_part_at_a_time_and_only_by_its_message`; `wire/tests/files.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time`, `the_phone_seat_reads_a_sent_file_by_its_message`; `sent.rs` `anything_else_is_kept_as_it_is_and_told_by_its_bytes_before_its_name`; `hotline-app` `files.rs` `only_a_kept_copy_is_touched`, `only_a_pdf_or_a_picture_opens_and_only_when_name_and_bytes_agree` | Unix for the computer row |
 | User image readback uses a send-time copy at the original attachment index; default zero, mixed attachments, chunk continuation, real MIME and no transcoding; source replacement/deletion cannot change it, missing/legacy copies never reopen paths; non-image, invalid index/offset, wrong teammate/message, planted file link and over-cap copy are refused; a paired phone can refetch its image but not a user text file | `tests/desk/teammates.rs` `user_images_read_back_by_original_index_without_reopening_the_source`; `sent.rs` `user_image_copies_keep_their_bytes_and_cannot_be_replaced`; `remote/tests/phone.rs` `a_phone_sees_the_real_roster_and_tape_but_cannot_administer_the_desk`; `wire/tests/files.rs` `a_sent_file_is_read_by_its_message_a_part_at_a_time` | Unix for planted link |
 | A secret's name is an environment variable, never Hotline's own or the shell's; a value is at least eight characters; the disk holds a reference and the room stream nothing; the directory and its records are private and a planted link is refused | `vault/shared.rs` `a_name_is_an_environment_variable_and_hotlines_own_are_refused`, `a_value_is_at_least_eight_characters`, `a_shared_secret_is_listed_by_name_and_never_by_value`, `the_shared_directory_and_its_records_are_private_and_a_planted_link_is_not_a_secret` | Unix for the last |
 | A login needs an `https://` site of its own (or `http://` on localhost) and a password of eight characters; a passkey needs a host name and a key; a login and a passkey are listed by what they are for and never by password, seed or key, and the sidecar carries none either | `vault/shared.rs` `a_login_needs_a_site_of_its_own_and_a_passkey_a_key`, `a_login_and_a_passkey_are_listed_by_what_they_are_for_and_never_by_value` | — |
@@ -712,7 +720,7 @@ extend; when a change adds a boundary, it adds a row.
 | Delivery puts the bearer in a header, replaces the whole set, and tells an old release apart from a refusal; the arming is put, polled, answered and ended over the bearer door, the request's site, origin and account are read as the computer answers them, an answer to a request that is not waiting is a refusal that says so, a bad site is a 400, a release before the answer door mints without asking and refuses an answer as too old, and an old release has no door | `computer/secrets.rs` `the_set_is_put_whole_with_the_bearer_in_a_header`, `a_release_from_before_secrets_is_told_apart_from_a_failure`; `computer/passkeys.rs` `an_arming_is_put_polled_answered_and_ended_over_the_bearer_door` | — |
 | Inside the computer: `/secrets` wants the bearer and has no GET, every job sees the variables under the agent's own `env`, a login is typed only on its own sites and refused elsewhere, the TOTP digits are computed from the seed, every tool answer has the values redacted; a passkey is minted only while armed, only for the armed site, and only under a request the person approved — the site's request is parked and answered as `asked` with what the site asked for, a denial rejects the site's call and ends the arming, an answer to a request that is not waiting is a 409, one request is before the person at a time — a credential outside an approved request is removed on the next look, a granted one signs a site's challenge, and a revoked one is gone | Hotline Computer's `src/secrets.rs`, `src/passkeys.rs` and `src/browser.rs` tests and `tests/contract.rs`, run by that repository's `make check` and `make contract` | the computer repository |
 
-Where real macOS execution is required: every `tools/shell/macos.rs` row.
+Where real macOS execution is required: every `hotline-tools/src/shell/macos.rs` row.
 `make check` in macOS CI on both architectures runs the isolation and
 toolchain tests; the network rows are `--ignored` and run by hand. BRO-14
 recorded macOS 26.4.1 on Apple Silicon locally and macOS 15 in CI; macOS
@@ -874,8 +882,8 @@ it lets a colleague use another's tools.
   `session/links/tests.rs` (cards on the recipient's desk, standing grants
   by qualified id, a denied linked sender, offline queueing both ways, an
   ended link failing and withdrawing what waited, ambiguous names, and the
-  roster carrying no field but a roster row's); `linked.rs`'s own tests,
-  among them `a_record_written_back_as_its_link_ends_stays_ended` and
+  roster carrying no field but a roster row's); the tests of `linked.rs` in
+  `hotline-room`, among them `a_record_written_back_as_its_link_ends_stays_ended` and
   `a_linked_desk_may_send_a_burst_and_then_only_so_many_frames_a_second`.
 - **Residual risk:** a compromised linked desk can publish any roster and
   send any message under any of its teammates' names; each still meets the
@@ -1511,6 +1519,157 @@ in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
 errors, fallback and persistent budget failures. Live provider latency is a
 separate measurement; fake-provider test timings are not a production guarantee.
 
+## Posting to the chat from any thread (ADR 0008)
+
+`post_to_chat(text, wake?)` is one of Hotline's own tools: it writes one
+message, as the teammate, into the teammate's own chat, stamped with the
+thread it came from.
+
+- **Default and old records:** nothing new is stored and nothing is granted
+  per teammate. The tool is on the desk's MCP server and among Hotline
+  Agent's in-process tools in every session but a subagent run's, because an
+  ACP child's tool list is fixed when its session starts; what may post is
+  decided per call. It replaced `tell_person`, which only a quiet run on
+  Hotline Agent was handed, for its one turn; a quiet job, on either driver,
+  is heard through it.
+- **Grant source:** the thread's kind, read by the handler. A work thread, a
+  pair (into the target's own chat) and a job's thread (stamped with the
+  job) may post. Refused: the DM's own turn ("your reply is already the
+  chat"); a subagent run, which reports to the teammate that launched it; a call that lands while no turn of its thread is in flight; a
+  second post in a turn, and so a second wake; `wake` from the DM itself; any
+  argument but `text` and `wake`, so no other teammate's chat can be named;
+  and a revoked lease. A voice front's `post_to_chat` is the call's own
+  (`voice/front_tools.rs`), under the teammate's current lease.
+- **Enforcement:** `TeammateTools::call` checks the session's capability
+  lease first, as for every tool, and refuses a run `post_to_chat`,
+  `send_file` and `generate_image` by name. A job's file
+  (`session/files.rs`) takes the turn's one post through the same
+  `Room::take_post` that `post_to_chat` does, and `Room::may_send` refuses a
+  file or image before it is fetched once the job's turn has posted.
+  `Room::post_to_chat` (`session/post.rs`) applies the rest against the
+  `Posting` the turn opened: `Room::open_posting` is held by the DM's turn,
+  by `Threads::turn` for work threads, runs and jobs (with the job, which
+  stamps its posts), and by a pair's exchange turn, and is dropped when the
+  turn ends. The text is
+  clipped to 2,000 characters and written through `Room::post`, the chat's
+  one door; a write that fails gives the turn its post back. `wake` brings
+  the DM up, posts into its chapter and queues one line on the DM carrying
+  the posts, and the DM's reply is what the person hears.
+- **Tests:** the `post_to_chat` row of the matrix: every refusal through the
+  real handler on both drivers, Hotline Agent in process and ACP through a
+  real child over the served endpoint, and the posts that land read off the
+  wire.
+- **Residual risk:** a teammate on a long work thread can post once a turn,
+  every turn, and each post pushes like a reply; a `wake` costs a DM turn. An
+  ACP harness's own subagents share their parent's MCP server and the handler
+  cannot tell them apart, so a post from one is the parent thread's and
+  counts as its one. A run on an ACP child is refused by the same handler,
+  but nothing starts one yet (voice's work tool will), so the run refusal is
+  proved in process only. An agent learns a job is quiet from the
+  word `quiet` on its line, so its model may say it is staying silent: those
+  words land on the job's thread, never in the chat.
+
+## Jobs on their own threads (ADR 0008 §7)
+
+A job's firing is a turn on its own thread, by an agent of the teammate's
+that the room builds for it, rather than a turn of the DM's session.
+
+- **Default and old records:** nothing is granted per teammate. A schedule
+  written before this fires on its job thread under the rules it always had:
+  an agent-created job needs Background work at every firing, and an
+  operator-created one runs without it. A plain reminder starts no agent.
+- **Grant source:** the job's record on the room stream (who created it, and
+  the live Background work grant) for whether it fires and whether a queued
+  firing's turn begins; the job kind's policy row (`thread/policy.rs`) for
+  what its agent is handed.
+- **Enforcement:** the clock (`session/schedule.rs`) checks the grant before
+  a firing; the job thread checks it again as the firing's turn begins
+  (`session/job_thread.rs`, `Occupant::begin`). The agent is a clone of
+  the home agent, built by `Room::thread_agent` under
+  `lease_of(ThreadKind::Job, …)`, a child of the teammate's authority, made
+  when the agent is built and revoked when it is let go of, so a stop, a
+  policy change or a deletion refuses its next call and a stale agent is
+  rebuilt rather than reused. What it is handed, and its tools, are the
+  clone's: see [Clones of the home agent](#clones-of-the-home-agent-adr-0008-0).
+  `cancel_schedule` with no `id` ends this job only. Its cards are the
+  person's, raised on its thread and answered through `human.answer` or
+  `thread.answer` back into it; a companion reads a job's thread as it
+  reads a run's, and may not close (cancel) a job.
+- **Tests:** `session/tests/posting.rs` `a_jobs_thread_posts_where_a_run_may_not`
+  (its tools and the refusals, through the real handler);
+  `session/tests/scheduled.rs` `a_queued_firing_is_dropped_when_background_work_is_revoked`;
+  `wire/tests/threads.rs` `the_phone_seat_runs_thread_commands_as_it_ran_the_old_ones`;
+  and `tests/schedule.rs`, a harness test for each rule of §7.
+- **Residual risk:** a job's agent works unattended, between the person's
+  visits, with the home thread's permission set and the teammate's computer;
+  it can post once a turn, a loud job posts every firing, and a card it
+  raises pushes like the DM's.
+
+## Clones of the home agent (ADR 0008 §0)
+
+A subagent run and a job are clones of the teammate's home agent: the same
+teammate with one focus, on the home agent's model and workspace, with the
+home thread's permission set, starting from its brief rather than the home
+thread, and reaching back into it with the home agent's own reading tools.
+
+- **Default and old records:** a clone has everything the teammate's record
+  grants the home thread: its reach, its granted folders, its MCP servers,
+  its skills and its computer, shared through the computer gate as a work
+  thread shares it (`Computer::Lease` on the `Run` and `Job` rows of
+  `thread/policy.rs`); and the model and effort the home session is on now,
+  else the record's. Before this, a run had no computer and was Hotline
+  Agent's only, and a job ran on the record's model with no computer. A job
+  written before this has no `without`, so it has the whole set.
+- **Grant source:** the teammate's record, read when the clone's agent is
+  built, narrowed by what the home agent left out for the task: `without`
+  on the `subagent` tool (`session/jobs.rs`) and on the `schedule` and
+  `loop` tools (`mcp/server.rs`), each of `computer`, `folders` (granted
+  folders, and whole-machine reach, which becomes the working directory's)
+  and `mcp_servers`. A job keeps it on its record (`ScheduledJob.without`);
+  a list a desk cannot read leaves every ability out. Nothing widens it: the
+  person's job has no `without`, and a job cannot schedule more work, so
+  what it was narrowed by cannot be shed by a job it made.
+- **Enforcement:** `clone_of` (`session/agent.rs`) makes the view the agent
+  is built from, which only takes away; `Room::thread_agent` builds the
+  agent from that view (the computer is granted only to a view that has it,
+  the MCP servers are the view's policy's, Hotline Agent's file tools and
+  shell take the view's reach and folders, and ACP file callbacks the view's
+  folders), and a job's turns are reached from the view's reach. The lease
+  is the home thread's: a run's is `scoped()` from the asking session's, a
+  job's from the teammate's authority, so a stop, a policy change or a
+  deletion revokes every clone, and `Room::run_to_end` checks the
+  session's lease before it builds anything. The tools are gated in
+  `TeammateTools::call` (`mcp/server.rs`), outside the model, for both
+  drivers: a run has `RUN_TOOLS`, the reading ones, and is refused the doors
+  to the person; a job has the teammate's tools less `JOB_WITHOUT` (the
+  chapter moves, `react`, `open_link`, `schedule`, `loop`). A job's
+  `request_human` card is written on its own thread (`Room::ask_human`), a
+  colleague's answer to its `message_teammate` is routed by
+  `Request::reply_job`, and both come back through
+  `Room::deliver_into_job` while the job lives, else to the DM; one the
+  last process wrote and had not handed over is handed over at start the
+  same way (`Room::resume_job_deliveries`), so a restart neither drops it
+  nor hands it to a job that has ended. A run
+  starts only from a brief that runs now and reports to whoever asked
+  (`Room::run`); later work is a job's.
+- **Tests:** the matrix row below: a subagent and a job each reach back
+  into the home thread and read the granted folder, and the narrowed one
+  cannot read it, through the real core; a job's card goes to its thread
+  and its answer comes back there, after a restart too, or to the DM once
+  the job has ended; a clone has the computer unless it was
+  left out; a run on an ACP teammate is built on its own harness; a run's
+  lease dies with the home session's; and a job's thread is found by
+  `search_thread` after the index is rebuilt.
+- **Residual risk:** a clone has as much as the home thread, unattended: a
+  run works without anyone reading it, and a job between the person's
+  visits. Narrowing is the home agent's choice, made by the model, and a
+  home agent that does not narrow hands a clone everything it has. Reach is
+  Hotline Agent's policy: an ACP clone's own tools are its harness's, so
+  `folders` narrows only what Hotline enforces for it (its delegated file
+  operations and its computer's mounts). Nothing starts a Hotline run for
+  an ACP teammate yet; its harness's own subagents are mirrored as runs and
+  share its home session's MCP endpoint, with the home thread's tools.
+
 ## Thread commands on the wire (BRO-203)
 
 - **Default and old records:** nothing new is stored, and no seat gains a
@@ -1526,7 +1685,7 @@ separate measurement; fake-provider test timings are not a production guarantee.
   | --- | --- | --- |
   | `thread.prompt` | a work thread only | it speaks to a teammate with `mobile.prompt`, and `session.prompt` is refused it; `side.prompt` is not |
   | `thread.answer` | anything but a pair | `side.answer_permission`, `session.answer_permission` and `human.answer` are allowed, `peers.answer_permission` is the owner's |
-  | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive` |
+  | `thread.cancel`, `thread.park`, `thread.close`, `thread.continue`, `thread.open` | yes, but never `thread.cancel` or `thread.close` on a job | `session.cancel`, `side.*` and the exchange stop and resume are allowed; parking is less than `side.archive`; closing a job cancels it and stopping its firing is the same owner's call, and `schedule.cancel` is refused it |
   | `thread.list` | only what it may read: no pairs, no calls | `peers.list` is refused it, and a call summary's `preview` is what was spoken in it, which a companion may not subscribe to or page |
   | `thread.page`, `{"threadId": …}` | any kind but a call, and never the voice dispatcher's tape | what `tape.page` and the old targets reached; a call is `Target::Call`'s, which a phone is not seated on |
   | `client.hello` | yes | it only chooses the shapes this socket is sent |

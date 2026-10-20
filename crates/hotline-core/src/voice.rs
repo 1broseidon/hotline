@@ -1,22 +1,29 @@
 //! One owner call per desk, with bounded work and complete sentence clips.
 
 mod call;
+mod connected;
 pub mod dispatcher;
 mod duplex;
 pub mod front;
 pub mod front_prompt;
 mod front_tools;
 mod input;
-pub mod ledger;
-pub mod metering;
-pub mod realtime;
 mod record;
 mod replies;
-pub mod settings;
-pub mod speech;
-pub mod spoken;
 mod synthesis;
 mod turn;
+
+pub use hotline_room::voice::{ledger, metering, settings, spoken};
+pub use hotline_voice::realtime;
+
+/// The speech engines are `hotline-voice`'s. The five readers named here take
+/// the vault, as the calls and the settings hold it, and stand in for the
+/// engines' own of the same names, which take what the vault keeps for them
+/// (`connected`).
+pub mod speech {
+    pub use super::connected::{listens_for, options, resolve, resolve_front, resolve_output};
+    pub use hotline_voice::speech::*;
+}
 
 use crate::contract::{
     BudgetKind, SpeechModel, VoiceBudget, VoiceEndReason, VoiceEvent, VoiceFront, VoiceInputMode,
@@ -598,6 +605,13 @@ impl Calls {
                 )
             })
             .collect()
+    }
+
+    /// Whether the call `id` is still going: the person is on it.
+    pub(crate) fn is_up(&self, id: &str) -> bool {
+        lock(&self.calls)
+            .iter()
+            .any(|call| call.id == id && call.state != VoiceState::Ended)
     }
 
     /// Ends a call nobody has spoken on for long enough.

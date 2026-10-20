@@ -8,8 +8,9 @@ beside them (`crates/hotline-core/src/voice/`).
 
 ## The seam
 
-`Speech` (`voice/speech.rs`) has `transcribe(clip)` and `speak(text)`, and
-`resolve(vault, settings)` returns a `SpeechSet` of three: `stt`, `tts` and an
+`Speech` (`speech.rs` in `crates/hotline-voice`, the engines' crate) has
+`transcribe(clip)` and `speak(text)`, and `resolve(vault, settings)` (the
+core's, which reads the vault into the engines' `Connected`) returns a `SpeechSet` of three: `stt`, `tts` and an
 optional `fallback_tts`. An adapter is built for one job, so `id()` names the
 model behind that job, and the other job answers `WrongJob`. `output_mime()`
 reports the primary TTS format for the call descriptor (default `audio/wav`).
@@ -241,7 +242,7 @@ this computer.
 ## Hearing on the desk
 
 The desk can turn speech into text itself, with no provider and no network
-(`voice/speech/local.rs`). The engine is sherpa-onnx 1.13.8, whose build
+(`hotline-voice`'s `speech/local.rs`). The engine is sherpa-onnx 1.13.8, whose build
 links that release's prebuilt static library, onnxruntime inside, so it runs
 wherever the desk does (macOS arm64 and x86_64, Windows x64, Linux x64 and
 arm64) with nothing installed beside it. It adds about 18 MB to a stripped binary
@@ -536,7 +537,7 @@ while a desk text call also needs the dispatcher.
 ## One brain, two outputs
 
 A pipeline call to a teammate has nothing in front of the teammate
-(`voice/spoken.rs`); a front call puts a realtime voice there, which answers
+(`voice/spoken.rs` in `hotline-room`); a front call puts a realtime voice there, which answers
 conversation and runs the teammate's desk-side tools itself, and hands
 the teammate's session only work that needs it (see the voice front setting
 below, [voice-calls.md](voice-calls.md) and
@@ -786,7 +787,7 @@ excludes bundled desk audio and is separate from the call measurement.
 
 ## Clip checks
 
-`voice/speech/clip.rs` has two checks that need only a clip's size and length.
+`hotline-voice`'s `speech/clip.rs` has two checks that need only a clip's size and length.
 Neither is called by the speech layer; the desk asks them beside its own.
 
 - `billable_ms(mime, bytes, claimed_ms) -> u32` is what a speech-to-text
@@ -803,7 +804,7 @@ Neither is called by the speech layer; the desk asks them beside its own.
 
 ## The ledger
 
-`voice/ledger.rs` keeps today's and this month's spend in
+`voice/ledger.rs` in `hotline-room` keeps today's and this month's spend in
 `<data dir>/voice-ledger.json`, split into speech to text, text to speech and
 dispatcher. `spent()` reads what each kind has spent today and this month
 and `charge(kind, usd)` records a cost. `reserve(kind, usd)` records an
@@ -828,7 +829,7 @@ that never set `settings.spending` but kept an early version's
 `settings.voice.dayUsd` and `monthUsd` has those as its Voice limits. A
 spending setting that cannot be read turns paid chat and voice off.
 
-`voice/metering.rs` is the gate. `reserve(kind, usd)` is refused with
+`voice/metering.rs` beside it is the gate. `reserve(kind, usd)` is refused with
 `Exhausted::Day(budget)`, `Month(budget)` or `Off(budget)` when the kind's
 own budget would go over a limit, and each says which budget in a sentence
 ("The Voice budget for today is spent. Raise it in Settings › Budgets.").
@@ -918,7 +919,7 @@ check and unpack and Parakeet 24; the first clip after that took 0.5 and 1.8
 seconds (loading, and the run's one hash check), and each clip after it 40
 and 150 ms.
 
-The tests in `voice/speech/` use mock servers on localhost and never reach the
+The tests in `hotline-voice`'s `speech/` use mock servers on localhost and never reach the
 network. `tests/local_speech.rs` serves small fake archives on localhost, and
 runs a real model only with `--ignored` and `HOTLINE_TEST_SPEECH_MODEL`
 naming a directory holding one.
@@ -946,7 +947,7 @@ picker's one choice is the setting's one key; a desk older than it reads the
 unknown provider as Legacy voice and keeps calling, which is the only way an
 older desk differs.
 
-Both fronts run on one driver, `voice/realtime/socket.rs`, since xAI's
+Both fronts run on one driver, `hotline-voice`'s `realtime/socket.rs`, since xAI's
 realtime protocol follows OpenAI's: the dialects differ in the model, the
 PCM rates (OpenAI takes 24 kHz only, which is the front's own rate), the
 session limit (OpenAI's 60 minutes against xAI's 120, each renewed five
@@ -957,7 +958,7 @@ a minute against the Voice budget, above its token price with the
 microphone open, so a cap is never exceeded.
 
 `gpt-live` is GPT-Live (`gpt-live-1-codex`) on the ChatGPT sign-in, placed
-the way the Codex app places it (`voice/realtime/live.rs`): a WebRTC call
+the way the Codex app places it (`hotline-voice`'s `realtime/live.rs`): a WebRTC call
 created at `chatgpt.com/backend-api/codex/realtime/calls` with the login's
 bearer and account, joined by a sideband socket at
 `wss://api.openai.com/v1/live/<call id>`. The desk is the peer and sends

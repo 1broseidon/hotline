@@ -1,6 +1,7 @@
 use super::dispatcher::Context;
 use super::input::validate_audio;
-use super::synthesis::{goodbye, own_voice, sentences, speech_ready, take_sentences};
+use super::spoken::{sentences, take_sentences};
+use super::synthesis::{goodbye, own_voice, speech_ready};
 use super::*;
 use crate::contract::VoiceCallMode;
 use crate::log::StreamId;
@@ -170,12 +171,12 @@ fn desk(services: Services) -> (tempfile::TempDir, Arc<crate::desk::Desk>, Arc<C
     let desk = Arc::new(
         crate::desk::Desk::open_with_voice_services(
             root.path(),
-            Arc::new(crate::credentials::tests::MemoryStore::default()),
+            Arc::new(crate::credentials::MemoryStore::default()),
             Some(services),
         )
         .unwrap(),
     );
-    let calls = desk.voice().unwrap();
+    let calls = desk.parts().voice.unwrap();
     (root, desk, calls)
 }
 fn wav() -> Vec<u8> {
@@ -230,7 +231,7 @@ async fn mack(desk: &Arc<crate::desk::Desk>) -> String {
     use crate::contract::Command;
     let handle: Arc<dyn RoomHandle> = desk.clone();
     let create: Command = serde_json::from_value(json!({"cmd":"persona.create","params":{"draft":{"name":"Mack","goal":"Keep the build green","cwd":desk.log.root().to_str().unwrap()}}})).unwrap();
-    crate::wire::commands::run(create, &desk.log, &handle)
+    crate::wire::commands::run(create, &desk.log, &handle, &desk.parts())
         .await
         .unwrap()["id"]
         .as_str()

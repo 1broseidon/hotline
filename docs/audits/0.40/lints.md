@@ -33,13 +33,13 @@ and `cargo fmt --check` both pass today. No `[lints]` table, `clippy.toml`,
 |---|---|---|---|
 | `clippy::uninlined_format_args` | 1 | `crates/hotline-core/src/voice/mod.rs:1990` | adopt now |
 | `clippy::manual_string_new` | 1 | `crates/hotline-core/src/vault/shared.rs:696` | adopt now |
-| `clippy::range_plus_one` | 1 | `crates/hotline-core/src/voice/speech/xai/tests.rs:883` | adopt now |
+| `clippy::range_plus_one` | 1 | `crates/hotline-voice/src/speech/xai/tests.rs:883` | adopt now |
 | `clippy::explicit_iter_loop` | 1 | `crates/hotline-core/src/driver/rig/turn.rs:1708` | adopt now |
 | `clippy::implicit_clone` | 1 | `crates/hotline-core/src/voice/dispatcher.rs:999` | adopt now |
 | `clippy::iter_on_single_items` | 1 | `crates/hotline-core/src/computer/cookies.rs:1024` | adopt now |
 | `clippy::tuple_array_conversions` | 1 | `crates/hotline-core/src/remote/tests/viewer_token_tests.rs:110` | adopt now |
-| `clippy::manual_midpoint` | 1 | `crates/hotline-core/src/voice/realtime/live.rs:563` | adopt now |
-| `clippy::needless_raw_string_hashes` | 1 | `crates/hotline-core/src/mcp/oauth.rs:1617` | adopt now |
+| `clippy::manual_midpoint` | 1 | `crates/hotline-voice/src/realtime/live.rs:563` | adopt now |
+| `clippy::needless_raw_string_hashes` | 1 | `crates/hotline-mcp/src/oauth.rs:1617` | adopt now |
 | `clippy::float_cmp` | 1 | `crates/hotline-core/src/spending.rs:267` | adopt now (test compares money floats; use an epsilon) |
 | `clippy::manual_assert` | 1 | `crates/hotline-app/build.rs:93` | adopt now |
 | `clippy::match_wild_err_arm` | 1 | `crates/hotline-cli/tests/serve.rs:210` | adopt now |
@@ -48,7 +48,7 @@ and `cargo fmt --check` both pass today. No `[lints]` table, `clippy.toml`,
 | `clippy::suspicious_operation_groupings` | 1 | `crates/hotline-core/src/driver/mod.rs:125` | adopt now (read it: may be a real typo) |
 | `clippy::nonminimal_bool` | 2 | `crates/hotline-core/src/log/mod.rs:172` | adopt now |
 | `clippy::borrow_as_ptr` | 2 | `crates/hotline-core/src/computer/capacity.rs:158` | adopt now |
-| `clippy::unnecessary_literal_bound` | 2 | `crates/hotline-core/src/voice/speech/mod.rs:147` | adopt now |
+| `clippy::unnecessary_literal_bound` | 2 | `crates/hotline-voice/src/speech.rs:147` | adopt now |
 | `clippy::unnecessary_debug_formatting` | 2 | `crates/hotline-cli/src/update.rs:93` | adopt now |
 | `clippy::trivially_copy_pass_by_ref` | 2 | `crates/hotline-core/tests/voice.rs:87` | adopt now |
 | `clippy::useless_let_if_seq` | 3 | `crates/hotline-core/src/log/mod.rs:490` | adopt now |
@@ -56,7 +56,7 @@ and `cargo fmt --check` both pass today. No `[lints]` table, `clippy.toml`,
 | `clippy::manual_assert_eq` | 3 | `crates/hotline-core/src/computer/mod.rs:2116` | adopt now |
 | `clippy::ref_option` | 3 | `crates/hotline-core/src/contract.rs:4109` | adopt now |
 | `clippy::used_underscore_binding` | 3 | `crates/hotline-core/src/remote/tests/relay_tests.rs:842` | adopt now |
-| `clippy::stable_sort_primitive` | 4 | `crates/hotline-core/src/linked.rs:736` | adopt now (`sort_unstable`) |
+| `clippy::stable_sort_primitive` | 4 | `crates/hotline-room/src/linked.rs:736` | adopt now (`sort_unstable`) |
 | `clippy::unchecked_time_subtraction` | 4 | `crates/hotline-core/src/computer/capacity.rs:346` | adopt now: `Instant - Duration` panics on underflow; real bug class |
 | `clippy::struct_field_names` | 4 | `crates/hotline-core/src/session/chapters.rs:92` | adopt now |
 | `clippy::match_wildcard_for_single_variants` | 4 | `crates/hotline-core/src/driver/acp.rs:2034` | adopt now: a new variant should break the match |
@@ -72,7 +72,7 @@ and `cargo fmt --check` both pass today. No `[lints]` table, `clippy.toml`,
 | `clippy::needless_collect` | 8 | `crates/hotline-core/src/session/peers.rs:415` | adopt now |
 | `clippy::cast_lossless` | 9 | `crates/hotline-core/src/remote/link.rs:324` | adopt now (`u64::from`) |
 | `clippy::needless_continue` | 9 | `crates/hotline-core/src/tools/workspace.rs:997` | adopt now |
-| `clippy::match_same_arms` | 9 | `crates/hotline-core/src/mcp/oauth.rs:1302` | adopt later: some duplicate arms document distinct cases |
+| `clippy::match_same_arms` | 9 | `crates/hotline-mcp/src/oauth.rs:1302` | adopt later: some duplicate arms document distinct cases |
 | `clippy::unnested_or_patterns` | 6 | `crates/hotline-core/src/driver/acp.rs:2928` | adopt now |
 | `clippy::large_stack_arrays` | 11 | `crates/hotline-core/src/remote/sealed.rs:171` | adopt later: check the sites are tests/fixtures before setting the limit |
 | `clippy::semicolon_if_nothing_returned` | 12 | `crates/hotline-core/src/desk.rs:709` | adopt now |
@@ -155,7 +155,7 @@ specific mistake.
 | `clippy::needless_raw_strings` | 3 (3) | `crates/hotline-core/src/link_preview.rs:198` | adopt now |
 | `clippy::exit` | 2 (2) | `crates/hotline-app/src/lib.rs:316` | adopt later: `exit` skips destructors, which matters for the lease and child cleanup; read both sites |
 | `clippy::mem_forget` | 1 (1) | `crates/hotline-app/src/notify.rs:97` | adopt now: read the site |
-| `clippy::unneeded_field_pattern` | 1 (1) | `crates/hotline-core/src/mcp/oauth.rs:1073` | adopt now |
+| `clippy::unneeded_field_pattern` | 1 (1) | `crates/hotline-mcp/src/oauth.rs:1073` | adopt now |
 | `clippy::if_then_some_else_none` | 1 (1) | `crates/hotline-core/src/wire/files.rs:223` | adopt now |
 
 Not found with hits: `dbg_macro`, `todo`, `unimplemented`, `empty_drop`,

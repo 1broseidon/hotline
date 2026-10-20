@@ -2,6 +2,7 @@ use super::{Room, files::Source};
 use crate::contract::ImageSettings;
 use crate::contract::Reach;
 use crate::contract::SpendingSettings;
+use crate::contract::ThreadId;
 use crate::driver::CapabilityLease;
 use crate::imagegen::{self, Aspect, ImageError, ImageRequest, ImageSet, Reference};
 use crate::sent;
@@ -61,7 +62,7 @@ impl Room {
         persona_id: &str,
         arguments: &Value,
         capability: Option<CapabilityLease>,
-        home: Option<&str>,
+        thread: &ThreadId,
     ) -> Result<String, String> {
         if self.images_off() {
             return Err(format!("{}.", imagegen::IMAGES_OFF));
@@ -79,9 +80,7 @@ impl Room {
         let name = image_name(args.name.as_deref(), &args.prompt)?;
         let styled =
             imagegen::styled(args.style.as_deref(), &args.prompt, args.aspect, persona_id)?;
-        if home.is_none() && self.is_quiet(persona_id) {
-            return Err("This is a quiet scheduled run; make the image when you are talking with the person.".into());
-        }
+        self.may_send(thread)?;
         let persona = self.persona(persona_id)?;
         let settings = crate::room::try_settings(self.log())?;
         let spending: SpendingSettings = serde_json::from_value(
@@ -152,7 +151,7 @@ impl Room {
             Source::GeneratedImage(file_name),
             "",
             capability,
-            home,
+            thread,
         )
         .await?;
         let mut result = json!({

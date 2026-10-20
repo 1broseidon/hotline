@@ -4232,7 +4232,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-app"
-version = "0.40.0"
+version = "0.41.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -4263,7 +4263,7 @@ dependencies = [
 
 [[package]]
 name = "hotline-cli"
-version = "0.40.0"
+version = "0.41.0"
 dependencies = [
  "chrono",
  "futures-util",
@@ -4285,8 +4285,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hotline-contract"
+version = "0.41.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "ts-rs",
+ "url",
+]
+
+[[package]]
 name = "hotline-core"
-version = "0.40.0"
+version = "0.41.0"
 dependencies = [
  "agent-client-protocol",
  "async-trait",
@@ -4294,30 +4305,31 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "bzip2 0.6.1",
- "cap-std",
  "chrono",
  "dunce",
  "flate2",
  "futures-util",
  "gethostname",
  "getrandom 0.3.4",
- "globset",
- "grep-regex",
- "grep-searcher",
  "hex",
+ "hotline-contract",
+ "hotline-mcp",
+ "hotline-room",
+ "hotline-store",
+ "hotline-support",
+ "hotline-tools",
+ "hotline-voice",
+ "hotline-websearch",
  "http",
  "http-body-util",
  "hyper",
  "hyper-util",
  "iana-time-zone",
  "if-addrs",
- "ignore",
  "image",
- "keyring",
  "libc",
  "mime_guess",
  "oauth2",
- "opus",
  "portable-pty",
  "qrcode",
  "rcgen",
@@ -4325,16 +4337,12 @@ dependencies = [
  "reqwest 0.13.4",
  "rig",
  "rmcp",
- "roxmltree",
- "rtc",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "sherpa-onnx",
  "snow",
  "socket2",
- "symphonia",
  "tar",
  "tempfile",
  "tokio",
@@ -4344,10 +4352,158 @@ dependencies = [
  "ts-rs",
  "url",
  "uuid",
- "webrtc",
- "whatlang",
  "windows-sys 0.61.2",
  "zip",
+]
+
+[[package]]
+name = "hotline-mcp"
+version = "0.41.0"
+dependencies = [
+ "chrono",
+ "hotline-contract",
+ "hotline-room",
+ "hotline-support",
+ "hotline-tools",
+ "http",
+ "libc",
+ "reqwest 0.13.4",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "hotline-room"
+version = "0.41.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "hotline-contract",
+ "hotline-store",
+ "hotline-support",
+ "hotline-websearch",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
+name = "hotline-store"
+version = "0.41.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "hotline-contract",
+ "hotline-support",
+ "image",
+ "mime_guess",
+ "roxmltree",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "hotline-support"
+version = "0.41.0"
+dependencies = [
+ "getrandom 0.3.4",
+ "hex",
+ "image",
+ "keyring",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "hotline-tools"
+version = "0.41.0"
+dependencies = [
+ "cap-std",
+ "dunce",
+ "globset",
+ "grep-regex",
+ "grep-searcher",
+ "hotline-contract",
+ "hotline-support",
+ "ignore",
+ "libc",
+ "rig",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "hotline-voice"
+version = "0.41.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "bzip2 0.6.1",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hex",
+ "hotline-contract",
+ "hotline-room",
+ "hotline-support",
+ "http",
+ "opus",
+ "reqwest 0.13.4",
+ "rtc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sherpa-onnx",
+ "symphonia",
+ "tar",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
+ "tokio-util",
+ "url",
+ "uuid",
+ "webrtc",
+]
+
+[[package]]
+name = "hotline-websearch"
+version = "0.41.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "futures-util",
+ "hotline-contract",
+ "regex",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+ "whatlang",
 ]
 
 [[package]]

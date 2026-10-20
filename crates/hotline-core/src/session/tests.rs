@@ -12,7 +12,7 @@ use crate::contract::{
     AttachmentKind, ChapterStatus, DeltaKind, HumanAnswer, McpPolicy, PermissionOption,
     PersonaComputer, PolicyMode, ScheduledJob, SessionCheckpoint,
 };
-use crate::driver::{DriverInfo, Escalate};
+use crate::driver::DriverInfo;
 use crate::mcp::server::TeammateTools;
 use crate::test_support::until;
 use async_trait::async_trait;
@@ -26,6 +26,7 @@ mod chapters;
 mod chat;
 #[cfg(unix)]
 mod computer;
+mod posting;
 mod preamble;
 mod runs;
 mod scheduled;
@@ -68,8 +69,6 @@ pub(crate) struct Scripted {
     /// The models the room offers, when this script stands in for Hotline
     /// Agent: its picker is read again from here whenever the room says so.
     room_models: Option<Arc<Mutex<Vec<ConfigChoice>>>>,
-    /// What each turn was armed with to be heard, in the order they ran.
-    escalations: Arc<Mutex<Vec<Armed>>>,
     /// Work this agent starts by itself, for the room to take once.
     unprompted: Arc<Mutex<Option<mpsc::UnboundedReceiver<mpsc::Receiver<Update>>>>>,
     /// Accepted steering returned for replay when the activity ends.
@@ -85,8 +84,6 @@ pub(crate) struct Scripted {
     start_error: Option<String>,
 }
 
-/// What one turn was handed to be heard through, if anything.
-type Armed = Option<Arc<dyn Escalate>>;
 type Unconsumed = Arc<Mutex<Vec<(String, Vec<Attachment>)>>>;
 
 impl Scripted {
@@ -110,7 +107,6 @@ impl Scripted {
             cancels: Arc::new(Mutex::new(0)),
             info_changes: None,
             room_models: None,
-            escalations: Arc::new(Mutex::new(Vec::new())),
             unprompted: Arc::new(Mutex::new(None)),
             unconsumed: None,
             heard: Arc::new(Mutex::new(Vec::new())),
@@ -207,10 +203,6 @@ impl Driver for Scripted {
         let mut info = self.reported();
         info.models = lock(offered).clone();
         Some(info)
-    }
-
-    fn escalate_next(&self, escalation: Option<Arc<dyn Escalate>>) {
-        lock(&self.escalations).push(escalation);
     }
 
     async fn retry(
@@ -540,6 +532,24 @@ pub(crate) fn enrol(log: &Log, persona: &Persona) {
 }
 
 /// A room with one teammate enrolled, on scripted agents, no session started.
+/// A phone paired with the desk, so a push has somewhere to go.
+pub(crate) fn pair_a_phone(room: &Room) {
+    std::fs::write(
+        room.log.root().join("remote.json"),
+        json!({
+            "desktopId": "desk-1",
+            "host": "desk.local",
+            "enabled": true,
+            "grants": [{
+                "device": {"id": "phone-1", "name": "Phone", "pairedAt": 0, "publicKey": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"},
+                "push": {"token": "ExponentPushToken[phone]", "platform": "ios"}
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+}
+
 fn room(name: &str, agents: Arc<Fake>) -> Arc<Room> {
     let log = scratch(name);
     enrol(&log, &persona("ada"));
@@ -729,7 +739,7 @@ async fn computer_room(
         Vault::open_with_store(
             log.root(),
             log.clone(),
-            Arc::new(crate::credentials::tests::MemoryStore::default()),
+            Arc::new(crate::credentials::MemoryStore::default()),
         )
         .unwrap(),
     );

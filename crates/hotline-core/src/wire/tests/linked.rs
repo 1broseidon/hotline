@@ -8,7 +8,7 @@ use super::*;
 #[tokio::test]
 async fn a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_through_the_real_handler()
  {
-    use crate::credentials::tests::MemoryStore;
+    use crate::credentials::MemoryStore;
     let root = tempfile::tempdir().unwrap();
     let desk = Arc::new(
         crate::desk::Desk::open_with_store(root.path(), Arc::new(MemoryStore::default())).unwrap(),
@@ -125,6 +125,7 @@ async fn a_linked_desk_may_only_publish_its_teammates_and_deliver_messages_throu
                 seat,
                 &room,
                 &desk.log,
+                &desk.parts(),
                 json!({"id": 6, "cmd": cmd, "params": params}),
             )
             .await;

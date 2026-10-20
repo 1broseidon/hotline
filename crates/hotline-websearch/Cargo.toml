@@ -1,0 +1,33 @@
+[package]
+name = "hotline-websearch"
+description = "Web search for every teammate: the four providers, the chain that asks them at once and fuses their lists, and the cleaning of what they answer. Depends on hotline-contract and no other Hotline crate by design."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+# `test-support`: the mock provider on localhost, for the core's tests of the
+# `web_search` tool, which point the chain at it.
+[features]
+test-support = ["dep:axum", "tokio/net", "tokio/rt"]
+
+[dependencies]
+hotline-contract = { path = "../hotline-contract" }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tokio = { workspace = true, features = ["macros", "time"] }
+async-trait = "0.1.92"
+futures-util = "0.3.34"
+regex = "1"
+reqwest = { version = "0.13.4", default-features = false, features = ["json", "rustls"] }
+url = "2.5.8"
+whatlang = "0.18.0"
+axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"], optional = true }
+
+[dev-dependencies]
+axum = { version = "0.8.9", default-features = false, features = ["tokio", "http1"] }
+tokio = { workspace = true, features = ["net", "rt", "sync"] }

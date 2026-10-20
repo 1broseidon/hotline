@@ -49,6 +49,10 @@ const NARRATION: &str = "Relay this teammate's completed message in one or two s
 pub struct Context {
     pub log: Log,
     pub room: Arc<dyn RoomHandle>,
+    /// The wire's parts as this call's commands see them: the calls alone,
+    /// because nothing in the allowlist [`Self::execute`] enforces reaches the
+    /// Remote or the links.
+    parts: crate::wire::Parts,
     pub cancel: CancellationToken,
     heard: bool,
     origin: Option<super::Origin>,
@@ -57,10 +61,19 @@ pub struct Context {
 }
 
 impl Context {
-    pub fn new(log: Log, room: Arc<dyn RoomHandle>, cancel: CancellationToken) -> Self {
+    pub fn new(
+        log: Log,
+        room: Arc<dyn RoomHandle>,
+        calls: Arc<super::Calls>,
+        cancel: CancellationToken,
+    ) -> Self {
         Self {
             log,
             room,
+            parts: crate::wire::Parts {
+                voice: Some(calls),
+                ..crate::wire::Parts::default()
+            },
             cancel,
             heard: false,
             origin: None,
@@ -179,6 +192,7 @@ impl Context {
                         },
                         &context.log,
                         &context.room,
+                        &context.parts,
                     )
                     .await?;
                     if context.cancel.is_cancelled() {
@@ -186,7 +200,12 @@ impl Context {
                     }
                     let prompt = crate::wire::commands::VOICE_COMMAND.scope(
                         (),
-                        crate::wire::commands::run(command, &context.log, &context.room),
+                        crate::wire::commands::run(
+                            command,
+                            &context.log,
+                            &context.room,
+                            &context.parts,
+                        ),
                     );
                     match &context.origin {
                         Some(origin) => {
@@ -202,7 +221,7 @@ impl Context {
                     result = tokio::time::timeout(std::time::Duration::from_secs(60), work) => result.unwrap_or_else(|_| Err("The teammate did not start in time.".into())),
                 };
                 if result.is_err()
-                    && let Some(voice) = context.room.voice()
+                    && let Some(voice) = &context.parts.voice
                 {
                     voice.handoff_failed(&persona.id, &persona.name);
                 }
@@ -237,6 +256,7 @@ impl Context {
                 },
                 &self.log,
                 &self.room,
+                &self.parts,
             )
             .await?;
             if tail
@@ -255,7 +275,7 @@ impl Context {
         let result = crate::wire::commands::VOICE_COMMAND
             .scope(
                 (),
-                crate::wire::commands::run(command, &self.log, &self.room),
+                crate::wire::commands::run(command, &self.log, &self.room, &self.parts),
             )
             .await?;
         if created && let Some(id) = result["id"].as_str() {
@@ -285,7 +305,7 @@ pub trait Dispatcher: Send + Sync {
         output: mpsc::Sender<String>,
     ) -> Result<(), String> {
         let answer = self.answer(context, text, ledger).await?;
-        for sentence in super::synthesis::sentences(&answer) {
+        for sentence in super::spoken::sentences(&answer) {
             output
                 .send(sentence)
                 .await
@@ -387,7 +407,7 @@ impl ProviderDispatcher {
                 return Err("The dispatcher revised its answer; please repeat the request.".into());
             }
             completed |= matches!(item, MultiTurnStreamItem::FinalResponse(_));
-            for sentence in super::synthesis::take_sentences(&mut pending, finish) {
+            for sentence in super::spoken::take_sentences(&mut pending, finish) {
                 output
                     .send(sentence)
                     .await
@@ -1202,7 +1222,7 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+        let store = Arc::new(crate::credentials::MemoryStore::default());
         let desk =
             Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
         let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());
@@ -1312,7 +1332,7 @@ mod tests {
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });
-        let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+        let store = Arc::new(crate::credentials::MemoryStore::default());
         let desk =
             Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
         let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());
@@ -1334,8 +1354,13 @@ mod tests {
         assert_eq!(dispatcher.id().provider_id, credential.provider_id);
         assert_eq!(dispatcher.id().model_id, "fast-mini");
         let ledger = Arc::new(Budget::open(desk.log.clone()));
-        let context =
-            Context::new(desk.log.clone(), desk, CancellationToken::new()).for_utterance();
+        let context = Context::new(
+            desk.log.clone(),
+            desk.clone(),
+            desk.parts().voice.unwrap(),
+            CancellationToken::new(),
+        )
+        .for_utterance();
         assert_eq!(
             dispatcher
                 .answer(context, "Any schedules?", ledger.clone())
@@ -1412,7 +1437,7 @@ mod tests {
             axum::serve(listener, app).await.unwrap();
         });
         let root = tempfile::tempdir().unwrap();
-        let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+        let store = Arc::new(crate::credentials::MemoryStore::default());
         let desk =
             Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
         let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());
@@ -1432,8 +1457,13 @@ mod tests {
         desk.log.append(&StreamId::Room, &json!({"kind":"setting","id":"defaultModelId","value":format!("{}/fast-mini", credential.provider_id)})).unwrap();
         let dispatcher = ProviderDispatcher::resolve(vault, &desk.log).unwrap();
         let ledger = Arc::new(Budget::open(desk.log.clone()));
-        let context =
-            Context::new(desk.log.clone(), desk, CancellationToken::new()).for_utterance();
+        let context = Context::new(
+            desk.log.clone(),
+            desk.clone(),
+            desk.parts().voice.unwrap(),
+            CancellationToken::new(),
+        )
+        .for_utterance();
         let (tx, mut rx) = mpsc::channel(8);
         let worker = dispatcher.clone();
         let budget = ledger.clone();
@@ -1517,7 +1547,7 @@ mod tests {
             let server = tokio::spawn(async move {
                 axum::serve(listener, app).await.unwrap();
             });
-            let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+            let store = Arc::new(crate::credentials::MemoryStore::default());
             let desk =
                 Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
             let vault =
@@ -1577,7 +1607,7 @@ mod tests {
             let server = tokio::spawn(async move {
                 axum::serve(listener, app).await.unwrap();
             });
-            let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+            let store = Arc::new(crate::credentials::MemoryStore::default());
             let desk =
                 Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
             let vault =
@@ -1676,7 +1706,7 @@ mod tests {
         [String; 2],
     ) {
         let root = tempfile::tempdir().unwrap();
-        let store = Arc::new(crate::credentials::tests::MemoryStore::default());
+        let store = Arc::new(crate::credentials::MemoryStore::default());
         let desk =
             Arc::new(crate::desk::Desk::open_with_store(root.path(), store.clone()).unwrap());
         let vault = Arc::new(Vault::open_with_store(root.path(), desk.log.clone(), store).unwrap());

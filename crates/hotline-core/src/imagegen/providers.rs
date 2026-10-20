@@ -469,11 +469,9 @@ mod tests {
     }
 
     fn grok_login(dir: &std::path::Path) -> Connection {
-        let tokens = crate::credentials::CredentialFiles::new(
-            dir.into(),
-            crate::credentials::default_store(),
-        )
-        .file(dir.join("auth.json"));
+        let tokens =
+            crate::credentials::CredentialFiles::new(dir.into(), crate::vault::default_store())
+                .file(dir.join("auth.json"));
         connection(xai::PROVIDER_ID, &ProviderAuth::StoredLogin { tokens }).unwrap()
     }
 

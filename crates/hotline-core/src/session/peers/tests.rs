@@ -574,7 +574,7 @@ async fn a_peer_session_still_waits_for_its_answer() {
         Fake::new(Scripted::new(answers("a1", "the winch"))),
     );
     let answered = TeammateTools::new(&room, "ada")
-        .for_peer()
+        .for_peer(crate::contract::ThreadId::pair("ada-bob"))
         .call(
             "message_teammate",
             &serde_json::json!({ "to": "Bob", "message": "what broke?" }),
@@ -1255,7 +1255,7 @@ async fn revocation_reaches_a_third_teammates_delegated_tools_but_not_its_main_s
     let outer = lock(&room.peers.sessions)[&("ada".to_string(), "bob".to_string())].clone();
     let bob_delegated = TeammateTools::new(&room, "bob")
         .with_capability(outer.target_capability.clone())
-        .for_peer();
+        .for_peer(crate::contract::ThreadId::pair("ada-bob"));
     bob_delegated
         .call(
             "message_teammate",
@@ -1331,6 +1331,8 @@ mod receipts {
             ring: None,
             receipt: None,
             spoken: None,
+            from: None,
+            scheduled: None,
         }
     }
 

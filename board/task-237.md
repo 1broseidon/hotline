@@ -11,6 +11,9 @@ relatedFiles:
   - docs/plans/rig-0.45-migration.md
 parentId: epic-22
 createdAt: "2026-10-20T06:51:46.152Z"
+dependsOn:
+  - task-233
+updatedAt: "2026-10-20T06:51:49.480Z"
 ---
 
 ## Description

@@ -1,8 +1,6 @@
 ---
 id: task-214
 title: "S0: the calls live in hotline-voice; hotline-core keeps only the room's side"
-column: review
-position: 43
 priority: high
 tags:
   - crate-split
@@ -12,7 +10,7 @@ relatedFiles:
   - crates/hotline-core/src/voice
 parentId: epic-21
 createdAt: "2026-10-19T17:20:19.714Z"
-updatedAt: "2026-10-20T22:01:30.964Z"
+updatedAt: "2026-10-20T22:05:48.799Z"
 contract:
   status: delivered
   deliverables:
@@ -61,6 +59,9 @@ dispatch:
     runner: cli
     pid: 94104
     at: "2026-10-20T21:07:48.457Z"
+    ended: "2026-10-20T22:05:48.798Z"
+    outcome: done
+completedAt: "2026-10-20T22:05:48.397Z"
 ---
 
 ## Description
@@ -83,3 +84,4 @@ Done when:
 - 2026-10-20T21:48:04.756Z: [codex] Extraction committed on dispatch/task-214 through dca1f345. 101 real-core voice unit tests, 161 voice-crate tests, and voice/local_speech/processes/desk harnesses passed; workspace clippy passed. Re-taking ADR 0007's after timings on final code, then final make check/precheck. Removed speech/realtime/front/front_prompt/CALLS_OFF core aliases and public models::is_custom; remaining aliases are inventoried in ADR 0007.
 - 2026-10-20T22:01:30.722Z: [codex] Retained core voice aliases with callers: CallRequest, Calls, Origin, Services, TAPE_ID, LISTEN_WHILE_THINKING, VOICE_FRONT, dispatcher, ledger, metering, settings, spoken; test-only tests. wire::commands still aliases VOICE_COMMAND, CALL_ORIGIN and PROMPT_CLIENT, now defined once in hotline-voice. Removed the requested speech/realtime/front::SEND_TO_TEAMMATE/models::is_custom re-exports and unused front/front_prompt/CALLS_OFF aliases.
 - 2026-10-20T22:02:48.338Z: [codex] Completed the call extraction behind CallRoom, annotated temporary methods, removed unused exports, and updated ADRs with rerun build timings. Committed on dispatch/task-214 through a7fcda42; worktree clean. make check, all eight make precheck legs, and local macOS workspace-isolation passed; contract.ts is byte-identical. Contract delivered and task is in Review for a person to review and merge.
+- 2026-10-20T22:05:48.022Z: Landed on release/0.42.0

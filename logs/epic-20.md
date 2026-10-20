@@ -2,8 +2,6 @@
 id: epic-20
 title: "One agent thread layer: every modality attaches to it, and the chat is the log of truth"
 type: epic
-column: todo
-position: 11
 priority: high
 tags:
   - architecture
@@ -13,20 +11,8 @@ tags:
 assignee: claude
 createdAt: "2026-10-19T17:32:26.752Z"
 landsOn: release/0.41.0
-updatedAt: "2026-10-19T22:05:42.889Z"
-dispatch:
-  agent: claude
-  model: opus
-  effort: high
-  by: cli
-  at: "2026-10-19T20:00:43.857Z"
-  until: done
-  role: lead
-  claim:
-    host: Georges-Mac-Studio
-    runner: cli
-    pid: 94104
-    at: "2026-10-19T20:00:46.124Z"
+updatedAt: "2026-10-20T00:36:34.150Z"
+completedAt: "2026-10-20T00:36:34.150Z"
 ---
 
 ## Description
@@ -48,3 +34,16 @@ First the architecture, for George to approve; then the slices, planned from it.
 - 2026-10-19T23:58:30.302Z: [claude] Lead: task-221 landed. Its leftovers are routed. The Jobs row showing `without` and a job card's push naming its thread go to task-227, and the re-queue of job deliveries after a restart and the person's schedule.create `without` go to task-222. Starting a Hotline run for an ACP teammate belongs with the voice work tool (epic-21), not 0.41. task-227 is handed off to claude/opus.
 - 2026-10-20T00:13:12.911Z: [claude] Lead: task-227 landed. Its one leftover is that the phone app (hotline-mobile push.ts) ignores a push's data.thread. That is a change in the mobile repo, so I put it in task-222's CHANGELOG as not yet wired, and added Cancel/Stop/"Runs without" to Pork Chop's QA list. Every dependency is landed, so task-222 is handed off to claude/opus.
 - 2026-10-20T00:33:26.419Z: [claude] QA checklist for Pork Chop (Linux QA computer, desk from release/0.41.0 once dispatch/task-222 lands, its prepared workspace, xAI sign-in); screenshot anything wrong, fix or file before George's pass. (1) post_to_chat: from a quiet job, a work thread and an ACP teammate, each lands in the chat once a turn, stamped with its thread; a DM turn's post_to_chat is refused. (2) send_file from a work thread: the file lands in the chat with the thread's stamp, the thread keeps "Sent X to the chat." (3) Recurring job: its own row in the Jobs group and its own thread; the 2nd firing starts from its note; a firing due during a long one is skipped with "would fit" on the thread; a quiet job posts only on significance; Cancel posts "Cancelled. Where it stood: …". (4) A one-off job, and a plain reminder (one post, no work). (5) Jobs rows: Cancel from the row and the thread header; Stop on a running firing (thread says Stopped, the next firing still runs); a job the agent made `without` shows "Runs without …". (6) Subagent: search_thread finds what the DM said; it cannot post. (7) A job's request_human answered, then the desk restarted before its turn: the job hears it once after restart (or the DM does if the job ended). (8) Team lead: pick-a-lead prompt with 2+ teammates and no lead, Not now, the star badge, Make/Remove team lead, a desk of one auto-leads. Also still to do after landing: dispatch ci.yml and workspace-isolation.yml on release/0.41.0 (task-222 did not push or dispatch).
+
+## Child Tasks
+Summary: 10/10 children completed.
+- task-215: ADR: the agent thread layer, modalities, and one escalation path to the chat (completed)
+- task-216: Slice 1: Room::post, one door to the chat, posts stamped with where they came from (completed)
+- task-217: Slice 2: post_to_chat on the desk's MCP server for both drivers; tell_person and Escalate go (completed)
+- task-218: Slice 4: pair threads on the one builder and loop (completed)
+- task-219: Slice 3: files and images from any thread land in the chat (completed)
+- task-220: Jobs are subagents on a schedule: one schema, a thread per job, a running note (completed)
+- task-221: Subagents are clones of the home agent: same permission set, a focused start, reaching back with the same tools (completed)
+- task-222: 0.41 lands together, and Pork Chop's QA on the Linux QA computer before George's (completed)
+- task-226: The Jobs group in the thread list: a row per job with its name, next run and last post (completed)
+- task-227: A job's row and thread can Cancel the job, and Stop a firing that is running (completed)

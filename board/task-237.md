@@ -16,7 +16,26 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:46.152Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T12:03:23.498Z"
+updatedAt: "2026-10-20T12:03:23.766Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-core/src/providers/copilot.rs
+      description: ChatBody removed if the pin allows; /responses via with_route
+  validation:
+    commands:
+      - make check
+      - make precheck
+      - git diff --exit-code HEAD -- ui/src/generated/contract.ts
+      - git diff --exit-code $(git merge-base HEAD origin/release/0.42.0) HEAD -- ui/src/generated/contract.ts
+      - test "$(cargo test --workspace -- --list 2>/dev/null | grep -c 'rig_pin_')" -ge 6
+  constraints:
+    - "No wire type changes: ui/src/generated/contract.ts byte-identical to the base"
+    - rig_pin_ assertions and expected values unchanged
+    - Do not touch voice/dispatcher.rs, providers/rig_login.rs or docs/plans/rig-0.45-migration.md
+  metrics:
+    readyAt: "2026-10-20T12:03:23.766Z"
 ---
 
 ## Description

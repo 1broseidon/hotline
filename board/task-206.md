@@ -1,6 +1,6 @@
 ---
 id: task-206
-title: "End to end and docs: a desk call that reaches the lead"
+title: "End to end, docs and the scenario pass: every scenario in the deck proved"
 column: backlog
 position: 41
 priority: medium
@@ -14,10 +14,20 @@ relatedFiles:
 parentId: epic-21
 createdAt: "2026-10-19T13:59:39.590Z"
 dependsOn:
+  - task-204
+  - task-207
   - task-203
-  - task-214
-updatedAt: "2026-10-19T20:00:16.937Z"
+  - task-239
+  - task-240
+  - task-241
+updatedAt: "2026-10-20T20:13:26.047Z"
 ---
 
 ## Description
-One harness proof over the wire: make a teammate lead, call the desk, ask a roster question (answered on the call), then a task for a named teammate (handed directly to it, no dispatcher hop). The single-teammate auto-lead and the cleared lead on removal are covered. docs/voice-calls.md and a sessions/teammates doc say what a team lead is and how desk calls reach it; a CHANGELOG line.
+The proof that the deck is true, and the docs.
+
+Done when:
+- Each of the deck's scenarios has a test, or a recorded manual check where audio, the network or the phone can't be scripted. Each test's doc comment names its scenario.
+- Scenario pass: Pork Chop runs every scenario on the Linux QA computer, then George on the desk and the phone. Every "What must be true" line is checked off or filed.
+- One wire-level harness proof: make a teammate lead, call the desk, ask a roster question (answered on the call), then give a task for a named teammate (handed straight to it, no dispatcher hop). The single-teammate auto-lead and clearing the lead on removal are covered.
+- docs/voice.md and docs/voice-calls.md describe what shipped: a call is a thread, the closing note, the work tool, cards by voice, drops and fallbacks. ADR 0005 is marked amended, and ADR 0008 §5 records the 2026-10-20 decisions. The CHANGELOG has its lines. docs/design/voice-scenarios.html stays as the acceptance set.

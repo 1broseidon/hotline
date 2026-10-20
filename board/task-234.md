@@ -1,7 +1,7 @@
 ---
 id: task-234
 title: "S4: ChatGPT and Copilot tokens move into the vault (keychain)"
-column: todo
+column: in-progress
 position: 6
 priority: medium
 tags:
@@ -19,9 +19,9 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:44.693Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T13:31:29.736Z"
+updatedAt: "2026-10-20T13:31:41.791Z"
 contract:
-  status: ready
+  status: in_progress
   deliverables:
     - type: file
       path: crates/hotline-core/src/providers/rig_login.rs
@@ -46,6 +46,8 @@ contract:
     - Do not edit docs/plans/rig-0.45-migration.md
   metrics:
     readyAt: "2026-10-20T12:03:22.704Z"
+    pickedUpAt: "2026-10-20T13:31:41.791Z"
+    reworkCount: 0
 dispatch:
   agent: claude
   model: opus

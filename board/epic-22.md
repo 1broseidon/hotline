@@ -29,3 +29,6 @@ Not adopted: Rig 0.45's resumable runs and committed-history streaming for the H
 Runs before epic-21 (voice on the agent thread layer) touches the voice dispatcher and front: S1 rewrites the dispatcher's hooks. About 11 to 16 days; S1 and S3 are the critical path.
 
 Open for George: adopt ChatGPT's browser sign-in (PKCE on 127.0.0.1:1455) now that Rig supports it; revoke tokens at the provider on credential delete (S5).
+
+## Log
+- 2026-10-20T12:00:00.877Z: [claude] George, 2026-10-20 06:59 (call): go now, straight to 0.45, agents running. Order: S0 (task-230) pins today's behaviour on 0.42 → task-231 the single jump to 0.45 with the TokenStore → S4 keychain, S6 voice metering, S7 cleanups → S5 revoke. George QAs ChatGPT and Copilot sign-in continuity (and a quick Anthropic turn); Pork Chop covers xAI and the scripted checks on the QA computer. His two open questions (browser sign-in, revoke on delete) stay open; S5 waits for his answer on revoke.

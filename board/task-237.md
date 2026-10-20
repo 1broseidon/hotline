@@ -60,3 +60,4 @@ What S1 (task-231) changed, as landed on release/0.42.0: model requests for Chat
 
 ## Log
 - 2026-10-20T13:37:06.491Z: [claude] George, 2026-10-20 08:35: the rest of epic-22 is mechanical and goes to Codex on gpt-6-astra. A Claude Opus run started this and was stopped after about 5 minutes; its worktree may hold partial uncommitted edits: review them, keep what's right, discard the rest. Run make check in the foreground and wait for it, commit before ending your turn, merge release/0.42.0 into the branch and re-run make check before saying done (a landing's check stops after 15 minutes).
+- 2026-10-20T13:37:42.108Z: [codex] Resumed prior Copilot flatten commit and uncommitted compat deletion; reviewing pins and upstream implementation before keeping changes. MCP discovery unavailable, using authorized Brainfile CLI fallback.

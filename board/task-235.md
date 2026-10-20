@@ -19,7 +19,25 @@ createdAt: "2026-10-20T06:51:45.174Z"
 dependsOn:
   - task-234
   - task-237
-updatedAt: "2026-10-20T12:03:24.043Z"
+updatedAt: "2026-10-20T12:03:24.303Z"
+contract:
+  status: ready
+  deliverables:
+    - type: test
+      path: crates/hotline-core
+      description: rig_revoke_* tests with a stub revoke endpoint
+  validation:
+    commands:
+      - make check
+      - make precheck
+      - git diff --exit-code HEAD -- ui/src/generated/contract.ts
+      - git diff --exit-code $(git merge-base HEAD origin/release/0.42.0) HEAD -- ui/src/generated/contract.ts
+      - test "$(cargo test --workspace -- --list 2>/dev/null | grep -c 'rig_revoke_')" -ge 2
+  constraints:
+    - "No wire type changes: ui/src/generated/contract.ts byte-identical to the base"
+    - Delete always removes the local credential, even when provider revoke fails
+  metrics:
+    readyAt: "2026-10-20T12:03:24.303Z"
 ---
 
 ## Description

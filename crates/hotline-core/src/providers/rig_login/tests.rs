@@ -1,4 +1,6 @@
 use super::*;
+
+mod vault;
 use axum::{Router, routing::get, routing::post};
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
@@ -7,6 +9,7 @@ use rig::http_client::{self, HttpClientExt, LazyBody, MultipartForm, StreamingRe
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use vault::LoginDir;
 
 /// The auth servers Rig addresses, played by one local stub: ChatGPT's token
 /// endpoint and Copilot's token exchange, each counting what reached it.
@@ -192,7 +195,7 @@ fn copilot_0_42(dir: &Path, github_token: &str) -> Value {
 #[tokio::test]
 async fn rig_login_a_0_42_copilot_dir_migrates_to_copilot_json_and_stays_signed_in() {
     let auth = AuthServer::serve().await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LoginDir::new(Arc::new(crate::credentials::MemoryStore::default()));
     let legacy = copilot_0_42(dir.path(), "github-token-1");
 
     let context = copilot(dir.path())
@@ -206,8 +209,14 @@ async fn rig_login_a_0_42_copilot_dir_migrates_to_copilot_json_and_stays_signed_
     );
     assert_eq!(auth.exchanges.load(Ordering::SeqCst), 0, "no exchange");
 
-    let record: Value =
-        serde_json::from_slice(&std::fs::read(dir.path().join(COPILOT_RECORD)).unwrap()).unwrap();
+    let record: Value = serde_json::from_str(
+        &LoginDirStore::new(dir.path())
+            .load(copilot::PROVIDER_NAME)
+            .await
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(record["github_token"], "github-token-1");
     for field in [
         "token",
@@ -238,13 +247,13 @@ async fn rig_login_a_0_42_copilot_dir_migrates_to_copilot_json_and_stays_signed_
     assert_eq!(serde_json::from_str::<Value>(&again).unwrap(), record);
 }
 
-/// The old files are removed only once the new record is on disk: a write
+/// The old files are removed only once the new reference is on disk: a write
 /// that fails leaves the sign-in where it was, to be moved on a later read.
 #[cfg(unix)]
 #[tokio::test]
 async fn rig_login_a_failed_copilot_write_keeps_the_0_42_files() {
     use std::os::unix::fs::PermissionsExt;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LoginDir::new(Arc::new(crate::credentials::MemoryStore::default()));
     copilot_0_42(dir.path(), "github-token-1");
     let store = LoginDirStore::new(dir.path());
 
@@ -269,13 +278,12 @@ async fn rig_login_a_failed_copilot_write_keeps_the_0_42_files() {
     assert!(!dir.path().join(LEGACY_API_KEY).exists());
 }
 
-/// A ChatGPT sign-in made before Rig 0.45 is read where it is, as it is:
-/// its live token is served without a refresh, and the file is not
-/// rewritten.
+/// A ChatGPT sign-in made before Rig 0.45 keeps its live token without a
+/// refresh when its plaintext record moves to credential storage.
 #[tokio::test]
-async fn rig_login_a_0_42_chatgpt_auth_json_loads_unchanged() {
+async fn rig_login_a_0_42_chatgpt_auth_json_keeps_its_tokens() {
     let auth = AuthServer::serve().await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LoginDir::new(Arc::new(crate::credentials::MemoryStore::default()));
     let access = access_token("access-1", 3600);
     let written = chatgpt_0_42(dir.path(), &access, chrono::Utc::now().timestamp() + 3600);
 
@@ -287,7 +295,11 @@ async fn rig_login_a_0_42_chatgpt_auth_json_loads_unchanged() {
     assert_eq!(context.account_id.as_deref(), Some("account-1"));
     assert_eq!(auth.refreshes.load(Ordering::SeqCst), 0, "no refresh");
     assert_eq!(
-        std::fs::read_to_string(dir.path().join(CHATGPT_RECORD)).unwrap(),
+        LoginDirStore::new(dir.path())
+            .load(chatgpt::PROVIDER_NAME)
+            .await
+            .unwrap()
+            .unwrap(),
         written
     );
 }
@@ -300,7 +312,7 @@ async fn rig_login_a_0_42_chatgpt_auth_json_loads_unchanged() {
 #[tokio::test]
 async fn rig_login_two_clients_refreshing_at_once_spend_the_refresh_token_once() {
     let auth = AuthServer::serve().await;
-    let dir = tempfile::tempdir().unwrap();
+    let dir = LoginDir::new(Arc::new(crate::credentials::MemoryStore::default()));
     chatgpt_0_42(
         dir.path(),
         &access_token("access-1", -60),
@@ -327,8 +339,14 @@ async fn rig_login_two_clients_refreshing_at_once_spend_the_refresh_token_once()
         assert!(context.api_key.expose().ends_with(".access-2"));
         assert_eq!(context.account_id.as_deref(), Some("account-1"));
     }
-    let saved: Value =
-        serde_json::from_slice(&std::fs::read(dir.path().join(CHATGPT_RECORD)).unwrap()).unwrap();
+    let saved: Value = serde_json::from_str(
+        &LoginDirStore::new(dir.path())
+            .load(chatgpt::PROVIDER_NAME)
+            .await
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(saved["refresh_token"], "refresh-2");
     assert!(
         saved["access_token"]

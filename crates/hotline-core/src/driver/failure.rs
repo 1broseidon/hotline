@@ -29,6 +29,11 @@ pub(crate) enum Kind {
     /// still lists its models. The sign-in is fine, so signing in again
     /// cannot help; the provider is turning requests away.
     ProviderRefused,
+    /// The sign-in's tokens are in the OS keychain, and the keychain would
+    /// not give them up: it is locked, or Hotline was not allowed in. The
+    /// sign-in itself is fine, so signing in again cannot help; unlocking
+    /// the keychain does.
+    Keychain,
     /// An ACP harness's own sign-in — Claude Code's, Codex's — is gone or
     /// expired. Nothing in Hotline's Settings fixes it; the harness's login
     /// does.
@@ -58,6 +63,10 @@ pub(crate) enum Kind {
     NoProvider,
     Unknown,
 }
+
+/// How Rig names a failure of the store a sign-in's tokens are kept in
+/// (`AuthError::Store`): for ChatGPT and Copilot, the OS keychain.
+const KEYCHAIN_FAILED: &str = "token store failed";
 
 /// What a stream the provider never finished reads as.
 pub(crate) const TRUNCATED: &str = "The model stream ended without a complete response.";
@@ -102,7 +111,13 @@ impl Failure {
             .provider_response_body()
             .map_or_else(|| error.to_string(), str::to_owned);
         let mut failure = Self::classify(&body, status, phase);
-        if status.is_none() && matches!(error, ProviderError::Http(_)) {
+        // A sign-in's tokens are read as the request is signed, so a keychain
+        // that refuses them fails the request before it leaves: no reply, but
+        // nothing another try past a locked keychain gets through either.
+        if status.is_none()
+            && matches!(error, ProviderError::Http(_))
+            && failure.kind != Kind::Keychain
+        {
             failure.set_kind(Kind::Transport);
         }
         failure.retry_after_seconds = error
@@ -145,7 +160,9 @@ impl Failure {
                             .rsplit_once('.')
                             .is_some_and(|(_, field)| field == "id" || field == "encrypted_content")
                 });
-        let kind = if contains(&[
+        let kind = if contains(&[KEYCHAIN_FAILED]) {
+            Kind::Keychain
+        } else if contains(&[
             "insufficient_quota",
             "quota_exceeded",
             "exhausted quota",
@@ -449,6 +466,10 @@ impl Failure {
             Kind::ProviderRefused => (
                 "Provider is refusing requests",
                 "Your sign-in still works, so signing in again won't help. Try again later or switch this teammate to another provider.",
+            ),
+            Kind::Keychain => (
+                "Keychain locked",
+                "Hotline could not read this sign-in from your keychain. Unlock your keychain, or allow Hotline into it, then send another message.",
             ),
             Kind::AgentAuth => (
                 "Agent sign-in expired",

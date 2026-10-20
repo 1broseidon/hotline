@@ -539,7 +539,11 @@ Copilot in and refreshes them, through Hotline's own token store over each
 login's directory (`providers/rig_login.rs`): ChatGPT's record is the
 `auth.json` it has always been, and Copilot's is `copilot.json`, into which a
 login made before Rig 0.45 is moved once from its `access-token` and
-`api-key.json`, those removed only after the new record is written. One
+`api-key.json`, those removed only after the new record is written. Both
+records use the vault's `CredentialFile`: plaintext moves to the configured
+credential store on first read, verified before a reference replaces it. A
+failed migration preserves the plaintext and refuses its use; it never
+falls back from the keychain to a file. One
 authenticator per credential serves turns, voice, image generation and
 discovery, sharing one refresh and one in-memory token, and the store locks
 each record file, never a provider, for any other authenticator over it (a

@@ -296,7 +296,7 @@ mod tests {
             std::env::temp_dir().join(format!("hotline-openrouter-{}", uuid::Uuid::new_v4()));
         let log = crate::log::Log::open(&root);
         let vault = crate::vault::Vault::open(&root, log.clone()).unwrap();
-        let (id, dir) = vault.begin_login("openrouter").unwrap();
+        let (id, dir) = vault.begin_login().unwrap();
         let (exchange_tx, mut exchange_rx) = tokio::sync::mpsc::channel(1);
         let app = Router::new().route(
             "/keys",

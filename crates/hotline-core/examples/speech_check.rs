@@ -13,10 +13,12 @@ use hotline_core::{
     log::Log,
     vault::Vault,
     voice::{
+        connected::resolve,
         settings::{Choice, VoiceSettings},
-        speech::{Clip, resolve},
     },
 };
+#[cfg(unix)]
+use hotline_voice::speech::Clip;
 #[cfg(unix)]
 use std::sync::Arc;
 

@@ -12,14 +12,13 @@
 //! a paid reply, so a cost that spends the budget is refused at the next
 //! dispatch, and the answer it paid for is still given.
 
-use crate::contract::ModelCost;
-use crate::pricing::{Tokens, cost};
-use crate::vault::Vault;
-use crate::voice::{
+use crate::call_room::CallRoom;
+use crate::{
     ledger::{Kind, Reservation},
     lock,
     metering::{BUDGET_ERROR, Budget},
 };
+use hotline_contract::ModelCost;
 use rig::agent::hook::{
     AgentHook, DispatchAction, DispatchEvent, HookContext, OutcomeAction, OutcomeEvent,
 };
@@ -34,11 +33,11 @@ use std::sync::{
 /// What a provider adds to a request for each tool it offers, beyond the
 /// tool's definition, in bytes: its own tool-use instructions (Anthropic's
 /// are about 300 tokens).
-const TOOL_OVERHEAD_BYTES: usize = 1024;
+pub(crate) const TOOL_OVERHEAD_BYTES: usize = 1024;
 
 /// The voice budget's hook on one request's model calls.
 #[derive(Clone)]
-pub(super) struct Meter {
+pub struct Meter {
     ledger: Arc<Budget>,
     price: ModelCost,
     /// The output ceiling the request was built with.
@@ -49,18 +48,18 @@ pub(super) struct Meter {
     /// Set when a model call was refused for the budget, so the run's error
     /// can be said as the budget's.
     denied: Arc<AtomicBool>,
-    vault: Arc<Vault>,
+    room: Arc<dyn CallRoom>,
     provider: String,
 }
 
 impl Meter {
     /// A meter for a request to `provider`'s model at `price`, built with
     /// `output_limit`, and the flag it raises when the budget refuses a call.
-    pub(super) fn new(
+    pub fn new(
         ledger: Arc<Budget>,
         price: ModelCost,
         output_limit: u64,
-        vault: Arc<Vault>,
+        room: Arc<dyn CallRoom>,
         provider: String,
     ) -> (Self, Arc<AtomicBool>) {
         let denied = Arc::new(AtomicBool::new(false));
@@ -70,7 +69,7 @@ impl Meter {
             output_limit,
             reservations: Arc::default(),
             denied: denied.clone(),
-            vault,
+            room,
             provider,
         };
         (meter, denied)
@@ -80,7 +79,7 @@ impl Meter {
     /// request as it goes out (preamble, history and tool definitions) to an
     /// input token, the provider's own instructions for each tool, and the
     /// whole output ceiling.
-    fn estimate(&self, request: &CompletionRequest) -> f64 {
+    pub fn estimate(&self, request: &CompletionRequest) -> f64 {
         let bytes = serde_json::to_vec(request).map_or(usize::MAX, |bytes| bytes.len());
         let input = bytes
             .saturating_add(request.tools.len().saturating_mul(TOOL_OVERHEAD_BYTES))
@@ -95,7 +94,7 @@ impl AgentHook for Meter {
         let Some(request) = event.completion_request() else {
             return DispatchAction::Proceed;
         };
-        if !self.vault.provider_auth().contains_key(&self.provider) {
+        if !self.room.provider_connected(&self.provider) {
             return DispatchAction::stop("The dispatcher provider has been disconnected.");
         }
         if let Ok(reservation) = self
@@ -114,19 +113,14 @@ impl AgentHook for Meter {
         let Some(reservation) = lock(&self.reservations).remove(&event.id) else {
             return OutcomeAction::Proceed;
         };
-        let tokens = event
+        if let Some(cost) = event
             .completion()
-            .map(|response| Tokens::of(&response.usage));
-        if let Some(tokens) = tokens.filter(|tokens| tokens.reported) {
+            .and_then(|response| self.room.usage_cost(&self.price, &response.usage))
+        {
             // Over the budget, the cost is still written down in full; the
             // next dispatch is the one refused.
-            self.ledger
-                .settle(reservation, cost(&self.price, &tokens))
-                .ok();
+            self.ledger.settle(reservation, cost).ok();
         }
         OutcomeAction::Proceed
     }
 }
-
-#[cfg(test)]
-mod tests;

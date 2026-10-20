@@ -1,15 +1,24 @@
-use super::dispatcher::Context;
-use super::input::validate_audio;
-use super::spoken::{sentences, take_sentences};
-use super::synthesis::{goodbye, own_voice, speech_ready};
-use super::*;
 use crate::contract::VoiceCallMode;
 use crate::log::StreamId;
 use crate::test_support::until;
 use crate::wire::RoomHandle;
 use async_trait::async_trait;
+use hotline_voice::dispatcher::Context;
+use hotline_voice::dispatcher::Dispatcher;
+use hotline_voice::ledger::Kind;
+use hotline_voice::speech::{Clip, SpeechOutput, SpeechSet};
+use hotline_voice::spoken::{sentences, take_sentences};
+use hotline_voice::test_support::validate_audio;
+use hotline_voice::test_support::*;
+use hotline_voice::test_support::{goodbye, own_voice, speech_ready};
+use hotline_voice::*;
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+use tokio::sync::{broadcast, mpsc};
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 pub(crate) struct Fake {
     pub transcript: Mutex<String>,
@@ -285,7 +294,7 @@ async fn direct_call_with(
 /// are this call's.
 fn on_turn(calls: &Calls, id: &str, seq: u32) -> Origin {
     calls
-        .change(id, |call| {
+        .test_change(id, |call| {
             call.seq = Some(seq);
             Ok(())
         })
@@ -361,3 +370,10 @@ mod front_calls;
 mod handoffs;
 mod streaming;
 mod text;
+
+use base64::{Engine, engine::general_purpose::STANDARD};
+use hotline_contract::{VoiceEndReason, VoiceEvent, VoiceInputMode, VoiceModel, VoiceState};
+use hotline_voice::metering::{BUDGET_ERROR, Budget};
+use hotline_voice::speech::SpeechId;
+
+use hotline_voice::settings::VoiceSettings;

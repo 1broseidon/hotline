@@ -2,7 +2,6 @@
 //! on Rig's native provider clients.
 
 pub(crate) mod chatgpt;
-pub(crate) mod compat;
 pub(crate) mod copilot;
 pub(crate) mod custom;
 pub(crate) mod discovery;

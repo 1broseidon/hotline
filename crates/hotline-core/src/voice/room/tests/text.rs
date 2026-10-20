@@ -15,7 +15,7 @@ async fn finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn()
     assert_eq!(call.input, ["text/plain"]);
     assert!(
         calls
-            .change(&id, |c| Ok(c.speech_services.stt.is_none()))
+            .test_change(&id, |c| Ok(c.speech_services.stt.is_none()))
             .unwrap()
     );
     let (_, mut rx) = calls.subscribe(&id).unwrap();
@@ -71,8 +71,7 @@ async fn text_mode_needs_only_output_configuration_and_legacy_audio_stays_unavai
         .unwrap(),
     );
     let calls = desk.parts().voice.unwrap();
-    calls
-        .vault
+    desk.test_vault()
         .create("openai", "Fixture", "unused-test-key")
         .unwrap();
     desk.log
@@ -128,7 +127,7 @@ async fn text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds(
     }
     calls.hold(&id, true).unwrap();
     assert!(calls.text(&id, 1, "Held input.").is_err());
-    assert!(calls.change(&id, |c| Ok(c.seq.is_none())).unwrap());
+    assert!(calls.test_change(&id, |c| Ok(c.seq.is_none())).unwrap());
     calls.end(&id).unwrap();
 }
 
@@ -151,7 +150,7 @@ async fn canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call() {
             calls.interrupt(&id).unwrap();
         }
         tokio::time::timeout(Duration::from_secs(1), async {
-            while calls.change(&id, |c| Ok(c.utterance_pending)).unwrap() {
+            while calls.test_change(&id, |c| Ok(c.utterance_pending)).unwrap() {
                 tokio::task::yield_now().await;
             }
         })
@@ -202,7 +201,7 @@ async fn device_goodbye_needs_no_fabricated_audio_or_dispatcher() {
             .unwrap();
         if direct {
             calls
-                .change(&id, |c| {
+                .test_change(&id, |c| {
                     c.target = Some("fixture-agent".into());
                     Ok(())
                 })

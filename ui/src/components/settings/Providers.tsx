@@ -266,6 +266,9 @@ function ProviderPage({
 	const [busy, setBusy] = useState(false);
 	// A filter is a choice of some models; no filter is every model.
 	const [some, setSome] = useState(enabledModels[providerId] !== undefined);
+	// Whether the switches hold a choice of the person's, saved or made here.
+	// Without one, Chosen starts with every switch off.
+	const [picked, setPicked] = useState(enabledModels[providerId] !== undefined);
 	const [adding, setAdding] = useState(false);
 
 	const applyCatalog = (list: CatalogModel[], preserveSelections = false) => {
@@ -327,7 +330,7 @@ function ProviderPage({
 		if (!id || catalog === null) return;
 		const list = await setManualModels([...new Set([...catalog.filter((model) => model.manual).map((model) => model.id), id])]);
 		setManualId("");
-		setNotice(list.find((model) => model.id === id)?.enabled ? "Model added." : "Model added. Switch it on under Only some to use it.");
+		setNotice(list.find((model) => model.id === id)?.enabled ? "Model added." : "Model added. Switch it on under Chosen to use it.");
 	});
 
 	const removeManualModel = (id: string) => run(async () => {
@@ -346,17 +349,24 @@ function ProviderPage({
 		});
 
 	const choose = (nextSome: boolean) => {
+		const nextOn = nextSome && !picked ? new Set<string>() : on;
 		setSome(nextSome);
-		void write(nextSome, on);
+		setOn(nextOn);
+		if (nextSome) setPicked(true);
+		void write(nextSome, nextOn);
 	};
 
-	const flip = (id: string, value: boolean) => {
+	const flipAll = (ids: string[], value: boolean) => {
 		const next = new Set(on);
-		if (value) next.add(id);
-		else next.delete(id);
+		for (const id of ids) {
+			if (value) next.add(id);
+			else next.delete(id);
+		}
 		setOn(next);
 		void write(true, next);
 	};
+
+	const flip = (id: string, value: boolean) => flipAll([id], value);
 
 	const remove = () =>
 		run(async () => {
@@ -450,23 +460,44 @@ function ProviderPage({
 										value={some ? "some" : "all"}
 										choices={[
 											{ id: "all", name: "All" },
-											{ id: "some", name: "Only some" },
+											{ id: "some", name: "Chosen" },
 										]}
 										label="Which models are in the picker"
 										disabled={busy || catalog === null}
 										onChange={(id) => choose(id === "some")}
 									/>
 								</div>
-								{some && catalog !== null && catalog.length > 6 && (
+								{some && catalog !== null && catalog.length > 0 && (
 									<div className="group-row">
-										<input
-											type="search"
-											className="field flex-1"
-											placeholder="Search models"
-											value={query}
-											onChange={(event) => setQuery(event.target.value)}
-											aria-label="Search models"
-										/>
+										{catalog.length > 6 ? (
+											<input
+												type="search"
+												className="field min-w-0 flex-1"
+												placeholder="Search models"
+												value={query}
+												onChange={(event) => setQuery(event.target.value)}
+												aria-label="Search models"
+											/>
+										) : (
+											<span className="flex-1" />
+										)}
+										{/* On a search these act on the models it shows. */}
+										<button
+											type="button"
+											className="control btn-quiet btn-sm"
+											disabled={busy || visible.every((model) => on.has(model.id))}
+											onClick={() => flipAll(visible.map((model) => model.id), true)}
+										>
+											All on
+										</button>
+										<button
+											type="button"
+											className="control btn-quiet btn-sm"
+											disabled={busy || visible.every((model) => !on.has(model.id))}
+											onClick={() => flipAll(visible.map((model) => model.id), false)}
+										>
+											All off
+										</button>
 									</div>
 								)}
 								{some &&

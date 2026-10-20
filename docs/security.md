@@ -189,7 +189,7 @@ voice turns it off, and a client asks for it per call. The Grok login is
 only ever sent to xAI's voice origin, and GPT Realtime refuses it. GPT-Live
 has no tools at all: its one way to reach the teammate is a client
 delegation, which the core answers as `send_to_teammate`. Its whole reach is two tools enforced in the core
-(`voice/front.rs`): `send_to_teammate` hands words to `Calls::relay`, the same
+(`hotline-voice/src/front.rs`): `send_to_teammate` hands words to `Calls::relay`, the same
 owner-seat, sequence-gated, call-origin path as `voice.text`, so the
 teammate's session keeps its own grants and approval gates; `remain_silent`
 does nothing. No other tool name is honoured, the person's own input is
@@ -209,7 +209,7 @@ headless `tests/voice/direct.rs::device_text_reuses_the_direct_agent_session_and
 `tests/voice/front.rs::a_front_call_relays_to_the_teammate_and_says_its_spoken_line`,
 direct-call and dispatcher-unavailable readiness tests, and the finalized-text
 replay, pending, mode, bounds, budget, STT-accounting, direct origin, live commit,
-cancellation and streaming failure tests in `voice::tests` and
+cancellation and streaming failure tests in `voice::room::tests` and
 `session::tests`. Provider adapter tests use local HTTP/WebSocket fixtures;
 live provider and iPhone compatibility still require device verification.
 
@@ -737,7 +737,7 @@ extend; when a change adds a boundary, it adds a row.
 
 | Must hold | Proof | Needs |
 | --- | --- | --- |
-| Finalized device text uses the existing owner/local desk call authority; companions cannot start, commit or subscribe; duplicate commits and mixed input modes are refused; disconnect cancels further input; direct replies retain the actual agent session and core-assigned call/turn origin, with no new grants or remote STT spend | `wire/tests/owner_handler.rs` `voice_is_owner_only_through_the_real_handler`; `tests/voice/direct.rs` `device_text_reuses_the_direct_agent_session_and_call_origin`; `voice/tests/text.rs` `finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn`, `text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds`, `canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call`; `voice/tests/budgets.rs` `text_input_keeps_budget_gating_before_dispatch` | — |
+| Finalized device text uses the existing owner/local desk call authority; companions cannot start, commit or subscribe; duplicate commits and mixed input modes are refused; disconnect cancels further input; direct replies retain the actual agent session and core-assigned call/turn origin, with no new grants or remote STT spend | `wire/tests/owner_handler.rs` `voice_is_owner_only_through_the_real_handler`; `tests/voice/direct.rs` `device_text_reuses_the_direct_agent_session_and_call_origin`; `voice/room/tests/text.rs` `finalized_text_skips_stt_and_cannot_replay_or_overtake_a_pending_turn`, `text_and_audio_calls_enforce_the_negotiated_mode_and_transcript_bounds`, `canceled_text_is_not_dispatched_and_disconnect_ends_its_bound_call`; `voice/room/tests/budgets.rs` `text_input_keeps_budget_gating_before_dispatch` | — |
 | The desk's speech models are installed only when an owner or the desk asks: a companion can neither list, fetch, cancel, remove nor transcribe; an archive that is not the pinned one is deleted before it is unpacked; only a model's own files are taken, whatever paths and links the archive holds; a cancelled download leaves nothing; an installed model is offered and chosen for hearing, a removed one is not; a damaged model is refused before the engine loads it | `wire/tests/owner_handler.rs` `the_desks_speech_models_are_the_owners_through_the_real_handler`; `tests/local_speech.rs` `a_model_is_downloaded_verified_unpacked_offered_and_removed_only_when_the_owner_asks`; `hotline-voice/src/speech/local/tests.rs` `a_damaged_model_is_refused_before_the_engine_could_throw_on_it`, `a_model_is_installed_only_whole_and_under_its_own_name` | — |
 | Running processes: a command still running when the teammate replies ends the turn at once and outlives it; a later turn is told of it and stops it; one that ends on its own wakes the teammate once, and on a live call the front says that turn's reply; a session stop and a grant change kill it; a fifth command is refused naming the four; a process is never waited on and a stop asked for wakes nobody, taking its whole process group; a call goes listening at the reply and is given no progress line while a process runs | `tests/processes.rs` `running_process_a_server_left_running_ends_the_turn_and_a_later_turn_stops_it`, `running_process_that_ends_on_its_own_wakes_the_teammate_once`, `running_process_dies_with_its_stopped_session`, `running_process_dies_when_its_grant_is_revoked`; `running_process_serve_open_and_stop_end_to_end`; `tests/voice/processes.rs` `running_process_that_ends_during_a_call_is_said_on_the_call`, `running_process_a_server_started_on_a_call_leaves_the_call_listening`; `session/jobs.rs` `running_process_a_fifth_command_is_refused_naming_the_four`, `running_process_is_inspected_and_cancelled_later_but_never_waited_on`, `running_process_that_ends_before_its_route_moves_still_wakes_once`; `tests/processes.rs` `process_chip_a_process_is_on_the_session_until_the_person_stops_it`, `process_chip_stop_is_refused_for_a_teammate_that_does_not_hold_it`, `process_chip_output_is_the_latest_of_what_it_wrote`; `wire/tests/seats.rs` `process_chip_only_the_desk_and_the_owner_reach_a_process` | Unix |
 | ChatGPT and Copilot sign-ins migrate to the vault without signing out; failed writes preserve plaintext; deletion removes chunks; concurrent refresh spends a token once; missing sign-ins never start device flow | `providers/rig_login/tests.rs` `rig_login_a_0_42_copilot_dir_migrates_to_copilot_json_and_stays_signed_in`, `rig_login_a_failed_copilot_write_keeps_the_0_42_files`, `rig_login_a_0_42_chatgpt_auth_json_keeps_its_tokens`, `rig_login_two_clients_refreshing_at_once_spend_the_refresh_token_once`; `providers/rig_login/tests/vault.rs` `rig_vault_plaintext_auth_becomes_a_reference_on_first_read`, `rig_vault_keychain_failure_keeps_plaintext_and_asks_to_unlock`, `rig_vault_delete_removes_every_chunk`, `rig_vault_abandon_removes_copilot_chunks_and_reference`, `rig_vault_0_42_copilot_migrates_straight_into_the_keychain`, `rig_vault_s1_plaintext_copilot_migrates_into_the_keychain`, `rig_vault_failed_legacy_copilot_migration_keeps_both_files`; `tests/rig_upgrade.rs` `rig_upgrade_a_042_profile_keeps_both_signins_and_leaves_no_plaintext_tokens`; `tests/desk/logins.rs` `rig_vault_deleting_a_login_over_the_wire_removes_its_chunks`; `vault.rs` `a_copilot_login_begins_with_no_record`; `driver/rig/tests.rs` `a_chatgpt_turn_without_a_login_refuses_instead_of_starting_one`, `a_copilot_turn_without_a_login_refuses_instead_of_starting_one` | file-permission failure: Unix; native macOS keychain: manual before release |
@@ -1578,13 +1578,13 @@ out-of-call push: a reply too long to say is summarised for its push only when
 a voice handoff asked for it, and a typed prompt's reply is pushed as written.
 A held call sends normal pushes.
 
-Proofs: `voice::tests::voice_schedules_require_a_grant_and_cannot_escape_the_call_scope`,
+Proofs: `voice::room::tests::voice_schedules_require_a_grant_and_cannot_escape_the_call_scope`,
 `a_heard_turn_can_queue_only_three_handoffs_without_waiting_for_startup`,
 `session::tests::voice::a_long_reply_is_summarised_for_its_push_only_when_a_voice_handoff_asked_for_it`,
 `short_voice_handoff_replies_keep_their_text_without_an_extra_model`,
 `wire::tests::voice_is_owner_only_through_the_real_handler`, the voice
 state-machine text/sequence/cancellation/accounting tests,
-`voice::dispatcher::tests`, and the WebSocket scripted client
+`voice::room::dispatcher::tests`, and the WebSocket scripted client
 in `crates/hotline-core/tests/voice.rs`. The speech/ledger tests cover provider
 errors, fallback and persistent budget failures. Live provider latency is a
 separate measurement; fake-provider test timings are not a production guarantee.
@@ -1609,7 +1609,7 @@ thread it came from.
   second post in a turn, and so a second wake; `wake` from the DM itself; any
   argument but `text` and `wake`, so no other teammate's chat can be named;
   and a revoked lease. A voice front's `post_to_chat` is the call's own
-  (`voice/front_tools.rs`), under the teammate's current lease.
+  (`hotline-voice/src/front_tools.rs`), under the teammate's current lease.
 - **Enforcement:** `TeammateTools::call` checks the session's capability
   lease first, as for every tool, and refuses a run `post_to_chat`,
   `send_file` and `generate_image` by name. A job's file

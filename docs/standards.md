@@ -75,19 +75,16 @@ module map itself is [development.md](development.md#layout).
   back. `hotline-core` re-exports its items at `crate::mcp`, where
   `TeammateTools`, the server of a teammate's own tools, stays: it calls
   into the live room, the `mcp`↔`session` cycle below.
-- `hotline-voice` is the voice engines: the `Speech` seam with its
-  providers' adapters, the desk's own models and the choice of which a call
-  uses (`speech`), and the `Realtime` seam with Grok Voice, GPT Realtime and
-  GPT-Live (`realtime`). It stands on `hotline-contract`, `hotline-support`
-  and `hotline-room` (voice's settings, `ProviderAuth`, the TLS default), and
-  never on `hotline-core` or Tauri. It never opens the vault: the core reads
-  what the vault keeps for voice and hands it in as `speech::Connected`,
-  with the Grok and ChatGPT logins' refreshes, which stay with the core's
-  providers, as functions in it. `hotline-core` re-exports the crate at
-  `crate::voice::speech` and `crate::voice::realtime`, where the readers
-  that take the vault stand in for the engines' own, and the calls (the
-  dispatcher, the turns, the front) stay: they report to the live room, the
-  `session`↔`voice` cycle below.
+- `hotline-voice` owns calls and their speech and realtime engines. It stands
+  on `hotline-contract`, `hotline-support`, `hotline-store`, `hotline-room`,
+  `hotline-tools` and `hotline-mcp`, never on `hotline-core` or Tauri. Its
+  single `CallRoom` interface reaches sessions, the vault and real tool
+  handlers through `hotline-core::voice::room`; `voice::connected` still
+  reads the vault into the engines' `Connected`. Temporary interface
+  methods name S5, S6 or task-203, which remove or reshape them. The
+  real-room call tests stay beside that implementation; pure voice tests
+  live with the runtime. `test-support` exposes their bounded setup and
+  inspection, without compiling it into production.
 - A new crate comes from the plan in
   [ADR 0007](adr/0007-split-hotline-core.md): it holds one dependency
   direction, its edges only go down, and nothing but the app and the CLI
@@ -95,8 +92,9 @@ module map itself is [development.md](development.md#layout).
   and a crate doc saying what it owns and what it must never depend on.
 - A module is `pub` only when the app, the CLI, the harnesses, the examples
   or a crate above its own name it. Otherwise it is `pub(crate)`.
-- Do not break the `session`↔`driver`, `session`↔`voice` and `mcp`↔`session`
-  cycles with single-implementation traits. A trait with one implementation
+- Do not break the `session`↔`driver` and `mcp`↔`session`
+  cycles with single-implementation traits. The call-room interface is the
+  explicit exception approved in ADR 0008 §5. A trait with one implementation
   is indirection that buys nothing here.
 
 ## Test layout

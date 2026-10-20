@@ -15,14 +15,14 @@
 
 use super::Calls;
 use super::front_tools::FrontTools;
-use crate::contract::{VoiceEvent, VoiceState};
+use hotline_contract::{VoiceEvent, VoiceState};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 
-pub use super::realtime::SEND_TO_TEAMMATE;
+use super::realtime::SEND_TO_TEAMMATE;
 pub const REMAIN_SILENT: &str = "remain_silent";
 
 /// One function the front may call. `parameters` is its JSON Schema.

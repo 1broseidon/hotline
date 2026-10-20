@@ -520,8 +520,8 @@ async fn a_front_call_relays_to_the_teammate_and_says_its_spoken_line() {
 #[tokio::test]
 async fn a_fronts_minutes_are_counted_by_login_kind() {
     use async_trait::async_trait;
-    use hotline_core::voice::realtime::{Realtime, RealtimeConfig, RealtimeSession};
-    use hotline_core::voice::speech::{SpeechError, SpeechId};
+    use hotline_voice::realtime::{Realtime, RealtimeConfig, RealtimeSession};
+    use hotline_voice::speech::{SpeechError, SpeechId};
 
     struct Front {
         provider: &'static str,
@@ -606,8 +606,8 @@ async fn speak_into(socket: &mut Socket, call: &str, seq: &mut u32, pcm: &[u8]) 
 #[tokio::test]
 #[ignore = "talks to Grok Voice with HOTLINE_LIVE_XAI_KEY"]
 async fn live_a_grok_front_relays_to_the_teammate_and_yields_the_floor() {
-    use hotline_core::voice::realtime::RealtimeSocket;
-    use hotline_core::voice::speech::Endpoint;
+    use hotline_voice::realtime::RealtimeSocket;
+    use hotline_voice::speech::Endpoint;
 
     let key = std::env::var("HOTLINE_LIVE_XAI_KEY").expect("set HOTLINE_LIVE_XAI_KEY");
     let root = tempfile::tempdir().unwrap();

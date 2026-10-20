@@ -15,8 +15,8 @@ use super::realtime::{
 use super::record::Digest;
 use super::settings::FrontProvider;
 use super::*;
-use crate::contract::Persona;
-use crate::log::StreamId;
+use hotline_contract::Persona;
+use hotline_store::log::StreamId;
 
 /// The rate the front hears and speaks at, and the one a call is asked for.
 pub(super) const FRONT_RATE: u32 = 24_000;
@@ -90,7 +90,7 @@ impl Calls {
     pub(crate) fn realtime(&self) -> Option<Arc<dyn Realtime>> {
         match &self.injected {
             Some(services) => services.realtime.clone(),
-            None => speech::resolve_front(&self.vault, &self.settings()),
+            None => speech::resolve_front(&self.room.connected(), &self.settings()),
         }
     }
 
@@ -155,7 +155,7 @@ impl Calls {
             .change(id, |call| Ok(call.target.clone()))
             .ok()
             .flatten()?;
-        crate::room::roster(&self.log)
+        hotline_room::room::roster(&self.log)
             .into_iter()
             .find(|persona| persona.id == target)
     }
@@ -177,13 +177,13 @@ impl Calls {
     }
 
     /// The front calls would open, for `voice.status`.
-    pub(super) fn front_model(&self) -> Option<crate::contract::VoiceFrontModel> {
+    pub(super) fn front_model(&self) -> Option<hotline_contract::VoiceFrontModel> {
         let realtime = self.realtime()?;
         let provider = self
             .settings()
             .front
             .map_or(FrontProvider::Grok, |front| front.provider);
-        Some(crate::contract::VoiceFrontModel {
+        Some(hotline_contract::VoiceFrontModel {
             provider_id: provider.key().into(),
             model_id: realtime.id().model_id,
             voice: self.front_voice(None),
@@ -290,7 +290,7 @@ impl Calls {
     /// answers in writing in the conversation rather than on a call that is
     /// gone, as a typed line would go (its session and open chapter).
     fn follow_up(&self, id: &str, target: &str, words: String, seq: u32) {
-        let Some(room) = self.room.upgrade() else {
+        let Some(room) = self.live_room() else {
             return;
         };
         let origin = Origin {
@@ -303,11 +303,10 @@ impl Calls {
         let target = target.to_string();
         tokio::spawn(async move {
             match tokio::time::timeout(Duration::from_secs(60), room.start(&target)).await {
-                Ok(Ok(_)) => {}
+                Ok(Ok(())) => {}
                 _ => return,
             }
-            let prompt = crate::wire::commands::CALL_ORIGIN
-                .scope(origin, room.prompt(&target, &words, None, None));
+            let prompt = crate::call_room::CALL_ORIGIN.scope(origin, room.prompt(&target, &words));
             if let Err(error) = prompt.await {
                 eprintln!("[voice] the call's last question did not reach the teammate: {error}");
             }
@@ -338,12 +337,14 @@ impl Calls {
         };
         // A call to a teammate holds the teammate's desk-side tools; a desk
         // call speaks for no one teammate and holds none.
-        let desk_tools = match (&persona, self.room.upgrade()) {
+        let desk_tools = match (&persona, self.live_room()) {
             (Some(persona), Some(room)) => {
-                let reach = room.front_reach(persona);
+                let Ok(reach) = room.front_reach(persona) else {
+                    return;
+                };
                 let opened = tokio::select! {
                     () = cancel.cancelled() => return,
-                    opened = FrontTools::open(Arc::downgrade(&room), &id, &persona.id, reach) => opened,
+                    opened = FrontTools::open(self.room.clone(), &id, &persona.id, reach) => opened,
                 };
                 Some(Arc::new(opened))
             }
@@ -570,7 +571,7 @@ impl Calls {
                     call_id,
                     name,
                     arguments,
-                } if name == front::SEND_TO_TEAMMATE
+                } if name == crate::realtime::SEND_TO_TEAMMATE
                     && let Some((preamble, tools)) = bridge.delegation()
                     && let Ok(assistant) = self.dispatcher() =>
                 {
@@ -595,7 +596,7 @@ impl Calls {
                     name,
                     arguments,
                 } => {
-                    if name == front::SEND_TO_TEAMMATE {
+                    if name == crate::realtime::SEND_TO_TEAMMATE {
                         hand_over(
                             &mut bridge,
                             unanswered,
@@ -634,14 +635,10 @@ impl Calls {
         unanswered: Option<&(String, u32)>,
     ) {
         let open = unanswered.map(|(words, _)| words.as_str());
-        let (Some(summary), Some(room)) = (digest.summary(open), self.room.upgrade()) else {
+        let (Some(summary), Some(room)) = (digest.summary(open), self.live_room()) else {
             return;
         };
-        let posted = room.post(
-            persona_id,
-            &crate::contract::ThreadId::call(id),
-            crate::session::Post::words(&summary),
-        );
+        let posted = room.post(persona_id, &hotline_contract::ThreadId::call(id), &summary);
         if let Err(error) = posted {
             eprintln!("[voice] the call's summary could not be posted: {error}");
         }
@@ -694,7 +691,7 @@ async fn hand_over(
     call_id: &str,
     arguments: &str,
 ) {
-    let (output, reply) = bridge.tool_call(front::SEND_TO_TEAMMATE, arguments);
+    let (output, reply) = bridge.tool_call(crate::realtime::SEND_TO_TEAMMATE, arguments);
     if !reply {
         *unanswered = None;
         digest.handed(&handed_words(arguments));
@@ -711,7 +708,7 @@ fn handed_words(arguments: &str) -> String {
 
 /// Whether words left unanswered when a call ended are worth answering in
 /// writing: a question, or a request of a few words, and never a goodbye.
-pub(super) fn worth_following_up(words: &str) -> bool {
+pub fn worth_following_up(words: &str) -> bool {
     let words = words.trim();
     !super::synthesis::goodbye(words)
         && (words.ends_with('?') || words.split_whitespace().count() >= 4)

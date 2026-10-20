@@ -202,7 +202,7 @@ async fn budget_failure_speaks_the_bundled_line_and_stops_without_a_model() {
     spending(&desk, json!({"chat": {"dayUsd": 2}}));
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk).unwrap();
-    calls.ledger.charge(Kind::Dispatcher, 3.0);
+    calls.budget().charge(Kind::Dispatcher, 3.0);
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     utterance(&calls, &id, 1).unwrap();
     event(
@@ -240,7 +240,7 @@ async fn a_failed_voice_uses_one_fallback_and_accounts_for_both_attempts() {
     assert_eq!(calls.start(&id, desk).unwrap().output, "audio/mpeg");
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     calls
-        .say(
+        .test_say(
             &id,
             "Test.",
             &CancellationToken::new(),
@@ -283,7 +283,7 @@ async fn a_fallback_needs_its_own_reservation_and_is_attempted_only_once() {
                 .unwrap();
         }
         let error = calls
-            .synthesize(&CallSpeech::audio(services.speech.clone()), "Test.")
+            .test_synthesize(&CallSpeech::audio(services.speech.clone()), "Test.")
             .await
             .unwrap_err();
         assert_eq!(lock(&primary.spoken).len(), 1);
@@ -319,13 +319,12 @@ async fn idle_replacement_and_disconnect_end_only_the_named_call() {
             ..
         }
     ));
-    lock(&calls.calls)
-        .iter_mut()
-        .find(|c| c.id == second)
-        .unwrap()
-        .activity = Instant::now()
-        .checked_sub(Duration::from_millis(crate::thread::QUIET_MS as u64))
-        .expect("the machine has been up for longer than a call stays quiet");
+    calls.test_activity(
+        &second,
+        Instant::now()
+            .checked_sub(Duration::from_millis(crate::thread::QUIET_MS as u64))
+            .expect("the machine has been up for longer than a call stays quiet"),
+    );
     for (call, quiet) in calls.quiet() {
         if quiet >= crate::thread::QUIET_MS {
             calls.end_quiet(&call);
@@ -426,11 +425,13 @@ async fn a_late_provider_completion_cannot_publish_after_interrupt() {
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk).unwrap();
     let (_, mut events) = calls.subscribe(&id).unwrap();
-    let generation = lock(&calls.calls).back().unwrap().speech.clone();
+    let generation = calls
+        .test_change(&id, |call| Ok(call.speech.clone()))
+        .unwrap();
     calls.interrupt(&id).unwrap();
     // Model the provider returning between the outer cancellation check and
     // publishing its finished clip. The publication boundary must recheck it.
-    calls.clip(
+    calls.test_clip(
         &id,
         "old-sentence",
         0,

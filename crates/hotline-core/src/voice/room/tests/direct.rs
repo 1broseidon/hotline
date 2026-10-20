@@ -182,7 +182,7 @@ async fn each_reply_said_is_counted_by_how_it_was_written() {
         true,
         Some(&origin)
     ));
-    let model = calls.writer(&persona);
+    let model = calls.test_writer(&persona);
     assert!(model.starts_with("hotline"), "{model}");
     let counted = vec![crate::contract::VoiceReplies {
         model,
@@ -193,7 +193,10 @@ async fn each_reply_said_is_counted_by_how_it_was_written() {
         rewritten: 0,
     }];
     assert_eq!(calls.status().replies.as_ref(), Some(&counted));
-    assert_eq!(replies::Replies::open(desk.log.root()).counts(), counted);
+    assert_eq!(
+        hotline_voice::test_support::Replies::open(desk.log.root()).counts(),
+        counted
+    );
     let wire = serde_json::to_value(calls.status()).unwrap();
     assert_eq!(wire["replies"][0]["spokenOnly"], 1);
     calls.end(&id).unwrap();
@@ -235,7 +238,7 @@ async fn a_reply_without_a_spoken_version_is_rewritten_said_and_kept() {
     let (_root, desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     calls
-        .change(&id, |call| {
+        .test_change(&id, |call| {
             call.words = "Why is the test flaky?".into();
             Ok(())
         })
@@ -404,7 +407,7 @@ async fn speaking_over_a_reply_stops_it_and_gives_the_person_the_floor() {
     let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     calls
-        .change(&id, |call| {
+        .test_change(&id, |call| {
             call.answering = Some(1);
             Ok(())
         })
@@ -462,7 +465,7 @@ async fn the_call_thinks_while_the_teammate_works_and_listens_when_its_turn_ends
     let (_root, _desk, calls, id, persona, mut rx, _fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     calls
-        .change(&id, |call| {
+        .test_change(&id, |call| {
             call.answering = Some(1);
             call.state(VoiceState::Thinking, None);
             Ok(())
@@ -488,7 +491,7 @@ async fn the_call_thinks_while_the_teammate_works_and_listens_when_its_turn_ends
         "still working, and taking what the person says"
     );
     calls
-        .change(&id, |call| {
+        .test_change(&id, |call| {
             call.seq = Some(2);
             call.answering = Some(2);
             Ok(())
@@ -497,7 +500,7 @@ async fn the_call_thinks_while_the_teammate_works_and_listens_when_its_turn_ends
     calls.turn_ended(&persona, &origin);
     tokio::time::sleep(Duration::from_millis(30)).await;
     assert_eq!(
-        calls.change(&id, |call| Ok(call.answering)).unwrap(),
+        calls.test_change(&id, |call| Ok(call.answering)).unwrap(),
         Some(2)
     );
     let later = Origin { seq: 2, ..origin };
@@ -525,7 +528,7 @@ async fn the_call_listens_while_the_teammate_works_and_speaking_over_it_cuts_it_
     let (_root, _desk, calls, id, persona, mut rx, fake) = direct_call().await;
     let origin = on_turn(&calls, &id, 1);
     calls
-        .change(&id, |call| {
+        .test_change(&id, |call| {
             call.answering = Some(1);
             call.state(VoiceState::Thinking, None);
             Ok(())
@@ -563,12 +566,14 @@ async fn the_call_listens_while_the_teammate_works_and_speaking_over_it_cuts_it_
         |e| matches!(e, VoiceEvent::Said { text, .. } if text == "Looking at the logs now."),
     )
     .await;
-    let speaking = calls.change(&id, |call| Ok(call.speech.clone())).unwrap();
+    let speaking = calls
+        .test_change(&id, |call| Ok(call.speech.clone()))
+        .unwrap();
     utterance(&calls, &id, 2).unwrap();
     assert!(speaking.is_cancelled(), "what the call was saying stops");
     assert!(
         calls
-            .change(&id, |call| Ok(call.streams.is_empty()))
+            .test_change(&id, |call| Ok(call.streams.is_empty()))
             .unwrap()
     );
     // Taking those words, the desk has the floor.
@@ -588,7 +593,7 @@ async fn the_call_listens_while_the_teammate_works_and_speaking_over_it_cuts_it_
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk).unwrap();
     calls
-        .change(&id, |call| {
+        .test_change(&id, |call| {
             call.answering = Some(1);
             call.state(VoiceState::Thinking, None);
             Ok(())
@@ -650,7 +655,7 @@ async fn a_reply_the_turn_never_finished_is_said_as_far_as_it_got() {
 async fn a_call_that_thinks_says_so_again() {
     let (_root, _desk, calls, id, _persona, mut rx, _fake) = direct_call().await;
     calls
-        .change(&id, |call| {
+        .test_change(&id, |call| {
             call.answering = Some(1);
             call.state(VoiceState::Thinking, None);
             Ok(())
@@ -713,6 +718,6 @@ async fn a_direct_call_pays_for_no_call_assistant() {
     calls
         .start_target(&id, Some(persona), false, desk.clone())
         .unwrap();
-    assert!(calls.ready_for(&id).is_ok());
+    assert!(calls.test_ready_for(&id).is_ok());
     calls.end(&id).unwrap();
 }

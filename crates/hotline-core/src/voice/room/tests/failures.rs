@@ -84,7 +84,7 @@ async fn a_blocked_dispatcher_says_nothing_and_interrupt_preserves_its_text() {
         }
         assert!(
             calls
-                .change(&id, |c| Ok(c.first_clip_started.is_some()))
+                .test_change(&id, |c| Ok(c.first_clip_started.is_some()))
                 .unwrap()
         );
         assert!(lock(&fake.spoken).is_empty());
@@ -188,7 +188,7 @@ async fn a_delivery_never_replaces_the_utterance_cancel_token() {
     let (_root, desk, calls) = desk(with_fake(fake));
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk).unwrap();
-    let original = calls.change(&id, |c| Ok(c.speech.clone())).unwrap();
+    let original = calls.test_change(&id, |c| Ok(c.speech.clone())).unwrap();
     let (_, mut rx) = calls.subscribe(&id).unwrap();
     assert!(calls.delivery("mack", "reply", "Mack", "The tests passed.", false, None));
     event(&mut rx, |e| matches!(e, VoiceEvent::Said { .. })).await;

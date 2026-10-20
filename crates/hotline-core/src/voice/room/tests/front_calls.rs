@@ -18,9 +18,8 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
     let calls = desk.parts().voice.unwrap();
     let persona = mack(&desk).await;
     assert!(!calls.status().direct_available, "nothing is connected");
-    let (login, _dir) = calls.vault.begin_login().unwrap();
-    calls
-        .vault
+    let (login, _dir) = desk.test_vault().begin_login().unwrap();
+    desk.test_vault()
         .finish_login(&login, realtime::live::PROVIDER_ID, "ChatGPT")
         .unwrap();
     assert!(
@@ -62,7 +61,7 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
     assert!(call.front.is_some(), "{call:?}");
     assert!(
         calls
-            .change(&id, |c| Ok(c.speech_services.front_only))
+            .test_change(&id, |c| Ok(c.speech_services.front_only))
             .unwrap()
     );
     assert!(
@@ -81,10 +80,10 @@ async fn a_front_takes_calls_on_a_desk_with_no_pipeline_speech() {
             .unwrap_err()
             .contains("cannot change")
     );
-    calls.lose_front(&id);
+    calls.test_lose_front(&id);
     assert!(
         calls
-            .change(&id, |c| Ok(c.state))
+            .test_change(&id, |c| Ok(c.state))
             .unwrap_err()
             .contains("ended"),
         "no pipeline to fall back on"

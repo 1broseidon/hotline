@@ -7,7 +7,7 @@
 //! lines of the DM, never tool output, code or credentials.
 
 use super::front::Tool;
-use crate::driver::failure::redact_text;
+use hotline_room::secret::redact_text;
 use std::fmt::Write;
 
 const NAME_CHARS: usize = 60;

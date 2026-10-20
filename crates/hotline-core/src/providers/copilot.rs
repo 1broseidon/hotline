@@ -251,56 +251,55 @@ pub(crate) async fn model(
     };
     let transport = super::outgoing::Outgoing::signed(
         super::rig_login::copilot(token_dir),
-        flatten_assistant_text,
+        if responses {
+            drop_unique_items
+        } else {
+            std::convert::identity
+        },
     )?;
+    // Copilot's chat route ends an empty reply without a finish reason.
+    let transport = if responses {
+        transport
+    } else {
+        transport.mending_streams(super::outgoing::done_is_stop)
+    };
     Ok(config.connect(transport).completion(model).erase())
 }
 
-/// The body with each assistant `content` list of bare text parts joined
-/// into one string. Anything that is not a chat request, not text, or text
-/// with more on it than its words, passes as it came; fields beside
-/// `content` on the message are never touched.
+/// The body with `uniqueItems` gone from every tool's parameters.
 ///
-/// Copilot's `/chat/completions` hands Claude only the string form. An
-/// assistant message whose `content` is a list reaches the model with its
-/// text gone, and the request still succeeds, so a teammate never saw a word
-/// it had said before, only its tool calls, and answered every new message
-/// by producing again what it believed it had never sent.
-pub(crate) fn flatten_assistant_text(body: Bytes) -> Bytes {
+/// Copilot's `/responses` holds each tool's schema to OpenAI's strict subset
+/// whether or not the tool asked for strict mode, and answers a schema with
+/// `uniqueItems` in it with a 400, so every turn of a GPT model there failed
+/// before it began. A list a tool asks to keep unique still reaches the tool,
+/// which reads it as a set.
+pub(crate) fn drop_unique_items(body: Bytes) -> Bytes {
+    fn drop_in(schema: &mut serde_json::Value) -> bool {
+        match schema {
+            serde_json::Value::Object(fields) => {
+                let dropped = fields.remove("uniqueItems").is_some();
+                fields
+                    .values_mut()
+                    .fold(dropped, |dropped, value| drop_in(value) | dropped)
+            }
+            serde_json::Value::Array(values) => values
+                .iter_mut()
+                .fold(false, |dropped, value| drop_in(value) | dropped),
+            _ => false,
+        }
+    }
     let Ok(mut request) = serde_json::from_slice::<serde_json::Value>(&body) else {
         return body;
     };
-    let Some(messages) = request
-        .get_mut("messages")
+    let Some(tools) = request
+        .get_mut("tools")
         .and_then(serde_json::Value::as_array_mut)
     else {
         return body;
     };
-    let mut changed = false;
-    for message in messages {
-        if message.get("role").and_then(serde_json::Value::as_str) != Some("assistant") {
-            continue;
-        }
-        let Some(parts) = message.get("content").and_then(serde_json::Value::as_array) else {
-            continue;
-        };
-        let texts: Option<Vec<&str>> = parts
-            .iter()
-            .map(|part| {
-                // A part carrying anything besides its text would lose it in
-                // the join, so its message is left as it came.
-                let fields = part.as_object()?;
-                let bare = fields.len() == 2
-                    && fields.get("type").and_then(serde_json::Value::as_str) == Some("text");
-                bare.then(|| fields.get("text").and_then(serde_json::Value::as_str))
-                    .flatten()
-            })
-            .collect();
-        if let Some(texts) = texts.filter(|texts| !texts.is_empty()) {
-            message["content"] = serde_json::Value::String(texts.join("\n\n"));
-            changed = true;
-        }
-    }
+    let changed = tools.iter_mut().fold(false, |changed, tool| {
+        tool.get_mut("parameters").is_some_and(drop_in) | changed
+    });
     if !changed {
         return body;
     }
@@ -534,53 +533,47 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// What Copilot's chat route hands Claude: a string, or nothing. Text
-    /// lists become strings; tool calls, user content and anything that is
-    /// not all text are left alone.
     #[test]
-    fn assistant_text_goes_as_a_string_and_nothing_else_moves() {
+    fn a_responses_body_reaches_copilot_without_unique_items() {
+        let without = json!({"type": "array", "items": {"type": "string", "enum": ["computer"]}});
+        let mut unique = without.clone();
+        unique["uniqueItems"] = json!(true);
         let body = json!({
-            "model": "claude-opus-5.5",
-            "messages": [
-                {"role": "system", "content": [{"type": "text", "text": "you are Ada"}]},
-                {"role": "user", "content": [{"type": "text", "text": "run the standup"}]},
-                {"role": "assistant",
-                 "content": [{"type": "text", "text": "On it."}, {"type": "text", "text": "Checking."}],
-                 "tool_calls": [{"id": "1", "type": "function", "function": {"name": "ls", "arguments": "{}"}}]},
-                {"role": "tool", "tool_call_id": "1", "content": "(empty)"},
-                {"role": "assistant", "content": [{"type": "text", "text": "Today — Mon 5 Oct"}]},
-                {"role": "assistant", "content": [{"type": "refusal", "refusal": "no"}]},
-                {"role": "assistant", "content": "already a string"},
-                {"role": "assistant", "content": [{"type": "text", "text": "Thought it over."}],
-                 "reasoning_text": "plan", "reasoning_opaque": "c2lnbmVk", "custom": {"kept": true}},
-                {"role": "assistant",
-                 "content": [{"type": "text", "text": "Mixed"}, {"type": "refusal", "refusal": "no"}]},
-                {"role": "assistant", "content": []},
-                {"role": "assistant",
-                 "content": [{"type": "text", "text": "Cited", "annotations": [{"url": "x"}]}]}
+            "model": "gpt-5.3-codex",
+            "input": [{"role": "user", "content": "uniqueItems stays in what was said"}],
+            "tools": [
+                {"type": "function", "name": "schedule", "strict": false, "parameters": {
+                    "type": "object",
+                    "properties": {"when": {"type": "string"}, "without": unique},
+                    "anyOf": [{"properties": {"tags": unique}}]
+                }},
+                {"type": "web_search"}
             ]
         });
-        let out: serde_json::Value = serde_json::from_slice(&flatten_assistant_text(Bytes::from(
+        let out: serde_json::Value = serde_json::from_slice(&drop_unique_items(Bytes::from(
             serde_json::to_vec(&body).unwrap(),
         )))
         .unwrap();
-        let messages = out["messages"].as_array().unwrap();
-        assert_eq!(messages[0], body["messages"][0]);
-        assert_eq!(messages[1], body["messages"][1]);
-        assert_eq!(messages[2]["content"], "On it.\n\nChecking.");
-        assert_eq!(messages[2]["tool_calls"], body["messages"][2]["tool_calls"]);
-        assert_eq!(messages[3], body["messages"][3]);
-        assert_eq!(messages[4]["content"], "Today — Mon 5 Oct");
-        assert_eq!(messages[5], body["messages"][5]);
-        assert_eq!(messages[6], body["messages"][6]);
-        assert_eq!(messages[7]["content"], "Thought it over.");
-        for field in ["reasoning_text", "reasoning_opaque", "custom"] {
-            assert_eq!(messages[7][field], body["messages"][7][field]);
-        }
-        assert_eq!(messages[8], body["messages"][8]);
-        assert_eq!(messages[9], body["messages"][9]);
-        assert_eq!(messages[10], body["messages"][10]);
+        let schedule = &out["tools"][0];
+        assert_eq!(schedule["parameters"]["properties"]["without"], without);
+        assert_eq!(
+            schedule["parameters"]["anyOf"][0]["properties"]["tags"],
+            without
+        );
+        assert_eq!(schedule["strict"], false);
+        assert_eq!(out["tools"][1], body["tools"][1]);
+        assert_eq!(out["input"], body["input"]);
+
+        let plain = Bytes::from(
+            serde_json::to_vec(&json!({"tools": [{"type": "function", "parameters": without}]}))
+                .unwrap(),
+        );
+        assert_eq!(
+            drop_unique_items(plain.clone()),
+            plain,
+            "an untouched body passes as it came"
+        );
         let other = Bytes::from_static(b"not json");
-        assert_eq!(flatten_assistant_text(other.clone()), other);
+        assert_eq!(drop_unique_items(other.clone()), other);
     }
 }

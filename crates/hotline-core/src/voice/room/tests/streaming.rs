@@ -63,7 +63,7 @@ async fn direct_call_filters_unrelated_future_and_duplicate_replies() {
     let id = Uuid::new_v4().to_string();
     calls.start(&id, desk).unwrap();
     calls
-        .change(&id, |call| {
+        .test_change(&id, |call| {
             call.target = Some("ada".into());
             call.seq = Some(4);
             Ok(())
@@ -210,7 +210,7 @@ async fn streaming_failure_falls_back_only_before_audio_and_drops_rejected_produ
         let (_, mut rx) = calls.subscribe(&id).unwrap();
         let result = tokio::time::timeout(
             Duration::from_secs(2),
-            calls.say(
+            calls.test_say(
                 &id,
                 "A short reply.",
                 &CancellationToken::new(),

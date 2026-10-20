@@ -19,7 +19,33 @@ parentId: epic-22
 createdAt: "2026-10-20T06:51:44.693Z"
 dependsOn:
   - task-231
-updatedAt: "2026-10-20T12:03:22.450Z"
+updatedAt: "2026-10-20T12:03:22.704Z"
+contract:
+  status: ready
+  deliverables:
+    - type: file
+      path: crates/hotline-core/src/providers/rig_login.rs
+      description: LoginDirStore backed by CredentialFile (keychain)
+    - type: test
+      path: crates/hotline-core
+      description: rig_vault_* tests on MemoryStore
+    - type: docs
+      path: docs/security.md
+      description: ChatGPT and Copilot tokens in the vault
+  validation:
+    commands:
+      - make check
+      - make precheck
+      - git diff --exit-code HEAD -- ui/src/generated/contract.ts
+      - git diff --exit-code $(git merge-base HEAD origin/release/0.42.0) HEAD -- ui/src/generated/contract.ts
+      - test "$(cargo test --workspace -- --list 2>/dev/null | grep -c 'rig_vault_')" -ge 4
+      - test "$(cargo test --workspace -- --list 2>/dev/null | grep -c 'rig_pin_')" -ge 6
+  constraints:
+    - "No wire type changes: ui/src/generated/contract.ts byte-identical to the base"
+    - A keychain failure never deletes or overwrites the plaintext credential
+    - Do not edit docs/plans/rig-0.45-migration.md
+  metrics:
+    readyAt: "2026-10-20T12:03:22.704Z"
 ---
 
 ## Description

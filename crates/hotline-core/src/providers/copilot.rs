@@ -251,7 +251,11 @@ pub(crate) async fn model(
     };
     let transport = super::outgoing::Outgoing::signed(
         super::rig_login::copilot(token_dir),
-        flatten_assistant_text,
+        if responses {
+            drop_unique_items
+        } else {
+            flatten_assistant_text
+        },
     )?;
     // Copilot's chat route ends an empty reply without a finish reason.
     let transport = if responses {
@@ -307,6 +311,46 @@ pub(crate) fn flatten_assistant_text(body: Bytes) -> Bytes {
             changed = true;
         }
     }
+    if !changed {
+        return body;
+    }
+    serde_json::to_vec(&request).map_or(body, Bytes::from)
+}
+
+/// The body with `uniqueItems` gone from every tool's parameters.
+///
+/// Copilot's `/responses` holds each tool's schema to OpenAI's strict subset
+/// whether or not the tool asked for strict mode, and answers a schema with
+/// `uniqueItems` in it with a 400, so every turn of a GPT model there failed
+/// before it began. A list a tool asks to keep unique still reaches the tool,
+/// which reads it as a set.
+pub(crate) fn drop_unique_items(body: Bytes) -> Bytes {
+    fn drop_in(schema: &mut serde_json::Value) -> bool {
+        match schema {
+            serde_json::Value::Object(fields) => {
+                let dropped = fields.remove("uniqueItems").is_some();
+                fields
+                    .values_mut()
+                    .fold(dropped, |dropped, value| drop_in(value) | dropped)
+            }
+            serde_json::Value::Array(values) => values
+                .iter_mut()
+                .fold(false, |dropped, value| drop_in(value) | dropped),
+            _ => false,
+        }
+    }
+    let Ok(mut request) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return body;
+    };
+    let Some(tools) = request
+        .get_mut("tools")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return body;
+    };
+    let changed = tools.iter_mut().fold(false, |changed, tool| {
+        tool.get_mut("parameters").is_some_and(drop_in) | changed
+    });
     if !changed {
         return body;
     }
@@ -588,5 +632,49 @@ pub(crate) mod tests {
         assert_eq!(messages[10], body["messages"][10]);
         let other = Bytes::from_static(b"not json");
         assert_eq!(flatten_assistant_text(other.clone()), other);
+    }
+
+    #[test]
+    fn a_responses_body_reaches_copilot_without_unique_items() {
+        let without = json!({"type": "array", "items": {"type": "string", "enum": ["computer"]}});
+        let mut unique = without.clone();
+        unique["uniqueItems"] = json!(true);
+        let body = json!({
+            "model": "gpt-5.3-codex",
+            "input": [{"role": "user", "content": "uniqueItems stays in what was said"}],
+            "tools": [
+                {"type": "function", "name": "schedule", "strict": false, "parameters": {
+                    "type": "object",
+                    "properties": {"when": {"type": "string"}, "without": unique},
+                    "anyOf": [{"properties": {"tags": unique}}]
+                }},
+                {"type": "web_search"}
+            ]
+        });
+        let out: serde_json::Value = serde_json::from_slice(&drop_unique_items(Bytes::from(
+            serde_json::to_vec(&body).unwrap(),
+        )))
+        .unwrap();
+        let schedule = &out["tools"][0];
+        assert_eq!(schedule["parameters"]["properties"]["without"], without);
+        assert_eq!(
+            schedule["parameters"]["anyOf"][0]["properties"]["tags"],
+            without
+        );
+        assert_eq!(schedule["strict"], false);
+        assert_eq!(out["tools"][1], body["tools"][1]);
+        assert_eq!(out["input"], body["input"]);
+
+        let plain = Bytes::from(
+            serde_json::to_vec(&json!({"tools": [{"type": "function", "parameters": without}]}))
+                .unwrap(),
+        );
+        assert_eq!(
+            drop_unique_items(plain.clone()),
+            plain,
+            "an untouched body passes as it came"
+        );
+        let other = Bytes::from_static(b"not json");
+        assert_eq!(drop_unique_items(other.clone()), other);
     }
 }

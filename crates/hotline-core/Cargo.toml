@@ -9,6 +9,9 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+test-support = []
+
 [dependencies]
 hotline-contract = { path = "../hotline-contract" }
 hotline-support = { path = "../hotline-support" }
@@ -101,6 +104,8 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 # `test-util`: a test whose time the code controls runs on a paused clock, so
 # waiting out a 30 s token lifetime or a 10 s deadline costs nothing.
 [dev-dependencies]
+# Fixed provider origins become local stubs only in harness builds.
+hotline-core = { path = ".", features = ["test-support"] }
 # `test-utils`: the turn loop's tests run on Rig's scripted completion wire.
 rig = { workspace = true, features = ["test-utils"] }
 tokio = { workspace = true, features = ["test-util"] }

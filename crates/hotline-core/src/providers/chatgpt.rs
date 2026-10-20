@@ -119,13 +119,18 @@ pub(crate) fn model(
         super::rig_login::Login::ChatGpt(super::rig_login::chatgpt(token_dir)),
         std::convert::identity,
     )?;
-    Ok(
-        rig::providers::openai::OpenAIConfig::with_key(&rig::providers::chatgpt::DIALECT, "")
-            .with_auth(rig::providers::openai::wire::Auth::OptionalBearer)
-            .connect(transport)
-            .completion(model)
-            .erase(),
-    )
+    let config =
+        rig::providers::openai::OpenAIConfig::with_key(&rig::providers::chatgpt::DIALECT, "");
+    #[cfg(feature = "test-support")]
+    let config = match crate::provider_fixture::origin(&token_dir.to_string_lossy()) {
+        Some(origin) => config.with_base_url(origin),
+        None => config,
+    };
+    Ok(config
+        .with_auth(rig::providers::openai::wire::Auth::OptionalBearer)
+        .connect(transport)
+        .completion(model)
+        .erase())
 }
 
 /// The login's live token, refreshed first when it has expired. With no

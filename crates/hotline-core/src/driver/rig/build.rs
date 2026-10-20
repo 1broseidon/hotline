@@ -293,7 +293,13 @@ pub(super) async fn completion_model(
             return Err(format!("{provider} needs a key, not a sign-in."));
         }
         (Client::Anthropic, ProviderAuth::ApiKey(key)) => {
-            anthropic_model(&anthropic::Anthropic::new(key.as_str()), model, reuse).erase()
+            let config = anthropic::AnthropicConfig::new(key.as_str());
+            #[cfg(feature = "test-support")]
+            let config = match crate::provider_fixture::origin(key) {
+                Some(origin) => config.with_base_url(origin),
+                None => config,
+            };
+            anthropic_model(&config.client(), model, reuse).erase()
         }
         (Client::OpenAi, ProviderAuth::ApiKey(key)) => {
             OpenAI::new(key.as_str()).completion(model).erase()

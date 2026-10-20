@@ -27,8 +27,9 @@
 //! - **It ends** when the person cancels it (its final post is where it
 //!   stood) or it meets its goal and ends itself with `cancel_schedule` and a
 //!   report (its final post is that report). A one-shot, or a loop whose
-//!   count or date runs out, ends after its last firing. Its thread stays to
-//!   read.
+//!   count or date runs out, ends after its last firing, which is told it is
+//!   the last; a loop's last words are then its final post, whatever its
+//!   report policy. Its thread stays to read.
 //! - **The person can talk to it.** A line said in the thread is a turn like
 //!   a firing's, on the same agent, and what the job says back shapes the
 //!   note its next firing starts from.
@@ -149,12 +150,15 @@ pub(super) struct JobLine {
     line: Line,
     /// The firing this line is, when it is one rather than the person's.
     firing: Option<ScheduledRun>,
+    /// This firing is the job's last: it ends after it.
+    last: bool,
 }
 
 /// What a job's turn keeps from its door to its end.
 pub(super) struct JobTurn {
     line: Option<Line>,
     firing: Option<ScheduledRun>,
+    last: bool,
     /// The job as its posts are stamped.
     run: ScheduledRun,
 }
@@ -251,6 +255,32 @@ impl LiveJob {
             room.mark_job(self, ThreadState::Live, None);
         }
     }
+
+    /// Posts `text` to the chat as the job's, or says on the thread why it
+    /// could not be.
+    fn post_as_job(&self, room: &Room, run: &ScheduledRun, text: &str) {
+        let posted = room.post(
+            &self.persona_id,
+            &self.thread(),
+            Post {
+                scheduled: Some(run.clone()),
+                ..Post::words(&crate::driver::clip(text, POST_CHARS))
+            },
+        );
+        if let Err(error) = posted {
+            self.notice(room, NoticeLevel::Warn, error);
+        }
+    }
+
+    /// What a loop that ran out of its count or date says came of it: its
+    /// last turn's words, or where it stood when that turn was stopped.
+    fn final_word(&self, room: &Room, driven: &Driven, halted: bool) -> Option<String> {
+        if !halted && let Some(report) = report_of(driven) {
+            return Some(report);
+        }
+        last_note(&room.log.load(&StreamId::Job(self.job_id.clone())))
+            .map(|note| format!("Done. Where it stood: {note}"))
+    }
 }
 
 impl Occupant for LiveJob {
@@ -327,6 +357,7 @@ impl Occupant for LiveJob {
         Begin::Go(JobTurn {
             line: Some(line.line),
             firing: line.firing,
+            last: line.last,
             run: run_of(&job),
         })
     }
@@ -369,43 +400,52 @@ impl Occupant for LiveJob {
             room.threads()
                 .expire_asked(&Occupant::thread(&**self), &self.persona_id);
         }
+        let done = self.done.load(Ordering::SeqCst);
+        // The job ran out of its count or date with this turn, or while it
+        // ran; a firing still waiting is its last, and ends it instead.
+        let ended = held.last
+            || room::all_jobs(&room.log)
+                .into_iter()
+                .find(|job| job.id == self.job_id)
+                .is_none_or(|job| job.ended_at.is_some());
+        let firing_waits = lock(&self.turns)
+            .waiting
+            .iter()
+            .any(|line| line.firing.is_some());
+        let ran_out = !done && ended && !firing_waits;
+        // A loop that ran out says what came of it, as an end the person or
+        // the job made does; a one-shot's one report is its end.
+        let closing = ran_out && held.run.kind == ScheduleKind::Loop;
         let halted = self.halted.swap(false, Ordering::SeqCst);
         if halted {
-            self.notice(
-                room,
-                NoticeLevel::Info,
-                "Stopped. The job keeps its schedule and runs again at its next time.".to_string(),
-            );
+            let said = if ran_out {
+                "Stopped. That was the job's last run, so it has ended."
+            } else {
+                "Stopped. The job keeps its schedule and runs again at its next time."
+            };
+            self.notice(room, NoticeLevel::Info, said.to_string());
         }
-        let done = self.done.load(Ordering::SeqCst);
         if let Some(firing) = &held.firing
             && !done
             && !halted
+            && !closing
             && !driven.posted
             && firing.quiet != Some(true)
             && let Some(report) = report_of(&driven)
         {
-            let posted = room.post(
-                &self.persona_id,
-                &Occupant::thread(&**self),
-                Post {
-                    scheduled: Some(firing.clone()),
-                    ..Post::words(&crate::driver::clip(&report, POST_CHARS))
-                },
-            );
-            if let Err(error) = posted {
-                self.notice(room, NoticeLevel::Warn, error);
-            }
+            self.post_as_job(room, firing, &report);
         }
-        let ended = room::all_jobs(&room.log)
-            .into_iter()
-            .find(|job| job.id == self.job_id)
-            .is_none_or(|job| job.ended_at.is_some());
-        if done || ended {
+        if done || ran_out {
             // Its last firing is over, or it ended itself: nothing more is
             // taken, and the thread is kept to read.
+            let final_word = closing
+                .then(|| self.final_word(room, &driven, halted))
+                .flatten();
+            if let Some(final_word) = &final_word {
+                self.post_as_job(room, &held.run, final_word);
+            }
             lock(&self.turns).clear();
-            room.close_job(self, End::Done);
+            room.close_job(self, End::Done, final_word);
             return Then::Stop;
         }
         if held.firing.is_some() {
@@ -529,9 +569,16 @@ fn clock(ts: i64) -> String {
 }
 
 /// What the job's agent hears when it fires: what woke it and the task, the
-/// goal it ends on, and where it stood. A quiet firing says `quiet` and asks
-/// nothing of it: the preamble says what that means.
-fn firing_text(job: &ScheduledJob, run: &ScheduledRun, standing: Option<String>) -> String {
+/// goal it ends on, whether this is its last firing, and where it stood. A
+/// quiet firing says `quiet` and asks nothing of it: the preamble says what
+/// that means. The last firing is not asked to end the job, which ends after
+/// it anyway; a loop's last is told its words are the job's final post.
+fn firing_text(
+    job: &ScheduledJob,
+    run: &ScheduledRun,
+    last: bool,
+    standing: Option<String>,
+) -> String {
     let waking = match run.kind {
         ScheduleKind::Loop => "loop",
         ScheduleKind::Schedule => "scheduled",
@@ -542,10 +589,16 @@ fn firing_text(job: &ScheduledJob, run: &ScheduledRun, standing: Option<String>)
         format!("{waking} · {}", job.prompt)
     };
     if let Some(goal) = &job.goal {
-        let _ = write!(
-            text,
-            "\n\nThe job's goal: {goal}. Once it is met, end the job with `cancel_schedule` and a `report`."
-        );
+        let _ = write!(text, "\n\nThe job's goal: {goal}.");
+        if !last {
+            text.push_str(" Once it is met, end the job with `cancel_schedule` and a `report`.");
+        }
+    }
+    if last {
+        text.push_str(match run.kind {
+            ScheduleKind::Loop => "\n\nThis is the job's last run: it ends after this turn, so do not end it with `cancel_schedule`. End your turn with what came of the job across its runs: your last words are posted to the person as its final post, so do not post them with `post_to_chat` as well.",
+            ScheduleKind::Schedule => "\n\nThis is the job's only run: it ends after this turn, so do not end it with `cancel_schedule`.",
+        });
     }
     if let Some(standing) = standing {
         text.push_str("\n\n");
@@ -562,13 +615,28 @@ fn suggested_every(took: i64, every: i64) -> i64 {
     (minutes * 60_000).clamp(MIN_LOOP, MAX_SUGGESTED)
 }
 
-/// A span as a person says it: `90s`, `45m`, `2h`, `1h 30m`.
+/// What a job's thread says of a firing it skipped at `at`: how long the one
+/// before had been running, or that it was still waiting its turn, and the
+/// interval that `fits`.
+fn skipped_text(at: &str, took: Option<i64>, fits: &str) -> String {
+    let before = match took {
+        Some(took) => format!("was still going after {}", spoken(took)),
+        None => "was still waiting its turn".to_string(),
+    };
+    format!(
+        "Skipped the {at} run: the one before it {before}. Every {fits} would fit the time this takes."
+    )
+}
+
+/// A span as a person says it: `45s`, `45m`, `2h`, `1h 30m`. It says what has
+/// passed, so a part that has not passed in whole is left out: a minute and a
+/// second is `1m`.
 fn spoken(ms: i64) -> String {
-    let seconds = (ms + 999) / 1_000;
+    let seconds = ms / 1_000;
     if seconds < 60 {
         return format!("{seconds}s");
     }
-    let minutes = (seconds + 59) / 60;
+    let minutes = seconds / 60;
     if minutes < 60 {
         return format!("{minutes}m");
     }
@@ -660,6 +728,7 @@ impl Room {
             return Ok(());
         }
         let standing = standing(&self.log.load(&StreamId::Job(job.id.clone())));
+        let last = schedule::fires_last(job, now);
         live.say(
             self,
             &TranscriptEvent::User {
@@ -679,13 +748,14 @@ impl Room {
             &live,
             JobLine {
                 line: Line {
-                    text: timed(now, &firing_text(job, &run, standing)),
+                    text: timed(now, &firing_text(job, &run, last, standing)),
                     attachments: Vec::new(),
                     handoff: None,
                     from: None,
                     delivery: None,
                 },
                 firing: Some(run),
+                last,
             },
         )
     }
@@ -701,16 +771,11 @@ impl Room {
         took: Option<i64>,
     ) {
         let every = job.every.unwrap_or(MIN_LOOP);
-        let took = took.unwrap_or(every);
-        let fits = spoken(suggested_every(took, every));
+        let fits = spoken(suggested_every(took.unwrap_or(every), every));
         live.notice(
             self,
             NoticeLevel::Warn,
-            format!(
-                "Skipped the {} run: the one before it was still going after {}. Every {fits} would fit the time this takes.",
-                clock(now_ms()),
-                spoken(took)
-            ),
+            skipped_text(&clock(now_ms()), took, &fits),
         );
         let tell = {
             let mut overruns = lock(&live.overruns);
@@ -816,6 +881,7 @@ impl Room {
                     delivery: None,
                 },
                 firing: None,
+                last: false,
             },
         )
     }
@@ -891,6 +957,7 @@ impl Room {
                     delivery: Some(id.to_string()),
                 },
                 firing: None,
+                last: false,
             },
         )
     }
@@ -1094,15 +1161,16 @@ impl Room {
     }
 
     /// A job whose last firing is over, or which ended itself, lets go of its
-    /// agent and closes its thread, unless the end already closed it.
-    fn close_job(&self, live: &LiveJob, end: End) {
+    /// agent and closes its thread with what came of it, unless the end
+    /// already closed it.
+    fn close_job(&self, live: &LiveJob, end: End, outcome: Option<String>) {
         live.let_go(self);
         lock(&self.job_threads).remove(&live.job_id);
         let closed = self
             .link_of(&live.thread())
             .is_some_and(|link| matches!(link.state, ThreadState::Closed(_)));
         if !closed {
-            self.mark_job(live, ThreadState::Closed(end), None);
+            self.mark_job(live, ThreadState::Closed(end), outcome);
         }
     }
 
@@ -1279,6 +1347,27 @@ mod tests {
     }
 
     #[test]
+    fn a_skip_says_how_long_the_firing_before_has_run() {
+        // A one-minute loop whose firing began a minute and a half second ago.
+        let said = skipped_text(
+            "Tue 01:13",
+            Some(60_500),
+            &spoken(suggested_every(60_500, 60_000)),
+        );
+        assert_eq!(
+            said,
+            "Skipped the Tue 01:13 run: the one before it was still going after 1m. Every 2m would fit the time this takes."
+        );
+        assert_eq!(spoken(119_999), "1m");
+        assert_eq!(spoken(59_999), "59s");
+        let waiting = skipped_text("Tue 01:13", None, "2m");
+        assert!(
+            waiting.contains("the one before it was still waiting its turn."),
+            "{waiting}"
+        );
+    }
+
+    #[test]
     fn a_quiet_firing_says_quiet_and_names_its_goal() {
         let job = ScheduledJob {
             id: "j".to_string(),
@@ -1299,9 +1388,25 @@ mod tests {
             last_post: None,
             ended_at: None,
         };
-        let text = firing_text(&job, &run_of(&job), Some("Where it stood".to_string()));
+        let text = firing_text(
+            &job,
+            &run_of(&job),
+            false,
+            Some("Where it stood".to_string()),
+        );
         assert!(text.starts_with("quiet loop · watch CI"), "{text}");
         assert!(text.contains("The job's goal: CI is green."), "{text}");
         assert!(text.ends_with("Where it stood"), "{text}");
+        assert!(!text.contains("last run"), "{text}");
+
+        let last = firing_text(&job, &run_of(&job), true, None);
+        assert!(
+            last.contains("The job's goal: CI is green.\n\nThis is the job's last run"),
+            "the last firing is not asked to end the job: {last}"
+        );
+        assert!(
+            last.contains("do not end it with `cancel_schedule`"),
+            "{last}"
+        );
     }
 }

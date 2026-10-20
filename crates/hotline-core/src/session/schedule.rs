@@ -461,19 +461,26 @@ fn finish(room: &Room, job_id: &str) {
         return;
     };
     let now = now_ms();
-    match next.kind {
-        ScheduleKind::Loop => {
-            next.next_at = now.saturating_add(next.every.unwrap_or(MIN_LOOP));
-            next.times = next.times.map(|times| times.saturating_sub(1));
-            let counted_out = next.times == Some(0);
-            let past_its_end = next.until.is_some_and(|until| next.next_at > until);
-            if counted_out || past_its_end {
-                next.ended_at = Some(now);
-            }
-        }
-        ScheduleKind::Schedule => next.ended_at = Some(now),
+    if fires_last(&next, now) {
+        next.ended_at = Some(now);
+    }
+    if next.kind == ScheduleKind::Loop {
+        next.next_at = now.saturating_add(next.every.unwrap_or(MIN_LOOP));
+        next.times = next.times.map(|times| times.saturating_sub(1));
     }
     write_or_log(room::append_schedule(&room.log, &next));
+}
+
+/// Whether the job firing at `now` ends after this firing: a one-shot, or a
+/// loop on its last count or whose next firing would fall after its end.
+pub(super) fn fires_last(job: &ScheduledJob, now: i64) -> bool {
+    match job.kind {
+        ScheduleKind::Schedule => true,
+        ScheduleKind::Loop => {
+            let next_at = now.saturating_add(job.every.unwrap_or(MIN_LOOP));
+            matches!(job.times, Some(0 | 1)) || job.until.is_some_and(|until| next_at > until)
+        }
+    }
 }
 
 impl Room {
